@@ -50,6 +50,8 @@ export const tickets = sqliteTable('tickets', {
   totalBeads: integer('total_beads'),
   percentComplete: real('percent_complete'),
   errorMessage: text('error_message'),
+  lockedMainImplementer: text('locked_main_implementer'),
+  lockedCouncilMembers: text('locked_council_members'), // JSON array of model IDs, frozen at start
   startedAt: text('started_at'),
   plannedDate: text('planned_date'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),

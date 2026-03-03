@@ -56,6 +56,8 @@ export const ticketMachine = setup({
     externalId: input.externalId ?? '',
     title: input.title ?? '',
     status: 'DRAFT',
+    lockedMainImplementer: input.lockedMainImplementer ?? null,
+    lockedCouncilMembers: input.lockedCouncilMembers ?? null,
     previousStatus: null,
     error: null,
     errorCodes: [],
@@ -74,7 +76,13 @@ export const ticketMachine = setup({
         'notifyFrontend',
       ],
       on: {
-        START: { target: 'COUNCIL_DELIBERATING' },
+        START: {
+          target: 'COUNCIL_DELIBERATING',
+          actions: assign({
+            lockedMainImplementer: ({ event }) => event.lockedMainImplementer ?? null,
+            lockedCouncilMembers: ({ event }) => event.lockedCouncilMembers ?? null,
+          }),
+        },
         CANCEL: { target: 'CANCELED' },
       },
     },

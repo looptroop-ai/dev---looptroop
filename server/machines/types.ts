@@ -4,6 +4,8 @@ export interface TicketContext {
   externalId: string
   title: string
   status: string
+  lockedMainImplementer: string | null
+  lockedCouncilMembers: string[] | null
   previousStatus: string | null
   error: string | null
   errorCodes: string[]
@@ -20,7 +22,7 @@ export interface TicketContext {
 }
 
 export type TicketEvent =
-  | { type: 'START' }
+  | { type: 'START'; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }
   | { type: 'QUESTIONS_READY'; result: Record<string, unknown> }
   | { type: 'WINNER_SELECTED'; winner: string }
   | { type: 'READY' }

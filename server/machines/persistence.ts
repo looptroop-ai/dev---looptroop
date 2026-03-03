@@ -35,6 +35,8 @@ export function ensureActorForTicket(ticketId: number) {
         projectId: ticket.projectId,
         externalId: ticket.externalId,
         title: ticket.title,
+        lockedMainImplementer: ticket.lockedMainImplementer ?? null,
+        lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : null,
       })
     } catch {
       // Fall back to fresh actor creation if snapshot is invalid.
@@ -46,6 +48,8 @@ export function ensureActorForTicket(ticketId: number) {
     projectId: ticket.projectId,
     externalId: ticket.externalId,
     title: ticket.title,
+    lockedMainImplementer: ticket.lockedMainImplementer ?? null,
+    lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : null,
   })
 }
 
@@ -66,7 +70,7 @@ export function persistSnapshot(ticketId: number, actor: ReturnType<typeof creat
 }
 
 // Create and start a new actor for a ticket
-export function createTicketActor(ticketId: number, input: { ticketId: string; projectId: number; externalId: string; title: string; maxIterations?: number }) {
+export function createTicketActor(ticketId: number, input: { ticketId: string; projectId: number; externalId: string; title: string; maxIterations?: number; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }) {
   const actor = createActor(ticketMachine, {
     input: {
       ticketId: input.ticketId,
@@ -74,6 +78,8 @@ export function createTicketActor(ticketId: number, input: { ticketId: string; p
       externalId: input.externalId,
       title: input.title,
       maxIterations: input.maxIterations ?? 5,
+      lockedMainImplementer: input.lockedMainImplementer ?? null,
+      lockedCouncilMembers: input.lockedCouncilMembers ?? null,
     },
   })
 
@@ -94,7 +100,7 @@ export function createTicketActor(ticketId: number, input: { ticketId: string; p
 }
 
 // Hydrate actor from SQLite snapshot
-export function hydrateTicketActor(ticketId: number, snapshot: unknown, input: { ticketId: string; projectId: number; externalId: string; title: string; maxIterations?: number }) {
+export function hydrateTicketActor(ticketId: number, snapshot: unknown, input: { ticketId: string; projectId: number; externalId: string; title: string; maxIterations?: number; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }) {
   const actor = createActor(ticketMachine, {
     snapshot: snapshot as Parameters<typeof createActor<typeof ticketMachine>>[1] extends { snapshot?: infer S } ? S : never,
     input: {
@@ -103,6 +109,8 @@ export function hydrateTicketActor(ticketId: number, snapshot: unknown, input: {
       externalId: input.externalId,
       title: input.title,
       maxIterations: input.maxIterations ?? 5,
+      lockedMainImplementer: input.lockedMainImplementer ?? null,
+      lockedCouncilMembers: input.lockedCouncilMembers ?? null,
     },
   })
 
@@ -136,6 +144,8 @@ export function hydrateAllTickets() {
           projectId: ticket.projectId,
           externalId: ticket.externalId,
           title: ticket.title,
+          lockedMainImplementer: ticket.lockedMainImplementer ?? null,
+          lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : null,
         })
         hydrated++
       } catch (err) {

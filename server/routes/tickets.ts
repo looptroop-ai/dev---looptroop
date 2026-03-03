@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db/index'
-import { tickets, projects, phaseArtifacts } from '../db/schema'
+import { tickets, projects, profiles, phaseArtifacts } from '../db/schema'
 import { eq, desc } from 'drizzle-orm'
 import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
 
@@ -120,9 +120,29 @@ ticketRouter.post('/tickets/:id/start', (c) => {
     return c.json({ error: 'Ticket can only be started from DRAFT status' }, 409)
   }
 
+  // Resolve and lock model configuration at start time
+  const project = db.select().from(projects).where(eq(projects.id, ticket.projectId)).get()
+  const profile = db.select().from(profiles).get()
+  const lockedMainImplementer = profile?.mainImplementer ?? null
+  const councilRaw = project?.councilMembers ?? profile?.councilMembers ?? null
+  let lockedCouncilMembers: string[] | null = null
+  if (councilRaw) {
+    try { lockedCouncilMembers = JSON.parse(councilRaw) as string[] } catch { /* ignore */ }
+  }
+
+  // Persist locked models to DB
+  db.update(tickets)
+    .set({
+      lockedMainImplementer,
+      lockedCouncilMembers: lockedCouncilMembers ? JSON.stringify(lockedCouncilMembers) : null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tickets.id, id))
+    .run()
+
   try {
     ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'START' })
+    sendTicketEvent(id, { type: 'START', lockedMainImplementer, lockedCouncilMembers })
   } catch (err) {
     console.error(`[tickets] Failed to send START to ticket ${id}:`, err)
     return c.json({ error: 'Failed to start ticket', details: String(err) }, 500)

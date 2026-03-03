@@ -52,6 +52,8 @@ export function initializeDatabase() {
       total_beads INTEGER,
       percent_complete REAL,
       error_message TEXT,
+      locked_main_implementer TEXT,
+      locked_council_members TEXT,
       started_at TEXT,
       planned_date TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -82,6 +84,14 @@ export function initializeDatabase() {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `)
+
+  // Migrate: add locked model columns if missing
+  try {
+    sqlite.exec(`ALTER TABLE tickets ADD COLUMN locked_main_implementer TEXT`)
+  } catch { /* column already exists */ }
+  try {
+    sqlite.exec(`ALTER TABLE tickets ADD COLUMN locked_council_members TEXT`)
+  } catch { /* column already exists */ }
 
   // Verify WAL mode
   const walMode = sqlite.pragma('journal_mode', { simple: true })
