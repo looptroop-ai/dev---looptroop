@@ -75,6 +75,47 @@ async function ticketAction(id: number, action: 'start' | 'approve' | 'cancel' |
   return res.json()
 }
 
+interface InterviewQuestion {
+  id: string
+  category: string
+  question: string
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  rationale: string
+}
+
+interface InterviewData {
+  questions: InterviewQuestion[]
+  raw: string | null
+}
+
+async function fetchInterview(ticketId: number): Promise<InterviewData> {
+  const res = await fetch(`/api/tickets/${ticketId}/interview`)
+  if (!res.ok) throw new Error('Failed to fetch interview data')
+  return res.json()
+}
+
+async function submitAnswers(ticketId: number, answers: Record<string, string>): Promise<{ message: string }> {
+  const res = await fetch(`/api/tickets/${ticketId}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to submit answers')
+  }
+  return res.json()
+}
+
+async function skipInterview(ticketId: number): Promise<{ message: string }> {
+  const res = await fetch(`/api/tickets/${ticketId}/skip`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to skip')
+  }
+  return res.json()
+}
+
 export function useTickets(projectId?: number) {
   return useQuery({
     queryKey: projectId ? ['tickets', { projectId }] : ['tickets'],
@@ -124,4 +165,37 @@ export function useTicketAction() {
   })
 }
 
-export type { Ticket, CreateTicketInput }
+export function useInterviewQuestions(ticketId: number) {
+  return useQuery({
+    queryKey: ['interview', ticketId],
+    queryFn: () => fetchInterview(ticketId),
+  })
+}
+
+export function useSubmitAnswers() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId, answers }: { ticketId: number; answers: Record<string, string> }) =>
+      submitAnswers(ticketId, answers),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
+    },
+  })
+}
+
+export function useSkipInterview() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId }: { ticketId: number }) =>
+      skipInterview(ticketId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
+    },
+  })
+}
+
+export type { Ticket, CreateTicketInput, InterviewQuestion, InterviewData }

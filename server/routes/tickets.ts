@@ -1,8 +1,10 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+// @ts-expect-error no type declarations for js-yaml
+import jsYaml from 'js-yaml'
 import { db } from '../db/index'
 import { tickets, projects, profiles, phaseArtifacts } from '../db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, and } from 'drizzle-orm'
 import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
 
 const ticketRouter = new Hono()
@@ -372,6 +374,39 @@ ticketRouter.post('/tickets/:id/dev-event', async (c) => {
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
   const state = getTicketState(id)
   return c.json({ ticketId: id, status: updated?.status, state: state?.state })
+})
+
+ticketRouter.get('/tickets/:id/interview', (c) => {
+  const id = Number(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
+  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+
+  const artifact = db.select().from(phaseArtifacts)
+    .where(and(eq(phaseArtifacts.ticketId, id), eq(phaseArtifacts.artifactType, 'interview_compiled')))
+    .get()
+
+  if (!artifact) {
+    return c.json({ questions: [], raw: null })
+  }
+
+  try {
+    const parsed = JSON.parse(artifact.content) as { winnerId: string; refinedContent: string }
+    const raw = parsed.refinedContent
+
+    // Try to parse YAML content into structured questions
+    const yamlParsed = jsYaml.load(raw) as Record<string, unknown> | unknown[] | null
+    let questions: unknown[] = []
+    if (Array.isArray(yamlParsed)) {
+      questions = yamlParsed
+    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
+      questions = (yamlParsed as Record<string, unknown>).questions as unknown[]
+    }
+
+    return c.json({ questions, raw })
+  } catch {
+    return c.json({ questions: [], raw: artifact.content })
+  }
 })
 
 ticketRouter.get('/tickets/:id/artifacts', (c) => {
