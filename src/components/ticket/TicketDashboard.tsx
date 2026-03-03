@@ -12,12 +12,16 @@ import { Menu, X } from 'lucide-react'
 function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null; currentStatus: string }) {
   const logCtx = useLogs()
 
+  // Only clear logs when ticket changes; preserve per-status logs across status transitions
   useEffect(() => {
     logCtx?.clearLogs()
+  }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (currentStatus) {
       logCtx?.setActivePhase(currentStatus)
     }
-  }, [ticketId, currentStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
     if (event.type === 'state_change') {
@@ -25,7 +29,7 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
       const to = String(event.data.to ?? '')
       if (to) {
         logCtx?.setActivePhase(to)
-        logCtx?.addLog(to, `[SYS] Transition: ${from || 'unknown'} -> ${to}`)
+        logCtx?.addLog(to, `[SYS] Transition: ${from || 'unknown'} -> ${to}`, 'system', to)
       }
       return
     }
@@ -33,7 +37,8 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
     if (event.type === 'log') {
       const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
       if (phase) {
-        logCtx?.addLog(phase, formatLogLine(event.data))
+        const { line, source } = formatLogLine(event.data)
+        logCtx?.addLog(phase, line, source, phase)
       }
       return
     }
@@ -41,7 +46,7 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
     if (event.type === 'error') {
       const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
       if (phase) {
-        logCtx?.addLog(phase, `[ERROR] ${String(event.data.message ?? 'Unknown error')}`)
+        logCtx?.addLog(phase, `[ERROR] ${String(event.data.message ?? 'Unknown error')}`, 'error', phase)
       }
     }
   }, [logCtx, currentStatus])

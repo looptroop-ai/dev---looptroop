@@ -240,7 +240,7 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
       )}
       style={{ borderLeftWidth: '4px', borderLeftColor: projectColor ?? '#3b82f6' }}
       onClick={handleClick}
-      title={`Open ticket ${ticket.externalId}`}
+      aria-label={`Open ticket ${ticket.externalId}`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-xs font-mono text-muted-foreground">{ticket.externalId}</span>

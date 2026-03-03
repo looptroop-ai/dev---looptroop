@@ -7,6 +7,7 @@ import { useProfile, useCreateProfile, useUpdateProfile } from '@/hooks/useProfi
 import type { CreateProfileInput } from '@/hooks/useProfile'
 import { Plus, X, Search, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
@@ -155,7 +156,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
                     {emojiSearch ? (
                       <div className="grid grid-cols-8 gap-1">
                         {EMOJI_CATEGORIES.flatMap(c => c.emojis)
-                          .filter(e => e.includes(emojiSearch))
+                          .filter(e => emojiMatchesSearch(e, emojiSearch))
                           .map(emoji => (
                             <button
                               key={emoji}

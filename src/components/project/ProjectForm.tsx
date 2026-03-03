@@ -6,6 +6,7 @@ import type { Project } from '@/hooks/useProjects'
 import { useToast } from '@/components/shared/Toast'
 import { ArrowLeft, Search, X, Upload, Trash2, CheckCircle2, XCircle, CircleDot } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
@@ -282,7 +283,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                         /* Filtered flat results */
                         <div className="grid grid-cols-8 gap-1">
                           {EMOJI_CATEGORIES.flatMap(c => c.emojis)
-                            .filter(e => e.includes(emojiSearch))
+                            .filter(e => emojiMatchesSearch(e, emojiSearch))
                             .map(emoji => (
                               <button
                                 key={emoji}

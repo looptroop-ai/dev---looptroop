@@ -1,4 +1,4 @@
-import type { LogEvent, LogEventType } from './types'
+import type { LogEvent, LogEventType, LogSource } from './types'
 import { safeAtomicAppend } from '../io/atomicAppend'
 import { resolve } from 'path'
 
@@ -8,6 +8,8 @@ export function appendLogEvent(
   phase: string,
   message: string,
   data?: Record<string, unknown>,
+  source?: LogSource,
+  status?: string,
 ) {
   const event: LogEvent = {
     timestamp: new Date().toISOString(),
@@ -15,6 +17,8 @@ export function appendLogEvent(
     ticketId: ticketExternalId,
     phase,
     message,
+    ...(source != null && { source }),
+    ...(status != null && { status }),
     data,
   }
 
@@ -28,6 +32,17 @@ export function createLogEvent(
   phase: string,
   message: string,
   data?: Record<string, unknown>,
+  source?: LogSource,
+  status?: string,
 ): LogEvent {
-  return { timestamp: new Date().toISOString(), type, ticketId, phase, message, data }
+  return {
+    timestamp: new Date().toISOString(),
+    type,
+    ticketId,
+    phase,
+    message,
+    ...(source != null && { source }),
+    ...(status != null && { status }),
+    data,
+  }
 }

@@ -1,36 +1,27 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { useLogs } from '@/context/LogContext'
+import { useLogs, type LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { useProfile } from '@/hooks/useProfile'
 
 interface PhaseLogPanelProps {
   phase: string
-  logs?: string[]
+  logs?: LogEntry[]
 }
 
-type LogLevel = 'ALL' | 'SYS' | 'MODEL' | 'TEST' | 'ERROR' | 'BEAD'
+type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR'
 
-const LOG_LEVEL_COLORS: Record<string, string> = {
-  SYS: 'text-gray-500',
-  MODEL: 'text-green-500',
-  TEST: 'text-blue-500',
-  ERROR: 'text-red-500',
-  BEAD: 'text-purple-500',
+const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR']
+
+function getEntryColor(entry: LogEntry): string {
+  if (entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
+  if (entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
+  return 'text-gray-500'
 }
 
-function getLogLevel(line: string): string {
-  if (line.includes('[SYS]') || line.includes('[sys]')) return 'SYS'
-  if (line.includes('[MODEL]') || line.includes('[model]')) return 'MODEL'
-  if (line.includes('[TEST]') || line.includes('[test]')) return 'TEST'
-  if (line.includes('[ERROR]') || line.includes('[error]') || line.includes('Error')) return 'ERROR'
-  if (line.includes('[BEAD]') || line.includes('[bead]') || line.includes('Bead')) return 'BEAD'
-  return 'SYS'
-}
-
-function getLogColor(line: string): string {
-  const level = getLogLevel(line)
-  return LOG_LEVEL_COLORS[level] || ''
+function getModelLabel(modelId: string): string {
+  return modelId.split('/').pop() ?? modelId
 }
 
 function formatTimestamp(index: number): string {
@@ -39,13 +30,12 @@ function formatTimestamp(index: number): string {
   return base.toTimeString().slice(0, 8)
 }
 
-// Colorize [TAG] prefixes in a log line
-function renderLogLine(line: string) {
-  const tagMatch = line.match(/^(\[[\w]+\])(.*)$/)
+function renderLogLine(entry: LogEntry) {
+  const tagMatch = entry.line.match(/^(\[[\w]+\])(.*)$/)
   if (tagMatch) {
     const tag = tagMatch[1]
     const rest = tagMatch[2]
-    const color = getLogColor(line)
+    const color = getEntryColor(entry)
     return (
       <>
         <span className={cn('font-semibold', color)}>{tag}</span>
@@ -53,7 +43,7 @@ function renderLogLine(line: string) {
       </>
     )
   }
-  return <>{line}</>
+  return <>{entry.line}</>
 }
 
 const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
@@ -85,29 +75,87 @@ const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   BLOCKED_ERROR: 'An error occurred during processing.',
 }
 
-const CODING_PHASES = new Set(['PRE_FLIGHT_CHECK', 'CODING', 'INTEGRATING_CHANGES', 'CLEANING_ENV', 'WAITING_MANUAL_VERIFICATION'])
-const FINAL_TEST_PHASES = new Set(['RUNNING_FINAL_TEST'])
+const MULTI_MODEL_PHASES = new Set([
+  'COUNCIL_DELIBERATING',
+  'COUNCIL_VOTING_INTERVIEW',
+  'DRAFTING_PRD',
+  'COUNCIL_VOTING_PRD',
+  'DRAFTING_BEADS',
+  'COUNCIL_VOTING_BEADS',
+])
 
-function getAvailableLevels(phase: string): LogLevel[] {
-  if (FINAL_TEST_PHASES.has(phase)) return ['ALL', 'SYS', 'TEST', 'ERROR']
-  if (CODING_PHASES.has(phase)) return ['ALL', 'SYS', 'MODEL', 'TEST', 'ERROR', 'BEAD']
-  return ['ALL', 'SYS', 'MODEL', 'ERROR']
+function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
+  switch (tab) {
+    case 'ALL':
+      return entries
+    case 'SYS':
+      return entries.filter(e => e.source === 'system')
+    case 'AI':
+      return entries.filter(e => e.source === 'opencode' || e.source.startsWith('model:'))
+    case 'ERROR':
+      return entries.filter(e => e.source === 'error' || e.line.includes('[ERROR]'))
+    default:
+      // Per-model tab: tab value is a modelId, filter by exact model source
+      return entries.filter(e => e.source === `model:${tab}`)
+  }
 }
 
 export function PhaseLogPanel({ phase, logs: propLogs }: PhaseLogPanelProps) {
   const logCtx = useLogs()
-  const logs = propLogs ?? logCtx?.getLogsForPhase(phase) ?? []
+  const logs: LogEntry[] = propLogs ?? logCtx?.getLogsForPhase(phase) ?? []
+  const { data: profile } = useProfile()
   const description = PHASE_LOG_DESCRIPTIONS[phase] ?? 'Processing…'
-  const [activeFilter, setActiveFilter] = useState<LogLevel>('ALL')
-  const levels: LogLevel[] = getAvailableLevels(phase)
+  const [activeTab, setActiveTab] = useState<string>('ALL')
+  const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
+
+  const configuredModelIds = useMemo(() => {
+    if (!profile?.councilMembers) return []
+    try {
+      const parsed = JSON.parse(profile.councilMembers) as string[]
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    } catch {
+      return []
+    }
+  }, [profile?.councilMembers])
+
+  // Detect model IDs from structured source field
+  const detectedModelIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const entry of logs) {
+      if (entry.source.startsWith('model:')) {
+        ids.add(entry.source.slice('model:'.length))
+      }
+    }
+    return Array.from(ids)
+  }, [logs])
+
+  const modelTabs = useMemo(() => {
+    const hasMultiModelOutput = detectedModelIds.length > 1
+    const enableModelTabs = isKnownMultiModelPhase || hasMultiModelOutput
+    if (!enableModelTabs) return []
+
+    const seen = new Set<string>()
+    const tabs: string[] = []
+    const add = (id: string) => {
+      if (!id || seen.has(id)) return
+      seen.add(id)
+      tabs.push(id)
+    }
+
+    if (isKnownMultiModelPhase) configuredModelIds.forEach(add)
+    detectedModelIds.forEach(add)
+
+    return tabs
+  }, [isKnownMultiModelPhase, configuredModelIds, detectedModelIds])
+
+  const showModelTabs = modelTabs.length > 1
+  const availableTabs: string[] = showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]
 
   useEffect(() => {
-    if (!levels.includes(activeFilter)) setActiveFilter('ALL')
-  }, [phase, levels, activeFilter])
+    if (!availableTabs.includes(activeTab)) setActiveTab('ALL')
+  }, [activeTab, availableTabs])
 
-  const filteredLogs = activeFilter === 'ALL'
-    ? logs
-    : logs.filter(line => getLogLevel(line) === activeFilter)
+  const filteredLogs = filterEntries(logs, activeTab)
   const hasLogs = filteredLogs.length > 0
 
   return (
@@ -119,16 +167,17 @@ export function PhaseLogPanel({ phase, logs: propLogs }: PhaseLogPanelProps) {
       </div>
       <div className="text-xs text-muted-foreground px-1 mb-1">{description}</div>
       <div className="flex gap-1 px-1 py-1">
-        {levels.map(level => (
+        {availableTabs.map(tab => (
           <button
-            key={level}
-            onClick={() => setActiveFilter(level)}
+            key={tab}
+            onClick={() => setActiveTab(tab)}
             className={cn(
               'px-2 py-0.5 rounded text-xs font-medium',
-              activeFilter === level ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
+              activeTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
             )}
+            title={modelTabs.includes(tab) ? tab : undefined}
           >
-            {level}
+            {modelTabs.includes(tab) ? getModelLabel(tab) : tab}
           </button>
         ))}
         <span className="ml-auto text-xs text-muted-foreground">{filteredLogs.length} entries</span>
@@ -136,11 +185,11 @@ export function PhaseLogPanel({ phase, logs: propLogs }: PhaseLogPanelProps) {
       <ScrollArea className="flex-1 min-h-0">
         <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
           {hasLogs ? (
-            filteredLogs.map((line, i) => (
+            filteredLogs.map((entry, i) => (
               <div key={i} className="py-0.5 border-b border-border/30 last:border-0 flex">
                 <span className="text-muted-foreground/40 mr-2 select-none shrink-0 w-16">{formatTimestamp(filteredLogs.length - i)}</span>
                 <span className="text-muted-foreground/60 mr-2 select-none shrink-0">{String(i + 1).padStart(3, ' ')}</span>
-                <span className={getLogColor(line)}>{renderLogLine(line)}</span>
+                <span className={getEntryColor(entry)}>{renderLogLine(entry)}</span>
               </div>
             ))
           ) : (

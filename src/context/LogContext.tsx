@@ -1,10 +1,16 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
+export interface LogEntry {
+  line: string
+  source: string   // 'system' | 'opencode' | 'error' | 'model:<id>'
+  status: string
+}
+
 interface LogContextValue {
-  logsByPhase: Record<string, string[]>
+  logsByPhase: Record<string, LogEntry[]>
   activePhase: string | null
-  addLog: (phase: string, line: string) => void
-  getLogsForPhase: (phase: string) => string[]
+  addLog: (phase: string, line: string, source?: string, status?: string) => void
+  getLogsForPhase: (phase: string) => LogEntry[]
   setActivePhase: (phase: string | null) => void
   clearLogs: () => void
 }
@@ -20,22 +26,36 @@ const LOG_TYPE_TAGS: Record<string, string> = {
   info: '[SYS]',
 }
 
-export function formatLogLine(data: Record<string, unknown>): string {
+/** Derive a log source from SSE event data when no explicit source is provided. */
+function deriveSource(data: Record<string, unknown>): string {
+  if (data.source) return String(data.source)
+  const type = String(data.type || 'info')
+  if (type === 'error') return 'error'
+  if (type === 'model_output') {
+    const modelId = data.modelId ?? data.model
+    if (modelId) return `model:${String(modelId)}`
+    return 'opencode'
+  }
+  return 'system'
+}
+
+export function formatLogLine(data: Record<string, unknown>): { line: string; source: string } {
   const type = String(data.type || 'info')
   const content = String(data.content || data.message || '')
   const tag = LOG_TYPE_TAGS[type] || '[SYS]'
-  return `${tag} ${content}`
+  return { line: `${tag} ${content}`, source: deriveSource(data) }
 }
 
 export function LogProvider({ children }: { children: ReactNode }) {
-  const [logsByPhase, setLogsByPhase] = useState<Record<string, string[]>>({})
+  const [logsByPhase, setLogsByPhase] = useState<Record<string, LogEntry[]>>({})
   const [activePhase, setActivePhase] = useState<string | null>(null)
 
-  const addLog = useCallback((phase: string, line: string) => {
+  const addLog = useCallback((phase: string, line: string, source?: string, status?: string) => {
     if (!phase) return
+    const entry: LogEntry = { line, source: source ?? 'system', status: status ?? phase }
     setLogsByPhase(prev => ({
       ...prev,
-      [phase]: [...(prev[phase] ?? []), line],
+      [phase]: [...(prev[phase] ?? []), entry],
     }))
   }, [])
 
