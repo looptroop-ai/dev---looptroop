@@ -5,6 +5,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { Loader2, AlertTriangle, ChevronUp, ChevronDown, Minus } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
+import { STATUS_DESCRIPTIONS, STATUS_ORDER, STATUS_TO_PHASE, getStatusUserLabel } from '@/lib/workflowMeta'
 
 interface TicketCardProps {
   ticket: {
@@ -17,68 +18,11 @@ interface TicketCardProps {
     projectId: number
     currentBead?: number | null
     totalBeads?: number | null
+    errorMessage?: string | null
   }
   projectColor?: string
   projectIcon?: string
   projectName?: string
-}
-
-const STATUS_DESCRIPTIONS: Record<string, string> = {
-  DRAFT: 'Ticket is ready to be started',
-  COUNCIL_DELIBERATING: 'AI models generate interview questions independently',
-  COUNCIL_VOTING_INTERVIEW: 'AI models vote on best interview questions',
-  COMPILING_INTERVIEW: 'Compiling winning interview questions',
-  WAITING_INTERVIEW_ANSWERS: 'Waiting for your answers to interview questions',
-  VERIFYING_INTERVIEW_COVERAGE: 'AI verifying interview coverage',
-  WAITING_INTERVIEW_APPROVAL: 'Review and approve interview results',
-  DRAFTING_PRD: 'AI models draft competing PRD versions',
-  COUNCIL_VOTING_PRD: 'AI models vote on best PRD',
-  REFINING_PRD: 'Winning model refines PRD with best ideas',
-  VERIFYING_PRD_COVERAGE: 'AI verifying PRD covers all requirements',
-  WAITING_PRD_APPROVAL: 'Review and approve the PRD',
-  DRAFTING_BEADS: 'AI models draft task breakdown (beads)',
-  COUNCIL_VOTING_BEADS: 'AI models vote on best task breakdown',
-  REFINING_BEADS: 'Refining task breakdown',
-  VERIFYING_BEADS_COVERAGE: 'Verifying beads cover all PRD items',
-  WAITING_BEADS_APPROVAL: 'Review and approve the task breakdown',
-  PRE_FLIGHT_CHECK: 'Running pre-flight diagnostics',
-  CODING: 'AI implementing beads',
-  RUNNING_FINAL_TEST: 'Running final test suite',
-  INTEGRATING_CHANGES: 'Integrating changes to main branch',
-  WAITING_MANUAL_VERIFICATION: 'Manual review of completed work',
-  CLEANING_ENV: 'Cleaning up temporary resources',
-  COMPLETED: 'Ticket is complete',
-  CANCELED: 'Ticket was canceled',
-  BLOCKED_ERROR: 'An error occurred and needs attention',
-}
-
-const STATUS_TO_PHASE: Record<string, string> = {
-  DRAFT: 'todo',
-  COUNCIL_DELIBERATING: 'in_progress',
-  COUNCIL_VOTING_INTERVIEW: 'in_progress',
-  COMPILING_INTERVIEW: 'in_progress',
-  WAITING_INTERVIEW_ANSWERS: 'needs_input',
-  VERIFYING_INTERVIEW_COVERAGE: 'in_progress',
-  WAITING_INTERVIEW_APPROVAL: 'needs_input',
-  DRAFTING_PRD: 'in_progress',
-  COUNCIL_VOTING_PRD: 'in_progress',
-  REFINING_PRD: 'in_progress',
-  VERIFYING_PRD_COVERAGE: 'in_progress',
-  WAITING_PRD_APPROVAL: 'needs_input',
-  DRAFTING_BEADS: 'in_progress',
-  COUNCIL_VOTING_BEADS: 'in_progress',
-  REFINING_BEADS: 'in_progress',
-  VERIFYING_BEADS_COVERAGE: 'in_progress',
-  WAITING_BEADS_APPROVAL: 'needs_input',
-  PRE_FLIGHT_CHECK: 'in_progress',
-  CODING: 'in_progress',
-  RUNNING_FINAL_TEST: 'in_progress',
-  INTEGRATING_CHANGES: 'in_progress',
-  WAITING_MANUAL_VERIFICATION: 'needs_input',
-  CLEANING_ENV: 'in_progress',
-  COMPLETED: 'done',
-  CANCELED: 'done',
-  BLOCKED_ERROR: 'needs_input',
 }
 
 function getStatusColor(status: string): string {
@@ -139,67 +83,55 @@ function getRelativeTime(dateStr: string): string {
   return `${days}d ago`
 }
 
-function getStatusLabel(status: string): string {
-  return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-}
-
 function PriorityArrows({ priority }: { priority: number }) {
   switch (priority) {
     case 1:
       return (
-        <span className="flex flex-col items-center -space-y-1.5 text-red-600" title="Very High">
-          <ChevronUp className="h-4 w-4" strokeWidth={3} />
-          <ChevronUp className="h-4 w-4" strokeWidth={3} />
+        <span className="flex flex-col items-center -space-y-1 text-red-600" title="Very High">
+          <ChevronUp className="h-3 w-3" strokeWidth={3} />
+          <ChevronUp className="h-3 w-3" strokeWidth={3} />
         </span>
       )
     case 2:
       return (
         <span className="inline-flex items-center text-orange-500" title="High">
-          <ChevronUp className="h-4 w-4" strokeWidth={2.5} />
+          <ChevronUp className="h-3 w-3" strokeWidth={2.5} />
         </span>
       )
     case 3:
       return (
         <span className="inline-flex items-center text-gray-400" title="Normal">
-          <Minus className="h-4 w-4" strokeWidth={2.5} />
+          <Minus className="h-3 w-3" strokeWidth={2.5} />
         </span>
       )
     case 4:
       return (
         <span className="inline-flex items-center text-blue-400" title="Low">
-          <ChevronDown className="h-4 w-4" strokeWidth={2.5} />
+          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
         </span>
       )
     case 5:
       return (
-        <span className="flex flex-col items-center -space-y-1.5 text-blue-400" title="Very Low">
-          <ChevronDown className="h-4 w-4" strokeWidth={2.5} />
-          <ChevronDown className="h-4 w-4" strokeWidth={2.5} />
+        <span className="flex flex-col items-center -space-y-1 text-blue-400" title="Very Low">
+          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
+          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
         </span>
       )
     default:
       return (
         <span className="inline-flex items-center text-gray-400" title="Normal">
-          <Minus className="h-4 w-4" strokeWidth={2.5} />
+          <Minus className="h-3 w-3" strokeWidth={2.5} />
         </span>
       )
   }
 }
 
-const PHASE_ORDER = [
-  'DRAFT', 'COUNCIL_DELIBERATING', 'COUNCIL_VOTING_INTERVIEW', 'COMPILING_INTERVIEW',
-  'WAITING_INTERVIEW_ANSWERS', 'VERIFYING_INTERVIEW_COVERAGE', 'WAITING_INTERVIEW_APPROVAL',
-  'DRAFTING_PRD', 'COUNCIL_VOTING_PRD', 'REFINING_PRD', 'VERIFYING_PRD_COVERAGE', 'WAITING_PRD_APPROVAL',
-  'DRAFTING_BEADS', 'COUNCIL_VOTING_BEADS', 'REFINING_BEADS', 'VERIFYING_BEADS_COVERAGE', 'WAITING_BEADS_APPROVAL',
-  'PRE_FLIGHT_CHECK', 'CODING', 'RUNNING_FINAL_TEST', 'INTEGRATING_CHANGES',
-  'WAITING_MANUAL_VERIFICATION', 'CLEANING_ENV', 'COMPLETED',
-]
-
 function getStatusProgress(status: string): number | null {
+  if (status === 'BLOCKED_ERROR') return null
   if (STATUS_TO_PHASE[status] === 'todo' || STATUS_TO_PHASE[status] === 'done') return null
-  const idx = PHASE_ORDER.indexOf(status)
+  const idx = STATUS_ORDER.indexOf(status)
   if (idx === -1) return null
-  return Math.round(((idx + 1) / PHASE_ORDER.length) * 100)
+  return Math.round(((idx + 1) / STATUS_ORDER.length) * 100)
 }
 
 function getStatusRingColor(status: string): string {
@@ -245,10 +177,20 @@ function ProgressRing({ percent, size = 20, stroke = 2.5, colorClass = 'text-blu
   const offset = circumference - (percent / 100) * circumference
   return (
     <svg width={size} height={size} className="shrink-0">
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-muted-foreground/20" />
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="currentColor" strokeWidth={stroke}
-        strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
-        className={colorClass} transform={`rotate(-90 ${size/2} ${size/2})`} />
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-muted-foreground/20" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={stroke}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        className={colorClass}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
     </svg>
   )
 }
@@ -260,6 +202,11 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
   const isInProgress = !isTerminal && STATUS_TO_PHASE[ticket.status] === 'in_progress'
   const progress = getStatusProgress(ticket.status)
   const ringColor = getStatusRingColor(ticket.status)
+  const statusLabel = getStatusUserLabel(ticket.status, {
+    currentBead: ticket.currentBead,
+    totalBeads: ticket.totalBeads,
+    errorMessage: ticket.errorMessage,
+  })
 
   // Track "seen" state for BLOCKED_ERROR — stop flashing after first open
   const [errorSeen, setErrorSeen] = useState(() => {
@@ -268,12 +215,11 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
     }
     return false
   })
+
   useEffect(() => {
-    if (!isError) {
-      if (errorSeen) {
-        localStorage.removeItem(`error-seen-${ticket.id}`)
-        setErrorSeen(false)
-      }
+    if (!isError && errorSeen) {
+      localStorage.removeItem(`error-seen-${ticket.id}`)
+      setErrorSeen(false)
     }
   }, [isError, ticket.id, errorSeen])
 
@@ -289,12 +235,12 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
     <Card
       className={cn(
         'cursor-pointer p-3 transition-all hover:shadow-md',
-        isError && !errorSeen && 'animate-pulse border-destructive border-2 shadow-red-500/30 shadow-lg ring-2 ring-red-400/50',
-        isError && errorSeen && 'border-destructive border-2',
+        isError && !errorSeen && 'animate-pulse border-destructive border-2 ring-2 ring-red-400/60 bg-red-50/40 dark:bg-red-950/20 shadow-[0_0_0_1px_rgba(239,68,68,0.45),0_10px_20px_rgba(239,68,68,0.25)]',
+        isError && errorSeen && 'border-destructive border-2 bg-red-50/20 dark:bg-red-950/10',
       )}
       style={{ borderLeftWidth: '4px', borderLeftColor: projectColor ?? '#3b82f6' }}
       onClick={handleClick}
-      title={`Click to open ticket ${ticket.externalId}`}
+      title={`Open ticket ${ticket.externalId}`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-xs font-mono text-muted-foreground">{ticket.externalId}</span>
@@ -309,27 +255,24 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
         {projectIcon && (projectIcon.startsWith('data:') ? <img src={projectIcon} className="h-4 w-4 rounded" alt="" /> : <span className="text-xs">{projectIcon}</span>)}
         {projectName && <span className="text-xs text-muted-foreground">{projectName}</span>}
       </div>
-      <div className="mt-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+      <div className="mt-2 flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge className={cn('text-xs', getStatusColor(ticket.status))}>
-                {getStatusLabel(ticket.status)}
+              <Badge className={cn('text-xs truncate max-w-[180px]', getStatusColor(ticket.status))}>
+                {statusLabel}
               </Badge>
             </TooltipTrigger>
-            <TooltipContent>{STATUS_DESCRIPTIONS[ticket.status] ?? getStatusLabel(ticket.status)}</TooltipContent>
+            <TooltipContent>{STATUS_DESCRIPTIONS[ticket.status] ?? statusLabel}</TooltipContent>
           </Tooltip>
           {progress !== null && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title="Workflow progress">
               <ProgressRing percent={progress} colorClass={ringColor} />
               <span className={ringColor}>{progress}%</span>
             </span>
           )}
-          {ticket.status === 'CODING' && ticket.currentBead && ticket.totalBeads && (
-            <span className="text-xs text-muted-foreground">⚡ {ticket.currentBead}/{ticket.totalBeads}</span>
-          )}
         </div>
-        <span className="text-xs text-muted-foreground" title={new Date(ticket.updatedAt).toLocaleString()}>
+        <span className="text-xs text-muted-foreground shrink-0" title={new Date(ticket.updatedAt).toLocaleString()}>
           {getRelativeTime(ticket.updatedAt)}
         </span>
       </div>

@@ -56,8 +56,6 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
             top: pos.openUp ? undefined : pos.top,
             bottom: pos.openUp ? window.innerHeight - pos.top + 4 : undefined,
             left: pos.left,
-            maxHeight: '60vh',
-            overflowY: 'auto',
           }}
         >
           {children}

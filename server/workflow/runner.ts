@@ -8,10 +8,30 @@ import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview } from '../phases/interview/deliberate'
 import { OpenCodeSDKAdapter } from '../opencode/adapter'
 import type { CouncilResult } from '../council/types'
+import { appendLogEvent } from '../log/executionLog'
+import type { LogEventType } from '../log/types'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
 const adapter = new OpenCodeSDKAdapter()
+
+function emitPhaseLog(
+  ticketId: number,
+  ticketExternalId: string,
+  phase: string,
+  type: LogEventType,
+  content: string,
+  data?: Record<string, unknown>,
+) {
+  broadcaster.broadcast(String(ticketId), 'log', {
+    ticketId: String(ticketId),
+    phase,
+    type,
+    content,
+    ...data,
+  })
+  appendLogEvent(ticketExternalId, type, phase, content, data)
+}
 
 async function handleInterviewDeliberate(
   ticketId: number,
@@ -44,14 +64,38 @@ async function handleInterviewDeliberate(
     },
   ]
 
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', 'Interview council drafting started.')
+
   const result = await deliberateInterview(adapter, members, ticketContext, projectPath)
 
   phaseResults.set(`${ticketId}:interview`, result)
+
+  for (const draft of result.drafts) {
+    const questionCount = (draft.content.match(/\?/g) || []).length
+    const detail = draft.outcome === 'timed_out'
+      ? 'timed out'
+      : draft.outcome === 'invalid_output'
+        ? 'invalid output'
+        : `proposed ${questionCount} questions`
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'COUNCIL_DELIBERATING',
+      'model_output',
+      `${draft.memberId} ${detail}.`,
+      {
+        modelId: draft.memberId,
+        outcome: draft.outcome,
+        duration: draft.duration,
+      },
+    )
+  }
 
   db.insert(phaseArtifacts)
     .values({
       ticketId,
       phase: 'COUNCIL_DELIBERATING',
+      artifactType: 'interview_drafts',
       content: JSON.stringify(result),
     })
     .run()
@@ -68,9 +112,25 @@ async function handleInterviewDeliberate(
 async function handleInterviewVote(
   ticketId: number,
   result: CouncilResult,
+  ticketExternalId: string,
   sendEvent: (event: TicketEvent) => void,
 ) {
   await Promise.resolve()
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      content: JSON.stringify(result),
+    })
+    .run()
+  emitPhaseLog(
+    ticketId,
+    ticketExternalId,
+    'COUNCIL_VOTING_INTERVIEW',
+    'info',
+    `Interview voting selected winner: ${result.winnerId}.`,
+  )
   sendEvent({ type: 'WINNER_SELECTED', winner: result.winnerId })
   broadcaster.broadcast(String(ticketId), 'state_change', {
     ticketId: String(ticketId),
@@ -82,9 +142,28 @@ async function handleInterviewVote(
 async function handleInterviewCompile(
   ticketId: number,
   result: CouncilResult,
+  context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
 ) {
   await Promise.resolve()
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      content: JSON.stringify({
+        winnerId: result.winnerId,
+        refinedContent: result.refinedContent,
+      }),
+    })
+    .run()
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    'COMPILING_INTERVIEW',
+    'info',
+    `Compiled final interview from winner ${result.winnerId}.`,
+  )
   sendEvent({ type: 'READY' })
   broadcaster.broadcast(String(ticketId), 'needs_input', {
     ticketId: String(ticketId),
@@ -108,27 +187,39 @@ export function attachWorkflowRunner(
 
     if (state === 'COUNCIL_DELIBERATING') {
       runningPhases.add(key)
-      handleInterviewDeliberate(ticketId, context, sendEvent).catch(err => {
-        runningPhases.delete(key)
-        sendEvent({ type: 'ERROR', message: String(err) })
-      })
+      handleInterviewDeliberate(ticketId, context, sendEvent)
+        .catch(err => {
+          emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', String(err))
+          sendEvent({ type: 'ERROR', message: String(err) })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
     } else if (state === 'COUNCIL_VOTING_INTERVIEW') {
       const result = phaseResults.get(`${ticketId}:interview`)
       if (result) {
         runningPhases.add(key)
-        handleInterviewVote(ticketId, result, sendEvent).catch(err => {
-          runningPhases.delete(key)
-          sendEvent({ type: 'ERROR', message: String(err) })
-        })
+        handleInterviewVote(ticketId, result, context.externalId, sendEvent)
+          .catch(err => {
+            emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', String(err))
+            sendEvent({ type: 'ERROR', message: String(err) })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
       }
     } else if (state === 'COMPILING_INTERVIEW') {
       const result = phaseResults.get(`${ticketId}:interview`)
       if (result) {
         runningPhases.add(key)
-        handleInterviewCompile(ticketId, result, sendEvent).catch(err => {
-          runningPhases.delete(key)
-          sendEvent({ type: 'ERROR', message: String(err) })
-        })
+        handleInterviewCompile(ticketId, result, context, sendEvent)
+          .catch(err => {
+            emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'error', String(err))
+            sendEvent({ type: 'ERROR', message: String(err) })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
       }
     }
   })

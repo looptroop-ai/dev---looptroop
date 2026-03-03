@@ -7,6 +7,7 @@ import { useUI } from '@/context/UIContext'
 import { useTicketAction } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
+import { getStatusUserLabel } from '@/lib/workflowMeta'
 
 interface DashboardHeaderProps {
   ticket: Ticket
@@ -34,6 +35,11 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const canCancel = !NON_CANCELABLE.includes(ticket.status)
   const { data: projects = [] } = useProjects()
   const project = projects.find(p => p.id === ticket.projectId)
+  const statusLabel = getStatusUserLabel(ticket.status, {
+    currentBead: ticket.currentBead,
+    totalBeads: ticket.totalBeads,
+    errorMessage: ticket.errorMessage,
+  })
 
   return (
     <div className="border-b border-border bg-background">
@@ -45,7 +51,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
           </div>
           <h2 className="text-base font-semibold truncate max-w-[400px]">{ticket.title}</h2>
           <Badge variant="outline" className={`text-xs shrink-0 ${getStatusBadgeClasses(ticket.status)}`} title="Current workflow phase">
-            {ticket.status.replace(/_/g, ' ')}
+            {statusLabel}
           </Badge>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -100,7 +106,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             </div>
             <div>
               <span className="text-xs font-medium text-muted-foreground">Status</span>
-              <p className="mt-0.5">{ticket.status.replace(/_/g, ' ')}</p>
+              <p className="mt-0.5">{statusLabel}</p>
             </div>
             <div>
               <span className="text-xs font-medium text-muted-foreground">Created</span>

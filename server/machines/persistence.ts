@@ -17,6 +17,38 @@ export function getAllActors() {
   return activeActors
 }
 
+export function ensureActorForTicket(ticketId: number) {
+  const existing = activeActors.get(ticketId)
+  if (existing) return existing
+
+  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+  if (!ticket) throw new Error(`Ticket ${ticketId} not found`)
+  if (TERMINAL_STATES.includes(ticket.status as (typeof TERMINAL_STATES)[number])) {
+    throw new Error(`Ticket ${ticketId} is terminal (${ticket.status})`)
+  }
+
+  if (ticket.xstateSnapshot) {
+    try {
+      const snapshot = JSON.parse(ticket.xstateSnapshot)
+      return hydrateTicketActor(ticket.id, snapshot, {
+        ticketId: String(ticket.id),
+        projectId: ticket.projectId,
+        externalId: ticket.externalId,
+        title: ticket.title,
+      })
+    } catch {
+      // Fall back to fresh actor creation if snapshot is invalid.
+    }
+  }
+
+  return createTicketActor(ticket.id, {
+    ticketId: String(ticket.id),
+    projectId: ticket.projectId,
+    externalId: ticket.externalId,
+    title: ticket.title,
+  })
+}
+
 // Save XState snapshot to SQLite
 export function persistSnapshot(ticketId: number, actor: ReturnType<typeof createActor<typeof ticketMachine>>) {
   const snapshot = actor.getPersistedSnapshot()

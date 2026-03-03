@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db/index'
 import { tickets, projects, phaseArtifacts } from '../db/schema'
 import { eq, desc } from 'drizzle-orm'
-import { createTicketActor, getActor, sendTicketEvent, getTicketState } from '../machines/persistence'
+import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
 
 const ticketRouter = new Hono()
 
@@ -121,12 +121,11 @@ ticketRouter.post('/tickets/:id/start', (c) => {
   }
 
   try {
-    const actor = getActor(id)
-    if (actor) {
-      sendTicketEvent(id, { type: 'START' })
-    }
+    ensureActorForTicket(id)
+    sendTicketEvent(id, { type: 'START' })
   } catch (err) {
     console.error(`[tickets] Failed to send START to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to start ticket', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -145,9 +144,11 @@ ticketRouter.post('/tickets/:id/approve', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'APPROVE' })
   } catch (err) {
     console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to approve ticket', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -165,6 +166,7 @@ ticketRouter.post('/tickets/:id/cancel', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'CANCEL' })
   } catch (err) {
     console.error(`[tickets] Failed to send CANCEL to ticket ${id}:`, err)
@@ -187,10 +189,12 @@ ticketRouter.post('/tickets/:id/answer', async (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     const body = await c.req.json().catch(() => ({}))
     sendTicketEvent(id, { type: 'ANSWER_SUBMITTED', answers: body.answers ?? {} })
   } catch (err) {
     console.error(`[tickets] Failed to send ANSWER_SUBMITTED to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to submit answer', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -208,9 +212,11 @@ ticketRouter.post('/tickets/:id/skip', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'SKIP' })
   } catch (err) {
     console.error(`[tickets] Failed to send SKIP to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to skip question', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -228,9 +234,11 @@ ticketRouter.post('/tickets/:id/approve-interview', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'APPROVE' })
   } catch (err) {
     console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to approve interview', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -248,9 +256,11 @@ ticketRouter.post('/tickets/:id/approve-prd', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'APPROVE' })
   } catch (err) {
     console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to approve PRD', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -268,9 +278,11 @@ ticketRouter.post('/tickets/:id/approve-beads', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'APPROVE' })
   } catch (err) {
     console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to approve beads', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -288,9 +300,11 @@ ticketRouter.post('/tickets/:id/verify', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'VERIFY_COMPLETE' })
   } catch (err) {
     console.error(`[tickets] Failed to send VERIFY_COMPLETE to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to verify completion', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -308,9 +322,11 @@ ticketRouter.post('/tickets/:id/retry', (c) => {
   }
 
   try {
+    ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'RETRY' })
   } catch (err) {
     console.error(`[tickets] Failed to send RETRY to ticket ${id}:`, err)
+    return c.json({ error: 'Failed to retry ticket', details: String(err) }, 500)
   }
 
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()

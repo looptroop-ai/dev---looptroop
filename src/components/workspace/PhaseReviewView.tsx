@@ -5,42 +5,19 @@ import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { useProfile } from '@/hooks/useProfile'
 import type { Ticket } from '@/hooks/useTickets'
+import { getStatusUserLabel } from '@/lib/workflowMeta'
 
 interface PhaseReviewViewProps {
   phase: string
   ticket: Ticket
 }
 
-const PHASE_LABELS: Record<string, string> = {
-  DRAFT: 'Draft',
-  COUNCIL_DELIBERATING: 'Council Deliberating — Interview',
-  COUNCIL_VOTING_INTERVIEW: 'Council Voting — Interview',
-  COMPILING_INTERVIEW: 'Compiling Interview',
-  WAITING_INTERVIEW_ANSWERS: 'Interview Q&A',
-  VERIFYING_INTERVIEW_COVERAGE: 'Verifying Interview Coverage',
-  WAITING_INTERVIEW_APPROVAL: 'Interview Approval',
-  DRAFTING_PRD: 'Council Drafting — PRD',
-  COUNCIL_VOTING_PRD: 'Council Voting — PRD',
-  REFINING_PRD: 'Refining PRD',
-  VERIFYING_PRD_COVERAGE: 'Verifying PRD Coverage',
-  WAITING_PRD_APPROVAL: 'PRD Approval',
-  DRAFTING_BEADS: 'Council Drafting — Beads',
-  COUNCIL_VOTING_BEADS: 'Council Voting — Beads',
-  REFINING_BEADS: 'Refining Beads',
-  VERIFYING_BEADS_COVERAGE: 'Verifying Beads Coverage',
-  WAITING_BEADS_APPROVAL: 'Beads Approval',
-  PRE_FLIGHT_CHECK: 'Pre-flight Check',
-  CODING: 'Coding',
-  RUNNING_FINAL_TEST: 'Final Test',
-  INTEGRATING_CHANGES: 'Integration',
-  WAITING_MANUAL_VERIFICATION: 'Manual Verification',
-  CLEANING_ENV: 'Cleanup',
-  COMPLETED: 'Completed',
-  CANCELED: 'Canceled',
-}
-
 export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
-  const label = PHASE_LABELS[phase] ?? phase.replace(/_/g, ' ')
+  const label = getStatusUserLabel(phase, {
+    currentBead: ticket.currentBead,
+    totalBeads: ticket.totalBeads,
+    errorMessage: ticket.errorMessage,
+  })
   const { data: profile } = useProfile()
   const councilMemberNames = useMemo(() => {
     try { return profile?.councilMembers ? JSON.parse(profile.councilMembers) as string[] : [] }

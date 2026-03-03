@@ -30,7 +30,9 @@ export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket,
       <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center gap-2">
           <img src="/trans-logo.png" alt="LoopTroop" className="h-7" />
-          <span className="text-lg font-bold tracking-tight" style={{ fontFamily: "'Georgia', 'Times New Roman', serif", fontStyle: 'italic' }}>LoopTroop</span>
+          <span className="text-xl tracking-wide leading-none" style={{ fontFamily: "'Godfather', 'Georgia', 'Times New Roman', serif" }}>
+            LoopTroop
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <Tooltip>

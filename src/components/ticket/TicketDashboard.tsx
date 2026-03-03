@@ -9,18 +9,42 @@ import { ActiveWorkspace } from './ActiveWorkspace'
 import { ResizeHandle } from './ResizeHandle'
 import { Menu, X } from 'lucide-react'
 
-function SSELogConnector({ ticketId }: { ticketId: number | null }) {
+function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null; currentStatus: string }) {
   const logCtx = useLogs()
 
   useEffect(() => {
     logCtx?.clearLogs()
-  }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (currentStatus) {
+      logCtx?.setActivePhase(currentStatus)
+    }
+  }, [ticketId, currentStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
-    if (event.type === 'log') {
-      logCtx?.addLog(formatLogLine(event.data))
+    if (event.type === 'state_change') {
+      const from = String(event.data.from ?? '')
+      const to = String(event.data.to ?? '')
+      if (to) {
+        logCtx?.setActivePhase(to)
+        logCtx?.addLog(to, `[SYS] Transition: ${from || 'unknown'} -> ${to}`)
+      }
+      return
     }
-  }, [logCtx?.addLog]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    if (event.type === 'log') {
+      const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
+      if (phase) {
+        logCtx?.addLog(phase, formatLogLine(event.data))
+      }
+      return
+    }
+
+    if (event.type === 'error') {
+      const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
+      if (phase) {
+        logCtx?.addLog(phase, `[ERROR] ${String(event.data.message ?? 'Unknown error')}`)
+      }
+    }
+  }, [logCtx, currentStatus])
 
   useSSE({ ticketId, onEvent: handleEvent })
 
@@ -63,7 +87,7 @@ export function TicketDashboard() {
 
   return (
     <LogProvider>
-    <SSELogConnector ticketId={ticketId} />
+    <SSELogConnector ticketId={ticketId} currentStatus={ticket.status} />
     <div className="fixed inset-0 z-[60] bg-background flex flex-col">
       <DashboardHeader ticket={ticket} />
 

@@ -1,8 +1,11 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
 interface LogContextValue {
-  logs: string[]
-  addLog: (line: string) => void
+  logsByPhase: Record<string, string[]>
+  activePhase: string | null
+  addLog: (phase: string, line: string) => void
+  getLogsForPhase: (phase: string) => string[]
+  setActivePhase: (phase: string | null) => void
   clearLogs: () => void
 }
 
@@ -25,18 +28,28 @@ export function formatLogLine(data: Record<string, unknown>): string {
 }
 
 export function LogProvider({ children }: { children: ReactNode }) {
-  const [logs, setLogs] = useState<string[]>([])
+  const [logsByPhase, setLogsByPhase] = useState<Record<string, string[]>>({})
+  const [activePhase, setActivePhase] = useState<string | null>(null)
 
-  const addLog = useCallback((line: string) => {
-    setLogs(prev => [...prev, line])
+  const addLog = useCallback((phase: string, line: string) => {
+    if (!phase) return
+    setLogsByPhase(prev => ({
+      ...prev,
+      [phase]: [...(prev[phase] ?? []), line],
+    }))
   }, [])
 
+  const getLogsForPhase = useCallback((phase: string) => {
+    return logsByPhase[phase] ?? []
+  }, [logsByPhase])
+
   const clearLogs = useCallback(() => {
-    setLogs([])
+    setLogsByPhase({})
+    setActivePhase(null)
   }, [])
 
   return (
-    <LogContext.Provider value={{ logs, addLog, clearLogs }}>
+    <LogContext.Provider value={{ logsByPhase, activePhase, addLog, getLogsForPhase, setActivePhase, clearLogs }}>
       {children}
     </LogContext.Provider>
   )

@@ -48,7 +48,8 @@ async function createProject(input: CreateProjectInput): Promise<Project> {
   })
   if (!res.ok) {
     const err = await res.json()
-    throw new Error(err.error || 'Failed to create project')
+    const message = [err.error, err.message, err.details].filter(Boolean).join(' — ')
+    throw new Error(message || 'Failed to create project')
   }
   return res.json()
 }
@@ -61,7 +62,8 @@ async function updateProject(id: number, input: Partial<Pick<Project, 'name' | '
   })
   if (!res.ok) {
     const err = await res.json()
-    throw new Error(err.error || 'Failed to update project')
+    const message = [err.error, err.message, err.details].filter(Boolean).join(' — ')
+    throw new Error(message || 'Failed to update project')
   }
   return res.json()
 }

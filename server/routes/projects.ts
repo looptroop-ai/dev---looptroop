@@ -4,7 +4,7 @@ import { db } from '../db/index'
 import { projects, tickets, phaseArtifacts } from '../db/schema'
 import { eq, inArray } from 'drizzle-orm'
 import { existsSync } from 'fs'
-import { join } from 'path'
+import { join, resolve as resolvePath, isAbsolute } from 'path'
 import { execSync } from 'child_process'
 
 const projectRouter = new Hono()
@@ -42,6 +42,9 @@ function normalizeFolderPath(p: string): string {
   const driveMatch = p.match(/^([A-Za-z]):\/(.*)$/)
   if (driveMatch && driveMatch[1] && driveMatch[2] !== undefined) {
     p = `/mnt/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`
+  }
+  if (!isAbsolute(p)) {
+    p = resolvePath(process.cwd(), p)
   }
   return p
 }

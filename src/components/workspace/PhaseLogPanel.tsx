@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/LogContext'
+import { getStatusUserLabel } from '@/lib/workflowMeta'
 
 interface PhaseLogPanelProps {
   phase: string
@@ -95,27 +96,25 @@ function getAvailableLevels(phase: string): LogLevel[] {
 
 export function PhaseLogPanel({ phase, logs: propLogs }: PhaseLogPanelProps) {
   const logCtx = useLogs()
-  const logs = propLogs ?? logCtx?.logs
+  const logs = propLogs ?? logCtx?.getLogsForPhase(phase) ?? []
   const description = PHASE_LOG_DESCRIPTIONS[phase] ?? 'Processing…'
   const [activeFilter, setActiveFilter] = useState<LogLevel>('ALL')
   const levels: LogLevel[] = getAvailableLevels(phase)
 
   useEffect(() => {
     if (!levels.includes(activeFilter)) setActiveFilter('ALL')
-  }, [phase])
+  }, [phase, levels, activeFilter])
 
-  const filteredLogs = logs
-    ? activeFilter === 'ALL'
-      ? logs
-      : logs.filter(line => getLogLevel(line) === activeFilter)
-    : []
+  const filteredLogs = activeFilter === 'ALL'
+    ? logs
+    : logs.filter(line => getLogLevel(line) === activeFilter)
   const hasLogs = filteredLogs.length > 0
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="px-1 py-1.5 flex items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Log — {phase.replace(/_/g, ' ')}
+          Log — {getStatusUserLabel(phase)}
         </span>
       </div>
       <div className="text-xs text-muted-foreground px-1 mb-1">{description}</div>
@@ -146,7 +145,7 @@ export function PhaseLogPanel({ phase, logs: propLogs }: PhaseLogPanelProps) {
             ))
           ) : (
             <span className="text-muted-foreground/50 italic">
-              {logs && logs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}
+              {logs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}
             </span>
           )}
         </div>

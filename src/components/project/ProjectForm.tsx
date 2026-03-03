@@ -65,19 +65,28 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const selectedColor = PROJECT_COLORS.find(c => c.value === color)
   const [gitStatus, setGitStatus] = useState<'none' | 'checking' | 'valid' | 'invalid'>('none')
+  const [gitMessage, setGitMessage] = useState('')
   const supportsDirectoryPicker = typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
   useEffect(() => {
     if (!folder.trim()) {
       setGitStatus('none')
+      setGitMessage('')
       return
     }
     setGitStatus('checking')
+    setGitMessage('Checking repository...')
     const timer = setTimeout(() => {
       fetch(`/api/projects/check-git?path=${encodeURIComponent(folder)}`)
         .then(r => r.json())
-        .then(data => setGitStatus(data.isGit ? 'valid' : 'invalid'))
-        .catch(() => setGitStatus('invalid'))
+        .then(data => {
+          setGitStatus(data.isGit ? 'valid' : 'invalid')
+          setGitMessage(String(data.message ?? ''))
+        })
+        .catch(() => {
+          setGitStatus('invalid')
+          setGitMessage('Git check failed. Verify the absolute folder path and try again.')
+        })
     }, 500)
     return () => clearTimeout(timer)
   }, [folder])
@@ -86,11 +95,19 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     if (!supportsDirectoryPicker) return
     try {
       const directoryPickerWindow = window as Window & {
-        showDirectoryPicker?: () => Promise<{ name: string }>
+        showDirectoryPicker?: () => Promise<{ name: string; path?: string }>
       }
       const directoryHandle = await directoryPickerWindow.showDirectoryPicker?.()
       if (!directoryHandle) return
-      setFolder(directoryHandle.name)
+      if (directoryHandle.path) {
+        setFolder(directoryHandle.path)
+      } else {
+        addToast(
+          'warning',
+          `Browser selected "${directoryHandle.name}" but cannot expose the full path. Paste the absolute path manually.`,
+          7000,
+        )
+      }
     } catch {
       // User cancelled picker.
     }
@@ -194,6 +211,54 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                   }
                 >
                   <div className="w-80">
+                    <div className="mb-2 rounded-md border border-input bg-muted/30 p-2">
+                      <div className="text-xs text-muted-foreground mb-1">
+                        Upload your own image or select one below.
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          const reader = new FileReader()
+                          reader.onload = () => {
+                            const img = new Image()
+                            img.onload = () => {
+                              const maxSize = 128
+                              let w = img.width
+                              let h = img.height
+                              if (w > maxSize || h > maxSize) {
+                                const ratio = Math.min(maxSize / w, maxSize / h)
+                                w = Math.round(w * ratio)
+                                h = Math.round(h * ratio)
+                              }
+                              const canvas = document.createElement('canvas')
+                              canvas.width = w
+                              canvas.height = h
+                              const ctx = canvas.getContext('2d')!
+                              ctx.drawImage(img, 0, 0, w, h)
+                              setIcon(canvas.toDataURL('image/png'))
+                              setIconOpen(false)
+                            }
+                            img.src = reader.result as string
+                          }
+                          reader.readAsDataURL(file)
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 border border-input rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Upload custom icon image"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Upload image
+                      </button>
+                    </div>
+
                     {/* Search bar */}
                     <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1.5 mb-2">
                       <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -212,7 +277,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                       )}
                     </div>
 
-                    <div className="max-h-[350px] overflow-y-auto">
+                    <div className="max-h-[320px] overflow-y-auto pr-1">
                       {emojiSearch ? (
                         /* Filtered flat results */
                         <div className="grid grid-cols-8 gap-1">
@@ -279,49 +344,6 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                       )}
                     </div>
 
-                    {/* Upload button */}
-                    <div className="border-t pt-2 mt-2 flex justify-end">
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          const reader = new FileReader()
-                          reader.onload = () => {
-                            const img = new Image()
-                            img.onload = () => {
-                              const maxSize = 128
-                              let w = img.width, h = img.height
-                              if (w > maxSize || h > maxSize) {
-                                const ratio = Math.min(maxSize / w, maxSize / h)
-                                w = Math.round(w * ratio)
-                                h = Math.round(h * ratio)
-                              }
-                              const canvas = document.createElement('canvas')
-                              canvas.width = w
-                              canvas.height = h
-                              const ctx = canvas.getContext('2d')!
-                              ctx.drawImage(img, 0, 0, w, h)
-                              setIcon(canvas.toDataURL('image/png'))
-                              setIconOpen(false)
-                            }
-                            img.src = reader.result as string
-                          }
-                          reader.readAsDataURL(file)
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 border-2 border-border rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        <Upload className="h-4 w-4" />
-                        Upload
-                      </button>
-                    </div>
                   </div>
                 </DropdownPicker>
               </div>
@@ -417,6 +439,14 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                 {!supportsDirectoryPicker && (
                   <p className="text-xs text-muted-foreground">
                     Directory picker is not supported in this browser, so please type the path manually.
+                  </p>
+                )}
+                {gitMessage && (
+                  <p className={cn(
+                    'text-xs',
+                    gitStatus === 'valid' ? 'text-green-600 dark:text-green-400' : gitStatus === 'invalid' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground',
+                  )}>
+                    {gitMessage}
                   </p>
                 )}
               </div>

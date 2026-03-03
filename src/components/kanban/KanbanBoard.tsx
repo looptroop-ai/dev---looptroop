@@ -1,7 +1,7 @@
 import { KanbanColumn } from './KanbanColumn'
 import { useTickets } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
-import { STATUS_TO_PHASE } from './TicketCard'
+import { STATUS_TO_PHASE } from '@/lib/workflowMeta'
 
 export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
 

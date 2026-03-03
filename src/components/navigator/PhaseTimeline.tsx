@@ -4,6 +4,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { StatusIndicator } from './StatusIndicator'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { STATUS_DESCRIPTIONS, getStatusUserLabel } from '@/lib/workflowMeta'
 
 interface PhaseTimelineProps {
   currentStatus: string
@@ -11,93 +12,89 @@ interface PhaseTimelineProps {
   selectedPhase?: string | null
 }
 
-const PHASE_TOOLTIPS: Record<string, string> = {
-  DRAFT: 'Ticket is ready to be started',
-  COUNCIL_DELIBERATING: 'AI models generate interview questions independently',
-  COUNCIL_VOTING_INTERVIEW: 'AI models vote on best interview questions',
-  COMPILING_INTERVIEW: 'Compiling winning interview questions',
-  WAITING_INTERVIEW_ANSWERS: 'Waiting for your answers to interview questions',
-  VERIFYING_INTERVIEW_COVERAGE: 'AI verifying interview coverage',
-  WAITING_INTERVIEW_APPROVAL: 'Review and approve interview results',
-  DRAFTING_PRD: 'AI models draft competing PRD versions',
-  COUNCIL_VOTING_PRD: 'AI models vote on best PRD',
-  REFINING_PRD: 'Winning model refines PRD with best ideas',
-  VERIFYING_PRD_COVERAGE: 'AI verifying PRD covers all requirements',
-  WAITING_PRD_APPROVAL: 'Review and approve the PRD',
-  DRAFTING_BEADS: 'AI models draft task breakdown (beads)',
-  COUNCIL_VOTING_BEADS: 'AI models vote on best task breakdown',
-  REFINING_BEADS: 'Refining task breakdown',
-  VERIFYING_BEADS_COVERAGE: 'Verifying beads cover all PRD items',
-  WAITING_BEADS_APPROVAL: 'Review and approve the task breakdown',
-  PRE_FLIGHT_CHECK: 'Running pre-flight diagnostics',
-  CODING: 'AI implementing beads',
-  RUNNING_FINAL_TEST: 'Running final test suite',
-  INTEGRATING_CHANGES: 'Integrating changes to main branch',
-  WAITING_MANUAL_VERIFICATION: 'Manual review of completed work',
-  CLEANING_ENV: 'Cleaning up temporary resources',
-  COMPLETED: 'Ticket is complete',
-  CANCELED: 'Ticket was canceled',
-  BLOCKED_ERROR: 'An error occurred and needs attention',
+interface PhaseGroup {
+  id: string
+  label: string
+  phases: Array<{ id: string }>
 }
 
-const PHASE_GROUPS = [
+const PHASE_GROUPS: PhaseGroup[] = [
   {
-    label: 'Planning',
+    id: 'todo',
+    label: 'To Do',
+    phases: [{ id: 'DRAFT' }],
+  },
+  {
+    id: 'interview',
+    label: 'Interview',
     phases: [
-      { id: 'DRAFT', label: 'Draft' },
-      { id: 'COUNCIL_DELIBERATING', label: 'Council Deliberating' },
-      { id: 'COUNCIL_VOTING_INTERVIEW', label: 'Voting (Interview)' },
-      { id: 'COMPILING_INTERVIEW', label: 'Compiling Interview' },
-      { id: 'WAITING_INTERVIEW_ANSWERS', label: 'Interview Q&A' },
-      { id: 'VERIFYING_INTERVIEW_COVERAGE', label: 'Verifying Coverage' },
-      { id: 'WAITING_INTERVIEW_APPROVAL', label: 'Interview Approval' },
+      { id: 'COUNCIL_DELIBERATING' },
+      { id: 'COUNCIL_VOTING_INTERVIEW' },
+      { id: 'COMPILING_INTERVIEW' },
+      { id: 'WAITING_INTERVIEW_ANSWERS' },
+      { id: 'VERIFYING_INTERVIEW_COVERAGE' },
+      { id: 'WAITING_INTERVIEW_APPROVAL' },
     ],
   },
   {
-    label: 'PRD',
+    id: 'prd',
+    label: 'Specs (PRD)',
     phases: [
-      { id: 'DRAFTING_PRD', label: 'Drafting PRD' },
-      { id: 'COUNCIL_VOTING_PRD', label: 'Voting (PRD)' },
-      { id: 'REFINING_PRD', label: 'Refining PRD' },
-      { id: 'VERIFYING_PRD_COVERAGE', label: 'PRD Coverage' },
-      { id: 'WAITING_PRD_APPROVAL', label: 'PRD Approval' },
+      { id: 'DRAFTING_PRD' },
+      { id: 'COUNCIL_VOTING_PRD' },
+      { id: 'REFINING_PRD' },
+      { id: 'VERIFYING_PRD_COVERAGE' },
+      { id: 'WAITING_PRD_APPROVAL' },
     ],
   },
   {
-    label: 'Beads',
+    id: 'beads',
+    label: 'Blueprint (Beads)',
     phases: [
-      { id: 'DRAFTING_BEADS', label: 'Drafting Beads' },
-      { id: 'COUNCIL_VOTING_BEADS', label: 'Voting (Beads)' },
-      { id: 'REFINING_BEADS', label: 'Refining Beads' },
-      { id: 'VERIFYING_BEADS_COVERAGE', label: 'Beads Coverage' },
-      { id: 'WAITING_BEADS_APPROVAL', label: 'Beads Approval' },
+      { id: 'DRAFTING_BEADS' },
+      { id: 'COUNCIL_VOTING_BEADS' },
+      { id: 'REFINING_BEADS' },
+      { id: 'VERIFYING_BEADS_COVERAGE' },
+      { id: 'WAITING_BEADS_APPROVAL' },
     ],
   },
   {
+    id: 'execution',
     label: 'Execution',
     phases: [
-      { id: 'PRE_FLIGHT_CHECK', label: 'Pre-flight Check' },
-      { id: 'CODING', label: 'Coding' },
-      { id: 'RUNNING_FINAL_TEST', label: 'Final Test' },
-      { id: 'INTEGRATING_CHANGES', label: 'Integration' },
-      { id: 'WAITING_MANUAL_VERIFICATION', label: 'Manual Verification' },
-      { id: 'CLEANING_ENV', label: 'Cleanup' },
+      { id: 'PRE_FLIGHT_CHECK' },
+      { id: 'CODING' },
+      { id: 'RUNNING_FINAL_TEST' },
+      { id: 'INTEGRATING_CHANGES' },
+      { id: 'WAITING_MANUAL_VERIFICATION' },
+      { id: 'CLEANING_ENV' },
+      { id: 'BLOCKED_ERROR' },
     ],
   },
   {
-    label: 'Terminal',
-    phases: [
-      { id: 'COMPLETED', label: 'Completed' },
-      { id: 'CANCELED', label: 'Canceled' },
-    ],
+    id: 'done',
+    label: 'Done',
+    phases: [{ id: 'COMPLETED' }, { id: 'CANCELED' }],
   },
 ]
 
 const ALL_PHASE_IDS = PHASE_GROUPS.flatMap(g => g.phases.map(p => p.id))
 
 function getPhaseIndicatorStatus(phaseId: string, currentStatus: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
-  if (currentStatus === 'BLOCKED_ERROR') return phaseId === currentStatus ? 'error' : 'pending'
-  if (currentStatus === 'CANCELED') return 'canceled'
+  if (currentStatus === 'BLOCKED_ERROR') {
+    if (phaseId === 'BLOCKED_ERROR') return 'error'
+    return 'pending'
+  }
+
+  if (phaseId === 'DRAFT' && currentStatus === 'DRAFT') {
+    return 'pending'
+  }
+
+  if (currentStatus === 'CANCELED') {
+    if (phaseId === 'CANCELED') return 'canceled'
+    return 'pending'
+  }
+
   if (currentStatus === 'COMPLETED' && phaseId === 'COMPLETED') return 'completed-final'
   if (phaseId === currentStatus) return 'active'
 
@@ -108,8 +105,13 @@ function getPhaseIndicatorStatus(phaseId: string, currentStatus: string): 'compl
   return phaseIndex < currentIndex ? 'completed' : 'pending'
 }
 
-function getGroupStatus(group: typeof PHASE_GROUPS[number], currentStatus: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
+function getGroupStatus(group: PhaseGroup, currentStatus: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
   const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus))
+
+  if (group.id === 'todo' && currentStatus === 'DRAFT') {
+    return 'pending'
+  }
+
   if (statuses.some(s => s === 'completed-final')) return 'completed-final'
   if (statuses.some(s => s === 'active')) return 'active'
   if (statuses.some(s => s === 'error')) return 'error'
@@ -119,8 +121,11 @@ function getGroupStatus(group: typeof PHASE_GROUPS[number], currentStatus: strin
   return 'pending'
 }
 
+function getPhaseTooltip(phaseId: string): string {
+  return STATUS_DESCRIPTIONS[phaseId] ?? phaseId.replace(/_/g, ' ')
+}
+
 export function PhaseTimeline({ currentStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
-  // Find the group containing the current status
   const activeGroupIndex = useMemo(() => {
     return PHASE_GROUPS.findIndex(g => g.phases.some(p => p.id === currentStatus))
   }, [currentStatus])
@@ -144,7 +149,7 @@ export function PhaseTimeline({ currentStatus, onSelectPhase, selectedPhase }: P
           const isExpanded = expandedGroups.has(gi)
 
           return (
-            <div key={group.label}>
+            <div key={group.id}>
               <button
                 onClick={() => toggleGroup(gi)}
                 className={cn(
@@ -155,41 +160,44 @@ export function PhaseTimeline({ currentStatus, onSelectPhase, selectedPhase }: P
                   groupStatus === 'pending' && 'text-muted-foreground',
                   'hover:bg-accent/50',
                 )}
+                title={`Toggle ${group.label} phases`}
               >
                 <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
                 <StatusIndicator status={groupStatus} />
                 <span>{group.label}</span>
               </button>
+
               {isExpanded && (
                 <div className="ml-3 space-y-0.5 mt-0.5">
                   {group.phases.map(phase => {
                     const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus)
-                    // DRAFT is a passive "to do" state — show a gray circle, not a spinner
-                    const isDraftCurrent = phase.id === 'DRAFT' && indicatorStatus === 'active'
-                    const displayStatus = isDraftCurrent ? 'pending' : indicatorStatus
                     const isSelected = selectedPhase === phase.id
                     const isPast = indicatorStatus === 'completed'
                     const isFuture = indicatorStatus === 'pending'
+                    const isCurrent = phase.id === currentStatus
+                    const isSelectable = !isFuture || isCurrent
+
+                    const phaseLabel = getStatusUserLabel(phase.id)
 
                     return (
                       <Tooltip key={phase.id}>
                         <TooltipTrigger asChild>
                           <button
-                            onClick={() => !isFuture && onSelectPhase?.(phase.id)}
-                            disabled={isFuture}
+                            onClick={() => isSelectable && onSelectPhase?.(phase.id)}
+                            disabled={!isSelectable}
                             className={cn(
                               'w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs transition-colors text-left',
                               isSelected && 'bg-accent',
-                              (indicatorStatus === 'active') && !isSelected && 'bg-accent/50 font-medium',
+                              isCurrent && !isSelected && 'bg-accent/50 font-medium',
                               isPast && 'cursor-pointer hover:bg-accent',
-                              isFuture && 'opacity-40 cursor-default',
+                              !isSelectable && 'opacity-40 cursor-default',
                             )}
                           >
-                            <StatusIndicator status={displayStatus} />
-                            <span className="truncate">{phase.label}</span>
+                            <StatusIndicator status={indicatorStatus} />
+                            <span className="truncate">{phaseLabel}</span>
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent side="right">{PHASE_TOOLTIPS[phase.id]}</TooltipContent>
+                        <TooltipContent side="right">{getPhaseTooltip(phase.id)}</TooltipContent>
                       </Tooltip>
                     )
                   })}

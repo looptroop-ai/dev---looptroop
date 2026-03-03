@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCreateTicket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
+import { DropdownPicker } from '@/components/shared/DropdownPicker'
+import { ChevronDown, Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface TicketFormProps {
   onClose: () => void
@@ -15,6 +18,9 @@ export function TicketForm({ onClose }: TicketFormProps) {
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState(3)
   const [projectId, setProjectId] = useState<number | ''>('')
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+
+  const selectedProject = useMemo(() => projects.find(p => p.id === projectId), [projects, projectId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,24 +34,72 @@ export function TicketForm({ onClose }: TicketFormProps) {
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-6">
       <Card>
-        <CardHeader><CardTitle className="text-sm">Ticket Details</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-sm">Ticket Details</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium block mb-1">Project</label>
-            <select
-              value={projectId}
-              onChange={e => setProjectId(e.target.value ? Number(e.target.value) : '')}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              required
+            <label className="text-sm font-medium block mb-1" title="Project where the ticket will run">
+              Project
+            </label>
+            <DropdownPicker
+              open={projectPickerOpen}
+              onOpenChange={setProjectPickerOpen}
+              trigger={
+                <button
+                  type="button"
+                  className={cn(
+                    'w-full flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm',
+                    projectPickerOpen && 'ring-2 ring-primary/30',
+                  )}
+                  title="Choose project"
+                >
+                  <span className={cn('truncate text-left', !selectedProject && 'text-muted-foreground')}>
+                    {selectedProject
+                      ? `${selectedProject.icon?.startsWith('data:') ? '🖼️' : selectedProject.icon} ${selectedProject.name} (${selectedProject.shortname})`
+                      : 'Select a project...'}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              }
             >
-              <option value="">Select a project…</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.icon?.startsWith('data:') ? '🖼️' : p.icon} {p.name} ({p.shortname})</option>
-              ))}
-            </select>
+              <div className="w-[420px] max-w-[calc(100vw-48px)]">
+                <div className="rounded-md border border-input overflow-hidden">
+                  {projects.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No projects available</div>
+                  )}
+                  {projects.map((p, idx) => {
+                    const selected = projectId === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors',
+                          idx !== projects.length - 1 && 'border-b border-input',
+                          selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+                        )}
+                        onClick={() => {
+                          setProjectId(p.id)
+                          setProjectPickerOpen(false)
+                        }}
+                        title={`Use project ${p.name}`}
+                      >
+                        <span>{p.icon?.startsWith('data:') ? '🖼️' : p.icon}</span>
+                        <span className="truncate flex-1">{p.name} ({p.shortname})</span>
+                        {selected && <Check className="h-4 w-4 text-primary" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </DropdownPicker>
           </div>
+
           <div>
-            <label className="text-sm font-medium block mb-1">Title</label>
+            <label className="text-sm font-medium block mb-1" title="Short summary of the requested work">
+              Title
+            </label>
             <input
               type="text"
               value={title}
@@ -55,17 +109,23 @@ export function TicketForm({ onClose }: TicketFormProps) {
               required
             />
           </div>
+
           <div>
-            <label className="text-sm font-medium block mb-1">Description</label>
+            <label className="text-sm font-medium block mb-1" title="Detailed implementation request">
+              Description
+            </label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[100px]"
-              placeholder="Describe what you want to build…"
+              placeholder="Describe what you want to build..."
             />
           </div>
+
           <div>
-            <label className="text-sm font-medium block mb-1">Priority</label>
+            <label className="text-sm font-medium block mb-1" title="Ticket urgency and processing order">
+              Priority
+            </label>
             <select
               value={priority}
               onChange={e => setPriority(Number(e.target.value))}
@@ -80,10 +140,13 @@ export function TicketForm({ onClose }: TicketFormProps) {
           </div>
         </CardContent>
       </Card>
+
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={createTicket.isPending || !projectId}>
-          {createTicket.isPending ? 'Creating…' : 'Create Ticket'}
+        <Button type="button" variant="outline" onClick={onClose} title="Close without creating ticket">
+          Cancel
+        </Button>
+        <Button type="submit" disabled={createTicket.isPending || !projectId} title="Create ticket in selected project">
+          {createTicket.isPending ? 'Creating...' : 'Create Ticket'}
         </Button>
       </div>
     </form>
