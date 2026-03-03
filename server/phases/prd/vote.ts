@@ -1,0 +1,16 @@
+import type { OpenCodeAdapter } from '../../opencode/adapter'
+import type { CouncilMember, DraftResult, Vote } from '../../council/types'
+import { conductVoting } from '../../council/voter'
+import { buildPromptFromTemplate, PROM11 } from '../../prompts/index'
+import type { PromptPart } from '../../opencode/types'
+
+export async function votePRD(
+  adapter: OpenCodeAdapter,
+  members: CouncilMember[],
+  drafts: DraftResult[],
+  ticketContext: PromptPart[],
+  projectPath: string,
+): Promise<Vote[]> {
+  const promptContent = buildPromptFromTemplate(PROM11, ticketContext.map(p => ({ type: p.type, content: p.content })))
+  return conductVoting(adapter, members, drafts, [{ type: 'text', content: promptContent }], projectPath)
+}

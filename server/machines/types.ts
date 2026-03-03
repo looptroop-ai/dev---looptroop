@@ -1,0 +1,82 @@
+export interface TicketContext {
+  ticketId: string
+  projectId: number
+  externalId: string
+  title: string
+  status: string
+  previousStatus: string | null
+  error: string | null
+  errorCodes: string[]
+  beadProgress: {
+    total: number
+    completed: number
+    current: string | null
+  }
+  iterationCount: number
+  maxIterations: number
+  councilResults: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type TicketEvent =
+  | { type: 'START' }
+  | { type: 'QUESTIONS_READY'; result: Record<string, unknown> }
+  | { type: 'WINNER_SELECTED'; winner: string }
+  | { type: 'READY' }
+  | { type: 'ANSWER_SUBMITTED'; answers: Record<string, string> }
+  | { type: 'SKIP' }
+  | { type: 'COVERAGE_CLEAN' }
+  | { type: 'GAPS_FOUND' }
+  | { type: 'APPROVE' }
+  | { type: 'REJECT' }
+  | { type: 'DRAFTS_READY' }
+  | { type: 'REFINED' }
+  | { type: 'CHECKS_PASSED' }
+  | { type: 'CHECKS_FAILED'; errors: string[] }
+  | { type: 'BEAD_COMPLETE' }
+  | { type: 'BEAD_ERROR' }
+  | { type: 'ALL_BEADS_DONE' }
+  | { type: 'TESTS_PASSED' }
+  | { type: 'TESTS_FAILED' }
+  | { type: 'INTEGRATION_DONE' }
+  | { type: 'VERIFY_COMPLETE' }
+  | { type: 'CLEANUP_DONE' }
+  | { type: 'CANCEL' }
+  | { type: 'RETRY' }
+  | { type: 'ERROR'; message: string; codes?: string[] }
+
+// Kanban phase mapping
+export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
+
+export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
+  DRAFT: 'todo',
+  COUNCIL_DELIBERATING: 'in_progress',
+  COUNCIL_VOTING_INTERVIEW: 'in_progress',
+  COMPILING_INTERVIEW: 'in_progress',
+  WAITING_INTERVIEW_ANSWERS: 'needs_input',
+  VERIFYING_INTERVIEW_COVERAGE: 'in_progress',
+  WAITING_INTERVIEW_APPROVAL: 'needs_input',
+  DRAFTING_PRD: 'in_progress',
+  COUNCIL_VOTING_PRD: 'in_progress',
+  REFINING_PRD: 'in_progress',
+  VERIFYING_PRD_COVERAGE: 'in_progress',
+  WAITING_PRD_APPROVAL: 'needs_input',
+  DRAFTING_BEADS: 'in_progress',
+  COUNCIL_VOTING_BEADS: 'in_progress',
+  REFINING_BEADS: 'in_progress',
+  VERIFYING_BEADS_COVERAGE: 'in_progress',
+  WAITING_BEADS_APPROVAL: 'needs_input',
+  PRE_FLIGHT_CHECK: 'in_progress',
+  CODING: 'in_progress',
+  RUNNING_FINAL_TEST: 'in_progress',
+  INTEGRATING_CHANGES: 'in_progress',
+  WAITING_MANUAL_VERIFICATION: 'needs_input',
+  CLEANING_ENV: 'in_progress',
+  COMPLETED: 'done',
+  CANCELED: 'done',
+  BLOCKED_ERROR: 'needs_input',
+}
+
+export const ALL_STATES = Object.keys(STATUS_TO_PHASE)
+export const TERMINAL_STATES = ['COMPLETED', 'CANCELED'] as const

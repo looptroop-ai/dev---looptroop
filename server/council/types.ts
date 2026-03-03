@@ -1,0 +1,71 @@
+export type MemberOutcome = 'completed' | 'timed_out' | 'invalid_output'
+
+export interface CouncilMember {
+  modelId: string
+  name: string
+}
+
+export interface DraftResult {
+  memberId: string
+  content: string
+  outcome: MemberOutcome
+  duration: number
+}
+
+export interface VoteScore {
+  category: string
+  score: number
+  justification: string
+}
+
+export interface Vote {
+  voterId: string
+  draftId: string
+  scores: VoteScore[]
+  totalScore: number
+}
+
+export interface CouncilResult {
+  phase: string
+  drafts: DraftResult[]
+  votes: Vote[]
+  winnerId: string
+  winnerContent: string
+  refinedContent: string
+  memberOutcomes: Record<string, MemberOutcome>
+}
+
+// Phase-specific voting rubrics per cl-prompt.md PROM2/PROM11/PROM21
+export const VOTING_RUBRIC_INTERVIEW = [
+  { category: 'Coverage of requirements', weight: 20, description: 'Questions address all areas needed to write a PRD (features, constraints, non-goals, acceptance criteria)' },
+  { category: 'Correctness / feasibility', weight: 20, description: 'Questions are unambiguous, well-formed, and answerable by the target user' },
+  { category: 'Testability', weight: 20, description: 'Answers to these questions would yield verifiable, measurable PRD requirements' },
+  { category: 'Minimal complexity / good decomposition', weight: 20, description: 'Logical flow (Foundation → Structure → Assembly), no redundant or low-value questions, efficient use of the max_initial_questions budget' },
+  { category: 'Risks / edge cases addressed', weight: 20, description: 'Questions surface constraints, failure modes, non-goals, and potential blockers' },
+]
+
+export const VOTING_RUBRIC_PRD = [
+  { category: 'Coverage of requirements', weight: 20, description: 'PRD fully addresses all Interview Results including features, constraints, non-goals, and acceptance criteria' },
+  { category: 'Correctness / feasibility', weight: 20, description: 'Requirements are technically sound, internally consistent, and achievable' },
+  { category: 'Testability', weight: 20, description: 'Each requirement and acceptance criterion is specific, measurable, and verifiable' },
+  { category: 'Minimal complexity / good decomposition', weight: 20, description: 'Epics and user stories are well-structured, deduplicated, and appropriately scoped with detailed implementation steps' },
+  { category: 'Risks / edge cases addressed', weight: 20, description: 'Error states, performance constraints, security concerns, and failure modes are explicitly documented' },
+]
+
+export const VOTING_RUBRIC_BEADS = [
+  { category: 'Coverage of PRD requirements', weight: 20, description: 'Every in-scope user story and acceptance criterion maps to at least one bead with explicit verification steps' },
+  { category: 'Correctness / feasibility of technical approach', weight: 20, description: 'Bead descriptions are technically sound, implementation steps are achievable, and test commands are valid and runnable' },
+  { category: 'Quality and isolation of bead-scoped tests', weight: 20, description: 'Each bead defines its own targeted tests (not the full suite), with clear test commands and unambiguous pass/fail criteria' },
+  { category: 'Minimal complexity / good dependency management', weight: 20, description: 'Beads are the smallest independently-completable units, no circular or missing dependency edges, no oversized beads' },
+  { category: 'Risks / edge cases addressed', weight: 20, description: 'Failure modes, retry scenarios, edge cases from the PRD, and anti-patterns are captured in each bead Context & Architectural Guidance' },
+]
+
+export function getVotingRubricForPhase(phase: string) {
+  if (phase.startsWith('interview')) return VOTING_RUBRIC_INTERVIEW
+  if (phase.startsWith('prd')) return VOTING_RUBRIC_PRD
+  if (phase.startsWith('beads')) return VOTING_RUBRIC_BEADS
+  return VOTING_RUBRIC_INTERVIEW // default fallback
+}
+
+// Keep backward compat alias
+export const VOTING_RUBRIC = VOTING_RUBRIC_INTERVIEW

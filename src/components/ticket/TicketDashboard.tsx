@@ -1,0 +1,132 @@
+import { useState, useEffect, useCallback } from 'react'
+import { useTicket } from '@/hooks/useTickets'
+import { useSSE } from '@/hooks/useSSE'
+import { useUI } from '@/context/UIContext'
+import { LogProvider, formatLogLine, useLogs } from '@/context/LogContext'
+import { DashboardHeader } from './DashboardHeader'
+import { NavigatorPanel } from './NavigatorPanel'
+import { ActiveWorkspace } from './ActiveWorkspace'
+import { ResizeHandle } from './ResizeHandle'
+import { Menu, X } from 'lucide-react'
+
+function SSELogConnector({ ticketId }: { ticketId: number | null }) {
+  const logCtx = useLogs()
+
+  useEffect(() => {
+    logCtx?.clearLogs()
+  }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
+    if (event.type === 'log') {
+      logCtx?.addLog(formatLogLine(event.data))
+    }
+  }, [logCtx?.addLog]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useSSE({ ticketId, onEvent: handleEvent })
+
+  return null
+}
+
+export function TicketDashboard() {
+  const { state, dispatch } = useUI()
+  const ticketId = state.selectedTicketId
+  const { data: ticket } = useTicket(ticketId)
+  const [navWidth, setNavWidth] = useState(280)
+  const [selectedPhase, setSelectedPhase] = useState<string | null>(null)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
+
+  // Reset selected phase when ticket changes
+  useEffect(() => {
+    setSelectedPhase(null)
+  }, [ticketId])
+
+  // Escape key closes dashboard
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (mobileNavOpen) {
+          setMobileNavOpen(false)
+        } else {
+          dispatch({ type: 'CLOSE_TICKET' })
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [dispatch, mobileNavOpen])
+
+  if (!ticketId || !ticket) return null
+
+  const activePhase = selectedPhase ?? ticket.status
+
+  return (
+    <LogProvider>
+    <SSELogConnector ticketId={ticketId} />
+    <div className="fixed inset-0 z-[60] bg-background flex flex-col">
+      <DashboardHeader ticket={ticket} />
+
+      {/* Mobile nav toggle */}
+      <div className="md:hidden flex items-center px-3 py-2 border-b border-border">
+        <button
+          className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="Open navigation"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Mobile nav overlay */}
+      {mobileNavOpen && (
+        <div className="md:hidden fixed inset-0 z-[70]">
+          <div className="fixed inset-0 bg-black/50" onClick={closeMobileNav} />
+          <div className="fixed left-0 top-0 bottom-0 z-[71] w-72 bg-background border-r border-border shadow-xl flex flex-col">
+            <div className="flex items-center justify-end p-2">
+              <button
+                className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
+                onClick={closeMobileNav}
+                aria-label="Close navigation"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <NavigatorPanel
+                ticketId={ticket.id}
+                currentStatus={ticket.status}
+                selectedPhase={activePhase}
+                onSelectPhase={(phase) => {
+                  setSelectedPhase(phase)
+                  setMobileNavOpen(false)
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Navigator Panel — hidden on mobile */}
+        <div
+          className="hidden md:block flex-shrink-0 border-r border-border overflow-hidden"
+          style={{ width: navWidth }}
+        >
+          <NavigatorPanel
+            ticketId={ticket.id}
+            currentStatus={ticket.status}
+            selectedPhase={activePhase}
+            onSelectPhase={setSelectedPhase}
+          />
+        </div>
+        <ResizeHandle onResize={setNavWidth} />
+        {/* Active Workspace */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <ActiveWorkspace ticket={ticket} selectedPhase={activePhase} />
+        </div>
+      </div>
+    </div>
+    </LogProvider>
+  )
+}
