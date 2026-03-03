@@ -70,16 +70,21 @@ async function handleInterviewDeliberate(
     throw new Error(msg)
   }
 
-  // Step 3: Resolve council members
-  const profile = db.select().from(profiles).get()
+  // Step 3: Resolve council members from locked config (frozen at ticket start)
   let members: Array<{ modelId: string; name: string }> = []
 
-  if (profile?.councilMembers) {
-    try {
-      const modelIds = JSON.parse(profile.councilMembers) as string[]
-      members = modelIds.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
-    } catch {
-      // fallback below
+  if (context.lockedCouncilMembers && context.lockedCouncilMembers.length > 0) {
+    members = context.lockedCouncilMembers.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+  } else {
+    // Fallback: read from profile only if no locked config (legacy tickets)
+    const profile = db.select().from(profiles).get()
+    if (profile?.councilMembers) {
+      try {
+        const modelIds = JSON.parse(profile.councilMembers) as string[]
+        members = modelIds.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+      } catch {
+        // fallback below
+      }
     }
   }
 

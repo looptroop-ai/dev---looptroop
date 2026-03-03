@@ -1,4 +1,5 @@
 import type { Session, Message, PromptPart, StreamEvent, HealthStatus } from './types'
+import type { TicketState } from './contextBuilder'
 
 export interface OpenCodeAdapter {
   createSession(projectPath: string): Promise<Session>
@@ -46,10 +47,14 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       })
       if (!res.ok) throw new Error(`OpenCode API error: ${res.status}`)
       const data = (await res.json()) as { parts?: Array<{ type: string; text?: string }> }
-      return (data.parts ?? [])
+      const responseText = (data.parts ?? [])
         .filter(p => p.type === 'text')
         .map(p => p.text ?? '')
         .join('')
+      if (!responseText) {
+        console.warn(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
+      }
+      return responseText
     } catch (err) {
       throw new Error(
         `Failed to prompt OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
@@ -83,12 +88,48 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
   async assembleBeadContext(ticketId: string, beadId: string): Promise<PromptPart[]> {
     const { buildMinimalContext } = await import('./contextBuilder')
-    return buildMinimalContext('coding', { ticketId }, beadId)
+    const ticketState = await this.loadTicketState(ticketId)
+    console.log(`[adapter] assembleBeadContext ticket=${ticketId} bead=${beadId} hasDescription=${!!ticketState.description}`)
+    return buildMinimalContext('coding', ticketState, beadId)
   }
 
   async assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]> {
     const { buildMinimalContext } = await import('./contextBuilder')
-    return buildMinimalContext(phase, { ticketId })
+    const ticketState = await this.loadTicketState(ticketId)
+    console.log(`[adapter] assembleCouncilContext ticket=${ticketId} phase=${phase} hasDescription=${!!ticketState.description} hasCodebaseMap=${!!ticketState.codebaseMap}`)
+    return buildMinimalContext(phase, ticketState)
+  }
+
+  private async loadTicketState(ticketId: string): Promise<TicketState> {
+    const { db } = await import('../db/index')
+    const { tickets } = await import('../db/schema')
+    const { existsSync, readFileSync } = await import('fs')
+    const { resolve } = await import('path')
+
+    const state: TicketState = { ticketId }
+
+    // Try to load ticket from DB (ticketId may be externalId or numeric id)
+    const allTickets = db.select().from(tickets).all()
+    const ticket = allTickets.find(t => t.externalId === ticketId || String(t.id) === ticketId)
+    if (ticket) {
+      state.title = ticket.title
+      state.description = ticket.description ?? undefined
+    } else {
+      console.warn(`[adapter] loadTicketState: ticket not found in DB for id=${ticketId}`)
+    }
+
+    // Try to load codebase-map.yaml
+    const externalId = ticket?.externalId ?? ticketId
+    const codebaseMapPath = resolve(process.cwd(), '.looptroop/worktrees', externalId, '.ticket', 'codebase-map.yaml')
+    if (existsSync(codebaseMapPath)) {
+      try {
+        state.codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
+      } catch (err) {
+        console.warn(`[adapter] Failed to read codebase-map.yaml:`, err)
+      }
+    }
+
+    return state
   }
 
   async checkHealth(): Promise<HealthStatus> {

@@ -112,6 +112,8 @@ export function buildMinimalContext(
     )
   }
 
+  console.log(`[contextBuilder] buildMinimalContext phase=${phase} ticket=${ticketState.ticketId} allowlist=[${allowlist.join(',')}]`)
+
   const parts: { source: string; content: string }[] = []
 
   // Assemble allowed context sources
@@ -120,7 +122,13 @@ export function buildMinimalContext(
 
     switch (source) {
       case 'ticket_details': {
-        const content = `# Ticket: ${ticketState.title ?? 'Untitled'}\n${ticketState.description ?? ''}`
+        const title = ticketState.title ?? 'Untitled'
+        const desc = ticketState.description ?? ''
+        const content = `# Ticket: ${title}\n${desc}`
+        if (!desc) {
+          console.warn(`[contextBuilder] ticket_details: description is empty for ticket=${ticketState.ticketId}`)
+        }
+        console.log(`[contextBuilder] ticket_details: title="${title}" descLength=${desc.length}`)
         parts.push({ source, content })
         break
       }
@@ -128,6 +136,11 @@ export function buildMinimalContext(
         const cached = getCachedContext(cacheKey)
         const content = cached ?? ticketState.codebaseMap ?? '# Codebase map not yet generated'
         if (!cached && ticketState.codebaseMap) setCachedContext(cacheKey, content)
+        if (!ticketState.codebaseMap && !cached) {
+          console.warn(`[contextBuilder] codebase_map: not available for ticket=${ticketState.ticketId}, using placeholder`)
+        } else {
+          console.log(`[contextBuilder] codebase_map: loaded (${content.length} chars, cached=${!!cached})`)
+        }
         parts.push({ source, content })
         break
       }
@@ -220,6 +233,11 @@ export function buildMinimalContext(
         parts.splice(idx, 1)
       }
     }
+  }
+
+  console.log(`[contextBuilder] phase=${phase} assembled ${parts.length} parts, totalTokens=${parts.reduce((s, p) => s + estimateTokens(p.content), 0)}`)
+  if (parts.length === 0) {
+    console.warn(`[contextBuilder] WARNING: context is empty for phase=${phase} ticket=${ticketState.ticketId}`)
   }
 
   // Convert to PromptParts
