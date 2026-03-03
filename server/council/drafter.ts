@@ -34,9 +34,10 @@ export async function generateDrafts(
       }
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === 'Timeout'
+      const errorDetail = err instanceof Error ? err.message : String(err)
       return {
         memberId: member.modelId,
-        content: '',
+        content: isTimeout ? '' : `error: ${errorDetail}`,
         outcome: isTimeout ? 'timed_out' : 'invalid_output',
         duration: Date.now() - startTime,
       }

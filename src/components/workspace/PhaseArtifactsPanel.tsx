@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { FileText, Users, CheckCircle2, Clock, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
+import { FileText, Users, CheckCircle2, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
 
 interface PhaseArtifactsPanelProps {
   phase: string
@@ -38,6 +38,36 @@ function getModelIcon(name: string): string {
 
 function getModelDisplayName(id: string): string {
   return id.split('/').pop() ?? id
+}
+
+function getStatusEmoji(outcome?: string, action?: string): string {
+  if (outcome === 'timed_out') return '⏰'
+  if (outcome === 'invalid_output') return '❌'
+  if (outcome === 'completed') return '✅'
+  if (action === 'drafting') return '✏️'
+  if (action === 'scoring') return '⏳'
+  if (action === 'refining') return '🔄'
+  if (action === 'verifying') return '🔍'
+  return '✏️'
+}
+
+function getPhaseAction(phase: string): string {
+  if (phase.includes('DELIBERATING') || phase.includes('DRAFTING')) return 'drafting'
+  if (phase.includes('VOTING')) return 'scoring'
+  if (phase.includes('COMPILING') || phase.includes('REFINING')) return 'refining'
+  if (phase.includes('VERIFYING')) return 'verifying'
+  return 'drafting'
+}
+
+function extractDraftDetail(content: string | null): string {
+  if (!content) return ''
+  const questionMatch = content.match(/(\d+)\s*(?:questions|Q)/i)
+  if (questionMatch) return `proposed ${questionMatch[1]} questions`
+  const scoreMatch = content.match(/(\d+\.?\d*)\s*\/\s*10/i)
+  if (scoreMatch) return `scored ${scoreMatch[1]}/10`
+  const lineCount = content.split('\n').filter(l => l.trim()).length
+  if (lineCount > 0) return `${lineCount} lines`
+  return ''
 }
 
 // Try to parse content as JSON CouncilResult
@@ -257,19 +287,23 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
     if (!raw) return `Model ${i + 1}`
     return raw.includes('/') ? raw.split('/').pop()! : raw
   }
+  const memberIcon = (i: number) => {
+    const raw = councilMemberNames?.[i]
+    return raw ? getModelIcon(raw) : '⚪'
+  }
   if (phase === 'COUNCIL_DELIBERATING') {
     return Array.from({ length: councilMemberCount }, (_, i) => ({
       id: `draft-${i + 1}`,
-      label: `Interview Draft — ${memberLabel(i)}`,
+      label: `${memberIcon(i)} Interview Draft — ${memberLabel(i)}`,
       description: 'Independent question set draft',
       icon: <FileText className="h-3.5 w-3.5" />,
     }))
   }
   if (phase === 'COUNCIL_VOTING_INTERVIEW') {
-    return [{ id: 'votes', label: 'Voting Results', description: 'Weighted scoring rubric results', icon: <Users className="h-3.5 w-3.5" /> }]
+    return [{ id: 'votes', label: '⏳ Voting Results', description: 'Weighted scoring rubric results', icon: <Users className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COMPILING_INTERVIEW') {
-    return [{ id: 'final-interview', label: 'Final Interview Questions', description: 'Compiled question set', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'final-interview', label: '🔄 Final Interview Questions', description: 'Compiled question set', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'WAITING_INTERVIEW_ANSWERS' || phase === 'VERIFYING_INTERVIEW_COVERAGE') {
     return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -280,16 +314,16 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
   if (phase === 'DRAFTING_PRD') {
     return Array.from({ length: councilMemberCount }, (_, i) => ({
       id: `prd-draft-${i + 1}`,
-      label: `PRD Draft — ${memberLabel(i)}`,
+      label: `${memberIcon(i)} PRD Draft — ${memberLabel(i)}`,
       description: 'Independent PRD draft',
       icon: <FileText className="h-3.5 w-3.5" />,
     }))
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
-    return [{ id: 'prd-votes', label: 'PRD Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> }]
+    return [{ id: 'prd-votes', label: '⏳ PRD Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'REFINING_PRD' || phase === 'VERIFYING_PRD_COVERAGE') {
-    return [{ id: 'refined-prd', label: 'Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'refined-prd', label: '🔄 Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'WAITING_PRD_APPROVAL') {
     return [{ id: 'prd-yaml', label: 'prd.yaml', description: 'Final PRD artifact', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -297,16 +331,16 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
   if (phase === 'DRAFTING_BEADS') {
     return Array.from({ length: councilMemberCount }, (_, i) => ({
       id: `beads-draft-${i + 1}`,
-      label: `Beads Draft — ${memberLabel(i)}`,
+      label: `${memberIcon(i)} Beads Draft — ${memberLabel(i)}`,
       description: 'Independent beads breakdown',
       icon: <FileText className="h-3.5 w-3.5" />,
     }))
   }
   if (phase === 'COUNCIL_VOTING_BEADS') {
-    return [{ id: 'beads-votes', label: 'Beads Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> }]
+    return [{ id: 'beads-votes', label: '⏳ Beads Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'REFINING_BEADS' || phase === 'VERIFYING_BEADS_COVERAGE') {
-    return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'refined-beads', label: '🔄 Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'WAITING_BEADS_APPROVAL') {
     return [{ id: 'beads-jsonl', label: 'issues.jsonl', description: 'Final beads artifact', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -413,6 +447,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
 
   if (artifacts.length === 0) return null
 
+  const action = getPhaseAction(phase)
+
   // Match a UI artifact def to the closest DB artifact for this phase
   function findDbContent(artifactDef: ArtifactDef): string | null {
     const prefix = artifactDef.id.split('-')[0] ?? ''
@@ -422,26 +458,57 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     return match?.content ?? null
   }
 
+  // Extract outcome from DB artifact's CouncilResult for a specific draft index
+  function getDraftOutcome(artifactDef: ArtifactDef): { outcome?: string; detail?: string } {
+    const draftIndex = artifactDef.id.match(/(\d+)$/)?.[1]
+    if (!draftIndex) return {}
+    const content = findDbContent(artifactDef)
+    if (!content) return {}
+    const council = tryParseCouncilResult(content)
+    if (!council?.drafts) return { detail: extractDraftDetail(content) }
+    const idx = parseInt(draftIndex, 10) - 1
+    const draft = council.drafts[idx]
+    if (!draft) return {}
+    const isWinner = draft.memberId === council.winnerId
+    let detail = ''
+    if (draft.outcome === 'timed_out') detail = 'no response received'
+    else if (draft.outcome === 'invalid_output') detail = 'malformed response'
+    else {
+      const questionCount = (draft.content?.match(/\?/g) || []).length
+      if (questionCount > 2) detail = `proposed ${questionCount} questions`
+      else {
+        const lineCount = draft.content?.split('\n').filter((l: string) => l.trim()).length ?? 0
+        if (lineCount > 0) detail = `${lineCount} lines generated`
+      }
+    }
+    if (isWinner && draft.outcome === 'completed') detail = 'Winner — refining draft'
+    return { outcome: draft.outcome, detail }
+  }
+
   return (
     <>
       <div>
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">Artifacts</span>
         <div className="flex flex-row flex-wrap gap-2 mt-1">
-          {artifacts.map((artifact) => (
-            <button
-              key={artifact.id}
-              onClick={() => setViewingArtifact(artifact)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 hover:bg-accent/50 cursor-pointer transition-colors text-xs whitespace-nowrap"
-            >
-              <span className="text-muted-foreground">{artifact.icon}</span>
-              <span className="font-medium">{artifact.label}</span>
-              {isCompleted ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
-              ) : (
-                <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              )}
-            </button>
-          ))}
+          {artifacts.map((artifact) => {
+            const isDraft = artifact.id.match(/draft-\d+$/)
+            const { outcome, detail } = isDraft ? getDraftOutcome(artifact) : {}
+            const statusEmoji = outcome ? getStatusEmoji(outcome) : isCompleted ? '✅' : getStatusEmoji(undefined, action)
+            return (
+              <button
+                key={artifact.id}
+                onClick={() => setViewingArtifact(artifact)}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 hover:bg-accent/50 cursor-pointer transition-colors text-xs whitespace-nowrap"
+              >
+                <span className="text-muted-foreground">{artifact.icon}</span>
+                <div className="text-left">
+                  <span className="font-medium">{artifact.label}</span>
+                  {detail && <div className="text-[10px] text-blue-500">{detail}</div>}
+                </div>
+                <span className="ml-auto shrink-0">{statusEmoji}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 

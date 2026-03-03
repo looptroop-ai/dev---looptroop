@@ -2,7 +2,7 @@ import { createActor } from 'xstate'
 import { ticketMachine } from '../machines/ticketMachine'
 import type { TicketContext, TicketEvent } from '../machines/types'
 import { db } from '../db/index'
-import { profiles, projects, phaseArtifacts } from '../db/schema'
+import { profiles, projects, tickets, phaseArtifacts } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview } from '../phases/interview/deliberate'
@@ -10,6 +10,10 @@ import { OpenCodeSDKAdapter } from '../opencode/adapter'
 import type { CouncilResult } from '../council/types'
 import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType } from '../log/types'
+import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
+import { readFileSync, existsSync } from 'fs'
+import { resolve } from 'path'
+import { initializeTicket } from '../ticket/initialize'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -38,6 +42,35 @@ async function handleInterviewDeliberate(
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
 ) {
+  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
+  const projectPath = project?.folderPath ?? process.cwd()
+
+  // Step 1: Initialize ticket directory structure so logs can be written
+  const initResult = initializeTicket({ externalId: context.externalId, projectFolder: projectPath })
+  if (!initResult.success) {
+    const msg = `Ticket initialization failed: ${initResult.error}`
+    console.error(`[runner] ${msg}`)
+    emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', msg)
+    throw new Error(msg)
+  }
+
+  // Step 2: Health-check OpenCode before doing any work
+  try {
+    const health = await adapter.checkHealth()
+    if (!health.available) {
+      const msg = `OpenCode server is not running. Start it with \`opencode serve\`. (${health.error ?? 'connection refused'})`
+      emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', msg)
+      throw new Error(msg)
+    }
+  } catch (err) {
+    // Re-throw if we already formatted the message
+    if (err instanceof Error && err.message.startsWith('OpenCode server is not running')) throw err
+    const msg = `OpenCode server is not running. Start it with \`opencode serve\`. (${err instanceof Error ? err.message : String(err)})`
+    emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', msg)
+    throw new Error(msg)
+  }
+
+  // Step 3: Resolve council members
   const profile = db.select().from(profiles).get()
   let members: Array<{ modelId: string; name: string }> = []
 
@@ -54,17 +87,35 @@ async function handleInterviewDeliberate(
     members = [{ modelId: 'openai/gpt-5.3-codex', name: 'gpt-5.3-codex' }]
   }
 
-  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
-  const projectPath = project?.folderPath ?? process.cwd()
+  // Load ticket from DB to get full description
+  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+  const ticketDescription = ticket?.description ?? ''
 
-  const ticketContext = [
-    {
-      type: 'text' as const,
-      content: `Title: ${context.title}\nDescription: Interview questions for this ticket`,
-    },
-  ]
+  // Load codebase-map.yaml from disk if available
+  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
+  let codebaseMap: string | undefined
+  if (existsSync(codebaseMapPath)) {
+    try {
+      codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
+      console.log(`[runner] Loaded codebase-map.yaml (${codebaseMap.length} chars) for ticket ${context.externalId}`)
+    } catch (err) {
+      console.warn(`[runner] Failed to read codebase-map.yaml for ticket ${context.externalId}:`, err)
+    }
+  } else {
+    console.warn(`[runner] codebase-map.yaml not found at ${codebaseMapPath}`)
+  }
 
-  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', 'Interview council drafting started.')
+  // Build context via buildMinimalContext with full ticket state
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticketDescription,
+    codebaseMap,
+  }
+  const ticketContext = buildMinimalContext('interview_draft', ticketState)
+
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
 
   const result = await deliberateInterview(adapter, members, ticketContext, projectPath)
 
@@ -189,8 +240,12 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleInterviewDeliberate(ticketId, context, sendEvent)
         .catch(err => {
-          emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', String(err))
-          sendEvent({ type: 'ERROR', message: String(err) })
+          const errMsg = err instanceof Error ? err.message : String(err)
+          const isOpenCode = errMsg.includes('OpenCode server is not running')
+          const codes = isOpenCode ? ['OPENCODE_UNREACHABLE'] : ['QUORUM_NOT_MET']
+          console.error(`[runner] COUNCIL_DELIBERATING failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes })
         })
         .finally(() => {
           runningPhases.delete(key)
@@ -201,8 +256,10 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleInterviewVote(ticketId, result, context.externalId, sendEvent)
           .catch(err => {
-            emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', String(err))
-            sendEvent({ type: 'ERROR', message: String(err) })
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] COUNCIL_VOTING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg })
           })
           .finally(() => {
             runningPhases.delete(key)
@@ -214,8 +271,10 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleInterviewCompile(ticketId, result, context, sendEvent)
           .catch(err => {
-            emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'error', String(err))
-            sendEvent({ type: 'ERROR', message: String(err) })
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] COMPILING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg })
           })
           .finally(() => {
             runningPhases.delete(key)
