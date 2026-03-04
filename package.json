@@ -30,6 +30,11 @@
   },
   "homepage": "https://github.com/liviux/test-sonnet#readme",
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.1",
+    "@codemirror/lang-yaml": "^6.1.2",
+    "@codemirror/language": "^6.12.2",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.39.16",
     "@hono/node-server": "^1.19.9",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

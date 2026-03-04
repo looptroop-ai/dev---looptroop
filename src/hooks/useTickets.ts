@@ -88,6 +88,10 @@ interface InterviewQuestion {
 interface InterviewData {
   questions: InterviewQuestion[]
   raw: string | null
+  draft: {
+    answers: Record<string, string>
+  }
+  draftUpdatedAt: string | null
 }
 
 async function fetchInterview(ticketId: number): Promise<InterviewData> {
@@ -96,11 +100,14 @@ async function fetchInterview(ticketId: number): Promise<InterviewData> {
   return res.json()
 }
 
-async function submitAnswers(ticketId: number, answers: Record<string, string>): Promise<{ message: string }> {
+async function submitAnswers(
+  ticketId: number,
+  payload: { answers: Record<string, string> },
+): Promise<{ message: string }> {
   const res = await fetch(`/api/tickets/${ticketId}/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answers }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const err = await res.json()
@@ -109,11 +116,55 @@ async function submitAnswers(ticketId: number, answers: Record<string, string>):
   return res.json()
 }
 
-async function skipInterview(ticketId: number): Promise<{ message: string }> {
-  const res = await fetch(`/api/tickets/${ticketId}/skip`, { method: 'POST' })
+async function skipInterview(
+  ticketId: number,
+  payload: { answers: Record<string, string> } = { answers: {} },
+): Promise<{ message: string }> {
+  const res = await fetch(`/api/tickets/${ticketId}/skip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
   if (!res.ok) {
     const err = await res.json()
     throw new Error(err.error || 'Failed to skip')
+  }
+  return res.json()
+}
+
+interface TicketUIStateResponse<T = unknown> {
+  scope: string
+  exists: boolean
+  data: T | null
+  updatedAt: string | null
+}
+
+async function fetchTicketUIState<T = unknown>(
+  ticketId: number,
+  scope: string,
+): Promise<TicketUIStateResponse<T>> {
+  const params = new URLSearchParams({ scope })
+  const res = await fetch(`/api/tickets/${ticketId}/ui-state?${params.toString()}`)
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to fetch ticket UI state')
+  }
+  return res.json()
+}
+
+async function saveTicketUIState(
+  ticketId: number,
+  scope: string,
+  data: unknown,
+): Promise<{ success: boolean; scope: string; updatedAt: string }> {
+  const res = await fetch(`/api/tickets/${ticketId}/ui-state`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, data }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to save ticket UI state')
   }
   return res.json()
 }
@@ -178,11 +229,12 @@ export function useSubmitAnswers() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ ticketId, answers }: { ticketId: number; answers: Record<string, string> }) =>
-      submitAnswers(ticketId, answers),
+      submitAnswers(ticketId, { answers }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
       queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['ticket-ui-state', variables.ticketId, 'interview_qa'] })
     },
   })
 }
@@ -190,14 +242,42 @@ export function useSubmitAnswers() {
 export function useSkipInterview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketId }: { ticketId: number }) =>
-      skipInterview(ticketId),
+    mutationFn: ({ ticketId, answers = {} }: { ticketId: number; answers?: Record<string, string> }) =>
+      skipInterview(ticketId, { answers }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
       queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['ticket-ui-state', variables.ticketId, 'interview_qa'] })
     },
   })
 }
 
-export type { Ticket, CreateTicketInput, InterviewQuestion, InterviewData }
+export function useTicketUIState<T = unknown>(ticketId: number, scope: string, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['ticket-ui-state', ticketId, scope],
+    queryFn: () => fetchTicketUIState<T>(ticketId, scope),
+    enabled,
+  })
+}
+
+export function useSaveTicketUIState() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId, scope, data }: { ticketId: number; scope: string; data: unknown }) =>
+      saveTicketUIState(ticketId, scope, data),
+    onSuccess: (result, variables) => {
+      queryClient.setQueryData<TicketUIStateResponse<unknown>>(
+        ['ticket-ui-state', variables.ticketId, variables.scope],
+        () => ({
+          scope: variables.scope,
+          exists: true,
+          data: variables.data,
+          updatedAt: result.updatedAt,
+        }),
+      )
+    },
+  })
+}
+
+export type { Ticket, CreateTicketInput, InterviewQuestion, InterviewData, TicketUIStateResponse }

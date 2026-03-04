@@ -325,7 +325,10 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
     }))
   }
   if (phase === 'COUNCIL_VOTING_INTERVIEW') {
-    return [{ id: 'votes', label: '⏳ Voting Results', description: 'Weighted scoring rubric results', icon: <Users className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'votes', label: '⏳ Voting Results', description: 'Weighted scoring rubric results', icon: <Users className="h-3.5 w-3.5" /> },
+      { id: 'winner-draft', label: '🏆 Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'COMPILING_INTERVIEW') {
     return [{ id: 'final-interview', label: '🔄 Final Interview Questions', description: 'Compiled question set', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -345,7 +348,10 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
     }))
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
-    return [{ id: 'prd-votes', label: '⏳ PRD Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'prd-votes', label: '⏳ PRD Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> },
+      { id: 'winner-prd-draft', label: '🏆 Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'REFINING_PRD' || phase === 'VERIFYING_PRD_COVERAGE') {
     return [{ id: 'refined-prd', label: '🔄 Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -362,7 +368,10 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
     }))
   }
   if (phase === 'COUNCIL_VOTING_BEADS') {
-    return [{ id: 'beads-votes', label: '⏳ Beads Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'beads-votes', label: '⏳ Beads Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> },
+      { id: 'winner-beads-draft', label: '🏆 Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'REFINING_BEADS' || phase === 'VERIFYING_BEADS_COVERAGE') {
     return [{ id: 'refined-beads', label: '🔄 Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -388,12 +397,34 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
   return []
 }
 
-function ArtifactContent({ content, artifactId }: { content: string; artifactId?: string }) {
+function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
   // Try structured rendering for CouncilResult JSON
   const councilResult = tryParseCouncilResult(content)
   if (councilResult) {
     const isVotes = artifactId?.includes('vote')
     if (isVotes) return <VotingResultsView data={councilResult} />
+
+    const isWinnerArtifact = artifactId?.startsWith('winner')
+    if (isWinnerArtifact) {
+      const winnerDraft = councilResult.drafts?.find((d: any) => d.memberId === councilResult.winnerId)
+      const winnerContent = winnerDraft?.content ?? councilResult.winnerContent ?? ''
+      if (!winnerContent) return <div className="text-xs text-muted-foreground italic">Voting still in progress — winner not yet determined.</div>
+      const header = winnerDraft ? (
+        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+          <span className="text-lg">{getModelIcon(winnerDraft.memberId)}</span>
+          <div>
+            <div className="text-xs font-medium">{getModelDisplayName(winnerDraft.memberId)}</div>
+            <div className="text-[10px] text-muted-foreground">🏆 Winner{winnerDraft.duration ? ` · ${(winnerDraft.duration / 1000).toFixed(1)}s` : ''}</div>
+          </div>
+        </div>
+      ) : null
+      const isPrd = artifactId?.includes('prd')
+      const isBeads = artifactId?.includes('beads')
+      const structured = isPrd ? <PrdDraftView content={winnerContent} />
+        : isBeads ? <BeadsDraftView content={winnerContent} />
+        : <InterviewDraftView content={winnerContent} />
+      return <>{header}{structured || <RawContentView content={winnerContent} />}</>
+    }
 
     // For individual draft views, extract the specific draft
     const draftIndex = artifactId?.match(/(\d+)$/)?.[1]
@@ -415,7 +446,7 @@ function ArtifactContent({ content, artifactId }: { content: string; artifactId?
             <div className="text-[10px] text-muted-foreground">
               {draft.outcome === 'completed' ? '✅ Completed' : draft.outcome === 'timed_out' ? '⏰ Timed out' : '❌ Invalid output'}
               {draft.duration ? ` · ${(draft.duration / 1000).toFixed(1)}s` : ''}
-              {draft.memberId === councilResult.winnerId && <span className="ml-1 text-yellow-600">🏆 Winner</span>}
+              {draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING') && <span className="ml-1 text-yellow-600">🏆 Winner</span>}
             </div>
           </div>
         </div>
@@ -506,7 +537,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         if (lineCount > 0) detail = `${lineCount} lines generated`
       }
     }
-    if (isWinner && draft.outcome === 'completed') detail = 'Winner — refining draft'
+    const isThinkingPhase = phase.includes('DELIBERATING') || phase.includes('DRAFTING')
+    if (isWinner && draft.outcome === 'completed' && !isThinkingPhase) detail = 'Winner — refining draft'
     return { outcome: draft.outcome, detail }
   }
 
@@ -551,6 +583,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
               <ArtifactContent
                 artifactId={viewingArtifact?.id}
                 content={viewingArtifact ? (findDbContent(viewingArtifact) || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`) : ''}
+                phase={phase}
               />
             </div>
           </ScrollArea>

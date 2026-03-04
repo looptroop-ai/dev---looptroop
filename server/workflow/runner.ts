@@ -3,7 +3,7 @@ import { ticketMachine } from '../machines/ticketMachine'
 import type { TicketContext, TicketEvent } from '../machines/types'
 import { db } from '../db/index'
 import { profiles, projects, tickets, phaseArtifacts } from '../db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, and, desc } from 'drizzle-orm'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview } from '../phases/interview/deliberate'
 import { OpenCodeSDKAdapter } from '../opencode/adapter'
@@ -289,6 +289,29 @@ async function handleCoverageVerification(
     description: ticket?.description ?? '',
     codebaseMap,
     interview: councilResult.refinedContent,
+  }
+
+  const interviewUiState = db.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticketId),
+      eq(phaseArtifacts.phase, 'UI_STATE'),
+      eq(phaseArtifacts.artifactType, 'ui_state:interview_qa'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  if (interviewUiState) {
+    try {
+      const parsed = JSON.parse(interviewUiState.content) as {
+        data?: { answers?: Record<string, string> }
+      }
+      const answers = parsed?.data?.answers
+      if (answers && typeof answers === 'object') {
+        ticketState.userAnswers = JSON.stringify(answers)
+      }
+    } catch {
+      // Ignore malformed UI state payload and proceed with available context.
+    }
   }
 
   // Load additional artifacts from disk for PRD/beads coverage phases

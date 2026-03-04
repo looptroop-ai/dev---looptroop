@@ -1,8 +1,14 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useInterviewQuestions, useSubmitAnswers, useSkipInterview } from '@/hooks/useTickets'
+import {
+  useInterviewQuestions,
+  useSubmitAnswers,
+  useSkipInterview,
+  useTicketUIState,
+  useSaveTicketUIState,
+} from '@/hooks/useTickets'
 import type { Ticket, InterviewQuestion } from '@/hooks/useTickets'
 
 interface InterviewQAViewProps {
@@ -30,15 +36,65 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const { data: interviewData, isLoading } = useInterviewQuestions(ticket.id)
   const { mutate: submitAnswers, isPending: isSubmitting } = useSubmitAnswers()
   const { mutate: skipInterview, isPending: isSkipping } = useSkipInterview()
+  const { mutate: saveUiState } = useSaveTicketUIState()
+  const { data: persistedUiState } = useTicketUIState<{
+    answers?: Record<string, string>
+    currentIndex?: number
+    submittedIds?: string[]
+  }>(ticket.id, 'interview_qa', true)
 
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [currentIndex, setCurrentIndex] = useState(0)
   const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set())
   const [showPrevious, setShowPrevious] = useState(false)
   const currentRef = useRef<HTMLDivElement>(null)
+  const hydratedRef = useRef(false)
+  const lastSavedSnapshotRef = useRef('')
 
   const questions: InterviewQuestion[] = interviewData?.questions ?? []
   const totalQuestions = questions.length
+
+  const submittedIdList = useMemo(
+    () => Array.from(submittedIds).filter(Boolean).sort(),
+    [submittedIds],
+  )
+
+  useEffect(() => {
+    hydratedRef.current = false
+    lastSavedSnapshotRef.current = ''
+  }, [ticket.id])
+
+  useEffect(() => {
+    if (isLoading || hydratedRef.current) return
+
+    const source = persistedUiState?.data
+    const persistedAnswers = source?.answers
+    const persistedIndex = source?.currentIndex
+    const persistedSubmittedIds = source?.submittedIds
+
+    const nextAnswers = persistedAnswers && typeof persistedAnswers === 'object'
+      ? Object.fromEntries(
+        Object.entries(persistedAnswers).filter(([, value]) => typeof value === 'string'),
+      )
+      : {}
+
+    const maxIndex = Math.max(totalQuestions - 1, 0)
+    const nextIndexRaw = typeof persistedIndex === 'number' ? persistedIndex : 0
+    const nextIndex = Math.min(Math.max(nextIndexRaw, 0), maxIndex)
+    const nextSubmitted = Array.isArray(persistedSubmittedIds)
+      ? persistedSubmittedIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : []
+
+    setAnswers(nextAnswers)
+    setCurrentIndex(nextIndex)
+    setSubmittedIds(new Set(nextSubmitted))
+    lastSavedSnapshotRef.current = JSON.stringify({
+      answers: nextAnswers,
+      currentIndex: nextIndex,
+      submittedIds: [...new Set(nextSubmitted)].sort(),
+    })
+    hydratedRef.current = true
+  }, [isLoading, persistedUiState, totalQuestions])
 
   // Determine which questions are answered (non-empty answer text)
   const answeredIds = new Set(
@@ -62,6 +118,39 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     ? currentQuestion.priority.trim()
     : ''
   const answeredCount = answeredIds.size + skippedIds.size
+
+  useEffect(() => {
+    if (!hydratedRef.current || isLoading) return
+
+    const maxIndex = Math.max(totalQuestions - 1, 0)
+    const snapshot = {
+      answers,
+      currentIndex: Math.min(Math.max(currentIndex, 0), maxIndex),
+      submittedIds: submittedIdList,
+    }
+    const serialized = JSON.stringify(snapshot)
+
+    if (serialized === lastSavedSnapshotRef.current) return
+
+    const timer = window.setTimeout(() => {
+      lastSavedSnapshotRef.current = serialized
+      saveUiState({
+        ticketId: ticket.id,
+        scope: 'interview_qa',
+        data: snapshot,
+      })
+    }, 350)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    answers,
+    currentIndex,
+    submittedIdList,
+    isLoading,
+    totalQuestions,
+    saveUiState,
+    ticket.id,
+  ])
 
   // Auto-scroll to current question
   useEffect(() => {
@@ -100,7 +189,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   }
 
   const handleSkipAll = () => {
-    skipInterview({ ticketId: ticket.id })
+    skipInterview({ ticketId: ticket.id, answers })
   }
 
   const isBusy = isSubmitting || isSkipping

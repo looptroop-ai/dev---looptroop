@@ -1,7 +1,7 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { useTicketAction } from '@/hooks/useTickets'
+import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { useProfile } from '@/hooks/useProfile'
@@ -58,7 +58,13 @@ function BeadsStructuredView({ content }: { content: string }) {
 
 export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const { mutate: performAction, isPending } = useTicketAction()
+  const { mutate: saveUiState } = useSaveTicketUIState()
   const config = LABELS[artifactType] ?? { title: 'Review', description: '' }
+  const uiStateScope = `approval_${artifactType}`
+  const { data: persistedUiState } = useTicketUIState<{
+    editMode?: boolean
+    editedContent?: string
+  }>(ticket.id, uiStateScope, true)
   const { data: profile } = useProfile()
   const councilMemberNames = useMemo(() => {
     try { return profile?.councilMembers ? JSON.parse(profile.councilMembers) as string[] : [] }
@@ -73,6 +79,13 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
+  const restoredDraftRef = useRef(false)
+  const lastSavedSnapshotRef = useRef('')
+
+  useEffect(() => {
+    restoredDraftRef.current = false
+    lastSavedSnapshotRef.current = ''
+  }, [ticket.id, artifactType])
 
   // Load artifact file from server
   useEffect(() => {
@@ -91,13 +104,33 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
           : (data.content ?? '')
         setFileContent(content)
         setEditedContent(content)
+        setEditMode(false)
       })
       .catch(() => {
         setFileContent('')
         setEditedContent('')
+        setEditMode(false)
       })
       .finally(() => setLoading(false))
   }, [ticket.id, artifactType])
+
+  useEffect(() => {
+    if (loading || restoredDraftRef.current) return
+
+    const persisted = persistedUiState?.data
+    const nextEditMode = Boolean(persisted?.editMode)
+    const nextEditedContent = typeof persisted?.editedContent === 'string'
+      ? persisted.editedContent
+      : fileContent
+
+    setEditMode(nextEditMode)
+    setEditedContent(nextEditedContent)
+    lastSavedSnapshotRef.current = JSON.stringify({
+      editMode: nextEditMode,
+      editedContent: nextEditedContent,
+    })
+    restoredDraftRef.current = true
+  }, [loading, persistedUiState, fileContent])
 
   const handleToggleEdit = useCallback(() => {
     if (editMode) {
@@ -149,6 +182,25 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   }, [editedContent, ticket.id, artifactType])
 
   const hasChanges = editedContent !== fileContent
+
+  useEffect(() => {
+    if (loading || !restoredDraftRef.current) return
+
+    const snapshot = { editMode, editedContent }
+    const serialized = JSON.stringify(snapshot)
+    if (serialized === lastSavedSnapshotRef.current) return
+
+    const timer = window.setTimeout(() => {
+      lastSavedSnapshotRef.current = serialized
+      saveUiState({
+        ticketId: ticket.id,
+        scope: uiStateScope,
+        data: snapshot,
+      })
+    }, 350)
+
+    return () => window.clearTimeout(timer)
+  }, [loading, editMode, editedContent, saveUiState, ticket.id, uiStateScope])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">

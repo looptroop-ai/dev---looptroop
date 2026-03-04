@@ -22,6 +22,104 @@ const updateTicketSchema = z.object({
   priority: z.number().int().min(1).max(5).optional(),
 })
 
+const uiStateScopeSchema = z.object({
+  scope: z.string().min(1).max(80).regex(/^[a-zA-Z0-9:_-]+$/),
+})
+
+const upsertUiStateSchema = z.object({
+  scope: z.string().min(1).max(80).regex(/^[a-zA-Z0-9:_-]+$/),
+  data: z.unknown(),
+})
+
+const interviewAnswerPayloadSchema = z.object({
+  answers: z.record(z.string(), z.string()).default({}),
+})
+
+const UI_STATE_PHASE = 'UI_STATE'
+const UI_STATE_ARTIFACT_PREFIX = 'ui_state:'
+const MAX_UI_STATE_BYTES = 2097152
+
+function uiStateArtifactType(scope: string): string {
+  return `${UI_STATE_ARTIFACT_PREFIX}${scope}`
+}
+
+function readUiState(ticketId: number, scope: string): { data: unknown; updatedAt: string | null } | null {
+  const artifact = db.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticketId),
+      eq(phaseArtifacts.phase, UI_STATE_PHASE),
+      eq(phaseArtifacts.artifactType, uiStateArtifactType(scope)),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  if (!artifact) return null
+
+  try {
+    const parsed = JSON.parse(artifact.content) as { data?: unknown; updatedAt?: string | null }
+    if (parsed && typeof parsed === 'object' && 'data' in parsed) {
+      return { data: parsed.data, updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : artifact.createdAt }
+    }
+    return { data: parsed, updatedAt: artifact.createdAt }
+  } catch {
+    return { data: null, updatedAt: artifact.createdAt }
+  }
+}
+
+function upsertUiState(ticketId: number, scope: string, data: unknown): { updatedAt: string } {
+  const now = new Date().toISOString()
+  const payload = JSON.stringify({ data, updatedAt: now })
+
+  if (Buffer.byteLength(payload, 'utf8') > MAX_UI_STATE_BYTES) {
+    throw new Error(`UI state payload exceeds ${MAX_UI_STATE_BYTES} bytes`)
+  }
+
+  const artifactType = uiStateArtifactType(scope)
+
+  const existing = db.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticketId),
+      eq(phaseArtifacts.phase, UI_STATE_PHASE),
+      eq(phaseArtifacts.artifactType, artifactType),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  if (existing) {
+    db.update(phaseArtifacts)
+      .set({ content: payload })
+      .where(eq(phaseArtifacts.id, existing.id))
+      .run()
+  } else {
+    db.insert(phaseArtifacts)
+      .values({
+        ticketId,
+        phase: UI_STATE_PHASE,
+        artifactType,
+        content: payload,
+      })
+      .run()
+  }
+
+  return { updatedAt: now }
+}
+
+function normalizeInterviewDraft(data: unknown): { answers: Record<string, string> } {
+  if (!data || typeof data !== 'object') return { answers: {} }
+
+  const rawAnswers = (data as { answers?: unknown }).answers
+  if (!rawAnswers || typeof rawAnswers !== 'object') return { answers: {} }
+
+  const entries = Object.entries(rawAnswers as Record<string, unknown>)
+  const answers: Record<string, string> = {}
+  for (const [key, value] of entries) {
+    if (typeof value === 'string') {
+      answers[key] = value
+    }
+  }
+  return { answers }
+}
+
 ticketRouter.get('/tickets', (c) => {
   const projectId = c.req.query('project') ?? c.req.query('projectId')
   if (projectId) {
@@ -38,6 +136,57 @@ ticketRouter.get('/tickets/:id', (c) => {
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   return c.json(ticket)
+})
+
+ticketRouter.get('/tickets/:id/ui-state', (c) => {
+  const id = Number(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
+
+  const parsed = uiStateScopeSchema.safeParse({ scope: c.req.query('scope') ?? '' })
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid scope', details: parsed.error.flatten() }, 400)
+  }
+
+  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+
+  const state = readUiState(id, parsed.data.scope)
+  if (!state) {
+    return c.json({
+      scope: parsed.data.scope,
+      exists: false,
+      data: null,
+      updatedAt: null,
+    })
+  }
+
+  return c.json({
+    scope: parsed.data.scope,
+    exists: true,
+    data: state.data,
+    updatedAt: state.updatedAt,
+  })
+})
+
+ticketRouter.put('/tickets/:id/ui-state', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
+
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = upsertUiStateSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid UI state payload', details: parsed.error.flatten() }, 400)
+  }
+
+  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+
+  try {
+    const result = upsertUiState(id, parsed.data.scope, parsed.data.data)
+    return c.json({ success: true, scope: parsed.data.scope, updatedAt: result.updatedAt })
+  } catch (err) {
+    return c.json({ error: 'Failed to persist UI state', details: String(err) }, 500)
+  }
 })
 
 ticketRouter.post('/tickets', async (c) => {
@@ -211,9 +360,16 @@ ticketRouter.post('/tickets/:id/answer', async (c) => {
   }
 
   try {
-    ensureActorForTicket(id)
     const body = await c.req.json().catch(() => ({}))
-    sendTicketEvent(id, { type: 'ANSWER_SUBMITTED', answers: body.answers ?? {} })
+    const parsed = interviewAnswerPayloadSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
+    }
+
+    upsertUiState(id, 'interview_qa', { answers: parsed.data.answers })
+
+    ensureActorForTicket(id)
+    sendTicketEvent(id, { type: 'ANSWER_SUBMITTED', answers: parsed.data.answers })
   } catch (err) {
     console.error(`[tickets] Failed to send ANSWER_SUBMITTED to ticket ${id}:`, err)
     return c.json({ error: 'Failed to submit answer', details: String(err) }, 500)
@@ -224,7 +380,7 @@ ticketRouter.post('/tickets/:id/answer', async (c) => {
   return c.json({ message: 'Answer submitted', ticketId: id, status: updated?.status, state: state?.state })
 })
 
-ticketRouter.post('/tickets/:id/skip', (c) => {
+ticketRouter.post('/tickets/:id/skip', async (c) => {
   const id = Number(c.req.param('id'))
   if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
@@ -234,6 +390,14 @@ ticketRouter.post('/tickets/:id/skip', (c) => {
   }
 
   try {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = interviewAnswerPayloadSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
+    }
+
+    upsertUiState(id, 'interview_qa', { answers: parsed.data.answers })
+
     ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'SKIP' })
   } catch (err) {
@@ -382,12 +546,16 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
 
+  const uiState = readUiState(id, 'interview_qa')
+  const draft = normalizeInterviewDraft(uiState?.data)
+  const draftUpdatedAt = uiState?.updatedAt ?? null
+
   const artifact = db.select().from(phaseArtifacts)
     .where(and(eq(phaseArtifacts.ticketId, id), eq(phaseArtifacts.artifactType, 'interview_compiled')))
     .get()
 
   if (!artifact) {
-    return c.json({ questions: [], raw: null })
+    return c.json({ questions: [], raw: null, draft, draftUpdatedAt })
   }
 
   try {
@@ -403,9 +571,9 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
       questions = (yamlParsed as Record<string, unknown>).questions as unknown[]
     }
 
-    return c.json({ questions, raw })
+    return c.json({ questions, raw, draft, draftUpdatedAt })
   } catch {
-    return c.json({ questions: [], raw: artifact.content })
+    return c.json({ questions: [], raw: artifact.content, draft, draftUpdatedAt })
   }
 })
 

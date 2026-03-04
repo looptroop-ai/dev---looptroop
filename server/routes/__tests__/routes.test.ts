@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 import { Hono } from 'hono'
 import { db } from '../../db/index'
-import { profiles, projects, tickets, phaseArtifacts, opencodeSessions } from '../../db/schema'
+import { profiles, projects, tickets, phaseArtifacts, opencodeSessions, ticketStatusHistory } from '../../db/schema'
 import { initializeDatabase } from '../../db/init'
 import { health } from '../health'
 import { profileRouter } from '../profiles'
@@ -33,6 +33,7 @@ beforeEach(() => {
   // Clean tables in order respecting foreign keys
   db.delete(opencodeSessions).run()
   db.delete(phaseArtifacts).run()
+  db.delete(ticketStatusHistory).run()
   db.delete(tickets).run()
   db.delete(projects).run()
   db.delete(profiles).run()
@@ -431,6 +432,58 @@ describe('Specific workflow routes', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.message).toBe('Question skipped')
+  })
+
+  it('GET /api/tickets/:id/ui-state returns empty state when missing', async () => {
+    const res = await app.request(`/api/tickets/${ticketId}/ui-state?scope=interview_qa`)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.exists).toBe(false)
+    expect(json.data).toBeNull()
+  })
+
+  it('PUT /api/tickets/:id/ui-state persists and GET hydrates state', async () => {
+    const putRes = await app.request(`/api/tickets/${ticketId}/ui-state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'interview_qa',
+        data: {
+          answers: { q1: 'A1' },
+          currentIndex: 2,
+          submittedIds: ['q1'],
+        },
+      }),
+    })
+    expect(putRes.status).toBe(200)
+
+    const getRes = await app.request(`/api/tickets/${ticketId}/ui-state?scope=interview_qa`)
+    expect(getRes.status).toBe(200)
+    const json = await getRes.json()
+    expect(json.exists).toBe(true)
+    expect(json.data.answers.q1).toBe('A1')
+    expect(json.data.currentIndex).toBe(2)
+    expect(json.data.submittedIds).toEqual(['q1'])
+  })
+
+  it('POST /api/tickets/:id/answer also persists interview_qa UI state', async () => {
+    db.update(tickets)
+      .set({ status: 'WAITING_INTERVIEW_ANSWERS' })
+      .where(eq(tickets.id, ticketId))
+      .run()
+
+    const answerRes = await app.request(`/api/tickets/${ticketId}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers: { q2: 'Saved answer' } }),
+    })
+    expect(answerRes.status).toBe(200)
+
+    const stateRes = await app.request(`/api/tickets/${ticketId}/ui-state?scope=interview_qa`)
+    expect(stateRes.status).toBe(200)
+    const json = await stateRes.json()
+    expect(json.exists).toBe(true)
+    expect(json.data.answers.q2).toBe('Saved answer')
   })
 })
 
