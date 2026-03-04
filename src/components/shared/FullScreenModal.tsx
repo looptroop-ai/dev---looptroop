@@ -27,10 +27,10 @@ export function FullScreenModal({ open, onClose, title, children }: FullScreenMo
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="absolute top-2 right-2 z-10 flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:bg-destructive hover:text-white transition-colors"
-        title="Close window"
+        className="absolute top-3 right-3 z-10 flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted text-foreground hover:bg-destructive hover:text-white hover:border-destructive transition-colors"
+        title="Close window (Esc)"
       >
-        <X className="h-5 w-5" />
+        <X className="h-4 w-4" strokeWidth={2.5} />
       </button>
       <div className="flex items-center border-b border-border px-6 py-4 pr-10">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>

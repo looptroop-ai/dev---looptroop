@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { StatusIndicator } from './StatusIndicator'
@@ -131,6 +131,14 @@ export function PhaseTimeline({ currentStatus, onSelectPhase, selectedPhase }: P
   }, [currentStatus])
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set([Math.max(0, activeGroupIndex)]))
+
+  // Auto-collapse previous group and expand new active group when status changes
+  useEffect(() => {
+    const newActiveGroupIndex = PHASE_GROUPS.findIndex(g => g.phases.some(p => p.id === currentStatus))
+    if (newActiveGroupIndex >= 0) {
+      setExpandedGroups(new Set([newActiveGroupIndex]))
+    }
+  }, [currentStatus])
 
   const toggleGroup = (idx: number) => {
     setExpandedGroups(prev => {

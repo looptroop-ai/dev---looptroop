@@ -12,17 +12,6 @@ import { Menu, X } from 'lucide-react'
 function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null; currentStatus: string }) {
   const logCtx = useLogs()
 
-  // Only clear logs when ticket changes; preserve per-status logs across status transitions
-  useEffect(() => {
-    logCtx?.clearLogs()
-  }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (currentStatus) {
-      logCtx?.setActivePhase(currentStatus)
-    }
-  }, [currentStatus]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
     if (event.type === 'state_change') {
       const from = String(event.data.from ?? '')
@@ -91,7 +80,7 @@ export function TicketDashboard() {
   const activePhase = selectedPhase ?? ticket.status
 
   return (
-    <LogProvider>
+    <LogProvider ticketId={ticketId} currentStatus={ticket.status}>
     <SSELogConnector ticketId={ticketId} currentStatus={ticket.status} />
     <div className="fixed inset-0 z-[60] bg-background flex flex-col">
       <DashboardHeader ticket={ticket} />

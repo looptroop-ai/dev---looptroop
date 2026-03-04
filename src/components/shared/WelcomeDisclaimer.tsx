@@ -1,7 +1,9 @@
 import { useState } from 'react'
 
 export function WelcomeDisclaimer() {
-  const [show, setShow] = useState(() => !localStorage.getItem('looptroop-welcome-seen'))
+  const [show, setShow] = useState(() => {
+    try { return !localStorage.getItem('looptroop-welcome-seen') } catch { return true }
+  })
 
   const dismiss = () => {
     localStorage.setItem('looptroop-welcome-seen', 'true')

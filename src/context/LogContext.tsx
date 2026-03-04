@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
 
 export interface LogEntry {
   line: string
@@ -46,27 +46,59 @@ export function formatLogLine(data: Record<string, unknown>): { line: string; so
   return { line: `${tag} ${content}`, source: deriveSource(data) }
 }
 
-export function LogProvider({ children }: { children: ReactNode }) {
+export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: number | null; currentStatus?: string; children: ReactNode }) {
   const [logsByPhase, setLogsByPhase] = useState<Record<string, LogEntry[]>>({})
   const [activePhase, setActivePhase] = useState<string | null>(null)
+
+  // Load logs from localStorage when ticketId changes
+  useEffect(() => {
+    if (!ticketId) { setLogsByPhase({}); setActivePhase(null); return }
+    const loaded: Record<string, LogEntry[]> = {}
+    const prefix = `logs-${ticketId}-`
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(prefix)) {
+        const status = key.slice(prefix.length)
+        try { loaded[status] = JSON.parse(localStorage.getItem(key) || '[]') } catch { loaded[status] = [] }
+      }
+    }
+    setLogsByPhase(loaded)
+  }, [ticketId])
+
+  // Sync activePhase with currentStatus
+  useEffect(() => {
+    if (currentStatus) setActivePhase(currentStatus)
+  }, [currentStatus])
 
   const addLog = useCallback((phase: string, line: string, source?: string, status?: string) => {
     if (!phase) return
     const entry: LogEntry = { line, source: source ?? 'system', status: status ?? phase }
-    setLogsByPhase(prev => ({
-      ...prev,
-      [phase]: [...(prev[phase] ?? []), entry],
-    }))
-  }, [])
+    setLogsByPhase(prev => {
+      const updated = [...(prev[phase] ?? []), entry]
+      if (ticketId) {
+        try { localStorage.setItem(`logs-${ticketId}-${phase}`, JSON.stringify(updated)) } catch { /* quota exceeded */ }
+      }
+      return { ...prev, [phase]: updated }
+    })
+  }, [ticketId])
 
   const getLogsForPhase = useCallback((phase: string) => {
     return logsByPhase[phase] ?? []
   }, [logsByPhase])
 
   const clearLogs = useCallback(() => {
+    if (ticketId) {
+      const prefix = `logs-${ticketId}-`
+      const keysToRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith(prefix)) keysToRemove.push(key)
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k))
+    }
     setLogsByPhase({})
     setActivePhase(null)
-  }, [])
+  }, [ticketId])
 
   return (
     <LogContext.Provider value={{ logsByPhase, activePhase, addLog, getLogsForPhase, setActivePhase, clearLogs }}>

@@ -132,7 +132,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       const filePath = resolve(ticketDir, file)
       if (existsSync(filePath)) {
         try {
-          ;(state as Record<string, unknown>)[field] = readFileSync(filePath, 'utf-8')
+          ;(state as unknown as Record<string, unknown>)[field] = readFileSync(filePath, 'utf-8')
         } catch (err) {
           console.warn(`[adapter] Failed to read ${file}:`, err)
         }

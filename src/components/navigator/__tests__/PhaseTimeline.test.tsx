@@ -21,15 +21,15 @@ describe('PhaseTimeline', () => {
   it('shows Draft as active when currentStatus is DRAFT', () => {
     renderWithProviders(<PhaseTimeline currentStatus="DRAFT" />)
     // Planning group should be auto-expanded for DRAFT
-    expect(screen.getByText('Draft')).toBeInTheDocument()
+    expect(screen.getByText('Backlog')).toBeInTheDocument()
   })
 
   it('calls onSelectPhase when clicking a past phase', () => {
     const onSelect = vi.fn()
     renderWithProviders(<PhaseTimeline currentStatus="DRAFTING_PRD" onSelectPhase={onSelect} />)
-    // Expand To Do group to see Draft
+    // Expand To Do group to see Backlog
     fireEvent.click(screen.getByText('To Do'))
-    fireEvent.click(screen.getByText('Draft'))
+    fireEvent.click(screen.getByText('Backlog'))
     expect(onSelect).toHaveBeenCalledWith('DRAFT')
   })
 
@@ -45,7 +45,7 @@ describe('PhaseTimeline', () => {
     renderWithProviders(<PhaseTimeline currentStatus="CODING" />)
     // Interview group phases - expand to see waiting label
     fireEvent.click(screen.getByText('Interview'))
-    expect(screen.getByText(/Interviewing \(Q \?\/\?\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Interviewing/)).toBeInTheDocument()
     // Execution group is auto-expanded since CODING is active
     expect(screen.getByText(/Implementing \(Bead \?\/\?\)/)).toBeInTheDocument()
     expect(screen.getByText('Self-Testing')).toBeInTheDocument()

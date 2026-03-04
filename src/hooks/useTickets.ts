@@ -14,6 +14,8 @@ interface Ticket {
   totalBeads: number | null
   percentComplete: number | null
   errorMessage: string | null
+  lockedMainImplementer: string | null
+  lockedCouncilMembers: string | null
   startedAt: string | null
   plannedDate: string | null
   createdAt: string

@@ -65,6 +65,7 @@ function getStatusLabel(outcome?: string, action?: string): string {
 }
 
 function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: any[] }) {
+  const isDeliberating = phase.includes('DELIBERATING')
   // Try to parse CouncilResult from artifacts for this phase
   const phaseArtifact = artifacts.find(a => a.phase === phase || a.content)
   let councilResult: any = null
@@ -106,7 +107,7 @@ function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: an
               <div className="text-xs text-muted-foreground">
                 {getStatusEmoji(undefined, m.action)} {getStatusLabel(undefined, m.action)}
               </div>
-              {m.detail && <div className="text-xs text-blue-500">{m.detail}</div>}
+              {!isDeliberating && m.detail && <div className="text-xs text-blue-500">{m.detail}</div>}
             </div>
           </div>
         ))}
@@ -121,7 +122,7 @@ function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: an
       {councilResult.drafts.map((draft: any, i: number) => {
         const name = getModelDisplayName(draft.memberId)
         const icon = getModelIcon(draft.memberId)
-        const isWinner = draft.memberId === councilResult.winnerId
+        const isWinner = !isDeliberating && draft.memberId === councilResult.winnerId
         const questionCount = (draft.content?.match(/\?/g) || []).length
         const lineCount = (draft.content?.split('\n').filter((l: string) => l.trim()).length) ?? 0
 
@@ -132,14 +133,21 @@ function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: an
         else if (lineCount > 0) detail = `${lineCount} lines generated`
 
         // Check if this model has voting scores
-        const modelVotes = councilResult.votes?.filter((v: any) => v.draftId === draft.memberId)
-        const totalVoteScore = modelVotes?.reduce((s: number, v: any) => s + v.totalScore, 0)
-        if (totalVoteScore) {
-          const avgScore = (totalVoteScore / (modelVotes?.length || 1)).toFixed(1)
-          detail = `scored draft with ${avgScore}/10`
+        if (!isDeliberating) {
+          const modelVotes = councilResult.votes?.filter((v: any) => v.draftId === draft.memberId)
+          const totalVoteScore = modelVotes?.reduce((s: number, v: any) => s + v.totalScore, 0)
+          if (totalVoteScore) {
+            const avgScore = (totalVoteScore / (modelVotes?.length || 1)).toFixed(1)
+            detail = `scored draft with ${avgScore}/10`
+          }
+
+          if (isWinner && draft.outcome === 'completed') detail = 'Winner — refining draft'
         }
 
-        if (isWinner && draft.outcome === 'completed') detail = 'Winner — refining draft'
+        // During deliberating, only show error outcomes, not content details
+        if (isDeliberating && draft.outcome !== 'timed_out' && draft.outcome !== 'invalid_output') {
+          detail = ''
+        }
 
         return (
           <div key={i} className={`flex items-center gap-2 rounded-lg border px-3 py-2 min-w-[180px] ${isWinner ? 'border-yellow-400 dark:border-yellow-600 bg-yellow-50/50 dark:bg-yellow-950/30' : 'border-border'}`}>
@@ -218,7 +226,10 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
                     <span className="text-sm">{getModelIcon(member)}</span>
                     <span className="text-xs font-medium truncate">{getModelDisplayName(member)}</span>
                     <Badge variant="outline" className="text-[10px] ml-auto">
-                      {getStatusEmoji(undefined, memberAction)} {getStatusLabel(undefined, memberAction)}
+                      <span className={memberAction === 'drafting' || memberAction === 'refining' ? 'inline-block animate-wiggle' : memberAction === 'scoring' || memberAction === 'verifying' ? 'inline-block animate-pulse-scale' : ''}>
+                        {getStatusEmoji(undefined, memberAction)}
+                      </span>
+                      {' '}{getStatusLabel(undefined, memberAction)}
                     </Badge>
                   </div>
                 )

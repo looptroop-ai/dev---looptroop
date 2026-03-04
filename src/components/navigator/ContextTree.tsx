@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ChevronRight } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface ContextTreeProps {
   selectedPhase: string
@@ -142,20 +145,28 @@ function ContextRow({ item }: { item: ContextItem }) {
 }
 
 export function ContextTree({ selectedPhase }: ContextTreeProps) {
+  const [collapsed, setCollapsed] = useState(true)
   const items = getAllowedContextItems(selectedPhase)
 
   return (
     <div className="p-2">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5 hover:text-foreground transition-colors"
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-90')} />
         Allowed Context
-      </h4>
-      <ScrollArea className="max-h-[250px]">
-        <div className="space-y-0.5">
-          {items.map(item => (
-            <ContextRow key={item.id} item={item} />
-          ))}
-        </div>
-      </ScrollArea>
+        <span className="ml-auto text-[10px] font-normal normal-case">{items.length}</span>
+      </button>
+      {!collapsed && (
+        <ScrollArea className="max-h-[250px]">
+          <div className="space-y-0.5">
+            {items.map(item => (
+              <ContextRow key={item.id} item={item} />
+            ))}
+          </div>
+        </ScrollArea>
+      )}
     </div>
   )
 }

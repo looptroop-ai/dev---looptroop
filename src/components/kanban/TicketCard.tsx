@@ -235,7 +235,7 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
     <Card
       className={cn(
         'cursor-pointer p-3 transition-all hover:shadow-md',
-        isError && !errorSeen && 'animate-pulse border-destructive border-2 ring-2 ring-red-400/60 bg-red-50/40 dark:bg-red-950/20 shadow-[0_0_0_1px_rgba(239,68,68,0.45),0_10px_20px_rgba(239,68,68,0.25)]',
+        isError && !errorSeen && 'animate-pulse border-destructive border-2 ring-4 ring-red-500/70 bg-red-50/60 dark:bg-red-950/30 shadow-[0_0_0_2px_rgba(239,68,68,0.6),0_0_20px_rgba(239,68,68,0.4),0_10px_30px_rgba(239,68,68,0.3)]',
         isError && errorSeen && 'border-destructive border-2 bg-red-50/20 dark:bg-red-950/10',
       )}
       style={{ borderLeftWidth: '4px', borderLeftColor: projectColor ?? '#3b82f6' }}

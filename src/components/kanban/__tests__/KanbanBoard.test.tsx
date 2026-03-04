@@ -32,7 +32,7 @@ describe('KanbanBoard', () => {
 
   it('shows correct column descriptions', () => {
     renderWithProviders(<KanbanBoard />)
-    expect(screen.getByText('Draft tickets')).toBeInTheDocument()
+    expect(screen.getByText('Backlog')).toBeInTheDocument()
     expect(screen.getByText('Active workflow')).toBeInTheDocument()
     expect(screen.getByText('Waiting for user')).toBeInTheDocument()
     expect(screen.getByText('Completed tickets')).toBeInTheDocument()

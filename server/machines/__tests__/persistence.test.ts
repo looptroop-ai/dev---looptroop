@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 import { db } from '../../db/index'
-import { tickets, projects } from '../../db/schema'
+import { tickets, projects, phaseArtifacts, opencodeSessions } from '../../db/schema'
 import { initializeDatabase } from '../../db/init'
 import { eq } from 'drizzle-orm'
 import {
@@ -22,6 +22,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   stopAllActors()
+  db.delete(opencodeSessions).run()
+  db.delete(phaseArtifacts).run()
   db.delete(tickets).run()
   db.delete(projects).run()
 

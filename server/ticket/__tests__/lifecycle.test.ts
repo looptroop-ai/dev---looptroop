@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { existsSync, rmSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { db } from '../../db/index'
-import { projects, tickets } from '../../db/schema'
+import { projects, tickets, phaseArtifacts, opencodeSessions } from '../../db/schema'
 import { initializeDatabase } from '../../db/init'
 import { createTicket } from '../create'
 import { initializeTicket } from '../initialize'
@@ -13,6 +13,8 @@ describe('Ticket Lifecycle', () => {
   beforeEach(() => {
     initializeDatabase()
     // Clean up test data
+    db.delete(opencodeSessions).run()
+    db.delete(phaseArtifacts).run()
     db.delete(tickets).run()
     db.delete(projects).run()
     // Create test project

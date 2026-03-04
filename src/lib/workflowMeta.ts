@@ -9,11 +9,11 @@ export interface StatusLabelOptions {
 }
 
 const BASE_STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'Draft',
+  DRAFT: 'Backlog',
   COUNCIL_DELIBERATING: 'AI Council Thinking',
   COUNCIL_VOTING_INTERVIEW: 'Selecting Best Questions',
   COMPILING_INTERVIEW: 'Preparing Interview',
-  WAITING_INTERVIEW_ANSWERS: 'Interviewing (Q ?/?)',
+  WAITING_INTERVIEW_ANSWERS: 'Interviewing',
   VERIFYING_INTERVIEW_COVERAGE: 'Coverage Check (Interview)',
   WAITING_INTERVIEW_APPROVAL: 'Approving Interview',
   DRAFTING_PRD: 'Drafting Specs',
@@ -67,7 +67,7 @@ export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
 }
 
 export const STATUS_DESCRIPTIONS: Record<string, string> = {
-  DRAFT: 'Ticket created but inactive; waiting for Start.',
+  DRAFT: 'Ticket created but inactive; backlog item waiting for Start.',
   COUNCIL_DELIBERATING: 'Models generate initial interview questions and debate approach.',
   COUNCIL_VOTING_INTERVIEW: 'Models vote on the strongest interview draft.',
   COMPILING_INTERVIEW: 'Winning interview draft is consolidated.',
@@ -127,7 +127,7 @@ export const STATUS_ORDER: string[] = [
 const FALLBACK_LABELS = {
   blockedError: 'Error (reason)',
   coding: 'Implementing (Bead ?/?)',
-  waitingInterviewAnswers: 'Interviewing (Q ?/?)',
+  waitingInterviewAnswers: 'Interviewing',
 } as const
 
 function formatBlockedErrorLabel(errorMessage?: string | null): string {

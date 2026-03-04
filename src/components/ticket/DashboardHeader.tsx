@@ -118,15 +118,30 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{ticket.description}</p>
               </div>
             )}
-            <div className="col-span-2 border-t border-border pt-2 mt-1">
-              <span className="text-xs font-medium text-muted-foreground">Models Selected</span>
-              <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-                <div className="flex justify-between"><span>Main Implementer</span><span className="font-mono">claude-sonnet-4-20250514</span></div>
-                <div className="flex justify-between"><span>Council Member A</span><span className="font-mono">gpt-4.1</span></div>
-                <div className="flex justify-between"><span>Council Member B</span><span className="font-mono">gemini-2.5-pro</span></div>
-                <div className="flex justify-between"><span>Council Member C</span><span className="font-mono">claude-sonnet-4-20250514</span></div>
+            {ticket.updatedAt && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Last Updated</span>
+                <p className="mt-0.5">{new Date(ticket.updatedAt).toLocaleString()}</p>
               </div>
-            </div>
+            )}
+            {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers) && (
+              <div className="col-span-2 border-t border-border pt-2 mt-1">
+                <span className="text-xs font-medium text-muted-foreground">Models Selected</span>
+                <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+                  {ticket.lockedMainImplementer && (
+                    <div className="flex justify-between"><span>Main Implementer</span><span className="font-mono">{ticket.lockedMainImplementer}</span></div>
+                  )}
+                  {(() => {
+                    try {
+                      const members: string[] = ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : []
+                      return members.map((m, i) => (
+                        <div key={i} className="flex justify-between"><span>Council Member {String.fromCharCode(65 + i)}</span><span className="font-mono">{m}</span></div>
+                      ))
+                    } catch { return null }
+                  })()}
+                </div>
+              </div>
+            )}
             {ticket.branchName && (
               <div className="col-span-2">
                 <span className="text-xs font-medium text-muted-foreground">Branch</span>

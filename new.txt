@@ -1,42 +1,43 @@
-for each request below, for each image inspiration that i give you implement only what i requested, no other elements are needed to be changed. for each request check using agent-browser if you did an EXCELLENT work.
+Start the app. Opencode serve is running in another process if needed. For each request below check using agent-browser if you did an EXCELLENT work.
 
 
-1. make the clocked error status pop a little more when you first see it. as per architecture.md if the a ticket with blocked error is opened it wont pop up anymore after it was first opened.
-2. implement progress as in 1.png. exactly like that. and the color should be same sa the current status.
-3. next to logo add LoopTroop in a different font than rest of the project, something beautifull.
-4. for user icon implement the same icon select like for project icon select.
-5. i don't see a delete project button in edit project window. possibility to delete a project, which will delete all tickets and the project, only if they are all in to do and/or done. if tickets in an other column, delete project does not work.
-6. make priority icons a little more bolder, especially very high.
-7. make the x to close window for configuration, new ticket and projects slightly smaller than size of window title.
-8. for address bar links, make ticket address same as id (eg. http://localhost:5173/ticket/MBNK-15)
-9. the back to live button i want it centered in its element.
-10. when creating a project the (must be git-initilized) wil have an icon inside the brackets at the end. should be a green ok when the folder selected is git initialized, some orange icon when not selected yet and a red X icon when the folder selected is not.
-11. i am trying to create a new project and i get Folder is not a git repository error event hough it is.
-12. the artifacts are not showing correctly. The number of artifacts should be correct. eg. if there are 4 coucnil members in total, there should be 4 drafts and so on.
-13. started a ticket and i can't see the drafts created by each model.
-14. I STILL can't see anything in log. FIX THE LOG! READ latest docs for opencode using Reg MCP server and fix the log viewer.
-14.1 Splitting the log should be done per status, only what is necessary per status (eg. bead log should not exists until coding part).
-15. context in left panel should show what context is needed. it is different per status. read architecture.md to understand what each status should include in context. and there is an > in context iin left panel bottom and i don't understand why, it is not needed.
-16. when user uploads an icon you should resize it to make it as needeed, to ocupy less space.
-17. i think even the app logo should be resized to occupy less space.
-18. i changed the logo of an existing project and now every time i opene it instead of logo it is this: data:image/png;base64,iVBORw0KGg...HUGELINEOFCHARACTERSggg==
-19. the cancel button is not working. it should cancel the ticket and move it to completed with canceled status. 
-20. check architecture.md and implement correcttly the state machine statuses.
-21. add tooltips, whenever hovering with mouse over an UI element it will exaplin what it is.
-22. while artifacts are stored correcttly in the app, when showed to the user they should be in a human friendly format, same for when user is allowed to do edits.
-23. for the window when a ticket is opened - create a new category on left panel, first one, where only tickets that are in to do are, no spinning circle should be present when a new ticket is created.
-24. voting resuslts artifact should show a human friendly version in UI.
-25. as in 3.png artifacts should show an icon/emoji and name of model and the action that it does, like drafting, timed out, etc. Adapt for each phase. show more details, like for example model x proposed 23 questions, modeel x scored draft A with 8.2/10. read architecture.md for what you need to do for this action point.
-26. delete all tickets and projects and add only 3 mock projects and 10 tickets in different phases. fill them with mock data for each previous statuses too.
-27. before the very end create a ticket and make a full lifecycle checking each status with agent-browser too see if it works coreectly.
+1. Rename "Draft" → "Backlog" in To Do phase
+2. Remove PhaseLogPanel from Draft/Backlog view
+3. Implement Interview Q&A batch system (InterviewQAView rework). During Interviewing status, read architecture.md spec what is needed. 
+4. Add artifact editing to Approving Interview, Approving Specs and Approving Blueprint as per architecture.md.
+5. There is an extra cancel button during implementingn, Remove it.
+6. whenever i first open the icon or color picker it first appears for a split second in top left corner. fix this flicker, check in code why this happens. Not sure if this happens when i select other similar elements.
+7. Unify icon picker: profile should match project
+8. Fix browse when selecting a folder that should be git-initilised. Fix it once and for all, make it compatible with linux, wsl and macos. The ideea is the icon next to must be git-initialized should be green when a git initialised folder is slected and red when it is not and orange when a folder is not selected yet. Creating a project shouldnt work if you don't select a git-initiliased folder.
+9. When a new phase starts it should collapse the main category on left panel.
+10. Restructure log filtering and per-status history.   - **ALL** tab: shows everything combined  - **SYS** tab: shows logs from app and system (state changes, init, git operations)  - **AI** tab: shows logs from OpenCode (model output, streaming)  - **ERROR** tab: shows errored output only  - **Per-model** tabs: show logs only for that specific model  - Each status should have its own log context — when switching to a new status, the log starts fresh for that status
+11. Log is still broken. i want to see all logs inside the log window as described in the point above. Persist log, save  it per status.
+12. proposed number of questions is wrong. sys should read the number of questions and show the correct number.
+13. during intervieweing there is a white small box or soemthing like that above the question, as per 7.png, i don't know why, remove it.
+14. when answering questions in interviewing, when you answer live a question it already appears in previous answers and question. I want it to appear only when user answers or skips. And the previous questions should be hidden behind a collapsble element or something. no need for artifacts in this phase. As per any other phase and status, persist the log, questions and answers, etc.
+15. During AI cOUncil thinking there should be only the drafts from each coucnil member, no info about who won the debate., that happens in next statuese. check architecture.md for corect flow.
+16. i am mostlly sure, as log does not work and i can't check, that correct context is not passed to ai models. check again architecture.md and see what context should opencode give to models. i think codebase map is not implemented correctlly or implemented at all.
+17. voting on best drafts phase passes too quickly, i think it is not implemented correctlly, check again arhictecture.md for the required flow. Here beside the voting results, add the winner draft too as artifact.
+18. coverage check status should be done with only winning ai council member, other ai models should not be present. plus i tested a ticket and is stuck at this phase, it is not implemented correctlly, check architecture.md.
+19. check all the app and see if there are nay more placeholders and if there are implement them correctlly as per architecture.md
+20. as per architecure.md durring approval statuses the artifact can be edited, read how to do it.
+21. i think, not sure, there a bug - Creating a new project and closing the window shows "progress will be lost" warning even though it should not, as a project was created sucesfully.
+22. In interviewing (Q x/y) there is no need for artifacts.
+23. make the pop-up effect for blocked-error a little more evident
+24. make the x to close window for configuration, new ticket and projects the same style as the one in closing a ticket, and fix orientation too, to be centered.
+25. in ticket details, model selected are not correct, it should show the models that were in configuration when ticket was started. when ticket is in to do, it shouldnt show this detail. Also add a last update date too. 
+26. can the icons be animated when there is a status that shows icons for different actions (eg when models create a draft it shows drafting with a pencil icon - can this pencil be animated).
+27. allowed context should be collapsed by default in left panel.
+28. voting results are surrely not done correctlly. check architecture.md and implement correctlly the flow, read what context should each model receive and make sure they do receive it via opencode.
+29. favicon should be logo.
 
 
 
-
-
-for ui changes use the skills available. if you need newer docuemntation use ref mcp server.
-architecture.md should be used in case some things are not fully understood, like for eg what per iteration timout is. check it for UI items that are not yet implemented or implemented wronglly (eg user editing an existing project can modify only the name, icon, and color).
+Delete the current projects and tickets and create 3 new mock projects with data and 20 mock tickets in different statuses, but add mock data for previous statuses too, respecting the files requirments.
+Before the very end create a ticket and make a full lifecycle checking each status with agent-browser to see if it works coreectly (including creating a project and a new ticket).
+For ui changes use the skills available. If you need newer docuemntation use ref mcp server.
+architecture.md should be used in case some things are not fully understood (especially for opencode).
 do check, lints and anything needed to check you implemented correctlly.
 
-
 At the very end check using curl and or agent-browser the app is working. wait 60 seconds and then check again and only then tell me that you finished.
+Check if anything else needs to be added to .gitignore. Then commit and push everything, including other files not modified during this session.

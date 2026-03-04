@@ -15,6 +15,7 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   const triggerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
+  const [positioned, setPositioned] = useState(false)
 
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return
@@ -31,8 +32,9 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   }, [])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) { setPositioned(false); return }
     updatePosition()
+    setPositioned(true)
     const handler = (e: MouseEvent) => {
       if (
         !ref.current?.contains(e.target as Node) &&
@@ -56,6 +58,7 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
             top: pos.openUp ? undefined : pos.top,
             bottom: pos.openUp ? window.innerHeight - pos.top + 4 : undefined,
             left: pos.left,
+            visibility: positioned ? 'visible' : 'hidden',
           }}
         >
           {children}
