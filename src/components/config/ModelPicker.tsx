@@ -9,6 +9,7 @@ interface ModelPickerProps {
   value: string
   onChange: (modelFullId: string) => void
   placeholder?: string
+  disabledValues?: string[]
 }
 
 function costLabel(input: number): { label: string; color: string } {
@@ -26,9 +27,10 @@ function ctxLabel(ctx: number): string {
   return String(ctx)
 }
 
-function ModelRow({ model, selected, onSelect }: {
+function ModelRow({ model, selected, disabled, onSelect }: {
   model: OpenCodeModel
   selected: boolean
+  disabled?: boolean
   onSelect: () => void
 }) {
   const cost = costLabel(model.costInput)
@@ -36,10 +38,12 @@ function ModelRow({ model, selected, onSelect }: {
     <button
       type="button"
       onClick={onSelect}
+      disabled={disabled}
       className={cn(
         'w-full text-left px-3 py-2.5 flex items-start gap-3 transition-colors',
         'hover:bg-accent focus:bg-accent outline-none',
         selected && 'bg-primary/8',
+        disabled && 'opacity-40 cursor-not-allowed hover:bg-transparent focus:bg-transparent',
       )}
     >
       <div className="flex-1 min-w-0">
@@ -83,7 +87,7 @@ function ModelRow({ model, selected, onSelect }: {
   )
 }
 
-export function ModelPicker({ value, onChange, placeholder = 'Search models…' }: ModelPickerProps) {
+export function ModelPicker({ value, onChange, placeholder = 'Search models…', disabledValues = [] }: ModelPickerProps) {
   const [showAll, setShowAll] = useState(false)
   const { data: connectedModels, isLoading: loadingConnected, isError: errorConnected } = useOpenCodeModels()
   const { data: allModels, isLoading: loadingAll, isError: errorAll } = useAllOpenCodeModels()
@@ -291,6 +295,7 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…' 
                     key={m.fullId}
                     model={m}
                     selected={m.fullId === value}
+                    disabled={m.fullId !== value && disabledValues.includes(m.fullId)}
                     onSelect={() => {
                       onChange(m.fullId)
                       setOpen(false)

@@ -293,6 +293,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
             <ModelPicker
               value={formData.mainImplementer ?? ''}
               onChange={v => updateField('mainImplementer', v)}
+              disabledValues={councilSlots.filter(Boolean)}
             />
             <p className="text-xs text-muted-foreground mt-1">Primary model used for code generation and implementation</p>
             {openCodeConnected === false && (
@@ -322,6 +323,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
                         setCouncilSlots(prev => prev.map((s, j) => j === i ? v : s))
                       }}
                       placeholder={`Council member ${i + 2}…`}
+                      disabledValues={[formData.mainImplementer, ...councilSlots.filter((s, j) => j !== i)].filter(Boolean)}
                     />
                   </div>
                   <button

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+// @ts-expect-error no type declarations for js-yaml
+import jsYaml from 'js-yaml'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText, Users, CheckCircle2, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
@@ -96,18 +98,38 @@ function CollapsibleSection({ title, defaultOpen = false, children }: { title: R
 
 // Render interview draft: Q&A pairs
 function InterviewDraftView({ content }: { content: string }) {
-  const lines = content.split('\n')
   const questions: { q: string; section?: string }[] = []
-  let currentSection = ''
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('#')) {
-      currentSection = trimmed.replace(/^#+\s*/, '')
-    } else if (/^\d+[\.\)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
-      const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/,'').replace(/\*\*$/,'')
-      if (q.length > 5) questions.push({ q, section: currentSection })
+
+  // Try YAML-first parsing (mirrors server/routes/tickets.ts:398-403)
+  let parsedFromYaml = false
+  try {
+    const parsed = jsYaml.load(content)
+    let items: any[] = []
+    if (Array.isArray(parsed)) items = parsed
+    else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).questions))
+      items = (parsed as any).questions
+    if (items.length > 0 && items.some((q: any) => q?.question)) {
+      for (const item of items) {
+        if (item?.question) questions.push({ q: item.question as string, section: item.category as string | undefined })
+      }
+      parsedFromYaml = true
+    }
+  } catch { /* fall through to line-by-line */ }
+
+  // Fallback: line-by-line markdown parsing
+  if (!parsedFromYaml) {
+    let currentSection = ''
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('#')) {
+        currentSection = trimmed.replace(/^#+\s*/, '')
+      } else if (/^\d+[\.\)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
+        const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/,'').replace(/\*\*$/,'')
+        if (q.length > 5) questions.push({ q, section: currentSection })
+      }
     }
   }
+
   if (questions.length === 0) return null
   const grouped = questions.reduce<Record<string, string[]>>((acc, { q, section }) => {
     const key = section || 'Questions'

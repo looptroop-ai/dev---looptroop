@@ -58,6 +58,9 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
 
   // Current question
   const currentQuestion = questions[currentIndex] ?? null
+  const currentPriority = typeof currentQuestion?.priority === 'string'
+    ? currentQuestion.priority.trim()
+    : ''
   const answeredCount = answeredIds.size + skippedIds.size
 
   // Auto-scroll to current question
@@ -189,9 +192,11 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                     <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                       {currentQuestion.category}
                     </span>
-                    <Badge variant={priorityBadgeVariant(currentQuestion.priority)} className="text-[10px] h-4">
-                      {currentQuestion.priority}
-                    </Badge>
+                    {currentPriority && (
+                      <Badge variant={priorityBadgeVariant(currentPriority)} className="text-[10px] h-4">
+                        {currentPriority}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs font-medium">{currentQuestion.question}</p>
                   {currentQuestion.rationale && (
