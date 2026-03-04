@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
+import { OpenCodeSDKAdapter } from '../opencode/adapter'
 
 const health = new Hono()
+const adapter = new OpenCodeSDKAdapter()
 
 health.get('/health', (c) => {
   return c.json({
@@ -10,11 +12,13 @@ health.get('/health', (c) => {
   })
 })
 
-health.get('/health/opencode', (c) => {
-  // Stub - will check OpenCode connectivity in Milestone 9
+health.get('/health/opencode', async (c) => {
+  const result = await adapter.checkHealth()
   return c.json({
-    status: 'unavailable',
-    message: 'OpenCode health check not yet implemented',
+    status: result.available ? 'ok' : 'unavailable',
+    version: result.version,
+    models: result.models ?? [],
+    ...(result.error ? { error: result.error } : {}),
   })
 })
 

@@ -45,10 +45,11 @@ describe('Health routes', () => {
     expect(json.timestamp).toBeDefined()
   })
 
-  it('GET /api/health/opencode returns unavailable stub', async () => {
+  it('GET /api/health/opencode returns health status from adapter', async () => {
     const res = await app.request('/api/health/opencode')
     expect(res.status).toBe(200)
     const json = await res.json()
+    // In test env, OpenCode won't be running so expect unavailable
     expect(json.status).toBe('unavailable')
   })
 })
@@ -298,7 +299,7 @@ describe('Ticket routes', () => {
 })
 
 describe('Models route', () => {
-  it('GET /api/models returns stub', async () => {
+  it('GET /api/models returns model list', async () => {
     const res = await app.request('/api/models')
     expect(res.status).toBe(200)
     const json = await res.json()

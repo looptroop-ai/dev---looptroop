@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Loader2, CheckCircle2, Circle, Play, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { useTicketAction } from '@/hooks/useTickets'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import type { Ticket } from '@/hooks/useTickets'
@@ -33,7 +32,6 @@ function generateBeads(total: number, current: number): BeadInfo[] {
 }
 
 export function CodingView({ ticket }: CodingViewProps) {
-  const { mutate: performAction, isPending } = useTicketAction()
   const [viewingBead, setViewingBead] = useState<number | null>(null)
   const total = ticket.totalBeads ?? 5
   const current = ticket.currentBead ?? 1
@@ -59,15 +57,6 @@ export function CodingView({ ticket }: CodingViewProps) {
           <div className="h-full bg-primary transition-all duration-500" style={{ width: `${percent}%` }} />
         </div>
         <span className="text-xs font-mono text-muted-foreground shrink-0">{current}/{total}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => performAction({ id: ticket.id, action: 'cancel' })}
-          disabled={isPending}
-          className="text-xs h-7 px-2 text-destructive"
-        >
-          Cancel
-        </Button>
       </div>
 
       {/* Viewing other bead banner */}
@@ -143,12 +132,12 @@ export function CodingView({ ticket }: CodingViewProps) {
               {viewedBead.status === 'completed' ? (
                 <div className="space-y-1">
                   <div className="text-green-600">[BEAD] {viewedBead.label} completed in {viewedBead.iterations}x iteration(s)</div>
-                  <div className="text-muted-foreground/50 italic">Historical logs will appear here when connected to backend.</div>
+                  <div className="text-muted-foreground/50 italic">Execution logs for this bead will stream here once the backend is connected.</div>
                 </div>
               ) : (
                 <div className="space-y-1">
                   <div className="text-purple-500">[BEAD] {viewedBead.label} — pending execution</div>
-                  <div className="text-muted-foreground/50 italic">Bead specification and plan will appear here when connected to backend.</div>
+                  <div className="text-muted-foreground/50 italic">Bead specification and execution plan will load once the backend is connected.</div>
                 </div>
               )}
             </div>

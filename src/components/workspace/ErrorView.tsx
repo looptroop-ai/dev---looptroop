@@ -25,7 +25,7 @@ export function ErrorView({ ticket }: ErrorViewProps) {
           <CardContent className="space-y-3 pb-3">
             <div className="bg-muted rounded-md p-3">
               <p className="text-xs font-mono text-muted-foreground">
-                {ticket.errorMessage || 'Error details will be displayed here with probable cause codes and diagnostic summary.'}
+                {ticket.errorMessage || 'An error occurred but no details were captured. Try retrying or check the server logs.'}
               </p>
             </div>
             <div className="flex gap-2 justify-end">
