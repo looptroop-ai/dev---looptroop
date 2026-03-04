@@ -134,6 +134,54 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
                 }
               >
                 <div className="w-80">
+                  <div className="mb-2 rounded-md border border-input bg-muted/30 p-2">
+                    <div className="text-xs text-muted-foreground mb-1">
+                      Upload your own image or select one below.
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                          const img = new Image()
+                          img.onload = () => {
+                            const maxSize = 128
+                            let w = img.width
+                            let h = img.height
+                            if (w > maxSize || h > maxSize) {
+                              const ratio = Math.min(maxSize / w, maxSize / h)
+                              w = Math.round(w * ratio)
+                              h = Math.round(h * ratio)
+                            }
+                            const canvas = document.createElement('canvas')
+                            canvas.width = w
+                            canvas.height = h
+                            const ctx = canvas.getContext('2d')!
+                            ctx.drawImage(img, 0, 0, w, h)
+                            updateField('icon', canvas.toDataURL('image/png'))
+                            setIconOpen(false)
+                          }
+                          img.src = reader.result as string
+                        }
+                        reader.readAsDataURL(file)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 border border-input rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Upload custom icon image"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Upload image
+                    </button>
+                  </div>
+
                   {/* Search bar */}
                   <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1.5 mb-2">
                     <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -152,7 +200,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
                     )}
                   </div>
 
-                  <div className="max-h-[350px] overflow-y-auto">
+                  <div className="max-h-[320px] overflow-y-auto pr-1">
                     {emojiSearch ? (
                       <div className="grid grid-cols-8 gap-1">
                         {EMOJI_CATEGORIES.flatMap(c => c.emojis)
@@ -218,49 +266,6 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
                     )}
                   </div>
 
-                  {/* Upload button */}
-                  <div className="border-t pt-2 mt-2 flex justify-end">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        const reader = new FileReader()
-                        reader.onload = () => {
-                          const img = new Image()
-                          img.onload = () => {
-                            const max = 128
-                            let w = img.width
-                            let h = img.height
-                            if (w > max || h > max) {
-                              const scale = Math.min(max / w, max / h)
-                              w = Math.round(w * scale)
-                              h = Math.round(h * scale)
-                            }
-                            const canvas = document.createElement('canvas')
-                            canvas.width = w
-                            canvas.height = h
-                            canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
-                            updateField('icon', canvas.toDataURL('image/png'))
-                            setIconOpen(false)
-                          }
-                          img.src = reader.result as string
-                        }
-                        reader.readAsDataURL(file)
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 border-2 border-border rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="h-4 w-4" />
-                      Upload
-                    </button>
-                  </div>
                 </div>
               </DropdownPicker>
               <p className="text-xs text-muted-foreground mt-1">Emoji avatar for your profile</p>
