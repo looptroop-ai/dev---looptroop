@@ -45,3 +45,16 @@ Thumbs.db
 .agent/
 .agents/
 .claude/
+
+# Database files
+*.db
+*.db-journal
+*.sqlite3
+
+# Cache and testing
+.eslintcache
+.vite/
+playwright-report/
+test-results/
+.playwright/
+.cache/
