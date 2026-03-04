@@ -30,6 +30,15 @@ export async function runCouncilPipeline(
     throw new Error(`Council quorum not met for ${phase}: ${quorum.message}`)
   }
 
+  // TODO: Per architecture.md §9.1 "context_refresh", context must be rebuilt via
+  // buildMinimalContext() between each council step (draft → vote → refine).
+  // Currently the pipeline reuses the draft-phase contextParts for voting and
+  // refinement. The phase-specific vote/refine functions (e.g. voteInterview,
+  // compileInterview) exist with correct PROM prompts but are not wired into
+  // this generic pipeline. Refactor to accept a context-builder callback or
+  // invoke the phase-specific functions so each step gets its own allowlist-
+  // enforced context (e.g. interview_vote, interview_refine).
+
   // Step 3: Vote — parallel anonymized voting
   const votes = await conductVoting(adapter, members, drafts, contextParts, projectPath, phase)
 

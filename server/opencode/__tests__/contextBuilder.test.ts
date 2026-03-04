@@ -63,9 +63,9 @@ describe('buildMinimalContext', () => {
       expect(parts.some((p) => p.content.includes('Q: What?'))).toBe(true)
     })
 
-    it('final_test should include codebase_map, ticket_details, prd, beads', () => {
+    it('final_test should include ticket_details, interview, prd, beads', () => {
       const parts = buildMinimalContext('final_test', baseTicketState)
-      // codebase_map + ticket_details + prd + beads = 4
+      // ticket_details + interview + prd + beads = 4
       expect(parts).toHaveLength(4)
     })
   })
@@ -183,8 +183,10 @@ describe('buildMinimalContext', () => {
         'beads_draft',
         'beads_vote',
         'beads_refine',
+        'beads_expand',
         'beads_coverage',
         'coding',
+        'context_wipe',
         'final_test',
         'preflight',
       ]

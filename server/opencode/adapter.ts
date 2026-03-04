@@ -118,14 +118,34 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       console.warn(`[adapter] loadTicketState: ticket not found in DB for id=${ticketId}`)
     }
 
-    // Try to load codebase-map.yaml
     const externalId = ticket?.externalId ?? ticketId
-    const codebaseMapPath = resolve(process.cwd(), '.looptroop/worktrees', externalId, '.ticket', 'codebase-map.yaml')
-    if (existsSync(codebaseMapPath)) {
+    const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', externalId, '.ticket')
+
+    // Load all available artifacts from disk so later phases get full context
+    const artifactLoaders: { file: string; field: keyof TicketState }[] = [
+      { file: 'codebase-map.yaml', field: 'codebaseMap' },
+      { file: 'interview.yaml', field: 'interview' },
+      { file: 'prd.yaml', field: 'prd' },
+    ]
+
+    for (const { file, field } of artifactLoaders) {
+      const filePath = resolve(ticketDir, file)
+      if (existsSync(filePath)) {
+        try {
+          ;(state as Record<string, unknown>)[field] = readFileSync(filePath, 'utf-8')
+        } catch (err) {
+          console.warn(`[adapter] Failed to read ${file}:`, err)
+        }
+      }
+    }
+
+    // Load beads from issues.jsonl
+    const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+    if (existsSync(beadsPath)) {
       try {
-        state.codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
+        state.beads = readFileSync(beadsPath, 'utf-8')
       } catch (err) {
-        console.warn(`[adapter] Failed to read codebase-map.yaml:`, err)
+        console.warn(`[adapter] Failed to read issues.jsonl:`, err)
       }
     }
 
