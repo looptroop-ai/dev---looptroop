@@ -11,6 +11,7 @@ import type { CouncilResult } from '../council/types'
 import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
+import { buildPromptFromTemplate, PROM5, PROM13, PROM24 } from '../prompts/index'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import { initializeTicket } from '../ticket/initialize'
@@ -228,6 +229,124 @@ async function handleInterviewCompile(
   })
 }
 
+/**
+ * Run coverage verification using ONLY the winning model from the council vote.
+ * Per architecture.md §B.I/II/III: "Coverage Verification Pass (winning AIC)"
+ */
+async function handleCoverageVerification(
+  ticketId: number,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+  phase: 'interview' | 'prd' | 'beads',
+) {
+  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
+  const projectPath = project?.folderPath ?? process.cwd()
+  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+
+  const stateLabel = phase === 'interview'
+    ? 'VERIFYING_INTERVIEW_COVERAGE'
+    : phase === 'prd'
+      ? 'VERIFYING_PRD_COVERAGE'
+      : 'VERIFYING_BEADS_COVERAGE'
+
+  // Resolve the council result to find the winning model
+  const councilResult = phaseResults.get(`${ticketId}:${phase}`)
+  if (!councilResult) {
+    const msg = `No council result found for ${phase} phase — cannot determine winning model`
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  const winnerId = councilResult.winnerId
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    stateLabel,
+    'info',
+    `Coverage verification started using winning model: ${winnerId}`,
+  )
+
+  // Select the appropriate prompt template and context phase
+  const promptTemplate = phase === 'interview' ? PROM5 : phase === 'prd' ? PROM13 : PROM24
+  const contextPhase = phase === 'interview'
+    ? 'interview_coverage'
+    : phase === 'prd'
+      ? 'prd_coverage'
+      : 'beads_coverage'
+
+  // Build context for the coverage verification phase
+  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
+  let codebaseMap: string | undefined
+  if (existsSync(codebaseMapPath)) {
+    try { codebaseMap = readFileSync(codebaseMapPath, 'utf-8') } catch { /* ignore */ }
+  }
+
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+    codebaseMap,
+    interview: councilResult.refinedContent,
+  }
+
+  // Load additional artifacts from disk for PRD/beads coverage phases
+  if (phase === 'prd' || phase === 'beads') {
+    const prdPath = resolve(ticketDir, 'prd.yaml')
+    if (existsSync(prdPath)) {
+      try { ticketState.prd = readFileSync(prdPath, 'utf-8') } catch { /* ignore */ }
+    }
+  }
+  if (phase === 'beads') {
+    const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+    if (existsSync(beadsPath)) {
+      try { ticketState.beads = readFileSync(beadsPath, 'utf-8') } catch { /* ignore */ }
+    }
+  }
+
+  const coverageContext = buildMinimalContext(contextPhase, ticketState)
+  const promptContent = buildPromptFromTemplate(
+    promptTemplate,
+    coverageContext.map(p => ({ type: p.type, content: p.content })),
+  )
+
+  // Use a single session for the winning model only (not all council members)
+  const session = await adapter.createSession(projectPath)
+  const response = await adapter.promptSession(session.id, [
+    { type: 'text', content: promptContent },
+  ])
+
+  // Parse response: detect gaps vs clean coverage
+  const lowerResponse = response.toLowerCase()
+  const hasGaps = lowerResponse.includes('gap') || lowerResponse.includes('missing')
+    || lowerResponse.includes('uncovered') || lowerResponse.includes('follow-up question')
+    || lowerResponse.includes('discrepanc')
+  const isClean = lowerResponse.includes('no gaps') || lowerResponse.includes('complete and ready')
+    || lowerResponse.includes('coverage is complete') || lowerResponse.includes('no discrepanc')
+    || lowerResponse.includes('ready for')
+
+  // Store the coverage verification artifact
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: stateLabel,
+      artifactType: `${phase}_coverage`,
+      content: JSON.stringify({ winnerId, response, hasGaps: hasGaps && !isClean }),
+    })
+    .run()
+
+  if (hasGaps && !isClean) {
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
+      `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
+    sendEvent({ type: 'GAPS_FOUND' })
+  } else {
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
+      `Coverage verification passed (winning model: ${winnerId}).`)
+    sendEvent({ type: 'COVERAGE_CLEAN' })
+  }
+}
+
 export function attachWorkflowRunner(
   ticketId: number,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
@@ -285,6 +404,42 @@ export function attachWorkflowRunner(
             runningPhases.delete(key)
           })
       }
+    } else if (state === 'VERIFYING_INTERVIEW_COVERAGE') {
+      runningPhases.add(key)
+      handleCoverageVerification(ticketId, context, sendEvent, 'interview')
+        .catch(err => {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] VERIFYING_INTERVIEW_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'VERIFYING_INTERVIEW_COVERAGE', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'VERIFYING_PRD_COVERAGE') {
+      runningPhases.add(key)
+      handleCoverageVerification(ticketId, context, sendEvent, 'prd')
+        .catch(err => {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] VERIFYING_PRD_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'VERIFYING_PRD_COVERAGE', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'VERIFYING_BEADS_COVERAGE') {
+      runningPhases.add(key)
+      handleCoverageVerification(ticketId, context, sendEvent, 'beads')
+        .catch(err => {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] VERIFYING_BEADS_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'VERIFYING_BEADS_COVERAGE', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
     }
   })
 }
