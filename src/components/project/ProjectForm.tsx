@@ -464,7 +464,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
         )}
         <div className="flex gap-2 ml-auto">
           <Button type="button" variant="outline" onClick={onBack ?? onClose}>Cancel</Button>
-          <Button type="submit" disabled={isBusy}>{isEditing ? 'Save Changes' : 'Create Project'}</Button>
+          <Button type="submit" disabled={isBusy || (!isEditing && gitStatus !== 'valid')}>{isEditing ? 'Save Changes' : 'Create Project'}</Button>
         </div>
       </div>
     </form>

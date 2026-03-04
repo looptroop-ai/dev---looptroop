@@ -4,8 +4,8 @@ import { db } from '../db/index'
 import { projects, tickets, phaseArtifacts } from '../db/schema'
 import { eq, inArray } from 'drizzle-orm'
 import { existsSync } from 'fs'
-import { join, resolve as resolvePath, isAbsolute } from 'path'
-import { execSync } from 'child_process'
+import { resolve as resolvePath, isAbsolute } from 'path'
+import { execFileSync } from 'child_process'
 
 const projectRouter = new Hono()
 
@@ -55,11 +55,9 @@ function isGitRepo(folderPath: string): boolean {
     console.warn(`[isGitRepo] Path does not exist: ${resolved} (original: ${folderPath})`)
     return false
   }
-  const gitPath = join(resolved, '.git')
-  if (existsSync(gitPath)) return true
   try {
-    execSync('git rev-parse --git-dir', { cwd: resolved, stdio: 'pipe' })
-    return true
+    const result = execFileSync('git', ['-C', resolved, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' })
+    return result.toString().trim() === 'true'
   } catch (err) {
     console.warn(`[isGitRepo] Not a git repo: ${resolved}`, (err as Error).message)
     return false
@@ -68,24 +66,22 @@ function isGitRepo(folderPath: string): boolean {
 
 projectRouter.get('/projects/check-git', (c) => {
   const rawPath = c.req.query('path')
-  if (!rawPath) return c.json({ status: 'none', message: 'No path provided' })
+  if (!rawPath) return c.json({ isGit: false, status: 'none', message: 'No path provided' })
 
   const folderPath = normalizeFolderPath(rawPath)
 
   if (!existsSync(folderPath)) {
-    return c.json({ status: 'invalid', isGit: false, message: `Folder does not exist: ${folderPath}` })
-  }
-
-  const gitPath = join(folderPath, '.git')
-  if (existsSync(gitPath)) {
-    return c.json({ status: 'valid', isGit: true, message: 'Git repository detected' })
+    return c.json({ isGit: false, status: 'invalid', message: `Folder does not exist: ${folderPath}` })
   }
 
   try {
-    execSync('git rev-parse --git-dir', { cwd: folderPath, stdio: 'pipe' })
-    return c.json({ status: 'valid', isGit: true, message: 'Git repository detected (subdirectory)' })
+    const result = execFileSync('git', ['-C', folderPath, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' })
+    if (result.toString().trim() === 'true') {
+      return c.json({ isGit: true, status: 'valid', message: 'Git repository detected' })
+    }
+    return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
   } catch {
-    return c.json({ status: 'invalid', isGit: false, message: 'Folder is not a git repository' })
+    return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
   }
 })
 
