@@ -13,6 +13,12 @@ export default defineConfig({
       '@': resolve(__dirname, './src'),
       '@server': resolve(__dirname, './server'),
     },
+    dedupe: [
+      '@codemirror/state',
+      '@codemirror/view',
+      '@codemirror/language',
+      '@codemirror/commands',
+    ],
   },
   appType: 'spa',
   server: {

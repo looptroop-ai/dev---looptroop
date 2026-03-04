@@ -150,20 +150,15 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
 
   const hasChanges = editedContent !== fileContent
 
-  if (showCascadeWarning) {
-    return (
-      <div className="h-full flex items-center justify-center p-4">
-        <CascadeWarning
-          artifactType={artifactType}
-          onConfirm={handleCascadeConfirm}
-          onCancel={() => setShowCascadeWarning(false)}
-        />
-      </div>
-    )
-  }
-
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      <CascadeWarning
+        artifactType={artifactType}
+        open={showCascadeWarning}
+        onConfirm={handleCascadeConfirm}
+        onCancel={() => setShowCascadeWarning(false)}
+      />
+
       <div className="p-4 space-y-3 shrink-0">
         <Card>
           <CardHeader className="py-3">
@@ -174,50 +169,51 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
           </CardContent>
         </Card>
 
-        <PhaseArtifactsPanel phase={ticket.status} isCompleted={false} ticketId={ticket.id} councilMemberCount={councilMemberCount} councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined} />
+        <PhaseArtifactsPanel
+          phase={ticket.status}
+          isCompleted={false}
+          ticketId={ticket.id}
+          councilMemberCount={councilMemberCount}
+          councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined}
+          prefixElement={
+            <Button variant="outline" size="sm" onClick={handleToggleEdit} className="text-xs shrink-0">
+              {editMode ? '📄 View' : '✏️ Edit'}
+            </Button>
+          }
+        />
 
-        {/* Edit Raw toggle + action buttons */}
-        <div className="flex items-center justify-between gap-2">
+        {/* Action buttons */}
+        <div className="flex items-center justify-end gap-2">
+          {editMode && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleSave}
+              disabled={saving || !hasChanges}
+            >
+              {saving ? 'Saving…' : '💾 Save'}
+            </Button>
+          )}
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={handleToggleEdit}
-            className="text-xs"
+            onClick={() => performAction({ id: ticket.id, action: 'cancel' })}
+            disabled={isPending}
           >
-            {editMode ? '📄 Structured View' : '✏️ Edit Raw'}
+            Cancel
           </Button>
-          <div className="flex gap-2">
-            {editMode && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleSave}
-                disabled={saving || !hasChanges}
-              >
-                {saving ? 'Saving…' : '💾 Save'}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => performAction({ id: ticket.id, action: 'cancel' })}
-              disabled={isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => performAction({ id: ticket.id, action: 'approve' })}
-              disabled={isPending || (editMode && hasChanges)}
-            >
-              {isPending ? 'Approving…' : '✅ Approve'}
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            onClick={() => performAction({ id: ticket.id, action: 'approve' })}
+            disabled={isPending || (editMode && hasChanges)}
+          >
+            {isPending ? 'Approving…' : '✅ Approve'}
+          </Button>
         </div>
         {saveError && <p className="text-xs text-red-500">{saveError}</p>}
       </div>
 
-      {/* Artifact content: structured view or CodeMirror editor */}
+      {/* Artifact content */}
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
         {loading ? (
           <div className="text-xs text-muted-foreground italic p-4">Loading artifact…</div>
@@ -227,9 +223,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
           artifactType === 'beads'
             ? <BeadsStructuredView content={fileContent} />
             : <StructuredViewer content={fileContent} />
-        ) : (
-          <div className="text-xs text-muted-foreground italic p-4">No artifact file found yet.</div>
-        )}
+        ) : null}
       </div>
 
       <div className="shrink-0 min-h-0 px-4 pb-4 flex flex-col" style={{ maxHeight: '30%' }}>

@@ -11,6 +11,7 @@ interface PhaseArtifactsPanelProps {
   ticketId?: number
   councilMemberCount?: number
   councilMemberNames?: string[]
+  prefixElement?: React.ReactNode
 }
 
 interface ArtifactDef {
@@ -96,11 +97,8 @@ function CollapsibleSection({ title, defaultOpen = false, children }: { title: R
   )
 }
 
-// Render interview draft: Q&A pairs
-function InterviewDraftView({ content }: { content: string }) {
+function parseInterviewQuestions(content: string): { q: string; section?: string }[] {
   const questions: { q: string; section?: string }[] = []
-
-  // Try YAML-first parsing (mirrors server/routes/tickets.ts:398-403)
   let parsedFromYaml = false
   try {
     const parsed = jsYaml.load(content)
@@ -116,7 +114,6 @@ function InterviewDraftView({ content }: { content: string }) {
     }
   } catch { /* fall through to line-by-line */ }
 
-  // Fallback: line-by-line markdown parsing
   if (!parsedFromYaml) {
     let currentSection = ''
     for (const line of content.split('\n')) {
@@ -129,6 +126,12 @@ function InterviewDraftView({ content }: { content: string }) {
       }
     }
   }
+  return questions
+}
+
+// Render interview draft: Q&A pairs
+function InterviewDraftView({ content }: { content: string }) {
+  const questions = parseInterviewQuestions(content)
 
   if (questions.length === 0) return null
   const grouped = questions.reduce<Record<string, string[]>>((acc, { q, section }) => {
@@ -454,7 +457,7 @@ function RawContentView({ content }: { content: string }) {
   )
 }
 
-export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames }: PhaseArtifactsPanelProps) {
+export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement }: PhaseArtifactsPanelProps) {
   const artifacts = getPhaseArtifacts(phase, councilMemberCount, councilMemberNames)
   const [viewingArtifact, setViewingArtifact] = useState<ArtifactDef | null>(null)
   const [dbArtifacts, setDbArtifacts] = useState<DBartifact[]>([])
@@ -496,8 +499,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     if (draft.outcome === 'timed_out') detail = 'no response received'
     else if (draft.outcome === 'invalid_output') detail = 'malformed response'
     else {
-      const questionCount = (draft.content?.match(/\?/g) || []).length
-      if (questionCount > 2) detail = `proposed ${questionCount} questions`
+      const questionCount = draft.content ? parseInterviewQuestions(draft.content).length : 0
+      if (questionCount > 0) detail = `proposed ${questionCount} questions`
       else {
         const lineCount = draft.content?.split('\n').filter((l: string) => l.trim()).length ?? 0
         if (lineCount > 0) detail = `${lineCount} lines generated`
@@ -531,6 +534,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
               </button>
             )
           })}
+          {prefixElement}
         </div>
       </div>
 

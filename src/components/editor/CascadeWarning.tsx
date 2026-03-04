@@ -1,10 +1,10 @@
-import { useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 interface CascadeWarningProps {
   artifactType: 'interview' | 'prd' | 'beads'
+  open: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -15,37 +15,24 @@ const CASCADE_MESSAGES: Record<string, string> = {
   beads: 'Editing Beads will not affect other phases.',
 }
 
-export function CascadeWarning({ artifactType, onConfirm, onCancel }: CascadeWarningProps) {
-  const [confirmed, setConfirmed] = useState(false)
-
+export function CascadeWarning({ artifactType, open, onConfirm, onCancel }: CascadeWarningProps) {
   return (
-    <Card className="max-w-md mx-auto border-yellow-500">
-      <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2 text-yellow-600">
-          <AlertTriangle className="h-4 w-4" />
-          Cascading Edit Warning
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-md border-yellow-500">
+        <DialogHeader>
+          <DialogTitle className="text-sm flex items-center gap-2 text-yellow-600">
+            <AlertTriangle className="h-4 w-4" />
+            Cascading Edit Warning
+          </DialogTitle>
+        </DialogHeader>
         <p className="text-sm text-muted-foreground">
           {CASCADE_MESSAGES[artifactType]}
         </p>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={e => setConfirmed(e.target.checked)}
-            className="rounded"
-          />
-          I understand the consequences
-        </label>
         <div className="flex gap-2 justify-end">
           <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" onClick={onConfirm} disabled={!confirmed && artifactType !== 'beads'}>
-            Proceed with Edit
-          </Button>
+          <Button size="sm" onClick={onConfirm}>Proceed with Edit</Button>
         </div>
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   )
 }

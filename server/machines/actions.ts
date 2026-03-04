@@ -3,12 +3,12 @@
 
 export const persistState = () => {
   // TODO: Persist XState snapshot to SQLite via db.update(tickets).set({ snapshot })
-  // so ticket state survives server restarts. See architecture.md §7.2.
+  // so ticket state survives server restarts. See arch.md §7.2.
 }
 
 export const persistBeadsTracker = () => {
   // TODO: Write bead progress to .looptroop/worktrees/<id>/.ticket/beads/issues.jsonl
-  // after each bead completion. See architecture.md §6.3.
+  // after each bead completion. See arch.md §6.3.
 }
 
 export const notifyFrontend = () => {
@@ -19,7 +19,7 @@ export const notifyFrontend = () => {
 
 export const gitCommitAndPush = () => {
   // TODO: Run git add (allowlisted paths only) + git commit + git push
-  // on the ticket worktree branch. See architecture.md §8.1 for allowlist rules.
+  // on the ticket worktree branch. See arch.md §8.1 for allowlist rules.
 }
 
 export const finalMergeToMain = () => {

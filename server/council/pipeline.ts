@@ -30,7 +30,7 @@ export async function runCouncilPipeline(
     throw new Error(`Council quorum not met for ${phase}: ${quorum.message}`)
   }
 
-  // TODO: Per architecture.md §9.1 "context_refresh", context must be rebuilt via
+  // TODO: Per arch.md §9.1 "context_refresh", context must be rebuilt via
   // buildMinimalContext() between each council step (draft → vote → refine).
   // Currently the pipeline reuses the draft-phase contextParts for voting and
   // refinement. The phase-specific vote/refine functions (e.g. voteInterview,

@@ -237,7 +237,7 @@ looptroop/
 └── documentation.md         # This file
 ```
 
-📖 **Detailed architecture:** [docs/architecture.md](docs/architecture.md)
+📖 **Detailed architecture:** [docs/arch.md](docs/arch.md)
 
 ---
 
@@ -401,7 +401,7 @@ Implementation beads — authoritative task graph (one JSON object per line, 22 
 | [documentation.md](documentation.md) | This file — comprehensive hub |
 | [docs/setup-guide.md](docs/setup-guide.md) | Step-by-step installation |
 | [docs/usage-guide.md](docs/usage-guide.md) | How to use every feature |
-| [docs/architecture.md](docs/architecture.md) | System architecture deep dive |
+| [docs/arch.md](docs/arch.md) | System architecture deep dive |
 | [docs/state-machine.md](docs/state-machine.md) | All 26 states, transitions, events |
 | [docs/api-reference.md](docs/api-reference.md) | Complete REST/SSE API |
 | [docs/artifact-formats.md](docs/artifact-formats.md) | File format specifications |

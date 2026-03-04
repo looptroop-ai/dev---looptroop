@@ -527,7 +527,7 @@ looptroop/
 |----------|-------------|
 | [Setup Guide](docs/setup-guide.md) | Complete step-by-step installation and setup |
 | [Usage Guide](docs/usage-guide.md) | How to use every feature in detail |
-| [Architecture](docs/architecture.md) | System architecture, data flow, and design decisions |
+| [Architecture](docs/arch.md) | System architecture, data flow, and design decisions |
 | [State Machine](docs/state-machine.md) | All 26 states, transitions, events, and context |
 | [API Reference](docs/api-reference.md) | Every HTTP endpoint with request/response examples |
 | [Artifact Formats](docs/artifact-formats.md) | File format specs for all artifacts |

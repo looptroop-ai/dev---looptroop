@@ -231,7 +231,7 @@ async function handleInterviewCompile(
 
 /**
  * Run coverage verification using ONLY the winning model from the council vote.
- * Per architecture.md §B.I/II/III: "Coverage Verification Pass (winning AIC)"
+ * Per arch.md §B.I/II/III: "Coverage Verification Pass (winning AIC)"
  */
 async function handleCoverageVerification(
   ticketId: number,
