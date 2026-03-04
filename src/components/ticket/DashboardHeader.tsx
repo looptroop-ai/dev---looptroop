@@ -7,7 +7,76 @@ import { useUI } from '@/context/UIContext'
 import { useTicketAction } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
-import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { getStatusUserLabel, STATUS_ORDER, STATUS_TO_PHASE } from '@/lib/workflowMeta'
+
+function getStatusProgress(status: string): number | null {
+  if (status === 'BLOCKED_ERROR') return null
+  if (STATUS_TO_PHASE[status] === 'todo' || STATUS_TO_PHASE[status] === 'done') return null
+  const idx = STATUS_ORDER.indexOf(status)
+  if (idx === -1) return null
+  return Math.round(((idx + 1) / STATUS_ORDER.length) * 100)
+}
+
+function getStatusRingColor(status: string): string {
+  switch (status) {
+    case 'COUNCIL_DELIBERATING':
+    case 'COUNCIL_VOTING_INTERVIEW':
+    case 'COMPILING_INTERVIEW':
+    case 'VERIFYING_INTERVIEW_COVERAGE':
+    case 'CODING':
+      return 'text-blue-500'
+    case 'WAITING_INTERVIEW_ANSWERS':
+    case 'WAITING_INTERVIEW_APPROVAL':
+    case 'WAITING_PRD_APPROVAL':
+    case 'WAITING_BEADS_APPROVAL':
+    case 'WAITING_MANUAL_VERIFICATION':
+      return 'text-yellow-500'
+    case 'DRAFTING_PRD':
+    case 'COUNCIL_VOTING_PRD':
+    case 'REFINING_PRD':
+    case 'VERIFYING_PRD_COVERAGE':
+      return 'text-indigo-500'
+    case 'DRAFTING_BEADS':
+    case 'COUNCIL_VOTING_BEADS':
+    case 'REFINING_BEADS':
+    case 'VERIFYING_BEADS_COVERAGE':
+      return 'text-purple-500'
+    case 'PRE_FLIGHT_CHECK':
+      return 'text-cyan-500'
+    case 'RUNNING_FINAL_TEST':
+      return 'text-teal-500'
+    case 'INTEGRATING_CHANGES':
+      return 'text-emerald-500'
+    case 'CLEANING_ENV':
+      return 'text-slate-500'
+    default:
+      return 'text-blue-500'
+  }
+}
+
+function ProgressRing({ percent, size = 20, stroke = 2.5, colorClass = 'text-blue-500' }: { percent: number; size?: number; stroke?: number; colorClass?: string }) {
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (percent / 100) * circumference
+  return (
+    <svg width={size} height={size} className="shrink-0">
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-muted-foreground/20" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={stroke}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        className={colorClass}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </svg>
+  )
+}
 
 interface DashboardHeaderProps {
   ticket: Ticket
@@ -40,7 +109,8 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
     totalBeads: ticket.totalBeads,
     errorMessage: ticket.errorMessage,
   })
-
+  const progress = getStatusProgress(ticket.status)
+  const ringColor = getStatusRingColor(ticket.status)
   return (
     <div className="border-b border-border bg-background">
       <div className="flex items-center justify-between px-4 py-2">
@@ -105,38 +175,72 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               <p className="mt-0.5">P{ticket.priority} — {getPriorityLabel(ticket.priority)}</p>
             </div>
             <div>
-              <span className="text-xs font-medium text-muted-foreground">Status</span>
-              <p className="mt-0.5">{statusLabel}</p>
-            </div>
-            <div>
               <span className="text-xs font-medium text-muted-foreground">Created</span>
               <p className="mt-0.5">{new Date(ticket.createdAt).toLocaleString()}</p>
             </div>
+            {ticket.status !== 'DRAFT' ? (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Last Updated</span>
+                <p className="mt-0.5">{ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleString() : 'N/A'}</p>
+              </div>
+            ) : <div />}
+            {ticket.status !== 'DRAFT' && ticket.startedAt && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Started At</span>
+                <p className="mt-0.5">{new Date(ticket.startedAt).toLocaleString()}</p>
+              </div>
+            )}
+            <div className="col-span-2">
+              <span className="text-xs font-medium text-muted-foreground">Status</span>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className={ticket.status !== 'DRAFT' ? getStatusBadgeClasses(ticket.status).replace('bg-', 'text-').split(' ').filter(c => c.startsWith('text-')).join(' ') : ''}>
+                  {statusLabel}
+                </span>
+                {ticket.status !== 'DRAFT' && progress !== null && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title="Workflow progress">
+                    <ProgressRing percent={progress} colorClass={ringColor} />
+                    <span className={ringColor}>{progress}%</span>
+                  </span>
+                )}
+              </div>
+            </div>
             {ticket.description && (
-              <div className="col-span-2">
+              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
                 <span className="text-xs font-medium text-muted-foreground">Description</span>
                 <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{ticket.description}</p>
               </div>
             )}
-            {ticket.updatedAt && (
-              <div>
-                <span className="text-xs font-medium text-muted-foreground">Last Updated</span>
-                <p className="mt-0.5">{new Date(ticket.updatedAt).toLocaleString()}</p>
-              </div>
-            )}
             {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers) && (
-              <div className="col-span-2 border-t border-border pt-2 mt-1">
+              <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1">
                 <span className="text-xs font-medium text-muted-foreground">Models Selected</span>
                 <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-                  {ticket.lockedMainImplementer && (
-                    <div className="flex justify-between"><span>Main Implementer</span><span className="font-mono">{ticket.lockedMainImplementer}</span></div>
-                  )}
                   {(() => {
                     try {
+                      const mainModel = ticket.lockedMainImplementer
                       const members: string[] = ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : []
-                      return members.map((m, i) => (
-                        <div key={i} className="flex justify-between"><span>Council Member {String.fromCharCode(65 + i)}</span><span className="font-mono">{m}</span></div>
-                      ))
+                      const otherMembers = (members.length > 0 && members[0] === mainModel) ? members.slice(1) : members
+
+                      return (
+                        <>
+                          {mainModel && (
+                            <div className="flex justify-between items-center">
+                              <div className="flex flex-col space-y-1">
+                                <span>Main Implementer</span>
+                                <span>Council Member A</span>
+                              </div>
+                              <span className="font-mono text-right">{mainModel}</span>
+                            </div>
+                          )}
+                          {otherMembers.length > 0 && (
+                            <>
+                              <div className="my-2 border-t-[2px] border-border/70" />
+                              {otherMembers.map((m, i) => (
+                                <div key={i} className="flex justify-between"><span>Council Member {String.fromCharCode(66 + i)}</span><span className="font-mono">{m}</span></div>
+                              ))}
+                            </>
+                          )}
+                        </>
+                      )
                     } catch { return null }
                   })()}
                 </div>

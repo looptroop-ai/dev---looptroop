@@ -31,11 +31,15 @@ export function NavigatorPanel({ ticketId, currentStatus, selectedPhase, onSelec
           </div>
         )}
       </div>
-      <Separator />
-      <ContextTree
-        selectedPhase={selectedPhase}
-        ticketId={ticketId}
-      />
+      {selectedPhase !== 'DRAFT' && currentStatus !== 'DRAFT' && (
+        <>
+          <Separator />
+          <ContextTree
+            selectedPhase={selectedPhase}
+            ticketId={ticketId}
+          />
+        </>
+      )}
     </div>
   )
 }

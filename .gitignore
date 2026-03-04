@@ -39,3 +39,9 @@ temp/
 Thumbs.db
 .vscode/
 .idea/
+
+
+# Skills
+.agent/
+.agents/
+.claude/

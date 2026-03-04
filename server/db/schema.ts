@@ -82,3 +82,12 @@ export const opencodeSessions = sqliteTable('opencode_sessions', {
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
+
+export const ticketStatusHistory = sqliteTable('ticket_status_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticketId: integer('ticket_id').notNull().references(() => tickets.id),
+  previousStatus: text('previous_status'),
+  newStatus: text('new_status').notNull(),
+  reason: text('reason'),
+  changedAt: text('changed_at').notNull().$defaultFn(() => new Date().toISOString()),
+})

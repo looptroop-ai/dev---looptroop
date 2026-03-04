@@ -54,11 +54,18 @@ export function TicketForm({ onClose }: TicketFormProps) {
                   )}
                   title="Choose project"
                 >
-                  <span className={cn('truncate text-left', !selectedProject && 'text-muted-foreground')}>
-                    {selectedProject
-                      ? `${selectedProject.icon?.startsWith('data:') ? '🖼️' : selectedProject.icon} ${selectedProject.name} (${selectedProject.shortname})`
-                      : 'Select a project...'}
-                  </span>
+                  {selectedProject ? (
+                    <span className="flex items-center gap-2 min-w-0 text-left overflow-hidden">
+                      <span className="shrink-0 flex items-center">
+                        {selectedProject.icon?.startsWith('data:')
+                          ? <img src={selectedProject.icon} className="h-5 w-5 rounded block" alt="" />
+                          : <span>{selectedProject.icon}</span>}
+                      </span>
+                      <span className="truncate">{selectedProject.name} ({selectedProject.shortname})</span>
+                    </span>
+                  ) : (
+                    <span className="truncate text-left text-muted-foreground">Select a project...</span>
+                  )}
                   <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                 </button>
               }
@@ -85,7 +92,11 @@ export function TicketForm({ onClose }: TicketFormProps) {
                         }}
                         title={`Use project ${p.name}`}
                       >
-                        <span>{p.icon?.startsWith('data:') ? '🖼️' : p.icon}</span>
+                        <span className="shrink-0 flex items-center">
+                          {p.icon?.startsWith('data:')
+                            ? <img src={p.icon} className="h-5 w-5 rounded block" alt="" />
+                            : <span>{p.icon}</span>}
+                        </span>
                         <span className="truncate flex-1">{p.name} ({p.shortname})</span>
                         {selected && <Check className="h-4 w-4 text-primary" />}
                       </button>
