@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTicket } from '@/hooks/useTickets'
 import { useSSE } from '@/hooks/useSSE'
 import { useUI } from '@/context/UIContext'
@@ -52,6 +52,15 @@ export function TicketDashboard() {
   const [navWidth, setNavWidth] = useState(280)
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  const canceledFromStatus = useMemo(() => {
+    if (ticket?.status !== 'CANCELED' || !ticket.xstateSnapshot) return undefined
+    try {
+      const snap = JSON.parse(ticket.xstateSnapshot) as { context?: { previousStatus?: string | null } }
+      const prev = snap.context?.previousStatus
+      return typeof prev === 'string' ? prev : undefined
+    } catch { return undefined }
+  }, [ticket?.status, ticket?.xstateSnapshot])
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
 
@@ -115,6 +124,7 @@ export function TicketDashboard() {
                 ticketId={ticket.id}
                 currentStatus={ticket.status}
                 selectedPhase={activePhase}
+                canceledFromStatus={canceledFromStatus}
                 onSelectPhase={(phase) => {
                   setSelectedPhase(phase)
                   setMobileNavOpen(false)
@@ -135,13 +145,14 @@ export function TicketDashboard() {
             ticketId={ticket.id}
             currentStatus={ticket.status}
             selectedPhase={activePhase}
+            canceledFromStatus={canceledFromStatus}
             onSelectPhase={setSelectedPhase}
           />
         </div>
         <ResizeHandle onResize={setNavWidth} />
         {/* Active Workspace */}
         <div className="flex flex-col flex-1 overflow-hidden">
-          <ActiveWorkspace ticket={ticket} selectedPhase={activePhase} />
+          <ActiveWorkspace ticket={ticket} selectedPhase={activePhase} canceledFromStatus={canceledFromStatus} />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { opencodeSessions } from '../db/schema'
 import { eq, and } from 'drizzle-orm'
 import type { OpenCodeAdapter } from './adapter'
 import type { Session } from './types'
+import { OpenCodeSDKAdapter } from './adapter'
 
 export class SessionManager {
   constructor(private adapter: OpenCodeAdapter) {}
@@ -80,4 +81,37 @@ export class SessionManager {
 
     return found
   }
+}
+
+const _defaultAdapter = new OpenCodeSDKAdapter()
+
+/**
+ * Abort all active OpenCode sessions for a ticket and mark them abandoned in the DB.
+ * Used when a ticket is canceled to stop any ongoing AI work.
+ */
+export async function abortTicketSessions(ticketId: number): Promise<void> {
+  const activeSessions = db
+    .select()
+    .from(opencodeSessions)
+    .where(and(eq(opencodeSessions.ticketId, ticketId), eq(opencodeSessions.state, 'active')))
+    .all()
+
+  if (activeSessions.length === 0) return
+
+  await Promise.allSettled(
+    activeSessions.map(async (session) => {
+      try {
+        await _defaultAdapter.abortSession(session.sessionId)
+      } catch (err) {
+        console.warn(`[sessionManager] Failed to abort OpenCode session ${session.sessionId}:`, err)
+      } finally {
+        db.update(opencodeSessions)
+          .set({ state: 'abandoned', updatedAt: new Date().toISOString() })
+          .where(eq(opencodeSessions.id, session.id))
+          .run()
+      }
+    }),
+  )
+
+  console.log(`[sessionManager] Aborted ${activeSessions.length} active session(s) for ticket ${ticketId}`)
 }

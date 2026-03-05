@@ -43,9 +43,9 @@ export function CodingView({ ticket }: CodingViewProps) {
 
   const phaseLabel = ticket.status === 'CODING' ? 'Executing Beads' :
     ticket.status === 'RUNNING_FINAL_TEST' ? 'Running Final Tests' :
-    ticket.status === 'INTEGRATING_CHANGES' ? 'Integrating Changes' :
-    ticket.status === 'CLEANING_ENV' ? 'Cleaning Environment' :
-    ticket.status === 'PRE_FLIGHT_CHECK' ? 'Pre-flight Check' : 'Processing'
+      ticket.status === 'INTEGRATING_CHANGES' ? 'Integrating Changes' :
+        ticket.status === 'CLEANING_ENV' ? 'Cleaning Environment' :
+          ticket.status === 'PRE_FLIGHT_CHECK' ? 'Pre-flight Check' : 'Processing'
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -88,8 +88,8 @@ export function CodingView({ ticket }: CodingViewProps) {
                 onClick={() => setViewingBead(bead.index === current ? null : bead.index)}
                 title={
                   bead.status === 'active' ? `${bead.label} — currently executing (live view)` :
-                  bead.status === 'completed' ? `${bead.label} — completed, click to view logs` :
-                  `${bead.label} — pending, click to view spec`
+                    bead.status === 'completed' ? `${bead.label} — completed, click to view logs` :
+                      `${bead.label} — pending, click to view spec`
                 }
                 className={cn(
                   'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs whitespace-nowrap transition-colors',
@@ -143,7 +143,7 @@ export function CodingView({ ticket }: CodingViewProps) {
             </div>
           </div>
         ) : (
-          <PhaseLogPanel phase={ticket.status} />
+          <PhaseLogPanel phase={ticket.status} ticket={ticket} />
         )}
       </div>
     </div>

@@ -177,10 +177,19 @@ export function useTickets(projectId?: number) {
 }
 
 export function useTicket(id: number | null) {
+  const queryClient = useQueryClient()
   return useQuery({
     queryKey: ['ticket', id],
     queryFn: () => fetchTicket(id!),
     enabled: id !== null,
+    initialData: () => {
+      const allTicketLists = queryClient.getQueriesData<Ticket[]>({ queryKey: ['tickets'] })
+      for (const [, tickets] of allTicketLists) {
+        const ticket = tickets?.find(t => t.id === id)
+        if (ticket) return ticket
+      }
+      return undefined
+    },
   })
 }
 

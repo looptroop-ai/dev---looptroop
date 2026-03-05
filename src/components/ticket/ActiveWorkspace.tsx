@@ -12,6 +12,7 @@ import type { Ticket } from '@/hooks/useTickets'
 interface ActiveWorkspaceProps {
   ticket: Ticket
   selectedPhase: string
+  canceledFromStatus?: string
 }
 
 const COUNCIL_STATES = [
@@ -30,14 +31,19 @@ const ALL_PHASE_IDS = [
   'WAITING_MANUAL_VERIFICATION', 'CLEANING_ENV', 'COMPLETED',
 ]
 
-function isPastPhase(phase: string, currentStatus: string): boolean {
+function isPastPhase(phase: string, currentStatus: string, canceledFromStatus?: string): boolean {
   const phaseIndex = ALL_PHASE_IDS.indexOf(phase)
+  if (currentStatus === 'CANCELED') {
+    if (!canceledFromStatus || canceledFromStatus === 'BLOCKED_ERROR') return false
+    const cutoffIndex = ALL_PHASE_IDS.indexOf(canceledFromStatus)
+    return phaseIndex >= 0 && cutoffIndex >= 0 && phaseIndex <= cutoffIndex
+  }
   const currentIndex = ALL_PHASE_IDS.indexOf(currentStatus)
   return phaseIndex >= 0 && currentIndex >= 0 && phaseIndex < currentIndex
 }
 
-export function ActiveWorkspace({ ticket, selectedPhase }: ActiveWorkspaceProps) {
-  const isViewingPast = isPastPhase(selectedPhase, ticket.status)
+export function ActiveWorkspace({ ticket, selectedPhase, canceledFromStatus }: ActiveWorkspaceProps) {
+  const isViewingPast = isPastPhase(selectedPhase, ticket.status, canceledFromStatus)
 
   // If viewing a past/completed phase, show the review view with logs + artifacts
   if (isViewingPast) {

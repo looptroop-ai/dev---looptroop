@@ -41,7 +41,7 @@ export function DraftView({ ticket }: DraftViewProps) {
             </Badge>
             <span className="flex items-center gap-1 text-muted-foreground" title={new Date(ticket.createdAt).toLocaleString()}>
               <CalendarDays className="h-3.5 w-3.5" />
-              Created {new Date(ticket.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+              Created {new Date(ticket.createdAt).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             </span>
             {project && (
               <span className="flex items-center gap-1 text-muted-foreground">

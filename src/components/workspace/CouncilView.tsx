@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
-import { useProfile } from '@/hooks/useProfile'
+
 import type { Ticket } from '@/hooks/useTickets'
 
 interface CouncilViewProps {
@@ -186,11 +186,10 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   const isDrafting = step === 'Drafting'
   const isVoting = step === 'Voting'
   const [phaseArtifacts, setPhaseArtifacts] = useState<any[]>([])
-  const { data: profile } = useProfile()
   const councilMemberNames = useMemo(() => {
-    try { return profile?.councilMembers ? JSON.parse(profile.councilMembers) as string[] : [] }
+    try { return ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : [] }
     catch { return [] }
-  }, [profile?.councilMembers])
+  }, [ticket.lockedCouncilMembers])
   const councilMemberCount = councilMemberNames.length || 3
 
   useEffect(() => {
@@ -198,7 +197,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
     fetch(`/api/tickets/${ticket.id}/artifacts`)
       .then(r => r.ok ? r.json() : [])
       .then(setPhaseArtifacts)
-      .catch(() => {})
+      .catch(() => { })
   }, [ticket.id, phase])
 
   return (
@@ -243,7 +242,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
 
       <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">
         <ModelActivityCards phase={phase} artifacts={phaseArtifacts} />
-        <PhaseLogPanel phase={phase} />
+        <PhaseLogPanel phase={phase} ticket={ticket} />
       </div>
     </div>
   )

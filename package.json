@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx watch server/index.ts\"",
     "dev:frontend": "vite",
-    "dev:backend": "tsx watch server/index.ts",
+    "dev:backend": "tsx watch --poll server/index.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",

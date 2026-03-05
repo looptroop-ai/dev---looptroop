@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
-import { useProfile } from '@/hooks/useProfile'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+
 import { StructuredViewer } from '@/components/editor/StructuredViewer'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
@@ -57,6 +58,7 @@ function BeadsStructuredView({ content }: { content: string }) {
 }
 
 export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
+  const queryClient = useQueryClient()
   const { mutate: performAction, isPending } = useTicketAction()
   const { mutate: saveUiState } = useSaveTicketUIState()
   const config = LABELS[artifactType] ?? { title: 'Review', description: '' }
@@ -65,17 +67,35 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
     editMode?: boolean
     editedContent?: string
   }>(ticket.id, uiStateScope, true)
-  const { data: profile } = useProfile()
   const councilMemberNames = useMemo(() => {
-    try { return profile?.councilMembers ? JSON.parse(profile.councilMembers) as string[] : [] }
+    try { return ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : [] }
     catch { return [] }
-  }, [profile?.councilMembers])
+  }, [ticket.lockedCouncilMembers])
   const councilMemberCount = councilMemberNames.length || 3
 
-  const [fileContent, setFileContent] = useState<string>('')
+  const { data: fetchedContent, isPending: isContentPending, isFetching } = useQuery({
+    queryKey: ['artifact', ticket.id, artifactType],
+    queryFn: async () => {
+      const url = artifactType === 'beads'
+        ? `/api/tickets/${ticket.id}/beads`
+        : `/api/files/${ticket.id}/${artifactType}`
+      const r = await fetch(url)
+      if (!r.ok) throw new Error('Failed to load')
+      const data = await r.json()
+      return artifactType === 'beads'
+        ? (Array.isArray(data) ? beadsArrayToJsonl(data) : '')
+        : (data.content ?? '')
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes cache to prevent flashes
+  })
+
+  // We only show 'Loading artifact...' if there is no cache and we are currently fetching it
+  const loading = isContentPending && isFetching
+
+  const fileContent = fetchedContent ?? ''
+
   const [editedContent, setEditedContent] = useState<string>('')
   const [editMode, setEditMode] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
@@ -87,35 +107,8 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
     lastSavedSnapshotRef.current = ''
   }, [ticket.id, artifactType])
 
-  // Load artifact file from server
   useEffect(() => {
-    setLoading(true)
-    setSaveError(null)
-
-    const url = artifactType === 'beads'
-      ? `/api/tickets/${ticket.id}/beads`
-      : `/api/files/${ticket.id}/${artifactType}`
-
-    fetch(url)
-      .then((r) => r.ok ? r.json() : Promise.reject(new Error('Failed to load')))
-      .then((data) => {
-        const content = artifactType === 'beads'
-          ? (Array.isArray(data) ? beadsArrayToJsonl(data) : '')
-          : (data.content ?? '')
-        setFileContent(content)
-        setEditedContent(content)
-        setEditMode(false)
-      })
-      .catch(() => {
-        setFileContent('')
-        setEditedContent('')
-        setEditMode(false)
-      })
-      .finally(() => setLoading(false))
-  }, [ticket.id, artifactType])
-
-  useEffect(() => {
-    if (loading || restoredDraftRef.current) return
+    if (loading || restoredDraftRef.current || fetchedContent === undefined) return
 
     const persisted = persistedUiState?.data
     const nextEditMode = Boolean(persisted?.editMode)
@@ -130,7 +123,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
       editedContent: nextEditedContent,
     })
     restoredDraftRef.current = true
-  }, [loading, persistedUiState, fileContent])
+  }, [loading, fetchedContent, persistedUiState, fileContent])
 
   const handleToggleEdit = useCallback(() => {
     if (editMode) {
@@ -172,14 +165,14 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
         })
         if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
       }
-      setFileContent(editedContent)
+      queryClient.setQueryData(['artifact', ticket.id, artifactType], editedContent)
       setEditMode(false)
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
-  }, [editedContent, ticket.id, artifactType])
+  }, [editedContent, ticket.id, artifactType, queryClient])
 
   const hasChanges = editedContent !== fileContent
 
@@ -279,7 +272,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
       </div>
 
       <div className="shrink-0 min-h-0 px-4 pb-4 flex flex-col" style={{ maxHeight: '30%' }}>
-        <PhaseLogPanel phase={ticket.status} />
+        <PhaseLogPanel phase={ticket.status} ticket={ticket} />
       </div>
     </div>
   )

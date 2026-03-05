@@ -93,6 +93,11 @@ export function initializeDatabase() {
     sqlite.exec(`ALTER TABLE tickets ADD COLUMN locked_council_members TEXT`)
   } catch { /* column already exists */ }
 
+  // Migrate: backfill started_at for non-DRAFT tickets that are missing it
+  try {
+    sqlite.exec(`UPDATE tickets SET started_at = created_at WHERE status != 'DRAFT' AND started_at IS NULL`)
+  } catch { /* ignore */ }
+
   // Verify WAL mode
   const walMode = sqlite.pragma('journal_mode', { simple: true })
   console.log(`[db] Journal mode: ${walMode}`)

@@ -184,10 +184,10 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <p className="mt-0.5">{ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleString() : 'N/A'}</p>
               </div>
             ) : <div />}
-            {ticket.status !== 'DRAFT' && ticket.startedAt && (
+            {ticket.status !== 'DRAFT' && (
               <div>
                 <span className="text-xs font-medium text-muted-foreground">Started At</span>
-                <p className="mt-0.5">{new Date(ticket.startedAt).toLocaleString()}</p>
+                <p className="mt-0.5">{ticket.startedAt ? new Date(ticket.startedAt).toLocaleString() : '—'}</p>
               </div>
             )}
             <div className="col-span-2">

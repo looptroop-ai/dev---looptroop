@@ -3,11 +3,12 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLogs, type LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
-import { useProfile } from '@/hooks/useProfile'
+import type { Ticket } from '@/hooks/useTickets'
 
 interface PhaseLogPanelProps {
   phase: string
   logs?: LogEntry[]
+  ticket?: Ticket
 }
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR'
@@ -100,23 +101,22 @@ function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   }
 }
 
-export function PhaseLogPanel({ phase, logs: propLogs }: PhaseLogPanelProps) {
+export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelProps) {
   const logCtx = useLogs()
   const logs: LogEntry[] = propLogs ?? logCtx?.getLogsForPhase(phase) ?? []
-  const { data: profile } = useProfile()
   const description = PHASE_LOG_DESCRIPTIONS[phase] ?? 'Processing…'
   const [activeTab, setActiveTab] = useState<string>('ALL')
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
 
   const configuredModelIds = useMemo(() => {
-    if (!profile?.councilMembers) return []
+    if (!ticket?.lockedCouncilMembers) return []
     try {
-      const parsed = JSON.parse(profile.councilMembers) as string[]
+      const parsed = JSON.parse(ticket.lockedCouncilMembers) as string[]
       return Array.isArray(parsed) ? parsed.filter(Boolean) : []
     } catch {
       return []
     }
-  }, [profile?.councilMembers])
+  }, [ticket?.lockedCouncilMembers])
 
   // Detect model IDs from structured source field
   const detectedModelIds = useMemo(() => {

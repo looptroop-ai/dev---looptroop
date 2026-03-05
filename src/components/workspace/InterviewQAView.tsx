@@ -47,6 +47,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set())
   const [showPrevious, setShowPrevious] = useState(false)
+  const [returnToIndex, setReturnToIndex] = useState<number | null>(null)
   const currentRef = useRef<HTMLDivElement>(null)
   const hydratedRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
@@ -118,6 +119,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     ? currentQuestion.priority.trim()
     : ''
   const answeredCount = answeredIds.size + skippedIds.size
+  const isEditingPrevious = currentQuestion ? submittedIds.has(currentQuestion.id) : false
 
   useEffect(() => {
     if (!hydratedRef.current || isLoading) return
@@ -165,6 +167,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     if (!currentQuestion) return
     setAnswers(prev => ({ ...prev, [currentQuestion.id]: '' }))
     setSubmittedIds(prev => new Set(prev).add(currentQuestion.id))
+    setReturnToIndex(null)
     if (currentIndex < totalQuestions - 1) {
       setCurrentIndex(i => i + 1)
     }
@@ -173,12 +176,14 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const handleAnswerAndNext = () => {
     if (!currentQuestion) return
     setSubmittedIds(prev => new Set(prev).add(currentQuestion.id))
+    setReturnToIndex(null)
     if (currentIndex < totalQuestions - 1) {
       setCurrentIndex(i => i + 1)
     }
   }
 
   const handlePrev = () => {
+    setReturnToIndex(null)
     if (currentIndex > 0) {
       setCurrentIndex(i => i - 1)
     }
@@ -240,18 +245,33 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
               return (
                 <div key={cat} className="space-y-1 mb-2">
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{cat}</div>
-                  {submittedInCat.map(q => (
-                    <div key={q.id} className="rounded border border-border/50 p-2 bg-muted/30 text-xs">
-                      <div className="flex items-start gap-2">
-                        <span className="font-medium text-muted-foreground shrink-0">Q:</span>
-                        <span className="text-muted-foreground">{q.question}</span>
-                      </div>
-                      <div className="flex items-start gap-2 mt-1">
-                        <span className="font-medium text-green-600 shrink-0">A:</span>
-                        <span>{answers[q.id]?.trim() || <span className="italic text-muted-foreground">Skipped</span>}</span>
-                      </div>
-                    </div>
-                  ))}
+                  {submittedInCat.map(q => {
+                    const qIndex = questions.findIndex(qq => qq.id === q.id)
+                    return (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => {
+                          if (qIndex !== -1) {
+                            setReturnToIndex(currentIndex)
+                            setCurrentIndex(qIndex)
+                            setShowPrevious(false)
+                          }
+                        }}
+                        className="w-full text-left rounded border border-border/50 p-2 bg-muted/30 text-xs hover:bg-accent/50 hover:border-primary/30 transition-colors cursor-pointer group"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="font-medium text-muted-foreground shrink-0">Q:</span>
+                          <span className="text-muted-foreground flex-1">{q.question}</span>
+                          <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0">Edit ✎</span>
+                        </div>
+                        <div className="flex items-start gap-2 mt-1">
+                          <span className="font-medium text-green-600 shrink-0">A:</span>
+                          <span>{answers[q.id]?.trim() || <span className="italic text-muted-foreground">Skipped</span>}</span>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               )
             })}
@@ -264,7 +284,12 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
             <Card>
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Interview Q&A</CardTitle>
+                  <CardTitle className="text-sm">
+                    Interview Q&A
+                    {isEditingPrevious && (
+                      <span className="ml-2 text-[10px] font-normal text-amber-500">— Editing</span>
+                    )}
+                  </CardTitle>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs">
                       Q {currentIndex + 1}/{totalQuestions}
@@ -353,6 +378,23 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                     )}
                   </div>
                 </div>
+
+                {isEditingPrevious && returnToIndex !== null && (
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => {
+                        setCurrentIndex(returnToIndex)
+                        setReturnToIndex(null)
+                      }}
+                      disabled={isBusy}
+                      className="h-7 text-xs"
+                    >
+                      ✓ Save & Return
+                    </Button>
+                  </div>
+                )}
 
                 <div className="flex gap-2 justify-end border-t border-border pt-2">
                   <Button

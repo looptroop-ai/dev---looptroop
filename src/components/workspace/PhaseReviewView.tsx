@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { CheckCircle2, Eye, CalendarDays } from 'lucide-react'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
-import { useProfile } from '@/hooks/useProfile'
+
 import type { Ticket } from '@/hooks/useTickets'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 
@@ -20,11 +20,10 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
     totalBeads: ticket.totalBeads,
     errorMessage: ticket.errorMessage,
   })
-  const { data: profile } = useProfile()
   const councilMemberNames = useMemo(() => {
-    try { return profile?.councilMembers ? JSON.parse(profile.councilMembers) as string[] : [] }
+    try { return ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : [] }
     catch { return [] }
-  }, [profile?.councilMembers])
+  }, [ticket.lockedCouncilMembers])
   const councilMemberCount = councilMemberNames.length || 3
   const isDraft = phase === 'DRAFT'
 
