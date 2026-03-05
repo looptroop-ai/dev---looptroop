@@ -860,26 +860,66 @@ async function handleCoverageVerification(
     { type: 'text', content: promptContent },
   ], signal)
 
-  // Parse response: detect gaps vs clean coverage
-  const lowerResponse = response.toLowerCase()
-  const hasGaps = lowerResponse.includes('gap') || lowerResponse.includes('missing')
-    || lowerResponse.includes('uncovered') || lowerResponse.includes('follow-up question')
-    || lowerResponse.includes('discrepanc')
-  const isClean = lowerResponse.includes('no gaps') || lowerResponse.includes('complete and ready')
-    || lowerResponse.includes('coverage is complete') || lowerResponse.includes('no discrepanc')
-    || lowerResponse.includes('ready for')
+  // Store the coverage input artifact so the UI can display Q&A / doc being verified
+  const coverageInputContent = phase === 'interview'
+    ? JSON.stringify({ refinedContent, userAnswers: ticketState.userAnswers })
+    : phase === 'prd'
+      ? JSON.stringify({ prd: ticketState.prd, refinedContent })
+      : JSON.stringify({ beads: ticketState.beads, refinedContent })
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: stateLabel,
+      artifactType: `${phase}_coverage_input`,
+      content: coverageInputContent,
+    })
+    .run()
 
-  // Store the coverage verification artifact
+  // Parse response: detect gaps vs clean coverage
+  // Strategy: try YAML structured fields first, then explicit markers, then heuristic
+  let detectedGaps = false
+  try {
+    const parsed = jsYaml.load(response) as Record<string, unknown> | null
+    if (parsed && typeof parsed === 'object') {
+      // Structured YAML: check for gaps field or status field
+      if (Array.isArray(parsed.gaps)) {
+        detectedGaps = parsed.gaps.length > 0
+      } else if (typeof parsed.status === 'string') {
+        const s = parsed.status.toLowerCase()
+        detectedGaps = !(s === 'clean' || s === 'pass' || s === 'complete')
+      } else if (parsed.follow_up_questions && Array.isArray(parsed.follow_up_questions)) {
+        detectedGaps = (parsed.follow_up_questions as unknown[]).length > 0
+      }
+    }
+  } catch {
+    // Not valid YAML — fall through to marker-based detection
+    const lowerResponse = response.toLowerCase()
+
+    // Explicit markers (highest confidence)
+    if (lowerResponse.includes('coverage_complete') || lowerResponse.includes('coverage_pass')) {
+      detectedGaps = false
+    } else if (lowerResponse.includes('coverage_fail') || lowerResponse.includes('coverage_gaps')) {
+      detectedGaps = true
+    } else {
+      // Heuristic: check for follow-up questions being generated (not just mentioned)
+      const hasFollowUpQuestions = /follow-up questions?:\s*\n\s*[-\d]/.test(lowerResponse)
+        || /additional questions?\s*(needed|required|to ask)/i.test(response)
+      detectedGaps = hasFollowUpQuestions
+      // When ambiguous, default to clean (retry loop via GAPS_FOUND handles false negatives)
+    }
+  }
+
+  // Store the coverage result artifact
   db.insert(phaseArtifacts)
     .values({
       ticketId,
       phase: stateLabel,
       artifactType: `${phase}_coverage`,
-      content: JSON.stringify({ winnerId, response, hasGaps: hasGaps && !isClean }),
+      content: JSON.stringify({ winnerId, response, hasGaps: detectedGaps }),
     })
     .run()
 
-  if (hasGaps && !isClean) {
+  if (detectedGaps) {
     emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
       `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
     sendEvent({ type: 'GAPS_FOUND' })

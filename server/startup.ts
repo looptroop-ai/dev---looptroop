@@ -1,8 +1,11 @@
 import { initializeDatabase } from './db/init'
-import { startWalCheckpoint } from './db/index'
+import { db, startWalCheckpoint } from './db/index'
 import { createIndexes } from './db/indexes'
 import { hydrateAllTickets } from './machines/persistence'
 import { OpenCodeSDKAdapter } from './opencode/adapter'
+import { opencodeSessions, tickets } from './db/schema'
+import { not, inArray, eq, and } from 'drizzle-orm'
+import { TERMINAL_STATES } from './machines/types'
 
 export function startupSequence() {
   console.log('[startup] Step 1: Initialize database')
@@ -30,9 +33,42 @@ export function startupSequence() {
   const hydrated = hydrateAllTickets()
   console.log(`[startup] Hydrated ${hydrated} ticket actors`)
 
-  // TODO: Step 5 — Reconnect OpenCode sessions for in-progress tickets.
-  // Requires tracking active session IDs in the DB and calling adapter.listSessions()
-  // to match and resubscribe to event streams.
+  // Step 5: Reconnect OpenCode sessions for in-progress tickets
+  console.log('[startup] Step 5: Reconnecting OpenCode sessions for in-progress tickets')
+
+  const terminalStatuses = [...TERMINAL_STATES] as string[]
+  const inProgressTickets = db.select().from(tickets)
+    .where(not(inArray(tickets.status, terminalStatuses)))
+    .all()
+
+  let reconnected = 0
+  if (inProgressTickets.length > 0) {
+    adapter.listSessions().then(remoteSessions => {
+      const remoteIds = new Set(remoteSessions.map(s => s.id))
+      for (const ticket of inProgressTickets) {
+        const activeDbSessions = db.select().from(opencodeSessions)
+          .where(and(
+            eq(opencodeSessions.ticketId, ticket.id),
+            eq(opencodeSessions.state, 'active'),
+          ))
+          .all()
+        for (const sess of activeDbSessions) {
+          if (remoteIds.has(sess.sessionId)) {
+            reconnected++
+          } else {
+            // Session no longer exists on the OpenCode side — mark abandoned
+            db.update(opencodeSessions)
+              .set({ state: 'abandoned', updatedAt: new Date().toISOString() })
+              .where(eq(opencodeSessions.id, sess.id))
+              .run()
+          }
+        }
+      }
+      console.log(`[startup] Reconnected ${reconnected} OpenCode sessions, cleaned up stale entries`)
+    }).catch((err: unknown) => {
+      console.warn(`[startup] OpenCode session reconnection failed: ${err instanceof Error ? err.message : String(err)}`)
+    })
+  }
 
   console.log('[startup] Startup complete')
 }

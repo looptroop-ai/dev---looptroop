@@ -1,5 +1,5 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
-import type { CouncilMember, CouncilResult, MemberOutcome } from './types'
+import type { CouncilMember, CouncilResult, DraftResult, MemberOutcome } from './types'
 import { throwIfAborted } from './types'
 import type { PromptPart } from '../opencode/types'
 import { generateDrafts } from './drafter'
@@ -15,13 +15,15 @@ interface PipelineOptions {
   minQuorum?: number
   draftTimeout?: number
   signal?: AbortSignal
+  /** Optional callback to rebuild context between council steps. */
+  contextBuilder?: (step: 'vote' | 'refine', drafts: DraftResult[]) => PromptPart[]
 }
 
 export async function runCouncilPipeline(
   adapter: OpenCodeAdapter,
   options: PipelineOptions,
 ): Promise<CouncilResult> {
-  const { phase, members, contextParts, projectPath, minQuorum = 2, draftTimeout = 300000, signal } = options
+  const { phase, members, contextParts, projectPath, minQuorum = 2, draftTimeout = 300000, signal, contextBuilder } = options
 
   // Step 1: Draft — parallel generation
   throwIfAborted(signal)
@@ -34,18 +36,12 @@ export async function runCouncilPipeline(
     throw new Error(`Council quorum not met for ${phase}: ${quorum.message}`)
   }
 
-  // TODO: Per arch.md §9.1 "context_refresh", context must be rebuilt via
-  // buildMinimalContext() between each council step (draft → vote → refine).
-  // Currently the pipeline reuses the draft-phase contextParts for voting and
-  // refinement. The phase-specific vote/refine functions (e.g. voteInterview,
-  // compileInterview) exist with correct PROM prompts but are not wired into
-  // this generic pipeline. Refactor to accept a context-builder callback or
-  // invoke the phase-specific functions so each step gets its own allowlist-
-  // enforced context (e.g. interview_vote, interview_refine).
+  // Per arch.md §9.1: rebuild context between council steps when a builder is provided
+  const voteContext = contextBuilder ? contextBuilder('vote', drafts) : contextParts
 
   // Step 3: Vote — parallel anonymized voting
   throwIfAborted(signal)
-  const votes = await conductVoting(adapter, members, drafts, contextParts, projectPath, phase, signal)
+  const votes = await conductVoting(adapter, members, drafts, voteContext, projectPath, phase, signal)
 
   // Step 4: Select winner
   throwIfAborted(signal)
@@ -55,7 +51,8 @@ export async function runCouncilPipeline(
 
   // Step 5: Refine — sequential
   throwIfAborted(signal)
-  const refinedContent = await refineDraft(adapter, winnerDraft, losingDrafts, contextParts, projectPath, signal)
+  const refineContext = contextBuilder ? contextBuilder('refine', drafts) : contextParts
+  const refinedContent = await refineDraft(adapter, winnerDraft, losingDrafts, refineContext, projectPath, signal)
 
   // Build outcome map
   const memberOutcomes: Record<string, MemberOutcome> = {}
