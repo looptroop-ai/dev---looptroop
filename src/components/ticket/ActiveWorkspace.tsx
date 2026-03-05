@@ -66,7 +66,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, canceledFromStatus }: A
       return <ApprovalView ticket={ticket} artifactType="beads" />
 
     case 'WAITING_MANUAL_VERIFICATION':
-      return <ApprovalView ticket={ticket} artifactType="beads" />
+      return <CodingView ticket={ticket} />
 
     case 'PRE_FLIGHT_CHECK':
     case 'CODING':

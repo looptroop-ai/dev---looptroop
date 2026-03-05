@@ -73,7 +73,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   }, [ticket.lockedCouncilMembers])
   const councilMemberCount = councilMemberNames.length || 3
 
-  const { data: fetchedContent, isPending: isContentPending, isFetching } = useQuery({
+  const { data: fetchedContent, isLoading } = useQuery({
     queryKey: ['artifact', ticket.id, artifactType],
     queryFn: async () => {
       const url = artifactType === 'beads'
@@ -89,8 +89,8 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
     staleTime: 5 * 60 * 1000, // 5 minutes cache to prevent flashes
   })
 
-  // We only show 'Loading artifact...' if there is no cache and we are currently fetching it
-  const loading = isContentPending && isFetching
+  // Show loading only on true initial load (no cached data), not on background refetch
+  const loading = isLoading
 
   const fileContent = fetchedContent ?? ''
 

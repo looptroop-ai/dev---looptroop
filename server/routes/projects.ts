@@ -3,8 +3,9 @@ import { z } from 'zod'
 import { db } from '../db/index'
 import { projects, tickets, phaseArtifacts } from '../db/schema'
 import { eq, inArray } from 'drizzle-orm'
-import { existsSync } from 'fs'
-import { resolve as resolvePath, isAbsolute } from 'path'
+import { existsSync, readdirSync, statSync } from 'fs'
+import { resolve as resolvePath, isAbsolute, dirname } from 'path'
+import { homedir } from 'os'
 import { execFileSync } from 'child_process'
 
 const projectRouter = new Hono()
@@ -82,6 +83,39 @@ projectRouter.get('/projects/check-git', (c) => {
     return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
   } catch {
     return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
+  }
+})
+
+projectRouter.get('/projects/ls', (c) => {
+  const rawPath = c.req.query('path')
+  const targetPath = normalizeFolderPath(rawPath || homedir())
+
+  if (!existsSync(targetPath)) {
+    return c.json({ error: `Path does not exist: ${targetPath}` }, 400)
+  }
+
+  try {
+    const entries = readdirSync(targetPath)
+    const dirs = entries
+      .filter((name) => !name.startsWith('.'))
+      .flatMap((name) => {
+        try {
+          const full = resolvePath(targetPath, name)
+          return statSync(full).isDirectory() ? [{ name, path: full }] : []
+        } catch {
+          return []
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    const parent = dirname(targetPath)
+    return c.json({
+      currentPath: targetPath,
+      parentPath: parent === targetPath ? null : parent,
+      dirs,
+    })
+  } catch {
+    return c.json({ error: `Cannot read directory: ${targetPath}` }, 400)
   }
 })
 

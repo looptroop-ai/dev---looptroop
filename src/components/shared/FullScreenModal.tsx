@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 
@@ -21,8 +22,8 @@ export function FullScreenModal({ open, onClose, title, children }: FullScreenMo
 
   if (!open) return null
 
-  return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col relative">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-background flex flex-col">
       <button
         type="button"
         onClick={onClose}
@@ -38,6 +39,7 @@ export function FullScreenModal({ open, onClose, title, children }: FullScreenMo
       <div className="flex-1 overflow-auto p-6">
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

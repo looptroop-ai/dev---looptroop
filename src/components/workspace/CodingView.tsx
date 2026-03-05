@@ -45,7 +45,8 @@ export function CodingView({ ticket }: CodingViewProps) {
     ticket.status === 'RUNNING_FINAL_TEST' ? 'Running Final Tests' :
       ticket.status === 'INTEGRATING_CHANGES' ? 'Integrating Changes' :
         ticket.status === 'CLEANING_ENV' ? 'Cleaning Environment' :
-          ticket.status === 'PRE_FLIGHT_CHECK' ? 'Pre-flight Check' : 'Processing'
+          ticket.status === 'PRE_FLIGHT_CHECK' ? 'Pre-flight Check' :
+            ticket.status === 'WAITING_MANUAL_VERIFICATION' ? 'Manual Verification' : 'Processing'
 
   return (
     <div className="h-full flex flex-col overflow-hidden">

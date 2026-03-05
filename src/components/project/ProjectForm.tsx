@@ -8,6 +8,7 @@ import { ArrowLeft, Search, X, Upload, Trash2, CheckCircle2, XCircle, CircleDot 
 import { cn } from '@/lib/utils'
 import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
+import { FolderPicker } from '@/components/project/FolderPicker'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
 
@@ -67,7 +68,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const selectedColor = PROJECT_COLORS.find(c => c.value === color)
   const [gitStatus, setGitStatus] = useState<'none' | 'checking' | 'valid' | 'invalid'>('none')
   const [gitMessage, setGitMessage] = useState('')
-  const supportsDirectoryPicker = typeof window !== 'undefined' && 'showDirectoryPicker' in window
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
 
   useEffect(() => {
     if (!folder.trim()) {
@@ -92,26 +93,13 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     return () => clearTimeout(timer)
   }, [folder])
 
-  const handleBrowseFolder = async () => {
-    if (!supportsDirectoryPicker) return
-    try {
-      const directoryPickerWindow = window as Window & {
-        showDirectoryPicker?: () => Promise<{ name: string; path?: string }>
-      }
-      const directoryHandle = await directoryPickerWindow.showDirectoryPicker?.()
-      if (!directoryHandle) return
-      if (directoryHandle.path) {
-        setFolder(directoryHandle.path)
-      } else {
-        addToast(
-          'warning',
-          `Browser selected "${directoryHandle.name}" but cannot expose the full path. Paste the absolute path manually.`,
-          7000,
-        )
-      }
-    } catch {
-      // User cancelled picker.
-    }
+  const handleBrowseFolder = () => {
+    setFolderPickerOpen(true)
+  }
+
+  const handleFolderSelected = (path: string) => {
+    setFolder(path)
+    setFolderPickerOpen(false)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -147,6 +135,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const isBusy = createProject.isPending || updateProject.isPending || deleteProject.isPending
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-6">
       {onBack && (
         <Button type="button" variant="ghost" size="sm" onClick={onBack}>
@@ -427,21 +416,14 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                     value={folder}
                     onChange={e => setFolder(e.target.value)}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-                    placeholder={supportsDirectoryPicker ? 'Choose a folder or type a path' : '/path/to/project'}
+                    placeholder="Choose a folder or type a path"
                     autoComplete="off"
                     required
                   />
-                  {supportsDirectoryPicker && (
-                    <Button type="button" variant="outline" onClick={handleBrowseFolder}>
-                      Browse...
-                    </Button>
-                  )}
+                  <Button type="button" variant="outline" onClick={handleBrowseFolder}>
+                    Browse...
+                  </Button>
                 </div>
-                {!supportsDirectoryPicker && (
-                  <p className="text-xs text-muted-foreground">
-                    Directory picker is not supported in this browser, so please type the path manually.
-                  </p>
-                )}
                 {gitMessage && (
                   <p className={cn(
                     'text-xs',
@@ -468,5 +450,13 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
         </div>
       </div>
     </form>
+
+    <FolderPicker
+      open={folderPickerOpen}
+      onClose={() => setFolderPickerOpen(false)}
+      onSelect={handleFolderSelected}
+      initialPath={folder}
+    />
+    </>
   )
 }
