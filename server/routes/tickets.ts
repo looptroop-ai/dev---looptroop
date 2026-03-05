@@ -568,21 +568,24 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
   }
 
   try {
-    const parsed = JSON.parse(artifact.content) as { winnerId: string; refinedContent: string }
+    const parsed = JSON.parse(artifact.content) as { winnerId: string; refinedContent: string; questions?: unknown[] }
     const raw = parsed.refinedContent
+    const winnerId = parsed.winnerId
 
-    // Try to parse YAML content into structured questions
-    const yamlParsed = jsYaml.load(raw) as Record<string, unknown> | unknown[] | null
-    let questions: unknown[] = []
-    if (Array.isArray(yamlParsed)) {
-      questions = yamlParsed
-    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
-      questions = (yamlParsed as Record<string, unknown>).questions as unknown[]
+    // Use pre-parsed questions if available, otherwise parse YAML on the fly
+    let questions: unknown[] = parsed.questions ?? []
+    if (questions.length === 0) {
+      const yamlParsed = jsYaml.load(raw) as Record<string, unknown> | unknown[] | null
+      if (Array.isArray(yamlParsed)) {
+        questions = yamlParsed
+      } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
+        questions = (yamlParsed as Record<string, unknown>).questions as unknown[]
+      }
     }
 
-    return c.json({ questions, raw, draft, draftUpdatedAt })
+    return c.json({ questions, raw, winnerId, draft, draftUpdatedAt })
   } catch {
-    return c.json({ questions: [], raw: artifact.content, draft, draftUpdatedAt })
+    return c.json({ questions: [], raw: artifact.content, winnerId: null, draft, draftUpdatedAt })
   }
 })
 

@@ -6,6 +6,10 @@ import { profiles, projects, tickets, phaseArtifacts } from '../db/schema'
 import { eq, and, desc } from 'drizzle-orm'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview } from '../phases/interview/deliberate'
+import { draftPRD } from '../phases/prd/draft'
+import { draftBeads } from '../phases/beads/draft'
+import { expandBeads } from '../phases/beads/expand'
+import type { BeadSubset } from '../phases/beads/types'
 import { OpenCodeSDKAdapter } from '../opencode/adapter'
 import type { CouncilResult } from '../council/types'
 import { CancelledError } from '../council/types'
@@ -15,6 +19,10 @@ import { buildMinimalContext, type TicketState } from '../opencode/contextBuilde
 import { buildPromptFromTemplate, PROM5, PROM13, PROM24 } from '../prompts/index'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
+// @ts-expect-error no type declarations for js-yaml
+import jsYaml from 'js-yaml'
+import { safeAtomicWrite } from '../io/atomicWrite'
+import { writeJsonl } from '../io/jsonl'
 import { initializeTicket } from '../ticket/initialize'
 
 const runningPhases = new Set<string>()
@@ -243,6 +251,21 @@ async function handleInterviewCompile(
   sendEvent: (event: TicketEvent) => void,
 ) {
   await Promise.resolve()
+
+  // Parse YAML questions from refined content into structured list
+  let parsedQuestions: unknown[] = []
+  try {
+    const yamlParsed = jsYaml.load(result.refinedContent) as Record<string, unknown> | unknown[] | null
+    if (Array.isArray(yamlParsed)) {
+      parsedQuestions = yamlParsed
+    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
+      parsedQuestions = (yamlParsed as Record<string, unknown>).questions as unknown[]
+    }
+  } catch {
+    // If YAML parsing fails, fall back to raw content (questions will be empty array)
+    console.warn(`[runner] Failed to parse YAML questions from refined content for ticket ${context.externalId}`)
+  }
+
   db.insert(phaseArtifacts)
     .values({
       ticketId,
@@ -251,22 +274,419 @@ async function handleInterviewCompile(
       content: JSON.stringify({
         winnerId: result.winnerId,
         refinedContent: result.refinedContent,
+        questions: parsedQuestions,
       }),
     })
     .run()
+
+  // Persist winnerId separately so it survives server restarts and is available
+  // for VERIFYING_INTERVIEW_COVERAGE and downstream phases (PROM4/PROM5 wiring)
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_winner',
+      content: JSON.stringify({ winnerId: result.winnerId }),
+    })
+    .run()
+
   emitPhaseLog(
     ticketId,
     context.externalId,
     'COMPILING_INTERVIEW',
     'info',
-    `Compiled final interview from winner ${result.winnerId}.`,
+    `Compiled final interview from winner ${result.winnerId}. Parsed ${parsedQuestions.length} structured questions.`,
   )
   sendEvent({ type: 'READY' })
   broadcaster.broadcast(String(ticketId), 'needs_input', {
     ticketId: String(ticketId),
     type: 'interview_questions',
-    context: { questions: result.refinedContent },
+    context: { questions: result.refinedContent, parsedQuestions, winnerId: result.winnerId },
   })
+}
+
+// --- Helper: resolve council members from context (shared by PRD/Beads draft handlers) ---
+function resolveCouncilMembers(context: TicketContext): Array<{ modelId: string; name: string }> {
+  let members: Array<{ modelId: string; name: string }> = []
+
+  if (context.lockedCouncilMembers && context.lockedCouncilMembers.length > 0) {
+    members = context.lockedCouncilMembers.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+  } else {
+    const profile = db.select().from(profiles).get()
+    if (profile?.councilMembers) {
+      try {
+        const modelIds = JSON.parse(profile.councilMembers) as string[]
+        members = modelIds.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+      } catch { /* fallback below */ }
+    }
+  }
+
+  if (members.length === 0) {
+    members = [{ modelId: 'openai/gpt-5.3-codex', name: 'gpt-5.3-codex' }]
+  }
+  return members
+}
+
+// --- Helper: load ticket dir paths and codebase map ---
+function loadTicketDirContext(context: TicketContext) {
+  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
+  const projectPath = project?.folderPath ?? process.cwd()
+  const ticket = db.select().from(tickets).where(eq(tickets.id, Number(context.ticketId))).get()
+  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+
+  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
+  let codebaseMap: string | undefined
+  if (existsSync(codebaseMapPath)) {
+    try { codebaseMap = readFileSync(codebaseMapPath, 'utf-8') } catch { /* ignore */ }
+  }
+
+  return { projectPath, ticket, ticketDir, codebaseMap }
+}
+
+// ─── PRD Phase Handlers ───
+
+async function handlePrdDraft(
+  ticketId: number,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
+) {
+  const { projectPath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const members = resolveCouncilMembers(context)
+
+  // Load interview results from disk
+  const interviewPath = resolve(ticketDir, 'interview.yaml')
+  let interview: string | undefined
+  if (existsSync(interviewPath)) {
+    try { interview = readFileSync(interviewPath, 'utf-8') } catch { /* ignore */ }
+  }
+
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+    codebaseMap,
+    interview,
+  }
+  const ticketContext = buildMinimalContext('prd_draft', ticketState)
+
+  emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'info',
+    `PRD council drafting started. Context: ${ticketContext.length} parts, interview=${interview ? 'loaded' : 'missing'}.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const result = await draftPRD(adapter, members, ticketContext, projectPath)
+
+  phaseResults.set(`${ticketId}:prd`, result)
+
+  for (const draft of result.drafts) {
+    const detail = draft.outcome === 'timed_out'
+      ? 'timed out'
+      : draft.outcome === 'invalid_output'
+        ? 'invalid output'
+        : `drafted PRD (${draft.content.length} chars)`
+    emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
+      `${draft.memberId} ${detail}.`,
+      { modelId: draft.memberId, outcome: draft.outcome, duration: draft.duration })
+  }
+
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_drafts',
+      content: JSON.stringify(result),
+    })
+    .run()
+
+  sendEvent({ type: 'DRAFTS_READY' })
+
+  broadcaster.broadcast(String(ticketId), 'state_change', {
+    ticketId: String(ticketId),
+    from: 'DRAFTING_PRD',
+    to: 'COUNCIL_VOTING_PRD',
+  })
+}
+
+async function handlePrdVote(
+  ticketId: number,
+  result: CouncilResult,
+  ticketExternalId: string,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  await Promise.resolve()
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'COUNCIL_VOTING_PRD',
+      artifactType: 'prd_votes',
+      content: JSON.stringify(result),
+    })
+    .run()
+  emitPhaseLog(ticketId, ticketExternalId, 'COUNCIL_VOTING_PRD', 'info',
+    `PRD voting selected winner: ${result.winnerId}.`)
+  sendEvent({ type: 'WINNER_SELECTED', winner: result.winnerId })
+  broadcaster.broadcast(String(ticketId), 'state_change', {
+    ticketId: String(ticketId),
+    from: 'COUNCIL_VOTING_PRD',
+    to: 'REFINING_PRD',
+  })
+}
+
+async function handlePrdRefine(
+  ticketId: number,
+  result: CouncilResult,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  await Promise.resolve()
+
+  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const prdPath = resolve(ticketDir, 'prd.yaml')
+
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify({
+        winnerId: result.winnerId,
+        refinedContent: result.refinedContent,
+      }),
+    })
+    .run()
+
+  // Save refined PRD to disk
+  safeAtomicWrite(prdPath, result.refinedContent)
+
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
+    `Refined PRD from winner ${result.winnerId}. Saved to ${prdPath}.`)
+
+  sendEvent({ type: 'REFINED' })
+
+  broadcaster.broadcast(String(ticketId), 'state_change', {
+    ticketId: String(ticketId),
+    from: 'REFINING_PRD',
+    to: 'VERIFYING_PRD_COVERAGE',
+  })
+}
+
+// ─── Beads Phase Handlers ───
+
+async function handleBeadsDraft(
+  ticketId: number,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
+) {
+  const { projectPath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const members = resolveCouncilMembers(context)
+
+  // Load PRD from disk
+  const prdPath = resolve(ticketDir, 'prd.yaml')
+  let prd: string | undefined
+  if (existsSync(prdPath)) {
+    try { prd = readFileSync(prdPath, 'utf-8') } catch { /* ignore */ }
+  }
+
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+    codebaseMap,
+    prd,
+  }
+  const ticketContext = buildMinimalContext('beads_draft', ticketState)
+
+  emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'info',
+    `Beads council drafting started. Context: ${ticketContext.length} parts, prd=${prd ? 'loaded' : 'missing'}.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const result = await draftBeads(adapter, members, ticketContext, projectPath)
+
+  phaseResults.set(`${ticketId}:beads`, result)
+
+  for (const draft of result.drafts) {
+    const detail = draft.outcome === 'timed_out'
+      ? 'timed out'
+      : draft.outcome === 'invalid_output'
+        ? 'invalid output'
+        : `drafted beads (${draft.content.length} chars)`
+    emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'model_output',
+      `${draft.memberId} ${detail}.`,
+      { modelId: draft.memberId, outcome: draft.outcome, duration: draft.duration })
+  }
+
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'DRAFTING_BEADS',
+      artifactType: 'beads_drafts',
+      content: JSON.stringify(result),
+    })
+    .run()
+
+  sendEvent({ type: 'DRAFTS_READY' })
+
+  broadcaster.broadcast(String(ticketId), 'state_change', {
+    ticketId: String(ticketId),
+    from: 'DRAFTING_BEADS',
+    to: 'COUNCIL_VOTING_BEADS',
+  })
+}
+
+async function handleBeadsVote(
+  ticketId: number,
+  result: CouncilResult,
+  ticketExternalId: string,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  await Promise.resolve()
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'COUNCIL_VOTING_BEADS',
+      artifactType: 'beads_votes',
+      content: JSON.stringify(result),
+    })
+    .run()
+  emitPhaseLog(ticketId, ticketExternalId, 'COUNCIL_VOTING_BEADS', 'info',
+    `Beads voting selected winner: ${result.winnerId}.`)
+  sendEvent({ type: 'WINNER_SELECTED', winner: result.winnerId })
+  broadcaster.broadcast(String(ticketId), 'state_change', {
+    ticketId: String(ticketId),
+    from: 'COUNCIL_VOTING_BEADS',
+    to: 'REFINING_BEADS',
+  })
+}
+
+async function handleBeadsRefine(
+  ticketId: number,
+  result: CouncilResult,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  await Promise.resolve()
+
+  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+
+  // Parse refined content as bead subsets and expand to full beads
+  let beadSubsets: BeadSubset[] = []
+  try {
+    beadSubsets = JSON.parse(result.refinedContent) as BeadSubset[]
+  } catch {
+    // If refinedContent is not valid JSON array, wrap as single-item
+    beadSubsets = [{ id: 'bead-1', title: 'Main task', prdRefs: [], description: result.refinedContent, contextGuidance: '', acceptanceCriteria: [], tests: [], testCommands: [] }]
+  }
+
+  const expandedBeads = expandBeads(beadSubsets)
+
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_refined',
+      content: JSON.stringify({
+        winnerId: result.winnerId,
+        refinedContent: result.refinedContent,
+        expandedBeads,
+      }),
+    })
+    .run()
+
+  // Save expanded beads to disk as JSONL
+  writeJsonl(beadsPath, expandedBeads)
+
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
+    `Refined and expanded ${expandedBeads.length} beads from winner ${result.winnerId}. Saved to ${beadsPath}.`)
+
+  sendEvent({ type: 'REFINED' })
+
+  broadcaster.broadcast(String(ticketId), 'state_change', {
+    ticketId: String(ticketId),
+    from: 'REFINING_BEADS',
+    to: 'VERIFYING_BEADS_COVERAGE',
+  })
+}
+
+/**
+ * Build interview.yaml content per PROM5 output_file schema.
+ * Merges parsed questions from refinedContent with user answers.
+ */
+function buildInterviewYaml(
+  ticketId: string,
+  winnerId: string,
+  refinedContent: string,
+  userAnswersJson?: string,
+): string {
+  const now = new Date().toISOString()
+
+  // Parse questions from the refined YAML content
+  interface ParsedQuestion {
+    id?: string
+    prompt?: string
+    answer_type?: string
+    options?: unknown[]
+  }
+  let parsedQuestions: ParsedQuestion[] = []
+  try {
+    const yamlParsed = jsYaml.load(refinedContent) as Record<string, unknown> | unknown[] | null
+    if (Array.isArray(yamlParsed)) {
+      parsedQuestions = yamlParsed as ParsedQuestion[]
+    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
+      parsedQuestions = (yamlParsed as Record<string, unknown>).questions as ParsedQuestion[]
+    }
+  } catch { /* use empty array */ }
+
+  // Parse user answers
+  let userAnswers: Record<string, string> = {}
+  if (userAnswersJson) {
+    try { userAnswers = JSON.parse(userAnswersJson) as Record<string, string> } catch { /* ignore */ }
+  }
+
+  // Build structured questions with answers merged in
+  const questions = parsedQuestions.map((q, idx) => {
+    const qId = q.id ?? `Q${idx + 1}`
+    const answerText = userAnswers[qId] ?? userAnswers[q.prompt ?? ''] ?? ''
+    const skipped = !answerText
+    return {
+      id: qId,
+      prompt: q.prompt ?? '',
+      answer_type: q.answer_type ?? 'free_text',
+      options: q.options ?? [],
+      answer: {
+        skipped,
+        selected_option_ids: [],
+        free_text: answerText,
+        answered_by: skipped ? 'ai_skip' : 'user',
+        answered_at: skipped ? '' : now,
+      },
+    }
+  })
+
+  const interviewData = {
+    schema_version: 1,
+    ticket_id: ticketId,
+    artifact: 'interview',
+    status: 'draft',
+    generated_by: {
+      winner_model: winnerId,
+      generated_at: now,
+    },
+    questions,
+    follow_up_rounds: [],
+    summary: {
+      goals: [],
+      constraints: [],
+      non_goals: [],
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+
+  return jsYaml.dump(interviewData, { lineWidth: 120, noRefs: true }) as string
 }
 
 /**
@@ -291,15 +711,50 @@ async function handleCoverageVerification(
       : 'VERIFYING_BEADS_COVERAGE'
 
   // Resolve the council result to find the winning model
-  const councilResult = phaseResults.get(`${ticketId}:${phase}`)
-  if (!councilResult) {
-    const msg = `No council result found for ${phase} phase — cannot determine winning model`
-    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-    return
-  }
+  let councilResult = phaseResults.get(`${ticketId}:${phase}`)
+  let winnerId: string
 
-  const winnerId = councilResult.winnerId
+  if (councilResult) {
+    winnerId = councilResult.winnerId
+  } else {
+    // Fallback: read winnerId from persisted phaseArtifacts (survives server restarts)
+    const winnerArtifactType = phase === 'interview'
+      ? 'interview_winner'
+      : phase === 'prd'
+        ? 'prd_votes'
+        : 'beads_votes'
+    const winnerArtifact = db.select().from(phaseArtifacts)
+      .where(and(
+        eq(phaseArtifacts.ticketId, ticketId),
+        eq(phaseArtifacts.artifactType, winnerArtifactType),
+      ))
+      .orderBy(desc(phaseArtifacts.id))
+      .get()
+
+    if (!winnerArtifact) {
+      const msg = `No council result found for ${phase} phase — cannot determine winning model`
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+      winnerId = parsed.winnerId ?? ''
+    } catch {
+      const msg = `Failed to parse winning model from persisted artifact for ${phase} phase`
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+
+    if (!winnerId) {
+      const msg = `No winnerId found in persisted artifact for ${phase} phase`
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+  }
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -324,12 +779,35 @@ async function handleCoverageVerification(
     try { codebaseMap = readFileSync(codebaseMapPath, 'utf-8') } catch { /* ignore */ }
   }
 
+  // Resolve refinedContent: prefer in-memory, fall back to persisted artifact
+  let refinedContent: string | undefined = councilResult?.refinedContent
+  if (!refinedContent) {
+    const compiledArtifactType = phase === 'interview'
+      ? 'interview_compiled'
+      : phase === 'prd'
+        ? 'prd_refined'
+        : 'beads_refined'
+    const compiledArtifact = db.select().from(phaseArtifacts)
+      .where(and(
+        eq(phaseArtifacts.ticketId, ticketId),
+        eq(phaseArtifacts.artifactType, compiledArtifactType),
+      ))
+      .orderBy(desc(phaseArtifacts.id))
+      .get()
+    if (compiledArtifact) {
+      try {
+        const parsed = JSON.parse(compiledArtifact.content) as { refinedContent?: string }
+        refinedContent = parsed.refinedContent
+      } catch { /* ignore */ }
+    }
+  }
+
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
     codebaseMap,
-    interview: councilResult.refinedContent,
+    interview: refinedContent,
   }
 
   const interviewUiState = db.select().from(phaseArtifacts)
@@ -406,6 +884,26 @@ async function handleCoverageVerification(
       `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
     sendEvent({ type: 'GAPS_FOUND' })
   } else {
+    // Generate interview.yaml when interview coverage passes (PROM5 output_file schema)
+    if (phase === 'interview') {
+      try {
+        const interviewYaml = buildInterviewYaml(
+          context.externalId,
+          winnerId,
+          refinedContent ?? '',
+          ticketState.userAnswers,
+        )
+        const interviewPath = resolve(ticketDir, 'interview.yaml')
+        safeAtomicWrite(interviewPath, interviewYaml)
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
+          `Generated interview.yaml at ${interviewPath}`)
+      } catch (err) {
+        console.error(`[runner] Failed to generate interview.yaml for ticket ${context.externalId}:`, err)
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
+          `Failed to generate interview.yaml: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
     emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
       `Coverage verification passed (winning model: ${winnerId}).`)
     sendEvent({ type: 'COVERAGE_CLEAN' })
@@ -493,6 +991,51 @@ export function attachWorkflowRunner(
         .finally(() => {
           runningPhases.delete(key)
         })
+    } else if (state === 'DRAFTING_PRD') {
+      runningPhases.add(key)
+      handlePrdDraft(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] DRAFTING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'COUNCIL_VOTING_PRD') {
+      const result = phaseResults.get(`${ticketId}:prd`)
+      if (result) {
+        runningPhases.add(key)
+        handlePrdVote(ticketId, result, context.externalId, sendEvent)
+          .catch(err => {
+            if (err instanceof CancelledError) return
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] COUNCIL_VOTING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
+      }
+    } else if (state === 'REFINING_PRD') {
+      const result = phaseResults.get(`${ticketId}:prd`)
+      if (result) {
+        runningPhases.add(key)
+        handlePrdRefine(ticketId, result, context, sendEvent)
+          .catch(err => {
+            if (err instanceof CancelledError) return
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] REFINING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
+      }
     } else if (state === 'VERIFYING_PRD_COVERAGE') {
       runningPhases.add(key)
       handleCoverageVerification(ticketId, context, sendEvent, 'prd', signal)
@@ -506,6 +1049,51 @@ export function attachWorkflowRunner(
         .finally(() => {
           runningPhases.delete(key)
         })
+    } else if (state === 'DRAFTING_BEADS') {
+      runningPhases.add(key)
+      handleBeadsDraft(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] DRAFTING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'COUNCIL_VOTING_BEADS') {
+      const result = phaseResults.get(`${ticketId}:beads`)
+      if (result) {
+        runningPhases.add(key)
+        handleBeadsVote(ticketId, result, context.externalId, sendEvent)
+          .catch(err => {
+            if (err instanceof CancelledError) return
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] COUNCIL_VOTING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
+      }
+    } else if (state === 'REFINING_BEADS') {
+      const result = phaseResults.get(`${ticketId}:beads`)
+      if (result) {
+        runningPhases.add(key)
+        handleBeadsRefine(ticketId, result, context, sendEvent)
+          .catch(err => {
+            if (err instanceof CancelledError) return
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] REFINING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
+      }
     } else if (state === 'VERIFYING_BEADS_COVERAGE') {
       runningPhases.add(key)
       handleCoverageVerification(ticketId, context, sendEvent, 'beads', signal)
