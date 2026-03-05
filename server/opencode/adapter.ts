@@ -32,6 +32,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       if (!res.ok) throw new Error(`OpenCode API error: ${res.status}`)
       return (await res.json()) as Session
     } catch (err) {
+      // Re-throw AbortError without wrapping so callers can detect cancellation
+      if (err instanceof Error && (err.name === 'AbortError' || signal?.aborted)) throw err
       throw new Error(
         `Failed to create OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
       )
@@ -59,6 +61,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
       return responseText
     } catch (err) {
+      // Re-throw AbortError without wrapping so callers can detect cancellation
+      if (err instanceof Error && (err.name === 'AbortError' || signal?.aborted)) throw err
       throw new Error(
         `Failed to prompt OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
       )
