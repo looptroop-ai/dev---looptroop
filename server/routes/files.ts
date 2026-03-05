@@ -18,6 +18,34 @@ function resolveTicketFilePath(externalId: string, file: ValidFile): string {
   return path.join('.looptroop', 'worktrees', externalId, '.ticket', `${file}.yaml`)
 }
 
+filesRouter.get('/files/:ticketId/logs', (c) => {
+  const ticketId = Number(c.req.param('ticketId'))
+  if (isNaN(ticketId)) return c.json({ error: 'Invalid ticket ID' }, 400)
+
+  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+
+  const logPath = path.join('.looptroop', 'worktrees', ticket.externalId, '.ticket', 'execution-log.jsonl')
+  if (!fs.existsSync(logPath)) return c.json([])
+
+  const raw = fs.readFileSync(logPath, 'utf-8')
+  const entries: unknown[] = []
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    try { entries.push(JSON.parse(line)) } catch { /* skip malformed lines */ }
+  }
+
+  const statusFilter = c.req.query('status')
+  const phaseFilter = c.req.query('phase')
+  const filtered = entries.filter((e: any) => {
+    if (statusFilter && e.status !== statusFilter) return false
+    if (phaseFilter && e.phase !== phaseFilter) return false
+    return true
+  })
+
+  return c.json(filtered)
+})
+
 filesRouter.get('/files/:ticketId/:file', (c) => {
   const ticketId = Number(c.req.param('ticketId'))
   const file = c.req.param('file')

@@ -50,9 +50,11 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
   const [logsByPhase, setLogsByPhase] = useState<Record<string, LogEntry[]>>({})
   const [activePhase, setActivePhase] = useState<string | null>(null)
 
-  // Load logs from localStorage when ticketId changes
+  // Load logs from server (historical) + localStorage when ticketId changes
   useEffect(() => {
     if (!ticketId) { setLogsByPhase({}); setActivePhase(null); return }
+
+    // Start with localStorage entries
     const loaded: Record<string, LogEntry[]> = {}
     const prefix = `logs-${ticketId}-`
     for (let i = 0; i < localStorage.length; i++) {
@@ -63,6 +65,34 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
       }
     }
     setLogsByPhase(loaded)
+
+    // Fetch historical logs from server and merge
+    fetch(`/api/files/${ticketId}/logs`)
+      .then(res => res.ok ? res.json() : [])
+      .then((serverLogs: Array<Record<string, unknown>>) => {
+        if (!serverLogs.length) return
+        setLogsByPhase(prev => {
+          const merged = { ...prev }
+          for (const entry of serverLogs) {
+            const { line, source } = formatLogLine(entry)
+            const phase = String(entry.phase || entry.status || 'unknown')
+            const logEntry: LogEntry = { line, source, status: String(entry.status || phase) }
+            const bucket = merged[phase] ?? []
+            // Deduplicate by checking if the exact line already exists with same timestamp context
+            const ts = String(entry.timestamp || '')
+            const isDupe = bucket.some(existing => existing.line === logEntry.line && existing.line.includes(ts))
+            if (!isDupe) {
+              merged[phase] = [...bucket, logEntry]
+            }
+          }
+          // Persist merged logs to localStorage
+          for (const [phase, entries] of Object.entries(merged)) {
+            try { localStorage.setItem(`logs-${ticketId}-${phase}`, JSON.stringify(entries)) } catch { /* quota */ }
+          }
+          return merged
+        })
+      })
+      .catch(() => { /* network error – localStorage entries still available */ })
   }, [ticketId])
 
   // Sync activePhase with currentStatus

@@ -72,7 +72,7 @@ function emitPhaseLog(
     content,
     ...data,
   })
-  appendLogEvent(ticketExternalId, type, phase, content, data)
+  appendLogEvent(ticketExternalId, type, phase, content, data, undefined, phase)
 }
 
 async function handleInterviewDeliberate(
