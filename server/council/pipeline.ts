@@ -1,5 +1,6 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { CouncilMember, CouncilResult, MemberOutcome } from './types'
+import { throwIfAborted } from './types'
 import type { PromptPart } from '../opencode/types'
 import { generateDrafts } from './drafter'
 import { conductVoting, selectWinner } from './voter'
@@ -13,18 +14,21 @@ interface PipelineOptions {
   projectPath: string
   minQuorum?: number
   draftTimeout?: number
+  signal?: AbortSignal
 }
 
 export async function runCouncilPipeline(
   adapter: OpenCodeAdapter,
   options: PipelineOptions,
 ): Promise<CouncilResult> {
-  const { phase, members, contextParts, projectPath, minQuorum = 2, draftTimeout = 300000 } = options
+  const { phase, members, contextParts, projectPath, minQuorum = 2, draftTimeout = 300000, signal } = options
 
   // Step 1: Draft — parallel generation
-  const drafts = await generateDrafts(adapter, members, contextParts, projectPath, draftTimeout)
+  throwIfAborted(signal)
+  const drafts = await generateDrafts(adapter, members, contextParts, projectPath, draftTimeout, signal)
 
   // Step 2: Quorum check
+  throwIfAborted(signal)
   const quorum = checkQuorum(drafts, minQuorum)
   if (!quorum.passed) {
     throw new Error(`Council quorum not met for ${phase}: ${quorum.message}`)
@@ -40,15 +44,18 @@ export async function runCouncilPipeline(
   // enforced context (e.g. interview_vote, interview_refine).
 
   // Step 3: Vote — parallel anonymized voting
-  const votes = await conductVoting(adapter, members, drafts, contextParts, projectPath, phase)
+  throwIfAborted(signal)
+  const votes = await conductVoting(adapter, members, drafts, contextParts, projectPath, phase, signal)
 
   // Step 4: Select winner
+  throwIfAborted(signal)
   const { winnerId } = selectWinner(votes, members)
   const winnerDraft = drafts.find(d => d.memberId === winnerId)!
   const losingDrafts = drafts.filter(d => d.memberId !== winnerId && d.outcome === 'completed')
 
   // Step 5: Refine — sequential
-  const refinedContent = await refineDraft(adapter, winnerDraft, losingDrafts, contextParts, projectPath)
+  throwIfAborted(signal)
+  const refinedContent = await refineDraft(adapter, winnerDraft, losingDrafts, contextParts, projectPath, signal)
 
   // Build outcome map
   const memberOutcomes: Record<string, MemberOutcome> = {}

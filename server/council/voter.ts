@@ -111,6 +111,7 @@ export async function conductVoting(
   contextParts: PromptPart[],
   projectPath: string,
   phase?: string,
+  signal?: AbortSignal,
 ): Promise<Vote[]> {
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
@@ -124,7 +125,7 @@ export async function conductVoting(
     const voterVotes: Vote[] = []
 
     try {
-      const session = await adapter.createSession(projectPath)
+      const session = await adapter.createSession(projectPath, signal)
       const votingPrompt: PromptPart[] = [
         ...contextParts,
         {
@@ -140,7 +141,7 @@ export async function conductVoting(
         },
       ]
 
-      const response = await adapter.promptSession(session.id, votingPrompt)
+      const response = await adapter.promptSession(session.id, votingPrompt, signal)
 
       // Parse voting response — extract real scores from AI output
       for (const draft of anonymized) {

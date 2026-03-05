@@ -2,11 +2,12 @@ import type { Session, Message, PromptPart, StreamEvent, HealthStatus } from './
 import type { TicketState } from './contextBuilder'
 
 export interface OpenCodeAdapter {
-  createSession(projectPath: string): Promise<Session>
-  promptSession(sessionId: string, parts: PromptPart[]): Promise<string>
+  createSession(projectPath: string, signal?: AbortSignal): Promise<Session>
+  promptSession(sessionId: string, parts: PromptPart[], signal?: AbortSignal): Promise<string>
   listSessions(): Promise<Session[]>
   getSessionMessages(sessionId: string): Promise<Message[]>
   subscribeToEvents(sessionId: string): AsyncGenerator<StreamEvent>
+  abortSession(sessionId: string): Promise<boolean>
   assembleBeadContext(ticketId: string, beadId: string): Promise<PromptPart[]>
   assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]>
   checkHealth(): Promise<HealthStatus>
@@ -20,12 +21,13 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     this.baseUrl = `http://localhost:${port}`
   }
 
-  async createSession(_projectPath: string): Promise<Session> {
+  async createSession(_projectPath: string, signal?: AbortSignal): Promise<Session> {
     try {
       const res = await fetch(`${this.baseUrl}/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
+        signal,
       })
       if (!res.ok) throw new Error(`OpenCode API error: ${res.status}`)
       return (await res.json()) as Session
@@ -36,7 +38,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
-  async promptSession(sessionId: string, parts: PromptPart[]): Promise<string> {
+  async promptSession(sessionId: string, parts: PromptPart[], signal?: AbortSignal): Promise<string> {
     try {
       const res = await fetch(`${this.baseUrl}/session/${sessionId}/message`, {
         method: 'POST',
@@ -44,6 +46,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         body: JSON.stringify({
           parts: parts.map(p => ({ type: 'text', text: p.content })),
         }),
+        signal,
       })
       if (!res.ok) throw new Error(`OpenCode API error: ${res.status}`)
       const data = (await res.json()) as { parts?: Array<{ type: string; text?: string }> }
@@ -79,6 +82,19 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       return (await res.json()) as Message[]
     } catch {
       return []
+    }
+  }
+
+  async abortSession(sessionId: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/session/${sessionId}/abort`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!res.ok) return false
+      return (await res.json()) as boolean
+    } catch {
+      return false
     }
   }
 
@@ -186,7 +202,7 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   public mockResponses: Map<string, string> = new Map()
   private sessionCounter = 0
 
-  async createSession(projectPath: string): Promise<Session> {
+  async createSession(projectPath: string, _signal?: AbortSignal): Promise<Session> {
     const session: Session = {
       id: `mock-session-${++this.sessionCounter}`,
       projectPath,
@@ -196,7 +212,7 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
     return session
   }
 
-  async promptSession(sessionId: string, parts: PromptPart[]): Promise<string> {
+  async promptSession(sessionId: string, parts: PromptPart[], _signal?: AbortSignal): Promise<string> {
     const response = this.mockResponses.get(sessionId) ?? 'Mock response'
 
     // Store as message
@@ -226,6 +242,10 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
 
   async getSessionMessages(sessionId: string): Promise<Message[]> {
     return this.messages.get(sessionId) ?? []
+  }
+
+  async abortSession(_sessionId: string): Promise<boolean> {
+    return true
   }
 
   async *subscribeToEvents(_sessionId: string): AsyncGenerator<StreamEvent> {

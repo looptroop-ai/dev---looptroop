@@ -6,6 +6,8 @@ import { db } from '../db/index'
 import { tickets, projects, profiles, phaseArtifacts } from '../db/schema'
 import { eq, desc, and } from 'drizzle-orm'
 import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
+import { abortTicketSessions } from '../opencode/sessionManager'
+import { cancelTicket } from '../workflow/runner'
 
 const ticketRouter = new Hono()
 
@@ -286,6 +288,7 @@ ticketRouter.post('/tickets/:id/start', (c) => {
     .set({
       lockedMainImplementer,
       lockedCouncilMembers: lockedCouncilMembers ? JSON.stringify(lockedCouncilMembers) : null,
+      startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tickets.id, id))
@@ -339,6 +342,12 @@ ticketRouter.post('/tickets/:id/cancel', (c) => {
   try {
     ensureActorForTicket(id)
     sendTicketEvent(id, { type: 'CANCEL' })
+    // Immediately abort in-process phase work (council drafting, coverage, etc.)
+    cancelTicket(id)
+    // Abort any active OpenCode sessions for this ticket (fire-and-forget)
+    abortTicketSessions(id).catch(err => {
+      console.error(`[tickets] Failed to abort sessions for ticket ${id}:`, err)
+    })
   } catch (err) {
     console.error(`[tickets] Failed to send CANCEL to ticket ${id}:`, err)
     return c.json({ error: 'Failed to cancel ticket', details: String(err) }, 500)

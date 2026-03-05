@@ -8,8 +8,9 @@ export async function refineDraft(
   losingDrafts: DraftResult[],
   contextParts: PromptPart[],
   projectPath: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const session = await adapter.createSession(projectPath)
+  const session = await adapter.createSession(projectPath, signal)
 
   const refineParts: PromptPart[] = [
     ...contextParts,
@@ -28,7 +29,7 @@ export async function refineDraft(
     },
   ]
 
-  const refined = await adapter.promptSession(session.id, refineParts)
+  const refined = await adapter.promptSession(session.id, refineParts, signal)
 
   return refined || winnerDraft.content
 }

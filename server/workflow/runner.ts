@@ -8,6 +8,7 @@ import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview } from '../phases/interview/deliberate'
 import { OpenCodeSDKAdapter } from '../opencode/adapter'
 import type { CouncilResult } from '../council/types'
+import { CancelledError } from '../council/types'
 import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
@@ -19,6 +20,42 @@ import { initializeTicket } from '../ticket/initialize'
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
 const adapter = new OpenCodeSDKAdapter()
+const ticketAbortControllers = new Map<number, AbortController>()
+
+/**
+ * Cancel all running phases for a ticket by aborting its AbortController.
+ * Cleans up runningPhases entries and phaseResults for the ticket.
+ */
+export function cancelTicket(ticketId: number) {
+  const controller = ticketAbortControllers.get(ticketId)
+  if (controller) {
+    controller.abort()
+    ticketAbortControllers.delete(ticketId)
+  }
+
+  // Clean up runningPhases entries for this ticket
+  for (const key of runningPhases) {
+    if (key.startsWith(`${ticketId}:`)) {
+      runningPhases.delete(key)
+    }
+  }
+
+  // Clean up phaseResults entries for this ticket
+  for (const key of phaseResults.keys()) {
+    if (key.startsWith(`${ticketId}:`)) {
+      phaseResults.delete(key)
+    }
+  }
+}
+
+function getOrCreateAbortSignal(ticketId: number): AbortSignal {
+  let controller = ticketAbortControllers.get(ticketId)
+  if (!controller) {
+    controller = new AbortController()
+    ticketAbortControllers.set(ticketId, controller)
+  }
+  return controller.signal
+}
 
 function emitPhaseLog(
   ticketId: number,
@@ -42,6 +79,7 @@ async function handleInterviewDeliberate(
   ticketId: number,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
   const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
   const projectPath = project?.folderPath ?? process.cwd()
@@ -56,6 +94,7 @@ async function handleInterviewDeliberate(
   }
 
   // Step 2: Health-check OpenCode before doing any work
+  if (signal.aborted) throw new CancelledError(ticketId)
   try {
     const health = await adapter.checkHealth()
     if (!health.available) {
@@ -123,7 +162,8 @@ async function handleInterviewDeliberate(
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
 
-  const result = await deliberateInterview(adapter, members, ticketContext, projectPath)
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const result = await deliberateInterview(adapter, members, ticketContext, projectPath, signal)
 
   phaseResults.set(`${ticketId}:interview`, result)
 
@@ -238,6 +278,7 @@ async function handleCoverageVerification(
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   phase: 'interview' | 'prd' | 'beads',
+  signal: AbortSignal,
 ) {
   const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
   const projectPath = project?.folderPath ?? process.cwd()
@@ -335,10 +376,11 @@ async function handleCoverageVerification(
   )
 
   // Use a single session for the winning model only (not all council members)
-  const session = await adapter.createSession(projectPath)
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const session = await adapter.createSession(projectPath, signal)
   const response = await adapter.promptSession(session.id, [
     { type: 'text', content: promptContent },
-  ])
+  ], signal)
 
   // Parse response: detect gaps vs clean coverage
   const lowerResponse = response.toLowerCase()
@@ -381,12 +423,21 @@ export function attachWorkflowRunner(
     const context = snapshot.context
     const key = `${ticketId}:${state}`
 
+    // When the ticket reaches CANCELED, abort all running work
+    if (state === 'CANCELED') {
+      cancelTicket(ticketId)
+      return
+    }
+
     if (runningPhases.has(key)) return
+
+    const signal = getOrCreateAbortSignal(ticketId)
 
     if (state === 'COUNCIL_DELIBERATING') {
       runningPhases.add(key)
-      handleInterviewDeliberate(ticketId, context, sendEvent)
+      handleInterviewDeliberate(ticketId, context, sendEvent, signal)
         .catch(err => {
+          if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
           const isOpenCode = errMsg.includes('OpenCode server is not running')
           const codes = isOpenCode ? ['OPENCODE_UNREACHABLE'] : ['QUORUM_NOT_MET']
@@ -403,6 +454,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleInterviewVote(ticketId, result, context.externalId, sendEvent)
           .catch(err => {
+            if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`[runner] COUNCIL_VOTING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', errMsg)
@@ -418,6 +470,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleInterviewCompile(ticketId, result, context, sendEvent)
           .catch(err => {
+            if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`[runner] COMPILING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'error', errMsg)
@@ -429,8 +482,9 @@ export function attachWorkflowRunner(
       }
     } else if (state === 'VERIFYING_INTERVIEW_COVERAGE') {
       runningPhases.add(key)
-      handleCoverageVerification(ticketId, context, sendEvent, 'interview')
+      handleCoverageVerification(ticketId, context, sendEvent, 'interview', signal)
         .catch(err => {
+          if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
           console.error(`[runner] VERIFYING_INTERVIEW_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_INTERVIEW_COVERAGE', 'error', errMsg)
@@ -441,8 +495,9 @@ export function attachWorkflowRunner(
         })
     } else if (state === 'VERIFYING_PRD_COVERAGE') {
       runningPhases.add(key)
-      handleCoverageVerification(ticketId, context, sendEvent, 'prd')
+      handleCoverageVerification(ticketId, context, sendEvent, 'prd', signal)
         .catch(err => {
+          if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
           console.error(`[runner] VERIFYING_PRD_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_PRD_COVERAGE', 'error', errMsg)
@@ -453,8 +508,9 @@ export function attachWorkflowRunner(
         })
     } else if (state === 'VERIFYING_BEADS_COVERAGE') {
       runningPhases.add(key)
-      handleCoverageVerification(ticketId, context, sendEvent, 'beads')
+      handleCoverageVerification(ticketId, context, sendEvent, 'beads', signal)
         .catch(err => {
+          if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
           console.error(`[runner] VERIFYING_BEADS_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_BEADS_COVERAGE', 'error', errMsg)

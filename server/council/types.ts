@@ -1,3 +1,16 @@
+/** Thrown when a ticket is canceled to distinguish from real errors. */
+export class CancelledError extends Error {
+  constructor(ticketId?: number | string) {
+    super(ticketId ? `Ticket ${ticketId} was canceled` : 'Operation canceled')
+    this.name = 'CancelledError'
+  }
+}
+
+/** Throws CancelledError if the signal is already aborted. */
+export function throwIfAborted(signal?: AbortSignal, ticketId?: number | string) {
+  if (signal?.aborted) throw new CancelledError(ticketId)
+}
+
 export type MemberOutcome = 'completed' | 'timed_out' | 'invalid_output'
 
 export interface CouncilMember {
