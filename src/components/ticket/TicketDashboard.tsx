@@ -9,6 +9,15 @@ import { ActiveWorkspace } from './ActiveWorkspace'
 import { ResizeHandle } from './ResizeHandle'
 import { Menu, X } from 'lucide-react'
 
+function toDebugJson(data: Record<string, unknown>) {
+  try {
+    const raw = JSON.stringify(data)
+    return raw.length > 4000 ? `${raw.slice(0, 4000)}…[truncated]` : raw
+  } catch {
+    return '[unserializable]'
+  }
+}
+
 function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null; currentStatus: string }) {
   const logCtx = useLogs()
 
@@ -18,7 +27,20 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
       const to = String(event.data.to ?? '')
       if (to) {
         logCtx?.setActivePhase(to)
-        logCtx?.addLog(to, `[SYS] Transition: ${from || 'unknown'} -> ${to}`, 'system', to)
+        logCtx?.addLog(
+          to,
+          `[DEBUG] sse.state_change ${toDebugJson(event.data)}`,
+          'debug',
+          to,
+          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        )
+        logCtx?.addLog(
+          to,
+          `[SYS] Transition: ${from || 'unknown'} -> ${to}`,
+          'system',
+          to,
+          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        )
       }
       return
     }
@@ -26,8 +48,21 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
     if (event.type === 'log') {
       const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
       if (phase) {
+        logCtx?.addLog(
+          phase,
+          `[DEBUG] sse.log ${toDebugJson(event.data)}`,
+          'debug',
+          phase,
+          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        )
         const { line, source } = formatLogLine(event.data)
-        logCtx?.addLog(phase, line, source, phase)
+        logCtx?.addLog(
+          phase,
+          line,
+          source,
+          phase,
+          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        )
       }
       return
     }
@@ -35,8 +70,42 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
     if (event.type === 'error') {
       const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
       if (phase) {
-        logCtx?.addLog(phase, `[ERROR] ${String(event.data.message ?? 'Unknown error')}`, 'error', phase)
+        logCtx?.addLog(
+          phase,
+          `[DEBUG] sse.error ${toDebugJson(event.data)}`,
+          'debug',
+          phase,
+          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        )
+        logCtx?.addLog(
+          phase,
+          `[ERROR] ${String(event.data.message ?? 'Unknown error')}`,
+          'error',
+          phase,
+          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        )
       }
+      return
+    }
+
+    // Forward interview_batch needs_input events to InterviewQAView via window.postMessage
+    if (event.type === 'needs_input' && event.data.type === 'interview_batch') {
+      window.postMessage(JSON.stringify({
+        type: 'interview_batch',
+        ticketId: event.data.ticketId,
+        batch: event.data.batch,
+      }), '*')
+    }
+
+    const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
+    if (phase) {
+      logCtx?.addLog(
+        phase,
+        `[DEBUG] sse.${event.type} ${toDebugJson(event.data)}`,
+        'debug',
+        phase,
+        typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+      )
     }
   }, [logCtx, currentStatus])
 

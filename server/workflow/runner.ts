@@ -5,18 +5,22 @@ import { db } from '../db/index'
 import { profiles, projects, tickets, phaseArtifacts } from '../db/schema'
 import { eq, and, desc } from 'drizzle-orm'
 import { broadcaster } from '../sse/broadcaster'
-import { deliberateInterview } from '../phases/interview/deliberate'
-import { draftPRD } from '../phases/prd/draft'
-import { draftBeads } from '../phases/beads/draft'
+import { deliberateInterview, buildInterviewContextBuilder } from '../phases/interview/deliberate'
+import { draftPRD, buildPrdContextBuilder } from '../phases/prd/draft'
+import { draftBeads, buildBeadsContextBuilder } from '../phases/beads/draft'
 import { expandBeads } from '../phases/beads/expand'
 import type { BeadSubset } from '../phases/beads/types'
 import { OpenCodeSDKAdapter } from '../opencode/adapter'
-import type { CouncilResult } from '../council/types'
+import type { CouncilResult, DraftResult, Vote } from '../council/types'
 import { CancelledError } from '../council/types'
+import { conductVoting, selectWinner } from '../council/voter'
+import { refineDraft } from '../council/refiner'
 import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
+import type { Message } from '../opencode/types'
 import { buildPromptFromTemplate, PROM5, PROM13, PROM24 } from '../prompts/index'
+import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
@@ -29,6 +33,19 @@ const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
 const adapter = new OpenCodeSDKAdapter()
 const ticketAbortControllers = new Map<number, AbortController>()
+const interviewQASessions = new Map<number, { sessionId: string; winnerId: string }>()
+
+/** Intermediate data stored between draft→vote→refine state machine phases. */
+interface PhaseIntermediateData {
+  drafts: DraftResult[]
+  memberOutcomes: Record<string, import('../council/types').MemberOutcome>
+  contextBuilder: (step: 'vote' | 'refine') => import('../opencode/types').PromptPart[]
+  projectPath: string
+  phase: string
+  votes?: Vote[]
+  winnerId?: string
+}
+const phaseIntermediate = new Map<string, PhaseIntermediateData>()
 
 /**
  * Cancel all running phases for a ticket by aborting its AbortController.
@@ -54,6 +71,16 @@ export function cancelTicket(ticketId: number) {
       phaseResults.delete(key)
     }
   }
+
+  // Clean up phaseIntermediate entries for this ticket
+  for (const key of phaseIntermediate.keys()) {
+    if (key.startsWith(`${ticketId}:`)) {
+      phaseIntermediate.delete(key)
+    }
+  }
+
+  // Clean up interview QA session
+  interviewQASessions.delete(ticketId)
 }
 
 function getOrCreateAbortSignal(ticketId: number): AbortSignal {
@@ -81,6 +108,201 @@ function emitPhaseLog(
     ...data,
   })
   appendLogEvent(ticketExternalId, type, phase, content, data, undefined, phase)
+  if (type !== 'debug') {
+    emitDebugLog(
+      ticketId,
+      ticketExternalId,
+      phase,
+      `app.${type}`,
+      { content, ...(data ? { data } : {}) },
+    )
+  }
+}
+
+function emitDebugLog(
+  ticketId: number,
+  ticketExternalId: string,
+  phase: string,
+  message: string,
+  payload?: unknown,
+) {
+  const payloadText = payload === undefined ? '' : ` ${stringifyForLog(payload)}`
+  const content = `[DEBUG] ${message}${payloadText}`
+  const debugData = payload && typeof payload === 'object'
+    ? (payload as Record<string, unknown>)
+    : (payload !== undefined ? { value: payload } : undefined)
+
+  broadcaster.broadcast(String(ticketId), 'log', {
+    ticketId: String(ticketId),
+    phase,
+    type: 'debug',
+    content,
+    source: 'debug',
+  })
+  appendLogEvent(ticketExternalId, 'debug', phase, content, debugData, 'debug', phase)
+}
+
+function emitStateChange(
+  ticketId: number,
+  ticketExternalId: string,
+  from: string,
+  to: string,
+) {
+  const payload = {
+    ticketId: String(ticketId),
+    from,
+    to,
+  }
+  broadcaster.broadcast(String(ticketId), 'state_change', payload)
+  appendLogEvent(
+    ticketExternalId,
+    'state_change',
+    to,
+    `Transition: ${from} -> ${to}`,
+    payload,
+    'system',
+    to,
+  )
+  emitDebugLog(ticketId, ticketExternalId, to, 'app.state_change', payload)
+}
+
+function stringifyForLog(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function extractOpenCodeMessageLines(messages: Message[]): string[] {
+  const lines: string[] = []
+
+  for (const message of messages) {
+    const record = message as unknown as Record<string, unknown>
+    const directRole = typeof record.role === 'string' ? record.role : undefined
+    const directContent = typeof record.content === 'string' ? record.content : undefined
+    const directTimestamp = typeof record.timestamp === 'string' ? record.timestamp : undefined
+
+    if (directContent) {
+      lines.push(`[${directRole ?? 'message'}]${directTimestamp ? ` [${directTimestamp}]` : ''} ${directContent}`)
+      continue
+    }
+
+    const info = (record.info && typeof record.info === 'object')
+      ? (record.info as Record<string, unknown>)
+      : null
+    const role = info && typeof info.sender === 'string'
+      ? info.sender
+      : info && typeof info.role === 'string'
+        ? info.role
+        : info && typeof info.author === 'string'
+          ? info.author
+          : 'message'
+    const timestamp = info && typeof info.timestamp === 'string' ? info.timestamp : undefined
+
+    const parts = Array.isArray(record.parts) ? record.parts : []
+    if (parts.length === 0) {
+      lines.push(`[${role}]${timestamp ? ` [${timestamp}]` : ''} ${stringifyForLog(record)}`)
+      continue
+    }
+
+    for (const part of parts) {
+      const partRecord = (part && typeof part === 'object') ? (part as Record<string, unknown>) : null
+      if (!partRecord) continue
+
+      const partType = typeof partRecord.type === 'string' ? partRecord.type : 'part'
+      const text = typeof partRecord.text === 'string'
+        ? partRecord.text
+        : typeof partRecord.content === 'string'
+          ? partRecord.content
+          : typeof partRecord.output === 'string'
+            ? partRecord.output
+            : typeof partRecord.value === 'string'
+              ? partRecord.value
+              : stringifyForLog(partRecord)
+
+      lines.push(`[${role}/${partType}]${timestamp ? ` [${timestamp}]` : ''} ${text}`)
+    }
+  }
+
+  return lines
+}
+
+function emitOpenCodeSessionLogs(
+  ticketId: number,
+  ticketExternalId: string,
+  phase: string,
+  memberId: string,
+  sessionId: string,
+  stage: 'draft' | 'vote' | 'refine' | 'coverage',
+  response: string,
+  messages: Message[],
+) {
+  emitPhaseLog(
+    ticketId,
+    ticketExternalId,
+    phase,
+    'info',
+    `OpenCode ${stage}: ${memberId} session=${sessionId}, messages=${messages.length}, responseChars=${response.length}.`,
+  )
+
+  emitPhaseLog(
+    ticketId,
+    ticketExternalId,
+    phase,
+    'model_output',
+    `[${stage}] OpenCode session transcript (${messages.length} messages)`,
+    { modelId: memberId },
+  )
+
+  const transcriptLines = extractOpenCodeMessageLines(messages)
+  for (const line of transcriptLines) {
+    emitPhaseLog(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'model_output',
+      line,
+      { modelId: memberId },
+    )
+  }
+
+  if (transcriptLines.length === 0 && response) {
+    emitPhaseLog(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'model_output',
+      response,
+      { modelId: memberId },
+    )
+  }
+
+  emitDebugLog(ticketId, ticketExternalId, phase, `opencode.${stage}.response`, { memberId, response })
+  for (const message of messages) {
+    emitDebugLog(ticketId, ticketExternalId, phase, `opencode.${stage}.raw_message`, { memberId, message })
+  }
+}
+
+function mapCouncilStageToStatus(
+  flow: 'interview' | 'prd' | 'beads',
+  stage: 'draft' | 'vote' | 'refine',
+): string {
+  if (flow === 'interview') {
+    if (stage === 'draft') return 'COUNCIL_DELIBERATING'
+    if (stage === 'vote') return 'COUNCIL_VOTING_INTERVIEW'
+    return 'COMPILING_INTERVIEW'
+  }
+  if (flow === 'prd') {
+    if (stage === 'draft') return 'DRAFTING_PRD'
+    if (stage === 'vote') return 'COUNCIL_VOTING_PRD'
+    return 'REFINING_PRD'
+  }
+  if (stage === 'draft') return 'DRAFTING_BEADS'
+  if (stage === 'vote') return 'COUNCIL_VOTING_BEADS'
+  return 'REFINING_BEADS'
 }
 
 async function handleInterviewDeliberate(
@@ -171,9 +393,36 @@ async function handleInterviewDeliberate(
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  const result = await deliberateInterview(adapter, members, ticketContext, projectPath, signal)
+  const result = await deliberateInterview(
+    adapter,
+    members,
+    ticketContext,
+    projectPath,
+    signal,
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('interview', entry.stage)
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
 
-  phaseResults.set(`${ticketId}:interview`, result)
+  // Store intermediate data for vote/refine steps
+  const contextBuilder = buildInterviewContextBuilder(ticketContext)
+  phaseIntermediate.set(`${ticketId}:interview`, {
+    drafts: result.drafts,
+    memberOutcomes: result.memberOutcomes,
+    contextBuilder,
+    projectPath,
+    phase: result.phase,
+  })
 
   for (const draft of result.drafts) {
     const questionCount = (draft.content.match(/\?/g) || []).length
@@ -207,55 +456,121 @@ async function handleInterviewDeliberate(
 
   sendEvent({ type: 'QUESTIONS_READY', result: result as unknown as Record<string, unknown> })
 
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'COUNCIL_DELIBERATING',
-    to: 'COUNCIL_VOTING_INTERVIEW',
-  })
+  emitStateChange(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'COUNCIL_VOTING_INTERVIEW')
 }
 
 async function handleInterviewVote(
   ticketId: number,
-  result: CouncilResult,
-  ticketExternalId: string,
+  context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
-  await Promise.resolve()
+  const intermediate = phaseIntermediate.get(`${ticketId}:interview`)
+  if (!intermediate) {
+    throw new Error('No interview drafts found — cannot vote')
+  }
+
+  const members = resolveCouncilMembers(context)
+  const voteContext = intermediate.contextBuilder('vote')
+
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info',
+    `Interview voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const votes = await conductVoting(
+    adapter,
+    members,
+    intermediate.drafts,
+    voteContext,
+    intermediate.projectPath,
+    intermediate.phase,
+    signal,
+    (entry) => {
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_INTERVIEW',
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
+
+  const { winnerId, totalScore } = selectWinner(votes, members)
+
+  // Store vote results for refine step
+  intermediate.votes = votes
+  intermediate.winnerId = winnerId
+
   db.insert(phaseArtifacts)
     .values({
       ticketId,
       phase: 'COUNCIL_VOTING_INTERVIEW',
       artifactType: 'interview_votes',
-      content: JSON.stringify(result),
+      content: JSON.stringify({ votes, winnerId, totalScore }),
     })
     .run()
   emitPhaseLog(
     ticketId,
-    ticketExternalId,
+    context.externalId,
     'COUNCIL_VOTING_INTERVIEW',
     'info',
-    `Interview voting selected winner: ${result.winnerId}.`,
+    `Interview voting selected winner: ${winnerId} (score: ${totalScore}).`,
   )
-  sendEvent({ type: 'WINNER_SELECTED', winner: result.winnerId })
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'COUNCIL_VOTING_INTERVIEW',
-    to: 'COMPILING_INTERVIEW',
-  })
+  sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
+  emitStateChange(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'COMPILING_INTERVIEW')
 }
 
 async function handleInterviewCompile(
   ticketId: number,
-  result: CouncilResult,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
-  await Promise.resolve()
+  const intermediate = phaseIntermediate.get(`${ticketId}:interview`)
+  if (!intermediate || !intermediate.winnerId) {
+    throw new Error('No interview vote results found — cannot refine')
+  }
+
+  const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
+  const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
+  const refineContext = intermediate.contextBuilder('refine')
+
+  emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info',
+    `Interview refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const refinedContent = await refineDraft(
+    adapter,
+    winnerDraft,
+    losingDrafts,
+    refineContext,
+    intermediate.projectPath,
+    signal,
+    (entry) => {
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        'COMPILING_INTERVIEW',
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
+
+  // Clean up intermediate data
+  phaseIntermediate.delete(`${ticketId}:interview`)
 
   // Parse YAML questions from refined content into structured list
   let parsedQuestions: unknown[] = []
   try {
-    const yamlParsed = jsYaml.load(result.refinedContent) as Record<string, unknown> | unknown[] | null
+    const yamlParsed = jsYaml.load(refinedContent) as Record<string, unknown> | unknown[] | null
     if (Array.isArray(yamlParsed)) {
       parsedQuestions = yamlParsed
     } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
@@ -272,8 +587,8 @@ async function handleInterviewCompile(
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
       content: JSON.stringify({
-        winnerId: result.winnerId,
-        refinedContent: result.refinedContent,
+        winnerId: intermediate.winnerId,
+        refinedContent,
         questions: parsedQuestions,
       }),
     })
@@ -286,7 +601,7 @@ async function handleInterviewCompile(
       ticketId,
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_winner',
-      content: JSON.stringify({ winnerId: result.winnerId }),
+      content: JSON.stringify({ winnerId: intermediate.winnerId }),
     })
     .run()
 
@@ -295,13 +610,13 @@ async function handleInterviewCompile(
     context.externalId,
     'COMPILING_INTERVIEW',
     'info',
-    `Compiled final interview from winner ${result.winnerId}. Parsed ${parsedQuestions.length} structured questions.`,
+    `Compiled final interview from winner ${intermediate.winnerId}. Parsed ${parsedQuestions.length} structured questions.`,
   )
   sendEvent({ type: 'READY' })
   broadcaster.broadcast(String(ticketId), 'needs_input', {
     ticketId: String(ticketId),
     type: 'interview_questions',
-    context: { questions: result.refinedContent, parsedQuestions, winnerId: result.winnerId },
+    context: { questions: refinedContent, parsedQuestions, winnerId: intermediate.winnerId },
   })
 }
 
@@ -374,9 +689,33 @@ async function handlePrdDraft(
     `PRD council drafting started. Context: ${ticketContext.length} parts, interview=${interview ? 'loaded' : 'missing'}.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  const result = await draftPRD(adapter, members, ticketContext, projectPath)
+  const result = await draftPRD(
+    adapter,
+    members,
+    ticketContext,
+    projectPath,
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('prd', entry.stage)
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
 
-  phaseResults.set(`${ticketId}:prd`, result)
+  phaseIntermediate.set(`${ticketId}:prd`, {
+    drafts: result.drafts,
+    memberOutcomes: result.memberOutcomes,
+    contextBuilder: buildPrdContextBuilder(ticketContext),
+    projectPath,
+    phase: result.phase,
+  })
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
@@ -400,45 +739,110 @@ async function handlePrdDraft(
 
   sendEvent({ type: 'DRAFTS_READY' })
 
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'DRAFTING_PRD',
-    to: 'COUNCIL_VOTING_PRD',
-  })
+  emitStateChange(ticketId, context.externalId, 'DRAFTING_PRD', 'COUNCIL_VOTING_PRD')
 }
 
 async function handlePrdVote(
   ticketId: number,
-  result: CouncilResult,
-  ticketExternalId: string,
+  context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
-  await Promise.resolve()
+  const intermediate = phaseIntermediate.get(`${ticketId}:prd`)
+  if (!intermediate) {
+    throw new Error('No PRD drafts found — cannot vote')
+  }
+
+  const members = resolveCouncilMembers(context)
+  const voteContext = intermediate.contextBuilder('vote')
+
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
+    `PRD voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const votes = await conductVoting(
+    adapter,
+    members,
+    intermediate.drafts,
+    voteContext,
+    intermediate.projectPath,
+    intermediate.phase,
+    signal,
+    (entry) => {
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_PRD',
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
+
+  const { winnerId, totalScore } = selectWinner(votes, members)
+
+  intermediate.votes = votes
+  intermediate.winnerId = winnerId
+
   db.insert(phaseArtifacts)
     .values({
       ticketId,
       phase: 'COUNCIL_VOTING_PRD',
       artifactType: 'prd_votes',
-      content: JSON.stringify(result),
+      content: JSON.stringify({ votes, winnerId, totalScore }),
     })
     .run()
-  emitPhaseLog(ticketId, ticketExternalId, 'COUNCIL_VOTING_PRD', 'info',
-    `PRD voting selected winner: ${result.winnerId}.`)
-  sendEvent({ type: 'WINNER_SELECTED', winner: result.winnerId })
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'COUNCIL_VOTING_PRD',
-    to: 'REFINING_PRD',
-  })
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
+    `PRD voting selected winner: ${winnerId} (score: ${totalScore}).`)
+  sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
+  emitStateChange(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'REFINING_PRD')
 }
 
 async function handlePrdRefine(
   ticketId: number,
-  result: CouncilResult,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
-  await Promise.resolve()
+  const intermediate = phaseIntermediate.get(`${ticketId}:prd`)
+  if (!intermediate || !intermediate.winnerId) {
+    throw new Error('No PRD vote results found — cannot refine')
+  }
+
+  const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
+  const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
+  const refineContext = intermediate.contextBuilder('refine')
+
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
+    `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const refinedContent = await refineDraft(
+    adapter,
+    winnerDraft,
+    losingDrafts,
+    refineContext,
+    intermediate.projectPath,
+    signal,
+    (entry) => {
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        'REFINING_PRD',
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
+
+  // Clean up intermediate data
+  phaseIntermediate.delete(`${ticketId}:prd`)
 
   const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
   const prdPath = resolve(ticketDir, 'prd.yaml')
@@ -449,25 +853,21 @@ async function handlePrdRefine(
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
       content: JSON.stringify({
-        winnerId: result.winnerId,
-        refinedContent: result.refinedContent,
+        winnerId: intermediate.winnerId,
+        refinedContent,
       }),
     })
     .run()
 
   // Save refined PRD to disk
-  safeAtomicWrite(prdPath, result.refinedContent)
+  safeAtomicWrite(prdPath, refinedContent)
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
-    `Refined PRD from winner ${result.winnerId}. Saved to ${prdPath}.`)
+    `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
 
   sendEvent({ type: 'REFINED' })
 
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'REFINING_PRD',
-    to: 'VERIFYING_PRD_COVERAGE',
-  })
+  emitStateChange(ticketId, context.externalId, 'REFINING_PRD', 'VERIFYING_PRD_COVERAGE')
 }
 
 // ─── Beads Phase Handlers ───
@@ -501,9 +901,33 @@ async function handleBeadsDraft(
     `Beads council drafting started. Context: ${ticketContext.length} parts, prd=${prd ? 'loaded' : 'missing'}.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  const result = await draftBeads(adapter, members, ticketContext, projectPath)
+  const result = await draftBeads(
+    adapter,
+    members,
+    ticketContext,
+    projectPath,
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('beads', entry.stage)
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
 
-  phaseResults.set(`${ticketId}:beads`, result)
+  phaseIntermediate.set(`${ticketId}:beads`, {
+    drafts: result.drafts,
+    memberOutcomes: result.memberOutcomes,
+    contextBuilder: buildBeadsContextBuilder(ticketContext),
+    projectPath,
+    phase: result.phase,
+  })
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
@@ -527,45 +951,110 @@ async function handleBeadsDraft(
 
   sendEvent({ type: 'DRAFTS_READY' })
 
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'DRAFTING_BEADS',
-    to: 'COUNCIL_VOTING_BEADS',
-  })
+  emitStateChange(ticketId, context.externalId, 'DRAFTING_BEADS', 'COUNCIL_VOTING_BEADS')
 }
 
 async function handleBeadsVote(
   ticketId: number,
-  result: CouncilResult,
-  ticketExternalId: string,
+  context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
-  await Promise.resolve()
+  const intermediate = phaseIntermediate.get(`${ticketId}:beads`)
+  if (!intermediate) {
+    throw new Error('No Beads drafts found — cannot vote')
+  }
+
+  const members = resolveCouncilMembers(context)
+  const voteContext = intermediate.contextBuilder('vote')
+
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
+    `Beads voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const votes = await conductVoting(
+    adapter,
+    members,
+    intermediate.drafts,
+    voteContext,
+    intermediate.projectPath,
+    intermediate.phase,
+    signal,
+    (entry) => {
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_BEADS',
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
+
+  const { winnerId, totalScore } = selectWinner(votes, members)
+
+  intermediate.votes = votes
+  intermediate.winnerId = winnerId
+
   db.insert(phaseArtifacts)
     .values({
       ticketId,
       phase: 'COUNCIL_VOTING_BEADS',
       artifactType: 'beads_votes',
-      content: JSON.stringify(result),
+      content: JSON.stringify({ votes, winnerId, totalScore }),
     })
     .run()
-  emitPhaseLog(ticketId, ticketExternalId, 'COUNCIL_VOTING_BEADS', 'info',
-    `Beads voting selected winner: ${result.winnerId}.`)
-  sendEvent({ type: 'WINNER_SELECTED', winner: result.winnerId })
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'COUNCIL_VOTING_BEADS',
-    to: 'REFINING_BEADS',
-  })
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
+    `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`)
+  sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
+  emitStateChange(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'REFINING_BEADS')
 }
 
 async function handleBeadsRefine(
   ticketId: number,
-  result: CouncilResult,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
-  await Promise.resolve()
+  const intermediate = phaseIntermediate.get(`${ticketId}:beads`)
+  if (!intermediate || !intermediate.winnerId) {
+    throw new Error('No Beads vote results found — cannot refine')
+  }
+
+  const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
+  const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
+  const refineContext = intermediate.contextBuilder('refine')
+
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
+    `Beads refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+  const refinedContent = await refineDraft(
+    adapter,
+    winnerDraft,
+    losingDrafts,
+    refineContext,
+    intermediate.projectPath,
+    signal,
+    (entry) => {
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        'REFINING_BEADS',
+        entry.memberId,
+        entry.sessionId,
+        entry.stage,
+        entry.response,
+        entry.messages,
+      )
+    },
+  )
+
+  // Clean up intermediate data
+  phaseIntermediate.delete(`${ticketId}:beads`)
 
   const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
   const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
@@ -573,10 +1062,10 @@ async function handleBeadsRefine(
   // Parse refined content as bead subsets and expand to full beads
   let beadSubsets: BeadSubset[] = []
   try {
-    beadSubsets = JSON.parse(result.refinedContent) as BeadSubset[]
+    beadSubsets = JSON.parse(refinedContent) as BeadSubset[]
   } catch {
     // If refinedContent is not valid JSON array, wrap as single-item
-    beadSubsets = [{ id: 'bead-1', title: 'Main task', prdRefs: [], description: result.refinedContent, contextGuidance: '', acceptanceCriteria: [], tests: [], testCommands: [] }]
+    beadSubsets = [{ id: 'bead-1', title: 'Main task', prdRefs: [], description: refinedContent, contextGuidance: '', acceptanceCriteria: [], tests: [], testCommands: [] }]
   }
 
   const expandedBeads = expandBeads(beadSubsets)
@@ -587,8 +1076,8 @@ async function handleBeadsRefine(
       phase: 'REFINING_BEADS',
       artifactType: 'beads_refined',
       content: JSON.stringify({
-        winnerId: result.winnerId,
-        refinedContent: result.refinedContent,
+        winnerId: intermediate.winnerId,
+        refinedContent,
         expandedBeads,
       }),
     })
@@ -598,15 +1087,11 @@ async function handleBeadsRefine(
   writeJsonl(beadsPath, expandedBeads)
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Refined and expanded ${expandedBeads.length} beads from winner ${result.winnerId}. Saved to ${beadsPath}.`)
+    `Refined and expanded ${expandedBeads.length} beads from winner ${intermediate.winnerId}. Saved to ${beadsPath}.`)
 
   sendEvent({ type: 'REFINED' })
 
-  broadcaster.broadcast(String(ticketId), 'state_change', {
-    ticketId: String(ticketId),
-    from: 'REFINING_BEADS',
-    to: 'VERIFYING_BEADS_COVERAGE',
-  })
+  emitStateChange(ticketId, context.externalId, 'REFINING_BEADS', 'VERIFYING_BEADS_COVERAGE')
 }
 
 /**
@@ -625,6 +1110,7 @@ function buildInterviewYaml(
   interface ParsedQuestion {
     id?: string
     prompt?: string
+    question?: string
     answer_type?: string
     options?: unknown[]
   }
@@ -638,6 +1124,25 @@ function buildInterviewYaml(
     }
   } catch { /* use empty array */ }
 
+  // Fallback to text parsing if YAML parsing found no questions
+  if (parsedQuestions.length === 0 && refinedContent) {
+    let qIndex = 1
+    for (const line of refinedContent.split('\n')) {
+      const trimmed = line.trim()
+      if (/^\d+[\.\)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
+        const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
+        if (q.length > 5) {
+          parsedQuestions.push({
+            id: `Q${qIndex++}`,
+            prompt: q,
+            answer_type: 'free_text',
+            options: []
+          })
+        }
+      }
+    }
+  }
+
   // Parse user answers
   let userAnswers: Record<string, string> = {}
   if (userAnswersJson) {
@@ -647,11 +1152,12 @@ function buildInterviewYaml(
   // Build structured questions with answers merged in
   const questions = parsedQuestions.map((q, idx) => {
     const qId = q.id ?? `Q${idx + 1}`
-    const answerText = userAnswers[qId] ?? userAnswers[q.prompt ?? ''] ?? ''
+    const promptText = q.prompt ?? q.question ?? ''
+    const answerText = userAnswers[qId] ?? userAnswers[promptText] ?? ''
     const skipped = !answerText
     return {
       id: qId,
-      prompt: q.prompt ?? '',
+      prompt: promptText,
       answer_type: q.answer_type ?? 'free_text',
       options: q.options ?? [],
       answer: {
@@ -856,9 +1362,28 @@ async function handleCoverageVerification(
   // Use a single session for the winning model only (not all council members)
   if (signal.aborted) throw new CancelledError(ticketId)
   const session = await adapter.createSession(projectPath, signal)
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    stateLabel,
+    'info',
+    `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
+  )
   const response = await adapter.promptSession(session.id, [
     { type: 'text', content: promptContent },
   ], signal)
+  const coverageMessages = await adapter.getSessionMessages(session.id)
+
+  emitOpenCodeSessionLogs(
+    ticketId,
+    context.externalId,
+    stateLabel,
+    winnerId,
+    session.id,
+    'coverage',
+    response,
+    coverageMessages,
+  )
 
   // Store the coverage input artifact so the UI can display Q&A / doc being verified
   const coverageInputContent = phase === 'interview'
@@ -950,6 +1475,217 @@ async function handleCoverageVerification(
   }
 }
 
+// ─── Interview QA Batch Handlers ───
+
+async function handleInterviewQAStart(
+  ticketId: number,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
+) {
+  const { projectPath, ticket, codebaseMap } = loadTicketDirContext(context)
+
+  // Resolve winnerId from persisted artifact
+  const winnerArtifact = db.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticketId),
+      eq(phaseArtifacts.artifactType, 'interview_winner'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  let winnerId = ''
+  if (winnerArtifact) {
+    try {
+      const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+      winnerId = parsed.winnerId ?? ''
+    } catch { /* ignore */ }
+  }
+  if (!winnerId) {
+    const msg = 'No interview winner found — cannot start PROM4 session'
+    emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['PROM4_NO_WINNER'] })
+    return
+  }
+
+  // Load compiled questions
+  const compiledArtifact = db.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticketId),
+      eq(phaseArtifacts.artifactType, 'interview_compiled'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  let compiledQuestions = ''
+  let maxQuestions = 50
+  if (compiledArtifact) {
+    try {
+      const parsed = JSON.parse(compiledArtifact.content) as { refinedContent?: string; questions?: unknown[] }
+      compiledQuestions = parsed.refinedContent ?? ''
+      if (parsed.questions && Array.isArray(parsed.questions)) {
+        maxQuestions = parsed.questions.length
+      }
+    } catch { /* ignore */ }
+  }
+
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+    codebaseMap,
+    interview: compiledQuestions,
+  }
+
+  emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
+    `Starting PROM4 interview session with winning model: ${winnerId}`)
+
+  if (signal.aborted) throw new CancelledError(ticketId)
+
+  const { sessionId, firstBatch } = await startInterviewSession(
+    adapter, projectPath, winnerId, compiledQuestions, ticketState, maxQuestions, signal,
+  )
+
+  // Store session info
+  interviewQASessions.set(ticketId, { sessionId, winnerId })
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'WAITING_INTERVIEW_ANSWERS',
+      artifactType: 'interview_qa_session',
+      content: JSON.stringify({ sessionId, winnerId }),
+    })
+    .run()
+
+  // Store current batch
+  db.insert(phaseArtifacts)
+    .values({
+      ticketId,
+      phase: 'WAITING_INTERVIEW_ANSWERS',
+      artifactType: 'interview_current_batch',
+      content: JSON.stringify(firstBatch),
+    })
+    .run()
+
+  emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
+    `PROM4 session started (session=${sessionId}). First batch: ${firstBatch.questions.length} questions.`)
+
+  // Broadcast first batch to frontend via SSE
+  broadcaster.broadcast(String(ticketId), 'needs_input', {
+    ticketId: String(ticketId),
+    type: 'interview_batch',
+    batch: firstBatch,
+  })
+}
+
+/**
+ * Handle a batch of user answers submitted during the PROM4 interview loop.
+ * Called by the API route, not the state machine subscriber.
+ */
+export async function handleInterviewQABatch(
+  ticketId: number,
+  batchAnswers: Record<string, string>,
+): Promise<BatchResponse> {
+  // Get session info from memory or reload from DB
+  let sessionInfo = interviewQASessions.get(ticketId)
+  if (!sessionInfo) {
+    const artifact = db.select().from(phaseArtifacts)
+      .where(and(
+        eq(phaseArtifacts.ticketId, ticketId),
+        eq(phaseArtifacts.artifactType, 'interview_qa_session'),
+      ))
+      .orderBy(desc(phaseArtifacts.id))
+      .get()
+    if (artifact) {
+      try {
+        sessionInfo = JSON.parse(artifact.content) as { sessionId: string; winnerId: string }
+        interviewQASessions.set(ticketId, sessionInfo)
+      } catch { /* ignore */ }
+    }
+  }
+
+  if (!sessionInfo) {
+    throw new Error('No active PROM4 session for this ticket')
+  }
+
+  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+  const externalId = ticket?.externalId ?? String(ticketId)
+
+  const signal = getOrCreateAbortSignal(ticketId)
+  const result = await submitBatchToSession(adapter, sessionInfo.sessionId, batchAnswers, signal)
+
+  // Accumulate answers in batch history
+  const existingHistory = db.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticketId),
+      eq(phaseArtifacts.artifactType, 'interview_batch_history'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  let history: Array<{ batchNumber: number; answers: Record<string, string> }> = []
+  if (existingHistory) {
+    try { history = JSON.parse(existingHistory.content) as typeof history } catch { /* ignore */ }
+  }
+  history.push({ batchNumber: result.batchNumber, answers: batchAnswers })
+
+  // Upsert history
+  if (existingHistory) {
+    db.update(phaseArtifacts)
+      .set({ content: JSON.stringify(history) })
+      .where(eq(phaseArtifacts.id, existingHistory.id))
+      .run()
+  } else {
+    db.insert(phaseArtifacts)
+      .values({
+        ticketId,
+        phase: 'WAITING_INTERVIEW_ANSWERS',
+        artifactType: 'interview_batch_history',
+        content: JSON.stringify(history),
+      })
+      .run()
+  }
+
+  if (result.isComplete && result.finalYaml) {
+    // Write final interview YAML to disk
+    const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', externalId, '.ticket')
+    const interviewPath = resolve(ticketDir, 'interview.yaml')
+    safeAtomicWrite(interviewPath, result.finalYaml)
+    emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
+      `PROM4 interview complete. Final YAML written to ${interviewPath}.`)
+  } else {
+    // Store next batch as current
+    const currentBatchArtifact = db.select().from(phaseArtifacts)
+      .where(and(
+        eq(phaseArtifacts.ticketId, ticketId),
+        eq(phaseArtifacts.artifactType, 'interview_current_batch'),
+      ))
+      .orderBy(desc(phaseArtifacts.id))
+      .get()
+
+    if (currentBatchArtifact) {
+      db.update(phaseArtifacts)
+        .set({ content: JSON.stringify(result) })
+        .where(eq(phaseArtifacts.id, currentBatchArtifact.id))
+        .run()
+    } else {
+      db.insert(phaseArtifacts)
+        .values({
+          ticketId,
+          phase: 'WAITING_INTERVIEW_ANSWERS',
+          artifactType: 'interview_current_batch',
+          content: JSON.stringify(result),
+        })
+        .run()
+    }
+
+    emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
+      `PROM4 batch ${result.batchNumber}: ${result.questions.length} questions. Progress: ${result.progress.current}/${result.progress.total}.`)
+  }
+
+  return result
+}
+
 export function attachWorkflowRunner(
   ticketId: number,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
@@ -987,10 +1723,9 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'COUNCIL_VOTING_INTERVIEW') {
-      const result = phaseResults.get(`${ticketId}:interview`)
-      if (result) {
+      if (phaseIntermediate.has(`${ticketId}:interview`)) {
         runningPhases.add(key)
-        handleInterviewVote(ticketId, result, context.externalId, sendEvent)
+        handleInterviewVote(ticketId, context, sendEvent, signal)
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
@@ -1003,10 +1738,9 @@ export function attachWorkflowRunner(
           })
       }
     } else if (state === 'COMPILING_INTERVIEW') {
-      const result = phaseResults.get(`${ticketId}:interview`)
-      if (result) {
+      if (phaseIntermediate.has(`${ticketId}:interview`)) {
         runningPhases.add(key)
-        handleInterviewCompile(ticketId, result, context, sendEvent)
+        handleInterviewCompile(ticketId, context, sendEvent, signal)
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
@@ -1016,6 +1750,23 @@ export function attachWorkflowRunner(
           })
           .finally(() => {
             runningPhases.delete(key)
+          })
+      }
+    } else if (state === 'WAITING_INTERVIEW_ANSWERS') {
+      // Start PROM4 session if not already running
+      const qaInitKey = `${ticketId}:interview_qa_init`
+      if (!interviewQASessions.has(ticketId) && !runningPhases.has(qaInitKey)) {
+        runningPhases.add(qaInitKey)
+        handleInterviewQAStart(ticketId, context, sendEvent, signal)
+          .catch(err => {
+            if (err instanceof CancelledError) return
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] Interview QA start failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg, codes: ['PROM4_INIT_FAILED'] })
+          })
+          .finally(() => {
+            runningPhases.delete(qaInitKey)
           })
       }
     } else if (state === 'VERIFYING_INTERVIEW_COVERAGE') {
@@ -1045,10 +1796,9 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'COUNCIL_VOTING_PRD') {
-      const result = phaseResults.get(`${ticketId}:prd`)
-      if (result) {
+      if (phaseIntermediate.has(`${ticketId}:prd`)) {
         runningPhases.add(key)
-        handlePrdVote(ticketId, result, context.externalId, sendEvent)
+        handlePrdVote(ticketId, context, sendEvent, signal)
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
@@ -1061,10 +1811,9 @@ export function attachWorkflowRunner(
           })
       }
     } else if (state === 'REFINING_PRD') {
-      const result = phaseResults.get(`${ticketId}:prd`)
-      if (result) {
+      if (phaseIntermediate.has(`${ticketId}:prd`)) {
         runningPhases.add(key)
-        handlePrdRefine(ticketId, result, context, sendEvent)
+        handlePrdRefine(ticketId, context, sendEvent, signal)
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
@@ -1103,10 +1852,9 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'COUNCIL_VOTING_BEADS') {
-      const result = phaseResults.get(`${ticketId}:beads`)
-      if (result) {
+      if (phaseIntermediate.has(`${ticketId}:beads`)) {
         runningPhases.add(key)
-        handleBeadsVote(ticketId, result, context.externalId, sendEvent)
+        handleBeadsVote(ticketId, context, sendEvent, signal)
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
@@ -1119,10 +1867,9 @@ export function attachWorkflowRunner(
           })
       }
     } else if (state === 'REFINING_BEADS') {
-      const result = phaseResults.get(`${ticketId}:beads`)
-      if (result) {
+      if (phaseIntermediate.has(`${ticketId}:beads`)) {
         runningPhases.add(key)
-        handleBeadsRefine(ticketId, result, context, sendEvent)
+        handleBeadsRefine(ticketId, context, sendEvent, signal)
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)

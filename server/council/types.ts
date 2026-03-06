@@ -48,6 +48,13 @@ export interface CouncilResult {
   memberOutcomes: Record<string, MemberOutcome>
 }
 
+/** Returned by draft-only phase functions (before vote/refine). */
+export interface DraftPhaseResult {
+  phase: string
+  drafts: DraftResult[]
+  memberOutcomes: Record<string, MemberOutcome>
+}
+
 // Phase-specific voting rubrics per cl-prompt.md PROM2/PROM11/PROM21
 export const VOTING_RUBRIC_INTERVIEW = [
   { category: 'Coverage of requirements', weight: 20, description: 'Questions address all areas needed to write a PRD (features, constraints, non-goals, acceptance criteria)' },
