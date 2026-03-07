@@ -1,15 +1,15 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import { PhaseLogPanel } from './PhaseLogPanel'
-import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
+import { PhaseArtifactsPanel, InterviewAnswersView, PrdDraftView } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { StructuredViewer } from '@/components/editor/StructuredViewer'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import type { Ticket } from '@/hooks/useTickets'
+import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 
 interface ApprovalViewProps {
   ticket: Ticket
@@ -63,6 +63,10 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const { mutate: saveUiState } = useSaveTicketUIState()
   const config = LABELS[artifactType] ?? { title: 'Review', description: '' }
   const uiStateScope = `approval_${artifactType}`
+  const cascadeWarningMessage = useMemo(
+    () => getCascadeEditWarningMessage(ticket.status, artifactType),
+    [ticket.status, artifactType],
+  )
   const { data: persistedUiState } = useTicketUIState<{
     editMode?: boolean
     editedContent?: string
@@ -99,6 +103,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
+  const [logExpanded, setLogExpanded] = useState(false)
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
 
@@ -132,13 +137,12 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
       setEditMode(false)
       return
     }
-    // Entering edit mode — show cascade warning for interview/prd
-    if (artifactType !== 'beads') {
+    if (cascadeWarningMessage) {
       setShowCascadeWarning(true)
     } else {
       setEditMode(true)
     }
-  }, [editMode, fileContent, artifactType])
+  }, [editMode, fileContent, cascadeWarningMessage])
 
   const handleCascadeConfirm = useCallback(() => {
     setShowCascadeWarning(false)
@@ -198,21 +202,17 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <CascadeWarning
-        artifactType={artifactType}
+        message={cascadeWarningMessage ?? ''}
         open={showCascadeWarning}
         onConfirm={handleCascadeConfirm}
         onCancel={() => setShowCascadeWarning(false)}
       />
 
       <div className="p-4 space-y-3 shrink-0">
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm">{config.title}</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3">
-            <p className="text-xs text-muted-foreground">{config.description}</p>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-semibold">{config.title}</span>
+          <span className="text-xs text-muted-foreground">— {config.description}</span>
+        </div>
 
         <PhaseArtifactsPanel
           phase={ticket.status}
@@ -221,15 +221,25 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
           councilMemberCount={councilMemberCount}
           councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined}
           prefixElement={
-            <Button variant="outline" size="sm" onClick={handleToggleEdit} className="text-xs shrink-0">
-              {editMode ? '📄 View' : '✏️ Edit'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleToggleEdit} className="text-xs shrink-0">
+                {editMode ? '📄 View' : '✏️ Edit'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => performAction({ id: ticket.id, action: 'approve' })}
+                disabled={isPending || (editMode && hasChanges)}
+                className="text-xs shrink-0"
+              >
+                {isPending ? 'Approving…' : '✅ Approve'}
+              </Button>
+            </div>
           }
         />
 
         {/* Action buttons */}
-        <div className="flex items-center justify-end gap-2">
-          {editMode && (
+        {editMode && (
+          <div className="flex items-center justify-end gap-2">
             <Button
               size="sm"
               variant="secondary"
@@ -238,41 +248,35 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
             >
               {saving ? 'Saving…' : '💾 Save'}
             </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => performAction({ id: ticket.id, action: 'cancel' })}
-            disabled={isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => performAction({ id: ticket.id, action: 'approve' })}
-            disabled={isPending || (editMode && hasChanges)}
-          >
-            {isPending ? 'Approving…' : '✅ Approve'}
-          </Button>
-        </div>
+          </div>
+        )}
         {saveError && <p className="text-xs text-red-500">{saveError}</p>}
       </div>
 
       {/* Artifact content */}
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
         {loading ? (
-          <div className="text-xs text-muted-foreground italic p-4">Loading artifact…</div>
+          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading artifacts…</div>
         ) : editMode ? (
           <YamlEditor value={editedContent} onChange={setEditedContent} className="border rounded-md" />
         ) : fileContent ? (
-          artifactType === 'beads'
-            ? <BeadsStructuredView content={fileContent} />
-            : <StructuredViewer content={fileContent} />
+          artifactType === 'beads' ? <BeadsStructuredView content={fileContent} /> :
+            artifactType === 'interview' ? <InterviewAnswersView content={fileContent} /> :
+              artifactType === 'prd' ? <PrdDraftView content={fileContent} /> :
+                <StructuredViewer content={fileContent} />
         ) : null}
       </div>
 
-      <div className="shrink-0 min-h-0 px-4 pb-4 flex flex-col" style={{ maxHeight: '30%' }}>
-        <PhaseLogPanel phase={ticket.status} ticket={ticket} />
+      <div className="shrink-0 px-4 pb-4 flex flex-col" style={logExpanded ? { maxHeight: '30%', minHeight: 0 } : undefined}>
+        <button
+          type="button"
+          onClick={() => setLogExpanded(v => !v)}
+          className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider py-1 hover:text-foreground transition-colors"
+        >
+          <span className="inline-block transition-transform" style={{ transform: logExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+          Log
+        </button>
+        {logExpanded && <PhaseLogPanel phase={ticket.status} ticket={ticket} />}
       </div>
     </div>
   )

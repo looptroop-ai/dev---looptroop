@@ -136,6 +136,8 @@ export const ticketMachine = setup({
       ],
       on: {
         ANSWER_SUBMITTED: { target: 'VERIFYING_INTERVIEW_COVERAGE' },
+        BATCH_ANSWERED: { target: 'WAITING_INTERVIEW_ANSWERS' },
+        INTERVIEW_COMPLETE: { target: 'VERIFYING_INTERVIEW_COVERAGE' },
         SKIP: { target: 'VERIFYING_INTERVIEW_COVERAGE' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },

@@ -52,9 +52,9 @@ export function DraftView({ ticket }: DraftViewProps) {
           </div>
 
           {ticket.description && (
-            <div className="w-full rounded-md border border-border p-3">
+            <div className="w-full rounded-md border border-border p-3 max-h-96 overflow-y-auto overflow-x-hidden">
               <h4 className="text-xs font-medium mb-1">Description</h4>
-              <p className="text-xs text-muted-foreground whitespace-pre-wrap">{ticket.description}</p>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{ticket.description}</p>
             </div>
           )}
 

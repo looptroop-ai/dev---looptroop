@@ -1,6 +1,6 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { DraftResult } from './types'
-import type { PromptPart } from '../opencode/types'
+import type { Message, PromptPart } from '../opencode/types'
 
 export async function refineDraft(
   adapter: OpenCodeAdapter,
@@ -9,6 +9,13 @@ export async function refineDraft(
   contextParts: PromptPart[],
   projectPath: string,
   signal?: AbortSignal,
+  onOpenCodeSessionLog?: (entry: {
+    stage: 'draft' | 'vote' | 'refine'
+    memberId: string
+    sessionId: string
+    response: string
+    messages: Message[]
+  }) => void,
 ): Promise<string> {
   const session = await adapter.createSession(projectPath, signal)
 
@@ -20,16 +27,22 @@ export async function refineDraft(
         '## Winning Draft',
         winnerDraft.content,
         '',
-        '## Other Drafts (incorporate superior ideas)',
+        '## Alternative Drafts',
         ...losingDrafts.map((d, i) => `### Alternative ${i + 1}\n${d.content}`),
-        '',
-        'Refine the winning draft by incorporating strong ideas from alternatives.',
-        'Maintain the structure of the winning draft.',
       ].join('\n'),
     },
   ]
 
   const refined = await adapter.promptSession(session.id, refineParts, signal)
+  const messages: Message[] = await adapter.getSessionMessages(session.id)
+
+  onOpenCodeSessionLog?.({
+    stage: 'refine',
+    memberId: winnerDraft.memberId,
+    sessionId: session.id,
+    response: refined || winnerDraft.content,
+    messages,
+  })
 
   return refined || winnerDraft.content
 }

@@ -50,19 +50,45 @@ function normalizeFolderPath(p: string): string {
   return p
 }
 
-function isGitRepo(folderPath: string): boolean {
+interface GitRepoInfo {
+  isGit: boolean
+  repoRoot?: string
+  isRepoRoot?: boolean
+}
+
+function getGitRepoInfo(folderPath: string): GitRepoInfo {
   const resolved = normalizeFolderPath(folderPath)
   if (!existsSync(resolved)) {
-    console.warn(`[isGitRepo] Path does not exist: ${resolved} (original: ${folderPath})`)
-    return false
+    console.warn(`[getGitRepoInfo] Path does not exist: ${resolved} (original: ${folderPath})`)
+    return { isGit: false }
   }
+
   try {
-    const result = execFileSync('git', ['-C', resolved, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' })
-    return result.toString().trim() === 'true'
+    const inside = execFileSync('git', ['-C', resolved, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' })
+      .toString()
+      .trim()
+
+    if (inside !== 'true') return { isGit: false }
+
+    const repoRoot = normalizeFolderPath(
+      execFileSync('git', ['-C', resolved, 'rev-parse', '--show-toplevel'], { stdio: 'pipe' })
+        .toString()
+        .trim(),
+    )
+
+    return {
+      isGit: true,
+      repoRoot,
+      isRepoRoot: repoRoot === resolved,
+    }
   } catch (err) {
-    console.warn(`[isGitRepo] Not a git repo: ${resolved}`, (err as Error).message)
-    return false
+    console.warn(`[getGitRepoInfo] Not a git repo: ${resolved}`, (err as Error).message)
+    return { isGit: false }
   }
+}
+
+function isGitRepo(folderPath: string): boolean {
+  return getGitRepoInfo(folderPath).isGit
 }
 
 projectRouter.get('/projects/check-git', (c) => {
@@ -75,15 +101,28 @@ projectRouter.get('/projects/check-git', (c) => {
     return c.json({ isGit: false, status: 'invalid', message: `Folder does not exist: ${folderPath}` })
   }
 
-  try {
-    const result = execFileSync('git', ['-C', folderPath, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' })
-    if (result.toString().trim() === 'true') {
-      return c.json({ isGit: true, status: 'valid', message: 'Git repository detected' })
+  const gitInfo = getGitRepoInfo(folderPath)
+  if (gitInfo.isGit) {
+    if (gitInfo.isRepoRoot) {
+      return c.json({
+        isGit: true,
+        status: 'valid',
+        scope: 'root',
+        repoRoot: gitInfo.repoRoot,
+        message: 'Git repository root selected',
+      })
     }
-    return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
-  } catch {
-    return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
+
+    return c.json({
+      isGit: true,
+      status: 'valid',
+      scope: 'subfolder',
+      repoRoot: gitInfo.repoRoot,
+      message: `Subfolder inside Git repository (root: ${gitInfo.repoRoot})`,
+    })
   }
+
+  return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
 })
 
 projectRouter.get('/projects/ls', (c) => {

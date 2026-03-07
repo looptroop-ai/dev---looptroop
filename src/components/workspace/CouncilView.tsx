@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
+import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
 
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -21,17 +22,7 @@ interface ModelActivityCard {
 
 const COUNCIL_MEMBER_LABELS = ['Model A', 'Model B', 'Model C']
 
-function getModelIcon(name: string): string {
-  const n = name.toLowerCase()
-  if (n.includes('claude')) return '🟣'
-  if (n.includes('gpt')) return '🟢'
-  if (n.includes('gemini')) return '🔵'
-  return '⚪'
-}
-
-function getModelDisplayName(id: string): string {
-  return id.split('/').pop() ?? id
-}
+// Local model utils removed in favor of shared ones
 
 function getStatusEmoji(outcome?: string, action?: string): string {
   if (outcome === 'timed_out') return '⏰'
@@ -65,9 +56,17 @@ function getStatusLabel(outcome?: string, action?: string): string {
 }
 
 function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: any[] }) {
+  const isVerifying = phase.includes('VERIFYING')
+
+  // In coverage verification, do not show the council voting history cards.
+  // The header already shows the single winning model performing the coverage verify.
+  if (isVerifying) return null
+
   const isDeliberating = phase.includes('DELIBERATING')
+
   // Try to parse CouncilResult from artifacts for this phase
-  const phaseArtifact = artifacts.find(a => a.phase === phase || a.content)
+  // Fallback to recent council result for REFINING
+  const phaseArtifact = artifacts.find(a => a.phase === phase && a.content) || artifacts.find(a => (a.artifactType?.includes('votes') || a.artifactType?.includes('drafts')) && a.content)
   let councilResult: any = null
   if (phaseArtifact?.content) {
     try {
@@ -100,15 +99,19 @@ function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: an
     return (
       <div className="flex flex-wrap gap-3 mb-4">
         {models.map((m, i) => (
-          <div key={i} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 min-w-[180px]">
-            <span className="text-lg">{m.modelIcon}</span>
-            <div>
-              <div className="text-xs font-medium">{m.modelName}</div>
-              <div className="text-xs text-muted-foreground">
-                {getStatusEmoji(undefined, m.action)} {getStatusLabel(undefined, m.action)}
+          <div key={i} className="min-w-[180px] flex">
+            <ModelBadge
+              modelId={m.modelName}
+              className="px-3 py-2 h-auto flex-1 items-start gap-2"
+            >
+              <div className="text-left flex-1 min-w-0">
+                <div className="text-xs font-medium truncate">{m.modelName}</div>
+                <div className="text-[10px] opacity-80 mt-0.5">
+                  {getStatusEmoji(undefined, m.action)} {getStatusLabel(undefined, m.action)}
+                </div>
+                {!isDeliberating && m.detail && <div className="text-[10px] text-blue-400 mt-0.5">{m.detail}</div>}
               </div>
-              {!isDeliberating && m.detail && <div className="text-xs text-blue-500">{m.detail}</div>}
-            </div>
+            </ModelBadge>
           </div>
         ))}
       </div>
@@ -121,7 +124,6 @@ function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: an
     <div className="flex flex-wrap gap-3 mb-4">
       {councilResult.drafts.map((draft: any, i: number) => {
         const name = getModelDisplayName(draft.memberId)
-        const icon = getModelIcon(draft.memberId)
         const isWinner = !isDeliberating && draft.memberId === councilResult.winnerId
         const questionCount = (draft.content?.match(/\?/g) || []).length
         const lineCount = (draft.content?.split('\n').filter((l: string) => l.trim()).length) ?? 0
@@ -150,14 +152,19 @@ function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: an
         }
 
         return (
-          <div key={i} className={`flex items-center gap-2 rounded-lg border px-3 py-2 min-w-[180px] ${isWinner ? 'border-yellow-400 dark:border-yellow-600 bg-yellow-50/50 dark:bg-yellow-950/30' : 'border-border'}`}>
-            <span className="text-lg">{icon}</span>
-            <div className="min-w-0">
-              <div className="text-xs font-medium truncate">{name}</div>
-              <div className="text-xs text-muted-foreground">{getStatusEmoji(draft.outcome, action)} {getStatusLabel(draft.outcome, action)}</div>
-              {detail && <div className="text-xs text-blue-500">{detail}</div>}
-              {isWinner && <div className="text-[10px] text-yellow-600">🏆 Winner</div>}
-            </div>
+          <div key={i} className="min-w-[180px] flex">
+            <ModelBadge
+              modelId={draft.memberId}
+              active={isWinner}
+              className="px-3 py-2 h-auto flex-1 items-start gap-2"
+            >
+              <div className="min-w-0 text-left flex-1">
+                <div className="text-xs font-medium truncate">{name}</div>
+                <div className="text-[10px] opacity-80 mt-0.5">{getStatusEmoji(draft.outcome, action)} {getStatusLabel(draft.outcome, action)}</div>
+                {detail && <div className={`text-[10px] mt-0.5 ${(isWinner && draft.outcome === 'completed') ? 'text-primary-foreground/80' : 'text-blue-400'}`}>{detail}</div>}
+                {isWinner && <div className="text-[10px] font-bold mt-0.5 text-primary-foreground/90">🏆 Winner</div>}
+              </div>
+            </ModelBadge>
           </div>
         )
       })}
@@ -186,11 +193,32 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   const isDrafting = step === 'Drafting'
   const isVoting = step === 'Voting'
   const [phaseArtifacts, setPhaseArtifacts] = useState<any[]>([])
+  const isVerifying = step === 'Verifying Coverage'
   const councilMemberNames = useMemo(() => {
     try { return ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : [] }
     catch { return [] }
   }, [ticket.lockedCouncilMembers])
   const councilMemberCount = councilMemberNames.length || 3
+
+  // For coverage verification, extract winnerId from artifacts (only winner participates)
+  const coverageWinnerId = useMemo(() => {
+    if (!isVerifying) return null
+    // Try phase-specific winner artifacts
+    const winnerArtifactTypes = domain === 'Interview'
+      ? ['interview_winner', 'interview_compiled', 'interview_coverage']
+      : domain === 'PRD'
+        ? ['prd_votes', 'prd_coverage']
+        : ['beads_votes', 'beads_coverage']
+    for (const art of phaseArtifacts) {
+      if (winnerArtifactTypes.includes(art.artifactType)) {
+        try {
+          const parsed = JSON.parse(art.content) as { winnerId?: string }
+          if (parsed.winnerId) return parsed.winnerId
+        } catch { /* ignore */ }
+      }
+    }
+    return null
+  }, [isVerifying, domain, phaseArtifacts])
 
   useEffect(() => {
     if (!ticket.id) return
@@ -215,29 +243,45 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
               {isDrafting && `Each council model is independently generating a ${domain.toLowerCase()} draft.`}
               {isVoting && `Council members are scoring all ${domain.toLowerCase()} drafts.`}
               {step === 'Refining' && `Winning model incorporates best ideas from other drafts.`}
-              {step === 'Verifying Coverage' && `AI verifies ${domain.toLowerCase()} covers all requirements.`}
+              {step === 'Verifying Coverage' && `Winning model verifies ${domain.toLowerCase()} covers all requirements.`}
             </p>
-            <div className="flex gap-2">
-              {(councilMemberNames.length > 0 ? councilMemberNames : COUNCIL_MEMBER_LABELS).map((member) => {
-                const memberAction = isDrafting ? 'drafting' : isVoting ? 'scoring' : step === 'Refining' ? 'refining' : step === 'Verifying Coverage' ? 'verifying' : 'drafting'
+            <div className="flex flex-wrap gap-2">
+              {(isVerifying
+                ? [coverageWinnerId || 'winner-resolving']
+                : councilMemberNames.length > 0 ? councilMemberNames : COUNCIL_MEMBER_LABELS
+              ).map((member) => {
+                const memberAction = isDrafting ? 'drafting' : isVoting ? 'scoring' : step === 'Refining' ? 'refining' : isVerifying ? 'verifying' : 'drafting'
+                const displayName = member === 'winner-resolving' ? 'Determining winner...' : getModelDisplayName(member)
+                const isUnknown = member === 'winner-resolving'
                 return (
-                  <div key={member} className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 flex-1">
-                    <span className="text-sm">{getModelIcon(member)}</span>
-                    <span className="text-xs font-medium truncate">{getModelDisplayName(member)}</span>
-                    <Badge variant="outline" className="text-[10px] ml-auto">
+                  <ModelBadge
+                    key={member}
+                    modelId={member}
+                    active={isVerifying}
+                    className="flex-1 min-w-[200px] px-2.5 py-1.5 h-auto items-center"
+                  >
+                    <span className="text-xs font-medium truncate flex-1 text-left">{displayName}</span>
+                    <Badge variant="outline" className={`text-[10px] ml-auto shrink-0 whitespace-nowrap border-border/30 bg-background/20 ${isVerifying ? 'text-primary-foreground' : 'text-secondary-foreground'}`}>
                       <span className={memberAction === 'drafting' || memberAction === 'refining' ? 'inline-block animate-wiggle' : memberAction === 'scoring' || memberAction === 'verifying' ? 'inline-block animate-pulse-scale' : ''}>
                         {getStatusEmoji(undefined, memberAction)}
                       </span>
                       {' '}{getStatusLabel(undefined, memberAction)}
                     </Badge>
-                  </div>
+                    {isVerifying && !isUnknown && <div className="text-[10px] font-bold text-primary-foreground/90 ml-1">🏆</div>}
+                  </ModelBadge>
                 )
               })}
             </div>
           </CardContent>
         </Card>
 
-        <PhaseArtifactsPanel phase={phase} isCompleted={false} ticketId={ticket.id} councilMemberCount={councilMemberCount} councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined} />
+        <PhaseArtifactsPanel
+          phase={phase}
+          isCompleted={false}
+          ticketId={ticket.id}
+          councilMemberCount={isVerifying ? 1 : councilMemberCount}
+          councilMemberNames={isVerifying ? (coverageWinnerId ? [coverageWinnerId] : []) : councilMemberNames.length > 0 ? councilMemberNames : undefined}
+        />
       </div>
 
       <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">

@@ -70,6 +70,7 @@ describe('Ticket Lifecycle', () => {
     })
 
     expect(result.success).toBe(true)
+    expect(result.created).toBe(true)
 
     const ticketDir = resolve(WORKTREE_ROOT, ticket.externalId, '.ticket')
     expect(existsSync(resolve(ticketDir, 'runtime'))).toBe(true)
@@ -88,6 +89,8 @@ describe('Ticket Lifecycle', () => {
 
     expect(result1.success).toBe(true)
     expect(result2.success).toBe(true)
+    expect(result1.created).toBe(true)
+    expect(result2.created).toBe(false)
   })
 
   it('rejects ticket creation for non-existent project', () => {

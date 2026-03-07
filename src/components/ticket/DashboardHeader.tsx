@@ -125,16 +125,18 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
           </Badge>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowDetails(true)}
-            className="gap-1 text-muted-foreground h-8 px-2"
-            title="Ticket details"
-          >
-            <Info className="h-4 w-4" />
-            <span className="text-xs">Details</span>
-          </Button>
+          {ticket.status !== 'DRAFT' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDetails(true)}
+              className="gap-1 text-muted-foreground h-8 px-2"
+              title="Ticket details"
+            >
+              <Info className="h-4 w-4" />
+              <span className="text-xs">Details</span>
+            </Button>
+          )}
           {canCancel && (
             <Button
               variant="ghost"
@@ -207,7 +209,9 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             {ticket.description && (
               <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
                 <span className="text-xs font-medium text-muted-foreground">Description</span>
-                <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{ticket.description}</p>
+                <div className="mt-1 max-h-48 overflow-y-auto overflow-x-hidden rounded-md border border-border/50 bg-muted/30 p-3">
+                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-muted-foreground">{ticket.description}</p>
+                </div>
               </div>
             )}
             {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers) && (

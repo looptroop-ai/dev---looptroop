@@ -7,14 +7,23 @@ interface InitializeOptions {
   projectFolder: string
 }
 
-export function initializeTicket(options: InitializeOptions): { success: boolean; error?: string } {
+export interface InitializeTicketResult {
+  success: boolean
+  created: boolean
+  ticketDir: string
+  codebaseMapPath: string
+  error?: string
+}
+
+export function initializeTicket(options: InitializeOptions): InitializeTicketResult {
   const ticketRoot = resolve(process.cwd(), '.looptroop/worktrees', options.externalId)
   const ticketDir = resolve(ticketRoot, '.ticket')
+  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
 
   try {
     // Idempotent: check if already initialized
     if (existsSync(resolve(ticketDir, 'initialized'))) {
-      return { success: true }
+      return { success: true, created: false, ticketDir, codebaseMapPath }
     }
 
     // Create ticket directory structure
@@ -49,17 +58,20 @@ export function initializeTicket(options: InitializeOptions): { success: boolean
 
     // Generate codebase-map.yaml using spec-compliant schema
     writeFileSync(
-      resolve(ticketDir, 'codebase-map.yaml'),
+      codebaseMapPath,
       generateCodebaseMapYaml(options.projectFolder, options.externalId),
     )
 
     // Mark as initialized
     writeFileSync(resolve(ticketDir, 'initialized'), new Date().toISOString())
 
-    return { success: true }
+    return { success: true, created: true, ticketDir, codebaseMapPath }
   } catch (err) {
     return {
       success: false,
+      created: false,
+      ticketDir,
+      codebaseMapPath,
       error: err instanceof Error ? err.message : 'Unknown initialization error',
     }
   }

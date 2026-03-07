@@ -67,6 +67,7 @@ export function useProfile() {
   return useQuery({
     queryKey: ['profile'],
     queryFn: fetchProfile,
+    staleTime: Infinity,
   })
 }
 

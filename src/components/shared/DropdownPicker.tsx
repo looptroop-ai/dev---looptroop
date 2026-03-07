@@ -14,20 +14,18 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number; openUp: boolean }>({ top: 0, left: 0, openUp: false })
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const [positioned, setPositioned] = useState(false)
 
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom
-    const spaceAbove = rect.top
-    const dropdownHeight = 420 // approximate max height
-    const openUp = spaceBelow < dropdownHeight && spaceAbove > spaceBelow
+    const margin = 8
+    // Always open downward, clamped to stay within viewport
+    const top = Math.max(margin, Math.min(rect.bottom + 4, window.innerHeight - 420 - margin))
     setPos({
-      top: openUp ? rect.top : rect.bottom + 4,
-      left: rect.left,
-      openUp,
+      top,
+      left: Math.max(margin, Math.min(rect.left, window.innerWidth - 340)),
     })
   }, [])
 
@@ -55,9 +53,10 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
           ref={dropdownRef}
           className="fixed z-[100] rounded-lg border border-border bg-popover shadow-xl p-3 animate-in fade-in-0 zoom-in-95"
           style={{
-            top: pos.openUp ? undefined : pos.top,
-            bottom: pos.openUp ? window.innerHeight - pos.top + 4 : undefined,
+            top: pos.top,
             left: pos.left,
+            maxHeight: `calc(100vh - ${pos.top}px - 8px)`,
+            overflowY: 'auto',
             visibility: positioned ? 'visible' : 'hidden',
           }}
         >

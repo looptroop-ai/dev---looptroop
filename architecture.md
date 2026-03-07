@@ -130,7 +130,8 @@ project/                                        ← main repo (main branch)
 All council operations run in parallel: draft generation (each member drafts simultaneously via separate OpenCode sessions) and voting (each member scores all drafts simultaneously). Only the refinement step is sequential.
 
 #### OpenCode Session Lifecycle
-- **Council phases:** Create a fresh OpenCode session per council member per phase attempt (draft, vote, refine, coverage). Do not reuse prior council-step history.
+- **Council phases (draft, vote):** Create a fresh OpenCode session per council member per phase attempt. Do not reuse prior council-step history.
+- **Winner-only phases (refine, coverage):** Create a single fresh OpenCode session for the winning model only. Coverage verification is never sent to all council members — only the winner runs it.
 - **Execution phase:** Create a fresh OpenCode session per bead execution attempt (`bead_id` + `iteration`). Do not reuse sessions across beads.
 - **Context wipe behavior:** On retry/context wipe, always start a new session for the new attempt. Failed-attempt session history is not reused.
 - **Knowledge transfer path:** Carry prior learnings through structured artifacts (`interview.yaml`, `prd.yaml`, `issues.jsonl`, bead `notes`) rather than chat/session history.
@@ -149,7 +150,7 @@ All council operations run in parallel: draft generation (each member drafts sim
 - **MVP:** UI and backend must validate and reject configurations with more than the configured maximum number of members.
 
 #### Context Assembly Contract (MVP)
-- Every OpenCode prompt call (council draft/vote/refine/coverage, interview Q&A, bead iteration, and final-test generation) must call a single function: `buildMinimalContext(phase, ticketState, activeItem?)`.
+- Every OpenCode prompt call (council draft/vote, winner-only refine/coverage, interview Q&A, bead iteration, and final-test generation) must call a single function: `buildMinimalContext(phase, ticketState, activeItem?)`.
 - `buildMinimalContext(...)` enforces hard phase allowlists (only required sources are included; extras are rejected).
 - `buildMinimalContext(...)` enforces deterministic token budgeting per call and trims in fixed priority order when needed.
 - Within one ticket lifetime, cache reusable context slices (`codebase-map.yaml` summary, interview summary, PRD outline) and reuse them instead of reloading full artifacts.
@@ -283,13 +284,13 @@ The primary panel displays the main content for the ticket's current phase. When
     | **DRAFT** | Ticket details view (title, description, priority, project). "Start" action button. |
     | **Interview — Council Deliberating/Voting/Compiling** | Live council activity view: which models are drafting/voting, progress indicator, and streaming thinking/reasoning from the active model(s). Read-only — user waits. |
     | **Interview — Q&A (WAITING_INTERVIEW_ANSWERS)** | Interactive interview interface: current question displayed prominently with answer input area, Skip button, and Submit button. Question progress shown (e.g., "Q 12/50"). Previous Q&A pairs are visible above (scrollable history). Smart auto-scroll keeps the current question in view. |
-    | **Interview — Coverage Verification** | Live coverage check progress: AI analyzing answers for gaps. Read-only view of the verification process. |
+    | **Interview — Coverage Verification** | Live coverage check progress: winning AI model analyzing answers for gaps. Read-only view of the verification process. |
     | **Interview Approval (WAITING_INTERVIEW_APPROVAL)** | Interview Results displayed in a **structured, readable/editable format** (not raw YAML) with collapsible sections by topic, color-coded for readability, and cross-links to related questions/answers. CodeMirror editor (YAML mode) for raw edits via "Edit Raw" toggle. Approve / Edit / Re-run buttons. |
     | **PRD — Drafting/Voting/Refining** | Live council activity view: streaming AI thinking, draft comparison progress, voting scores (when available). Read-only — user waits. |
-    | **PRD — Coverage Verification** | Live coverage check: AI verifying PRD against Interview Results. Read-only. |
+    | **PRD — Coverage Verification** | Live coverage check: winning AI model verifying PRD against Interview Results. Read-only. |
     | **PRD Approval (WAITING_PRD_APPROVAL)** | PRD displayed in a **structured, readable/editable format** with collapsible Epics/User Stories/acceptance criteria, color-coded sections, and cross-links to Interview Results. CodeMirror editor (YAML mode) for raw edits via "Edit Raw" toggle. Approve / Edit / Re-run buttons. |
     | **Beads — Drafting/Voting/Refining** | Live council activity view: streaming AI thinking, bead architecture progress. Read-only — user waits. |
-    | **Beads — Coverage Verification** | Live coverage check: AI verifying bead coverage against PRD. Read-only. |
+    | **Beads — Coverage Verification** | Live coverage check: winning AI model verifying bead coverage against PRD. Read-only. |
     | **Beads Approval (WAITING_BEADS_APPROVAL)** | Beads displayed in a **structured, readable/editable format** with each bead expandable to show all fields (description, acceptance criteria, dependencies, target files, tests, etc.), color-coded by status, and cross-links to PRD sections and interview answers. CodeMirror editor (YAML mode) for raw edits via "Edit Raw" toggle. Approve / Edit / Re-run buttons. |
     | **Pre-flight Check** | Doctor diagnostics output: checklist of validation items with pass/fail/warning status, model ping results, and any blocking issues. Read-only. |
     | **Coding (active bead)** | **Live execution view** for the currently running bead: real-time streaming logs, AI thinking/reasoning, code being written, test output, iteration counter (e.g., "Iteration 2/5"), and progress within the bead. Smart auto-scroll. |
@@ -427,15 +428,15 @@ The primary panel displays the main content for the ticket's current phase. When
 | **2. IN PROGRESS** | 02 | COUNCIL_DELIBERATING | AI Council Thinking | AI | Models generate initial questions and debate approach. | Questions generated. |
 | | 03 | COUNCIL_VOTING_INTERVIEW | Selecting Best Questions | AI | Models vote on best interview questions. | Winner selected. |
 | | 04 | COMPILING_INTERVIEW | Preparing Interview | AI | Winner consolidates questions into interview set/results. | Interview starts → Move to 05. |
-| | 06 | VERIFYING_INTERVIEW_COVERAGE | Coverage Check (Interview) | AI | Verifies ticket description + answers are fully covered in Interview Results. | If gaps: 05. If clean: 07. |
+| | 06 | VERIFYING_INTERVIEW_COVERAGE | Coverage Check (Interview) | AIC winner | Winning model verifies ticket description + answers are fully covered in Interview Results. | If gaps: 05. If clean: 07. |
 | | 08 | DRAFTING_PRD | Drafting Specs | AI | Models generate competing PRD versions. | Drafts ready. |
 | | 09 | COUNCIL_VOTING_PRD | Voting on Specs | AI | Models vote on best PRD version. | Winner selected. |
 | | 10 | REFINING_PRD | Refining Specs | AI | Winner incorporates missing details from others. | Candidate PRD ready → Move to 11. |
-| | 11 | VERIFYING_PRD_COVERAGE | Coverage Check (PRD) | AI | Verifies PRD against Interview Results and constraints. | If gaps: 10. If clean: 12. |
+| | 11 | VERIFYING_PRD_COVERAGE | Coverage Check (PRD) | AIC winner | Winning model verifies PRD against Interview Results and constraints. | If gaps: 10. If clean: 12. |
 | | 13 | DRAFTING_BEADS | Architecting Beads | AI | Models break PRD epics into individual beads (tasks & tests). | Drafts ready. |
 | | 14 | COUNCIL_VOTING_BEADS | Voting on Architecture | AI | Models vote on the best implementation flow/bead breakdown. | Winner selected. |
 | | 15 | REFINING_BEADS | Finalizing Plan | AI | Winner incorporates smart tasks/tests from losing drafts. | Candidate Beads ready → Move to 16. |
-| | 16 | VERIFYING_BEADS_COVERAGE | Coverage Check (Beads) | AI | Verifies all in-scope PRD requirements map to beads + verification steps. | If gaps: 15. If clean: 17. |
+| | 16 | VERIFYING_BEADS_COVERAGE | Coverage Check (Beads) | AIC winner | Winning model verifies all in-scope PRD requirements map to beads + verification steps. | If gaps: 15. If clean: 17. |
 | | 18 | PRE_FLIGHT_CHECK | Initializing Agent | AI | Verifying git status, context, and permissions. | Checks pass → Move to 19. |
 | | 19 | CODING | Implementing (Bead X/Y) | AI | Executing beads in ticket worktree. | All beads marked "Done". |
 | | 20 | RUNNING_FINAL_TEST | Self-Testing | AI | Running larger test created by main implementer based on ticket scope and complexity on the unsquashed ticket branch state. | Tests pass → Move to 21. |
@@ -1256,7 +1257,7 @@ Example issue line — see PROM24 `output_file.example` in the Prompt Catalog fo
 ```yaml
 _GLOBAL_RULES:
   critical_output_rule: "Your entire response must consist of NOTHING except the exact requested artifact. No explanations, no markdown fences, no 'Here is the result', no extra newlines before/after."
-  context_refresh: "Context is refreshed between each council step (draft, vote, refine, coverage). Each step receives only the data listed in its context_input — no prior chat/session history."
+  context_refresh: "Context is refreshed between each step (council-wide: draft, vote; winner-only: refine, coverage). Each step receives only the data listed in its context_input — no prior chat/session history."
 ```
 
 ### Interview Prompts
@@ -1319,6 +1320,7 @@ PROM4:
 
 PROM5:
   description: "Interview Coverage Verification Prompt"
+  executed_by: "winning AIC only"
   context_input: "Ticket description + collected answers + current Interview Results"
   system_role: "You are a meticulous Quality Assurance Lead."
   task: "Re-read the original ticket description and all collected user answers, then compare them against the final Interview Results file to ensure complete coverage."
@@ -1405,6 +1407,7 @@ PROM12:
 
 PROM13:
   description: "PRD Coverage Verification Prompt"
+  executed_by: "winning AIC only"
   context_input: "Final Interview Results + final PRD"
   system_role: "You are a meticulous Quality Assurance Lead."
   task: "Re-read the Interview Results as the source of truth and compare them against the final PRD to ensure complete coverage."
@@ -1539,6 +1542,7 @@ PROM23:
 
 PROM24:
   description: "Beads Coverage Verification Prompt"
+  executed_by: "winning AIC only"
   context_input: "Final PRD + Beads graph + tests"
   system_role: "You are a meticulous Quality Assurance Lead."
   task: "Re-read the final PRD as the source of truth and compare it against the Beads graph and tests to ensure complete coverage."

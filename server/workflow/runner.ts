@@ -11,7 +11,7 @@ import { draftBeads, buildBeadsContextBuilder } from '../phases/beads/draft'
 import { expandBeads } from '../phases/beads/expand'
 import type { BeadSubset } from '../phases/beads/types'
 import { OpenCodeSDKAdapter } from '../opencode/adapter'
-import type { CouncilResult, DraftResult, Vote } from '../council/types'
+import type { CouncilResult, DraftProgressEvent, DraftResult, Vote } from '../council/types'
 import { CancelledError } from '../council/types'
 import { conductVoting, selectWinner } from '../council/voter'
 import { refineDraft } from '../council/refiner'
@@ -305,6 +305,68 @@ function mapCouncilStageToStatus(
   return 'REFINING_BEADS'
 }
 
+function formatCouncilMemberRoster(members: Array<{ modelId: string; name: string }>): string {
+  return members.map(member => member.modelId).join(', ')
+}
+
+function describeCouncilMemberSource(source: 'locked_ticket' | 'profile' | 'default'): string {
+  if (source === 'locked_ticket') return 'locked ticket config'
+  if (source === 'profile') return 'profile config'
+  return 'default fallback'
+}
+
+function formatDurationMs(durationMs: number): string {
+  if (durationMs >= 60000) return `${(durationMs / 60000).toFixed(1)}m`
+  if (durationMs >= 1000) return `${(durationMs / 1000).toFixed(1)}s`
+  return `${durationMs}ms`
+}
+
+function summarizeDraftOutcomes(drafts: DraftResult[]) {
+  return drafts.reduce(
+    (summary, draft) => {
+      if (draft.outcome === 'completed') summary.completed++
+      else if (draft.outcome === 'timed_out') summary.timedOut++
+      else summary.invalidOutput++
+      return summary
+    },
+    { completed: 0, timedOut: 0, invalidOutput: 0 },
+  )
+}
+
+function emitDraftProgressInfoLog(
+  ticketId: number,
+  ticketExternalId: string,
+  phase: string,
+  label: string,
+  entry: DraftProgressEvent,
+) {
+  if (entry.status === 'session_created' && entry.sessionId) {
+    emitPhaseLog(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'info',
+      `${label} draft session created for ${entry.memberId}: ${entry.sessionId}.`,
+    )
+    return
+  }
+
+  if (entry.status === 'finished' && entry.outcome && entry.outcome !== 'completed') {
+    const detail = entry.outcome === 'timed_out'
+      ? 'timed out'
+      : `failed (${entry.error ?? 'invalid output'})`
+    const durationText = typeof entry.duration === 'number' ? ` after ${formatDurationMs(entry.duration)}` : ''
+    const sessionText = entry.sessionId ? ` session=${entry.sessionId}` : ''
+    emitPhaseLog(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'error',
+      `${label} draft ${detail} for ${entry.memberId}${sessionText}${durationText}.`,
+    )
+  }
+}
+
 async function handleInterviewDeliberate(
   ticketId: number,
   context: TicketContext,
@@ -313,15 +375,23 @@ async function handleInterviewDeliberate(
 ) {
   const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
   const projectPath = project?.folderPath ?? process.cwd()
+  const phase = 'COUNCIL_DELIBERATING' as const
 
   // Step 1: Initialize ticket directory structure so logs can be written
   const initResult = initializeTicket({ externalId: context.externalId, projectFolder: projectPath })
   if (!initResult.success) {
     const msg = `Ticket initialization failed: ${initResult.error}`
     console.error(`[runner] ${msg}`)
-    emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', msg)
+    emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
     throw new Error(msg)
   }
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Ticket workspace ${initResult.created ? 'initialized' : 'reused'} for council drafting.`,
+  )
 
   // Step 2: Health-check OpenCode before doing any work
   if (signal.aborted) throw new CancelledError(ticketId)
@@ -329,57 +399,60 @@ async function handleInterviewDeliberate(
     const health = await adapter.checkHealth()
     if (!health.available) {
       const msg = `OpenCode server is not running. Start it with \`opencode serve\`. (${health.error ?? 'connection refused'})`
-      emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', msg)
+      emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
       throw new Error(msg)
     }
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      phase,
+      'info',
+      `OpenCode health check passed${health.version ? ` (version=${health.version})` : ''}.`,
+    )
   } catch (err) {
     // Re-throw if we already formatted the message
     if (err instanceof Error && err.message.startsWith('OpenCode server is not running')) throw err
     const msg = `OpenCode server is not running. Start it with \`opencode serve\`. (${err instanceof Error ? err.message : String(err)})`
-    emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', msg)
+    emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
     throw new Error(msg)
   }
 
   // Step 3: Resolve council members from locked config (frozen at ticket start)
-  let members: Array<{ modelId: string; name: string }> = []
-
-  if (context.lockedCouncilMembers && context.lockedCouncilMembers.length > 0) {
-    members = context.lockedCouncilMembers.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
-  } else {
-    // Fallback: read from profile only if no locked config (legacy tickets)
-    const profile = db.select().from(profiles).get()
-    if (profile?.councilMembers) {
-      try {
-        const modelIds = JSON.parse(profile.councilMembers) as string[]
-        members = modelIds.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
-      } catch {
-        // fallback below
-      }
-    }
-  }
-
-  if (members.length === 0) {
-    members = [{ modelId: 'openai/gpt-5.3-codex', name: 'gpt-5.3-codex' }]
-  }
+  const council = resolveCouncilMembers(context)
+  const members = council.members
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`,
+  )
 
   // Load ticket from DB to get full description
   const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
   const ticketDescription = ticket?.description ?? ''
 
   // Load codebase-map.yaml from disk if available
-  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
-  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
   let codebaseMap: string | undefined
-  if (existsSync(codebaseMapPath)) {
+  if (existsSync(initResult.codebaseMapPath)) {
     try {
-      codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
+      codebaseMap = readFileSync(initResult.codebaseMapPath, 'utf-8')
       console.log(`[runner] Loaded codebase-map.yaml (${codebaseMap.length} chars) for ticket ${context.externalId}`)
     } catch (err) {
       console.warn(`[runner] Failed to read codebase-map.yaml for ticket ${context.externalId}:`, err)
     }
   } else {
-    console.warn(`[runner] codebase-map.yaml not found at ${codebaseMapPath}`)
+    console.warn(`[runner] codebase-map.yaml not found at ${initResult.codebaseMapPath}`)
   }
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    codebaseMap
+      ? `Loaded codebase map artifact (${codebaseMap.length} chars).`
+      : 'Codebase map artifact missing; proceeding with ticket details only.',
+  )
 
   // Build context via buildMinimalContext with full ticket state
   const ticketState: TicketState = {
@@ -390,9 +463,11 @@ async function handleInterviewDeliberate(
   }
   const ticketContext = buildMinimalContext('interview_draft', ticketState)
 
-  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Dispatching interview draft requests to ${members.length} council members.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  const startedAt = Date.now()
   const result = await deliberateInterview(
     adapter,
     members,
@@ -412,6 +487,18 @@ async function handleInterviewDeliberate(
         entry.messages,
       )
     },
+    (entry) => {
+      emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'Interview', entry)
+    },
+  )
+
+  const draftSummary = summarizeDraftOutcomes(result.drafts)
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Interview draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, invalid_output=${draftSummary.invalidOutput}.`,
   )
 
   // Store intermediate data for vote/refine steps
@@ -448,15 +535,22 @@ async function handleInterviewDeliberate(
   db.insert(phaseArtifacts)
     .values({
       ticketId,
-      phase: 'COUNCIL_DELIBERATING',
+      phase,
       artifactType: 'interview_drafts',
       content: JSON.stringify(result),
     })
     .run()
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Saved interview draft artifact and cached ${Object.keys(result.memberOutcomes).length} member outcomes for voting.`,
+  )
 
   sendEvent({ type: 'QUESTIONS_READY', result: result as unknown as Record<string, unknown> })
 
-  emitStateChange(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'COUNCIL_VOTING_INTERVIEW')
+  emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_INTERVIEW')
 }
 
 async function handleInterviewVote(
@@ -470,7 +564,7 @@ async function handleInterviewVote(
     throw new Error('No interview drafts found — cannot vote')
   }
 
-  const members = resolveCouncilMembers(context)
+  const { members } = resolveCouncilMembers(context)
   const voteContext = intermediate.contextBuilder('vote')
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info',
@@ -621,25 +715,32 @@ async function handleInterviewCompile(
 }
 
 // --- Helper: resolve council members from context (shared by PRD/Beads draft handlers) ---
-function resolveCouncilMembers(context: TicketContext): Array<{ modelId: string; name: string }> {
+function resolveCouncilMembers(context: TicketContext): {
+  members: Array<{ modelId: string; name: string }>
+  source: 'locked_ticket' | 'profile' | 'default'
+} {
   let members: Array<{ modelId: string; name: string }> = []
+  let source: 'locked_ticket' | 'profile' | 'default' = 'default'
 
   if (context.lockedCouncilMembers && context.lockedCouncilMembers.length > 0) {
     members = context.lockedCouncilMembers.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+    source = 'locked_ticket'
   } else {
     const profile = db.select().from(profiles).get()
     if (profile?.councilMembers) {
       try {
         const modelIds = JSON.parse(profile.councilMembers) as string[]
         members = modelIds.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+        if (members.length > 0) source = 'profile'
       } catch { /* fallback below */ }
     }
   }
 
   if (members.length === 0) {
     members = [{ modelId: 'openai/gpt-5.3-codex', name: 'gpt-5.3-codex' }]
+    source = 'default'
   }
-  return members
+  return { members, source }
 }
 
 // --- Helper: load ticket dir paths and codebase map ---
@@ -667,7 +768,9 @@ async function handlePrdDraft(
   signal: AbortSignal,
 ) {
   const { projectPath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
-  const members = resolveCouncilMembers(context)
+  const phase = 'DRAFTING_PRD' as const
+  const council = resolveCouncilMembers(context)
+  const members = council.members
 
   // Load interview results from disk
   const interviewPath = resolve(ticketDir, 'interview.yaml')
@@ -685,10 +788,18 @@ async function handlePrdDraft(
   }
   const ticketContext = buildMinimalContext('prd_draft', ticketState)
 
-  emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'info',
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
+    `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
+    interview
+      ? `Loaded interview artifact (${interview.length} chars).`
+      : 'Interview artifact missing; PRD drafting will rely on available ticket context.')
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
     `PRD council drafting started. Context: ${ticketContext.length} parts, interview=${interview ? 'loaded' : 'missing'}.`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Dispatching PRD draft requests to ${members.length} council members.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  const startedAt = Date.now()
   const result = await draftPRD(
     adapter,
     members,
@@ -707,6 +818,18 @@ async function handlePrdDraft(
         entry.messages,
       )
     },
+    (entry) => {
+      emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'PRD', entry)
+    },
+  )
+
+  const draftSummary = summarizeDraftOutcomes(result.drafts)
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `PRD draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, invalid_output=${draftSummary.invalidOutput}.`,
   )
 
   phaseIntermediate.set(`${ticketId}:prd`, {
@@ -731,15 +854,22 @@ async function handlePrdDraft(
   db.insert(phaseArtifacts)
     .values({
       ticketId,
-      phase: 'DRAFTING_PRD',
+      phase,
       artifactType: 'prd_drafts',
       content: JSON.stringify(result),
     })
     .run()
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Saved PRD draft artifact and cached ${Object.keys(result.memberOutcomes).length} member outcomes for voting.`,
+  )
 
   sendEvent({ type: 'DRAFTS_READY' })
 
-  emitStateChange(ticketId, context.externalId, 'DRAFTING_PRD', 'COUNCIL_VOTING_PRD')
+  emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_PRD')
 }
 
 async function handlePrdVote(
@@ -753,7 +883,7 @@ async function handlePrdVote(
     throw new Error('No PRD drafts found — cannot vote')
   }
 
-  const members = resolveCouncilMembers(context)
+  const { members } = resolveCouncilMembers(context)
   const voteContext = intermediate.contextBuilder('vote')
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
@@ -879,7 +1009,9 @@ async function handleBeadsDraft(
   signal: AbortSignal,
 ) {
   const { projectPath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
-  const members = resolveCouncilMembers(context)
+  const phase = 'DRAFTING_BEADS' as const
+  const council = resolveCouncilMembers(context)
+  const members = council.members
 
   // Load PRD from disk
   const prdPath = resolve(ticketDir, 'prd.yaml')
@@ -897,10 +1029,18 @@ async function handleBeadsDraft(
   }
   const ticketContext = buildMinimalContext('beads_draft', ticketState)
 
-  emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'info',
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
+    `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
+    prd
+      ? `Loaded PRD artifact (${prd.length} chars).`
+      : 'PRD artifact missing; beads drafting will rely on available ticket context.')
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
     `Beads council drafting started. Context: ${ticketContext.length} parts, prd=${prd ? 'loaded' : 'missing'}.`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Dispatching beads draft requests to ${members.length} council members.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  const startedAt = Date.now()
   const result = await draftBeads(
     adapter,
     members,
@@ -919,6 +1059,18 @@ async function handleBeadsDraft(
         entry.messages,
       )
     },
+    (entry) => {
+      emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'Beads', entry)
+    },
+  )
+
+  const draftSummary = summarizeDraftOutcomes(result.drafts)
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Beads draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, invalid_output=${draftSummary.invalidOutput}.`,
   )
 
   phaseIntermediate.set(`${ticketId}:beads`, {
@@ -943,15 +1095,22 @@ async function handleBeadsDraft(
   db.insert(phaseArtifacts)
     .values({
       ticketId,
-      phase: 'DRAFTING_BEADS',
+      phase,
       artifactType: 'beads_drafts',
       content: JSON.stringify(result),
     })
     .run()
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Saved beads draft artifact and cached ${Object.keys(result.memberOutcomes).length} member outcomes for voting.`,
+  )
 
   sendEvent({ type: 'DRAFTS_READY' })
 
-  emitStateChange(ticketId, context.externalId, 'DRAFTING_BEADS', 'COUNCIL_VOTING_BEADS')
+  emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_BEADS')
 }
 
 async function handleBeadsVote(
@@ -965,7 +1124,7 @@ async function handleBeadsVote(
     throw new Error('No Beads drafts found — cannot vote')
   }
 
-  const members = resolveCouncilMembers(context)
+  const { members } = resolveCouncilMembers(context)
   const voteContext = intermediate.contextBuilder('vote')
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',

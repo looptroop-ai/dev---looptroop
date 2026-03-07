@@ -54,7 +54,6 @@
   --color-ring: #d4d4d4;
 }
 
-/* Dark mode only activates via .dark class toggle, not prefers-color-scheme */
 
 @keyframes wiggle {
   0%, 100% { transform: rotate(0deg); }

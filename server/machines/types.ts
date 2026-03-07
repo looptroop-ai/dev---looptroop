@@ -27,6 +27,8 @@ export type TicketEvent =
   | { type: 'WINNER_SELECTED'; winner: string }
   | { type: 'READY' }
   | { type: 'ANSWER_SUBMITTED'; answers: Record<string, string> }
+  | { type: 'BATCH_ANSWERED'; batchAnswers: Record<string, string> }
+  | { type: 'INTERVIEW_COMPLETE' }
   | { type: 'SKIP' }
   | { type: 'COVERAGE_CLEAN' }
   | { type: 'GAPS_FOUND' }

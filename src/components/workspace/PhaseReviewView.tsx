@@ -61,7 +61,7 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
             {ticket.description && (
               <div className="rounded-md border border-border p-3">
                 <h4 className="text-xs font-medium mb-1">Description</h4>
-                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{ticket.description}</p>
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{ticket.description}</p>
               </div>
             )}
           </div>

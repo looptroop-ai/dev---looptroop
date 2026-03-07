@@ -7,7 +7,7 @@ import { tickets, projects, profiles, phaseArtifacts } from '../db/schema'
 import { eq, desc, and } from 'drizzle-orm'
 import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
 import { abortTicketSessions } from '../opencode/sessionManager'
-import { cancelTicket } from '../workflow/runner'
+import { cancelTicket, handleInterviewQABatch } from '../workflow/runner'
 
 const ticketRouter = new Hono()
 
@@ -417,6 +417,77 @@ ticketRouter.post('/tickets/:id/skip', async (c) => {
   const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
   const state = getTicketState(id)
   return c.json({ message: 'Question skipped', ticketId: id, status: updated?.status, state: state?.state })
+})
+
+// ─── Interview Batch Q&A Endpoints ───
+
+ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
+  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
+    return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = interviewAnswerPayloadSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
+    }
+
+    // Accumulate answers in UI state
+    const existingUiState = readUiState(id, 'interview_qa')
+    const existingAnswers = (existingUiState?.data as { answers?: Record<string, string> })?.answers ?? {}
+    const mergedAnswers = { ...existingAnswers, ...parsed.data.answers }
+    upsertUiState(id, 'interview_qa', { answers: mergedAnswers })
+
+    // Submit batch to PROM4 session
+    const result = await handleInterviewQABatch(id, parsed.data.answers)
+
+    ensureActorForTicket(id)
+    if (result.isComplete) {
+      sendTicketEvent(id, { type: 'INTERVIEW_COMPLETE' })
+    } else {
+      sendTicketEvent(id, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers })
+    }
+
+    return c.json({
+      questions: result.questions,
+      progress: result.progress,
+      isComplete: result.isComplete,
+      isFinalFreeForm: result.isFinalFreeForm,
+      aiCommentary: result.aiCommentary,
+      batchNumber: result.batchNumber,
+    })
+  } catch (err) {
+    console.error(`[tickets] Failed to process answer-batch for ticket ${id}:`, err)
+    return c.json({ error: 'Failed to process batch', details: String(err) }, 500)
+  }
+})
+
+ticketRouter.get('/tickets/:id/interview-batch', (c) => {
+  const id = Number(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
+  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+
+  const artifact = db.select().from(phaseArtifacts)
+    .where(and(eq(phaseArtifacts.ticketId, id), eq(phaseArtifacts.artifactType, 'interview_current_batch')))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  if (!artifact) {
+    return c.json({ batch: null, status: 'no_batch' })
+  }
+
+  try {
+    const batch = JSON.parse(artifact.content)
+    return c.json({ batch, status: 'ok' })
+  } catch {
+    return c.json({ batch: null, status: 'parse_error' })
+  }
 })
 
 ticketRouter.post('/tickets/:id/approve-interview', (c) => {

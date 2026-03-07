@@ -1,16 +1,24 @@
-Start the app. Opencode serve is running in another process if needed. For each request below check using agent-browser if you did an EXCELLENT work.
+Start the app and fix if any problems when starting. Opencode serve is running in another process if needed. For each request below check using agent-browser if you did an EXCELLENT work.
 
 
+1. understand Selecting best questions status (and any equivalent statuses in prd and beads) and compare them to how i first architeted them in architecture.md.
 
-1. when i try to create a new project and select a folder that is really git initialised i get this error: "Browser selected "LoopTroop" but cannot expose the full path. Paste the absolute path manually." While pasting manualy the path works, i do not want to do this. browse should work, fix it to work for linux, wsl and macos.
-2. I WANT THE WHOLE LOG IN LOG VIEW. use ref mcp and see how to implement the whole log from opencode. Persist log, save it per status.
-3. Implement Interview Q&A batch system, read architecture.md spec how the flow should work. 
+
+3. understnad Interview Q&A batch system, then read architecture.md spec and tell me how they compare, mostlly architecture.md should have been source of truth but htings changed since the file was created. 
+
 4. app is stuck in coverage check (interview), verify in architecture.md what it should really do in each coverage check statuses. Also coverage check status should be done with only winning ai council member, other ai models should not be present as exaplined in architecture.md. In coverage check you should see as artifacts: one - the questions and answers, two - at the very end of coverage check, the whole interview and answers with any followup questions and answers (artifacts should be shown in a human friendly format in UI).
-5. i am mostlly sure, as log does not work and i can't check, that correct context is not passed to ai models. check again architecture.md and see what context should opencode give to models. i think codebase map is not implemented correctlly or not implemented at all.
-6. voting on best drafts phase passes too quickly, i think it is not implemented correctlly, check again arhictecture.md for the required flow and prompt to be sent.
-7. check all the app and see if there are any more placeholders and if there are, implement the logic correctlly as per architecture.md.
-8. in every approving status (interview, specs, blueprint) tthere is an extra loading artifact .. that appears and it should be removed
 
+
+6. voting on best drafts phase passes too quickly, i think it is not implemented correctlly, check again arhictecture.md for the required flow and prompt to be sent.
+
+
+7. Preparing Interview, Refining Specs and Finalizing Plan, where winning model should implement additions from loosing drafts is mostly surelly not working. check architecture.md how it should be implemented and what prompt to be passed to ai models.
+
+8 in all approving statuses(interview, ped, beads), as per architecture.md, there should be a disclaimer that editing some artifacts will restart phases above. but this should not be shown when phase above hasnt started yet. eg, when editing artifacts in approving interview you get this disclaimer: Cascading Edit Warning
+Editing Interview Results will restart the PRD and Beads phases. All previous PRD and Beads data will be lost.
+> but this should not happen if prd phases has not even started.
+
+9. when i click configuration it takes a couple of houndreds of miliseconds until data is filled, like username, icon and description or models. but i did some changes, becuse in the past it worked ok. what can you change?
 
 
 

@@ -23,6 +23,14 @@ interface FolderPickerProps {
     initialPath?: string
 }
 
+interface GitCheckResponse {
+    isGit: boolean
+    status: 'none' | 'checking' | 'valid' | 'invalid'
+    message?: string
+    scope?: 'root' | 'subfolder'
+    repoRoot?: string
+}
+
 type GitStatus = 'none' | 'checking' | 'valid' | 'invalid'
 
 export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPickerProps) {
@@ -43,7 +51,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
         gitCheckRef.current = setTimeout(async () => {
             try {
                 const res = await fetch(`/api/projects/check-git?path=${encodeURIComponent(path)}`)
-                const d = await res.json()
+                const d = await res.json() as GitCheckResponse
                 setGitStatus(d.isGit ? 'valid' : 'invalid')
                 setGitMessage(String(d.message ?? ''))
             } catch {

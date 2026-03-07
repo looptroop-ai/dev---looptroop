@@ -1,6 +1,6 @@
-export type LogEventType = 'state_change' | 'model_output' | 'test_result' | 'error' | 'bead_complete' | 'info'
+export type LogEventType = 'state_change' | 'model_output' | 'test_result' | 'error' | 'bead_complete' | 'info' | 'debug'
 
-export type LogSource = 'system' | 'opencode' | 'error' | `model:${string}`
+export type LogSource = 'system' | 'opencode' | 'error' | 'debug' | `model:${string}`
 
 export interface LogEvent {
   timestamp: string

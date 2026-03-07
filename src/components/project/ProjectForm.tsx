@@ -50,6 +50,14 @@ interface ProjectFormProps {
   project?: Project
 }
 
+interface GitCheckResponse {
+  isGit: boolean
+  status: 'none' | 'checking' | 'valid' | 'invalid'
+  message?: string
+  scope?: 'root' | 'subfolder'
+  repoRoot?: string
+}
+
 export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const createProject = useCreateProject()
   const updateProject = useUpdateProject()
@@ -81,7 +89,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     const timer = setTimeout(() => {
       fetch(`/api/projects/check-git?path=${encodeURIComponent(folder)}`)
         .then(r => r.json())
-        .then(data => {
+        .then((data: GitCheckResponse) => {
           setGitStatus(data.isGit ? 'valid' : 'invalid')
           setGitMessage(String(data.message ?? ''))
         })

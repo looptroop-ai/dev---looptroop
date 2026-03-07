@@ -64,6 +64,7 @@ export function initializeDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ticket_id INTEGER NOT NULL REFERENCES tickets(id),
       phase TEXT NOT NULL,
+      artifact_type TEXT,
       content TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -83,6 +84,15 @@ export function initializeDatabase() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS ticket_status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+      previous_status TEXT,
+      new_status TEXT NOT NULL,
+      reason TEXT,
+      changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
 
   // Migrate: add locked model columns if missing
@@ -91,6 +101,9 @@ export function initializeDatabase() {
   } catch { /* column already exists */ }
   try {
     sqlite.exec(`ALTER TABLE tickets ADD COLUMN locked_council_members TEXT`)
+  } catch { /* column already exists */ }
+  try {
+    sqlite.exec(`ALTER TABLE phase_artifacts ADD COLUMN artifact_type TEXT`)
   } catch { /* column already exists */ }
 
   // Migrate: backfill started_at for non-DRAFT tickets that are missing it

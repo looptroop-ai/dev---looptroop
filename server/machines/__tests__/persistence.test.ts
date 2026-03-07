@@ -184,6 +184,31 @@ describe('persistence', () => {
 
       const dbTicket = db.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
       expect(dbTicket!.status).toBe('BLOCKED_ERROR')
+      expect(dbTicket!.errorMessage).toBe('test error')
+    })
+
+    it('should clear persisted error message after retry', () => {
+      const ticket = insertTicket()
+      createTicketActor(ticket.id, {
+        ticketId: String(ticket.id),
+        projectId,
+        externalId: ticket.externalId,
+        title: ticket.title,
+      })
+
+      sendTicketEvent(ticket.id, { type: 'START' })
+      sendTicketEvent(ticket.id, { type: 'QUESTIONS_READY', result: {} })
+      sendTicketEvent(ticket.id, { type: 'ERROR', message: 'retryable failure' })
+
+      let dbTicket = db.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
+      expect(dbTicket!.status).toBe('BLOCKED_ERROR')
+      expect(dbTicket!.errorMessage).toBe('retryable failure')
+
+      sendTicketEvent(ticket.id, { type: 'RETRY' })
+
+      dbTicket = db.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
+      expect(dbTicket!.status).toBe('COUNCIL_VOTING_INTERVIEW')
+      expect(dbTicket!.errorMessage).toBeNull()
     })
 
     it('should throw for non-existent actor', () => {

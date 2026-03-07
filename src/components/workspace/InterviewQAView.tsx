@@ -1,27 +1,22 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
-  useInterviewQuestions,
+  useInterviewBatch,
+  useSubmitBatch,
   useSubmitAnswers,
   useSkipInterview,
-  useTicketUIState,
   useSaveTicketUIState,
+  useTicketUIState,
 } from '@/hooks/useTickets'
-import type { Ticket, InterviewQuestion } from '@/hooks/useTickets'
+import type { Ticket, BatchQuestion, BatchData } from '@/hooks/useTickets'
 
 interface InterviewQAViewProps {
   ticket: Ticket
 }
 
-const CATEGORY_ORDER = ['Foundation', 'Structure', 'Assembly']
-
-function categorySort(a: string, b: string) {
-  const ai = CATEGORY_ORDER.findIndex(c => a.toLowerCase().includes(c.toLowerCase()))
-  const bi = CATEGORY_ORDER.findIndex(c => b.toLowerCase().includes(c.toLowerCase()))
-  return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
-}
+type ViewState = 'loading' | 'batch' | 'processing' | 'complete'
 
 function priorityBadgeVariant(priority: string): 'destructive' | 'default' | 'secondary' | 'outline' {
   switch (priority) {
@@ -33,396 +28,300 @@ function priorityBadgeVariant(priority: string): 'destructive' | 'default' | 'se
 }
 
 export function InterviewQAView({ ticket }: InterviewQAViewProps) {
-  const { data: interviewData, isLoading } = useInterviewQuestions(ticket.id)
-  const { mutate: submitAnswers, isPending: isSubmitting } = useSubmitAnswers()
+  const { data: batchResponse, isLoading: isBatchLoading } = useInterviewBatch(ticket.id)
+  const { mutateAsync: submitBatchMutation, isPending: isSubmitting } = useSubmitBatch()
+  const { mutate: submitAllAnswers, isPending: isSubmittingAll } = useSubmitAnswers()
   const { mutate: skipInterview, isPending: isSkipping } = useSkipInterview()
   const { mutate: saveUiState } = useSaveTicketUIState()
   const { data: persistedUiState } = useTicketUIState<{
     answers?: Record<string, string>
-    currentIndex?: number
-    submittedIds?: string[]
+    allAnswers?: Record<string, string>
   }>(ticket.id, 'interview_qa', true)
 
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set())
-  const [showPrevious, setShowPrevious] = useState(false)
-  const [returnToIndex, setReturnToIndex] = useState<number | null>(null)
-  const currentRef = useRef<HTMLDivElement>(null)
+  const [viewState, setViewState] = useState<ViewState>('loading')
+  const [currentBatch, setCurrentBatch] = useState<BatchData | null>(null)
+  const [batchAnswers, setBatchAnswers] = useState<Record<string, string>>({})
+  const [allAnswers, setAllAnswers] = useState<Record<string, string>>({})
+  const [showHistory, setShowHistory] = useState(false)
+  const [sseFirstBatch, setSseFirstBatch] = useState<BatchData | null>(null)
+  const lastSavedRef = useRef('')
   const hydratedRef = useRef(false)
-  const lastSavedSnapshotRef = useRef('')
 
-  const questions: InterviewQuestion[] = interviewData?.questions ?? []
-  const totalQuestions = questions.length
-
-  const submittedIdList = useMemo(
-    () => Array.from(submittedIds).filter(Boolean).sort(),
-    [submittedIds],
-  )
-
+  // Hydrate from persisted state
   useEffect(() => {
-    hydratedRef.current = false
-    lastSavedSnapshotRef.current = ''
+    if (hydratedRef.current) return
+    const saved = persistedUiState?.data
+    if (saved?.allAnswers && typeof saved.allAnswers === 'object') {
+      setAllAnswers(saved.allAnswers)
+    }
+    hydratedRef.current = true
+  }, [persistedUiState])
+
+  // Listen for SSE interview_batch events
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'interview_batch' && String(data.ticketId) === String(ticket.id)) {
+          setSseFirstBatch(data.batch)
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Listen on the EventSource if available
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
   }, [ticket.id])
 
+  // Resolve current batch from SSE push or HTTP fetch
   useEffect(() => {
-    if (isLoading || hydratedRef.current) return
-
-    const source = persistedUiState?.data
-    const persistedAnswers = source?.answers
-    const persistedIndex = source?.currentIndex
-    const persistedSubmittedIds = source?.submittedIds
-
-    const nextAnswers = persistedAnswers && typeof persistedAnswers === 'object'
-      ? Object.fromEntries(
-        Object.entries(persistedAnswers).filter(([, value]) => typeof value === 'string'),
-      )
-      : {}
-
-    const maxIndex = Math.max(totalQuestions - 1, 0)
-    const nextIndexRaw = typeof persistedIndex === 'number' ? persistedIndex : 0
-    const nextIndex = Math.min(Math.max(nextIndexRaw, 0), maxIndex)
-    const nextSubmitted = Array.isArray(persistedSubmittedIds)
-      ? persistedSubmittedIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
-      : []
-
-    setAnswers(nextAnswers)
-    setCurrentIndex(nextIndex)
-    setSubmittedIds(new Set(nextSubmitted))
-    lastSavedSnapshotRef.current = JSON.stringify({
-      answers: nextAnswers,
-      currentIndex: nextIndex,
-      submittedIds: [...new Set(nextSubmitted)].sort(),
-    })
-    hydratedRef.current = true
-  }, [isLoading, persistedUiState, totalQuestions])
-
-  // Determine which questions are answered (non-empty answer text)
-  const answeredIds = new Set(
-    Object.entries(answers).filter(([, v]) => v.trim() !== '').map(([k]) => k)
-  )
-  // Skipped = explicitly visited (key exists in answers) but answer is empty
-  const skippedIds = new Set(
-    Object.entries(answers).filter(([, v]) => v.trim() === '').map(([k]) => k)
-  )
-
-  // Group questions by category
-  const categories = [...new Set(questions.map(q => q.category))].sort(categorySort)
-  const questionsByCategory = categories.reduce<Record<string, InterviewQuestion[]>>((acc, cat) => {
-    acc[cat] = questions.filter(q => q.category === cat)
-    return acc
-  }, {})
-
-  // Current question
-  const currentQuestion = questions[currentIndex] ?? null
-  const currentPriority = typeof currentQuestion?.priority === 'string'
-    ? currentQuestion.priority.trim()
-    : ''
-  const answeredCount = answeredIds.size + skippedIds.size
-  const isEditingPrevious = currentQuestion ? submittedIds.has(currentQuestion.id) : false
-
-  useEffect(() => {
-    if (!hydratedRef.current || isLoading) return
-
-    const maxIndex = Math.max(totalQuestions - 1, 0)
-    const snapshot = {
-      answers,
-      currentIndex: Math.min(Math.max(currentIndex, 0), maxIndex),
-      submittedIds: submittedIdList,
+    if (sseFirstBatch) {
+      setCurrentBatch(sseFirstBatch)
+      setBatchAnswers({})
+      setViewState('batch')
+      setSseFirstBatch(null)
+      return
     }
-    const serialized = JSON.stringify(snapshot)
+    if (isBatchLoading) {
+      setViewState('loading')
+      return
+    }
+    if (batchResponse?.batch && !currentBatch) {
+      setCurrentBatch(batchResponse.batch)
+      setBatchAnswers({})
+      setViewState(batchResponse.batch.isComplete ? 'complete' : 'batch')
+    }
+  }, [sseFirstBatch, isBatchLoading, batchResponse, currentBatch])
 
-    if (serialized === lastSavedSnapshotRef.current) return
-
+  // Debounced UI state save
+  useEffect(() => {
+    const snapshot = JSON.stringify({ allAnswers })
+    if (snapshot === lastSavedRef.current) return
     const timer = window.setTimeout(() => {
-      lastSavedSnapshotRef.current = serialized
-      saveUiState({
-        ticketId: ticket.id,
-        scope: 'interview_qa',
-        data: snapshot,
-      })
-    }, 350)
-
+      lastSavedRef.current = snapshot
+      saveUiState({ ticketId: ticket.id, scope: 'interview_qa', data: { allAnswers } })
+    }, 500)
     return () => window.clearTimeout(timer)
-  }, [
-    answers,
-    currentIndex,
-    submittedIdList,
-    isLoading,
-    totalQuestions,
-    saveUiState,
-    ticket.id,
-  ])
+  }, [allAnswers, saveUiState, ticket.id])
 
-  // Auto-scroll to current question
-  useEffect(() => {
-    currentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [currentIndex])
+  const handleBatchAnswer = useCallback((questionId: string, value: string) => {
+    setBatchAnswers(prev => ({ ...prev, [questionId]: value }))
+  }, [])
 
-  const handleAnswer = (questionId: string, value: string) => {
-    setAnswers(prev => ({ ...prev, [questionId]: value }))
-  }
+  const handleSubmitBatch = useCallback(async () => {
+    if (!currentBatch) return
+    setViewState('processing')
 
-  const handleSkipQuestion = () => {
-    if (!currentQuestion) return
-    setAnswers(prev => ({ ...prev, [currentQuestion.id]: '' }))
-    setSubmittedIds(prev => new Set(prev).add(currentQuestion.id))
-    setReturnToIndex(null)
-    if (currentIndex < totalQuestions - 1) {
-      setCurrentIndex(i => i + 1)
+    // Merge batch answers into all answers
+    const merged = { ...allAnswers, ...batchAnswers }
+    setAllAnswers(merged)
+
+    try {
+      const result = await submitBatchMutation({
+        ticketId: ticket.id,
+        answers: batchAnswers,
+      })
+
+      if (result.isComplete) {
+        setCurrentBatch(null)
+        setViewState('complete')
+      } else {
+        setCurrentBatch(result)
+        setBatchAnswers({})
+        setViewState('batch')
+      }
+    } catch (err) {
+      console.error('Failed to submit batch:', err)
+      setViewState('batch')
     }
-  }
+  }, [currentBatch, batchAnswers, allAnswers, submitBatchMutation, ticket.id])
 
-  const handleAnswerAndNext = () => {
-    if (!currentQuestion) return
-    setSubmittedIds(prev => new Set(prev).add(currentQuestion.id))
-    setReturnToIndex(null)
-    if (currentIndex < totalQuestions - 1) {
-      setCurrentIndex(i => i + 1)
-    }
-  }
+  const handleSkipAll = useCallback(() => {
+    skipInterview({ ticketId: ticket.id, answers: allAnswers })
+  }, [skipInterview, ticket.id, allAnswers])
 
-  const handlePrev = () => {
-    setReturnToIndex(null)
-    if (currentIndex > 0) {
-      setCurrentIndex(i => i - 1)
-    }
-  }
+  const handleSubmitAll = useCallback(() => {
+    submitAllAnswers({ ticketId: ticket.id, answers: allAnswers })
+  }, [submitAllAnswers, ticket.id, allAnswers])
 
-  const handleSubmitAll = () => {
-    submitAnswers({ ticketId: ticket.id, answers })
-  }
+  const isBusy = isSubmitting || isSubmittingAll || isSkipping
 
-  const handleSkipAll = () => {
-    skipInterview({ ticketId: ticket.id, answers })
-  }
-
-  const isBusy = isSubmitting || isSkipping
-
-  if (isLoading) {
+  // ─── Loading State ───
+  if (viewState === 'loading') {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-        Loading interview questions…
-      </div>
-    )
-  }
-
-  if (totalQuestions === 0) {
-    return (
-      <div className="h-full flex flex-col overflow-hidden">
-        <div className="p-4 space-y-3 shrink-0">
-          <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm">Interview Q&A</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-3">
-              <p className="text-xs text-muted-foreground">
-                Interview questions will be generated by the council and presented here.
-              </p>
-            </CardContent>
-          </Card>
+        <div className="text-center space-y-2">
+          <div className="animate-pulse">Starting AI interview session…</div>
+          <p className="text-[10px]">The winning AI model is preparing questions.</p>
         </div>
       </div>
     )
   }
+
+  // ─── Complete State ───
+  if (viewState === 'complete') {
+    return (
+      <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+        <Card className="max-w-sm">
+          <CardContent className="py-6 text-center space-y-2">
+            <p className="text-sm font-medium text-foreground">Interview Complete</p>
+            <p className="text-xs">The AI has finalized the interview results. Moving to coverage verification…</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // ─── Processing State ───
+  if (viewState === 'processing') {
+    return (
+      <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+        <div className="text-center space-y-2">
+          <div className="animate-pulse">AI is analyzing your answers…</div>
+          <p className="text-[10px]">Preparing the next batch of questions.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Batch Display State ───
+  const questions: BatchQuestion[] = currentBatch?.questions ?? []
+  const progress = currentBatch?.progress ?? { current: 0, total: 0 }
+  const aiCommentary = currentBatch?.aiCommentary ?? ''
+  const isFinalFreeForm = currentBatch?.isFinalFreeForm ?? false
+  const batchNum = currentBatch?.batchNumber ?? 0
+  const allBatchAnswersFilled = questions.every(q => batchAnswers[q.id]?.trim())
+
+  const historyEntries = Object.entries(allAnswers)
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Previous answers — collapsible */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-        {submittedIds.size > 0 && (
+        {/* Previous Q&A history — collapsible */}
+        {historyEntries.length > 0 && (
           <div>
             <button
-              onClick={() => setShowPrevious(p => !p)}
+              onClick={() => setShowHistory(h => !h)}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mb-2"
             >
-              {showPrevious ? '▼' : '▶'} Previous Answers ({submittedIds.size})
+              {showHistory ? '▼' : '▶'} Previous Answers ({historyEntries.length})
             </button>
-            {showPrevious && categories.map(cat => {
-              const catQuestions = questionsByCategory[cat] ?? []
-              const submittedInCat = catQuestions.filter(q => submittedIds.has(q.id))
-              if (submittedInCat.length === 0) return null
-              return (
-                <div key={cat} className="space-y-1 mb-2">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{cat}</div>
-                  {submittedInCat.map(q => {
-                    const qIndex = questions.findIndex(qq => qq.id === q.id)
-                    return (
-                      <button
-                        key={q.id}
-                        type="button"
-                        onClick={() => {
-                          if (qIndex !== -1) {
-                            setReturnToIndex(currentIndex)
-                            setCurrentIndex(qIndex)
-                            setShowPrevious(false)
-                          }
-                        }}
-                        className="w-full text-left rounded border border-border/50 p-2 bg-muted/30 text-xs hover:bg-accent/50 hover:border-primary/30 transition-colors cursor-pointer group"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className="font-medium text-muted-foreground shrink-0">Q:</span>
-                          <span className="text-muted-foreground flex-1">{q.question}</span>
-                          <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0">Edit ✎</span>
-                        </div>
-                        <div className="flex items-start gap-2 mt-1">
-                          <span className="font-medium text-green-600 shrink-0">A:</span>
-                          <span>{answers[q.id]?.trim() || <span className="italic text-muted-foreground">Skipped</span>}</span>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-              )
-            })}
+            {showHistory && (
+              <div className="space-y-1 mb-3 max-h-[200px] overflow-y-auto rounded border border-border/50 p-2 bg-muted/20">
+                {historyEntries.map(([id, answer]) => (
+                  <div key={id} className="text-xs p-1 border-b border-border/30 last:border-0">
+                    <span className="font-medium text-muted-foreground">{id}:</span>{' '}
+                    <span>{answer.trim() || <span className="italic text-muted-foreground">Skipped</span>}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Current question card */}
-        {currentQuestion && (
-          <div ref={currentRef}>
-            <Card>
-              <CardHeader className="py-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">
-                    Interview Q&A
-                    {isEditingPrevious && (
-                      <span className="ml-2 text-[10px] font-normal text-amber-500">— Editing</span>
-                    )}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      Q {currentIndex + 1}/{totalQuestions}
-                    </Badge>
-                    <Badge variant="secondary" className="text-xs">
-                      {answeredCount} answered
-                    </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3 pb-3">
-                <div className="rounded-lg border border-border p-3 bg-accent/30">
-                  <div className="flex items-center gap-2 mb-1">
+        {/* AI Commentary */}
+        {aiCommentary && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/30 p-3">
+            <p className="text-xs text-blue-700 dark:text-blue-300">{aiCommentary}</p>
+          </div>
+        )}
+
+        {/* Current batch card */}
+        <Card>
+          <CardHeader className="py-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">
+                {isFinalFreeForm ? 'Final Question' : `Interview Q&A — Batch ${batchNum}`}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {progress.total > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    Q {progress.current}/{progress.total}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 pb-3">
+            {questions.map((q) => (
+              <div key={q.id} className="rounded-lg border border-border p-3 bg-accent/30 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground font-mono">{q.id}</span>
+                  {q.phase && (
                     <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      {currentQuestion.category}
+                      {q.phase}
                     </span>
-                    {currentPriority && (
-                      <Badge variant={priorityBadgeVariant(currentPriority)} className="text-[10px] h-4">
-                        {currentPriority}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs font-medium">{currentQuestion.question}</p>
-                  {currentQuestion.rationale && (
-                    <p className="text-[10px] text-muted-foreground mt-1 italic">{currentQuestion.rationale}</p>
+                  )}
+                  {q.priority && (
+                    <Badge variant={priorityBadgeVariant(q.priority)} className="text-[10px] h-4">
+                      {q.priority}
+                    </Badge>
                   )}
                 </div>
-
+                <p className="text-xs font-medium">{q.question}</p>
+                {q.rationale && (
+                  <p className="text-[10px] text-muted-foreground italic">{q.rationale}</p>
+                )}
                 <textarea
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs min-h-[60px] focus:outline-none focus:ring-1 focus:ring-ring"
                   placeholder="Type your answer here…"
-                  value={answers[currentQuestion.id] ?? ''}
-                  onChange={e => handleAnswer(currentQuestion.id, e.target.value)}
+                  value={batchAnswers[q.id] ?? ''}
+                  onChange={e => handleBatchAnswer(q.id, e.target.value)}
                   disabled={isBusy}
                 />
+              </div>
+            ))}
 
-                <div className="flex gap-2 justify-between">
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePrev}
-                      disabled={currentIndex === 0 || isBusy}
-                      className="h-7 text-xs"
-                    >
-                      ← Prev
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAnswerAndNext}
-                      disabled={currentIndex >= totalQuestions - 1 || isBusy}
-                      className="h-7 text-xs"
-                    >
-                      Next →
-                    </Button>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSkipQuestion}
-                      disabled={isBusy}
-                      className="h-7 text-xs"
-                    >
-                      Skip
-                    </Button>
-                    {currentIndex === totalQuestions - 1 ? (
-                      <Button
-                        size="sm"
-                        onClick={handleSubmitAll}
-                        disabled={isBusy}
-                        className="h-7 text-xs"
-                      >
-                        {isSubmitting ? 'Submitting…' : 'Submit All'}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        onClick={handleAnswerAndNext}
-                        disabled={!answers[currentQuestion.id]?.trim() || isBusy}
-                        className="h-7 text-xs"
-                      >
-                        Answer & Next
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {isEditingPrevious && returnToIndex !== null && (
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => {
-                        setCurrentIndex(returnToIndex)
-                        setReturnToIndex(null)
-                      }}
-                      disabled={isBusy}
-                      className="h-7 text-xs"
-                    >
-                      ✓ Save & Return
-                    </Button>
-                  </div>
-                )}
-
-                <div className="flex gap-2 justify-end border-t border-border pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSkipAll}
-                    disabled={isBusy}
-                    className="h-7 text-xs text-muted-foreground"
-                  >
-                    {isSkipping ? 'Skipping…' : 'Skip All Questions'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-2 justify-between pt-1">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSkipAll}
+                  disabled={isBusy}
+                  className="h-7 text-xs text-muted-foreground"
+                >
+                  {isSkipping ? 'Skipping…' : 'Skip All'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSubmitAll}
+                  disabled={isBusy}
+                  className="h-7 text-xs text-muted-foreground"
+                >
+                  {isSubmittingAll ? 'Submitting…' : 'Submit All Remaining'}
+                </Button>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleSubmitBatch}
+                disabled={isBusy || questions.length === 0}
+                className="h-7 text-xs"
+              >
+                {isSubmitting
+                  ? 'Submitting…'
+                  : allBatchAnswersFilled
+                    ? 'Submit Answers'
+                    : 'Submit (with skips)'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Progress bar */}
-      <div className="shrink-0 px-4 pb-1">
-        <div className="h-1 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full bg-primary transition-all duration-300"
-            style={{ width: `${totalQuestions > 0 ? ((currentIndex + 1) / totalQuestions) * 100 : 0}%` }}
-          />
+      {progress.total > 0 && (
+        <div className="shrink-0 px-4 pb-1">
+          <div className="h-1 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all duration-300"
+              style={{ width: `${(progress.current / progress.total) * 100}%` }}
+            />
+          </div>
         </div>
-      </div>
-
+      )}
     </div>
   )
 }

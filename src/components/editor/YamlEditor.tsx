@@ -37,7 +37,7 @@ export function YamlEditor({ value, onChange, readOnly = false, className }: Yam
         }),
         EditorState.readOnly.of(readOnly),
         EditorView.theme({
-          '&': { fontSize: '12px', maxHeight: '60vh' },
+          '&': { fontSize: '12px', height: '100%' },
           '.cm-scroller': { overflow: 'auto' },
           '.cm-content': { fontFamily: 'ui-monospace, monospace' },
         }),

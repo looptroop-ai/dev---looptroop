@@ -1,6 +1,6 @@
 export interface InterviewQuestion {
   id: string
-  category: string
+  phase: string
   question: string
   priority: 'critical' | 'high' | 'medium' | 'low'
   rationale: string

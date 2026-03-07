@@ -18,6 +18,16 @@ function resolveTicketFilePath(externalId: string, file: ValidFile): string {
   return path.join('.looptroop', 'worktrees', externalId, '.ticket', `${file}.yaml`)
 }
 
+function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== 'object') return null
+  const record = entry as Record<string, unknown>
+  const phase = typeof record.phase === 'string'
+    ? record.phase
+    : (typeof record.status === 'string' ? record.status : 'unknown')
+  const status = typeof record.status === 'string' ? record.status : phase
+  return { ...record, phase, status }
+}
+
 filesRouter.get('/files/:ticketId/logs', (c) => {
   const ticketId = Number(c.req.param('ticketId'))
   if (isNaN(ticketId)) return c.json({ error: 'Invalid ticket ID' }, 400)
@@ -29,17 +39,36 @@ filesRouter.get('/files/:ticketId/logs', (c) => {
   if (!fs.existsSync(logPath)) return c.json([])
 
   const raw = fs.readFileSync(logPath, 'utf-8')
-  const entries: unknown[] = []
+  const entries: Record<string, unknown>[] = []
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue
-    try { entries.push(JSON.parse(line)) } catch { /* skip malformed lines */ }
+    try {
+      const normalized = normalizeLogEntry(JSON.parse(line))
+      if (normalized) entries.push(normalized)
+    } catch { /* skip malformed lines */ }
+  }
+
+  // Compatibility fallback: older tickets may not have status-scoped entries
+  // for their current status. Inject one app SYS line so the log window is never empty.
+  const hasCurrentStatusEntry = entries.some(entry => entry.status === ticket.status)
+  if (!hasCurrentStatusEntry) {
+    const nowIso = new Date().toISOString()
+    entries.push({
+      timestamp: ticket.updatedAt ?? nowIso,
+      type: 'info',
+      phase: ticket.status,
+      status: ticket.status,
+      source: 'system',
+      message: `[APP] Status ${ticket.status} is active. Older runs may not have generated status-scoped logs yet.`,
+      data: { synthetic: true },
+    })
   }
 
   const statusFilter = c.req.query('status')
   const phaseFilter = c.req.query('phase')
-  const filtered = entries.filter((e: any) => {
-    if (statusFilter && e.status !== statusFilter) return false
-    if (phaseFilter && e.phase !== phaseFilter) return false
+  const filtered = entries.filter((entry) => {
+    if (statusFilter && entry.status !== statusFilter) return false
+    if (phaseFilter && entry.phase !== phaseFilter) return false
     return true
   })
 

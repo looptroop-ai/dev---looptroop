@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
+import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLogs, type LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { ModelBadge } from '@/components/shared/ModelBadge'
 import type { Ticket } from '@/hooks/useTickets'
 
 interface PhaseLogPanelProps {
@@ -11,24 +13,29 @@ interface PhaseLogPanelProps {
   ticket?: Ticket
 }
 
-type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR'
+type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 
-const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR']
+const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 
 function getEntryColor(entry: LogEntry): string {
+  if (entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
   if (entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
   if (entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
-  return 'text-gray-500'
+  return 'text-foreground'
 }
 
-function getModelLabel(modelId: string): string {
-  return modelId.split('/').pop() ?? modelId
-}
+// Deleted getModelLabel (using shared getModelDisplayName)
 
-function formatTimestamp(index: number): string {
-  const base = new Date()
-  base.setSeconds(base.getSeconds() - (index * 2))
-  return base.toTimeString().slice(0, 8)
+function formatTimestamp(timestamp?: string): string {
+  if (!timestamp) return '--:--:--'
+  const parsed = new Date(timestamp)
+  if (Number.isNaN(parsed.getTime())) return '--:--:--'
+  return parsed.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
 }
 
 function renderLogLine(entry: LogEntry) {
@@ -45,6 +52,72 @@ function renderLogLine(entry: LogEntry) {
     )
   }
   return <>{entry.line}</>
+}
+
+function LogEntryRow({ entry, index }: { entry: LogEntry; index: number }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [isTruncatable, setIsTruncatable] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+
+    const checkTruncatable = () => {
+      if (entry.line.split('\n').length > 3) {
+        setIsTruncatable(true)
+        return
+      }
+      if (!isExpanded) {
+        setIsTruncatable(el.scrollHeight > el.clientHeight)
+      }
+    }
+
+    // Check on mount
+    checkTruncatable()
+
+    // Re-check when resized (e.g. window squeeze causing more wrapping)
+    const observer = new ResizeObserver(checkTruncatable)
+    observer.observe(el)
+
+    return () => observer.disconnect()
+  }, [entry.line, isExpanded])
+
+  return (
+    <div className="py-0.5 border-b border-border/30 last:border-0 flex relative group">
+      <div className="flex flex-col shrink-0 w-16 mr-2 pt-0.5 items-start">
+        <span className="text-muted-foreground/40 select-none pb-1">{formatTimestamp(entry.timestamp)}</span>
+        {isTruncatable && (
+          <div className="sticky top-1">
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-[10px] bg-background/90 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded border border-border/50 shadow-sm transition-colors cursor-pointer opacity-80 hover:opacity-100"
+            >
+              {isExpanded ? 'Less' : 'More'}
+            </button>
+          </div>
+        )}
+      </div>
+      <span className="text-muted-foreground/60 mr-2 select-none shrink-0 pt-0.5">{String(index + 1).padStart(3, ' ')}</span>
+      <div className="flex-1 min-w-0 pr-2">
+        <div className="relative">
+          <div
+            ref={contentRef}
+            className={cn(
+              getEntryColor(entry),
+              'whitespace-pre-wrap break-words max-w-full',
+              !isExpanded && 'line-clamp-3'
+            )}
+          >
+            {renderLogLine(entry)}
+          </div>
+          {isTruncatable && !isExpanded && (
+            <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-muted to-transparent pointer-events-none" />
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
@@ -86,15 +159,26 @@ const MULTI_MODEL_PHASES = new Set([
 ])
 
 function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
+  const isDebug = (entry: LogEntry) => entry.source === 'debug' || entry.line.includes('[DEBUG]')
+  const isError = (entry: LogEntry) => entry.source === 'error' || entry.line.includes('[ERROR]')
+  const isAi = (entry: LogEntry) => entry.source === 'opencode' || entry.source.startsWith('model:')
+  const isSystem = (entry: LogEntry) =>
+    entry.source === 'system' ||
+    entry.line.includes('[SYS]') ||
+    entry.line.includes('[TEST]') ||
+    entry.line.includes('[BEAD]')
+
   switch (tab) {
     case 'ALL':
-      return entries
+      return entries.filter(e => !isDebug(e))
     case 'SYS':
-      return entries.filter(e => e.source === 'system')
+      return entries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':
-      return entries.filter(e => e.source === 'opencode' || e.source.startsWith('model:'))
+      return entries.filter(isAi)
     case 'ERROR':
-      return entries.filter(e => e.source === 'error' || e.line.includes('[ERROR]'))
+      return entries.filter(isError)
+    case 'DEBUG':
+      return entries.filter(isDebug)
     default:
       // Per-model tab: tab value is a modelId, filter by exact model source
       return entries.filter(e => e.source === `model:${tab}`)
@@ -103,9 +187,12 @@ function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
 
 export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelProps) {
   const logCtx = useLogs()
-  const logs: LogEntry[] = propLogs ?? logCtx?.getLogsForPhase(phase) ?? []
-  const description = PHASE_LOG_DESCRIPTIONS[phase] ?? 'Processing…'
+  const phaseLogs: LogEntry[] = useMemo(
+    () => propLogs ?? logCtx?.getLogsForPhase(phase) ?? [],
+    [propLogs, logCtx, phase],
+  )
   const [activeTab, setActiveTab] = useState<string>('ALL')
+  const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
 
   const configuredModelIds = useMemo(() => {
@@ -121,13 +208,13 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   // Detect model IDs from structured source field
   const detectedModelIds = useMemo(() => {
     const ids = new Set<string>()
-    for (const entry of logs) {
+    for (const entry of phaseLogs) {
       if (entry.source.startsWith('model:')) {
         ids.add(entry.source.slice('model:'.length))
       }
     }
     return Array.from(ids)
-  }, [logs])
+  }, [phaseLogs])
 
   const modelTabs = useMemo(() => {
     const hasMultiModelOutput = detectedModelIds.length > 1
@@ -149,14 +236,14 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   }, [isKnownMultiModelPhase, configuredModelIds, detectedModelIds])
 
   const showModelTabs = modelTabs.length > 1
-  const availableTabs: string[] = showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]
-
-  useEffect(() => {
-    if (!availableTabs.includes(activeTab)) setActiveTab('ALL')
-  }, [activeTab, availableTabs])
-
-  const filteredLogs = filterEntries(logs, activeTab)
+  const availableTabs: string[] = useMemo(
+    () => (showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]),
+    [showModelTabs, modelTabs],
+  )
+  const effectiveTab = availableTabs.includes(activeTab) ? activeTab : 'ALL'
+  const filteredLogs = filterEntries(phaseLogs, effectiveTab)
   const hasLogs = filteredLogs.length > 0
+  const description = PHASE_LOG_DESCRIPTIONS[phase] ?? 'Processing…'
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -166,35 +253,69 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         </span>
       </div>
       <div className="text-xs text-muted-foreground px-1 mb-1">{description}</div>
-      <div className="flex gap-1 px-1 py-1">
-        {availableTabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              'px-2 py-0.5 rounded text-xs font-medium',
-              activeTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
-            )}
-            title={modelTabs.includes(tab) ? tab : undefined}
-          >
-            {modelTabs.includes(tab) ? getModelLabel(tab) : tab}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted-foreground">{filteredLogs.length} entries</span>
+      <div className="flex gap-1 px-1 py-1 items-center flex-wrap">
+        {FIXED_TABS.map(tab => {
+          if (tab === 'AI' && showModelTabs) {
+            const isActive = effectiveTab === tab
+            return (
+              <Fragment key={tab}>
+                <div
+                  className={cn(
+                    'flex items-center rounded text-xs font-medium shrink-0 transition-colors',
+                    isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
+                  )}
+                >
+                  <button
+                    onClick={() => setActiveTab(tab)}
+                    className="pl-2 pr-0.5 py-0.5 hover:text-foreground transition-colors"
+                  >
+                    {tab}
+                  </button>
+                  <button
+                    onClick={() => setModelsCollapsed(!modelsCollapsed)}
+                    className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
+                    title={modelsCollapsed ? 'Show models' : 'Hide models'}
+                  >
+                    {modelsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                {!modelsCollapsed && modelTabs.map(mTab => (
+                  <ModelBadge
+                    key={mTab}
+                    modelId={mTab}
+                    active={effectiveTab === mTab}
+                    onClick={() => setActiveTab(mTab)}
+                    showIcon={false}
+                  />
+                ))}
+              </Fragment>
+            )
+          }
+
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                'px-2 py-0.5 rounded text-xs font-medium shrink-0',
+                effectiveTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {tab}
+            </button>
+          )
+        })}
+        <span className="ml-auto text-xs text-muted-foreground pl-2">{filteredLogs.length} entries</span>
       </div>
       <ScrollArea className="flex-1 min-h-0">
         <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
           {hasLogs ? (
             filteredLogs.map((entry, i) => (
-              <div key={i} className="py-0.5 border-b border-border/30 last:border-0 flex">
-                <span className="text-muted-foreground/40 mr-2 select-none shrink-0 w-16">{formatTimestamp(filteredLogs.length - i)}</span>
-                <span className="text-muted-foreground/60 mr-2 select-none shrink-0">{String(i + 1).padStart(3, ' ')}</span>
-                <span className={getEntryColor(entry)}>{renderLogLine(entry)}</span>
-              </div>
+              <LogEntryRow key={i} entry={entry} index={i} />
             ))
           ) : (
             <span className="text-muted-foreground/50 italic">
-              {logs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}
+              {phaseLogs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}
             </span>
           )}
         </div>

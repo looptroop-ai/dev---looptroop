@@ -80,13 +80,24 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   }
 
   async getSessionMessages(sessionId: string): Promise<Message[]> {
-    try {
-      const res = await fetch(`${this.baseUrl}/session/${sessionId}/message`)
-      if (!res.ok) return []
-      return (await res.json()) as Message[]
-    } catch {
-      return []
+    const endpoints = [
+      `/session/${sessionId}/message?limit=10000`,
+      `/session/${sessionId}/message`,
+      `/sessions/${sessionId}/messages`,
+      `/api/sessions/${sessionId}/messages`,
+    ]
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(`${this.baseUrl}${endpoint}`)
+        if (!res.ok) continue
+        return (await res.json()) as Message[]
+      } catch {
+        // Try next endpoint variant.
+      }
     }
+
+    return []
   }
 
   async abortSession(sessionId: string): Promise<boolean> {
@@ -268,4 +279,3 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
     return { available: true, version: 'mock-1.0.0', models: ['mock-model-1', 'mock-model-2'] }
   }
 }
-

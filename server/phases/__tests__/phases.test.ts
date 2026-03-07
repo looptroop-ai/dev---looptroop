@@ -9,11 +9,11 @@ import type { Bead, BeadSubset } from '../beads/types'
 
 describe('Interview Q&A', () => {
   const questions: InterviewQuestion[] = [
-    { id: 'q1', category: 'scope', question: 'What scope?', priority: 'critical', rationale: 'test' },
-    { id: 'q2', category: 'scope', question: 'What edge cases?', priority: 'high', rationale: 'test' },
-    { id: 'q3', category: 'ux', question: 'What UX?', priority: 'medium', rationale: 'test' },
-    { id: 'q4', category: 'ux', question: 'What flow?', priority: 'low', rationale: 'test' },
-    { id: 'q5', category: 'tech', question: 'What tech?', priority: 'medium', rationale: 'test' },
+    { id: 'q1', phase: 'scope', question: 'What scope?', priority: 'critical', rationale: 'test' },
+    { id: 'q2', phase: 'scope', question: 'What edge cases?', priority: 'high', rationale: 'test' },
+    { id: 'q3', phase: 'ux', question: 'What UX?', priority: 'medium', rationale: 'test' },
+    { id: 'q4', phase: 'ux', question: 'What flow?', priority: 'low', rationale: 'test' },
+    { id: 'q5', phase: 'tech', question: 'What tech?', priority: 'medium', rationale: 'test' },
   ]
 
   it('creates batches of 3', () => {
@@ -42,8 +42,8 @@ describe('Interview Coverage', () => {
   it('passes with all critical questions answered', () => {
     const result: InterviewResult = {
       questions: [
-        { id: 'q1', category: 'scope', question: 'What?', priority: 'critical', rationale: '' },
-        { id: 'q2', category: 'ux', question: 'How?', priority: 'high', rationale: '' },
+        { id: 'q1', phase: 'scope', question: 'What?', priority: 'critical', rationale: '' },
+        { id: 'q2', phase: 'ux', question: 'How?', priority: 'high', rationale: '' },
       ],
       answers: [
         { questionId: 'q1', answer: 'answer', skipped: false },
@@ -60,7 +60,7 @@ describe('Interview Coverage', () => {
   it('fails with unanswered critical question', () => {
     const result: InterviewResult = {
       questions: [
-        { id: 'q1', category: 'scope', question: 'Critical Q', priority: 'critical', rationale: '' },
+        { id: 'q1', phase: 'scope', question: 'Critical Q', priority: 'critical', rationale: '' },
       ],
       answers: [{ questionId: 'q1', answer: '', skipped: true }],
       followUps: [],

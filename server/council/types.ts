@@ -25,6 +25,15 @@ export interface DraftResult {
   duration: number
 }
 
+export interface DraftProgressEvent {
+  memberId: string
+  status: 'session_created' | 'finished'
+  sessionId?: string
+  outcome?: MemberOutcome
+  duration?: number
+  error?: string
+}
+
 export interface VoteScore {
   category: string
   score: number

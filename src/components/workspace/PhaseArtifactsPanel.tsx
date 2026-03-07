@@ -4,6 +4,7 @@ import jsYaml from 'js-yaml'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText, Users, CheckCircle2, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
+import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
 
 interface PhaseArtifactsPanelProps {
   phase: string
@@ -31,17 +32,7 @@ interface DBartifact {
   createdAt: string
 }
 
-function getModelIcon(name: string): string {
-  const n = name.toLowerCase()
-  if (n.includes('claude')) return '🟣'
-  if (n.includes('gpt')) return '🟢'
-  if (n.includes('gemini')) return '🔵'
-  return '⚪'
-}
-
-function getModelDisplayName(id: string): string {
-  return id.split('/').pop() ?? id
-}
+// Local model utils removed in favor of shared ones
 
 function getStatusEmoji(outcome?: string, action?: string): string {
   if (outcome === 'timed_out') return '⏰'
@@ -106,9 +97,10 @@ function parseInterviewQuestions(content: string): { q: string; section?: string
     if (Array.isArray(parsed)) items = parsed
     else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).questions))
       items = (parsed as any).questions
-    if (items.length > 0 && items.some((q: any) => q?.question)) {
+    if (items.length > 0 && items.some((q: any) => q?.question || q?.prompt)) {
       for (const item of items) {
-        if (item?.question) questions.push({ q: item.question as string, section: item.category as string | undefined })
+        const text = (item?.question ?? item?.prompt) as string | undefined
+        if (text) questions.push({ q: text, section: (item.phase ?? item.category) as string | undefined })
       }
       parsedFromYaml = true
     }
@@ -121,7 +113,7 @@ function parseInterviewQuestions(content: string): { q: string; section?: string
       if (trimmed.startsWith('#')) {
         currentSection = trimmed.replace(/^#+\s*/, '')
       } else if (/^\d+[\.\)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
-        const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/,'').replace(/\*\*$/,'')
+        const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
         if (q.length > 5) questions.push({ q, section: currentSection })
       }
     }
@@ -136,7 +128,7 @@ function InterviewDraftView({ content }: { content: string }) {
   if (questions.length === 0) return null
   const grouped = questions.reduce<Record<string, string[]>>((acc, { q, section }) => {
     const key = section || 'Questions'
-    ;(acc[key] ??= []).push(q)
+      ; (acc[key] ??= []).push(q)
     return acc
   }, {})
   return (
@@ -153,8 +145,129 @@ function InterviewDraftView({ content }: { content: string }) {
   )
 }
 
+export function RawContentView({ content }: { content: string }) {
+  const lines = content.split('\n')
+  return (
+    <div className="text-sm space-y-1">
+      {lines.map((line, i) => {
+        if (line.startsWith('# ')) return <h2 key={i} className="text-lg font-bold mt-3 mb-1">{line.slice(2)}</h2>
+        if (line.startsWith('## ')) return <h3 key={i} className="text-base font-semibold mt-2 mb-1">{line.slice(3)}</h3>
+        if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-semibold mt-2">{line.slice(4)}</h4>
+        if (line.startsWith('✅')) return <div key={i} className="flex items-center gap-1 text-green-600"><span>{line}</span></div>
+        if (line.startsWith('⚠️')) return <div key={i} className="flex items-center gap-1 text-yellow-600"><span>{line}</span></div>
+        if (line.startsWith('❌')) return <div key={i} className="flex items-center gap-1 text-red-600"><span>{line}</span></div>
+        if (line.startsWith('|')) return <div key={i} className="font-mono text-xs">{line}</div>
+        if (line.startsWith('- ') || line.startsWith('* ')) return <div key={i} className="ml-4">• {line.slice(2)}</div>
+        if (line.match(/^\d+\./)) return <div key={i} className="ml-4">{line}</div>
+        if (line.startsWith('**') && line.endsWith('**')) return <div key={i} className="font-semibold">{line.replace(/\*\*/g, '')}</div>
+        if (line.trim() === '') return <div key={i} className="h-2" />
+        return <div key={i}>{line}</div>
+      })}
+    </div>
+  )
+}
+
+// Render user interview answers
+export function InterviewAnswersView({ content }: { content: string }) {
+  let parsedContent: any = null
+  try {
+    parsedContent = JSON.parse(content)
+  } catch {
+    try {
+      parsedContent = jsYaml.load(content)
+    } catch {
+      return <RawContentView content={content} />
+    }
+  }
+
+  // Common UI State
+  const viewData: { id: string | number; q: string; answer: string | null; isSkipped: boolean }[] = []
+  const orphanAnswers: Record<string, string> = {}
+
+  // Native interview.yaml parsing
+  if (parsedContent && typeof parsedContent === 'object' && parsedContent.artifact === 'interview') {
+    const qs = Array.isArray(parsedContent.questions) ? parsedContent.questions : []
+    for (const [i, q] of qs.entries()) {
+      const qId = q.id || `Q${i + 1}`
+      const prompt = q.prompt || ''
+      let answer = null
+      let isSkipped = true
+      if (q.answer) {
+        if (!q.answer.skipped && q.answer.free_text) {
+          answer = q.answer.free_text
+          isSkipped = false
+        }
+      }
+      viewData.push({ id: qId, q: prompt, answer, isSkipped })
+    }
+  } else {
+    // Handle interview_coverage_input format which has refinedContent (questions) and userAnswers
+    const questionsContent = parsedContent?.refinedContent || ''
+    const answersJson = parsedContent?.userAnswers || '{}'
+
+    const questions = parseInterviewQuestions(questionsContent)
+    let answers: Record<string, string> = {}
+    try {
+      answers = JSON.parse(answersJson)
+    } catch { /* ignore */ }
+
+    if (questions.length === 0 && Object.keys(answers).length === 0) {
+      return <RawContentView content={content} />
+    }
+
+    questions.forEach((q, i) => {
+      const qId = `Q${i + 1}`
+      const answer = answers[qId] || answers[q.q] || null
+      viewData.push({ id: qId, q: q.q, answer, isSkipped: !answer })
+    })
+
+    // Find orphans
+    Object.entries(answers).forEach(([k, v]) => {
+      if (!k.startsWith('Q') && !questions.some(q => q.q === k)) {
+        orphanAnswers[k] = v
+      }
+    })
+  }
+
+  if (viewData.length === 0 && Object.keys(orphanAnswers).length === 0) {
+    return <RawContentView content={content} />
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-xs text-muted-foreground mb-2">User responses to the interview questions.</div>
+      {viewData.map((item, i) => (
+        <div key={i} className="border border-border rounded-md overflow-hidden bg-background">
+          <div className="bg-muted px-3 py-2 text-xs font-medium border-b border-border text-foreground flex gap-2">
+            <span className="text-muted-foreground">{item.id}.</span>
+            <span>{item.q}</span>
+          </div>
+          <div className="px-3 py-2 text-xs">
+            {item.isSkipped ? (
+              <span className="text-muted-foreground italic text-[10px] bg-accent px-1.5 py-0.5 rounded">Skipped</span>
+            ) : (
+              <div className="whitespace-pre-wrap text-blue-700 dark:text-blue-300">{item.answer}</div>
+            )}
+          </div>
+        </div>
+      ))}
+      {/* Show any orphan answers that didn't match a question */}
+      {Object.entries(orphanAnswers).map(([k, v], i) => (
+        <div key={`orphan-${i}`} className="border border-border rounded-md overflow-hidden bg-background">
+          <div className="bg-muted px-3 py-2 text-xs font-medium border-b border-border text-foreground">
+            {k}
+          </div>
+          <div className="px-3 py-2 text-xs whitespace-pre-wrap text-blue-700 dark:text-blue-300">
+            {v}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Render PRD draft: epics/user stories in collapsible sections
-function PrdDraftView({ content }: { content: string }) {
+export function PrdDraftView({ content }: { content: string }) {
   const lines = content.split('\n')
   const sections: { title: string; items: string[] }[] = []
   let current: { title: string; items: string[] } | null = null
@@ -168,7 +281,9 @@ function PrdDraftView({ content }: { content: string }) {
     }
   }
   if (current) sections.push(current)
-  if (sections.length === 0) return null
+
+  if (sections.length === 0) return <RawContentView content={content} />
+
   return (
     <div className="space-y-2">
       {sections.map((s, i) => (
@@ -181,7 +296,6 @@ function PrdDraftView({ content }: { content: string }) {
     </div>
   )
 }
-
 // Render beads draft: bead list with details
 function BeadsDraftView({ content }: { content: string }) {
   const lines = content.split('\n')
@@ -241,13 +355,17 @@ function VotingResultsView({ data }: { data: any }) {
       <div className="space-y-1.5">
         <div className="text-xs font-semibold mb-1">Rankings</div>
         {draftScores.map((d, rank) => (
-          <div key={d.draftId} className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs ${d.isWinner ? 'bg-yellow-50 dark:bg-yellow-950 border border-yellow-300 dark:border-yellow-700' : 'bg-background border border-border'}`}>
-            <span className="font-mono w-5 text-center">{rank === 0 ? '🏆' : `#${rank + 1}`}</span>
-            <span className="text-sm">{getModelIcon(d.draftId)}</span>
-            <span className="font-medium">{getModelDisplayName(d.draftId)}</span>
-            <span className="ml-auto font-mono font-semibold">{d.total}</span>
-            {d.isWinner && <Trophy className="h-3.5 w-3.5 text-yellow-600" />}
-          </div>
+          <ModelBadge
+            key={d.draftId}
+            modelId={d.draftId}
+            active={d.isWinner}
+            className="w-full px-2.5 py-1.5 h-auto items-center"
+          >
+            <span className="font-mono w-5 text-center font-bold opacity-80">{rank === 0 ? 'W' : `#${rank + 1}`}</span>
+            <span className="font-medium flex-1 text-left ml-1">{getModelDisplayName(d.draftId)}</span>
+            <span className={`ml-auto font-mono font-semibold ${d.isWinner ? 'text-primary-foreground' : 'text-secondary-foreground'}`}>{d.total}</span>
+            {d.isWinner && <Trophy className="h-3.5 w-3.5 text-primary-foreground ml-1" />}
+          </ModelBadge>
         ))}
       </div>
 
@@ -269,15 +387,15 @@ function VotingResultsView({ data }: { data: any }) {
             </thead>
             <tbody>
               {draftScores.map(d => (
-                <tr key={d.draftId} className={`border-b border-border/50 ${d.isWinner ? 'bg-yellow-50/50 dark:bg-yellow-950/30' : ''}`}>
+                <tr key={d.draftId} className={`border-b border-border/50 ${d.isWinner ? 'bg-primary/10' : ''}`}>
                   <td className="py-1 pr-2 whitespace-nowrap">
                     <span className="mr-1">{getModelIcon(d.draftId)}</span>
-                    {getModelDisplayName(d.draftId)}
+                    <span className={d.isWinner ? 'font-semibold text-primary' : ''}>{getModelDisplayName(d.draftId)}</span>
                   </td>
                   {d.categoryAvgs.map(ca => (
                     <td key={ca.category} className="text-center py-1 px-1 font-mono">{ca.avg.toFixed(1)}</td>
                   ))}
-                  <td className="text-center py-1 pl-2 font-mono font-semibold">{d.total}</td>
+                  <td className={`text-center py-1 pl-2 font-mono font-semibold ${d.isWinner ? 'text-primary' : ''}`}>{d.total}</td>
                 </tr>
               ))}
             </tbody>
@@ -295,7 +413,7 @@ function VotingResultsView({ data }: { data: any }) {
                 <div key={v.draftId} className="ml-4 flex items-center gap-2 text-muted-foreground">
                   <span>→ {getModelDisplayName(v.draftId)}</span>
                   <span className="font-mono">{v.totalScore}pts</span>
-                  {v.draftId === winnerId && <span className="text-yellow-600 text-[10px]">winner</span>}
+                  {v.draftId === winnerId && <span className="font-bold text-[10px] text-primary bg-primary/10 px-1 rounded">winner</span>}
                 </div>
               ))}
             </div>
@@ -337,7 +455,7 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
     return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'WAITING_INTERVIEW_APPROVAL') {
-    return [{ id: 'interview-yaml', label: 'interview.yaml', description: 'Final interview artifact', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'DRAFTING_PRD') {
     return Array.from({ length: councilMemberCount }, (_, i) => ({
@@ -353,11 +471,8 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
       { id: 'winner-prd-draft', label: '🏆 Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> },
     ]
   }
-  if (phase === 'REFINING_PRD' || phase === 'VERIFYING_PRD_COVERAGE') {
+  if (phase === 'REFINING_PRD' || phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
     return [{ id: 'refined-prd', label: '🔄 Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
-  }
-  if (phase === 'WAITING_PRD_APPROVAL') {
-    return [{ id: 'prd-yaml', label: 'prd.yaml', description: 'Final PRD artifact', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'DRAFTING_BEADS') {
     return Array.from({ length: councilMemberCount }, (_, i) => ({
@@ -373,11 +488,8 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
       { id: 'winner-beads-draft', label: '🏆 Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> },
     ]
   }
-  if (phase === 'REFINING_BEADS' || phase === 'VERIFYING_BEADS_COVERAGE') {
+  if (phase === 'REFINING_BEADS' || phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
     return [{ id: 'refined-beads', label: '🔄 Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
-  }
-  if (phase === 'WAITING_BEADS_APPROVAL') {
-    return [{ id: 'beads-jsonl', label: 'issues.jsonl', description: 'Final beads artifact', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'PRE_FLIGHT_CHECK') {
     return [{ id: 'diagnostics', label: 'Doctor Diagnostics', description: 'Pre-flight validation report', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
@@ -398,6 +510,45 @@ function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, counci
 }
 
 function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
+  if (artifactId === 'interview-answers') {
+    return <InterviewAnswersView content={content} />
+  }
+
+  let parsedCoverageInput: any = null
+  try {
+    const p = JSON.parse(content)
+    // Check if this looks like a coverage input JSON rather than CouncilResult
+    if (p && !p.drafts && !p.votes && p.refinedContent) {
+      parsedCoverageInput = p
+    }
+  } catch { /* not json */ }
+
+  if (parsedCoverageInput && (artifactId === 'refined-prd' || artifactId === 'refined-beads')) {
+    const isPrd = artifactId === 'refined-prd'
+    return (
+      <div className="space-y-6">
+        {parsedCoverageInput.prd && (
+          <div>
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (PRD)</div>
+            <div className="opacity-80"><PrdDraftView content={parsedCoverageInput.prd} /></div>
+          </div>
+        )}
+        {parsedCoverageInput.beads && (
+          <div>
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (Beads)</div>
+            <div className="opacity-80"><BeadsDraftView content={parsedCoverageInput.beads} /></div>
+          </div>
+        )}
+        {parsedCoverageInput.refinedContent && (
+          <div className="border-t border-border pt-4">
+            <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification ({isPrd ? 'PRD' : 'Beads'})</div>
+            {isPrd ? <PrdDraftView content={parsedCoverageInput.refinedContent} /> : <BeadsDraftView content={parsedCoverageInput.refinedContent} />}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // Try structured rendering for CouncilResult JSON
   const councilResult = tryParseCouncilResult(content)
   if (councilResult) {
@@ -410,19 +561,24 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
       const winnerContent = winnerDraft?.content ?? councilResult.winnerContent ?? ''
       if (!winnerContent) return <div className="text-xs text-muted-foreground italic">Voting still in progress — winner not yet determined.</div>
       const header = winnerDraft ? (
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
-          <span className="text-lg">{getModelIcon(winnerDraft.memberId)}</span>
-          <div>
-            <div className="text-xs font-medium">{getModelDisplayName(winnerDraft.memberId)}</div>
-            <div className="text-[10px] text-muted-foreground">🏆 Winner{winnerDraft.duration ? ` · ${(winnerDraft.duration / 1000).toFixed(1)}s` : ''}</div>
-          </div>
+        <div className="flex items-center gap-2 mb-4 pb-0">
+          <ModelBadge
+            modelId={winnerDraft.memberId}
+            active={true}
+            className="flex-1 px-3 py-2 h-auto"
+          >
+            <div className="min-w-0 text-left flex-1">
+              <div className="text-xs font-medium truncate">{getModelDisplayName(winnerDraft.memberId)}</div>
+              <div className="text-[10px] text-primary-foreground/90 font-bold mt-0.5 normal-case">🏆 Winner{winnerDraft.duration ? ` · ${(winnerDraft.duration / 1000).toFixed(1)}s` : ''}</div>
+            </div>
+          </ModelBadge>
         </div>
       ) : null
       const isPrd = artifactId?.includes('prd')
       const isBeads = artifactId?.includes('beads')
       const structured = isPrd ? <PrdDraftView content={winnerContent} />
         : isBeads ? <BeadsDraftView content={winnerContent} />
-        : <InterviewDraftView content={winnerContent} />
+          : <InterviewDraftView content={winnerContent} />
       return <>{header}{structured || <RawContentView content={winnerContent} />}</>
     }
 
@@ -438,24 +594,30 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
       const isBeads = artifactId?.includes('beads')
 
       // Show model info header for individual drafts
+      const isWinner = draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING')
       const header = draft ? (
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
-          <span className="text-lg">{getModelIcon(draft.memberId)}</span>
-          <div>
-            <div className="text-xs font-medium">{getModelDisplayName(draft.memberId)}</div>
-            <div className="text-[10px] text-muted-foreground">
-              {draft.outcome === 'completed' ? '✅ Completed' : draft.outcome === 'timed_out' ? '⏰ Timed out' : '❌ Invalid output'}
-              {draft.duration ? ` · ${(draft.duration / 1000).toFixed(1)}s` : ''}
-              {draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING') && <span className="ml-1 text-yellow-600">🏆 Winner</span>}
+        <div className="flex items-center gap-2 mb-4 pb-0">
+          <ModelBadge
+            modelId={draft.memberId}
+            active={isWinner}
+            className="flex-1 px-3 py-2 h-auto"
+          >
+            <div className="min-w-0 text-left flex-1">
+              <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
+              <div className="text-[10px] mt-0.5 opacity-80 flex items-center gap-1 flex-wrap normal-case">
+                <span>{draft.outcome === 'completed' ? '✅ Completed' : draft.outcome === 'timed_out' ? '⏰ Timed out' : '❌ Invalid output'}</span>
+                {draft.duration ? <span>· {(draft.duration / 1000).toFixed(1)}s</span> : null}
+                {isWinner && <span className="font-bold text-primary-foreground/90 ml-1">🏆 Winner</span>}
+              </div>
             </div>
-          </div>
+          </ModelBadge>
         </div>
       ) : null
 
       const structured = isInterview ? <InterviewDraftView content={draftContent} />
         : isPrd ? <PrdDraftView content={draftContent} />
-        : isBeads ? <BeadsDraftView content={draftContent} />
-        : null
+          : isBeads ? <BeadsDraftView content={draftContent} />
+            : null
 
       if (structured) return <>{header}{structured}</>
       // Fall through to raw rendering with header
@@ -464,28 +626,6 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
   }
 
   return <RawContentView content={content} />
-}
-
-function RawContentView({ content }: { content: string }) {
-  const lines = content.split('\n')
-  return (
-    <div className="text-sm space-y-1">
-      {lines.map((line, i) => {
-        if (line.startsWith('# ')) return <h2 key={i} className="text-lg font-bold mt-3 mb-1">{line.slice(2)}</h2>
-        if (line.startsWith('## ')) return <h3 key={i} className="text-base font-semibold mt-2 mb-1">{line.slice(3)}</h3>
-        if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-semibold mt-2">{line.slice(4)}</h4>
-        if (line.startsWith('✅')) return <div key={i} className="flex items-center gap-1 text-green-600"><span>{line}</span></div>
-        if (line.startsWith('⚠️')) return <div key={i} className="flex items-center gap-1 text-yellow-600"><span>{line}</span></div>
-        if (line.startsWith('❌')) return <div key={i} className="flex items-center gap-1 text-red-600"><span>{line}</span></div>
-        if (line.startsWith('|')) return <div key={i} className="font-mono text-xs">{line}</div>
-        if (line.startsWith('- ') || line.startsWith('* ')) return <div key={i} className="ml-4">• {line.slice(2)}</div>
-        if (line.match(/^\d+\./)) return <div key={i} className="ml-4">{line}</div>
-        if (line.startsWith('**') && line.endsWith('**')) return <div key={i} className="font-semibold">{line.replace(/\*\*/g, '')}</div>
-        if (line.trim() === '') return <div key={i} className="h-2" />
-        return <div key={i}>{line}</div>
-      })}
-    </div>
-  )
 }
 
 export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement }: PhaseArtifactsPanelProps) {
@@ -498,19 +638,46 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     fetch(`/api/tickets/${ticketId}/artifacts`)
       .then(r => r.ok ? r.json() : [])
       .then(setDbArtifacts)
-      .catch(() => {})
+      .catch(() => { })
   }, [ticketId, phase])
 
-  if (artifacts.length === 0) return null
+  if (artifacts.length === 0 && !prefixElement) return null
+  if (artifacts.length === 0) {
+    return <div className="flex flex-row flex-wrap gap-2">{prefixElement}</div>
+  }
 
   const action = getPhaseAction(phase)
 
   // Match a UI artifact def to the closest DB artifact for this phase
   function findDbContent(artifactDef: ArtifactDef): string | null {
     const prefix = artifactDef.id.split('-')[0] ?? ''
+
+    // Map approval phases to the phase where their artifacts were actually generated
+    const phaseMap: Record<string, string[]> = {
+      'WAITING_INTERVIEW_APPROVAL': ['VERIFYING_INTERVIEW_COVERAGE', 'COMPILING_INTERVIEW'],
+      'WAITING_PRD_APPROVAL': ['VERIFYING_PRD_COVERAGE', 'REFINING_PRD'],
+      'WAITING_BEADS_APPROVAL': ['VERIFYING_BEADS_COVERAGE', 'REFINING_BEADS'],
+    }
+    const targetPhases = phaseMap[phase] || [phase]
+
+    // Map UI artifact IDs to DB artifactTypes for verification inputs
+    const typeMap: Record<string, string> = {
+      'refined-prd': 'prd_coverage_input',
+      'refined-beads': 'beads_coverage_input',
+      'interview-answers': 'interview_coverage_input'
+    }
+    const expectedType = typeMap[artifactDef.id]
+
+    const reversedArtifacts = [...dbArtifacts].reverse()
+
+    if (expectedType) {
+      const exactMatch = reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.artifactType === expectedType)
+      if (exactMatch) return exactMatch.content
+    }
+
     // Try matching by artifactType first, then fall back to phase-only match
-    const match = dbArtifacts.find(a => a.phase === phase && a.artifactType?.toLowerCase().includes(prefix))
-      ?? dbArtifacts.find(a => a.phase === phase && a.content)
+    const match = reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.artifactType?.toLowerCase().includes(prefix))
+      ?? reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.content)
     return match?.content ?? null
   }
 

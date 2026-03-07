@@ -1,7 +1,948 @@
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { eq } from 'drizzle-orm'
+import { createActor } from 'xstate'
+import { initializeTicket } from '../ticket/initialize'
+import { ticketMachine } from '../machines/ticketMachine'
+import type { TicketEvent } from '../machines/types'
 import { db, sqlite } from './index'
 import { profiles, projects, tickets, phaseArtifacts, opencodeSessions, ticketStatusHistory } from './schema'
 
 console.log('🌱 Seeding database...')
+
+type ProjectKey = 'ORBX' | 'LUMN' | 'NEXA'
+
+const MAIN_FLOW = [
+  'DRAFT',
+  'COUNCIL_DELIBERATING',
+  'COUNCIL_VOTING_INTERVIEW',
+  'COMPILING_INTERVIEW',
+  'WAITING_INTERVIEW_ANSWERS',
+  'VERIFYING_INTERVIEW_COVERAGE',
+  'WAITING_INTERVIEW_APPROVAL',
+  'DRAFTING_PRD',
+  'COUNCIL_VOTING_PRD',
+  'REFINING_PRD',
+  'VERIFYING_PRD_COVERAGE',
+  'WAITING_PRD_APPROVAL',
+  'DRAFTING_BEADS',
+  'COUNCIL_VOTING_BEADS',
+  'REFINING_BEADS',
+  'VERIFYING_BEADS_COVERAGE',
+  'WAITING_BEADS_APPROVAL',
+  'PRE_FLIGHT_CHECK',
+  'CODING',
+  'RUNNING_FINAL_TEST',
+  'INTEGRATING_CHANGES',
+  'WAITING_MANUAL_VERIFICATION',
+  'CLEANING_ENV',
+  'COMPLETED',
+] as const
+
+type FlowStatus = (typeof MAIN_FLOW)[number]
+type TicketStatus = FlowStatus | 'BLOCKED_ERROR' | 'CANCELED'
+type BeadStatus = 'pending' | 'in_progress' | 'done' | 'error'
+
+interface ProjectSeed {
+  key: ProjectKey
+  name: string
+  icon: string
+  color: string
+  folderPath: string
+  ticketCounter: number
+}
+
+interface TicketSeed {
+  externalId: string
+  projectKey: ProjectKey
+  title: string
+  description: string
+  priority: number
+  status: TicketStatus
+}
+
+interface TicketTimeline {
+  createdHoursAgo: number
+  updatedHoursAgo: number
+  history: string[]
+}
+
+interface SeededTicketRow {
+  id: number
+  externalId: string
+  projectId: number
+  title: string
+  createdAt: string
+}
+
+interface BeadRow {
+  id: string
+  title: string
+  priority: number
+  status: BeadStatus
+  issue_type: string
+  external_ref: string
+  prd_references: string
+  labels: string[]
+  description: string
+  context_guidance: {
+    patterns: string[]
+    anti_patterns: string[]
+  }
+  acceptance_criteria: string
+  dependencies: {
+    blocked_by: string[]
+    blocks: string[]
+  }
+  target_files: string[]
+  tests: string[]
+  test_commands: string[]
+  notes: string
+  iteration: number
+  created_at: string
+  updated_at: string
+  completed_at: string
+  started_at: string
+  bead_start_commit: string
+}
+
+const COUNCIL_MODELS = ['claude-sonnet-4-20250514', 'gpt-4o', 'gemini-2.5-pro'] as const
+const COUNCIL_JSON = JSON.stringify(COUNCIL_MODELS)
+
+const INTERVIEW_THRESHOLD = MAIN_FLOW.indexOf('WAITING_INTERVIEW_ANSWERS')
+const PRD_THRESHOLD = MAIN_FLOW.indexOf('DRAFTING_PRD')
+const BEADS_THRESHOLD = MAIN_FLOW.indexOf('DRAFTING_BEADS')
+const PRE_FLIGHT_THRESHOLD = MAIN_FLOW.indexOf('PRE_FLIGHT_CHECK')
+const CODING_THRESHOLD = MAIN_FLOW.indexOf('CODING')
+const FINAL_TEST_THRESHOLD = MAIN_FLOW.indexOf('RUNNING_FINAL_TEST')
+
+const STATUS_REASON: Record<string, string> = {
+  DRAFT: 'Ticket created',
+  COUNCIL_DELIBERATING: 'Interview drafting started',
+  COUNCIL_VOTING_INTERVIEW: 'Interview drafts submitted for voting',
+  COMPILING_INTERVIEW: 'Winning interview draft selected for compile',
+  WAITING_INTERVIEW_ANSWERS: 'Interview questions compiled, awaiting answers',
+  VERIFYING_INTERVIEW_COVERAGE: 'Answers submitted, verifying coverage',
+  WAITING_INTERVIEW_APPROVAL: 'Coverage clean, awaiting interview approval',
+  DRAFTING_PRD: 'Interview approved, drafting PRD',
+  COUNCIL_VOTING_PRD: 'PRD drafts submitted for voting',
+  REFINING_PRD: 'Winning PRD selected for refinement',
+  VERIFYING_PRD_COVERAGE: 'Refined PRD under coverage verification',
+  WAITING_PRD_APPROVAL: 'PRD coverage clean, awaiting approval',
+  DRAFTING_BEADS: 'PRD approved, drafting beads',
+  COUNCIL_VOTING_BEADS: 'Beads drafts submitted for voting',
+  REFINING_BEADS: 'Winning beads plan selected for refinement',
+  VERIFYING_BEADS_COVERAGE: 'Refined beads under coverage verification',
+  WAITING_BEADS_APPROVAL: 'Beads coverage clean, awaiting approval',
+  PRE_FLIGHT_CHECK: 'Beads approved, running pre-flight checks',
+  CODING: 'Pre-flight checks passed, coding started',
+  RUNNING_FINAL_TEST: 'All beads done, running final tests',
+  INTEGRATING_CHANGES: 'Final tests passed, integrating changes',
+  WAITING_MANUAL_VERIFICATION: 'Integration complete, waiting manual verification',
+  CLEANING_ENV: 'Manual verification complete, cleaning environment',
+  COMPLETED: 'Cleanup complete, ticket finished',
+  BLOCKED_ERROR: 'Execution blocked by runtime error',
+  CANCELED: 'Ticket canceled by user',
+}
+
+const projectSeeds: ProjectSeed[] = [
+  {
+    key: 'ORBX',
+    name: 'OrbitOps Platform',
+    icon: '🛰️',
+    color: '#1E88E5',
+    folderPath: '/mnt/d/orbitops-platform',
+    ticketCounter: 7,
+  },
+  {
+    key: 'LUMN',
+    name: 'LumenCart',
+    icon: '🛍️',
+    color: '#00A86B',
+    folderPath: '/mnt/d/lumencart',
+    ticketCounter: 7,
+  },
+  {
+    key: 'NEXA',
+    name: 'NexaCare Portal',
+    icon: '🩺',
+    color: '#F59E0B',
+    folderPath: '/mnt/d/nexacare-portal',
+    ticketCounter: 6,
+  },
+]
+
+const ticketSeeds: TicketSeed[] = [
+  {
+    externalId: 'ORBX-1',
+    projectKey: 'ORBX',
+    title: 'Bootstrap incident workspace shell',
+    description: 'Create the initial shell for incident operations, routing, and role-aware navigation.',
+    priority: 2,
+    status: 'DRAFT',
+  },
+  {
+    externalId: 'ORBX-2',
+    projectKey: 'ORBX',
+    title: 'Generate interview drafts for incident triage',
+    description: 'Collect candidate question sets for triage workflow boundaries and escalation policy inputs.',
+    priority: 2,
+    status: 'COUNCIL_DELIBERATING',
+  },
+  {
+    externalId: 'ORBX-3',
+    projectKey: 'ORBX',
+    title: 'Select winning interview draft for alert enrichment',
+    description: 'Score interview drafts and pick the strongest one for alert enrichment requirements.',
+    priority: 3,
+    status: 'COUNCIL_VOTING_INTERVIEW',
+  },
+  {
+    externalId: 'ORBX-4',
+    projectKey: 'ORBX',
+    title: 'Collect routing constraints from on-call teams',
+    description: 'Gather approval windows, business-hour exceptions, and routing constraints from stakeholders.',
+    priority: 2,
+    status: 'WAITING_INTERVIEW_ANSWERS',
+  },
+  {
+    externalId: 'ORBX-5',
+    projectKey: 'ORBX',
+    title: 'Verify interview coverage for deduplication logic',
+    description: 'Validate that interview answers fully cover event deduplication and suppression requirements.',
+    priority: 1,
+    status: 'VERIFYING_INTERVIEW_COVERAGE',
+  },
+  {
+    externalId: 'ORBX-6',
+    projectKey: 'ORBX',
+    title: 'Approve interview pack for escalation policy rules',
+    description: 'Review finalized interview output before PRD drafting for escalation policy and SLA tiers.',
+    priority: 1,
+    status: 'WAITING_INTERVIEW_APPROVAL',
+  },
+  {
+    externalId: 'ORBX-7',
+    projectKey: 'ORBX',
+    title: 'Draft PRD for incident timeline playback',
+    description: 'Create PRD for replaying incident timelines with filterable events and ownership transitions.',
+    priority: 2,
+    status: 'DRAFTING_PRD',
+  },
+  {
+    externalId: 'LUMN-1',
+    projectKey: 'LUMN',
+    title: 'Vote PRD variants for multi-cart checkout',
+    description: 'Compare PRD options for shared checkout sessions spanning multiple independent carts.',
+    priority: 1,
+    status: 'COUNCIL_VOTING_PRD',
+  },
+  {
+    externalId: 'LUMN-2',
+    projectKey: 'LUMN',
+    title: 'Refine PRD for tax engine integration',
+    description: 'Refine winning PRD draft to include jurisdiction-specific tax calculation behavior.',
+    priority: 1,
+    status: 'REFINING_PRD',
+  },
+  {
+    externalId: 'LUMN-3',
+    projectKey: 'LUMN',
+    title: 'Run PRD coverage checks for promotion stacking',
+    description: 'Verify promotional stacking logic, constraints, and edge-case handling in the refined PRD.',
+    priority: 2,
+    status: 'VERIFYING_PRD_COVERAGE',
+  },
+  {
+    externalId: 'LUMN-4',
+    projectKey: 'LUMN',
+    title: 'Approve PRD for loyalty ledger',
+    description: 'Await stakeholder approval on loyalty points ledger design and reconciliation rules.',
+    priority: 2,
+    status: 'WAITING_PRD_APPROVAL',
+  },
+  {
+    externalId: 'LUMN-5',
+    projectKey: 'LUMN',
+    title: 'Draft beads for warehouse sync pipeline',
+    description: 'Break down warehouse synchronization work into bead-sized tasks and tests.',
+    priority: 1,
+    status: 'DRAFTING_BEADS',
+  },
+  {
+    externalId: 'LUMN-6',
+    projectKey: 'LUMN',
+    title: 'Vote beads strategy for returns flow',
+    description: 'Evaluate beads candidates for returns authorization, restocking, and refund orchestration.',
+    priority: 2,
+    status: 'COUNCIL_VOTING_BEADS',
+  },
+  {
+    externalId: 'LUMN-7',
+    projectKey: 'LUMN',
+    title: 'Refine beads for coupon abuse detection',
+    description: 'Refine selected beads to isolate anti-abuse checks and fraud-scoring boundaries.',
+    priority: 3,
+    status: 'REFINING_BEADS',
+  },
+  {
+    externalId: 'NEXA-1',
+    projectKey: 'NEXA',
+    title: 'Verify beads coverage for patient intake assistant',
+    description: 'Validate that beads cover triage chatbot intake, escalation, and transcript storage.',
+    priority: 1,
+    status: 'VERIFYING_BEADS_COVERAGE',
+  },
+  {
+    externalId: 'NEXA-2',
+    projectKey: 'NEXA',
+    title: 'Approve beads plan for care-team notifications',
+    description: 'Review bead plan for paging, acknowledgement windows, and escalation fallbacks.',
+    priority: 2,
+    status: 'WAITING_BEADS_APPROVAL',
+  },
+  {
+    externalId: 'NEXA-3',
+    projectKey: 'NEXA',
+    title: 'Pre-flight checks for prescriptions import',
+    description: 'Run repository and runtime diagnostics before coding prescriptions import adapters.',
+    priority: 1,
+    status: 'PRE_FLIGHT_CHECK',
+  },
+  {
+    externalId: 'NEXA-4',
+    projectKey: 'NEXA',
+    title: 'Run final tests for claims reconciliation',
+    description: 'Execute final verification suite after coding claims reconciliation improvements.',
+    priority: 1,
+    status: 'RUNNING_FINAL_TEST',
+  },
+  {
+    externalId: 'NEXA-5',
+    projectKey: 'NEXA',
+    title: 'Recover blocked billing pipeline execution',
+    description: 'Investigate and resolve runtime failure while processing billing pipeline batches.',
+    priority: 1,
+    status: 'BLOCKED_ERROR',
+  },
+  {
+    externalId: 'NEXA-6',
+    projectKey: 'NEXA',
+    title: 'Complete audit trail search rollout',
+    description: 'Finalize and ship searchable audit trail for patient events and operator actions.',
+    priority: 1,
+    status: 'COMPLETED',
+  },
+]
+
+const ago = (hours: number): string => new Date(Date.now() - hours * 3600000).toISOString()
+
+function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36)
+}
+
+function historyForStatus(status: TicketStatus): string[] {
+  if (status === 'BLOCKED_ERROR') {
+    const codingIndex = MAIN_FLOW.indexOf('CODING')
+    return [...MAIN_FLOW.slice(0, codingIndex + 1), 'BLOCKED_ERROR']
+  }
+  if (status === 'CANCELED') {
+    return ['DRAFT', 'COUNCIL_DELIBERATING', 'CANCELED']
+  }
+  const index = MAIN_FLOW.indexOf(status as FlowStatus)
+  if (index === -1) return ['DRAFT']
+  return MAIN_FLOW.slice(0, index + 1)
+}
+
+function rankForStatus(status: TicketStatus): number {
+  const inFlow = MAIN_FLOW.indexOf(status as FlowStatus)
+  if (inFlow !== -1) return inFlow
+  if (status === 'BLOCKED_ERROR') return CODING_THRESHOLD
+  if (status === 'CANCELED') return MAIN_FLOW.indexOf('COUNCIL_DELIBERATING')
+  return 0
+}
+
+function shouldWriteInterview(status: TicketStatus): boolean {
+  return rankForStatus(status) >= INTERVIEW_THRESHOLD
+}
+
+function shouldWritePrd(status: TicketStatus): boolean {
+  return rankForStatus(status) >= PRD_THRESHOLD
+}
+
+function shouldWriteBeads(status: TicketStatus): boolean {
+  return rankForStatus(status) >= BEADS_THRESHOLD
+}
+
+function shouldHaveBranch(status: TicketStatus): boolean {
+  return rankForStatus(status) >= PRE_FLIGHT_THRESHOLD
+}
+
+function percentForStatus(status: TicketStatus): number {
+  if (status === 'BLOCKED_ERROR') return 68
+  if (status === 'CANCELED') return 32
+  const flowIndex = MAIN_FLOW.indexOf(status as FlowStatus)
+  if (flowIndex === -1) return 0
+  return Math.round((flowIndex / (MAIN_FLOW.length - 1)) * 100)
+}
+
+function beadProgressForStatus(status: TicketStatus): { current: number; total: number } | null {
+  const total = 4
+  const rank = rankForStatus(status)
+  if (rank < BEADS_THRESHOLD) return null
+
+  if (status === 'BLOCKED_ERROR') {
+    return { current: 2, total }
+  }
+
+  if (rank < CODING_THRESHOLD) {
+    return { current: 0, total }
+  }
+
+  if (rank >= FINAL_TEST_THRESHOLD) {
+    return { current: total, total }
+  }
+
+  return { current: 2, total }
+}
+
+function beadStatesForStatus(status: TicketStatus): BeadStatus[] {
+  if (status === 'BLOCKED_ERROR') {
+    return ['done', 'error', 'pending']
+  }
+
+  const rank = rankForStatus(status)
+  if (rank >= FINAL_TEST_THRESHOLD) {
+    return ['done', 'done', 'done']
+  }
+
+  if (rank >= CODING_THRESHOLD) {
+    return ['done', 'in_progress', 'pending']
+  }
+
+  return ['pending', 'pending', 'pending']
+}
+
+function buildInterviewYaml(externalId: string, title: string, generatedAt: string, approvedAt: string): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: "${externalId}"`,
+    'artifact: "interview"',
+    'status: "approved"',
+    'generated_by:',
+    `  winner_model: "${COUNCIL_MODELS[0]}"`,
+    `  generated_at: "${generatedAt}"`,
+    'questions:',
+    '  - id: "Q1"',
+    `    prompt: "What is the business success criteria for ${title}?"`,
+    '    answer_type: "free_text"',
+    '    options: []',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: "Reduce manual steps while preserving deterministic behavior and traceability."',
+    '      answered_by: "user"',
+    `      answered_at: "${approvedAt}"`,
+    '  - id: "Q2"',
+    '    prompt: "Which constraints are non-negotiable for this implementation?"',
+    '    answer_type: "free_text"',
+    '    options: []',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: "Maintain idempotency, auditable transitions, and strict validation in approval gates."',
+    '      answered_by: "user"',
+    `      answered_at: "${approvedAt}"`,
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals:',
+    '    - "Deliver an end-to-end reliable workflow."',
+    '  constraints:',
+    '    - "No breaking changes to existing API contracts."',
+    '  non_goals:',
+    '    - "No redesign of unrelated dashboard modules."',
+    'approval:',
+    '  approved_by: "user"',
+    `  approved_at: "${approvedAt}"`,
+    '',
+  ].join('\n')
+}
+
+function buildPrdYaml(externalId: string, title: string, generatedAt: string, approvedAt: string): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: "${externalId}"`,
+    'artifact: "prd"',
+    'status: "approved"',
+    'source_interview:',
+    `  content_sha256: "mock-${externalId.toLowerCase()}-interview-sha"`,
+    'product:',
+    `  problem_statement: "${title} requires a robust implementation plan with clear acceptance criteria."`,
+    '  target_users:',
+    '    - "Operations team"',
+    '    - "Engineering support"',
+    'scope:',
+    '  in_scope:',
+    '    - "Workflow automation and verification"',
+    '    - "Operational observability"',
+    '  out_of_scope:',
+    '    - "Cross-product design refresh"',
+    'technical_requirements:',
+    '  architecture_constraints:',
+    '    - "Keep API backward compatible"',
+    '  data_model:',
+    '    - "Persist all transition artifacts with timestamps"',
+    '  api_contracts:',
+    '    - "Retain existing route semantics"',
+    '  security_constraints:',
+    '    - "No sensitive data in logs"',
+    '  performance_constraints:',
+    '    - "P95 write latency under 150ms"',
+    '  reliability_constraints:',
+    '    - "Operations must be retry-safe"',
+    '  error_handling_rules:',
+    '    - "Errors must preserve previous workflow state"',
+    '  tooling_assumptions:',
+    '    - "Node.js runtime and SQLite persistence"',
+    'epics:',
+    '  - id: "EPIC-1"',
+    `    title: "${title}"`,
+    '    objective: "Ship a testable and maintainable implementation path."',
+    '    implementation_steps:',
+    '      - "Define phase outputs"',
+    '      - "Implement transitions and tests"',
+    '    user_stories:',
+    '      - id: "US-1"',
+    '        title: "As an operator, I can trust status transitions and artifacts"',
+    '        acceptance_criteria:',
+    '          - "Status history is complete and chronological"',
+    '          - "Artifacts exist for reached phases"',
+    '        implementation_steps:',
+    '          - "Generate and validate output files"',
+    '        verification:',
+    '          required_commands:',
+    '            - "npm run test"',
+    'risks:',
+    '  - "Inconsistent mock data can confuse workflow review"',
+    'approval:',
+    '  approved_by: "user"',
+    `  approved_at: "${approvedAt}"`,
+    'generated_by:',
+    `  winner_model: "${COUNCIL_MODELS[0]}"`,
+    `  generated_at: "${generatedAt}"`,
+    '',
+  ].join('\n')
+}
+
+function buildBeads(externalId: string, title: string, status: TicketStatus, baseHoursAgo: number): BeadRow[] {
+  const statuses = beadStatesForStatus(status)
+
+  return statuses.map((beadStatus, index) => {
+    const beadNum = index + 1
+    const createdAt = ago(baseHoursAgo - beadNum * 8)
+    const updatedAt = ago(baseHoursAgo - beadNum * 5)
+    const startedAt = beadStatus === 'pending' ? '' : ago(baseHoursAgo - beadNum * 6)
+    const completedAt = beadStatus === 'done' ? ago(baseHoursAgo - beadNum * 3) : ''
+
+    return {
+      id: `${externalId}-EPIC-1-US-1-task${beadNum}-m${beadNum}a${beadNum}`,
+      title: `${title} - bead ${beadNum}`,
+      priority: beadNum,
+      status: beadStatus,
+      issue_type: 'task',
+      external_ref: externalId,
+      prd_references: 'EPIC-1 / US-1',
+      labels: [`ticket:${externalId}`, 'epic:EPIC-1', 'story:US-1'],
+      description: `Implement bead ${beadNum} for ${title} with focused scope and verifiable behavior.`,
+      context_guidance: {
+        patterns: ['Preserve deterministic transitions', 'Write clear verification outputs'],
+        anti_patterns: ['Coupling unrelated concerns', 'Hidden side effects'],
+      },
+      acceptance_criteria: `Bead ${beadNum} passes scoped tests and updates artifacts consistently.`,
+      dependencies: {
+        blocked_by: beadNum === 1 ? [] : [`${externalId}-EPIC-1-US-1-task${beadNum - 1}-m${beadNum - 1}a${beadNum - 1}`],
+        blocks: beadNum === statuses.length ? [] : [`${externalId}-EPIC-1-US-1-task${beadNum + 1}-m${beadNum + 1}a${beadNum + 1}`],
+      },
+      target_files: [`src/modules/${externalId.toLowerCase()}/bead-${beadNum}.ts`],
+      tests: [`Bead ${beadNum} acceptance test passes`],
+      test_commands: ['npm run test'],
+      notes: beadStatus === 'error' ? 'Runtime failure encountered while validating upstream payload shape.' : '',
+      iteration: 1,
+      created_at: createdAt,
+      updated_at: updatedAt,
+      completed_at: completedAt,
+      started_at: startedAt,
+      bead_start_commit: beadStatus === 'pending' ? '' : `mocksha${beadNum}${externalId.toLowerCase().replace('-', '')}`,
+    }
+  })
+}
+
+function toJsonl(rows: unknown[]): string {
+  return rows.map((row) => JSON.stringify(row)).join('\n') + '\n'
+}
+
+function interviewDraftText(title: string, model: string): string {
+  return [
+    `# Interview Draft (${model})`,
+    '',
+    `1. Which requirements define success for ${title}?`,
+    '2. Which constraints are hard limits and cannot be negotiated?',
+    '3. Which failure scenarios should be tested before approval?',
+  ].join('\n')
+}
+
+function prdDraftText(title: string, model: string): string {
+  return [
+    `# PRD Draft (${model})`,
+    '',
+    `## Problem`,
+    `${title} needs a deterministic implementation plan with measurable acceptance criteria.`,
+    '',
+    '## Scope',
+    '- Define implementation boundaries and validation rules',
+    '- Capture risk and edge-case handling',
+  ].join('\n')
+}
+
+function beadsDraftText(title: string, model: string): string {
+  return [
+    `# Beads Draft (${model})`,
+    '',
+    `## Bead 1: Setup for ${title}`,
+    '- Establish working structure and interfaces',
+    '',
+    '## Bead 2: Core execution',
+    '- Implement critical path behavior and tests',
+    '',
+    '## Bead 3: Verification and cleanup',
+    '- Validate outputs and complete lifecycle checks',
+  ].join('\n')
+}
+
+function buildCouncilDraftResult(kind: 'interview' | 'prd' | 'beads', title: string): string {
+  const drafts = COUNCIL_MODELS.map((memberId, index) => {
+    const content = kind === 'interview'
+      ? interviewDraftText(title, memberId)
+      : kind === 'prd'
+        ? prdDraftText(title, memberId)
+        : beadsDraftText(title, memberId)
+
+    return {
+      memberId,
+      content,
+      outcome: 'completed',
+      duration: 9000 + index * 1200,
+    }
+  })
+
+  const refinedContent = kind === 'interview'
+    ? interviewDraftText(title, COUNCIL_MODELS[0])
+    : kind === 'prd'
+      ? prdDraftText(title, COUNCIL_MODELS[0])
+      : beadsDraftText(title, COUNCIL_MODELS[0])
+
+  return JSON.stringify({
+    drafts,
+    winnerId: COUNCIL_MODELS[0],
+    winnerContent: drafts[0]?.content ?? '',
+    refinedContent,
+  })
+}
+
+function buildCouncilVoteResult(kind: 'interview' | 'prd' | 'beads', title: string): string {
+  const draftResult = JSON.parse(buildCouncilDraftResult(kind, title)) as {
+    drafts: Array<{ memberId: string; content: string; outcome: string; duration: number }>
+    winnerId: string
+    winnerContent: string
+    refinedContent: string
+  }
+
+  const categories = ['Coverage', 'Correctness', 'Testability', 'Complexity', 'Risks']
+
+  const votes = COUNCIL_MODELS.flatMap((voterId, voterIndex) => {
+    return draftResult.drafts.map((draft, draftIndex) => {
+      const scores = categories.map((category, categoryIndex) => ({
+        category,
+        score: Math.max(12, 20 - Math.abs(voterIndex - draftIndex) - categoryIndex),
+      }))
+
+      const totalScore = scores.reduce((sum, item) => sum + item.score, 0)
+      return {
+        voterId,
+        draftId: draft.memberId,
+        scores,
+        totalScore,
+      }
+    })
+  })
+
+  return JSON.stringify({
+    drafts: draftResult.drafts,
+    votes,
+    winnerId: draftResult.winnerId,
+    winnerContent: draftResult.winnerContent,
+    refinedContent: draftResult.refinedContent,
+  })
+}
+
+function buildTransitionEvent(from: string, to: string): TicketEvent {
+  if (to === 'BLOCKED_ERROR') {
+    if (from === 'CODING') return { type: 'BEAD_ERROR' }
+    return { type: 'ERROR', message: 'Mock seed blocked transition' }
+  }
+
+  if (to === 'CANCELED') {
+    return { type: 'CANCEL' }
+  }
+
+  switch (from) {
+    case 'DRAFT':
+      return { type: 'START' }
+    case 'COUNCIL_DELIBERATING':
+      return { type: 'QUESTIONS_READY', result: { seeded: true } }
+    case 'COUNCIL_VOTING_INTERVIEW':
+      return { type: 'WINNER_SELECTED', winner: COUNCIL_MODELS[0] }
+    case 'COMPILING_INTERVIEW':
+      return { type: 'READY' }
+    case 'WAITING_INTERVIEW_ANSWERS':
+      return { type: 'ANSWER_SUBMITTED', answers: { Q1: 'Seeded answer' } }
+    case 'VERIFYING_INTERVIEW_COVERAGE':
+      return { type: 'COVERAGE_CLEAN' }
+    case 'WAITING_INTERVIEW_APPROVAL':
+      return { type: 'APPROVE' }
+    case 'DRAFTING_PRD':
+      return { type: 'DRAFTS_READY' }
+    case 'COUNCIL_VOTING_PRD':
+      return { type: 'WINNER_SELECTED', winner: COUNCIL_MODELS[0] }
+    case 'REFINING_PRD':
+      return { type: 'REFINED' }
+    case 'VERIFYING_PRD_COVERAGE':
+      return { type: 'COVERAGE_CLEAN' }
+    case 'WAITING_PRD_APPROVAL':
+      return { type: 'APPROVE' }
+    case 'DRAFTING_BEADS':
+      return { type: 'DRAFTS_READY' }
+    case 'COUNCIL_VOTING_BEADS':
+      return { type: 'WINNER_SELECTED', winner: COUNCIL_MODELS[0] }
+    case 'REFINING_BEADS':
+      return { type: 'REFINED' }
+    case 'VERIFYING_BEADS_COVERAGE':
+      return { type: 'COVERAGE_CLEAN' }
+    case 'WAITING_BEADS_APPROVAL':
+      return { type: 'APPROVE' }
+    case 'PRE_FLIGHT_CHECK':
+      return { type: 'CHECKS_PASSED' }
+    case 'CODING':
+      return { type: 'ALL_BEADS_DONE' }
+    case 'RUNNING_FINAL_TEST':
+      return { type: 'TESTS_PASSED' }
+    case 'INTEGRATING_CHANGES':
+      return { type: 'INTEGRATION_DONE' }
+    case 'WAITING_MANUAL_VERIFICATION':
+      return { type: 'VERIFY_COMPLETE' }
+    case 'CLEANING_ENV':
+      return { type: 'CLEANUP_DONE' }
+    default:
+      throw new Error(`Unsupported transition source state: ${from} -> ${to}`)
+  }
+}
+
+function buildSnapshotForTicket(
+  ticketId: number,
+  projectId: number,
+  externalId: string,
+  title: string,
+  history: string[],
+  lockedMainImplementer: string | null,
+): string {
+  const actor = createActor(ticketMachine, {
+    input: {
+      ticketId: String(ticketId),
+      projectId,
+      externalId,
+      title,
+      lockedMainImplementer,
+      lockedCouncilMembers: [...COUNCIL_MODELS],
+      maxIterations: 5,
+    },
+  })
+
+  actor.start()
+
+  for (let index = 1; index < history.length; index += 1) {
+    const from = history[index - 1]
+    const to = history[index]
+
+    if (!from || !to) {
+      throw new Error(`Invalid history transition index for ${externalId}`)
+    }
+
+    const event = buildTransitionEvent(from, to)
+    actor.send(event)
+
+    const currentValue = actor.getSnapshot().value
+    if (typeof currentValue === 'string' && currentValue !== to) {
+      throw new Error(`Snapshot transition mismatch for ${externalId}: expected ${to}, got ${currentValue}`)
+    }
+  }
+
+  const snapshot = JSON.stringify(actor.getPersistedSnapshot())
+  actor.stop()
+  return snapshot
+}
+
+function buildArtifactsForStatus(
+  ticketId: number,
+  status: TicketStatus,
+  title: string,
+  interviewYaml: string,
+  prdYaml: string,
+  beads: BeadRow[],
+): Array<{ ticketId: number; phase: string; artifactType: string; content: string }> {
+  switch (status) {
+    case 'COUNCIL_DELIBERATING':
+      return [{ ticketId, phase: status, artifactType: 'interview_drafts', content: buildCouncilDraftResult('interview', title) }]
+    case 'COUNCIL_VOTING_INTERVIEW':
+      return [{ ticketId, phase: status, artifactType: 'interview_votes', content: buildCouncilVoteResult('interview', title) }]
+    case 'WAITING_INTERVIEW_ANSWERS':
+    case 'VERIFYING_INTERVIEW_COVERAGE':
+    case 'WAITING_INTERVIEW_APPROVAL':
+      return [{
+        ticketId,
+        phase: status,
+        artifactType: 'interview_compiled',
+        content: JSON.stringify({
+          winnerId: COUNCIL_MODELS[0],
+          refinedContent: interviewYaml,
+          questions: [
+            { id: 'Q1', question: `What is the success criteria for ${title}?`, phase: 'Goals' },
+            { id: 'Q2', question: 'What constraints cannot be violated?', phase: 'Constraints' },
+          ],
+        }),
+      }]
+    case 'DRAFTING_PRD':
+      return [{ ticketId, phase: status, artifactType: 'prd_drafts', content: buildCouncilDraftResult('prd', title) }]
+    case 'COUNCIL_VOTING_PRD':
+      return [{ ticketId, phase: status, artifactType: 'prd_votes', content: buildCouncilVoteResult('prd', title) }]
+    case 'REFINING_PRD':
+    case 'VERIFYING_PRD_COVERAGE':
+    case 'WAITING_PRD_APPROVAL':
+      return [{
+        ticketId,
+        phase: status,
+        artifactType: 'prd_refined',
+        content: JSON.stringify({
+          winnerId: COUNCIL_MODELS[0],
+          refinedContent: prdYaml,
+        }),
+      }]
+    case 'DRAFTING_BEADS':
+      return [{ ticketId, phase: status, artifactType: 'beads_drafts', content: buildCouncilDraftResult('beads', title) }]
+    case 'COUNCIL_VOTING_BEADS':
+      return [{ ticketId, phase: status, artifactType: 'beads_votes', content: buildCouncilVoteResult('beads', title) }]
+    case 'REFINING_BEADS':
+    case 'VERIFYING_BEADS_COVERAGE':
+    case 'WAITING_BEADS_APPROVAL':
+      return [{
+        ticketId,
+        phase: status,
+        artifactType: 'beads_refined',
+        content: JSON.stringify({
+          winnerId: COUNCIL_MODELS[0],
+          refinedContent: JSON.stringify(beads),
+          expandedBeads: beads,
+        }),
+      }]
+    case 'PRE_FLIGHT_CHECK':
+      return [{ ticketId, phase: status, artifactType: 'diagnostics_report', content: 'All diagnostics checks are green. Ready for coding.' }]
+    case 'RUNNING_FINAL_TEST':
+      return [{ ticketId, phase: status, artifactType: 'test_results', content: 'Final test suite running. 112/112 checks currently passing.' }]
+    case 'BLOCKED_ERROR':
+      return [{ ticketId, phase: status, artifactType: 'bead_error_report', content: 'Execution blocked: schema mismatch detected while parsing upstream payload.' }]
+    case 'COMPLETED':
+      return [{ ticketId, phase: status, artifactType: 'final_summary', content: 'Ticket completed successfully with all verification gates passing.' }]
+    default:
+      return []
+  }
+}
+
+function seedTicketFiles(options: {
+  ticket: SeededTicketRow
+  projectFolder: string
+  projectName: string
+  status: TicketStatus
+  history: string[]
+  createdHoursAgo: number
+  updatedHoursAgo: number
+  interviewYaml: string
+  prdYaml: string
+  beads: BeadRow[]
+}): void {
+  const initResult = initializeTicket({
+    externalId: options.ticket.externalId,
+    projectFolder: options.projectFolder,
+  })
+
+  if (!initResult.success) {
+    console.warn(`[seed] initializeTicket failed for ${options.ticket.externalId}: ${initResult.error}`)
+  }
+
+  const ticketDir = resolve(process.cwd(), '.looptroop', 'worktrees', options.ticket.externalId, '.ticket')
+  const metaDir = resolve(ticketDir, 'meta')
+  mkdirSync(metaDir, { recursive: true })
+
+  writeFileSync(
+    resolve(metaDir, 'ticket.meta.json'),
+    JSON.stringify(
+      {
+        id: options.ticket.id,
+        externalId: options.ticket.externalId,
+        projectId: options.ticket.projectId,
+        project: options.projectName,
+        title: options.ticket.title,
+        status: options.status,
+        createdAt: options.ticket.createdAt,
+      },
+      null,
+      2,
+    ),
+  )
+
+  const span = Math.max(1, options.createdHoursAgo - options.updatedHoursAgo)
+  const denominator = Math.max(1, options.history.length - 1)
+  const logEntries = options.history.map((state, index) => {
+    const when = Math.round(options.createdHoursAgo - (span * index) / denominator)
+    return {
+      ts: ago(when),
+      phase: state,
+      status: index === options.history.length - 1 ? 'active' : 'completed',
+      message: index === 0 ? 'Seeded ticket created' : `Transitioned to ${state}`,
+    }
+  })
+
+  const jsonl = toJsonl(logEntries)
+  mkdirSync(resolve(ticketDir, 'runtime'), { recursive: true })
+  writeFileSync(resolve(ticketDir, 'execution-log.jsonl'), jsonl)
+  writeFileSync(resolve(ticketDir, 'runtime', 'execution-log.jsonl'), jsonl)
+
+  if (shouldWriteInterview(options.status)) {
+    writeFileSync(resolve(ticketDir, 'interview.yaml'), options.interviewYaml)
+  }
+
+  if (shouldWritePrd(options.status)) {
+    writeFileSync(resolve(ticketDir, 'prd.yaml'), options.prdYaml)
+  }
+
+  if (shouldWriteBeads(options.status)) {
+    const beadsDir = resolve(ticketDir, 'beads', 'main', '.beads')
+    mkdirSync(beadsDir, { recursive: true })
+    writeFileSync(resolve(beadsDir, 'issues.jsonl'), toJsonl(options.beads))
+  }
+}
 
 // Delete all existing data (order matters for FK constraints)
 db.delete(ticketStatusHistory).run()
@@ -15,283 +956,201 @@ const existingProfile = db.select().from(profiles).get()
 const profileId = existingProfile?.id ?? db.insert(profiles).values({
   username: 'developer',
   icon: '👤',
-  councilMembers: JSON.stringify(['claude-sonnet-4-20250514', 'gpt-4o', 'gemini-2.5-pro']),
+  councilMembers: COUNCIL_JSON,
   minCouncilQuorum: 2,
   maxIterations: 5,
 }).returning().get()!.id
 
 console.log(`  ✅ Profile ready (id: ${profileId})`)
 
-// Create projects
-const projectRows = db.insert(projects).values([
-  { name: 'TravelHub', shortname: 'TRVL', icon: '✈️', color: '#FF6B6B', folderPath: '/mnt/d/travelhub', profileId, ticketCounter: 7 },
-  { name: 'MediFlow', shortname: 'MEDI', icon: '🏥', color: '#4ECDC4', folderPath: '/mnt/d/mediflow', profileId, ticketCounter: 7 },
-  { name: 'FinAnalytics', shortname: 'FIN', icon: '📊', color: '#95E1D3', folderPath: '/mnt/d/finanalytics', profileId, ticketCounter: 6 },
-]).returning().all()
-const travelhub = projectRows[0]!
-const mediflow = projectRows[1]!
-const finanalytics = projectRows[2]!
+const insertedProjects = db.insert(projects).values(
+  projectSeeds.map((project) => ({
+    name: project.name,
+    shortname: project.key,
+    icon: project.icon,
+    color: project.color,
+    folderPath: project.folderPath,
+    profileId,
+    ticketCounter: project.ticketCounter,
+  })),
+).returning().all()
 
-console.log(`  ✅ Created 3 projects`)
+const projectByKey = new Map<ProjectKey, (typeof insertedProjects)[number]>()
+for (const seed of projectSeeds) {
+  const row = insertedProjects.find((project) => project.shortname === seed.key)
+  if (!row) {
+    throw new Error(`Missing inserted project row for ${seed.key}`)
+  }
+  projectByKey.set(seed.key, row)
+}
 
-// Helpers
-const ago = (hours: number) => new Date(Date.now() - hours * 3600000).toISOString()
-const council = JSON.stringify(['claude-sonnet-4-20250514', 'gpt-4o', 'gemini-2.5-pro'])
+console.log('  ✅ Created 3 projects')
 
-// Create 20 tickets across various statuses
-const ticketRows = db.insert(tickets).values([
-  // === TravelHub (7 tickets) ===
-  { externalId: 'TRVL-1', projectId: travelhub.id, title: 'Implement user authentication', priority: 1, status: 'COMPLETED', branchName: 'feat/trvl-1-user-auth', percentComplete: 100, startedAt: ago(168), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(192), updatedAt: ago(144), description: 'Implement OAuth and email/password authentication for user sign-up and login.' },
-  { externalId: 'TRVL-2', projectId: travelhub.id, title: 'Build flight search engine', priority: 1, status: 'CODING', branchName: 'feat/trvl-2-flight-search', currentBead: 3, totalBeads: 6, percentComplete: 50, startedAt: ago(48), lockedMainImplementer: 'gpt-4o', lockedCouncilMembers: council, createdAt: ago(72), updatedAt: ago(2), description: 'Implement flight search with filters for date, price, duration, and stops.' },
-  { externalId: 'TRVL-3', projectId: travelhub.id, title: 'Create booking engine', priority: 2, status: 'WAITING_PRD_APPROVAL', startedAt: ago(24), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(48), updatedAt: ago(6), description: 'Build the complete booking workflow with seat selection and payment integration.' },
-  { externalId: 'TRVL-4', projectId: travelhub.id, title: 'Integrate hotel booking API', priority: 2, status: 'DRAFT', createdAt: ago(36), updatedAt: ago(36), description: 'Connect to major hotel booking APIs for availability and pricing data.' },
-  { externalId: 'TRVL-5', projectId: travelhub.id, title: 'Build trip itinerary planner', priority: 2, status: 'RUNNING_FINAL_TEST', branchName: 'feat/trvl-5-itinerary', currentBead: 4, totalBeads: 4, percentComplete: 100, startedAt: ago(56), lockedMainImplementer: 'gemini-2.5-pro', lockedCouncilMembers: council, createdAt: ago(72), updatedAt: ago(1), description: 'Allow users to create and manage multi-city trip itineraries with day-by-day plans.' },
-  { externalId: 'TRVL-6', projectId: travelhub.id, title: 'Add destination reviews system', priority: 4, status: 'CANCELED', startedAt: ago(120), createdAt: ago(144), updatedAt: ago(96), description: 'Community-driven reviews and ratings for hotels, flights, and destinations.' },
-  { externalId: 'TRVL-7', projectId: travelhub.id, title: 'Setup payment gateway integration', priority: 1, status: 'BLOCKED_ERROR', branchName: 'feat/trvl-7-payments', currentBead: 1, totalBeads: 3, percentComplete: 25, startedAt: ago(28), lockedMainImplementer: 'gpt-4o', lockedCouncilMembers: council, errorMessage: 'Stripe API rate limit exceeded during testing, need higher tier plan', createdAt: ago(48), updatedAt: ago(12), description: 'Integrate Stripe for payment processing with support for multiple currencies.' },
+const timelines = new Map<string, TicketTimeline>()
+const seedByExternalId = new Map<string, TicketSeed>()
 
-  // === MediFlow (7 tickets) ===
-  { externalId: 'MEDI-1', projectId: mediflow.id, title: 'Setup patient authentication', priority: 1, status: 'COMPLETED', branchName: 'feat/medi-1-patient-auth', percentComplete: 100, startedAt: ago(240), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(264), updatedAt: ago(192), description: 'Implement secure authentication with HIPAA compliance for patient access.' },
-  { externalId: 'MEDI-2', projectId: mediflow.id, title: 'Build appointment scheduler', priority: 2, status: 'WAITING_INTERVIEW_ANSWERS', startedAt: ago(14), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(36), updatedAt: ago(6), description: 'Create appointment booking system with doctor availability and automated reminders.' },
-  { externalId: 'MEDI-3', projectId: mediflow.id, title: 'Implement patient records system', priority: 1, status: 'DRAFTING_BEADS', startedAt: ago(32), lockedMainImplementer: 'gpt-4o', lockedCouncilMembers: council, createdAt: ago(60), updatedAt: ago(8), description: 'Build comprehensive electronic health records with version history and access control.' },
-  { externalId: 'MEDI-4', projectId: mediflow.id, title: 'Create prescription management', priority: 2, status: 'COUNCIL_DELIBERATING', startedAt: ago(3), lockedMainImplementer: 'gemini-2.5-pro', lockedCouncilMembers: council, createdAt: ago(24), updatedAt: ago(3), description: 'Manage prescription creation, renewal, and pharmacy integration with e-signature support.' },
-  { externalId: 'MEDI-5', projectId: mediflow.id, title: 'Add telemedicine video calls', priority: 3, status: 'DRAFTING_PRD', startedAt: ago(10), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(30), updatedAt: ago(4), description: 'Integrate video conferencing for remote consultations with screen sharing for medical images.' },
-  { externalId: 'MEDI-6', projectId: mediflow.id, title: 'Integrate lab results system', priority: 2, status: 'DRAFT', createdAt: ago(12), updatedAt: ago(12), description: 'Connect to laboratory information systems for automated lab results delivery.' },
-  { externalId: 'MEDI-7', projectId: mediflow.id, title: 'Build notification system', priority: 2, status: 'WAITING_BEADS_APPROVAL', startedAt: ago(20), lockedMainImplementer: 'gpt-4o', lockedCouncilMembers: council, createdAt: ago(40), updatedAt: ago(7), description: 'Multi-channel notifications for appointments, prescriptions, and lab results via SMS/email/push.' },
+const ticketInsertValues = ticketSeeds.map((seed, index) => {
+  const project = projectByKey.get(seed.projectKey)
+  if (!project) {
+    throw new Error(`Project mapping missing for ${seed.projectKey}`)
+  }
 
-  // === FinAnalytics (6 tickets) ===
-  { externalId: 'FIN-1', projectId: finanalytics.id, title: 'Setup ETL data pipeline', priority: 1, status: 'COMPLETED', branchName: 'feat/fin-1-etl-pipeline', percentComplete: 100, startedAt: ago(240), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(264), updatedAt: ago(192), description: 'Build ETL pipeline for ingesting financial data from multiple sources.' },
-  { externalId: 'FIN-2', projectId: finanalytics.id, title: 'Design analytics dashboard', priority: 1, status: 'CODING', branchName: 'feat/fin-2-dashboard', currentBead: 4, totalBeads: 7, percentComplete: 57, startedAt: ago(60), lockedMainImplementer: 'gpt-4o', lockedCouncilMembers: council, createdAt: ago(84), updatedAt: ago(3), description: 'Create interactive dashboard with real-time financial metrics and customizable charts.' },
-  { externalId: 'FIN-3', projectId: finanalytics.id, title: 'Build automated report generation', priority: 2, status: 'VERIFYING_INTERVIEW_COVERAGE', startedAt: ago(5), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(15), updatedAt: ago(3), description: 'Generate PDF and Excel reports with custom formatting and scheduled delivery.' },
-  { externalId: 'FIN-4', projectId: finanalytics.id, title: 'Add predictive analytics models', priority: 3, status: 'DRAFT', createdAt: ago(20), updatedAt: ago(20), description: 'Implement ML models for trend prediction and anomaly detection in financial data.' },
-  { externalId: 'FIN-5', projectId: finanalytics.id, title: 'Implement data validation layer', priority: 1, status: 'BLOCKED_ERROR', branchName: 'feat/fin-5-validation', currentBead: 2, totalBeads: 4, percentComplete: 25, startedAt: ago(14), lockedMainImplementer: 'gemini-2.5-pro', lockedCouncilMembers: council, errorMessage: 'Schema conflicts between source systems, requiring data mapping rules', createdAt: ago(32), updatedAt: ago(10), description: 'Create comprehensive data validation and transformation rules for data quality.' },
-  { externalId: 'FIN-6', projectId: finanalytics.id, title: 'Implement role-based access control', priority: 2, status: 'WAITING_INTERVIEW_APPROVAL', startedAt: ago(8), lockedMainImplementer: 'claude-sonnet-4-20250514', lockedCouncilMembers: council, createdAt: ago(20), updatedAt: ago(5), description: 'Add fine-grained permissions system with role hierarchies and data scoping.' },
-]).returning().all()
+  const history = historyForStatus(seed.status)
+  const createdHoursAgo = 560 - index * 14
+  const updatedHoursAgo = Math.max(1, createdHoursAgo - Math.max(4, history.length * 2))
 
-console.log(`  ✅ Created 20 tickets`)
+  timelines.set(seed.externalId, { createdHoursAgo, updatedHoursAgo, history })
+  seedByExternalId.set(seed.externalId, seed)
 
-// Helper to build ticket lookup
-type TicketRow = typeof ticketRows[number]
-const ticketMap: Record<string, TicketRow> = {}
-for (const tr of ticketRows) ticketMap[tr.externalId] = tr
-function t(id: string) { return ticketMap[id]!.id }
+  const nonDraft = seed.status !== 'DRAFT'
+  const lockedMainImplementer = nonDraft
+    ? (COUNCIL_MODELS[index % COUNCIL_MODELS.length] ?? COUNCIL_MODELS[0])
+    : null
+  const progress = beadProgressForStatus(seed.status)
 
-// Status history for each ticket tracking progression through workflow
-const statusHistories: { ticketId: number; previousStatus: string | null; newStatus: string; reason: string; changedAt: string }[] = []
+  return {
+    externalId: seed.externalId,
+    projectId: project.id,
+    title: seed.title,
+    description: seed.description,
+    priority: seed.priority,
+    status: seed.status,
+    xstateSnapshot: null,
+    branchName: shouldHaveBranch(seed.status)
+      ? `feat/${seed.externalId.toLowerCase()}-${slugifyTitle(seed.title)}`
+      : null,
+    currentBead: progress?.current ?? null,
+    totalBeads: progress?.total ?? null,
+    percentComplete: percentForStatus(seed.status),
+    errorMessage: seed.status === 'BLOCKED_ERROR'
+      ? 'Mock dependency schema mismatch in billing pipeline payload parser.'
+      : null,
+    lockedMainImplementer,
+    lockedCouncilMembers: nonDraft ? COUNCIL_JSON : null,
+    startedAt: nonDraft ? ago(createdHoursAgo - 2) : null,
+    plannedDate: null,
+    createdAt: ago(createdHoursAgo),
+    updatedAt: ago(updatedHoursAgo),
+  }
+})
 
-// TRVL-1: DRAFT → COUNCIL_DELIBERATING → RUNNING_FINAL_TEST → COMPLETED
-statusHistories.push(
-  { ticketId: t('TRVL-1'), previousStatus: 'DRAFT', newStatus: 'COUNCIL_DELIBERATING', reason: 'Interview completed, submitted for council review', changedAt: ago(190) },
-  { ticketId: t('TRVL-1'), previousStatus: 'COUNCIL_DELIBERATING', newStatus: 'RUNNING_FINAL_TEST', reason: 'Council approved, moved to testing', changedAt: ago(170) },
-  { ticketId: t('TRVL-1'), previousStatus: 'RUNNING_FINAL_TEST', newStatus: 'COMPLETED', reason: 'All tests passed', changedAt: ago(145) },
-)
+const insertedTickets = db.insert(tickets).values(ticketInsertValues).returning().all()
 
-// TRVL-2: DRAFT → WAITING_INTERVIEW_ANSWERS → DRAFTING_PRD → CODING
-statusHistories.push(
-  { ticketId: t('TRVL-2'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Ticket created, awaiting interview', changedAt: ago(70) },
-  { ticketId: t('TRVL-2'), previousStatus: 'WAITING_INTERVIEW_ANSWERS', newStatus: 'DRAFTING_PRD', reason: 'Interview answers received', changedAt: ago(65) },
-  { ticketId: t('TRVL-2'), previousStatus: 'DRAFTING_PRD', newStatus: 'CODING', reason: 'PRD approved, coding started', changedAt: ago(50) },
-)
+for (const row of insertedTickets) {
+  const timeline = timelines.get(row.externalId)
+  if (!timeline) continue
 
-// TRVL-3: DRAFT → DRAFTING_BEADS → WAITING_PRD_APPROVAL
-statusHistories.push(
-  { ticketId: t('TRVL-3'), previousStatus: 'DRAFT', newStatus: 'DRAFTING_BEADS', reason: 'Planning initiated', changedAt: ago(46) },
-  { ticketId: t('TRVL-3'), previousStatus: 'DRAFTING_BEADS', newStatus: 'WAITING_PRD_APPROVAL', reason: 'Beads drafted, awaiting PRD review', changedAt: ago(25) },
-)
+  const lockedMainImplementer = row.lockedMainImplementer ?? null
+  const snapshot = buildSnapshotForTicket(
+    row.id,
+    row.projectId,
+    row.externalId,
+    row.title,
+    timeline.history,
+    lockedMainImplementer,
+  )
 
-// TRVL-4: DRAFT (no status change)
-statusHistories.push(
-  { ticketId: t('TRVL-4'), previousStatus: null, newStatus: 'DRAFT', reason: 'Ticket created', changedAt: ago(36) },
-)
+  db.update(tickets)
+    .set({ xstateSnapshot: snapshot })
+    .where(eq(tickets.id, row.id))
+    .run()
+}
 
-// TRVL-5: DRAFT → WAITING_INTERVIEW_ANSWERS → DRAFTING_BEADS → RUNNING_FINAL_TEST
-statusHistories.push(
-  { ticketId: t('TRVL-5'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Awaiting interview answers', changedAt: ago(68) },
-  { ticketId: t('TRVL-5'), previousStatus: 'WAITING_INTERVIEW_ANSWERS', newStatus: 'DRAFTING_BEADS', reason: 'PRD approved, planning beads', changedAt: ago(62) },
-  { ticketId: t('TRVL-5'), previousStatus: 'DRAFTING_BEADS', newStatus: 'RUNNING_FINAL_TEST', reason: 'Beads approved, final testing', changedAt: ago(57) },
-)
+console.log('  ✅ Created 20 tickets with XState snapshots')
 
-// TRVL-6: DRAFT → COUNCIL_DELIBERATING → CANCELED
-statusHistories.push(
-  { ticketId: t('TRVL-6'), previousStatus: 'DRAFT', newStatus: 'COUNCIL_DELIBERATING', reason: 'Submitted to council', changedAt: ago(140) },
-  { ticketId: t('TRVL-6'), previousStatus: 'COUNCIL_DELIBERATING', newStatus: 'CANCELED', reason: 'Council decision: feature out of scope for current release', changedAt: ago(98) },
-)
+const ticketByExternalId = new Map<string, SeededTicketRow>()
+for (const row of insertedTickets) {
+  ticketByExternalId.set(row.externalId, {
+    id: row.id,
+    externalId: row.externalId,
+    projectId: row.projectId,
+    title: row.title,
+    createdAt: row.createdAt,
+  })
+}
 
-// TRVL-7: DRAFT → WAITING_INTERVIEW_APPROVAL → CODING → BLOCKED_ERROR
-statusHistories.push(
-  { ticketId: t('TRVL-7'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_APPROVAL', reason: 'Interview completed', changedAt: ago(45) },
-  { ticketId: t('TRVL-7'), previousStatus: 'WAITING_INTERVIEW_APPROVAL', newStatus: 'CODING', reason: 'Approved, coding started', changedAt: ago(30) },
-  { ticketId: t('TRVL-7'), previousStatus: 'CODING', newStatus: 'BLOCKED_ERROR', reason: 'Stripe rate limiting issue encountered', changedAt: ago(13) },
-)
+const statusHistoryRows: Array<{
+  ticketId: number
+  previousStatus: string | null
+  newStatus: string
+  reason: string
+  changedAt: string
+}> = []
 
-// MEDI-1: DRAFT → COUNCIL_DELIBERATING → RUNNING_FINAL_TEST → COMPLETED
-statusHistories.push(
-  { ticketId: t('MEDI-1'), previousStatus: 'DRAFT', newStatus: 'COUNCIL_DELIBERATING', reason: 'Interview and PRD complete', changedAt: ago(260) },
-  { ticketId: t('MEDI-1'), previousStatus: 'COUNCIL_DELIBERATING', newStatus: 'RUNNING_FINAL_TEST', reason: 'Council approved beads plan', changedAt: ago(245) },
-  { ticketId: t('MEDI-1'), previousStatus: 'RUNNING_FINAL_TEST', newStatus: 'COMPLETED', reason: 'All tests passed, HIPAA compliance verified', changedAt: ago(195) },
-)
+for (const seed of ticketSeeds) {
+  const ticket = ticketByExternalId.get(seed.externalId)
+  const timeline = timelines.get(seed.externalId)
+  if (!ticket || !timeline) {
+    throw new Error(`Missing ticket/timeline for ${seed.externalId}`)
+  }
 
-// MEDI-2: DRAFT → WAITING_INTERVIEW_ANSWERS
-statusHistories.push(
-  { ticketId: t('MEDI-2'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Ticket submitted for interview', changedAt: ago(35) },
-)
+  const span = Math.max(1, timeline.createdHoursAgo - timeline.updatedHoursAgo)
+  const denominator = Math.max(1, timeline.history.length - 1)
 
-// MEDI-3: DRAFT → WAITING_INTERVIEW_ANSWERS → DRAFTING_BEADS
-statusHistories.push(
-  { ticketId: t('MEDI-3'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Interview scheduled', changedAt: ago(58) },
-  { ticketId: t('MEDI-3'), previousStatus: 'WAITING_INTERVIEW_ANSWERS', newStatus: 'DRAFTING_BEADS', reason: 'Interview completed, planning implementation', changedAt: ago(33) },
-)
+  for (let index = 0; index < timeline.history.length; index += 1) {
+    const newStatus = timeline.history[index]
+    if (!newStatus) continue
 
-// MEDI-4: DRAFT → WAITING_INTERVIEW_APPROVAL → COUNCIL_DELIBERATING
-statusHistories.push(
-  { ticketId: t('MEDI-4'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_APPROVAL', reason: 'Interview completed', changedAt: ago(22) },
-  { ticketId: t('MEDI-4'), previousStatus: 'WAITING_INTERVIEW_APPROVAL', newStatus: 'COUNCIL_DELIBERATING', reason: 'Approved, council is deliberating approach', changedAt: ago(4) },
-)
+    const previousStatus = index === 0 ? null : (timeline.history[index - 1] ?? null)
+    const offsetHours = Math.round(timeline.createdHoursAgo - (span * index) / denominator)
 
-// MEDI-5: DRAFT → DRAFTING_PRD
-statusHistories.push(
-  { ticketId: t('MEDI-5'), previousStatus: 'DRAFT', newStatus: 'DRAFTING_PRD', reason: 'Interview complete, drafting PRD', changedAt: ago(28) },
-)
+    statusHistoryRows.push({
+      ticketId: ticket.id,
+      previousStatus,
+      newStatus,
+      reason: STATUS_REASON[newStatus] ?? 'Workflow advanced',
+      changedAt: ago(offsetHours),
+    })
+  }
+}
 
-// MEDI-6: DRAFT (no status change)
-statusHistories.push(
-  { ticketId: t('MEDI-6'), previousStatus: null, newStatus: 'DRAFT', reason: 'Ticket created', changedAt: ago(12) },
-)
+db.insert(ticketStatusHistory).values(statusHistoryRows).run()
+console.log(`  ✅ Created ${statusHistoryRows.length} status history entries`)
 
-// MEDI-7: DRAFT → WAITING_INTERVIEW_ANSWERS → WAITING_BEADS_APPROVAL
-statusHistories.push(
-  { ticketId: t('MEDI-7'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Interview scheduled', changedAt: ago(38) },
-  { ticketId: t('MEDI-7'), previousStatus: 'WAITING_INTERVIEW_ANSWERS', newStatus: 'WAITING_BEADS_APPROVAL', reason: 'PRD approved, beads drafted', changedAt: ago(8) },
-)
+const artifactRows: Array<{ ticketId: number; phase: string; artifactType: string; content: string }> = []
 
-// FIN-1: DRAFT → COUNCIL_DELIBERATING → RUNNING_FINAL_TEST → COMPLETED
-statusHistories.push(
-  { ticketId: t('FIN-1'), previousStatus: 'DRAFT', newStatus: 'COUNCIL_DELIBERATING', reason: 'Interview and PRD complete', changedAt: ago(260) },
-  { ticketId: t('FIN-1'), previousStatus: 'COUNCIL_DELIBERATING', newStatus: 'RUNNING_FINAL_TEST', reason: 'Council approved implementation plan', changedAt: ago(245) },
-  { ticketId: t('FIN-1'), previousStatus: 'RUNNING_FINAL_TEST', newStatus: 'COMPLETED', reason: 'Data pipeline validated and tested', changedAt: ago(195) },
-)
+for (const seed of ticketSeeds) {
+  const ticket = ticketByExternalId.get(seed.externalId)
+  const timeline = timelines.get(seed.externalId)
+  const project = projectByKey.get(seed.projectKey)
+  if (!ticket || !timeline || !project) {
+    throw new Error(`Missing data for seed ${seed.externalId}`)
+  }
 
-// FIN-2: DRAFT → WAITING_INTERVIEW_ANSWERS → DRAFTING_PRD → CODING
-statusHistories.push(
-  { ticketId: t('FIN-2'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Interview scheduled', changedAt: ago(82) },
-  { ticketId: t('FIN-2'), previousStatus: 'WAITING_INTERVIEW_ANSWERS', newStatus: 'DRAFTING_PRD', reason: 'Interview answers received', changedAt: ago(76) },
-  { ticketId: t('FIN-2'), previousStatus: 'DRAFTING_PRD', newStatus: 'CODING', reason: 'PRD approved, coding started', changedAt: ago(61) },
-)
+  const generatedAt = ago(Math.max(1, timeline.updatedHoursAgo + 2))
+  const approvedAt = ago(Math.max(1, timeline.updatedHoursAgo))
+  const interviewYaml = buildInterviewYaml(seed.externalId, seed.title, generatedAt, approvedAt)
+  const prdYaml = buildPrdYaml(seed.externalId, seed.title, generatedAt, approvedAt)
+  const beads = buildBeads(seed.externalId, seed.title, seed.status, timeline.updatedHoursAgo + 24)
 
-// FIN-3: DRAFT → WAITING_INTERVIEW_ANSWERS → VERIFYING_INTERVIEW_COVERAGE
-statusHistories.push(
-  { ticketId: t('FIN-3'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_ANSWERS', reason: 'Interview in progress', changedAt: ago(13) },
-  { ticketId: t('FIN-3'), previousStatus: 'WAITING_INTERVIEW_ANSWERS', newStatus: 'VERIFYING_INTERVIEW_COVERAGE', reason: 'Interview complete, verifying coverage', changedAt: ago(4) },
-)
+  seedTicketFiles({
+    ticket,
+    projectFolder: project.folderPath,
+    projectName: project.name,
+    status: seed.status,
+    history: timeline.history,
+    createdHoursAgo: timeline.createdHoursAgo,
+    updatedHoursAgo: timeline.updatedHoursAgo,
+    interviewYaml,
+    prdYaml,
+    beads,
+  })
 
-// FIN-4: DRAFT (no status change)
-statusHistories.push(
-  { ticketId: t('FIN-4'), previousStatus: null, newStatus: 'DRAFT', reason: 'Ticket created', changedAt: ago(20) },
-)
+  artifactRows.push(...buildArtifactsForStatus(
+    ticket.id,
+    seed.status,
+    seed.title,
+    interviewYaml,
+    prdYaml,
+    beads,
+  ))
+}
 
-// FIN-5: DRAFT → WAITING_INTERVIEW_APPROVAL → CODING → BLOCKED_ERROR
-statusHistories.push(
-  { ticketId: t('FIN-5'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_APPROVAL', reason: 'Interview completed', changedAt: ago(30) },
-  { ticketId: t('FIN-5'), previousStatus: 'WAITING_INTERVIEW_APPROVAL', newStatus: 'CODING', reason: 'Interview approved, coding started', changedAt: ago(15) },
-  { ticketId: t('FIN-5'), previousStatus: 'CODING', newStatus: 'BLOCKED_ERROR', reason: 'Schema mapping conflicts encountered', changedAt: ago(10) },
-)
+if (artifactRows.length > 0) {
+  db.insert(phaseArtifacts).values(artifactRows).run()
+}
 
-// FIN-6: DRAFT → WAITING_INTERVIEW_APPROVAL
-statusHistories.push(
-  { ticketId: t('FIN-6'), previousStatus: 'DRAFT', newStatus: 'WAITING_INTERVIEW_APPROVAL', reason: 'Interview scheduled', changedAt: ago(18) },
-)
+console.log(`  ✅ Created ${artifactRows.length} phase artifacts`)
 
-db.insert(ticketStatusHistory).values(statusHistories).run()
-
-console.log(`  ✅ Created ${statusHistories.length} status history entries`)
-
-// Phase artifacts for non-DRAFT tickets (simplified - just 1-2 artifacts per ticket)
-const artifacts: { ticketId: number; phase: string; artifactType: string; content: string }[] = []
-
-// TravelHub artifacts
-artifacts.push(
-  { ticketId: t('TRVL-1'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'Which OAuth providers should we support?', a: 'Google, GitHub, and Apple for MVP.' },
-      { q: 'How should sessions be managed?', a: 'JWT with 24-hour expiration and refresh token rotation.' },
-    ],
-    status: 'approved',
-  }) },
-  { ticketId: t('TRVL-2'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'What search backends exist?', a: 'Amadeus and Sabre for flight availability.' },
-      { q: 'How to handle price caching?', a: '5-minute TTL for price quotes before expiration.' },
-    ],
-    status: 'pending_approval',
-  }) },
-  { ticketId: t('TRVL-3'), phase: 'prd', artifactType: 'prd_draft', content: JSON.stringify({
-    title: 'Booking Engine PRD',
-    overview: 'Complete checkout flow with seat selection and payment',
-    status: 'pending_approval',
-  }) },
-  { ticketId: t('TRVL-5'), phase: 'beads', artifactType: 'beads_plan', content: JSON.stringify({
-    beads: [
-      { id: 1, title: 'UI layout design', status: 'completed' },
-      { id: 2, title: 'Day planner component', status: 'completed' },
-      { id: 3, title: 'Activity integration', status: 'completed' },
-      { id: 4, title: 'Export to PDF/calendar', status: 'completed' },
-    ],
-  }) },
-)
-
-// MediFlow artifacts
-artifacts.push(
-  { ticketId: t('MEDI-1'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'HIPAA compliance approach?', a: 'End-to-end encryption and audit logging.' },
-      { q: 'Patient ID system?', a: 'Medical Record Number (MRN) with SSN fallback.' },
-    ],
-    status: 'approved',
-  }) },
-  { ticketId: t('MEDI-2'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'Scheduling buffer time?', a: '15-minute increments, 24-hour advance booking.' },
-      { q: 'Cancellation policy?', a: 'Free cancellation up to 24 hours before.' },
-    ],
-    status: 'awaiting_answers',
-  }) },
-  { ticketId: t('MEDI-4'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'E-signature provider?', a: 'DocuSign for legal compliance.' },
-      { q: 'Pharmacy connectivity?', a: 'NCPDP SCRIPT standard.' },
-    ],
-    status: 'pending_approval',
-  }) },
-)
-
-// FinAnalytics artifacts
-artifacts.push(
-  { ticketId: t('FIN-1'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'Data sources?', a: 'APIs from NYSE, NASDAQ, and crypto exchanges.' },
-      { q: 'Pipeline frequency?', a: 'Real-time for crypto, daily batch for stocks.' },
-    ],
-    status: 'approved',
-  }) },
-  { ticketId: t('FIN-2'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'Dashboard frameworks?', a: 'D3.js and ECharts for charts.' },
-      { q: 'Real-time updates?', a: 'WebSocket for live price updates.' },
-    ],
-    status: 'awaiting_answers',
-  }) },
-  { ticketId: t('FIN-3'), phase: 'interview', artifactType: 'interview_draft', content: JSON.stringify({
-    questions: [
-      { q: 'Report formats?', a: 'PDF, Excel, and CSV exports.' },
-      { q: 'Scheduling?', a: 'Daily, weekly, monthly via cron or UI.' },
-    ],
-    status: 'pending_approval',
-  }) },
-)
-
-db.insert(phaseArtifacts).values(artifacts).run()
-
-console.log(`  ✅ Created ${artifacts.length} phase artifacts`)
-
-// Close the database cleanly
 sqlite.close()
 console.log('\n🎉 Seed complete!')

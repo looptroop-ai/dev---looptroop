@@ -1,10 +1,29 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { resolve } from 'path'
+import { resolve, isAbsolute } from 'path'
 import { mkdirSync } from 'fs'
 import * as schema from './schema'
 
-const DB_PATH = resolve(process.cwd(), '.looptroop/db.sqlite')
+const isTestRuntime = process.env.NODE_ENV === 'test'
+  || process.env.VITEST === 'true'
+  || process.env.VITEST === '1'
+
+const defaultDbPath = resolve(
+  process.cwd(),
+  isTestRuntime ? '.looptroop/test-db.sqlite' : '.looptroop/db.sqlite',
+)
+
+const configuredDbPath = process.env.LOOPTROOP_DB_PATH
+const DB_PATH = configuredDbPath
+  ? (isAbsolute(configuredDbPath) ? configuredDbPath : resolve(process.cwd(), configuredDbPath))
+  : defaultDbPath
+
+if (isTestRuntime && DB_PATH === resolve(process.cwd(), '.looptroop/db.sqlite')) {
+  throw new Error(
+    `[db] Refusing to use primary DB during tests: ${DB_PATH}. ` +
+    `Use LOOPTROOP_DB_PATH or allow default test DB.`,
+  )
+}
 
 // Ensure directory exists
 mkdirSync(resolve(process.cwd(), '.looptroop'), { recursive: true })

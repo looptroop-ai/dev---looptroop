@@ -79,7 +79,7 @@ async function ticketAction(id: number, action: 'start' | 'approve' | 'cancel' |
 
 interface InterviewQuestion {
   id: string
-  category: string
+  phase: string
   question: string
   priority: 'critical' | 'high' | 'medium' | 'low'
   rationale: string
@@ -289,4 +289,75 @@ export function useSaveTicketUIState() {
   })
 }
 
-export type { Ticket, CreateTicketInput, InterviewQuestion, InterviewData, TicketUIStateResponse }
+// ─── Interview Batch Types & Hooks ───
+
+interface BatchQuestion {
+  id: string
+  question: string
+  phase?: string
+  priority?: string
+  rationale?: string
+}
+
+interface BatchData {
+  questions: BatchQuestion[]
+  progress: { current: number; total: number }
+  isComplete: boolean
+  isFinalFreeForm: boolean
+  aiCommentary: string
+  batchNumber: number
+}
+
+interface InterviewBatchResponse {
+  batch: BatchData | null
+  status: 'ok' | 'no_batch' | 'parse_error'
+}
+
+async function fetchInterviewBatch(ticketId: number): Promise<InterviewBatchResponse> {
+  const res = await fetch(`/api/tickets/${ticketId}/interview-batch`)
+  if (!res.ok) throw new Error('Failed to fetch interview batch')
+  return res.json()
+}
+
+async function submitBatch(
+  ticketId: number,
+  answers: Record<string, string>,
+): Promise<BatchData> {
+  const res = await fetch(`/api/tickets/${ticketId}/answer-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to submit batch')
+  }
+  return res.json()
+}
+
+export function useInterviewBatch(ticketId: number) {
+  return useQuery({
+    queryKey: ['interview-batch', ticketId],
+    queryFn: () => fetchInterviewBatch(ticketId),
+  })
+}
+
+export function useSubmitBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId, answers }: { ticketId: number; answers: Record<string, string> }) =>
+      submitBatch(ticketId, answers),
+    onSuccess: (data, variables) => {
+      // Update batch cache with returned data
+      queryClient.setQueryData<InterviewBatchResponse>(
+        ['interview-batch', variables.ticketId],
+        { batch: data, status: 'ok' },
+      )
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['ticket-ui-state', variables.ticketId, 'interview_qa'] })
+    },
+  })
+}
+
+export type { Ticket, CreateTicketInput, InterviewQuestion, InterviewData, TicketUIStateResponse, BatchQuestion, BatchData }

@@ -269,6 +269,53 @@ describe('ticketMachine', () => {
     })
   })
 
+  describe('interview batch events', () => {
+    function navigateToWaitingAnswers() {
+      const actor = startActor()
+      actor.send({ type: 'START' })
+      actor.send({ type: 'QUESTIONS_READY', result: {} })
+      actor.send({ type: 'WINNER_SELECTED', winner: 'a' })
+      actor.send({ type: 'READY' })
+      return actor
+    }
+
+    it('should self-loop on BATCH_ANSWERED in WAITING_INTERVIEW_ANSWERS', () => {
+      const actor = navigateToWaitingAnswers()
+      expect(actor.getSnapshot().value).toBe('WAITING_INTERVIEW_ANSWERS')
+
+      actor.send({ type: 'BATCH_ANSWERED', batchAnswers: { Q1: 'answer1' } })
+      expect(actor.getSnapshot().value).toBe('WAITING_INTERVIEW_ANSWERS')
+
+      // Should still accept more batches
+      actor.send({ type: 'BATCH_ANSWERED', batchAnswers: { Q2: 'answer2' } })
+      expect(actor.getSnapshot().value).toBe('WAITING_INTERVIEW_ANSWERS')
+      actor.stop()
+    })
+
+    it('should transition to VERIFYING_INTERVIEW_COVERAGE on INTERVIEW_COMPLETE', () => {
+      const actor = navigateToWaitingAnswers()
+      expect(actor.getSnapshot().value).toBe('WAITING_INTERVIEW_ANSWERS')
+
+      actor.send({ type: 'INTERVIEW_COMPLETE' })
+      expect(actor.getSnapshot().value).toBe('VERIFYING_INTERVIEW_COVERAGE')
+      actor.stop()
+    })
+
+    it('should still accept ANSWER_SUBMITTED as escape hatch', () => {
+      const actor = navigateToWaitingAnswers()
+      actor.send({ type: 'ANSWER_SUBMITTED', answers: { Q1: 'a' } })
+      expect(actor.getSnapshot().value).toBe('VERIFYING_INTERVIEW_COVERAGE')
+      actor.stop()
+    })
+
+    it('should still accept SKIP as escape hatch', () => {
+      const actor = navigateToWaitingAnswers()
+      actor.send({ type: 'SKIP' })
+      expect(actor.getSnapshot().value).toBe('VERIFYING_INTERVIEW_COVERAGE')
+      actor.stop()
+    })
+  })
+
   describe('coverage verification loops', () => {
     it('should loop back to WAITING_INTERVIEW_ANSWERS on GAPS_FOUND', () => {
       const actor = startActor()

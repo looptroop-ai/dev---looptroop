@@ -14,6 +14,8 @@ import { validateJson } from '../../middleware/validation'
 import { eq } from 'drizzle-orm'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
 
 const app = new Hono()
 app.use('/api/*', validateJson)
@@ -102,11 +104,55 @@ describe('Profile routes', () => {
 })
 
 describe('Project routes', () => {
+  const gitTestDirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of gitTestDirs.splice(0)) {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    }
+  })
+
   it('GET /api/projects returns empty array', async () => {
     const res = await app.request('/api/projects')
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json).toEqual([])
+  })
+
+  it('GET /api/projects/check-git marks repo root selection', async () => {
+    const repoDir = fs.mkdtempSync(path.join(tmpdir(), 'looptroop-git-root-'))
+    gitTestDirs.push(repoDir)
+    execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
+
+    const res = await app.request(`/api/projects/check-git?path=${encodeURIComponent(repoDir)}`)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.isGit).toBe(true)
+    expect(json.status).toBe('valid')
+    expect(json.scope).toBe('root')
+    expect(json.repoRoot).toBe(repoDir)
+    expect(json.message).toBe('Git repository root selected')
+  })
+
+  it('GET /api/projects/check-git marks nested folder selection', async () => {
+    const repoDir = fs.mkdtempSync(path.join(tmpdir(), 'looptroop-git-subdir-'))
+    gitTestDirs.push(repoDir)
+    execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
+
+    const nestedDir = path.join(repoDir, 'packages', 'app')
+    fs.mkdirSync(nestedDir, { recursive: true })
+
+    const res = await app.request(`/api/projects/check-git?path=${encodeURIComponent(nestedDir)}`)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.isGit).toBe(true)
+    expect(json.status).toBe('valid')
+    expect(json.scope).toBe('subfolder')
+    expect(json.repoRoot).toBe(repoDir)
+    expect(json.message).toContain('Subfolder inside Git repository')
+    expect(json.message).toContain(`root: ${repoDir}`)
   })
 
   it('POST /api/projects creates a project', async () => {
@@ -530,6 +576,71 @@ describe('Files routes', () => {
     const json = await res.json()
     expect(json.exists).toBe(false)
     expect(json.content).toBe('')
+  })
+
+  it('GET /api/files/:ticketId/logs normalizes missing status from phase', async () => {
+    const logPath = path.join(testDir, externalId, '.ticket', 'execution-log.jsonl')
+    fs.mkdirSync(path.dirname(logPath), { recursive: true })
+    fs.writeFileSync(
+      logPath,
+      [
+        JSON.stringify({
+          timestamp: '2026-03-05T12:00:00.000Z',
+          type: 'info',
+          phase: 'CODING',
+          message: 'Started coding',
+        }),
+        JSON.stringify({
+          timestamp: '2026-03-05T12:01:00.000Z',
+          type: 'error',
+          phase: 'BLOCKED_ERROR',
+          status: 'BLOCKED_ERROR',
+          message: 'Compile failed',
+        }),
+      ].join('\n'),
+    )
+
+    const res = await app.request(`/api/files/${ticketId}/logs`)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(Array.isArray(json)).toBe(true)
+    expect(json).toHaveLength(3)
+    expect(json[0].phase).toBe('CODING')
+    expect(json[0].status).toBe('CODING')
+    expect(json[1].status).toBe('BLOCKED_ERROR')
+    expect(json[2].status).toBe('DRAFT')
+    expect(json[2].message).toContain('[APP] Status DRAFT is active')
+  })
+
+  it('GET /api/files/:ticketId/logs supports status filter', async () => {
+    const logPath = path.join(testDir, externalId, '.ticket', 'execution-log.jsonl')
+    fs.mkdirSync(path.dirname(logPath), { recursive: true })
+    fs.writeFileSync(
+      logPath,
+      [
+        JSON.stringify({
+          timestamp: '2026-03-05T12:00:00.000Z',
+          type: 'info',
+          phase: 'COUNCIL_DELIBERATING',
+          status: 'COUNCIL_DELIBERATING',
+          message: 'Drafting started',
+        }),
+        JSON.stringify({
+          timestamp: '2026-03-05T12:01:00.000Z',
+          type: 'state_change',
+          phase: 'COUNCIL_VOTING_INTERVIEW',
+          status: 'COUNCIL_VOTING_INTERVIEW',
+          message: 'Transition',
+        }),
+      ].join('\n'),
+    )
+
+    const res = await app.request(`/api/files/${ticketId}/logs?status=COUNCIL_VOTING_INTERVIEW`)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(Array.isArray(json)).toBe(true)
+    expect(json).toHaveLength(1)
+    expect(json[0].status).toBe('COUNCIL_VOTING_INTERVIEW')
   })
 
   it('GET /api/files/:ticketId/invalid returns 400 for invalid file type', async () => {

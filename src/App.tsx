@@ -11,8 +11,10 @@ import { ToastProvider } from '@/components/shared/Toast'
 import { WelcomeDisclaimer } from '@/components/shared/WelcomeDisclaimer'
 import { useUI } from '@/context/UIContext'
 import { useTickets } from '@/hooks/useTickets'
+import { useProfile } from '@/hooks/useProfile'
 
 function App() {
+  useProfile() // Preload profile for faster Configuration open
   const { state, dispatch } = useUI()
   const { data: tickets } = useTickets()
   const ticketsRef = useRef(tickets)

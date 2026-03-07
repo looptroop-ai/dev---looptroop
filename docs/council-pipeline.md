@@ -269,8 +269,8 @@ LoopTroop uses a structured prompt catalog (PROM1-52) defined in `server/prompts
 | PROM1 | Interview | Generate interview questions |
 | PROM2 | Interview | Vote on question sets (rubric) |
 | PROM3 | Interview | Refine winning questions |
-| PROM4 | Interview | Q&A coverage check |
-| PROM5 | Interview | Compile final interview |
+| PROM4 | Interview | Batch question prompt (Q&A) |
+| PROM5 | Interview | Interview coverage check |
 | PROM10 | PRD | Draft PRD from interview |
 | PROM11 | PRD | Vote on PRD drafts (rubric) |
 | PROM12 | PRD | Refine winning PRD |

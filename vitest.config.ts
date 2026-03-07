@@ -13,6 +13,10 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}', 'server/**/*.test.ts', 'tests/**/*.test.ts'],
     css: true,
+    env: {
+      NODE_ENV: 'test',
+      LOOPTROOP_DB_PATH: '.looptroop/test-db.sqlite',
+    },
   },
   resolve: {
     alias: {

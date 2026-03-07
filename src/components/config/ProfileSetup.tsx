@@ -35,15 +35,15 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const updateProfile = useUpdateProfile()
 
   const [formData, setFormData] = useState<CreateProfileInput>({
-    username: '',
-    icon: '🧑‍💻',
-    background: '',
-    mainImplementer: '',
-    minCouncilQuorum: 2,
-    perIterationTimeout: 1200000,
-    councilResponseTimeout: 900000,
-    interviewQuestions: 50,
-    maxIterations: 5,
+    username: profile?.username ?? '',
+    icon: profile?.icon ?? '🧑‍💻',
+    background: profile?.background ?? '',
+    mainImplementer: profile?.mainImplementer ?? '',
+    minCouncilQuorum: profile?.minCouncilQuorum ?? 2,
+    perIterationTimeout: profile?.perIterationTimeout ?? 1200000,
+    councilResponseTimeout: profile?.councilResponseTimeout ?? 900000,
+    interviewQuestions: profile?.interviewQuestions ?? 50,
+    maxIterations: profile?.maxIterations ?? 5,
   })
 
   const [councilSlots, setCouncilSlots] = useState<string[]>([])

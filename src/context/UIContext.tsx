@@ -118,12 +118,20 @@ export function UIProvider({ children }: { children: ReactNode }) {
     }
   }, [state.activeView, state.selectedTicketId, state.selectedTicketExternalId])
 
-  // Apply theme
+  // Apply theme and listen for system changes
   useEffect(() => {
-    const isDark = state.theme === 'dark' ||
-      (state.theme === 'system' && typeof window.matchMedia === 'function' &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches)
-    document.documentElement.classList.toggle('dark', isDark)
+    const applyTheme = () => {
+      const isDark = state.theme === 'dark' ||
+        (state.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      document.documentElement.classList.toggle('dark', isDark)
+    }
+    applyTheme()
+
+    if (state.theme === 'system') {
+      const mql = window.matchMedia('(prefers-color-scheme: dark)')
+      mql.addEventListener('change', applyTheme)
+      return () => mql.removeEventListener('change', applyTheme)
+    }
   }, [state.theme])
 
   return (

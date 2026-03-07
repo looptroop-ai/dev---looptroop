@@ -1,4 +1,5 @@
 export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
+export type EditableArtifactType = 'interview' | 'prd' | 'beads'
 
 export interface StatusLabelOptions {
   currentBead?: number | null
@@ -123,6 +124,41 @@ export const STATUS_ORDER: string[] = [
   'CANCELED',
   'BLOCKED_ERROR',
 ]
+
+function hasReachedStatus(currentStatus: string, targetStatus: string): boolean {
+  const currentIndex = STATUS_ORDER.indexOf(currentStatus)
+  const targetIndex = STATUS_ORDER.indexOf(targetStatus)
+  return currentIndex >= 0 && targetIndex >= 0 && currentIndex >= targetIndex
+}
+
+export function getCascadeEditWarningMessage(
+  currentStatus: string,
+  artifactType: EditableArtifactType,
+): string | null {
+  if (artifactType === 'beads') return null
+
+  const affectedPhases: string[] = []
+
+  if (artifactType === 'interview' && hasReachedStatus(currentStatus, 'DRAFTING_PRD')) {
+    affectedPhases.push('PRD')
+  }
+
+  if (hasReachedStatus(currentStatus, 'DRAFTING_BEADS')) {
+    affectedPhases.push('Beads')
+  }
+
+  if (affectedPhases.length === 0) return null
+
+  const phaseLabel = affectedPhases.length === 1
+    ? `${affectedPhases[0]} phase`
+    : `${affectedPhases.join(' and ')} phases`
+  const dataLabel = affectedPhases.length === 1
+    ? `${affectedPhases[0]} data`
+    : `${affectedPhases.join(' and ')} data`
+  const artifactLabel = artifactType === 'interview' ? 'Interview Results' : 'the PRD'
+
+  return `Editing ${artifactLabel} will restart the ${phaseLabel}. All previous ${dataLabel} will be lost.`
+}
 
 const FALLBACK_LABELS = {
   blockedError: 'Error (reason)',

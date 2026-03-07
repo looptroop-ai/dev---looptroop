@@ -1,6 +1,6 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { CouncilMember, DraftResult, Vote, VoteScore } from './types'
-import type { PromptPart } from '../opencode/types'
+import type { Message, PromptPart } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 
 /**
@@ -112,6 +112,13 @@ export async function conductVoting(
   projectPath: string,
   phase?: string,
   signal?: AbortSignal,
+  onOpenCodeSessionLog?: (entry: {
+    stage: 'draft' | 'vote' | 'refine'
+    memberId: string
+    sessionId: string
+    response: string
+    messages: Message[]
+  }) => void,
 ): Promise<Vote[]> {
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
@@ -142,6 +149,15 @@ export async function conductVoting(
       ]
 
       const response = await adapter.promptSession(session.id, votingPrompt, signal)
+      const messages: Message[] = await adapter.getSessionMessages(session.id)
+
+      onOpenCodeSessionLog?.({
+        stage: 'vote',
+        memberId: voter.modelId,
+        sessionId: session.id,
+        response,
+        messages,
+      })
 
       // Parse voting response — extract real scores from AI output
       for (const draft of anonymized) {

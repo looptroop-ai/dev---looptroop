@@ -1,4 +1,4 @@
-import { GLOBAL_RULES } from './globalRules'
+import { GLOBAL_RULES, CONVERSATIONAL_RULES } from './globalRules'
 
 interface PromptTemplate {
   id: string
@@ -20,10 +20,20 @@ export const PROM1: PromptTemplate = {
     'Phase 1 - Foundation (What/Who/Why): First establish project intent, target user, core value, constraints (and out of scope), and non-goals. Exit criteria: no core ambiguity remains for problem, user, and objective.',
     'Phase 2 - Structure (Complete Feature Inventory): Then capture the full list of required features and major user flows before deep implementation details. Exit criteria: feature inventory is complete, deduplicated, and prioritized.',
     'Phase 3 - Assembly (Deep Dive Per Feature): Then go feature-by-feature and define implementation-level expectations (behavior, edge cases, acceptance criteria, test intent, dependencies). Exit criteria: each in-scope feature has enough detail to support PRD generation without guessing.',
-    'Question Limit: Maximum number of questions that can be asked is set in configuration as `max_initial_questions`.',
-    'Output Format: Output a strict machine-readable format with questions in logical order.',
+    'Question Limit: Aim to use nearly all available question slots up to `max_initial_questions`. Ask fewer questions only if additional questions would be redundant or low-value.',
+    `Output Format: Output strict machine-readable YAML. The top-level key MUST be \`questions\` containing a list. Each entry MUST have exactly three fields: \`id\`, \`phase\`, and \`question\`.
+    Example:
+    \`\`\`yaml
+    questions:
+      - id: Q01
+        phase: foundation
+        question: "Your question here?"
+          - id: Q02
+        phase: structure
+        question: "Another question?"
+    \`\`\``,
   ],
-  outputFormat: 'YAML — question list matching the questions section schema defined in PROM5.output_file',
+  outputFormat: 'YAML with top-level `questions` list. Each item: {id, phase, question}. No other fields.',
   contextInputs: ['codebase_map', 'ticket_details'],
 }
 
@@ -67,6 +77,20 @@ export const PROM4: PromptTemplate = {
     "User Adaptation: Adapt question phrasing to the user's background and expertise level. Use plain language and real-world analogies for non-technical users; use precise technical terminology for experts.",
     "Final Free-Form Question: After all questions are answered or skipped and no major ambiguity remains, present one final free-form question: 'Anything else to add before PRD generation?'",
     'Final Output: After the final free-form question is answered or skipped, output the final interview results file in a strict machine-readable format.',
+    `Structured Batch Output: Wrap each intermediate batch response in <INTERVIEW_BATCH> tags containing YAML with these fields:
+  batch_number: (integer, starting at 1)
+  progress:
+    current: (number of questions presented so far including this batch)
+    total: (estimated total remaining, may change as you adapt)
+  is_final_free_form: (boolean, true only for the final free-form question)
+  ai_commentary: (brief text explaining why you chose these questions or how you adapted)
+  questions:
+    - id: (string, e.g. "Q12" or "FU3")
+      question: (the question text)
+      phase: (Foundation | Structure | Assembly)
+      priority: (critical | high | medium | low)
+      rationale: (why this question matters)`,
+    `Final Complete Output: When the interview is fully complete (after the final free-form answer), wrap the final output in <INTERVIEW_COMPLETE> tags containing the complete interview results YAML matching PROM5.output_file schema.`,
   ],
   outputFormat: 'YAML — complete interview results file matching PROM5.output_file schema',
   contextInputs: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
@@ -261,6 +285,31 @@ export function buildPromptFromTemplate(
 ): string {
   return [
     GLOBAL_RULES,
+    '',
+    `## System Role`,
+    template.systemRole,
+    '',
+    `## Task`,
+    template.task,
+    '',
+    `## Instructions`,
+    ...template.instructions.map((step, i) => `${i + 1}. ${step}`),
+    '',
+    `## Expected Output Format`,
+    template.outputFormat,
+    '',
+    `## Context`,
+    ...contextParts.map((p) => `### ${p.type}\n${p.content}`),
+  ].join('\n')
+}
+
+// Helper to build a conversational (multi-turn) prompt from template
+export function buildConversationalPrompt(
+  template: PromptTemplate,
+  contextParts: { type: string; content: string }[],
+): string {
+  return [
+    CONVERSATIONAL_RULES,
     '',
     `## System Role`,
     template.systemRole,

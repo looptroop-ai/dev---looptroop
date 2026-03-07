@@ -1,5 +1,5 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
-import type { CouncilMember, DraftPhaseResult } from '../../council/types'
+import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../council/types'
 import { generateDrafts } from '../../council/drafter'
 import { checkQuorum } from '../../council/quorum'
 import { buildPromptFromTemplate, PROM10, PROM11, PROM12 } from '../../prompts/index'
@@ -26,6 +26,7 @@ export async function draftPRD(
     response: string
     messages: Message[]
   }) => void,
+  onDraftProgress?: (entry: DraftProgressEvent) => void,
 ): Promise<DraftPhaseResult> {
   const contextForTemplate = ticketContext.map(p => ({ type: p.type, content: p.content }))
   const promptContent = buildPromptFromTemplate(PROM10, contextForTemplate)
@@ -38,6 +39,7 @@ export async function draftPRD(
     300000,
     undefined,
     onOpenCodeSessionLog,
+    onDraftProgress,
   )
 
   const quorum = checkQuorum(drafts, 2)

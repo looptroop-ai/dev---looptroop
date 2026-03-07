@@ -1,7 +1,9 @@
 import { AlertTriangle } from 'lucide-react'
+import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTicketAction } from '@/hooks/useTickets'
+import { useLogs, type LogEntry } from '@/context/LogContext'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -9,8 +11,49 @@ interface ErrorViewProps {
   ticket: Ticket
 }
 
+function getBlockingPhase(ticket: Ticket): string | null {
+  if (ticket.status !== 'BLOCKED_ERROR' || !ticket.xstateSnapshot) return null
+  try {
+    const snapshot = JSON.parse(ticket.xstateSnapshot) as { context?: { previousStatus?: unknown } }
+    const previousStatus = snapshot.context?.previousStatus
+    return typeof previousStatus === 'string' && previousStatus !== 'BLOCKED_ERROR'
+      ? previousStatus
+      : null
+  } catch {
+    return null
+  }
+}
+
+function mergeErrorLogs(previousPhaseLogs: LogEntry[], blockedLogs: LogEntry[]): LogEntry[] {
+  const seen = new Set<string>()
+  const merged = [...previousPhaseLogs, ...blockedLogs].filter((entry, index) => {
+    const key = entry.timestamp
+      ? `${entry.timestamp}|${entry.status}|${entry.source}|${entry.line}`
+      : `no-ts:${index}|${entry.status}|${entry.source}|${entry.line}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  return merged.sort((a, b) => {
+    const aTime = a.timestamp ? Date.parse(a.timestamp) : Number.NaN
+    const bTime = b.timestamp ? Date.parse(b.timestamp) : Number.NaN
+    if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0
+    if (Number.isNaN(aTime)) return 1
+    if (Number.isNaN(bTime)) return -1
+    return aTime - bTime
+  })
+}
+
 export function ErrorView({ ticket }: ErrorViewProps) {
   const { mutate: performAction, isPending } = useTicketAction()
+  const logCtx = useLogs()
+  const blockingPhase = getBlockingPhase(ticket)
+  const errorLogs = useMemo(() => {
+    const blockedLogs = logCtx?.getLogsForPhase('BLOCKED_ERROR') ?? []
+    if (!blockingPhase) return blockedLogs
+    return mergeErrorLogs(logCtx?.getLogsForPhase(blockingPhase) ?? [], blockedLogs)
+  }, [blockingPhase, logCtx])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -52,7 +95,7 @@ export function ErrorView({ ticket }: ErrorViewProps) {
       </div>
 
       <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">
-        <PhaseLogPanel phase="BLOCKED_ERROR" />
+        <PhaseLogPanel phase="BLOCKED_ERROR" logs={errorLogs} />
       </div>
     </div>
   )
