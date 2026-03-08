@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { existsSync, rmSync, readFileSync } from 'fs'
 import { resolve } from 'path'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { db } from '../../db/index'
 import { projects, tickets, phaseArtifacts, opencodeSessions } from '../../db/schema'
 import { initializeDatabase } from '../../db/init'
@@ -8,6 +11,19 @@ import { createTicket } from '../create'
 import { initializeTicket } from '../initialize'
 
 const WORKTREE_ROOT = resolve(process.cwd(), '.looptroop/worktrees')
+let projectRepoPath = ''
+
+function createGitRepo(): string {
+  const repoDir = mkdtempSync(resolve(tmpdir(), 'looptroop-ticket-lifecycle-'))
+  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
+  writeFileSync(resolve(repoDir, 'package.json'), JSON.stringify({ name: 'fixture', private: true }, null, 2))
+  execFileSync('git', ['-C', repoDir, 'add', 'package.json'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'branch', '-M', 'main'], { stdio: 'pipe' })
+  return repoDir
+}
 
 describe('Ticket Lifecycle', () => {
   beforeEach(() => {
@@ -17,17 +33,22 @@ describe('Ticket Lifecycle', () => {
     db.delete(phaseArtifacts).run()
     db.delete(tickets).run()
     db.delete(projects).run()
+    projectRepoPath = createGitRepo()
     // Create test project
     db.insert(projects).values({
       name: 'Test Project',
       shortname: 'TEST',
-      folderPath: '/tmp/test-project',
+      folderPath: projectRepoPath,
     }).run()
   })
 
   afterEach(() => {
     try {
-      rmSync(WORKTREE_ROOT, { recursive: true, force: true })
+      rmSync(resolve(WORKTREE_ROOT, 'TEST-1'), { recursive: true, force: true })
+      rmSync(resolve(WORKTREE_ROOT, 'TEST-2'), { recursive: true, force: true })
+    } catch { /* cleanup best-effort */ }
+    try {
+      rmSync(projectRepoPath, { recursive: true, force: true })
     } catch { /* cleanup best-effort */ }
   })
 
@@ -66,31 +87,29 @@ describe('Ticket Lifecycle', () => {
 
     const result = initializeTicket({
       externalId: ticket.externalId,
-      projectFolder: '/tmp/test-project',
+      projectFolder: projectRepoPath,
     })
 
-    expect(result.success).toBe(true)
-    expect(result.created).toBe(true)
+    expect(result.reused).toBe(false)
+    expect(result.branchName).toBe(ticket.externalId)
 
     const ticketDir = resolve(WORKTREE_ROOT, ticket.externalId, '.ticket')
     expect(existsSync(resolve(ticketDir, 'runtime'))).toBe(true)
     expect(existsSync(resolve(ticketDir, 'approvals'))).toBe(true)
     expect(existsSync(resolve(ticketDir, '.gitignore'))).toBe(true)
     expect(existsSync(resolve(ticketDir, 'codebase-map.yaml'))).toBe(true)
-    expect(existsSync(resolve(ticketDir, 'initialized'))).toBe(true)
   })
 
   it('initialization is idempotent', () => {
     const project = db.select().from(projects).limit(1).get()!
     const ticket = createTicket({ projectId: project.id, title: 'Test' })
 
-    const result1 = initializeTicket({ externalId: ticket.externalId, projectFolder: '/tmp/test' })
-    const result2 = initializeTicket({ externalId: ticket.externalId, projectFolder: '/tmp/test' })
+    const result1 = initializeTicket({ externalId: ticket.externalId, projectFolder: projectRepoPath })
+    const result2 = initializeTicket({ externalId: ticket.externalId, projectFolder: projectRepoPath })
 
-    expect(result1.success).toBe(true)
-    expect(result2.success).toBe(true)
-    expect(result1.created).toBe(true)
-    expect(result2.created).toBe(false)
+    expect(result1.reused).toBe(false)
+    expect(result2.reused).toBe(true)
+    expect(result2.worktreePath).toBe(result1.worktreePath)
   })
 
   it('rejects ticket creation for non-existent project', () => {

@@ -136,7 +136,6 @@ projectRouter.get('/projects/ls', (c) => {
   try {
     const entries = readdirSync(targetPath)
     const dirs = entries
-      .filter((name) => !name.startsWith('.'))
       .flatMap((name) => {
         try {
           const full = resolvePath(targetPath, name)

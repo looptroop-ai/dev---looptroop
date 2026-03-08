@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { MockOpenCodeAdapter } from '../adapter'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { MockOpenCodeAdapter, OpenCodeSDKAdapter } from '../adapter'
 import type { PromptPart, StreamEvent } from '../types'
 
 describe('MockOpenCodeAdapter', () => {
@@ -120,5 +120,27 @@ describe('MockOpenCodeAdapter', () => {
       expect(events).toHaveLength(1)
       expect(events[0]!.type).toBe('done')
     })
+  })
+})
+
+describe('OpenCodeSDKAdapter', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('forwards the working path when creating a session', async () => {
+    const adapter = new OpenCodeSDKAdapter(9999)
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'session-1' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await adapter.createSession('/tmp/worktree')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0]!
+    expect(JSON.parse(String(init?.body))).toEqual({ path: '/tmp/worktree' })
   })
 })

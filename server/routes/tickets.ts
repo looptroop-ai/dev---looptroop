@@ -8,6 +8,8 @@ import { eq, desc, and } from 'drizzle-orm'
 import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
 import { abortTicketSessions } from '../opencode/sessionManager'
 import { cancelTicket, handleInterviewQABatch } from '../workflow/runner'
+import { createTicket as createTicketRecord } from '../ticket/create'
+import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
 
 const ticketRouter = new Hono()
 
@@ -202,27 +204,15 @@ ticketRouter.post('/tickets', async (c) => {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten(), message }, 400)
   }
 
-  // Validate project exists
-  const project = db.select().from(projects).where(eq(projects.id, parsed.data.projectId)).get()
-  if (!project) {
-    return c.json({ error: 'Project not found' }, 404)
+  let result
+  try {
+    result = createTicketRecord(parsed.data)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Project not found') {
+      return c.json({ error: 'Project not found' }, 404)
+    }
+    return c.json({ error: 'Failed to create ticket', details: String(err) }, 500)
   }
-
-  // Auto-generate external_id
-  const newCounter = (project.ticketCounter ?? 0) + 1
-  const externalId = `${project.shortname}-${newCounter}`
-
-  // Update project ticket counter
-  db.update(projects)
-    .set({ ticketCounter: newCounter })
-    .where(eq(projects.id, project.id))
-    .run()
-
-  const result = db.insert(tickets).values({
-    ...parsed.data,
-    externalId,
-    status: 'DRAFT',
-  }).returning().get()
 
   // Create XState actor for the new ticket
   createTicketActor(result.id, {
@@ -275,6 +265,7 @@ ticketRouter.post('/tickets/:id/start', (c) => {
 
   // Resolve and lock model configuration at start time
   const project = db.select().from(projects).where(eq(projects.id, ticket.projectId)).get()
+  if (!project) return c.json({ error: 'Project not found' }, 404)
   const profile = db.select().from(profiles).get()
   const lockedMainImplementer = profile?.mainImplementer ?? null
   const councilRaw = project?.councilMembers ?? profile?.councilMembers ?? null
@@ -283,11 +274,46 @@ ticketRouter.post('/tickets/:id/start', (c) => {
     try { lockedCouncilMembers = JSON.parse(councilRaw) as string[] } catch { /* ignore */ }
   }
 
-  // Persist locked models to DB
+  let init: ReturnType<typeof initializeTicket>
+  try {
+    init = initializeTicket({
+      externalId: ticket.externalId,
+      projectFolder: project.folderPath,
+    })
+  } catch (err) {
+    const initErr = err instanceof TicketInitializationError
+      ? err
+      : new TicketInitializationError('INIT_UNKNOWN', err instanceof Error ? err.message : String(err))
+
+    try {
+      ensureActorForTicket(id)
+      sendTicketEvent(id, {
+        type: 'INIT_FAILED',
+        message: initErr.message,
+        codes: [initErr.code],
+      })
+    } catch (sendErr) {
+      console.error(`[tickets] Failed to send INIT_FAILED to ticket ${id}:`, sendErr)
+      return c.json({ error: 'Failed to block ticket after initialization error', details: String(sendErr) }, 500)
+    }
+
+    const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
+    const state = getTicketState(id)
+    return c.json({
+      message: 'Start blocked during initialization',
+      ticketId: id,
+      status: updated?.status,
+      state: state?.state,
+      details: initErr.message,
+      codes: [initErr.code],
+    })
+  }
+
   db.update(tickets)
     .set({
       lockedMainImplementer,
       lockedCouncilMembers: lockedCouncilMembers ? JSON.stringify(lockedCouncilMembers) : null,
+      branchName: init.branchName,
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })

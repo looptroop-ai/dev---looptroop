@@ -134,6 +134,9 @@ function isLikelyDuplicate(a: LogEntry, b: LogEntry): boolean {
   return Math.abs(at - bt) <= 2000
 }
 
+// Module-level cache for server log responses (avoids re-fetching on remount / phase switch)
+const serverLogCache = new Map<number, Array<Record<string, unknown>>>()
+
 export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: number | null; currentStatus?: string; children: ReactNode }) {
   const [logsByPhase, setLogsByPhase] = useState<Record<string, LogEntry[]>>({})
   const [activePhase, setActivePhase] = useState<string | null>(null)
@@ -159,52 +162,63 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     }
     setLogsByPhase(loaded)
 
+    const applyServerLogs = (serverLogs: Array<Record<string, unknown>>) => {
+      if (!serverLogs.length) return
+      setLogsByPhase(prev => {
+        const merged = { ...prev }
+        for (const entry of serverLogs) {
+          const { line, source } = formatLogLine(entry)
+          const phase = String(entry.phase || entry.status || 'unknown')
+          const status = String(entry.status || phase)
+          const bucketKey = status
+          const logEntry: LogEntry = normalizeEntry({
+            line,
+            source,
+            status,
+            timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
+          }, status)
+          const bucket = merged[bucketKey] ?? []
+          if (!bucket.some(existing => isLikelyDuplicate(existing, logEntry))) {
+            merged[bucketKey] = sortByTimestamp([...bucket, logEntry])
+          }
+        }
+
+        if (currentStatus) {
+          const statusBucket = merged[currentStatus] ?? []
+          if (statusBucket.length === 0) {
+            const synthetic: LogEntry = normalizeEntry({
+              line: `[SYS] [APP] Status ${currentStatus} is active.`,
+              source: 'system',
+              status: currentStatus,
+              timestamp: new Date().toISOString(),
+            }, currentStatus)
+            merged[currentStatus] = [synthetic]
+          }
+        }
+
+        // Persist merged logs to localStorage
+        for (const [status, entries] of Object.entries(merged)) {
+          try { localStorage.setItem(`logs-${ticketId}-${status}`, JSON.stringify(entries)) } catch { /* quota */ }
+        }
+        return merged
+      })
+    }
+
+    // If we have cached server logs, apply them immediately (no loading wait)
+    const cached = serverLogCache.get(ticketId)
+    if (cached) {
+      applyServerLogs(cached)
+    }
+
     const mergeServerLogs = () => {
       fetch(`/api/files/${ticketId}/logs`)
         .then(res => res.ok ? res.json() : [])
         .then((raw: unknown) => {
           const serverLogs = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []
-          if (!serverLogs.length) return
-          setLogsByPhase(prev => {
-            const merged = { ...prev }
-            for (const entry of serverLogs) {
-              const { line, source } = formatLogLine(entry)
-              const phase = String(entry.phase || entry.status || 'unknown')
-              const status = String(entry.status || phase)
-              const bucketKey = status
-              const logEntry: LogEntry = normalizeEntry({
-                line,
-                source,
-                status,
-                timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
-              }, status)
-              const bucket = merged[bucketKey] ?? []
-              if (!bucket.some(existing => isLikelyDuplicate(existing, logEntry))) {
-                merged[bucketKey] = sortByTimestamp([...bucket, logEntry])
-              }
-            }
-
-            if (currentStatus) {
-              const statusBucket = merged[currentStatus] ?? []
-              if (statusBucket.length === 0) {
-                const synthetic: LogEntry = normalizeEntry({
-                  line: `[SYS] [APP] Status ${currentStatus} is active.`,
-                  source: 'system',
-                  status: currentStatus,
-                  timestamp: new Date().toISOString(),
-                }, currentStatus)
-                merged[currentStatus] = [synthetic]
-              }
-            }
-
-            // Persist merged logs to localStorage
-            for (const [status, entries] of Object.entries(merged)) {
-              try { localStorage.setItem(`logs-${ticketId}-${status}`, JSON.stringify(entries)) } catch { /* quota */ }
-            }
-            return merged
-          })
+          serverLogCache.set(ticketId, serverLogs)
+          applyServerLogs(serverLogs)
         })
-        .catch(() => { /* network error – localStorage entries still available */ })
+        .catch(() => { /* network error – localStorage/cache entries still available */ })
     }
 
     // Initial pull + periodic fallback sync (covers SSE disconnects)

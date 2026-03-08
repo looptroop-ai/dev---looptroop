@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { eq } from 'drizzle-orm'
 import { createActor } from 'xstate'
 import { initializeTicket } from '../ticket/initialize'
@@ -10,7 +11,7 @@ import { profiles, projects, tickets, phaseArtifacts, opencodeSessions, ticketSt
 
 console.log('🌱 Seeding database...')
 
-type ProjectKey = 'ORBX' | 'LUMN' | 'NEXA'
+type ProjectKey = 'ATLS' | 'VYNE' | 'QNTA'
 
 const MAIN_FLOW = [
   'DRAFT',
@@ -147,189 +148,221 @@ const STATUS_REASON: Record<string, string> = {
 
 const projectSeeds: ProjectSeed[] = [
   {
-    key: 'ORBX',
-    name: 'OrbitOps Platform',
-    icon: '🛰️',
-    color: '#1E88E5',
-    folderPath: '/mnt/d/orbitops-platform',
+    key: 'ATLS',
+    name: 'Atlas Ledger',
+    icon: '🧾',
+    color: '#0F766E',
+    folderPath: '/mnt/d/atlas-ledger',
+    ticketCounter: 8,
+  },
+  {
+    key: 'VYNE',
+    name: 'Vyne Studio',
+    icon: '🎬',
+    color: '#C2410C',
+    folderPath: '/mnt/d/vyne-studio',
     ticketCounter: 7,
   },
   {
-    key: 'LUMN',
-    name: 'LumenCart',
-    icon: '🛍️',
-    color: '#00A86B',
-    folderPath: '/mnt/d/lumencart',
-    ticketCounter: 7,
-  },
-  {
-    key: 'NEXA',
-    name: 'NexaCare Portal',
-    icon: '🩺',
-    color: '#F59E0B',
-    folderPath: '/mnt/d/nexacare-portal',
-    ticketCounter: 6,
+    key: 'QNTA',
+    name: 'Quanta Fleet',
+    icon: '🚚',
+    color: '#2563EB',
+    folderPath: '/mnt/d/quanta-fleet',
+    ticketCounter: 5,
   },
 ]
 
 const ticketSeeds: TicketSeed[] = [
   {
-    externalId: 'ORBX-1',
-    projectKey: 'ORBX',
-    title: 'Bootstrap incident workspace shell',
-    description: 'Create the initial shell for incident operations, routing, and role-aware navigation.',
+    externalId: 'ATLS-1',
+    projectKey: 'ATLS',
+    title: 'Launch reconciliation workspace foundation',
+    description: 'Set up the reconciliation dashboard shell, role-aware entry points, and baseline ledger navigation.',
     priority: 2,
     status: 'DRAFT',
   },
   {
-    externalId: 'ORBX-2',
-    projectKey: 'ORBX',
-    title: 'Generate interview drafts for incident triage',
-    description: 'Collect candidate question sets for triage workflow boundaries and escalation policy inputs.',
+    externalId: 'ATLS-2',
+    projectKey: 'ATLS',
+    title: 'Draft interview set for dispute queue intake',
+    description: 'Generate council interview drafts covering dispute intake rules, operator workflows, and settlement constraints.',
     priority: 2,
     status: 'COUNCIL_DELIBERATING',
   },
   {
-    externalId: 'ORBX-3',
-    projectKey: 'ORBX',
-    title: 'Select winning interview draft for alert enrichment',
-    description: 'Score interview drafts and pick the strongest one for alert enrichment requirements.',
+    externalId: 'ATLS-3',
+    projectKey: 'ATLS',
+    title: 'Vote on interview draft for settlement exception routing',
+    description: 'Compare interview candidates for exception routing, escalations, and approval ownership boundaries.',
     priority: 3,
     status: 'COUNCIL_VOTING_INTERVIEW',
   },
   {
-    externalId: 'ORBX-4',
-    projectKey: 'ORBX',
-    title: 'Collect routing constraints from on-call teams',
-    description: 'Gather approval windows, business-hour exceptions, and routing constraints from stakeholders.',
+    externalId: 'ATLS-4',
+    projectKey: 'ATLS',
+    title: 'Compile merchant onboarding interview pack',
+    description: 'Finalize the winning interview and prepare structured questions for merchant onboarding workflow design.',
+    priority: 2,
+    status: 'COMPILING_INTERVIEW',
+  },
+  {
+    externalId: 'ATLS-5',
+    projectKey: 'ATLS',
+    title: 'Collect approvals for payout hold release flow',
+    description: 'Gather stakeholder answers covering release approvals, audit controls, and payout exception handling.',
     priority: 2,
     status: 'WAITING_INTERVIEW_ANSWERS',
   },
   {
-    externalId: 'ORBX-5',
-    projectKey: 'ORBX',
-    title: 'Verify interview coverage for deduplication logic',
-    description: 'Validate that interview answers fully cover event deduplication and suppression requirements.',
+    externalId: 'ATLS-6',
+    projectKey: 'ATLS',
+    title: 'Verify interview coverage for multi-ledger rollback',
+    description: 'Check that interview answers fully cover rollback sequencing, idempotency, and audit evidence.',
     priority: 1,
     status: 'VERIFYING_INTERVIEW_COVERAGE',
   },
   {
-    externalId: 'ORBX-6',
-    projectKey: 'ORBX',
-    title: 'Approve interview pack for escalation policy rules',
-    description: 'Review finalized interview output before PRD drafting for escalation policy and SLA tiers.',
+    externalId: 'ATLS-7',
+    projectKey: 'ATLS',
+    title: 'Approve interview for reserve account rebalancing',
+    description: 'Review the finalized interview artifact before PRD drafting for reserve account balancing rules.',
     priority: 1,
     status: 'WAITING_INTERVIEW_APPROVAL',
   },
   {
-    externalId: 'ORBX-7',
-    projectKey: 'ORBX',
-    title: 'Draft PRD for incident timeline playback',
-    description: 'Create PRD for replaying incident timelines with filterable events and ownership transitions.',
+    externalId: 'ATLS-8',
+    projectKey: 'ATLS',
+    title: 'Draft PRD for reconciliation variance cockpit',
+    description: 'Create a PRD for investigating reconciliation variances with filters, drilldowns, and operator assignments.',
     priority: 2,
     status: 'DRAFTING_PRD',
   },
   {
-    externalId: 'LUMN-1',
-    projectKey: 'LUMN',
-    title: 'Vote PRD variants for multi-cart checkout',
-    description: 'Compare PRD options for shared checkout sessions spanning multiple independent carts.',
+    externalId: 'VYNE-1',
+    projectKey: 'VYNE',
+    title: 'Vote PRD variants for campaign review lanes',
+    description: 'Compare PRD options for creator campaign review queues, feedback loops, and release gating.',
     priority: 1,
     status: 'COUNCIL_VOTING_PRD',
   },
   {
-    externalId: 'LUMN-2',
-    projectKey: 'LUMN',
-    title: 'Refine PRD for tax engine integration',
-    description: 'Refine winning PRD draft to include jurisdiction-specific tax calculation behavior.',
+    externalId: 'VYNE-2',
+    projectKey: 'VYNE',
+    title: 'Refine PRD for asset review assistant',
+    description: 'Refine the winning PRD to cover review heuristics, moderation checkpoints, and human override behavior.',
     priority: 1,
     status: 'REFINING_PRD',
   },
   {
-    externalId: 'LUMN-3',
-    projectKey: 'LUMN',
-    title: 'Run PRD coverage checks for promotion stacking',
-    description: 'Verify promotional stacking logic, constraints, and edge-case handling in the refined PRD.',
+    externalId: 'VYNE-3',
+    projectKey: 'VYNE',
+    title: 'Run PRD coverage for series launch planner',
+    description: 'Verify the refined PRD covers launch sequencing, asset readiness, and release-governance edge cases.',
     priority: 2,
     status: 'VERIFYING_PRD_COVERAGE',
   },
   {
-    externalId: 'LUMN-4',
-    projectKey: 'LUMN',
-    title: 'Approve PRD for loyalty ledger',
-    description: 'Await stakeholder approval on loyalty points ledger design and reconciliation rules.',
+    externalId: 'VYNE-4',
+    projectKey: 'VYNE',
+    title: 'Approve PRD for creator entitlement sync',
+    description: 'Await approval on entitlement sync rules spanning creator access, revocation timing, and auditability.',
     priority: 2,
     status: 'WAITING_PRD_APPROVAL',
   },
   {
-    externalId: 'LUMN-5',
-    projectKey: 'LUMN',
-    title: 'Draft beads for warehouse sync pipeline',
-    description: 'Break down warehouse synchronization work into bead-sized tasks and tests.',
+    externalId: 'VYNE-5',
+    projectKey: 'VYNE',
+    title: 'Draft beads for media ingest retries',
+    description: 'Break down ingest retry orchestration into bead-sized tasks with focused verification commands.',
     priority: 1,
     status: 'DRAFTING_BEADS',
   },
   {
-    externalId: 'LUMN-6',
-    projectKey: 'LUMN',
-    title: 'Vote beads strategy for returns flow',
-    description: 'Evaluate beads candidates for returns authorization, restocking, and refund orchestration.',
+    externalId: 'VYNE-6',
+    projectKey: 'VYNE',
+    title: 'Vote beads strategy for review SLA escalations',
+    description: 'Evaluate bead breakdowns for review deadlines, automated escalation, and queue balancing.',
     priority: 2,
     status: 'COUNCIL_VOTING_BEADS',
   },
   {
-    externalId: 'LUMN-7',
-    projectKey: 'LUMN',
-    title: 'Refine beads for coupon abuse detection',
-    description: 'Refine selected beads to isolate anti-abuse checks and fraud-scoring boundaries.',
+    externalId: 'VYNE-7',
+    projectKey: 'VYNE',
+    title: 'Refine beads for publishing handoff tracking',
+    description: 'Refine the selected bead plan so publishing handoffs, QA checks, and ownership transitions stay isolated.',
     priority: 3,
     status: 'REFINING_BEADS',
   },
   {
-    externalId: 'NEXA-1',
-    projectKey: 'NEXA',
-    title: 'Verify beads coverage for patient intake assistant',
-    description: 'Validate that beads cover triage chatbot intake, escalation, and transcript storage.',
+    externalId: 'QNTA-1',
+    projectKey: 'QNTA',
+    title: 'Verify beads coverage for dispatch surge board',
+    description: 'Validate that beads cover surge routing, dispatch prioritization, and fallback assignment flows.',
     priority: 1,
     status: 'VERIFYING_BEADS_COVERAGE',
   },
   {
-    externalId: 'NEXA-2',
-    projectKey: 'NEXA',
-    title: 'Approve beads plan for care-team notifications',
-    description: 'Review bead plan for paging, acknowledgement windows, and escalation fallbacks.',
+    externalId: 'QNTA-2',
+    projectKey: 'QNTA',
+    title: 'Approve beads plan for route deviation alerts',
+    description: 'Review the bead plan for live route deviation alerts, acknowledgment timing, and escalation rules.',
     priority: 2,
     status: 'WAITING_BEADS_APPROVAL',
   },
   {
-    externalId: 'NEXA-3',
-    projectKey: 'NEXA',
-    title: 'Pre-flight checks for prescriptions import',
-    description: 'Run repository and runtime diagnostics before coding prescriptions import adapters.',
+    externalId: 'QNTA-3',
+    projectKey: 'QNTA',
+    title: 'Run pre-flight checks for dock assignment optimizer',
+    description: 'Run repository and runtime diagnostics before coding dock assignment optimization flows.',
     priority: 1,
     status: 'PRE_FLIGHT_CHECK',
   },
   {
-    externalId: 'NEXA-4',
-    projectKey: 'NEXA',
-    title: 'Run final tests for claims reconciliation',
-    description: 'Execute final verification suite after coding claims reconciliation improvements.',
+    externalId: 'QNTA-4',
+    projectKey: 'QNTA',
+    title: 'Execute coding for live ETA recompute engine',
+    description: 'Implement bead-scoped changes for live ETA recomputation while preserving existing dispatch contracts.',
+    priority: 1,
+    status: 'CODING',
+  },
+  {
+    externalId: 'QNTA-5',
+    projectKey: 'QNTA',
+    title: 'Run final tests for manifest discrepancy repair',
+    description: 'Execute the final verification suite after coding manifest discrepancy repair improvements.',
     priority: 1,
     status: 'RUNNING_FINAL_TEST',
   },
   {
-    externalId: 'NEXA-5',
-    projectKey: 'NEXA',
-    title: 'Recover blocked billing pipeline execution',
-    description: 'Investigate and resolve runtime failure while processing billing pipeline batches.',
+    externalId: 'QNTA-6',
+    projectKey: 'QNTA',
+    title: 'Integrate route bundle handoff changes',
+    description: 'Prepare and validate the clean integration candidate after final test success for route bundle handoffs.',
+    priority: 1,
+    status: 'INTEGRATING_CHANGES',
+  },
+  {
+    externalId: 'QNTA-7',
+    projectKey: 'QNTA',
+    title: 'Await manual verification for detention reimbursement',
+    description: 'Present the release candidate for detention reimbursement workflows and gather final human verification.',
+    priority: 1,
+    status: 'WAITING_MANUAL_VERIFICATION',
+  },
+  {
+    externalId: 'QNTA-8',
+    projectKey: 'QNTA',
+    title: 'Recover blocked trailer swap orchestration',
+    description: 'Investigate and resolve a runtime failure while processing trailer swap orchestration payloads.',
     priority: 1,
     status: 'BLOCKED_ERROR',
   },
   {
-    externalId: 'NEXA-6',
-    projectKey: 'NEXA',
-    title: 'Complete audit trail search rollout',
-    description: 'Finalize and ship searchable audit trail for patient events and operator actions.',
+    externalId: 'QNTA-9',
+    projectKey: 'QNTA',
+    title: 'Complete carrier scorecard drilldown rollout',
+    description: 'Finalize and ship carrier scorecard drilldowns with reporting summaries and verification receipts.',
     priority: 1,
     status: 'COMPLETED',
   },
@@ -343,6 +376,32 @@ function slugifyTitle(title: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 36)
+}
+
+function ensureMockProjectRepo(projectFolder: string, projectName: string): void {
+  mkdirSync(projectFolder, { recursive: true })
+
+  try {
+    const inside = execFileSync('git', ['-C', projectFolder, 'rev-parse', '--is-inside-work-tree'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+
+    if (inside === 'true') {
+      const hasMain = execFileSync('git', ['-C', projectFolder, 'show-ref', '--verify', '--quiet', 'refs/heads/main'], {
+        stdio: ['ignore', 'ignore', 'ignore'],
+      })
+      void hasMain
+      return
+    }
+  } catch {
+    execFileSync('git', ['init', '-b', 'main', projectFolder], { stdio: ['ignore', 'ignore', 'ignore'] })
+    writeFileSync(resolve(projectFolder, 'README.md'), `# ${projectName}\n\nMock repository used by the LoopTroop seed data.\n`)
+    execFileSync('git', ['-C', projectFolder, 'add', 'README.md'], { stdio: ['ignore', 'ignore', 'ignore'] })
+    execFileSync('git', ['-C', projectFolder, '-c', 'user.name=LoopTroop Seed', '-c', 'user.email=seed@looptroop.local', 'commit', '-m', 'Initial mock project scaffold'], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+  }
 }
 
 function historyForStatus(status: TicketStatus): string[] {
@@ -412,19 +471,19 @@ function beadProgressForStatus(status: TicketStatus): { current: number; total: 
 
 function beadStatesForStatus(status: TicketStatus): BeadStatus[] {
   if (status === 'BLOCKED_ERROR') {
-    return ['done', 'error', 'pending']
+    return ['done', 'error', 'pending', 'pending']
   }
 
   const rank = rankForStatus(status)
   if (rank >= FINAL_TEST_THRESHOLD) {
-    return ['done', 'done', 'done']
+    return ['done', 'done', 'done', 'done']
   }
 
   if (rank >= CODING_THRESHOLD) {
-    return ['done', 'in_progress', 'pending']
+    return ['done', 'in_progress', 'pending', 'pending']
   }
 
-  return ['pending', 'pending', 'pending']
+  return ['pending', 'pending', 'pending', 'pending']
 }
 
 function buildInterviewYaml(externalId: string, title: string, generatedAt: string, approvedAt: string): string {
@@ -795,61 +854,144 @@ function buildSnapshotForTicket(
   return snapshot
 }
 
-function buildArtifactsForStatus(
+function buildArtifactsForPhase(
   ticketId: number,
-  status: TicketStatus,
+  phase: string,
   title: string,
   interviewYaml: string,
   prdYaml: string,
   beads: BeadRow[],
 ): Array<{ ticketId: number; phase: string; artifactType: string; content: string }> {
-  switch (status) {
+  switch (phase) {
     case 'COUNCIL_DELIBERATING':
-      return [{ ticketId, phase: status, artifactType: 'interview_drafts', content: buildCouncilDraftResult('interview', title) }]
+      return [{ ticketId, phase, artifactType: 'interview_drafts', content: buildCouncilDraftResult('interview', title) }]
     case 'COUNCIL_VOTING_INTERVIEW':
-      return [{ ticketId, phase: status, artifactType: 'interview_votes', content: buildCouncilVoteResult('interview', title) }]
+      return [{ ticketId, phase, artifactType: 'interview_votes', content: buildCouncilVoteResult('interview', title) }]
+    case 'COMPILING_INTERVIEW':
+      return [
+        {
+          ticketId,
+          phase,
+          artifactType: 'interview_compiled',
+          content: JSON.stringify({
+            winnerId: COUNCIL_MODELS[0],
+            refinedContent: interviewYaml,
+            questions: [
+              { id: 'Q1', question: `What is the business success criteria for ${title}?`, phase: 'Goals' },
+              { id: 'Q2', question: 'Which constraints cannot be violated during implementation?', phase: 'Constraints' },
+            ],
+          }),
+        },
+        {
+          ticketId,
+          phase,
+          artifactType: 'interview_winner',
+          content: JSON.stringify({ winnerId: COUNCIL_MODELS[0] }),
+        },
+      ]
     case 'WAITING_INTERVIEW_ANSWERS':
-    case 'VERIFYING_INTERVIEW_COVERAGE':
-    case 'WAITING_INTERVIEW_APPROVAL':
       return [{
-        ticketId,
-        phase: status,
-        artifactType: 'interview_compiled',
-        content: JSON.stringify({
+        ticketId, phase, artifactType: 'interview_compiled', content: JSON.stringify({
           winnerId: COUNCIL_MODELS[0],
           refinedContent: interviewYaml,
           questions: [
-            { id: 'Q1', question: `What is the success criteria for ${title}?`, phase: 'Goals' },
-            { id: 'Q2', question: 'What constraints cannot be violated?', phase: 'Constraints' },
+            { id: 'Q1', question: `What is the business success criteria for ${title}?`, phase: 'Goals' },
+            { id: 'Q2', question: 'Which constraints cannot be violated during implementation?', phase: 'Constraints' },
           ],
         }),
       }]
-    case 'DRAFTING_PRD':
-      return [{ ticketId, phase: status, artifactType: 'prd_drafts', content: buildCouncilDraftResult('prd', title) }]
-    case 'COUNCIL_VOTING_PRD':
-      return [{ ticketId, phase: status, artifactType: 'prd_votes', content: buildCouncilVoteResult('prd', title) }]
-    case 'REFINING_PRD':
-    case 'VERIFYING_PRD_COVERAGE':
-    case 'WAITING_PRD_APPROVAL':
+    case 'VERIFYING_INTERVIEW_COVERAGE':
+      return [
+        {
+          ticketId,
+          phase,
+          artifactType: 'interview_coverage_input',
+          content: JSON.stringify({
+            refinedContent: interviewYaml,
+            userAnswers: JSON.stringify({
+              Q1: 'Operators need deterministic workflows and visible audit context.',
+              Q2: 'No silent state changes, no non-idempotent writes, and no schema drift.',
+            }),
+          }),
+        },
+        {
+          ticketId,
+          phase,
+          artifactType: 'interview_coverage',
+          content: JSON.stringify({
+            winnerId: COUNCIL_MODELS[0],
+            response: 'status: clean\ngaps: []\nsummary: Interview answers cover the required scope.',
+            hasGaps: false,
+          }),
+        },
+      ]
+    case 'WAITING_INTERVIEW_APPROVAL':
       return [{
         ticketId,
-        phase: status,
+        phase,
+        artifactType: 'interview_coverage_input',
+        content: JSON.stringify({
+          refinedContent: interviewYaml,
+          userAnswers: JSON.stringify({
+            Q1: 'Operators need deterministic workflows and visible audit context.',
+            Q2: 'No silent state changes, no non-idempotent writes, and no schema drift.',
+          }),
+        }),
+      }]
+    case 'DRAFTING_PRD':
+      return [{ ticketId, phase, artifactType: 'prd_drafts', content: buildCouncilDraftResult('prd', title) }]
+    case 'COUNCIL_VOTING_PRD':
+      return [{ ticketId, phase, artifactType: 'prd_votes', content: buildCouncilVoteResult('prd', title) }]
+    case 'REFINING_PRD':
+      return [{
+        ticketId,
+        phase,
         artifactType: 'prd_refined',
         content: JSON.stringify({
           winnerId: COUNCIL_MODELS[0],
           refinedContent: prdYaml,
         }),
       }]
-    case 'DRAFTING_BEADS':
-      return [{ ticketId, phase: status, artifactType: 'beads_drafts', content: buildCouncilDraftResult('beads', title) }]
-    case 'COUNCIL_VOTING_BEADS':
-      return [{ ticketId, phase: status, artifactType: 'beads_votes', content: buildCouncilVoteResult('beads', title) }]
-    case 'REFINING_BEADS':
-    case 'VERIFYING_BEADS_COVERAGE':
-    case 'WAITING_BEADS_APPROVAL':
+    case 'VERIFYING_PRD_COVERAGE':
+      return [
+        {
+          ticketId,
+          phase,
+          artifactType: 'prd_coverage_input',
+          content: JSON.stringify({
+            prd: prdYaml,
+            refinedContent: prdYaml,
+          }),
+        },
+        {
+          ticketId,
+          phase,
+          artifactType: 'prd_coverage',
+          content: JSON.stringify({
+            winnerId: COUNCIL_MODELS[0],
+            response: 'status: clean\ngaps: []\nsummary: PRD covers scope, risks, and verification requirements.',
+            hasGaps: false,
+          }),
+        },
+      ]
+    case 'WAITING_PRD_APPROVAL':
       return [{
         ticketId,
-        phase: status,
+        phase,
+        artifactType: 'prd_coverage_input',
+        content: JSON.stringify({
+          prd: prdYaml,
+          refinedContent: prdYaml,
+        }),
+      }]
+    case 'DRAFTING_BEADS':
+      return [{ ticketId, phase, artifactType: 'beads_drafts', content: buildCouncilDraftResult('beads', title) }]
+    case 'COUNCIL_VOTING_BEADS':
+      return [{ ticketId, phase, artifactType: 'beads_votes', content: buildCouncilVoteResult('beads', title) }]
+    case 'REFINING_BEADS':
+      return [{
+        ticketId,
+        phase,
         artifactType: 'beads_refined',
         content: JSON.stringify({
           winnerId: COUNCIL_MODELS[0],
@@ -857,17 +999,66 @@ function buildArtifactsForStatus(
           expandedBeads: beads,
         }),
       }]
+    case 'VERIFYING_BEADS_COVERAGE':
+      return [
+        {
+          ticketId,
+          phase,
+          artifactType: 'beads_coverage_input',
+          content: JSON.stringify({
+            beads,
+            refinedContent: JSON.stringify(beads),
+          }),
+        },
+        {
+          ticketId,
+          phase,
+          artifactType: 'beads_coverage',
+          content: JSON.stringify({
+            winnerId: COUNCIL_MODELS[0],
+            response: 'status: clean\ngaps: []\nsummary: Beads are executable, isolated, and fully mapped to PRD scope.',
+            hasGaps: false,
+          }),
+        },
+      ]
+    case 'WAITING_BEADS_APPROVAL':
+      return [{
+        ticketId,
+        phase,
+        artifactType: 'beads_coverage_input',
+        content: JSON.stringify({
+          beads,
+          refinedContent: JSON.stringify(beads),
+        }),
+      }]
     case 'PRE_FLIGHT_CHECK':
-      return [{ ticketId, phase: status, artifactType: 'diagnostics_report', content: 'All diagnostics checks are green. Ready for coding.' }]
+      return [{ ticketId, phase, artifactType: 'diagnostics_report', content: 'All diagnostics checks are green. Ready for coding.' }]
+    case 'CODING':
+      return [{ ticketId, phase, artifactType: 'bead_progress', content: JSON.stringify({ summary: '2 of 4 beads complete, 1 active, 1 pending.', beads }) }]
     case 'RUNNING_FINAL_TEST':
-      return [{ ticketId, phase: status, artifactType: 'test_results', content: 'Final test suite running. 112/112 checks currently passing.' }]
+      return [{ ticketId, phase, artifactType: 'test_results', content: 'Final test suite running. 112/112 checks currently passing.' }]
+    case 'INTEGRATING_CHANGES':
+      return [{ ticketId, phase, artifactType: 'integration_summary', content: 'Preparing release candidate branch and validating final integration checks.' }]
+    case 'WAITING_MANUAL_VERIFICATION':
+      return [{ ticketId, phase, artifactType: 'manual_verification_packet', content: 'Release candidate ready for human verification with completed bead and test summary.' }]
     case 'BLOCKED_ERROR':
-      return [{ ticketId, phase: status, artifactType: 'bead_error_report', content: 'Execution blocked: schema mismatch detected while parsing upstream payload.' }]
+      return [{ ticketId, phase, artifactType: 'bead_error_report', content: 'Execution blocked: schema mismatch detected while parsing upstream payload.' }]
     case 'COMPLETED':
-      return [{ ticketId, phase: status, artifactType: 'final_summary', content: 'Ticket completed successfully with all verification gates passing.' }]
+      return [{ ticketId, phase, artifactType: 'final_summary', content: 'Ticket completed successfully with all verification gates passing.' }]
     default:
       return []
   }
+}
+
+function buildArtifactsForHistory(
+  ticketId: number,
+  history: string[],
+  title: string,
+  interviewYaml: string,
+  prdYaml: string,
+  beads: BeadRow[],
+): Array<{ ticketId: number; phase: string; artifactType: string; content: string }> {
+  return history.flatMap((phase) => buildArtifactsForPhase(ticketId, phase, title, interviewYaml, prdYaml, beads))
 }
 
 function seedTicketFiles(options: {
@@ -887,11 +1078,7 @@ function seedTicketFiles(options: {
     projectFolder: options.projectFolder,
   })
 
-  if (!initResult.success) {
-    console.warn(`[seed] initializeTicket failed for ${options.ticket.externalId}: ${initResult.error}`)
-  }
-
-  const ticketDir = resolve(process.cwd(), '.looptroop', 'worktrees', options.ticket.externalId, '.ticket')
+  const ticketDir = initResult.ticketDir
   const metaDir = resolve(ticketDir, 'meta')
   mkdirSync(metaDir, { recursive: true })
 
@@ -962,6 +1149,10 @@ const profileId = existingProfile?.id ?? db.insert(profiles).values({
 }).returning().get()!.id
 
 console.log(`  ✅ Profile ready (id: ${profileId})`)
+
+for (const project of projectSeeds) {
+  ensureMockProjectRepo(project.folderPath, project.name)
+}
 
 const insertedProjects = db.insert(projects).values(
   projectSeeds.map((project) => ({
@@ -1136,9 +1327,9 @@ for (const seed of ticketSeeds) {
     beads,
   })
 
-  artifactRows.push(...buildArtifactsForStatus(
+  artifactRows.push(...buildArtifactsForHistory(
     ticket.id,
-    seed.status,
+    timeline.history,
     seed.title,
     interviewYaml,
     prdYaml,

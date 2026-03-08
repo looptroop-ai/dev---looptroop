@@ -23,6 +23,7 @@ export interface TicketContext {
 
 export type TicketEvent =
   | { type: 'START'; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }
+  | { type: 'INIT_FAILED'; message: string; codes?: string[] }
   | { type: 'QUESTIONS_READY'; result: Record<string, unknown> }
   | { type: 'WINNER_SELECTED'; winner: string }
   | { type: 'READY' }

@@ -21,12 +21,12 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     this.baseUrl = `http://localhost:${port}`
   }
 
-  async createSession(_projectPath: string, signal?: AbortSignal): Promise<Session> {
+  async createSession(projectPath: string, signal?: AbortSignal): Promise<Session> {
     try {
       const res = await fetch(`${this.baseUrl}/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ path: projectPath }),
         signal,
       })
       if (!res.ok) throw new Error(`OpenCode API error: ${res.status}`)

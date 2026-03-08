@@ -1,10 +1,11 @@
 import { db } from '../db/index'
 import { tickets, projects } from '../db/schema'
 import { eq } from 'drizzle-orm'
-import { mkdirSync, writeFileSync } from 'fs'
+import { mkdirSync } from 'fs'
 import { resolve } from 'path'
+import { safeAtomicWrite } from '../io/atomicWrite'
 
-interface CreateTicketOptions {
+export interface CreateTicketOptions {
   projectId: number
   title: string
   description?: string
@@ -39,7 +40,7 @@ export function createTicket(options: CreateTicketOptions) {
   // Create minimal ticket directory with ticket.meta.json in meta/ subdirectory
   const metaDir = resolve(process.cwd(), '.looptroop/worktrees', externalId, '.ticket', 'meta')
   mkdirSync(metaDir, { recursive: true })
-  writeFileSync(
+  safeAtomicWrite(
     resolve(metaDir, 'ticket.meta.json'),
     JSON.stringify({
       id: ticket.id,

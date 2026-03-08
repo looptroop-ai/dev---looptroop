@@ -2,7 +2,7 @@ import { createActor } from 'xstate'
 import { ticketMachine } from '../machines/ticketMachine'
 import type { TicketContext, TicketEvent } from '../machines/types'
 import { db } from '../db/index'
-import { profiles, projects, tickets, phaseArtifacts } from '../db/schema'
+import { profiles, tickets, phaseArtifacts } from '../db/schema'
 import { eq, and, desc } from 'drizzle-orm'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview, buildInterviewContextBuilder } from '../phases/interview/deliberate'
@@ -27,7 +27,7 @@ import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { writeJsonl } from '../io/jsonl'
-import { initializeTicket } from '../ticket/initialize'
+import { getTicketDir, getTicketWorktreePath } from '../ticket/initialize'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -40,7 +40,7 @@ interface PhaseIntermediateData {
   drafts: DraftResult[]
   memberOutcomes: Record<string, import('../council/types').MemberOutcome>
   contextBuilder: (step: 'vote' | 'refine') => import('../opencode/types').PromptPart[]
-  projectPath: string
+  worktreePath: string
   phase: string
   votes?: Vote[]
   winnerId?: string
@@ -373,27 +373,18 @@ async function handleInterviewDeliberate(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
-  const projectPath = project?.folderPath ?? process.cwd()
   const phase = 'COUNCIL_DELIBERATING' as const
+  const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
 
-  // Step 1: Initialize ticket directory structure so logs can be written
-  const initResult = initializeTicket({ externalId: context.externalId, projectFolder: projectPath })
-  if (!initResult.success) {
-    const msg = `Ticket initialization failed: ${initResult.error}`
-    console.error(`[runner] ${msg}`)
-    emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
-    throw new Error(msg)
-  }
   emitPhaseLog(
     ticketId,
     context.externalId,
     phase,
     'info',
-    `Ticket workspace ${initResult.created ? 'initialized' : 'reused'} for council drafting.`,
+    `Ticket workspace ready for council drafting at ${worktreePath}.`,
   )
 
-  // Step 2: Health-check OpenCode before doing any work
+  // Step 1: Health-check OpenCode before doing any work
   if (signal.aborted) throw new CancelledError(ticketId)
   try {
     const health = await adapter.checkHealth()
@@ -417,7 +408,7 @@ async function handleInterviewDeliberate(
     throw new Error(msg)
   }
 
-  // Step 3: Resolve council members from locked config (frozen at ticket start)
+  // Step 2: Resolve council members from locked config (frozen at ticket start)
   const council = resolveCouncilMembers(context)
   const members = council.members
   emitPhaseLog(
@@ -428,31 +419,8 @@ async function handleInterviewDeliberate(
     `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`,
   )
 
-  // Load ticket from DB to get full description
-  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
   const ticketDescription = ticket?.description ?? ''
-
-  // Load codebase-map.yaml from disk if available
-  let codebaseMap: string | undefined
-  if (existsSync(initResult.codebaseMapPath)) {
-    try {
-      codebaseMap = readFileSync(initResult.codebaseMapPath, 'utf-8')
-      console.log(`[runner] Loaded codebase-map.yaml (${codebaseMap.length} chars) for ticket ${context.externalId}`)
-    } catch (err) {
-      console.warn(`[runner] Failed to read codebase-map.yaml for ticket ${context.externalId}:`, err)
-    }
-  } else {
-    console.warn(`[runner] codebase-map.yaml not found at ${initResult.codebaseMapPath}`)
-  }
-  emitPhaseLog(
-    ticketId,
-    context.externalId,
-    phase,
-    'info',
-    codebaseMap
-      ? `Loaded codebase map artifact (${codebaseMap.length} chars).`
-      : 'Codebase map artifact missing; proceeding with ticket details only.',
-  )
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Loaded codebase map artifact (${codebaseMap.length} chars).`)
 
   // Build context via buildMinimalContext with full ticket state
   const ticketState: TicketState = {
@@ -472,7 +440,7 @@ async function handleInterviewDeliberate(
     adapter,
     members,
     ticketContext,
-    projectPath,
+    worktreePath,
     signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('interview', entry.stage)
@@ -507,7 +475,7 @@ async function handleInterviewDeliberate(
     drafts: result.drafts,
     memberOutcomes: result.memberOutcomes,
     contextBuilder,
-    projectPath,
+    worktreePath,
     phase: result.phase,
   })
 
@@ -576,7 +544,7 @@ async function handleInterviewVote(
     members,
     intermediate.drafts,
     voteContext,
-    intermediate.projectPath,
+    intermediate.worktreePath,
     intermediate.phase,
     signal,
     (entry) => {
@@ -642,7 +610,7 @@ async function handleInterviewCompile(
     winnerDraft,
     losingDrafts,
     refineContext,
-    intermediate.projectPath,
+    intermediate.worktreePath,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -745,18 +713,22 @@ function resolveCouncilMembers(context: TicketContext): {
 
 // --- Helper: load ticket dir paths and codebase map ---
 function loadTicketDirContext(context: TicketContext) {
-  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
-  const projectPath = project?.folderPath ?? process.cwd()
   const ticket = db.select().from(tickets).where(eq(tickets.id, Number(context.ticketId))).get()
-  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const worktreePath = getTicketWorktreePath(context.externalId)
+  const ticketDir = getTicketDir(context.externalId)
 
-  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
-  let codebaseMap: string | undefined
-  if (existsSync(codebaseMapPath)) {
-    try { codebaseMap = readFileSync(codebaseMapPath, 'utf-8') } catch { /* ignore */ }
+  if (!existsSync(ticketDir)) {
+    throw new Error(`Ticket workspace not initialized: missing ticket directory for ${context.externalId}`)
   }
 
-  return { projectPath, ticket, ticketDir, codebaseMap }
+  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
+  if (!existsSync(codebaseMapPath)) {
+    throw new Error(`Ticket workspace not initialized: missing codebase-map.yaml for ${context.externalId}`)
+  }
+
+  const codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
+
+  return { worktreePath, ticket, ticketDir, codebaseMap }
 }
 
 // ─── PRD Phase Handlers ───
@@ -767,7 +739,7 @@ async function handlePrdDraft(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const { projectPath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
   const phase = 'DRAFTING_PRD' as const
   const council = resolveCouncilMembers(context)
   const members = council.members
@@ -804,7 +776,7 @@ async function handlePrdDraft(
     adapter,
     members,
     ticketContext,
-    projectPath,
+    worktreePath,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('prd', entry.stage)
       emitOpenCodeSessionLogs(
@@ -836,7 +808,7 @@ async function handlePrdDraft(
     drafts: result.drafts,
     memberOutcomes: result.memberOutcomes,
     contextBuilder: buildPrdContextBuilder(ticketContext),
-    projectPath,
+    worktreePath,
     phase: result.phase,
   })
 
@@ -895,7 +867,7 @@ async function handlePrdVote(
     members,
     intermediate.drafts,
     voteContext,
-    intermediate.projectPath,
+    intermediate.worktreePath,
     intermediate.phase,
     signal,
     (entry) => {
@@ -955,7 +927,7 @@ async function handlePrdRefine(
     winnerDraft,
     losingDrafts,
     refineContext,
-    intermediate.projectPath,
+    intermediate.worktreePath,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1008,7 +980,7 @@ async function handleBeadsDraft(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const { projectPath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
   const phase = 'DRAFTING_BEADS' as const
   const council = resolveCouncilMembers(context)
   const members = council.members
@@ -1045,7 +1017,7 @@ async function handleBeadsDraft(
     adapter,
     members,
     ticketContext,
-    projectPath,
+    worktreePath,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('beads', entry.stage)
       emitOpenCodeSessionLogs(
@@ -1077,7 +1049,7 @@ async function handleBeadsDraft(
     drafts: result.drafts,
     memberOutcomes: result.memberOutcomes,
     contextBuilder: buildBeadsContextBuilder(ticketContext),
-    projectPath,
+    worktreePath,
     phase: result.phase,
   })
 
@@ -1136,7 +1108,7 @@ async function handleBeadsVote(
     members,
     intermediate.drafts,
     voteContext,
-    intermediate.projectPath,
+    intermediate.worktreePath,
     intermediate.phase,
     signal,
     (entry) => {
@@ -1196,7 +1168,7 @@ async function handleBeadsRefine(
     winnerDraft,
     losingDrafts,
     refineContext,
-    intermediate.projectPath,
+    intermediate.worktreePath,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1365,9 +1337,7 @@ async function handleCoverageVerification(
   phase: 'interview' | 'prd' | 'beads',
   signal: AbortSignal,
 ) {
-  const project = db.select().from(projects).where(eq(projects.id, context.projectId)).get()
-  const projectPath = project?.folderPath ?? process.cwd()
-  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+  const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
 
   const stateLabel = phase === 'interview'
     ? 'VERIFYING_INTERVIEW_COVERAGE'
@@ -1435,14 +1405,6 @@ async function handleCoverageVerification(
     : phase === 'prd'
       ? 'prd_coverage'
       : 'beads_coverage'
-
-  // Build context for the coverage verification phase
-  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
-  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
-  let codebaseMap: string | undefined
-  if (existsSync(codebaseMapPath)) {
-    try { codebaseMap = readFileSync(codebaseMapPath, 'utf-8') } catch { /* ignore */ }
-  }
 
   // Resolve refinedContent: prefer in-memory, fall back to persisted artifact
   let refinedContent: string | undefined = councilResult?.refinedContent
@@ -1520,7 +1482,7 @@ async function handleCoverageVerification(
 
   // Use a single session for the winning model only (not all council members)
   if (signal.aborted) throw new CancelledError(ticketId)
-  const session = await adapter.createSession(projectPath, signal)
+  const session = await adapter.createSession(worktreePath, signal)
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -1642,7 +1604,7 @@ async function handleInterviewQAStart(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const { projectPath, ticket, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
 
   // Resolve winnerId from persisted artifact
   const winnerArtifact = db.select().from(phaseArtifacts)
@@ -1702,7 +1664,7 @@ async function handleInterviewQAStart(
   if (signal.aborted) throw new CancelledError(ticketId)
 
   const { sessionId, firstBatch } = await startInterviewSession(
-    adapter, projectPath, winnerId, compiledQuestions, ticketState, maxQuestions, signal,
+    adapter, worktreePath, winnerId, compiledQuestions, ticketState, maxQuestions, signal,
   )
 
   // Store session info
@@ -1873,7 +1835,12 @@ export function attachWorkflowRunner(
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
           const isOpenCode = errMsg.includes('OpenCode server is not running')
-          const codes = isOpenCode ? ['OPENCODE_UNREACHABLE'] : ['QUORUM_NOT_MET']
+          const isWorkspace = errMsg.includes('Ticket workspace not initialized')
+          const codes = isOpenCode
+            ? ['OPENCODE_UNREACHABLE']
+            : isWorkspace
+              ? ['WORKSPACE_NOT_INITIALIZED']
+              : ['QUORUM_NOT_MET']
           console.error(`[runner] COUNCIL_DELIBERATING failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes })

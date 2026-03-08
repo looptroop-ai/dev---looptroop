@@ -15,6 +15,7 @@ export const ticketMachine = setup({
     recordError: assign({
       error: ({ event }) => {
         if (event.type === 'ERROR') return event.message
+        if (event.type === 'INIT_FAILED') return event.message
         if (event.type === 'CHECKS_FAILED') return 'Pre-flight check failed'
         if (event.type === 'TESTS_FAILED') return 'Final test failed'
         if (event.type === 'BEAD_ERROR') return 'Bead execution failed'
@@ -23,6 +24,7 @@ export const ticketMachine = setup({
       },
       errorCodes: ({ event }) => {
         if (event.type === 'ERROR') return event.codes ?? []
+        if (event.type === 'INIT_FAILED') return event.codes ?? []
         if (event.type === 'CHECKS_FAILED') return event.errors
         return []
       },
@@ -83,6 +85,7 @@ export const ticketMachine = setup({
             lockedCouncilMembers: ({ event }) => event.lockedCouncilMembers ?? null,
           }),
         },
+        INIT_FAILED: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
     },

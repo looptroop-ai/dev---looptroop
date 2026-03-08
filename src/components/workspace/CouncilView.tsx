@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
+import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -57,48 +58,53 @@ function getStatusLabel(outcome?: string, action?: string): string {
 
 function ModelActivityCards({ phase, artifacts }: { phase: string; artifacts: any[] }) {
   const isVerifying = phase.includes('VERIFYING')
-
-  // In coverage verification, do not show the council voting history cards.
-  // The header already shows the single winning model performing the coverage verify.
-  if (isVerifying) return null
-
   const isDeliberating = phase.includes('DELIBERATING')
 
-  // Try to parse CouncilResult from artifacts for this phase
-  // Fallback to recent council result for REFINING
-  const phaseArtifact = artifacts.find(a => a.phase === phase && a.content) || artifacts.find(a => (a.artifactType?.includes('votes') || a.artifactType?.includes('drafts')) && a.content)
-  let councilResult: any = null
-  if (phaseArtifact?.content) {
-    try {
-      const parsed = JSON.parse(phaseArtifact.content)
-      if (parsed.drafts || parsed.votes) councilResult = parsed
-    } catch { /* not JSON */ }
-  }
+  const { councilResult, fallbackModels } = useMemo(() => {
+    if (isVerifying) return { councilResult: null, fallbackModels: [] }
+
+    const phaseArtifact = artifacts.find(a => a.phase === phase && a.content) || artifacts.find(a => (a.artifactType?.includes('votes') || a.artifactType?.includes('drafts')) && a.content)
+    let result: any = null
+    if (phaseArtifact?.content) {
+      try {
+        const parsed = JSON.parse(phaseArtifact.content)
+        if (parsed.drafts || parsed.votes) result = parsed
+      } catch { /* not JSON */ }
+    }
+
+    if (!result?.drafts) {
+      const models = artifacts
+        .filter(a => a.phase === phase)
+        .map(a => {
+          const content = a.content || ''
+          const modelMatch = content.match(/(?:Draft|PRD Draft|Beads Breakdown)\s*—\s*(.+)/i)
+          const modelName = modelMatch?.[1] || 'Unknown Model'
+          const questionMatch = content.match(/(\d+)\s*(?:questions|Q)/i)
+          const scoreMatch = content.match(/(\d+\.?\d*)\s*\/\s*10/i)
+          let detail = ''
+          if (questionMatch) detail = `proposed ${questionMatch[1]} questions`
+          if (scoreMatch) detail = `scored ${scoreMatch[1]}/10`
+          return {
+            modelName,
+            modelIcon: getModelIcon(modelName),
+            action: getActionLabel(phase),
+            detail,
+          } satisfies ModelActivityCard
+        })
+      return { councilResult: null, fallbackModels: models }
+    }
+
+    return { councilResult: result, fallbackModels: [] }
+  }, [phase, artifacts, isVerifying])
+
+  // In coverage verification, do not show the council voting history cards.
+  if (isVerifying) return null
 
   if (!councilResult?.drafts) {
-    // Fall back to regex-based extraction from raw content
-    const models = artifacts
-      .filter(a => a.phase === phase)
-      .map(a => {
-        const content = a.content || ''
-        const modelMatch = content.match(/(?:Draft|PRD Draft|Beads Breakdown)\s*—\s*(.+)/i)
-        const modelName = modelMatch?.[1] || 'Unknown Model'
-        const questionMatch = content.match(/(\d+)\s*(?:questions|Q)/i)
-        const scoreMatch = content.match(/(\d+\.?\d*)\s*\/\s*10/i)
-        let detail = ''
-        if (questionMatch) detail = `proposed ${questionMatch[1]} questions`
-        if (scoreMatch) detail = `scored ${scoreMatch[1]}/10`
-        return {
-          modelName,
-          modelIcon: getModelIcon(modelName),
-          action: getActionLabel(phase),
-          detail,
-        } satisfies ModelActivityCard
-      })
-    if (models.length === 0) return null
+    if (fallbackModels.length === 0) return null
     return (
       <div className="flex flex-wrap gap-3 mb-4">
-        {models.map((m, i) => (
+        {fallbackModels.map((m, i) => (
           <div key={i} className="min-w-[180px] flex">
             <ModelBadge
               modelId={m.modelName}
@@ -192,7 +198,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   const domain = getCouncilDomain(phase)
   const isDrafting = step === 'Drafting'
   const isVoting = step === 'Voting'
-  const [phaseArtifacts, setPhaseArtifacts] = useState<any[]>([])
+  const { artifacts: phaseArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticket.id)
   const isVerifying = step === 'Verifying Coverage'
   const councilMemberNames = useMemo(() => {
     try { return ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : [] }
@@ -212,7 +218,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
     for (const art of phaseArtifacts) {
       if (winnerArtifactTypes.includes(art.artifactType)) {
         try {
-          const parsed = JSON.parse(art.content) as { winnerId?: string }
+          const parsed = JSON.parse(art.content!) as { winnerId?: string }
           if (parsed.winnerId) return parsed.winnerId
         } catch { /* ignore */ }
       }
@@ -220,13 +226,13 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
     return null
   }, [isVerifying, domain, phaseArtifacts])
 
-  useEffect(() => {
-    if (!ticket.id) return
-    fetch(`/api/tickets/${ticket.id}/artifacts`)
-      .then(r => r.ok ? r.json() : [])
-      .then(setPhaseArtifacts)
-      .catch(() => { })
-  }, [ticket.id, phase])
+  if (isLoadingArtifacts) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -281,6 +287,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
           ticketId={ticket.id}
           councilMemberCount={isVerifying ? 1 : councilMemberCount}
           councilMemberNames={isVerifying ? (coverageWinnerId ? [coverageWinnerId] : []) : councilMemberNames.length > 0 ? councilMemberNames : undefined}
+          preloadedArtifacts={phaseArtifacts}
         />
       </div>
 

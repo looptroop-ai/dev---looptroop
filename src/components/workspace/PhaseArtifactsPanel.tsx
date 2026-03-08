@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { FileText, Users, CheckCircle2, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
+import { FileText, Users, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
+import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 
 interface PhaseArtifactsPanelProps {
   phase: string
@@ -13,6 +14,7 @@ interface PhaseArtifactsPanelProps {
   councilMemberCount?: number
   councilMemberNames?: string[]
   prefixElement?: React.ReactNode
+  preloadedArtifacts?: DBartifact[]
 }
 
 interface ArtifactDef {
@@ -628,18 +630,12 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
   return <RawContentView content={content} />
 }
 
-export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement }: PhaseArtifactsPanelProps) {
+export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement, preloadedArtifacts }: PhaseArtifactsPanelProps) {
   const artifacts = getPhaseArtifacts(phase, councilMemberCount, councilMemberNames)
   const [viewingArtifact, setViewingArtifact] = useState<ArtifactDef | null>(null)
-  const [dbArtifacts, setDbArtifacts] = useState<DBartifact[]>([])
+  const { artifacts: cachedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticketId, { skipFetch: !!preloadedArtifacts })
 
-  useEffect(() => {
-    if (!ticketId) return
-    fetch(`/api/tickets/${ticketId}/artifacts`)
-      .then(r => r.ok ? r.json() : [])
-      .then(setDbArtifacts)
-      .catch(() => { })
-  }, [ticketId, phase])
+  const dbArtifacts = preloadedArtifacts ?? cachedArtifacts
 
   if (artifacts.length === 0 && !prefixElement) return null
   if (artifacts.length === 0) {
@@ -647,6 +643,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   }
 
   const action = getPhaseAction(phase)
+
+  const reversedArtifacts = useMemo(() => [...dbArtifacts].reverse(), [dbArtifacts])
 
   // Match a UI artifact def to the closest DB artifact for this phase
   function findDbContent(artifactDef: ArtifactDef): string | null {
@@ -667,8 +665,6 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       'interview-answers': 'interview_coverage_input'
     }
     const expectedType = typeMap[artifactDef.id]
-
-    const reversedArtifacts = [...dbArtifacts].reverse()
 
     if (expectedType) {
       const exactMatch = reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.artifactType === expectedType)
@@ -747,11 +743,17 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
           </DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <div className="bg-muted rounded-md p-4">
-              <ArtifactContent
-                artifactId={viewingArtifact?.id}
-                content={viewingArtifact ? (findDbContent(viewingArtifact) || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`) : ''}
-                phase={phase}
-              />
+              {isLoadingArtifacts ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <ArtifactContent
+                  artifactId={viewingArtifact?.id}
+                  content={viewingArtifact ? (findDbContent(viewingArtifact) || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`) : ''}
+                  phase={phase}
+                />
+              )}
             </div>
           </ScrollArea>
         </DialogContent>

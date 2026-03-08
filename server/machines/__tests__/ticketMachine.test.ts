@@ -206,6 +206,19 @@ describe('ticketMachine', () => {
   })
 
   describe('error handling and retry', () => {
+    it('should transition to BLOCKED_ERROR on INIT_FAILED from DRAFT', () => {
+      const actor = startActor()
+      actor.send({ type: 'INIT_FAILED', message: 'main branch missing', codes: ['INIT_MAIN_BRANCH_MISSING'] })
+
+      expect(actor.getSnapshot().value).toBe('BLOCKED_ERROR')
+
+      const ctx = actor.getSnapshot().context
+      expect(ctx.error).toBe('main branch missing')
+      expect(ctx.errorCodes).toEqual(['INIT_MAIN_BRANCH_MISSING'])
+      expect(ctx.previousStatus).toBe('DRAFT')
+      actor.stop()
+    })
+
     it('should transition to BLOCKED_ERROR on ERROR event', () => {
       const actor = startActor()
       actor.send({ type: 'START' })

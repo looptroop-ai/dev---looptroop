@@ -153,7 +153,36 @@ export function TicketDashboard() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [dispatch, mobileNavOpen])
 
-  if (!ticketId || !ticket) return null
+  if (!ticketId) return null
+
+  if (!ticket) return (
+    <div className="fixed inset-0 z-[60] bg-background flex flex-col">
+      {/* Skeleton header */}
+      <div className="h-12 border-b border-border flex items-center px-4 gap-3">
+        <div className="h-4 w-16 bg-muted animate-pulse rounded" />
+        <div className="h-4 w-48 bg-muted animate-pulse rounded" />
+        <div className="h-5 w-20 bg-muted animate-pulse rounded-full ml-auto" />
+        <div className="h-8 w-8 bg-muted animate-pulse rounded" />
+      </div>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Skeleton sidebar */}
+        <div className="w-[280px] border-r border-border p-4 space-y-4 hidden md:block">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="h-6 w-6 bg-muted animate-pulse rounded-full" />
+              <div className="h-3 bg-muted animate-pulse rounded flex-1" />
+            </div>
+          ))}
+        </div>
+        {/* Skeleton workspace */}
+        <div className="flex-1 p-6 space-y-4">
+          <div className="h-5 w-40 bg-muted animate-pulse rounded" />
+          <div className="h-3 w-72 bg-muted animate-pulse rounded" />
+          <div className="h-32 bg-muted animate-pulse rounded-md mt-4" />
+        </div>
+      </div>
+    </div>
+  )
 
   const activePhase = selectedPhase ?? ticket.status
 

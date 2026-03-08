@@ -17,6 +17,8 @@ import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 
+const WORKTREE_ROOT = path.join('.looptroop', 'worktrees')
+
 const app = new Hono()
 app.use('/api/*', validateJson)
 app.route('/api', health)
@@ -40,6 +42,18 @@ beforeEach(() => {
   db.delete(projects).run()
   db.delete(profiles).run()
 })
+
+function createGitRepo(prefix: string, withMainBranch: boolean = true): string {
+  const repoDir = fs.mkdtempSync(path.join(tmpdir(), prefix))
+  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
+  fs.writeFileSync(path.join(repoDir, 'package.json'), JSON.stringify({ name: 'fixture', private: true }, null, 2))
+  execFileSync('git', ['-C', repoDir, 'add', 'package.json'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'branch', '-M', withMainBranch ? 'main' : 'trunk'], { stdio: 'pipe' })
+  return repoDir
+}
 
 describe('Health routes', () => {
   it('GET /api/health returns 200', async () => {
@@ -155,6 +169,26 @@ describe('Project routes', () => {
     expect(json.message).toContain(`root: ${repoDir}`)
   })
 
+  it('GET /api/projects/ls includes hidden directories', async () => {
+    const browseDir = fs.mkdtempSync(path.join(tmpdir(), 'looptroop-project-ls-'))
+    gitTestDirs.push(browseDir)
+    fs.mkdirSync(path.join(browseDir, '.git'))
+    fs.mkdirSync(path.join(browseDir, '.config'))
+    fs.mkdirSync(path.join(browseDir, 'src'))
+    fs.writeFileSync(path.join(browseDir, '.env'), 'SECRET=test\n')
+
+    const res = await app.request(`/api/projects/ls?path=${encodeURIComponent(browseDir)}`)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+
+    expect(json.currentPath).toBe(browseDir)
+    expect(json.dirs).toEqual([
+      { name: '.config', path: path.join(browseDir, '.config') },
+      { name: '.git', path: path.join(browseDir, '.git') },
+      { name: 'src', path: path.join(browseDir, 'src') },
+    ])
+  })
+
   it('POST /api/projects creates a project', async () => {
     const res = await app.request('/api/projects', {
       method: 'POST',
@@ -221,19 +255,41 @@ describe('Project routes', () => {
 
 describe('Ticket routes', () => {
   let projectId: number
+  let repoDir: string
+  const tempRepos: string[] = []
+  const cleanupTicketDirs = () => {
+    for (const externalId of ['TKT-1', 'BRK-1']) {
+      const ticketDir = path.join(WORKTREE_ROOT, externalId)
+      if (fs.existsSync(ticketDir)) {
+        fs.rmSync(ticketDir, { recursive: true, force: true })
+      }
+    }
+  }
 
   beforeEach(async () => {
+    cleanupTicketDirs()
+    repoDir = createGitRepo('looptroop-ticket-route-')
+    tempRepos.push(repoDir)
     const res = await app.request('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'Ticket Project',
         shortname: 'TKT',
-        folderPath: '/tmp/tkt',
+        folderPath: repoDir,
       }),
     })
     const project = await res.json()
     projectId = project.id
+  })
+
+  afterEach(() => {
+    for (const dir of tempRepos.splice(0)) {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    }
+    cleanupTicketDirs()
   })
 
   it('GET /api/tickets returns empty array', async () => {
@@ -257,6 +313,7 @@ describe('Ticket routes', () => {
     expect(json.externalId).toBe('TKT-1')
     expect(json.status).toBe('DRAFT')
     expect(json.title).toBe('First ticket')
+    expect(fs.existsSync(path.join(WORKTREE_ROOT, json.externalId, '.ticket', 'meta', 'ticket.meta.json'))).toBe(true)
   })
 
   it('POST /api/tickets rejects without projectId', async () => {
@@ -293,7 +350,7 @@ describe('Ticket routes', () => {
     expect(res.status).toBe(403)
   })
 
-  it('POST /api/tickets/:id/start validates ticket status', async () => {
+  it('POST /api/tickets/:id/start initializes ticket workspace before interview start', async () => {
     const create = await app.request('/api/tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -307,6 +364,50 @@ describe('Ticket routes', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.message).toBe('Start action accepted')
+    expect(json.status).toBe('COUNCIL_DELIBERATING')
+
+    const ticketDir = path.join(WORKTREE_ROOT, ticket.externalId, '.ticket')
+    expect(fs.existsSync(path.join(ticketDir, 'codebase-map.yaml'))).toBe(true)
+    expect(fs.existsSync(path.join(ticketDir, '.gitignore'))).toBe(true)
+
+    const dbTicket = db.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
+    expect(dbTicket?.branchName).toBe(ticket.externalId)
+    expect(dbTicket?.startedAt).toBeTruthy()
+  })
+
+  it('POST /api/tickets/:id/start blocks the ticket when initialization fails', async () => {
+    const badRepo = createGitRepo('looptroop-ticket-bad-', false)
+    tempRepos.push(badRepo)
+    const projectRes = await app.request('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Broken Ticket Project',
+        shortname: 'BRK',
+        folderPath: badRepo,
+      }),
+    })
+    const brokenProject = await projectRes.json()
+
+    const create = await app.request('/api/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: brokenProject.id, title: 'Break me' }),
+    })
+    const ticket = await create.json()
+
+    const res = await app.request(`/api/tickets/${ticket.id}/start`, {
+      method: 'POST',
+    })
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.message).toBe('Start blocked during initialization')
+    expect(json.status).toBe('BLOCKED_ERROR')
+    expect(json.codes).toContain('INIT_MAIN_BRANCH_MISSING')
+
+    const dbTicket = db.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
+    expect(dbTicket?.status).toBe('BLOCKED_ERROR')
+    expect(dbTicket?.startedAt).toBeNull()
   })
 
   it('POST /api/tickets/:id/cancel validates non-terminal', async () => {

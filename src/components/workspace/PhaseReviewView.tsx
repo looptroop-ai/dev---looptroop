@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle2, Eye, CalendarDays } from 'lucide-react'
+import { CheckCircle2, Eye, CalendarDays, Loader2 } from 'lucide-react'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
+import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 
 import type { Ticket } from '@/hooks/useTickets'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
@@ -26,6 +27,15 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
   }, [ticket.lockedCouncilMembers])
   const councilMemberCount = councilMemberNames.length || 3
   const isDraft = phase === 'DRAFT'
+  const { artifacts: preloadedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticket.id)
+
+  if (isLoadingArtifacts) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -42,7 +52,7 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
         </div>
 
         {!isDraft && (
-          <PhaseArtifactsPanel phase={phase} isCompleted={true} ticketId={ticket.id} councilMemberCount={councilMemberCount} councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined} />
+          <PhaseArtifactsPanel phase={phase} isCompleted={true} ticketId={ticket.id} councilMemberCount={councilMemberCount} councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined} preloadedArtifacts={preloadedArtifacts} />
         )}
       </div>
 
