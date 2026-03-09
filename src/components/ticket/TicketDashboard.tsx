@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTicket } from '@/hooks/useTickets'
 import { useSSE } from '@/hooks/useSSE'
 import { useUI } from '@/context/UIContext'
-import { LogProvider, formatLogLine, useLogs } from '@/context/LogContext'
+import { LogProvider, useLogs } from '@/context/LogContext'
 import { DashboardHeader } from './DashboardHeader'
 import { NavigatorPanel } from './NavigatorPanel'
 import { ActiveWorkspace } from './ActiveWorkspace'
@@ -18,7 +18,7 @@ function toDebugJson(data: Record<string, unknown>) {
   }
 }
 
-function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null; currentStatus: string }) {
+function SSELogConnector({ ticketId, currentStatus }: { ticketId: string | null; currentStatus: string }) {
   const logCtx = useLogs()
 
   const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
@@ -30,16 +30,24 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
         logCtx?.addLog(
           to,
           `[DEBUG] sse.state_change ${toDebugJson(event.data)}`,
-          'debug',
-          to,
-          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+          {
+            source: 'debug',
+            status: to,
+            timestamp: typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+            audience: 'debug',
+            kind: 'session',
+          },
         )
         logCtx?.addLog(
           to,
           `[SYS] Transition: ${from || 'unknown'} -> ${to}`,
-          'system',
-          to,
-          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+          {
+            source: 'system',
+            status: to,
+            timestamp: typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+            audience: 'all',
+            kind: 'milestone',
+          },
         )
       }
       return
@@ -48,21 +56,7 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
     if (event.type === 'log') {
       const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
       if (phase) {
-        logCtx?.addLog(
-          phase,
-          `[DEBUG] sse.log ${toDebugJson(event.data)}`,
-          'debug',
-          phase,
-          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
-        )
-        const { line, source } = formatLogLine(event.data)
-        logCtx?.addLog(
-          phase,
-          line,
-          source,
-          phase,
-          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
-        )
+        logCtx?.addLogRecord(phase, event.data)
       }
       return
     }
@@ -73,17 +67,24 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
         logCtx?.addLog(
           phase,
           `[DEBUG] sse.error ${toDebugJson(event.data)}`,
-          'debug',
-          phase,
-          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+          {
+            source: 'debug',
+            status: phase,
+            timestamp: typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+            audience: 'debug',
+            kind: 'error',
+          },
         )
-        logCtx?.addLog(
+        logCtx?.addLogRecord(phase, {
+          type: 'error',
           phase,
-          `[ERROR] ${String(event.data.message ?? 'Unknown error')}`,
-          'error',
-          phase,
-          typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
-        )
+          status: phase,
+          source: 'error',
+          audience: 'all',
+          kind: 'error',
+          content: String(event.data.message ?? 'Unknown error'),
+          timestamp: typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        })
       }
       return
     }
@@ -102,9 +103,13 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: number | null;
       logCtx?.addLog(
         phase,
         `[DEBUG] sse.${event.type} ${toDebugJson(event.data)}`,
-        'debug',
-        phase,
-        typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+        {
+          source: 'debug',
+          status: phase,
+          timestamp: typeof event.data.timestamp === 'string' ? event.data.timestamp : undefined,
+          audience: 'debug',
+          kind: 'session',
+        },
       )
     }
   }, [logCtx, currentStatus])
@@ -119,7 +124,10 @@ export function TicketDashboard() {
   const ticketId = state.selectedTicketId
   const { data: ticket } = useTicket(ticketId)
   const [navWidth, setNavWidth] = useState(280)
-  const [selectedPhase, setSelectedPhase] = useState<string | null>(null)
+  const [phaseSelection, setPhaseSelection] = useState<{ ticketId: string | null; phase: string | null }>({
+    ticketId: null,
+    phase: null,
+  })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const canceledFromStatus = useMemo(() => {
@@ -132,10 +140,9 @@ export function TicketDashboard() {
   }, [ticket?.status, ticket?.xstateSnapshot])
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
-
-  // Reset selected phase when ticket changes
-  useEffect(() => {
-    setSelectedPhase(null)
+  const selectedPhase = phaseSelection.ticketId === ticketId ? phaseSelection.phase : null
+  const handleSelectPhase = useCallback((phase: string | null) => {
+    setPhaseSelection({ ticketId, phase })
   }, [ticketId])
 
   // Escape key closes dashboard
@@ -187,7 +194,7 @@ export function TicketDashboard() {
   const activePhase = selectedPhase ?? ticket.status
 
   return (
-    <LogProvider ticketId={ticketId} currentStatus={ticket.status}>
+    <LogProvider key={ticketId} ticketId={ticketId} currentStatus={ticket.status}>
     <SSELogConnector ticketId={ticketId} currentStatus={ticket.status} />
     <div className="fixed inset-0 z-[60] bg-background flex flex-col">
       <DashboardHeader ticket={ticket} />
@@ -224,7 +231,7 @@ export function TicketDashboard() {
                 selectedPhase={activePhase}
                 canceledFromStatus={canceledFromStatus}
                 onSelectPhase={(phase) => {
-                  setSelectedPhase(phase)
+                  handleSelectPhase(phase)
                   setMobileNavOpen(false)
                 }}
               />
@@ -244,7 +251,7 @@ export function TicketDashboard() {
             currentStatus={ticket.status}
             selectedPhase={activePhase}
             canceledFromStatus={canceledFromStatus}
-            onSelectPhase={setSelectedPhase}
+            onSelectPhase={handleSelectPhase}
           />
         </div>
         <ResizeHandle onResize={setNavWidth} />

@@ -23,7 +23,7 @@ vi.mock('@/components/workspace/PhaseLogPanel', () => ({
 
 function makeTicket(overrides: Record<string, unknown> = {}) {
   return {
-    id: 42,
+    id: '7:LOOP-42',
     externalId: 'LOOP-42',
     projectId: 7,
     title: 'Broken ticket',

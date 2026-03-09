@@ -3,14 +3,13 @@ import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../
 import { generateDrafts } from '../../council/drafter'
 import { checkQuorum } from '../../council/quorum'
 import { buildPromptFromTemplate, PROM10, PROM11, PROM12 } from '../../prompts/index'
-import type { Message, PromptPart } from '../../opencode/types'
+import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 
 /** Build a context builder that returns PROM11 (vote) or PROM12 (refine) context. */
 export function buildPrdContextBuilder(ticketContext: PromptPart[]) {
-  const contextForTemplate = ticketContext.map(p => ({ type: p.type, content: p.content }))
   return (step: 'vote' | 'refine'): PromptPart[] => {
     const template = step === 'vote' ? PROM11 : PROM12
-    return [{ type: 'text', content: buildPromptFromTemplate(template, contextForTemplate) }]
+    return [{ type: 'text', content: buildPromptFromTemplate(template, ticketContext) }]
   }
 }
 
@@ -26,10 +25,15 @@ export async function draftPRD(
     response: string
     messages: Message[]
   }) => void,
+  onOpenCodeStreamEvent?: (entry: {
+    stage: 'draft'
+    memberId: string
+    sessionId: string
+    event: StreamEvent
+  }) => void,
   onDraftProgress?: (entry: DraftProgressEvent) => void,
 ): Promise<DraftPhaseResult> {
-  const contextForTemplate = ticketContext.map(p => ({ type: p.type, content: p.content }))
-  const promptContent = buildPromptFromTemplate(PROM10, contextForTemplate)
+  const promptContent = buildPromptFromTemplate(PROM10, ticketContext)
 
   const drafts = await generateDrafts(
     adapter,
@@ -39,6 +43,7 @@ export async function draftPRD(
     300000,
     undefined,
     onOpenCodeSessionLog,
+    onOpenCodeStreamEvent,
     onDraftProgress,
   )
 

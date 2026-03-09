@@ -19,6 +19,15 @@ interface Project {
   updatedAt: string
 }
 
+interface ExistingProjectPreview {
+  name: string
+  shortname: string
+  icon: string | null
+  color: string | null
+  ticketCounter: number
+  ticketCount: number
+}
+
 interface CreateProjectInput {
   name: string
   shortname: string
@@ -121,4 +130,4 @@ export function useUpdateProject() {
   })
 }
 
-export type { Project, CreateProjectInput }
+export type { Project, CreateProjectInput, ExistingProjectPreview }

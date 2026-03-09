@@ -82,6 +82,36 @@ function setCachedContext(key: string, content: string) {
   contextCache.set(key, { content, timestamp: Date.now() })
 }
 
+function formatTicketDetails(title: string, description: string): string {
+  const detail = description.trim() || 'No description provided.'
+  return [
+    '## Primary User Requirement For This Ticket',
+    'This is the exact requirement provided by the user for this ticket. Treat it as the primary source of truth for scope and intent.',
+    '',
+    `# Ticket: ${title}`,
+    detail,
+  ].join('\n')
+}
+
+interface ContextSourcePart {
+  source: string
+  content: string
+  order: number
+}
+
+function sortContextParts(parts: ContextSourcePart[]): ContextSourcePart[] {
+  const priority = (source: string): number => {
+    if (source === 'ticket_details') return 0
+    return 1
+  }
+
+  return [...parts].sort((a, b) => {
+    const priorityDiff = priority(a.source) - priority(b.source)
+    if (priorityDiff !== 0) return priorityDiff
+    return a.order - b.order
+  })
+}
+
 export interface TicketState {
   ticketId: string
   title?: string
@@ -114,7 +144,8 @@ export function buildMinimalContext(
 
   console.log(`[contextBuilder] buildMinimalContext phase=${phase} ticket=${ticketState.ticketId} allowlist=[${allowlist.join(',')}]`)
 
-  const parts: { source: string; content: string }[] = []
+  const parts: ContextSourcePart[] = []
+  let order = 0
 
   // Assemble allowed context sources
   for (const source of allowlist) {
@@ -124,12 +155,12 @@ export function buildMinimalContext(
       case 'ticket_details': {
         const title = ticketState.title ?? 'Untitled'
         const desc = ticketState.description ?? ''
-        const content = `# Ticket: ${title}\n${desc}`
+        const content = formatTicketDetails(title, desc)
         if (!desc) {
           console.warn(`[contextBuilder] ticket_details: description is empty for ticket=${ticketState.ticketId}`)
         }
         console.log(`[contextBuilder] ticket_details: title="${title}" descLength=${desc.length}`)
-        parts.push({ source, content })
+        parts.push({ source, content, order: order++ })
         break
       }
       case 'codebase_map': {
@@ -141,32 +172,32 @@ export function buildMinimalContext(
         } else {
           console.log(`[contextBuilder] codebase_map: loaded (${content.length} chars, cached=${!!cached})`)
         }
-        parts.push({ source, content })
+        parts.push({ source, content, order: order++ })
         break
       }
       case 'interview': {
         const cached = getCachedContext(cacheKey)
         const content = cached ?? ticketState.interview ?? ''
         if (!cached && ticketState.interview) setCachedContext(cacheKey, content)
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
       case 'prd': {
         const cached = getCachedContext(cacheKey)
         const content = cached ?? ticketState.prd ?? ''
         if (!cached && ticketState.prd) setCachedContext(cacheKey, content)
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
       case 'beads': {
         const content = ticketState.beads ?? ''
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
       case 'drafts': {
         if (ticketState.drafts) {
           for (const draft of ticketState.drafts) {
-            parts.push({ source: 'draft', content: draft })
+            parts.push({ source: 'draft', content: draft, order: order++ })
           }
         }
         break
@@ -174,76 +205,79 @@ export function buildMinimalContext(
       case 'votes': {
         if (ticketState.votes) {
           for (const vote of ticketState.votes) {
-            parts.push({ source: 'vote', content: vote })
+            parts.push({ source: 'vote', content: vote, order: order++ })
           }
         }
         break
       }
       case 'bead_data': {
         const content = ticketState.beadData ?? ''
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         if (activeItem) {
-          parts.push({ source: 'active_bead', content: `Active bead: ${activeItem}` })
+          parts.push({ source: 'active_bead', content: `Active bead: ${activeItem}`, order: order++ })
         }
         break
       }
       case 'bead_notes': {
         if (ticketState.beadNotes) {
           for (const note of ticketState.beadNotes) {
-            parts.push({ source: 'bead_note', content: note })
+            parts.push({ source: 'bead_note', content: note, order: order++ })
           }
         }
         break
       }
       case 'user_answers': {
         const content = ticketState.userAnswers ?? ''
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
       case 'tests': {
         const content = ticketState.tests ?? ''
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
       case 'error_context': {
         const content = ticketState.errorContext ?? ''
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
       case 'beads_draft': {
         const content = ticketState.beadsDraft ?? ''
-        if (content) parts.push({ source, content })
+        if (content) parts.push({ source, content, order: order++ })
         break
       }
     }
   }
 
+  const orderedParts = sortContextParts(parts)
+
   // Apply token budget and trimming
-  let totalTokens = parts.reduce((sum, p) => sum + estimateTokens(p.content), 0)
+  let totalTokens = orderedParts.reduce((sum, p) => sum + estimateTokens(p.content), 0)
 
   if (totalTokens > DEFAULT_TOKEN_BUDGET) {
     // Trim in priority order (lowest priority trimmed first)
     for (const { key, sources } of TRIM_PRIORITY) {
       if (totalTokens <= DEFAULT_TOKEN_BUDGET) break
       const matchSources = [key, ...sources]
-      const idx = parts.findIndex((p) => matchSources.includes(p.source))
+      const idx = orderedParts.findIndex((p) => matchSources.includes(p.source))
       if (idx !== -1) {
-        const part = parts[idx]!
+        const part = orderedParts[idx]!
         totalTokens -= estimateTokens(part.content)
-        parts.splice(idx, 1)
+        orderedParts.splice(idx, 1)
       }
     }
   }
 
-  console.log(`[contextBuilder] phase=${phase} assembled ${parts.length} parts, totalTokens=${parts.reduce((s, p) => s + estimateTokens(p.content), 0)}`)
-  if (parts.length === 0) {
+  console.log(`[contextBuilder] phase=${phase} assembled ${orderedParts.length} parts, totalTokens=${orderedParts.reduce((s, p) => s + estimateTokens(p.content), 0)}`)
+  if (orderedParts.length === 0) {
     console.warn(`[contextBuilder] WARNING: context is empty for phase=${phase} ticket=${ticketState.ticketId}`)
   }
 
   // Convert to PromptParts
-  return parts.map((p) => ({
+  return orderedParts.map((p) => ({
     type: 'text' as const,
     content: p.content,
+    source: p.source,
   }))
 }
 

@@ -1,6 +1,7 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { DraftResult } from './types'
-import type { Message, PromptPart } from '../opencode/types'
+import type { Message, PromptPart, StreamEvent } from '../opencode/types'
+import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
 
 export async function refineDraft(
   adapter: OpenCodeAdapter,
@@ -16,9 +17,14 @@ export async function refineDraft(
     response: string
     messages: Message[]
   }) => void,
+  onOpenCodeStreamEvent?: (entry: {
+    stage: 'refine'
+    memberId: string
+    sessionId: string
+    event: StreamEvent
+  }) => void,
 ): Promise<string> {
-  const session = await adapter.createSession(projectPath, signal)
-
+  let sessionId = ''
   const refineParts: PromptPart[] = [
     ...contextParts,
     {
@@ -33,13 +39,31 @@ export async function refineDraft(
     },
   ]
 
-  const refined = await adapter.promptSession(session.id, refineParts, signal)
-  const messages: Message[] = await adapter.getSessionMessages(session.id)
+  const result = await runOpenCodePrompt({
+    adapter,
+    projectPath,
+    parts: refineParts,
+    signal,
+    model: winnerDraft.memberId,
+    onSessionCreated: (session) => {
+      sessionId = session.id
+    },
+    onStreamEvent: (event) => {
+      onOpenCodeStreamEvent?.({
+        stage: 'refine',
+        memberId: winnerDraft.memberId,
+        sessionId,
+        event,
+      })
+    },
+  })
+  const refined = result.response
+  const messages: Message[] = result.messages
 
   onOpenCodeSessionLog?.({
     stage: 'refine',
     memberId: winnerDraft.memberId,
-    sessionId: session.id,
+    sessionId: result.session.id,
     response: refined || winnerDraft.content,
     messages,
   })

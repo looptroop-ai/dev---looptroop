@@ -67,30 +67,11 @@ export function scanCodebase(rootDir: string, maxDepth = 4): {
 }
 
 export function generateCodebaseMapYaml(rootDir: string, ticketId?: string): string {
-  const { files, manifests, byLanguage } = scanCodebase(rootDir)
-  const now = new Date().toISOString()
-
-  const langLines = Object.entries(byLanguage)
-    .sort(([, a], [, b]) => b - a)
-    .map(([lang, count]) => `    ${lang}: ${count}`)
+  const { files, manifests } = scanCodebase(rootDir)
 
   const lines = [
-    'schema_version: 1',
     `ticket_id: "${ticketId ?? ''}"`,
     'artifact: "codebase_map"',
-    'generated_by: "SYS"',
-    `generated_at: "${now}"`,
-    'source:',
-    '  root: "."',
-    '  ignore:',
-    '    - ".git/"',
-    '    - "node_modules/"',
-    '    - ".venv/"',
-    '    - ".pytest_cache/"',
-    'summary:',
-    `  total_files: ${files.length}`,
-    '  by_language:',
-    ...langLines,
     ...(manifests.length > 0 ? ['manifests:', ...manifests.map(m => `  - "${m}"`)] : ['manifests: []']),
     'files:',
     ...files.map(f => `  - "${f}"`),

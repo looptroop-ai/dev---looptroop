@@ -1,8 +1,9 @@
 import type { InterviewQuestion, InterviewAnswer } from './types'
 import type { OpenCodeAdapter } from '../../opencode/adapter'
-import type { PromptPart } from '../../opencode/types'
+import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { buildConversationalPrompt, PROM4 } from '../../prompts/index'
+import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runOpenCodePrompt'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 
@@ -71,17 +72,15 @@ export function calculateFollowUpLimit(totalQuestions: number): number {
 export async function startInterviewSession(
   adapter: OpenCodeAdapter,
   projectPath: string,
-  _winnerId: string,
+  winnerId: string,
   compiledQuestions: string,
   ticketState: TicketState,
   maxQuestions: number,
   signal?: AbortSignal,
+  onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
 ): Promise<{ sessionId: string; firstBatch: BatchResponse }> {
   const contextParts = buildMinimalContext('interview_qa', ticketState)
-  const prompt = buildConversationalPrompt(
-    PROM4,
-    contextParts.map(p => ({ type: p.type, content: p.content })),
-  )
+  const prompt = buildConversationalPrompt(PROM4, contextParts)
 
   const fullPrompt = [
     prompt,
@@ -96,15 +95,26 @@ export async function startInterviewSession(
     `Begin the interview now. Present the first batch of questions.`,
   ].join('\n')
 
-  const session = await adapter.createSession(projectPath, signal)
-  const response = await adapter.promptSession(
-    session.id,
-    [{ type: 'text', content: fullPrompt }] as PromptPart[],
+  let sessionId = ''
+  const result = await runOpenCodePrompt({
+    adapter,
+    projectPath,
+    parts: [{ type: 'text', content: fullPrompt }] as PromptPart[],
     signal,
-  )
+    model: winnerId,
+    onSessionCreated: (session) => {
+      sessionId = session.id
+    },
+    onStreamEvent: (event) => {
+      onOpenCodeStreamEvent?.({
+        sessionId,
+        event,
+      })
+    },
+  })
 
-  const firstBatch = parseBatchResponse(response)
-  return { sessionId: session.id, firstBatch }
+  const firstBatch = parseBatchResponse(result.response)
+  return { sessionId: result.session.id, firstBatch }
 }
 
 /**
@@ -116,6 +126,8 @@ export async function submitBatchToSession(
   sessionId: string,
   batchAnswers: Record<string, string>,
   signal?: AbortSignal,
+  model?: string,
+  onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
 ): Promise<BatchResponse> {
   const answerLines = Object.entries(batchAnswers).map(([id, answer]) => {
     const text = answer.trim() || '[SKIPPED]'
@@ -130,13 +142,21 @@ export async function submitBatchToSession(
     `Please continue with the next batch of questions, or finalize the interview if complete.`,
   ].join('\n')
 
-  const response = await adapter.promptSession(
-    sessionId,
-    [{ type: 'text', content: message }] as PromptPart[],
+  const result = await runOpenCodeSessionPrompt({
+    adapter,
+    session: { id: sessionId },
+    parts: [{ type: 'text', content: message }] as PromptPart[],
     signal,
-  )
+    model,
+    onStreamEvent: (event) => {
+      onOpenCodeStreamEvent?.({
+        sessionId,
+        event,
+      })
+    },
+  })
 
-  return parseBatchResponse(response)
+  return parseBatchResponse(result.response)
 }
 
 /**
@@ -201,7 +221,7 @@ export function parseBatchResponse(response: string): BatchResponse {
   for (const line of lines) {
     const trimmed = line.trim()
     if (trimmed.endsWith('?') && trimmed.length > 10) {
-      const cleaned = trimmed.replace(/^[-*\d.\)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
+      const cleaned = trimmed.replace(/^[-*\d.)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
       if (cleaned.length > 5) {
         questions.push({ id: `Q${qIndex++}`, question: cleaned })
       }

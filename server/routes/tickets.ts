@@ -1,15 +1,39 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
-import { db } from '../db/index'
-import { tickets, projects, profiles, phaseArtifacts } from '../db/schema'
-import { eq, desc, and } from 'drizzle-orm'
-import { createTicketActor, ensureActorForTicket, sendTicketEvent, getTicketState } from '../machines/persistence'
+import { db as appDb } from '../db/index'
+import { profiles } from '../db/schema'
+import {
+  DEFAULT_MAIN_IMPLEMENTER,
+  ensureMinimumCouncilMembers,
+  parseCouncilMembers,
+} from '../council/members'
+import {
+  createTicketActor,
+  ensureActorForTicket,
+  sendTicketEvent,
+  getTicketState,
+  stopActor,
+} from '../machines/persistence'
 import { abortTicketSessions } from '../opencode/sessionManager'
+import { clearContextCache } from '../opencode/contextBuilder'
+import { broadcaster } from '../sse/broadcaster'
 import { cancelTicket, handleInterviewQABatch } from '../workflow/runner'
 import { createTicket as createTicketRecord } from '../ticket/create'
 import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
+import { getProjectContextById } from '../storage/projects'
+import {
+  getLatestPhaseArtifact,
+  getTicketByRef,
+  getTicketContext,
+  deleteTicket as deleteStoredTicket,
+  listPhaseArtifacts,
+  listTickets,
+  patchTicket,
+  updateTicket,
+  upsertLatestPhaseArtifact,
+} from '../storage/tickets'
 
 const ticketRouter = new Hono()
 
@@ -47,22 +71,17 @@ function uiStateArtifactType(scope: string): string {
   return `${UI_STATE_ARTIFACT_PREFIX}${scope}`
 }
 
-function readUiState(ticketId: number, scope: string): { data: unknown; updatedAt: string | null } | null {
-  const artifact = db.select().from(phaseArtifacts)
-    .where(and(
-      eq(phaseArtifacts.ticketId, ticketId),
-      eq(phaseArtifacts.phase, UI_STATE_PHASE),
-      eq(phaseArtifacts.artifactType, uiStateArtifactType(scope)),
-    ))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
-
+function readUiState(ticketId: string, scope: string): { data: unknown; updatedAt: string | null } | null {
+  const artifact = getLatestPhaseArtifact(ticketId, uiStateArtifactType(scope), UI_STATE_PHASE)
   if (!artifact) return null
 
   try {
     const parsed = JSON.parse(artifact.content) as { data?: unknown; updatedAt?: string | null }
     if (parsed && typeof parsed === 'object' && 'data' in parsed) {
-      return { data: parsed.data, updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : artifact.createdAt }
+      return {
+        data: parsed.data,
+        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : artifact.createdAt,
+      }
     }
     return { data: parsed, updatedAt: artifact.createdAt }
   } catch {
@@ -70,41 +89,14 @@ function readUiState(ticketId: number, scope: string): { data: unknown; updatedA
   }
 }
 
-function upsertUiState(ticketId: number, scope: string, data: unknown): { updatedAt: string } {
+function upsertUiState(ticketId: string, scope: string, data: unknown): { updatedAt: string } {
   const now = new Date().toISOString()
   const payload = JSON.stringify({ data, updatedAt: now })
-
   if (Buffer.byteLength(payload, 'utf8') > MAX_UI_STATE_BYTES) {
     throw new Error(`UI state payload exceeds ${MAX_UI_STATE_BYTES} bytes`)
   }
 
-  const artifactType = uiStateArtifactType(scope)
-
-  const existing = db.select().from(phaseArtifacts)
-    .where(and(
-      eq(phaseArtifacts.ticketId, ticketId),
-      eq(phaseArtifacts.phase, UI_STATE_PHASE),
-      eq(phaseArtifacts.artifactType, artifactType),
-    ))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
-
-  if (existing) {
-    db.update(phaseArtifacts)
-      .set({ content: payload })
-      .where(eq(phaseArtifacts.id, existing.id))
-      .run()
-  } else {
-    db.insert(phaseArtifacts)
-      .values({
-        ticketId,
-        phase: UI_STATE_PHASE,
-        artifactType,
-        content: payload,
-      })
-      .run()
-  }
-
+  upsertLatestPhaseArtifact(ticketId, uiStateArtifactType(scope), UI_STATE_PHASE, payload)
   return { updatedAt: now }
 }
 
@@ -114,9 +106,8 @@ function normalizeInterviewDraft(data: unknown): { answers: Record<string, strin
   const rawAnswers = (data as { answers?: unknown }).answers
   if (!rawAnswers || typeof rawAnswers !== 'object') return { answers: {} }
 
-  const entries = Object.entries(rawAnswers as Record<string, unknown>)
   const answers: Record<string, string> = {}
-  for (const [key, value] of entries) {
+  for (const [key, value] of Object.entries(rawAnswers as Record<string, unknown>)) {
     if (typeof value === 'string') {
       answers[key] = value
     }
@@ -124,37 +115,50 @@ function normalizeInterviewDraft(data: unknown): { answers: Record<string, strin
   return { answers }
 }
 
+function getProfileDefaults() {
+  return appDb.select().from(profiles).get()
+}
+
+function resolveLockedCouncilMembers(raw: string | null | undefined): string[] {
+  return ensureMinimumCouncilMembers(parseCouncilMembers(raw))
+}
+
+function resolveLockedMainImplementer(raw: string | null | undefined): string {
+  const trimmed = typeof raw === 'string' ? raw.trim() : ''
+  return trimmed || DEFAULT_MAIN_IMPLEMENTER
+}
+
+function respondWithState(c: Context, ticketId: string, message: string) {
+  const updated = getTicketByRef(ticketId)
+  const state = getTicketState(ticketId)
+  return c.json({ message, ticketId, status: updated?.status, state: state?.state })
+}
+
 ticketRouter.get('/tickets', (c) => {
   const projectId = c.req.query('project') ?? c.req.query('projectId')
-  if (projectId) {
-    const all = db.select().from(tickets).where(eq(tickets.projectId, Number(projectId))).orderBy(desc(tickets.updatedAt)).all()
-    return c.json(all)
+  const parsedProjectId = projectId ? Number(projectId) : undefined
+  if (projectId && Number.isNaN(parsedProjectId)) {
+    return c.json({ error: 'Invalid project ID' }, 400)
   }
-  const all = db.select().from(tickets).orderBy(desc(tickets.updatedAt)).all()
-  return c.json(all)
+  return c.json(listTickets(parsedProjectId))
 })
 
 ticketRouter.get('/tickets/:id', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticket = getTicketByRef(c.req.param('id'))
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   return c.json(ticket)
 })
 
 ticketRouter.get('/tickets/:id/ui-state', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-
+  const ticketId = c.req.param('id')
   const parsed = uiStateScopeSchema.safeParse({ scope: c.req.query('scope') ?? '' })
   if (!parsed.success) {
     return c.json({ error: 'Invalid scope', details: parsed.error.flatten() }, 400)
   }
 
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
-  const state = readUiState(id, parsed.data.scope)
+  const state = readUiState(ticketId, parsed.data.scope)
   if (!state) {
     return c.json({
       scope: parsed.data.scope,
@@ -173,20 +177,17 @@ ticketRouter.get('/tickets/:id/ui-state', (c) => {
 })
 
 ticketRouter.put('/tickets/:id/ui-state', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-
+  const ticketId = c.req.param('id')
   const body = await c.req.json().catch(() => ({}))
   const parsed = upsertUiStateSchema.safeParse(body)
   if (!parsed.success) {
     return c.json({ error: 'Invalid UI state payload', details: parsed.error.flatten() }, 400)
   }
 
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
   try {
-    const result = upsertUiState(id, parsed.data.scope, parsed.data.data)
+    const result = upsertUiState(ticketId, parsed.data.scope, parsed.data.data)
     return c.json({ success: true, scope: parsed.data.scope, updatedAt: result.updatedAt })
   } catch (err) {
     return c.json({ error: 'Failed to persist UI state', details: String(err) }, 500)
@@ -204,7 +205,7 @@ ticketRouter.post('/tickets', async (c) => {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten(), message }, 400)
   }
 
-  let result
+  let result: ReturnType<typeof createTicketRecord>
   try {
     result = createTicketRecord(parsed.data)
   } catch (err) {
@@ -214,25 +215,23 @@ ticketRouter.post('/tickets', async (c) => {
     return c.json({ error: 'Failed to create ticket', details: String(err) }, 500)
   }
 
-  // Create XState actor for the new ticket
+  const projectContext = getProjectContextById(result.projectId)
+  const profile = getProfileDefaults()
   createTicketActor(result.id, {
-    ticketId: String(result.id),
+    ticketId: result.id,
     projectId: result.projectId,
     externalId: result.externalId,
     title: result.title,
+    maxIterations: projectContext?.project.maxIterations ?? profile?.maxIterations ?? undefined,
   })
 
-  // Re-read ticket after actor persistence
-  const updated = db.select().from(tickets).where(eq(tickets.id, result.id)).get()
-  return c.json(updated ?? result, 201)
+  return c.json(getTicketByRef(result.id) ?? result, 201)
 })
 
 ticketRouter.patch('/tickets/:id', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
+  const ticketId = c.req.param('id')
   const body = await c.req.json()
 
-  // API-protect status field
   if ('status' in body) {
     return c.json({ error: 'Status field is API-protected. Use workflow actions to change status.' }, 403)
   }
@@ -242,43 +241,56 @@ ticketRouter.patch('/tickets/:id', async (c) => {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400)
   }
 
-  const existing = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const existing = getTicketByRef(ticketId)
   if (!existing) return c.json({ error: 'Ticket not found' }, 404)
 
-  const result = db.update(tickets)
-    .set({ ...parsed.data, updatedAt: new Date().toISOString() })
-    .where(eq(tickets.id, id))
-    .returning()
-    .get()
-  return c.json(result)
+  const result = updateTicket(ticketId, parsed.data)
+  return c.json(result ?? existing)
 })
 
-// Workflow action endpoints
-ticketRouter.post('/tickets/:id/start', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+ticketRouter.delete('/tickets/:id', async (c) => {
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'DRAFT') {
+  if (!['COMPLETED', 'CANCELED'].includes(ticket.status)) {
+    return c.json({ error: 'Only completed or canceled tickets can be deleted' }, 409)
+  }
+
+  try {
+    cancelTicket(ticketId)
+    stopActor(ticketId)
+    await abortTicketSessions(ticketId)
+    clearContextCache(ticketId)
+    broadcaster.clearTicket(ticketId)
+
+    const deleted = deleteStoredTicket(ticketId)
+    if (!deleted) return c.json({ error: 'Ticket not found' }, 404)
+
+    return c.json({ success: true, ticketId })
+  } catch (err) {
+    console.error(`[tickets] Failed to delete ticket ${ticketId}:`, err)
+    return c.json({ error: 'Failed to delete ticket', details: String(err) }, 500)
+  }
+})
+
+ticketRouter.post('/tickets/:id/start', (c) => {
+  const ticketId = c.req.param('id')
+  const ticketContext = getTicketContext(ticketId)
+  if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticketContext.localTicket.status !== 'DRAFT') {
     return c.json({ error: 'Ticket can only be started from DRAFT status' }, 409)
   }
 
-  // Resolve and lock model configuration at start time
-  const project = db.select().from(projects).where(eq(projects.id, ticket.projectId)).get()
-  if (!project) return c.json({ error: 'Project not found' }, 404)
-  const profile = db.select().from(profiles).get()
-  const lockedMainImplementer = profile?.mainImplementer ?? null
-  const councilRaw = project?.councilMembers ?? profile?.councilMembers ?? null
-  let lockedCouncilMembers: string[] | null = null
-  if (councilRaw) {
-    try { lockedCouncilMembers = JSON.parse(councilRaw) as string[] } catch { /* ignore */ }
-  }
+  const profile = getProfileDefaults()
+  const lockedMainImplementer = resolveLockedMainImplementer(profile?.mainImplementer)
+  const councilRaw = ticketContext.localProject.councilMembers ?? profile?.councilMembers ?? null
+  const lockedCouncilMembers = resolveLockedCouncilMembers(councilRaw)
 
   let init: ReturnType<typeof initializeTicket>
   try {
     init = initializeTicket({
-      externalId: ticket.externalId,
-      projectFolder: project.folderPath,
+      externalId: ticketContext.externalId,
+      projectFolder: ticketContext.projectRoot,
     })
   } catch (err) {
     const initErr = err instanceof TicketInitializationError
@@ -286,22 +298,22 @@ ticketRouter.post('/tickets/:id/start', (c) => {
       : new TicketInitializationError('INIT_UNKNOWN', err instanceof Error ? err.message : String(err))
 
     try {
-      ensureActorForTicket(id)
-      sendTicketEvent(id, {
+      ensureActorForTicket(ticketId)
+      sendTicketEvent(ticketId, {
         type: 'INIT_FAILED',
         message: initErr.message,
         codes: [initErr.code],
       })
     } catch (sendErr) {
-      console.error(`[tickets] Failed to send INIT_FAILED to ticket ${id}:`, sendErr)
+      console.error(`[tickets] Failed to send INIT_FAILED to ticket ${ticketId}:`, sendErr)
       return c.json({ error: 'Failed to block ticket after initialization error', details: String(sendErr) }, 500)
     }
 
-    const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-    const state = getTicketState(id)
+    const updated = getTicketByRef(ticketId)
+    const state = getTicketState(ticketId)
     return c.json({
       message: 'Start blocked during initialization',
-      ticketId: id,
+      ticketId,
       status: updated?.status,
       state: state?.state,
       details: initErr.message,
@@ -309,86 +321,71 @@ ticketRouter.post('/tickets/:id/start', (c) => {
     })
   }
 
-  db.update(tickets)
-    .set({
-      lockedMainImplementer,
-      lockedCouncilMembers: lockedCouncilMembers ? JSON.stringify(lockedCouncilMembers) : null,
-      branchName: init.branchName,
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(tickets.id, id))
-    .run()
+  patchTicket(ticketId, {
+    lockedMainImplementer,
+    lockedCouncilMembers: JSON.stringify(lockedCouncilMembers),
+    branchName: init.branchName,
+    startedAt: new Date().toISOString(),
+  })
 
   try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'START', lockedMainImplementer, lockedCouncilMembers })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'START', lockedMainImplementer, lockedCouncilMembers })
   } catch (err) {
-    console.error(`[tickets] Failed to send START to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to start ticket', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Start action accepted', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Start action accepted')
 })
 
 ticketRouter.post('/tickets/:id/approve', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+
   const approvalStates = ['WAITING_INTERVIEW_APPROVAL', 'WAITING_PRD_APPROVAL', 'WAITING_BEADS_APPROVAL', 'WAITING_MANUAL_VERIFICATION']
   if (!approvalStates.includes(ticket.status)) {
     return c.json({ error: 'Ticket is not in an approval state' }, 409)
   }
 
   try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'APPROVE' })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'APPROVE' })
   } catch (err) {
-    console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send APPROVE to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to approve ticket', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Approve action accepted', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Approve action accepted')
 })
 
 ticketRouter.post('/tickets/:id/cancel', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (['COMPLETED', 'CANCELED'].includes(ticket.status)) {
     return c.json({ error: 'Cannot cancel a terminal ticket' }, 409)
   }
 
   try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'CANCEL' })
-    // Immediately abort in-process phase work (council drafting, coverage, etc.)
-    cancelTicket(id)
-    // Abort any active OpenCode sessions for this ticket (fire-and-forget)
-    abortTicketSessions(id).catch(err => {
-      console.error(`[tickets] Failed to abort sessions for ticket ${id}:`, err)
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'CANCEL' })
+    cancelTicket(ticketId)
+    abortTicketSessions(ticketId).catch(err => {
+      console.error(`[tickets] Failed to abort sessions for ticket ${ticketId}:`, err)
     })
   } catch (err) {
-    console.error(`[tickets] Failed to send CANCEL to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send CANCEL to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to cancel ticket', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Cancel action accepted', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Cancel action accepted')
 })
 
-// Specific workflow routes
 ticketRouter.post('/tickets/:id/answer', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
     return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
@@ -401,24 +398,20 @@ ticketRouter.post('/tickets/:id/answer', async (c) => {
       return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
     }
 
-    upsertUiState(id, 'interview_qa', { answers: parsed.data.answers })
-
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'ANSWER_SUBMITTED', answers: parsed.data.answers })
+    upsertUiState(ticketId, 'interview_qa', { answers: parsed.data.answers })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'ANSWER_SUBMITTED', answers: parsed.data.answers })
   } catch (err) {
-    console.error(`[tickets] Failed to send ANSWER_SUBMITTED to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send ANSWER_SUBMITTED to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to submit answer', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Answer submitted', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Answer submitted')
 })
 
 ticketRouter.post('/tickets/:id/skip', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
     return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
@@ -431,26 +424,20 @@ ticketRouter.post('/tickets/:id/skip', async (c) => {
       return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
     }
 
-    upsertUiState(id, 'interview_qa', { answers: parsed.data.answers })
-
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'SKIP' })
+    upsertUiState(ticketId, 'interview_qa', { answers: parsed.data.answers })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'SKIP' })
   } catch (err) {
-    console.error(`[tickets] Failed to send SKIP to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send SKIP to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to skip question', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Question skipped', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Question skipped')
 })
 
-// ─── Interview Batch Q&A Endpoints ───
-
 ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
     return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
@@ -463,20 +450,17 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
       return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
     }
 
-    // Accumulate answers in UI state
-    const existingUiState = readUiState(id, 'interview_qa')
+    const existingUiState = readUiState(ticketId, 'interview_qa')
     const existingAnswers = (existingUiState?.data as { answers?: Record<string, string> })?.answers ?? {}
     const mergedAnswers = { ...existingAnswers, ...parsed.data.answers }
-    upsertUiState(id, 'interview_qa', { answers: mergedAnswers })
+    upsertUiState(ticketId, 'interview_qa', { answers: mergedAnswers })
 
-    // Submit batch to PROM4 session
-    const result = await handleInterviewQABatch(id, parsed.data.answers)
-
-    ensureActorForTicket(id)
+    const result = await handleInterviewQABatch(ticketId, parsed.data.answers)
+    ensureActorForTicket(ticketId)
     if (result.isComplete) {
-      sendTicketEvent(id, { type: 'INTERVIEW_COMPLETE' })
+      sendTicketEvent(ticketId, { type: 'INTERVIEW_COMPLETE' })
     } else {
-      sendTicketEvent(id, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers })
+      sendTicketEvent(ticketId, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers })
     }
 
     return c.json({
@@ -488,22 +472,16 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
       batchNumber: result.batchNumber,
     })
   } catch (err) {
-    console.error(`[tickets] Failed to process answer-batch for ticket ${id}:`, err)
+    console.error(`[tickets] Failed to process answer-batch for ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to process batch', details: String(err) }, 500)
   }
 })
 
 ticketRouter.get('/tickets/:id/interview-batch', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  const ticketId = c.req.param('id')
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
-  const artifact = db.select().from(phaseArtifacts)
-    .where(and(eq(phaseArtifacts.ticketId, id), eq(phaseArtifacts.artifactType, 'interview_current_batch')))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
-
+  const artifact = getLatestPhaseArtifact(ticketId, 'interview_current_batch')
   if (!artifact) {
     return c.json({ batch: null, status: 'no_batch' })
   }
@@ -516,150 +494,126 @@ ticketRouter.get('/tickets/:id/interview-batch', (c) => {
   }
 })
 
-ticketRouter.post('/tickets/:id/approve-interview', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
-    return c.json({ error: 'Ticket is not waiting for interview approval' }, 409)
+function approveSpecific(
+  ticketId: string,
+  expectedStatus: string,
+  failureMessage: string,
+  successMessage: string,
+): { type: 'success'; message: string } | { type: 'response'; body: { error: string; details?: string }; status: 404 | 409 | 500 } {
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return { type: 'response' as const, body: { error: 'Ticket not found' }, status: 404 }
+  if (ticket.status !== expectedStatus) {
+    return { type: 'response' as const, body: { error: failureMessage }, status: 409 }
   }
 
   try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'APPROVE' })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'APPROVE' })
   } catch (err) {
-    console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
-    return c.json({ error: 'Failed to approve interview', details: String(err) }, 500)
+    console.error(`[tickets] Failed to approve ${ticketId}:`, err)
+    return { type: 'response' as const, body: { error: `Failed to approve ticket`, details: String(err) }, status: 500 }
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Interview approved', ticketId: id, status: updated?.status, state: state?.state })
+  return { type: 'success' as const, message: successMessage }
+}
+
+ticketRouter.post('/tickets/:id/approve-interview', (c) => {
+  const result = approveSpecific(
+    c.req.param('id'),
+    'WAITING_INTERVIEW_APPROVAL',
+    'Ticket is not waiting for interview approval',
+    'Interview approved',
+  )
+  if (result.type === 'response') return c.json(result.body, result.status)
+  return respondWithState(c, c.req.param('id'), result.message)
 })
 
 ticketRouter.post('/tickets/:id/approve-prd', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_PRD_APPROVAL') {
-    return c.json({ error: 'Ticket is not waiting for PRD approval' }, 409)
-  }
-
-  try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'APPROVE' })
-  } catch (err) {
-    console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
-    return c.json({ error: 'Failed to approve PRD', details: String(err) }, 500)
-  }
-
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'PRD approved', ticketId: id, status: updated?.status, state: state?.state })
+  const result = approveSpecific(
+    c.req.param('id'),
+    'WAITING_PRD_APPROVAL',
+    'Ticket is not waiting for PRD approval',
+    'PRD approved',
+  )
+  if (result.type === 'response') return c.json(result.body, result.status)
+  return respondWithState(c, c.req.param('id'), result.message)
 })
 
 ticketRouter.post('/tickets/:id/approve-beads', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_BEADS_APPROVAL') {
-    return c.json({ error: 'Ticket is not waiting for beads approval' }, 409)
-  }
-
-  try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'APPROVE' })
-  } catch (err) {
-    console.error(`[tickets] Failed to send APPROVE to ticket ${id}:`, err)
-    return c.json({ error: 'Failed to approve beads', details: String(err) }, 500)
-  }
-
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Beads approved', ticketId: id, status: updated?.status, state: state?.state })
+  const result = approveSpecific(
+    c.req.param('id'),
+    'WAITING_BEADS_APPROVAL',
+    'Ticket is not waiting for beads approval',
+    'Beads approved',
+  )
+  if (result.type === 'response') return c.json(result.body, result.status)
+  return respondWithState(c, c.req.param('id'), result.message)
 })
 
 ticketRouter.post('/tickets/:id/verify', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_MANUAL_VERIFICATION') {
     return c.json({ error: 'Ticket is not waiting for manual verification' }, 409)
   }
 
   try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'VERIFY_COMPLETE' })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'VERIFY_COMPLETE' })
   } catch (err) {
-    console.error(`[tickets] Failed to send VERIFY_COMPLETE to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send VERIFY_COMPLETE to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to verify completion', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Verification complete', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Verification complete')
 })
 
 ticketRouter.post('/tickets/:id/retry', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'BLOCKED_ERROR') {
     return c.json({ error: 'Retry only works from BLOCKED_ERROR state' }, 409)
   }
 
   try {
-    ensureActorForTicket(id)
-    sendTicketEvent(id, { type: 'RETRY' })
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'RETRY' })
   } catch (err) {
-    console.error(`[tickets] Failed to send RETRY to ticket ${id}:`, err)
+    console.error(`[tickets] Failed to send RETRY to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to retry ticket', details: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ message: 'Retry action accepted', ticketId: id, status: updated?.status, state: state?.state })
+  return respondWithState(c, ticketId, 'Retry action accepted')
 })
 
-// Dev-only: send arbitrary XState events for testing
 ticketRouter.post('/tickets/:id/dev-event', async (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  const ticketId = c.req.param('id')
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
   try {
     const body = await c.req.json()
-    sendTicketEvent(id, body)
+    sendTicketEvent(ticketId, body)
   } catch (err) {
-    console.error(`[tickets] dev-event failed for ticket ${id}:`, err)
+    console.error(`[tickets] dev-event failed for ticket ${ticketId}:`, err)
     return c.json({ error: String(err) }, 500)
   }
 
-  const updated = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  const state = getTicketState(id)
-  return c.json({ ticketId: id, status: updated?.status, state: state?.state })
+  const updated = getTicketByRef(ticketId)
+  const state = getTicketState(ticketId)
+  return c.json({ ticketId, status: updated?.status, state: state?.state })
 })
 
 ticketRouter.get('/tickets/:id/interview', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  const ticketId = c.req.param('id')
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
-  const uiState = readUiState(id, 'interview_qa')
+  const uiState = readUiState(ticketId, 'interview_qa')
   const draft = normalizeInterviewDraft(uiState?.data)
   const draftUpdatedAt = uiState?.updatedAt ?? null
 
-  const artifact = db.select().from(phaseArtifacts)
-    .where(and(eq(phaseArtifacts.ticketId, id), eq(phaseArtifacts.artifactType, 'interview_compiled')))
-    .get()
-
+  const artifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
   if (!artifact) {
     return c.json({ questions: [], raw: null, draft, draftUpdatedAt })
   }
@@ -669,7 +623,6 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
     const raw = parsed.refinedContent
     const winnerId = parsed.winnerId
 
-    // Use pre-parsed questions if available, otherwise parse YAML on the fly
     let questions: unknown[] = parsed.questions ?? []
     if (questions.length === 0) {
       const yamlParsed = jsYaml.load(raw) as Record<string, unknown> | unknown[] | null
@@ -687,12 +640,9 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
 })
 
 ticketRouter.get('/tickets/:id/artifacts', (c) => {
-  const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid ticket ID' }, 400)
-  const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  const artifacts = db.select().from(phaseArtifacts).where(eq(phaseArtifacts.ticketId, id)).all()
-  return c.json(artifacts)
+  const ticketId = c.req.param('id')
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
+  return c.json(listPhaseArtifacts(ticketId))
 })
 
 export { ticketRouter }

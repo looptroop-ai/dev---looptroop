@@ -23,6 +23,8 @@ export interface DraftResult {
   content: string
   outcome: MemberOutcome
   duration: number
+  error?: string
+  questionCount?: number
 }
 
 export interface DraftProgressEvent {
@@ -69,7 +71,7 @@ export const VOTING_RUBRIC_INTERVIEW = [
   { category: 'Coverage of requirements', weight: 20, description: 'Questions address all areas needed to write a PRD (features, constraints, non-goals, acceptance criteria)' },
   { category: 'Correctness / feasibility', weight: 20, description: 'Questions are unambiguous, well-formed, and answerable by the target user' },
   { category: 'Testability', weight: 20, description: 'Answers to these questions would yield verifiable, measurable PRD requirements' },
-  { category: 'Minimal complexity / good decomposition', weight: 20, description: 'Logical flow (Foundation → Structure → Assembly), no redundant or low-value questions, efficient use of the max_initial_questions budget' },
+  { category: 'Minimal complexity / good decomposition', weight: 20, description: 'Logical flow (Foundation → Structure → Assembly), no redundant or low-value questions, and the minimum necessary number of questions to achieve full coverage' },
   { category: 'Risks / edge cases addressed', weight: 20, description: 'Questions surface constraints, failure modes, non-goals, and potential blockers' },
 ]
 

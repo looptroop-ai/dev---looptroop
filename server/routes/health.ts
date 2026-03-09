@@ -1,8 +1,7 @@
 import { Hono } from 'hono'
-import { OpenCodeSDKAdapter } from '../opencode/adapter'
+import { getOpenCodeAdapter } from '../opencode/factory'
 
 const health = new Hono()
-const adapter = new OpenCodeSDKAdapter()
 
 health.get('/health', (c) => {
   return c.json({
@@ -13,6 +12,7 @@ health.get('/health', (c) => {
 })
 
 health.get('/health/opencode', async (c) => {
+  const adapter = getOpenCodeAdapter()
   const result = await adapter.checkHealth()
   return c.json({
     status: result.available ? 'ok' : 'unavailable',

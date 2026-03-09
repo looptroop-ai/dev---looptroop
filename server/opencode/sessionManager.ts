@@ -1,15 +1,30 @@
-import { db } from '../db/index'
+import { and, eq } from 'drizzle-orm'
 import { opencodeSessions } from '../db/schema'
-import { eq, and } from 'drizzle-orm'
 import type { OpenCodeAdapter } from './adapter'
 import type { Session } from './types'
-import { OpenCodeSDKAdapter } from './adapter'
+import { getOpenCodeAdapter } from './factory'
+import { getProjectContextById, listProjects } from '../storage/projects'
+import { getTicketContext } from '../storage/tickets'
+
+function findSessionRecord(sessionId: string) {
+  for (const project of listProjects()) {
+    const context = getProjectContextById(project.id)
+    if (!context) continue
+    const record = context.projectDb.select().from(opencodeSessions)
+      .where(eq(opencodeSessions.sessionId, sessionId))
+      .get()
+    if (record) {
+      return { projectDb: context.projectDb, record }
+    }
+  }
+  return null
+}
 
 export class SessionManager {
   constructor(private adapter: OpenCodeAdapter) {}
 
   async createSessionForPhase(
-    ticketId: number,
+    ticketId: string,
     phase: string,
     phaseAttempt: number,
     memberId?: string,
@@ -17,12 +32,15 @@ export class SessionManager {
     iteration?: number,
     projectPath?: string,
   ): Promise<Session> {
-    const session = await this.adapter.createSession(projectPath ?? process.cwd())
+    const context = getTicketContext(ticketId)
+    if (!context) throw new Error(`Ticket not found: ${ticketId}`)
 
-    db.insert(opencodeSessions)
+    const session = await this.adapter.createSession(projectPath ?? context.projectRoot)
+
+    context.projectDb.insert(opencodeSessions)
       .values({
         sessionId: session.id,
-        ticketId,
+        ticketId: context.localTicketId,
         phase,
         phaseAttempt,
         memberId: memberId ?? null,
@@ -36,45 +54,49 @@ export class SessionManager {
   }
 
   async completeSession(sessionId: string) {
-    db.update(opencodeSessions)
+    const found = findSessionRecord(sessionId)
+    if (!found) return
+    found.projectDb.update(opencodeSessions)
       .set({ state: 'completed', updatedAt: new Date().toISOString() })
       .where(eq(opencodeSessions.sessionId, sessionId))
       .run()
   }
 
   async abandonSession(sessionId: string) {
-    db.update(opencodeSessions)
+    const found = findSessionRecord(sessionId)
+    if (!found) return
+    found.projectDb.update(opencodeSessions)
       .set({ state: 'abandoned', updatedAt: new Date().toISOString() })
       .where(eq(opencodeSessions.sessionId, sessionId))
       .run()
   }
 
-  getActiveSession(ticketId: number, phase: string, memberId?: string) {
+  getActiveSession(ticketId: string, phase: string, memberId?: string) {
+    const context = getTicketContext(ticketId)
+    if (!context) return undefined
     const conditions = [
-      eq(opencodeSessions.ticketId, ticketId),
+      eq(opencodeSessions.ticketId, context.localTicketId),
       eq(opencodeSessions.phase, phase),
       eq(opencodeSessions.state, 'active'),
     ]
     if (memberId) {
       conditions.push(eq(opencodeSessions.memberId, memberId))
     }
-    return db
+    return context.projectDb
       .select()
       .from(opencodeSessions)
       .where(and(...conditions))
       .get()
   }
 
-  async validateAndReconnect(ticketId: number, phase: string): Promise<Session | null> {
+  async validateAndReconnect(ticketId: string, phase: string): Promise<Session | null> {
     const existing = this.getActiveSession(ticketId, phase)
     if (!existing) return null
 
-    // Verify session still exists in OpenCode
     const sessions = await this.adapter.listSessions()
     const found = sessions.find((s) => s.id === existing.sessionId)
 
     if (!found) {
-      // Session lost — abandon and return null
       await this.abandonSession(existing.sessionId)
       return null
     }
@@ -83,29 +105,28 @@ export class SessionManager {
   }
 }
 
-const _defaultAdapter = new OpenCodeSDKAdapter()
+export async function abortTicketSessions(ticketId: string): Promise<void> {
+  const context = getTicketContext(ticketId)
+  if (!context) return
 
-/**
- * Abort all active OpenCode sessions for a ticket and mark them abandoned in the DB.
- * Used when a ticket is canceled to stop any ongoing AI work.
- */
-export async function abortTicketSessions(ticketId: number): Promise<void> {
-  const activeSessions = db
+  const activeSessions = context.projectDb
     .select()
     .from(opencodeSessions)
-    .where(and(eq(opencodeSessions.ticketId, ticketId), eq(opencodeSessions.state, 'active')))
+    .where(and(eq(opencodeSessions.ticketId, context.localTicketId), eq(opencodeSessions.state, 'active')))
     .all()
 
   if (activeSessions.length === 0) return
 
+  const adapter = getOpenCodeAdapter()
+
   await Promise.allSettled(
-    activeSessions.map(async (session) => {
+    activeSessions.map(async (session: typeof opencodeSessions.$inferSelect) => {
       try {
-        await _defaultAdapter.abortSession(session.sessionId)
+        await adapter.abortSession(session.sessionId)
       } catch (err) {
         console.warn(`[sessionManager] Failed to abort OpenCode session ${session.sessionId}:`, err)
       } finally {
-        db.update(opencodeSessions)
+        context.projectDb.update(opencodeSessions)
           .set({ state: 'abandoned', updatedAt: new Date().toISOString() })
           .where(eq(opencodeSessions.id, session.id))
           .run()

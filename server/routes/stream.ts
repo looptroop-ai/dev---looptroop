@@ -10,7 +10,7 @@ streamRouter.get('/stream', (c) => {
     return c.json({ error: 'ticketId query parameter required' }, 400)
   }
 
-  const lastEventId = c.req.header('Last-Event-ID')
+  const lastEventId = c.req.header('Last-Event-ID') ?? c.req.query('lastEventId')
 
   return streamSSE(c, async (stream) => {
     const clientId = `${ticketId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

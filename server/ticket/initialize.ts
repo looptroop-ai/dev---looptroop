@@ -11,6 +11,11 @@ import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 import { safeAtomicWrite } from '../io/atomicWrite'
+import {
+  getTicketDir as resolveTicketDir,
+  getTicketRuntimeDir,
+  getTicketWorktreePath as resolveTicketWorktreePath,
+} from '../storage/paths'
 import { generateCodebaseMapYaml } from './codebaseMap'
 
 interface InitializeOptions {
@@ -37,19 +42,16 @@ export class TicketInitializationError extends Error {
 }
 
 const RUNTIME_GITIGNORE = [
+  'runtime/',
   'runtime/**',
-  'locks/**',
-  'streams/**',
-  'sessions/**',
-  'tmp/**',
 ].join('\n') + '\n'
 
-export function getTicketWorktreePath(externalId: string): string {
-  return resolve(process.cwd(), '.looptroop', 'worktrees', externalId)
+export function getTicketWorktreePath(projectRoot: string, externalId: string): string {
+  return resolveTicketWorktreePath(projectRoot, externalId)
 }
 
-export function getTicketDir(externalId: string): string {
-  return resolve(getTicketWorktreePath(externalId), '.ticket')
+export function getTicketDir(projectRoot: string, externalId: string): string {
+  return resolveTicketDir(projectRoot, externalId)
 }
 
 function runGit(args: string[], cwd: string, code: string, message: string): string {
@@ -192,15 +194,16 @@ function preserveTicketSkeleton(worktreePath: string): {
 }
 
 function ensureTicketDirectories(ticketDir: string) {
+  const runtimeDir = resolve(ticketDir, 'runtime')
   const dirs = [
     ticketDir,
     resolve(ticketDir, 'meta'),
     resolve(ticketDir, 'approvals'),
-    resolve(ticketDir, 'runtime'),
-    resolve(ticketDir, 'runtime', 'streams'),
-    resolve(ticketDir, 'runtime', 'sessions'),
-    resolve(ticketDir, 'runtime', 'locks'),
-    resolve(ticketDir, 'runtime', 'tmp'),
+    runtimeDir,
+    resolve(runtimeDir, 'streams'),
+    resolve(runtimeDir, 'sessions'),
+    resolve(runtimeDir, 'locks'),
+    resolve(runtimeDir, 'tmp'),
     resolve(ticketDir, 'beads', 'main', '.beads'),
   ]
 
@@ -259,8 +262,8 @@ function materializeWorktree(
 
 export function initializeTicket(options: InitializeOptions): InitializeTicketResult {
   const branchName = options.externalId
-  const worktreePath = getTicketWorktreePath(options.externalId)
-  const ticketDir = getTicketDir(options.externalId)
+  const worktreePath = getTicketWorktreePath(options.projectFolder, options.externalId)
+  const ticketDir = getTicketDir(options.projectFolder, options.externalId)
 
   ensureGitRepo(options.projectFolder)
   ensureMainBranch(options.projectFolder)
@@ -278,6 +281,7 @@ export function initializeTicket(options: InitializeOptions): InitializeTicketRe
   }
 
   ensureTicketDirectories(ticketDir)
+  mkdirSync(getTicketRuntimeDir(options.projectFolder, options.externalId), { recursive: true })
   writeRuntimeGitignore(ticketDir)
 
   let codebaseMapPath: string

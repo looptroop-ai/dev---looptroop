@@ -13,9 +13,11 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}', 'server/**/*.test.ts', 'tests/**/*.test.ts'],
     css: true,
+    fileParallelism: false,
     env: {
       NODE_ENV: 'test',
-      LOOPTROOP_DB_PATH: '.looptroop/test-db.sqlite',
+      LOOPTROOP_CONFIG_DIR: '.looptroop-test-config',
+      LOOPTROOP_OPENCODE_MODE: 'mock',
     },
   },
   resolve: {

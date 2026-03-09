@@ -1,7 +1,8 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { CouncilMember, DraftResult, Vote, VoteScore } from './types'
-import type { Message, PromptPart } from '../opencode/types'
+import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
+import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
 
 /**
  * Parse a numerical score from an AI voter response for a specific draft.
@@ -119,6 +120,12 @@ export async function conductVoting(
     response: string
     messages: Message[]
   }) => void,
+  onOpenCodeStreamEvent?: (entry: {
+    stage: 'vote'
+    memberId: string
+    sessionId: string
+    event: StreamEvent
+  }) => void,
 ): Promise<Vote[]> {
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
@@ -130,9 +137,9 @@ export async function conductVoting(
   const promises = voters.map(async (voter): Promise<Vote[]> => {
     const anonymized = anonymizeDrafts(validDrafts, voter.modelId)
     const voterVotes: Vote[] = []
+    let sessionId = ''
 
     try {
-      const session = await adapter.createSession(projectPath, signal)
       const votingPrompt: PromptPart[] = [
         ...contextParts,
         {
@@ -148,13 +155,31 @@ export async function conductVoting(
         },
       ]
 
-      const response = await adapter.promptSession(session.id, votingPrompt, signal)
-      const messages: Message[] = await adapter.getSessionMessages(session.id)
+      const result = await runOpenCodePrompt({
+        adapter,
+        projectPath,
+        parts: votingPrompt,
+        signal,
+        model: voter.modelId,
+        onSessionCreated: (session) => {
+          sessionId = session.id
+        },
+        onStreamEvent: (event) => {
+          onOpenCodeStreamEvent?.({
+            stage: 'vote',
+            memberId: voter.modelId,
+            sessionId,
+            event,
+          })
+        },
+      })
+      const response = result.response
+      const messages: Message[] = result.messages
 
       onOpenCodeSessionLog?.({
         stage: 'vote',
         memberId: voter.modelId,
-        sessionId: session.id,
+        sessionId: result.session.id,
         response,
         messages,
       })

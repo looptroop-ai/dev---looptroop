@@ -68,6 +68,20 @@ class SSEBroadcaster {
     return (this.clients.get(ticketId) ?? []).length
   }
 
+  clearTicket(ticketId: string) {
+    const clients = this.clients.get(ticketId) ?? []
+    for (const client of clients) {
+      try {
+        client.close()
+      } catch {
+        // Ignore close errors during cleanup.
+      }
+    }
+
+    this.clients.delete(ticketId)
+    this.eventBuffer.delete(ticketId)
+  }
+
   // Cleanup expired buffer entries
   cleanup() {
     const now = Date.now()

@@ -1,3 +1,4 @@
+import type { PromptPart } from '../opencode/types'
 import { GLOBAL_RULES, CONVERSATIONAL_RULES } from './globalRules'
 
 interface PromptTemplate {
@@ -20,7 +21,7 @@ export const PROM1: PromptTemplate = {
     'Phase 1 - Foundation (What/Who/Why): First establish project intent, target user, core value, constraints (and out of scope), and non-goals. Exit criteria: no core ambiguity remains for problem, user, and objective.',
     'Phase 2 - Structure (Complete Feature Inventory): Then capture the full list of required features and major user flows before deep implementation details. Exit criteria: feature inventory is complete, deduplicated, and prioritized.',
     'Phase 3 - Assembly (Deep Dive Per Feature): Then go feature-by-feature and define implementation-level expectations (behavior, edge cases, acceptance criteria, test intent, dependencies). Exit criteria: each in-scope feature has enough detail to support PRD generation without guessing.',
-    'Question Limit: Aim to use nearly all available question slots up to `max_initial_questions`. Ask fewer questions only if additional questions would be redundant or low-value.',
+    'Question Limit: Treat `max_initial_questions` as a hard upper bound, not a target. Ask only as many questions as needed to remove meaningful ambiguity and gather enough detail for PRD generation. Stop once additional questions would be redundant or low-value.',
     `Output Format: Output strict machine-readable YAML. The top-level key MUST be \`questions\` containing a list. Each entry MUST have exactly three fields: \`id\`, \`phase\`, and \`question\`.
     Example:
     \`\`\`yaml
@@ -59,7 +60,7 @@ export const PROM3: PromptTemplate = {
   task: 'Create the final, definitive version of your interview questions by reviewing the alternative (losing) drafts. Extract any superior questions, missing edge cases, or better flow they contain, and integrate them seamlessly into your winning foundation.',
   instructions: [
     'Analyze Alternatives: Carefully review the alternative drafts. Look specifically for unhandled edge cases, better phrasing, or missing constraints.',
-    'Selective Integration: Incorporate these improvements into your winning draft. DO NOT rewrite your entire draft — keep it mostly unchanged, only add what you consider necessary. DO surgically add the missing pieces. Replace weaker questions rather than appending — the final output must not exceed the `max_initial_questions` limit.',
+    'Selective Integration: Incorporate these improvements into your winning draft. DO NOT rewrite your entire draft — keep it mostly unchanged, only add what you consider necessary. DO surgically add the missing pieces. Replace weaker questions rather than appending. Treat `max_initial_questions` as a hard upper bound, not a target, and do not pad the list just because space remains.',
     'Formatting: Output the final refined draft using the exact same structural format required for this phase. Output only the final artifact.',
   ],
   outputFormat: 'YAML — same question list format as PROM1 output, matching PROM5.output_file questions schema',
@@ -72,8 +73,8 @@ export const PROM4: PromptTemplate = {
   systemRole: 'You are an expert product manager conducting an interview with a user.',
   task: "Review the user's answers to questions and adjust the upcoming ones to improve coherence and extract missing details.",
   instructions: [
-    'Batching and Progress: Present the first batch of 1-3 questions (you choose batch size based on complexity/relatedness), show progress (e.g., question 12/50), and wait for the user to answer all questions in that batch.',
-    'Adaptive Iteration: After each batch, analyze answers and adjust only upcoming questions when needed. Add follow-up questions only to resolve ambiguities (max follow-ups in total: 20% of `max_initial_questions`), update/delete now-redundant questions, and accept skipped answers without re-asking unless the missing answer is critical.',
+    'Batching and Progress: Present the first batch of 1-3 questions (you choose batch size based on complexity/relatedness), show progress (e.g., question 12 of the current planned set, where the total may change), and wait for the user to answer all questions in that batch.',
+    'Adaptive Iteration: After each batch, analyze answers and adjust only upcoming questions when needed. Add follow-up questions only when they are necessary to resolve meaningful ambiguities (max follow-ups in total: 20% of `max_initial_questions`), update/delete now-redundant questions, and accept skipped answers without re-asking unless the missing answer is critical. Do not use the follow-up budget unless it materially improves coverage.',
     "User Adaptation: Adapt question phrasing to the user's background and expertise level. Use plain language and real-world analogies for non-technical users; use precise technical terminology for experts.",
     "Final Free-Form Question: After all questions are answered or skipped and no major ambiguity remains, present one final free-form question: 'Anything else to add before PRD generation?'",
     'Final Output: After the final free-form question is answered or skipped, output the final interview results file in a strict machine-readable format.',
@@ -104,7 +105,7 @@ export const PROM5: PromptTemplate = {
   instructions: [
     'Coverage Check: Detect unresolved ambiguity, missing constraints, missing edge cases, missing non-goals, and inconsistent answers.',
     'Identify Gaps: List any specific gaps or discrepancies found between the source material and the Interview Results.',
-    'Follow-up: If gaps exist, generate targeted follow-up questions to resolve them (no more than 20% of `max_initial_questions`). If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation.',
+    'Follow-up: If gaps exist, generate only the targeted follow-up questions strictly necessary to resolve them (no more than 20% of `max_initial_questions`). Do not generate follow-up questions merely because budget remains. If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation.',
   ],
   outputFormat: 'YAML',
   contextInputs: ['ticket_details', 'user_answers', 'interview'],
@@ -281,7 +282,7 @@ export const PROM52: PromptTemplate = {
 // Helper to build full prompt from template
 export function buildPromptFromTemplate(
   template: PromptTemplate,
-  contextParts: { type: string; content: string }[],
+  contextParts: PromptPart[],
 ): string {
   return [
     GLOBAL_RULES,
@@ -299,14 +300,14 @@ export function buildPromptFromTemplate(
     template.outputFormat,
     '',
     `## Context`,
-    ...contextParts.map((p) => `### ${p.type}\n${p.content}`),
+    ...contextParts.map((p) => `### ${p.source ?? p.type}\n${p.content}`),
   ].join('\n')
 }
 
 // Helper to build a conversational (multi-turn) prompt from template
 export function buildConversationalPrompt(
   template: PromptTemplate,
-  contextParts: { type: string; content: string }[],
+  contextParts: PromptPart[],
 ): string {
   return [
     CONVERSATIONAL_RULES,
@@ -324,7 +325,7 @@ export function buildConversationalPrompt(
     template.outputFormat,
     '',
     `## Context`,
-    ...contextParts.map((p) => `### ${p.type}\n${p.content}`),
+    ...contextParts.map((p) => `### ${p.source ?? p.type}\n${p.content}`),
   ].join('\n')
 }
 

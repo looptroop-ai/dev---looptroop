@@ -1,12 +1,20 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { db } from '../db/index'
-import { projects, tickets, phaseArtifacts } from '../db/schema'
-import { eq, inArray } from 'drizzle-orm'
 import { existsSync, readdirSync, statSync } from 'fs'
-import { resolve as resolvePath, isAbsolute, dirname } from 'path'
+import { dirname, resolve as resolvePath } from 'path'
 import { homedir } from 'os'
-import { execFileSync } from 'child_process'
+import {
+  attachExistingProject,
+  attachProject,
+  detachProject,
+  type ExistingProjectMetadata,
+  getProjectById,
+  listProjectTickets,
+  listProjects,
+  resolveProjectState,
+  updateProject,
+} from '../storage/projects'
+import { isGitRepo, normalizeFolderPath, resolveGitRepoRoot } from '../storage/paths'
 
 const projectRouter = new Hono()
 
@@ -36,24 +44,12 @@ const updateProjectSchema = z.object({
   ...perProjectOverrides,
 })
 
-// Normalize Windows paths for WSL compatibility (e.g. D:\foo → /mnt/d/foo)
-function normalizeFolderPath(p: string): string {
-  p = p.trim().replace(/[\\/]+$/, '')
-  p = p.replace(/\\/g, '/')
-  const driveMatch = p.match(/^([A-Za-z]):\/(.*)$/)
-  if (driveMatch && driveMatch[1] && driveMatch[2] !== undefined) {
-    p = `/mnt/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`
-  }
-  if (!isAbsolute(p)) {
-    p = resolvePath(process.cwd(), p)
-  }
-  return p
-}
-
 interface GitRepoInfo {
   isGit: boolean
   repoRoot?: string
   isRepoRoot?: boolean
+  hasLoopTroopState?: boolean
+  existingProject?: ExistingProjectMetadata | null
 }
 
 function getGitRepoInfo(folderPath: string): GitRepoInfo {
@@ -63,32 +59,17 @@ function getGitRepoInfo(folderPath: string): GitRepoInfo {
     return { isGit: false }
   }
 
-  try {
-    const inside = execFileSync('git', ['-C', resolved, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' })
-      .toString()
-      .trim()
+  const repoRoot = resolveGitRepoRoot(resolved)
+  if (!repoRoot) return { isGit: false }
 
-    if (inside !== 'true') return { isGit: false }
-
-    const repoRoot = normalizeFolderPath(
-      execFileSync('git', ['-C', resolved, 'rev-parse', '--show-toplevel'], { stdio: 'pipe' })
-        .toString()
-        .trim(),
-    )
-
-    return {
-      isGit: true,
-      repoRoot,
-      isRepoRoot: repoRoot === resolved,
-    }
-  } catch (err) {
-    console.warn(`[getGitRepoInfo] Not a git repo: ${resolved}`, (err as Error).message)
-    return { isGit: false }
+  const state = resolveProjectState(repoRoot)
+  return {
+    isGit: true,
+    repoRoot,
+    isRepoRoot: repoRoot === resolved,
+    hasLoopTroopState: state.exists,
+    existingProject: state.existingProject,
   }
-}
-
-function isGitRepo(folderPath: string): boolean {
-  return getGitRepoInfo(folderPath).isGit
 }
 
 projectRouter.get('/projects/check-git', (c) => {
@@ -96,29 +77,22 @@ projectRouter.get('/projects/check-git', (c) => {
   if (!rawPath) return c.json({ isGit: false, status: 'none', message: 'No path provided' })
 
   const folderPath = normalizeFolderPath(rawPath)
-
   if (!existsSync(folderPath)) {
     return c.json({ isGit: false, status: 'invalid', message: `Folder does not exist: ${folderPath}` })
   }
 
   const gitInfo = getGitRepoInfo(folderPath)
   if (gitInfo.isGit) {
-    if (gitInfo.isRepoRoot) {
-      return c.json({
-        isGit: true,
-        status: 'valid',
-        scope: 'root',
-        repoRoot: gitInfo.repoRoot,
-        message: 'Git repository root selected',
-      })
-    }
-
     return c.json({
       isGit: true,
       status: 'valid',
-      scope: 'subfolder',
+      scope: gitInfo.isRepoRoot ? 'root' : 'subfolder',
       repoRoot: gitInfo.repoRoot,
-      message: `Subfolder inside Git repository (root: ${gitInfo.repoRoot})`,
+      hasLoopTroopState: gitInfo.hasLoopTroopState ?? false,
+      existingProject: gitInfo.existingProject ?? null,
+      message: gitInfo.isRepoRoot
+        ? (gitInfo.hasLoopTroopState ? 'Existing LoopTroop project found at repository root' : 'Git repository root selected')
+        : `Subfolder inside Git repository (root: ${gitInfo.repoRoot})`,
     })
   }
 
@@ -158,14 +132,13 @@ projectRouter.get('/projects/ls', (c) => {
 })
 
 projectRouter.get('/projects', (c) => {
-  const all = db.select().from(projects).all()
-  return c.json(all)
+  return c.json(listProjects())
 })
 
 projectRouter.get('/projects/:id', (c) => {
   const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
-  const project = db.select().from(projects).where(eq(projects.id, id)).get()
+  if (Number.isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
+  const project = getProjectById(id)
   if (!project) return c.json({ error: 'Project not found' }, 404)
   return c.json(project)
 })
@@ -180,59 +153,53 @@ projectRouter.post('/projects', async (c) => {
       .join('; ')
     return c.json({ error: 'Invalid input', details: parsed.error.flatten(), message }, 400)
   }
-  
-  // Validate git repository (skip in test environment)
+
   if (process.env.NODE_ENV !== 'test' && !isGitRepo(parsed.data.folderPath)) {
-    return c.json({ 
+    return c.json({
       error: 'Folder is not a git repository',
-      details: `No git repository found at: ${parsed.data.folderPath}. Please initialize the repository with 'git init' first.`
+      details: `No git repository found at: ${parsed.data.folderPath}. Please initialize the repository with 'git init' first.`,
     }, 400)
   }
-  
-  const result = db.insert(projects).values(parsed.data).returning().get()
-  return c.json(result, 201)
+
+  const projectState = resolveProjectState(parsed.data.folderPath)
+  try {
+    const result = projectState.exists
+      ? attachExistingProject(parsed.data)
+      : attachProject(parsed.data)
+    return c.json(result, 201)
+  } catch (err) {
+    return c.json({ error: 'Failed to attach project', details: String(err) }, 500)
+  }
 })
 
 projectRouter.patch('/projects/:id', async (c) => {
   const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
+  if (Number.isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
   const body = await c.req.json()
   const parsed = updateProjectSchema.safeParse(body)
   if (!parsed.success) {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400)
   }
-  const existing = db.select().from(projects).where(eq(projects.id, id)).get()
-  if (!existing) return c.json({ error: 'Project not found' }, 404)
-  const result = db.update(projects)
-    .set({ ...parsed.data, updatedAt: new Date().toISOString() })
-    .where(eq(projects.id, id))
-    .returning()
-    .get()
+
+  const result = updateProject(id, parsed.data)
+  if (!result) return c.json({ error: 'Project not found' }, 404)
   return c.json(result)
 })
 
 projectRouter.delete('/projects/:id', (c) => {
   const id = Number(c.req.param('id'))
-  if (isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
-  const existing = db.select().from(projects).where(eq(projects.id, id)).get()
+  if (Number.isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
+  const existing = getProjectById(id)
   if (!existing) return c.json({ error: 'Project not found' }, 404)
 
-  // Check all tickets for this project
-  const projectTickets = db.select().from(tickets).where(eq(tickets.projectId, id)).all()
+  const projectTickets = listProjectTickets(id)
   const allowedStatuses = ['DRAFT', 'COMPLETED', 'CANCELED']
-  const hasInProgress = projectTickets.some(t => !allowedStatuses.includes(t.status))
-
+  const hasInProgress = projectTickets.some(ticket => !allowedStatuses.includes(ticket.status))
   if (hasInProgress) {
-    return c.json({ error: 'Cannot delete project. Some tickets are still in progress. Move all tickets to Done or cancel them first.' }, 409)
+    return c.json({ error: 'Cannot detach project. Some tickets are still in progress. Move all tickets to Done or cancel them first.' }, 409)
   }
 
-  // Cascade delete: phase_artifacts → tickets → project
-  if (projectTickets.length > 0) {
-    const ticketIds = projectTickets.map(t => t.id)
-    db.delete(phaseArtifacts).where(inArray(phaseArtifacts.ticketId, ticketIds)).run()
-    db.delete(tickets).where(eq(tickets.projectId, id)).run()
-  }
-  db.delete(projects).where(eq(projects.id, id)).run()
+  detachProject(id)
   return c.json({ success: true })
 })
 

@@ -1,7 +1,4 @@
-import { db } from '../db/index'
-import { tickets } from '../db/schema'
-import { not, inArray } from 'drizzle-orm'
-import { TERMINAL_STATES } from '../machines/types'
+import { listNonTerminalTickets } from '../storage/tickets'
 
 export interface RecoveryReport {
   ticketsRecovered: number
@@ -17,13 +14,7 @@ export function recoverFromCrash(): RecoveryReport {
   }
 
   try {
-    // Find non-terminal tickets that need recovery
-    const terminalStatuses = [...TERMINAL_STATES] as string[]
-    const activeTickets = db
-      .select()
-      .from(tickets)
-      .where(not(inArray(tickets.status, terminalStatuses)))
-      .all()
+    const activeTickets = listNonTerminalTickets()
 
     for (const ticket of activeTickets) {
       try {

@@ -18,6 +18,18 @@ export interface LogEvent {
   ticketId: string
   type: string
   content: string
+  phase?: string
+  status?: string
+  source?: string
+  entryId?: string
+  op?: 'append' | 'upsert' | 'finalize'
+  audience?: 'all' | 'ai' | 'debug'
+  kind?: 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'error' | 'test'
+  modelId?: string
+  sessionId?: string
+  streaming?: boolean
+  message?: string
+  data?: Record<string, unknown>
 }
 
 export interface ProgressEvent {

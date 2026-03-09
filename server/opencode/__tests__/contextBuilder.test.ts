@@ -29,10 +29,12 @@ describe('buildMinimalContext', () => {
   describe('phase allowlist enforcement', () => {
     it('interview_draft should only include codebase_map and ticket_details', () => {
       const parts = buildMinimalContext('interview_draft', baseTicketState)
-      // Should have exactly 2 parts: codebase_map and ticket_details
       expect(parts).toHaveLength(2)
-      expect(parts.some((p) => p.content.includes('# Ticket:'))).toBe(true)
-      expect(parts.some((p) => p.content.includes('Project structure'))).toBe(true)
+      expect(parts[0]!.source).toBe('ticket_details')
+      expect(parts[0]!.content).toContain('## Primary User Requirement For This Ticket')
+      expect(parts[0]!.content).toContain('# Ticket: Test Ticket')
+      expect(parts[1]!.source).toBe('codebase_map')
+      expect(parts[1]!.content).toContain('Project structure')
     })
 
     it('interview_vote should include codebase_map, ticket_details, and drafts', () => {
@@ -132,10 +134,11 @@ describe('buildMinimalContext', () => {
         ticketId: 'minimal',
       }
       const parts = buildMinimalContext('interview_draft', minimalState)
-      // Should still have codebase_map (default) and ticket_details
       expect(parts).toHaveLength(2)
-      expect(parts.some((p) => p.content.includes('Untitled'))).toBe(true)
-      expect(parts.some((p) => p.content.includes('not yet generated'))).toBe(true)
+      expect(parts[0]!.source).toBe('ticket_details')
+      expect(parts[0]!.content).toContain('Untitled')
+      expect(parts[1]!.source).toBe('codebase_map')
+      expect(parts[1]!.content).toContain('not yet generated')
     })
 
     it('should skip empty interview content', () => {

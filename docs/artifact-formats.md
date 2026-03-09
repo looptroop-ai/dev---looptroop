@@ -93,24 +93,8 @@ Auto-generated project structure map. Created by SYS when a ticket transitions f
 
 **Schema:**
 ```yaml
-schema_version: 1
 ticket_id: "PROJ-1"
 artifact: "codebase_map"
-generated_by: "SYS"
-generated_at: "2026-02-06T14:58:00Z"
-source:
-  root: "."
-  ignore:
-    - ".git/"
-    - "node_modules/"
-    - ".venv/"
-    - ".pytest_cache/"
-summary:
-  total_files: 128
-  by_language:
-    TypeScript: 44
-    Markdown: 9
-    YAML: 6
 manifests:
   - "package.json"
   - "pyproject.toml"

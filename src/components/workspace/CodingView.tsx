@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import type { Ticket } from '@/hooks/useTickets'
+import { useTicketAction } from '@/hooks/useTickets'
 import { cn } from '@/lib/utils'
 
 interface CodingViewProps {
@@ -33,10 +34,12 @@ function generateBeads(total: number, current: number): BeadInfo[] {
 
 export function CodingView({ ticket }: CodingViewProps) {
   const [viewingBead, setViewingBead] = useState<number | null>(null)
+  const { mutate: performAction, isPending } = useTicketAction()
   const total = ticket.totalBeads ?? 5
   const current = ticket.currentBead ?? 1
   const percent = ticket.percentComplete ?? (total > 0 ? Math.round((current / total) * 100) : 0)
   const beads = generateBeads(total, current)
+  const isAwaitingManualVerification = ticket.status === 'WAITING_MANUAL_VERIFICATION'
 
   const isViewingOther = viewingBead !== null && viewingBead !== current
   const viewedBead = viewingBead !== null ? beads.find(b => b.index === viewingBead) : null
@@ -59,6 +62,25 @@ export function CodingView({ ticket }: CodingViewProps) {
         </div>
         <span className="text-xs font-mono text-muted-foreground shrink-0">{current}/{total}</span>
       </div>
+
+      {isAwaitingManualVerification && (
+        <div className="px-4 py-3 border-b border-border bg-amber-50/60 dark:bg-amber-950/20 flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Manual Verification</div>
+            <p className="text-xs text-muted-foreground">
+              Review the generated changes and mark the ticket verified to finish cleanup.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => performAction({ id: ticket.id, action: 'verify' })}
+            disabled={isPending}
+            className="shrink-0"
+          >
+            {isPending ? 'Verifying…' : '✅ Mark Verified'}
+          </Button>
+        </div>
+      )}
 
       {/* Viewing other bead banner */}
       {isViewingOther && viewedBead && (

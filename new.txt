@@ -18,9 +18,9 @@ Start the app and fix if any problems when starting. Opencode serve is running i
 Editing Interview Results will restart the PRD and Beads phases. All previous PRD and Beads data will be lost.
 > but this should not happen if prd phases has not even started.
 
-9. when i click configuration it takes a couple of houndreds of miliseconds until data is filled, like username, icon and description or models. but i did some changes, becuse in the past it worked ok. what can you change?
+9. if i click too fast on an artifact, before it is loaded i assume, it shows something wrong. it happened on AI Council Thinking , but i think it happens in other phases too, can you check. Same it takes a couple of houndred of milisecionds for a status to show, can you make it instant or at least show a loading until page is fully loaded.
 
-
+DE PUS SI IN CLAUDE ce e new 1
 
 
 Delete the current projects and tickets and create 3 new mock projects with data and 20 mock tickets in different statuses, but add mock data for previous statuses too, respecting the files requirments.

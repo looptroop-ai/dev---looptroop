@@ -125,22 +125,23 @@ describe('MockOpenCodeAdapter', () => {
 
 describe('OpenCodeSDKAdapter', () => {
   afterEach(() => {
-    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
   it('forwards the working path when creating a session', async () => {
-    const adapter = new OpenCodeSDKAdapter(9999)
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ id: 'session-1' }),
+    const createSession = vi.fn().mockResolvedValue({
+      data: { id: 'session-1', createdAt: '2026-03-09T00:00:00.000Z' },
     })
-    vi.stubGlobal('fetch', fetchMock)
+    const client = {
+      session: {
+        create: createSession,
+      },
+    } as unknown as ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>
+    const adapter = new OpenCodeSDKAdapter(9999, client)
 
     await adapter.createSession('/tmp/worktree')
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [, init] = fetchMock.mock.calls[0]!
-    expect(JSON.parse(String(init?.body))).toEqual({ path: '/tmp/worktree' })
+    expect(createSession).toHaveBeenCalledTimes(1)
+    expect(createSession).toHaveBeenCalledWith({ directory: '/tmp/worktree' }, undefined)
   })
 })

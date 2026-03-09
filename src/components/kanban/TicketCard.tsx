@@ -9,7 +9,7 @@ import { STATUS_DESCRIPTIONS, STATUS_ORDER, STATUS_TO_PHASE, getStatusUserLabel 
 
 interface TicketCardProps {
   ticket: {
-    id: number
+    id: string
     externalId: string
     title: string
     priority: number

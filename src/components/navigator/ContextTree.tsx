@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 
 interface ContextTreeProps {
   selectedPhase: string
-  ticketId: number
+  ticketId: string
 }
 
 interface ContextItem {

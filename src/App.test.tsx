@@ -2,16 +2,21 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { UIProvider } from '@/context/UIContext'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import App from './App'
 
 function renderApp() {
+  window.localStorage.clear()
+  window.localStorage.setItem('looptroop-welcome-seen', 'true')
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <UIProvider>
-        <App />
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
       </UIProvider>
     </QueryClientProvider>
   )

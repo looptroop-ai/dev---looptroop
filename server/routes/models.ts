@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
-import { OpenCodeSDKAdapter } from '../opencode/adapter'
+import { getOpenCodeAdapter } from '../opencode/factory'
 
 const modelsRouter = new Hono()
-const adapter = new OpenCodeSDKAdapter()
 
 modelsRouter.get('/models', async (c) => {
+  const adapter = getOpenCodeAdapter()
   const health = await adapter.checkHealth()
   if (!health.available) {
     return c.json({

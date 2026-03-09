@@ -2,11 +2,11 @@ import type { DiagnosticCheck, PreFlightReport } from './types'
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { Bead } from '../beads/types'
 import { existsSync } from 'fs'
-import { resolve } from 'path'
+import { getTicketPaths } from '../../storage/tickets'
 
 export async function runPreFlightChecks(
   adapter: OpenCodeAdapter,
-  ticketExternalId: string,
+  ticketId: string,
   beads: Bead[],
 ): Promise<PreFlightReport> {
   const checks: DiagnosticCheck[] = []
@@ -30,21 +30,22 @@ export async function runPreFlightChecks(
   }
 
   // 2. Ticket directory exists
-  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', ticketExternalId, '.ticket')
+  const paths = getTicketPaths(ticketId)
+  const ticketDir = paths?.ticketDir
   checks.push({
     name: 'Ticket Directory',
     category: 'artifacts',
-    result: existsSync(ticketDir) ? 'pass' : 'fail',
-    message: existsSync(ticketDir) ? 'Ticket directory exists' : 'Ticket directory not found',
+    result: ticketDir && existsSync(ticketDir) ? 'pass' : 'fail',
+    message: ticketDir && existsSync(ticketDir) ? 'Ticket directory exists' : 'Ticket directory not found',
   })
 
   // 3. Codebase map exists
-  const codebaseMap = resolve(ticketDir, 'codebase-map.yaml')
+  const codebaseMap = ticketDir ? `${ticketDir}/codebase-map.yaml` : null
   checks.push({
     name: 'Codebase Map',
     category: 'artifacts',
-    result: existsSync(codebaseMap) ? 'pass' : 'warning',
-    message: existsSync(codebaseMap) ? 'Codebase map exists' : 'Codebase map not found',
+    result: codebaseMap && existsSync(codebaseMap) ? 'pass' : 'warning',
+    message: codebaseMap && existsSync(codebaseMap) ? 'Codebase map exists' : 'Codebase map not found',
   })
 
   // 4. Beads validation

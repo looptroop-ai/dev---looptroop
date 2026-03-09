@@ -1,15 +1,27 @@
 import { createActor } from 'xstate'
-import { db } from '../db/index'
-import { tickets } from '../db/schema'
-import { eq, not, inArray } from 'drizzle-orm'
 import { ticketMachine } from './ticketMachine'
 import { TERMINAL_STATES } from './types'
 import { attachWorkflowRunner } from '../workflow/runner'
 import { broadcaster } from '../sse/broadcaster'
 import { appendLogEvent } from '../log/executionLog'
+import {
+  findTicketRefByLocalId,
+  getTicketContext,
+  listNonTerminalTickets,
+  patchTicket,
+} from '../storage/tickets'
 
-// Active actors map
-const activeActors = new Map<number, ReturnType<typeof createActor<typeof ticketMachine>>>()
+const activeActors = new Map<string, ReturnType<typeof createActor<typeof ticketMachine>>>()
+
+function resolveTicketRef(ticketRef: string | number): string {
+  if (typeof ticketRef === 'string' && ticketRef.includes(':')) return ticketRef
+  const numericId = typeof ticketRef === 'number' ? ticketRef : Number(ticketRef)
+  if (!Number.isNaN(numericId)) {
+    const resolved = findTicketRefByLocalId(numericId)
+    if (resolved) return resolved
+  }
+  return String(ticketRef)
+}
 
 function getStateValue(actor: ReturnType<typeof createActor<typeof ticketMachine>>): string {
   const snapshot = actor.getSnapshot()
@@ -17,145 +29,136 @@ function getStateValue(actor: ReturnType<typeof createActor<typeof ticketMachine
 }
 
 function emitAppSystemLog(
-  ticketId: number,
-  externalId: string,
+  ticketRef: string,
   phase: string,
   content: string,
   data?: Record<string, unknown>,
 ) {
-  broadcaster.broadcast(String(ticketId), 'log', {
-    ticketId: String(ticketId),
+  broadcaster.broadcast(ticketRef, 'log', {
+    ticketId: ticketRef,
     phase,
     type: 'info',
     content,
     source: 'system',
     ...(data ? { data } : {}),
   })
-  appendLogEvent(externalId, 'info', phase, content, data, 'system', phase)
+  appendLogEvent(ticketRef, 'info', phase, content, data, 'system', phase)
 }
 
 function emitAppErrorLog(
-  ticketId: number,
-  externalId: string,
+  ticketRef: string,
   phase: string,
   content: string,
   data?: Record<string, unknown>,
 ) {
-  broadcaster.broadcast(String(ticketId), 'log', {
-    ticketId: String(ticketId),
+  broadcaster.broadcast(ticketRef, 'log', {
+    ticketId: ticketRef,
     phase,
     type: 'error',
     content,
     source: 'error',
     ...(data ? { data } : {}),
   })
-  appendLogEvent(externalId, 'error', phase, content, data, 'error', phase)
+  appendLogEvent(ticketRef, 'error', phase, content, data, 'error', phase)
 }
 
 function attachPersistenceSubscription(
-  ticketId: number,
-  externalId: string,
+  ticketRef: string,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
 ) {
   let isFirstEmission = true
 
   actor.subscribe(() => {
-    persistSnapshot(ticketId, actor)
+    persistSnapshot(ticketRef, actor)
 
     const currentState = getStateValue(actor)
     if (isFirstEmission) {
       isFirstEmission = false
       emitAppSystemLog(
-        ticketId,
-        externalId,
+        ticketRef,
         currentState,
         `[APP] Actor active in ${currentState}.`,
         { state: currentState },
       )
     }
 
-    // Remove actor if terminal
     if (actor.getSnapshot().status === 'done') {
-      activeActors.delete(ticketId)
+      activeActors.delete(ticketRef)
     }
   })
 }
 
-export function getActor(ticketId: number) {
-  return activeActors.get(ticketId)
+export function getActor(ticketRef: string | number) {
+  return activeActors.get(resolveTicketRef(ticketRef))
 }
 
 export function getAllActors() {
-  return activeActors
+  return activeActors as Map<string | number, ReturnType<typeof createActor<typeof ticketMachine>>>
 }
 
-export function ensureActorForTicket(ticketId: number) {
-  const existing = activeActors.get(ticketId)
+export function ensureActorForTicket(ticketRef: string | number) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
+  const existing = activeActors.get(resolvedTicketRef)
   if (existing) return existing
 
-  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
-  if (!ticket) throw new Error(`Ticket ${ticketId} not found`)
-  if (TERMINAL_STATES.includes(ticket.status as (typeof TERMINAL_STATES)[number])) {
-    throw new Error(`Ticket ${ticketId} is terminal (${ticket.status})`)
+  const ticket = getTicketContext(resolvedTicketRef)
+  if (!ticket) throw new Error(`Ticket ${resolvedTicketRef} not found`)
+  if (TERMINAL_STATES.includes(ticket.localTicket.status as (typeof TERMINAL_STATES)[number])) {
+    throw new Error(`Ticket ${resolvedTicketRef} is terminal (${ticket.localTicket.status})`)
   }
 
-  if (ticket.xstateSnapshot) {
+  const input = {
+    ticketId: resolvedTicketRef,
+    projectId: ticket.projectId,
+    externalId: ticket.externalId,
+    title: ticket.localTicket.title,
+    lockedMainImplementer: ticket.localTicket.lockedMainImplementer ?? null,
+    lockedCouncilMembers: ticket.localTicket.lockedCouncilMembers ? JSON.parse(ticket.localTicket.lockedCouncilMembers) as string[] : null,
+  }
+
+  if (ticket.localTicket.xstateSnapshot) {
     try {
-      const snapshot = JSON.parse(ticket.xstateSnapshot)
-      return hydrateTicketActor(ticket.id, snapshot, {
-        ticketId: String(ticket.id),
-        projectId: ticket.projectId,
-        externalId: ticket.externalId,
-        title: ticket.title,
-        lockedMainImplementer: ticket.lockedMainImplementer ?? null,
-        lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : null,
-      })
+      const snapshot = JSON.parse(ticket.localTicket.xstateSnapshot)
+      return hydrateTicketActor(resolvedTicketRef, snapshot, input)
     } catch {
       // Fall back to fresh actor creation if snapshot is invalid.
     }
   }
 
-  return createTicketActor(ticket.id, {
-    ticketId: String(ticket.id),
-    projectId: ticket.projectId,
-    externalId: ticket.externalId,
-    title: ticket.title,
-    lockedMainImplementer: ticket.lockedMainImplementer ?? null,
-    lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : null,
-  })
+  return createTicketActor(resolvedTicketRef, input)
 }
 
-// Save XState snapshot to SQLite
-export function persistSnapshot(ticketId: number, actor: ReturnType<typeof createActor<typeof ticketMachine>>) {
-  const existing = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
+export function persistSnapshot(
+  ticketRef: string | number,
+  actor: ReturnType<typeof createActor<typeof ticketMachine>>,
+) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
+  const existing = getTicketContext(resolvedTicketRef)
+  if (!existing) return
+
   const snapshot = actor.getPersistedSnapshot()
   const currentSnapshot = actor.getSnapshot()
   const stateValue = typeof currentSnapshot.value === 'string' ? currentSnapshot.value : JSON.stringify(currentSnapshot.value)
-  const previousStatus = existing?.status
+  const previousStatus = existing.localTicket.status
   const errorMessage = typeof currentSnapshot.context.error === 'string' && currentSnapshot.context.error.trim().length > 0
     ? currentSnapshot.context.error
     : null
 
-  db.update(tickets)
-    .set({
-      xstateSnapshot: JSON.stringify(snapshot),
-      status: stateValue,
-      errorMessage,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(tickets.id, ticketId))
-    .run()
+  patchTicket(resolvedTicketRef, {
+    xstateSnapshot: JSON.stringify(snapshot),
+    status: stateValue,
+    errorMessage,
+  })
 
-  if (existing?.externalId && previousStatus !== stateValue) {
+  if (previousStatus !== stateValue) {
     const payload = {
-      ticketId: String(ticketId),
+      ticketId: ticketRef,
       from: previousStatus ?? 'unknown',
       to: stateValue,
     }
-    broadcaster.broadcast(String(ticketId), 'state_change', payload)
+    broadcaster.broadcast(resolvedTicketRef, 'state_change', payload)
     emitAppSystemLog(
-      ticketId,
-      existing.externalId,
+      resolvedTicketRef,
       stateValue,
       `[APP] Status transition: ${payload.from} -> ${payload.to}`,
       payload,
@@ -163,8 +166,7 @@ export function persistSnapshot(ticketId: number, actor: ReturnType<typeof creat
 
     if (stateValue === 'BLOCKED_ERROR' && errorMessage) {
       emitAppErrorLog(
-        ticketId,
-        existing.externalId,
+        resolvedTicketRef,
         stateValue,
         `[APP] Blocked in ${payload.from}: ${errorMessage}`,
         {
@@ -177,8 +179,19 @@ export function persistSnapshot(ticketId: number, actor: ReturnType<typeof creat
   }
 }
 
-// Create and start a new actor for a ticket
-export function createTicketActor(ticketId: number, input: { ticketId: string; projectId: number; externalId: string; title: string; maxIterations?: number; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }) {
+export function createTicketActor(
+  ticketRef: string | number,
+  input: {
+    ticketId: string
+    projectId: number
+    externalId: string
+    title: string
+    maxIterations?: number
+    lockedMainImplementer?: string | null
+    lockedCouncilMembers?: string[] | null
+  },
+) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
   const actor = createActor(ticketMachine, {
     input: {
       ticketId: input.ticketId,
@@ -191,17 +204,28 @@ export function createTicketActor(ticketId: number, input: { ticketId: string; p
     },
   })
 
-  // Subscribe to transitions for persistence + guaranteed app SYS logging.
-  attachPersistenceSubscription(ticketId, input.externalId, actor)
+  attachPersistenceSubscription(resolvedTicketRef, actor)
 
   actor.start()
-  activeActors.set(ticketId, actor)
-  attachWorkflowRunner(ticketId, actor, (event) => actor.send(event))
+  activeActors.set(resolvedTicketRef, actor)
+  attachWorkflowRunner(resolvedTicketRef, actor, (event) => actor.send(event))
   return actor
 }
 
-// Hydrate actor from SQLite snapshot
-export function hydrateTicketActor(ticketId: number, snapshot: unknown, input: { ticketId: string; projectId: number; externalId: string; title: string; maxIterations?: number; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }) {
+export function hydrateTicketActor(
+  ticketRef: string | number,
+  snapshot: unknown,
+  input: {
+    ticketId: string
+    projectId: number
+    externalId: string
+    title: string
+    maxIterations?: number
+    lockedMainImplementer?: string | null
+    lockedCouncilMembers?: string[] | null
+  },
+) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
   const actor = createActor(ticketMachine, {
     snapshot: snapshot as Parameters<typeof createActor<typeof ticketMachine>>[1] extends { snapshot?: infer S } ? S : never,
     input: {
@@ -215,38 +239,33 @@ export function hydrateTicketActor(ticketId: number, snapshot: unknown, input: {
     },
   })
 
-  attachPersistenceSubscription(ticketId, input.externalId, actor)
+  attachPersistenceSubscription(resolvedTicketRef, actor)
 
   actor.start()
-  activeActors.set(ticketId, actor)
-  attachWorkflowRunner(ticketId, actor, (event) => actor.send(event))
+  activeActors.set(resolvedTicketRef, actor)
+  attachWorkflowRunner(resolvedTicketRef, actor, (event) => actor.send(event))
   return actor
 }
 
-// Hydrate all non-terminal tickets on startup
 export function hydrateAllTickets() {
-  const terminalStatuses = [...TERMINAL_STATES] as string[]
-  const nonTerminalTickets = db.select().from(tickets)
-    .where(not(inArray(tickets.status, terminalStatuses)))
-    .all()
+  const nonTerminalTickets = listNonTerminalTickets()
 
   let hydrated = 0
   for (const ticket of nonTerminalTickets) {
-    if (ticket.xstateSnapshot) {
-      try {
-        const snapshot = JSON.parse(ticket.xstateSnapshot)
-        hydrateTicketActor(ticket.id, snapshot, {
-          ticketId: String(ticket.id),
-          projectId: ticket.projectId,
-          externalId: ticket.externalId,
-          title: ticket.title,
-          lockedMainImplementer: ticket.lockedMainImplementer ?? null,
-          lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : null,
-        })
-        hydrated++
-      } catch (err) {
-        console.error(`[persistence] Failed to hydrate ticket ${ticket.externalId}:`, err)
-      }
+    if (!ticket.xstateSnapshot) continue
+    try {
+      const snapshot = JSON.parse(ticket.xstateSnapshot)
+      hydrateTicketActor(ticket.id, snapshot, {
+        ticketId: ticket.id,
+        projectId: ticket.projectId,
+        externalId: ticket.externalId,
+        title: ticket.title,
+        lockedMainImplementer: ticket.lockedMainImplementer ?? null,
+        lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : null,
+      })
+      hydrated++
+    } catch (err) {
+      console.error(`[persistence] Failed to hydrate ticket ${ticket.externalId}:`, err)
     }
   }
 
@@ -254,19 +273,21 @@ export function hydrateAllTickets() {
   return hydrated
 }
 
-// Send event to a ticket's actor
-export function sendTicketEvent(ticketId: number, event: Parameters<ReturnType<typeof createActor<typeof ticketMachine>>['send']>[0]) {
-  const actor = activeActors.get(ticketId)
+export function sendTicketEvent(
+  ticketRef: string | number,
+  event: Parameters<ReturnType<typeof createActor<typeof ticketMachine>>['send']>[0],
+) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
+  const actor = activeActors.get(resolvedTicketRef)
   if (!actor) {
-    throw new Error(`No active actor for ticket ${ticketId}`)
+    throw new Error(`No active actor for ticket ${resolvedTicketRef}`)
   }
   actor.send(event)
   return actor.getSnapshot()
 }
 
-// Get current state of a ticket's actor
-export function getTicketState(ticketId: number) {
-  const actor = activeActors.get(ticketId)
+export function getTicketState(ticketRef: string | number) {
+  const actor = activeActors.get(resolveTicketRef(ticketRef))
   if (!actor) return null
   const snapshot = actor.getSnapshot()
   return {
@@ -276,12 +297,27 @@ export function getTicketState(ticketId: number) {
   }
 }
 
-// Clean up all actors (for shutdown)
+export function stopActor(ticketRef: string | number) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
+  const actor = activeActors.get(resolvedTicketRef)
+  if (!actor) return false
+
+  try {
+    actor.stop()
+  } catch {
+    // ignore stop errors
+  }
+  activeActors.delete(resolvedTicketRef)
+  return true
+}
+
 export function stopAllActors() {
   for (const [id, actor] of activeActors) {
     try {
       actor.stop()
-    } catch { /* ignore stop errors */ }
+    } catch {
+      // ignore stop errors
+    }
     activeActors.delete(id)
   }
 }

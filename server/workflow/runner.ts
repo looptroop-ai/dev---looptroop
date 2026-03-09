@@ -1,24 +1,25 @@
 import { createActor } from 'xstate'
 import { ticketMachine } from '../machines/ticketMachine'
 import type { TicketContext, TicketEvent } from '../machines/types'
-import { db } from '../db/index'
-import { profiles, tickets, phaseArtifacts } from '../db/schema'
-import { eq, and, desc } from 'drizzle-orm'
+import { db as appDb } from '../db/index'
+import { profiles } from '../db/schema'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview, buildInterviewContextBuilder } from '../phases/interview/deliberate'
 import { draftPRD, buildPrdContextBuilder } from '../phases/prd/draft'
 import { draftBeads, buildBeadsContextBuilder } from '../phases/beads/draft'
 import { expandBeads } from '../phases/beads/expand'
-import type { BeadSubset } from '../phases/beads/types'
-import { OpenCodeSDKAdapter } from '../opencode/adapter'
+import type { Bead, BeadSubset } from '../phases/beads/types'
+import { executeBead } from '../phases/execution/executor'
+import { getNextBead, isAllComplete } from '../phases/execution/scheduler'
 import type { CouncilResult, DraftProgressEvent, DraftResult, Vote } from '../council/types'
 import { CancelledError } from '../council/types'
+import { ensureMinimumCouncilMembers, parseCouncilMembers } from '../council/members'
 import { conductVoting, selectWinner } from '../council/voter'
 import { refineDraft } from '../council/refiner'
 import { appendLogEvent } from '../log/executionLog'
-import type { LogEventType } from '../log/types'
+import type { LogEventType, LogSource } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
-import type { Message } from '../opencode/types'
+import type { Message, StreamEvent } from '../opencode/types'
 import { buildPromptFromTemplate, PROM5, PROM13, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { readFileSync, existsSync } from 'fs'
@@ -26,14 +27,27 @@ import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { safeAtomicWrite } from '../io/atomicWrite'
-import { writeJsonl } from '../io/jsonl'
-import { getTicketDir, getTicketWorktreePath } from '../ticket/initialize'
+import { readJsonl, writeJsonl } from '../io/jsonl'
+import { getOpenCodeAdapter, isMockOpenCodeMode } from '../opencode/factory'
+import {
+  getLatestPhaseArtifact,
+  getTicketByRef,
+  getTicketContext as getStoredTicketContext,
+  getTicketPaths,
+  insertPhaseArtifact,
+  patchTicket,
+  upsertLatestPhaseArtifact,
+} from '../storage/tickets'
+import { runPreFlightChecks } from '../phases/preflight/doctor'
+import { cleanupTicketResources } from '../phases/cleanup/cleaner'
+import { runOpenCodePrompt } from './runOpenCodePrompt'
+import { generateFinalTests } from '../phases/finalTest/generator'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
-const adapter = new OpenCodeSDKAdapter()
-const ticketAbortControllers = new Map<number, AbortController>()
-const interviewQASessions = new Map<number, { sessionId: string; winnerId: string }>()
+const adapter = getOpenCodeAdapter()
+const ticketAbortControllers = new Map<string, AbortController>()
+const interviewQASessions = new Map<string, { sessionId: string; winnerId: string }>()
 
 /** Intermediate data stored between draft→vote→refine state machine phases. */
 interface PhaseIntermediateData {
@@ -51,7 +65,7 @@ const phaseIntermediate = new Map<string, PhaseIntermediateData>()
  * Cancel all running phases for a ticket by aborting its AbortController.
  * Cleans up runningPhases entries and phaseResults for the ticket.
  */
-export function cancelTicket(ticketId: number) {
+export function cancelTicket(ticketId: string) {
   const controller = ticketAbortControllers.get(ticketId)
   if (controller) {
     controller.abort()
@@ -83,7 +97,7 @@ export function cancelTicket(ticketId: number) {
   interviewQASessions.delete(ticketId)
 }
 
-function getOrCreateAbortSignal(ticketId: number): AbortSignal {
+function getOrCreateAbortSignal(ticketId: string): AbortSignal {
   let controller = ticketAbortControllers.get(ticketId)
   if (!controller) {
     controller = new AbortController()
@@ -93,25 +107,35 @@ function getOrCreateAbortSignal(ticketId: number): AbortSignal {
 }
 
 function emitPhaseLog(
-  ticketId: number,
-  ticketExternalId: string,
+  ticketId: string,
+  _ticketExternalId: string,
   phase: string,
   type: LogEventType,
   content: string,
   data?: Record<string, unknown>,
 ) {
-  broadcaster.broadcast(String(ticketId), 'log', {
-    ticketId: String(ticketId),
+  const source = typeof data?.source === 'string' ? data.source : undefined
+  const suppressDebugMirror = data?.suppressDebugMirror === true
+  const structuredExtra = {
+    ...(typeof data?.entryId === 'string' ? { entryId: data.entryId } : {}),
+    ...(typeof data?.op === 'string' ? { op: data.op as StructuredLogOp } : {}),
+    ...(typeof data?.audience === 'string' ? { audience: data.audience as StructuredLogAudience } : {}),
+    ...(typeof data?.kind === 'string' ? { kind: data.kind as StructuredLogKind } : {}),
+    ...(typeof data?.modelId === 'string' ? { modelId: data.modelId } : {}),
+    ...(typeof data?.sessionId === 'string' ? { sessionId: data.sessionId } : {}),
+    ...(typeof data?.streaming === 'boolean' ? { streaming: data.streaming } : {}),
+  }
+  broadcaster.broadcast(ticketId, 'log', {
+    ticketId,
     phase,
     type,
     content,
     ...data,
   })
-  appendLogEvent(ticketExternalId, type, phase, content, data, undefined, phase)
-  if (type !== 'debug') {
+  appendLogEvent(ticketId, type, phase, content, data, source as LogSource | undefined, phase, structuredExtra)
+  if (type !== 'debug' && !suppressDebugMirror) {
     emitDebugLog(
       ticketId,
-      ticketExternalId,
       phase,
       `app.${type}`,
       { content, ...(data ? { data } : {}) },
@@ -120,8 +144,7 @@ function emitPhaseLog(
 }
 
 function emitDebugLog(
-  ticketId: number,
-  ticketExternalId: string,
+  ticketId: string,
   phase: string,
   message: string,
   payload?: unknown,
@@ -132,38 +155,53 @@ function emitDebugLog(
     ? (payload as Record<string, unknown>)
     : (payload !== undefined ? { value: payload } : undefined)
 
-  broadcaster.broadcast(String(ticketId), 'log', {
-    ticketId: String(ticketId),
+  broadcaster.broadcast(ticketId, 'log', {
+    ticketId,
     phase,
     type: 'debug',
     content,
     source: 'debug',
+    audience: 'debug',
+    kind: 'session',
+    op: 'append',
+    streaming: false,
   })
-  appendLogEvent(ticketExternalId, 'debug', phase, content, debugData, 'debug', phase)
+  appendLogEvent(ticketId, 'debug', phase, content, debugData, 'debug', phase, {
+    audience: 'debug',
+    kind: 'session',
+    op: 'append',
+    streaming: false,
+  })
 }
 
 function emitStateChange(
-  ticketId: number,
-  ticketExternalId: string,
+  ticketId: string,
+  _ticketExternalId: string,
   from: string,
   to: string,
 ) {
   const payload = {
-    ticketId: String(ticketId),
+    ticketId,
     from,
     to,
   }
-  broadcaster.broadcast(String(ticketId), 'state_change', payload)
+  broadcaster.broadcast(ticketId, 'state_change', payload)
   appendLogEvent(
-    ticketExternalId,
+    ticketId,
     'state_change',
     to,
     `Transition: ${from} -> ${to}`,
     payload,
     'system',
     to,
+    {
+      audience: 'all',
+      kind: 'milestone',
+      op: 'append',
+      streaming: false,
+    },
   )
-  emitDebugLog(ticketId, ticketExternalId, to, 'app.state_change', payload)
+  emitDebugLog(ticketId, to, 'app.state_change', payload)
 }
 
 function stringifyForLog(value: unknown): string {
@@ -173,6 +211,339 @@ function stringifyForLog(value: unknown): string {
     return JSON.stringify(value)
   } catch {
     return String(value)
+  }
+}
+
+type StructuredLogAudience = 'all' | 'ai' | 'debug'
+type StructuredLogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'error' | 'test'
+type StructuredLogOp = 'append' | 'upsert' | 'finalize'
+
+interface StructuredLogFields extends Record<string, unknown> {
+  entryId: string
+  audience: StructuredLogAudience
+  kind: StructuredLogKind
+  op: StructuredLogOp
+  source: string
+  modelId?: string
+  sessionId?: string
+  streaming?: boolean
+  suppressDebugMirror?: boolean
+}
+
+interface OpenCodeStreamState {
+  seenFirstActivity: boolean
+  liveKinds: Map<string, StructuredLogKind>
+  liveContents: Map<string, string>
+}
+
+function createOpenCodeStreamState(): OpenCodeStreamState {
+  return { seenFirstActivity: false, liveKinds: new Map(), liveContents: new Map() }
+}
+
+function formatToolState(event: Extract<StreamEvent, { type: 'tool' }>): string {
+  const tool = event.tool ?? 'tool'
+  const status = event.status ?? 'unknown'
+  const title = event.title
+  const error = event.error
+  const output = event.output
+
+  if (status === 'error') {
+    return `${tool} failed${error ? `: ${error}` : '.'}`
+  }
+  if (status === 'completed') {
+    return `${tool} completed${title ? `: ${title}` : output ? `: ${output.slice(0, 160)}` : '.'}`
+  }
+  if (status === 'running') {
+    return `${tool} running${title ? `: ${title}` : '.'}`
+  }
+  return `${tool} pending.`
+}
+
+function emitStructuredPhaseLog(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  type: LogEventType,
+  content: string,
+  fields: StructuredLogFields,
+) {
+  emitPhaseLog(ticketId, ticketExternalId, phase, type, content, fields)
+}
+
+function emitAiMilestone(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  message: string,
+  suffix: string,
+  extra?: Partial<StructuredLogFields>,
+) {
+  emitStructuredPhaseLog(ticketId, ticketExternalId, phase, 'info', message, {
+    entryId: extra?.entryId ?? `milestone:${phase}:${suffix}`,
+    audience: 'all',
+    kind: 'milestone',
+    op: 'append',
+    source: extra?.source ?? 'opencode',
+    sessionId: extra?.sessionId,
+    modelId: extra?.modelId,
+    streaming: false,
+    suppressDebugMirror: true,
+    ...extra,
+  })
+}
+
+function emitAiDetail(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  type: LogEventType,
+  content: string,
+  fields: StructuredLogFields,
+) {
+  emitStructuredPhaseLog(ticketId, ticketExternalId, phase, type, content, {
+    streaming: fields.streaming ?? true,
+    suppressDebugMirror: true,
+    ...fields,
+  })
+}
+
+function finalizeOpenCodeParts(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  memberId: string,
+  sessionId: string,
+  state: OpenCodeStreamState,
+) {
+  const source = memberId ? `model:${memberId}` : 'opencode'
+  for (const [partId, kind] of state.liveKinds.entries()) {
+    const content = state.liveContents.get(partId)
+      ?? (kind === 'tool' ? 'Tool event finalized.' : kind === 'step' ? 'Step finalized.' : '')
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      kind === 'error' ? 'error' : kind === 'text' || kind === 'reasoning' ? 'model_output' : 'info',
+      content,
+      {
+        entryId: `${sessionId}:${partId}`,
+        audience: 'ai',
+        kind,
+        op: 'finalize',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: false,
+      },
+    )
+  }
+  state.liveKinds.clear()
+  state.liveContents.clear()
+}
+
+function emitOpenCodeStreamEvent(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  memberId: string,
+  sessionId: string,
+  event: StreamEvent,
+  state: OpenCodeStreamState,
+) {
+  const source = memberId ? `model:${memberId}` : 'opencode'
+
+  const emitFirstActivity = () => {
+    if (state.seenFirstActivity) return
+    state.seenFirstActivity = true
+    emitAiMilestone(
+      ticketId,
+      ticketExternalId,
+      phase,
+      memberId
+        ? `First AI activity observed from ${memberId} (session=${sessionId}).`
+        : `First AI activity observed (session=${sessionId}).`,
+      `${sessionId}:first-activity`,
+      { modelId: memberId || undefined, sessionId, source },
+    )
+  }
+
+  if (event.type === 'reasoning' || event.type === 'text') {
+    emitFirstActivity()
+    const partId = event.partId ?? event.messageId ?? event.type
+    const kind = event.type === 'reasoning' ? 'reasoning' : 'text'
+    state.liveKinds.set(partId, kind)
+    state.liveContents.set(partId, event.text)
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'model_output',
+      event.text,
+      {
+        entryId: `${sessionId}:${partId}`,
+        audience: 'ai',
+        kind,
+        op: event.complete ? 'finalize' : 'upsert',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: event.streaming,
+      },
+    )
+    if (event.complete) {
+      state.liveKinds.delete(partId)
+      state.liveContents.delete(partId)
+    }
+    return
+  }
+
+  if (event.type === 'tool') {
+    emitFirstActivity()
+    const partId = event.partId ?? event.callId
+    state.liveKinds.set(partId, 'tool')
+    state.liveContents.set(partId, formatToolState(event))
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'info',
+      formatToolState(event),
+      {
+        entryId: `${sessionId}:${partId}`,
+        audience: 'ai',
+        kind: 'tool',
+        op: event.complete ? 'finalize' : 'upsert',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: !event.complete,
+      },
+    )
+    if (event.complete) {
+      state.liveKinds.delete(partId)
+      state.liveContents.delete(partId)
+    }
+    return
+  }
+
+  if (event.type === 'step') {
+    emitFirstActivity()
+    const partId = event.partId ?? event.messageId ?? `step:${event.step}`
+    state.liveKinds.set(partId, 'step')
+    state.liveContents.set(partId, event.step === 'start' ? 'Step started.' : `Step finished${event.reason ? `: ${event.reason}` : '.'}`)
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'info',
+      state.liveContents.get(partId) ?? 'Step event.',
+      {
+        entryId: `${sessionId}:${partId}`,
+        audience: 'ai',
+        kind: 'step',
+        op: event.step === 'start' ? 'append' : 'finalize',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: event.step === 'start',
+      },
+    )
+    if (event.complete) {
+      state.liveKinds.delete(partId)
+      state.liveContents.delete(partId)
+    }
+    return
+  }
+
+  if (event.type === 'session_status') {
+    if (event.status === 'idle') {
+      finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
+    }
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'info',
+      `Session status: ${event.status}.`,
+      {
+        entryId: `${sessionId}:status`,
+        audience: 'ai',
+        kind: 'session',
+        op: event.status === 'idle' ? 'finalize' : 'upsert',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: event.status !== 'idle',
+      },
+    )
+    return
+  }
+
+  if (event.type === 'permission') {
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'info',
+      event.title ? `Permission requested: ${event.title}` : 'Permission requested.',
+      {
+        entryId: `${sessionId}:${event.permissionId || 'permission'}`,
+        audience: 'ai',
+        kind: 'session',
+        op: 'append',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: false,
+      },
+    )
+    return
+  }
+
+  if (event.type === 'session_error') {
+    finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'error',
+      event.error,
+      {
+        entryId: `${sessionId}:error`,
+        audience: 'ai',
+        kind: 'error',
+        op: 'append',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        streaming: false,
+      },
+    )
+    emitAiMilestone(
+      ticketId,
+      ticketExternalId,
+      phase,
+      memberId
+        ? `AI session failed for ${memberId} (session=${sessionId}).`
+        : `AI session failed (session=${sessionId}).`,
+      `${sessionId}:failed`,
+      { modelId: memberId || undefined, sessionId, source },
+    )
+    return
+  }
+
+  if (event.type === 'done') {
+    finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
+    emitAiMilestone(
+      ticketId,
+      ticketExternalId,
+      phase,
+      memberId
+        ? `AI session completed for ${memberId} (session=${sessionId}).`
+        : `AI session completed (session=${sessionId}).`,
+      `${sessionId}:completed`,
+      { modelId: memberId || undefined, sessionId, source },
+    )
   }
 }
 
@@ -231,7 +602,7 @@ function extractOpenCodeMessageLines(messages: Message[]): string[] {
 }
 
 function emitOpenCodeSessionLogs(
-  ticketId: number,
+  ticketId: string,
   ticketExternalId: string,
   phase: string,
   memberId: string,
@@ -247,42 +618,31 @@ function emitOpenCodeSessionLogs(
     'info',
     `OpenCode ${stage}: ${memberId} session=${sessionId}, messages=${messages.length}, responseChars=${response.length}.`,
   )
-
-  emitPhaseLog(
-    ticketId,
-    ticketExternalId,
-    phase,
-    'model_output',
-    `[${stage}] OpenCode session transcript (${messages.length} messages)`,
-    { modelId: memberId },
-  )
-
   const transcriptLines = extractOpenCodeMessageLines(messages)
-  for (const line of transcriptLines) {
-    emitPhaseLog(
+  const transcriptPreview = transcriptLines[transcriptLines.length - 1] ?? response
+  if (transcriptPreview) {
+    emitAiDetail(
       ticketId,
       ticketExternalId,
       phase,
       'model_output',
-      line,
-      { modelId: memberId },
+      transcriptPreview,
+      {
+        entryId: `${sessionId}:transcript-summary`,
+        audience: 'ai',
+        kind: 'session',
+        op: 'append',
+        source: `model:${memberId}`,
+        modelId: memberId,
+        sessionId,
+        streaming: false,
+      },
     )
   }
 
-  if (transcriptLines.length === 0 && response) {
-    emitPhaseLog(
-      ticketId,
-      ticketExternalId,
-      phase,
-      'model_output',
-      response,
-      { modelId: memberId },
-    )
-  }
-
-  emitDebugLog(ticketId, ticketExternalId, phase, `opencode.${stage}.response`, { memberId, response })
+  emitDebugLog(ticketId, phase, `opencode.${stage}.response`, { memberId, response })
   for (const message of messages) {
-    emitDebugLog(ticketId, ticketExternalId, phase, `opencode.${stage}.raw_message`, { memberId, message })
+    emitDebugLog(ticketId, phase, `opencode.${stage}.raw_message`, { memberId, message })
   }
 }
 
@@ -315,6 +675,42 @@ function describeCouncilMemberSource(source: 'locked_ticket' | 'profile' | 'defa
   return 'default fallback'
 }
 
+function formatCouncilResolutionLog(
+  context: TicketContext,
+  council: {
+    members: Array<{ modelId: string; name: string }>
+    source: 'locked_ticket' | 'profile' | 'default'
+  },
+): string {
+  const implementer = context.lockedMainImplementer ?? 'not configured'
+  return `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${council.members.length} members (${formatCouncilMemberRoster(council.members)}). Main implementer: ${implementer}.`
+}
+
+function resolveInterviewDraftSettings(context: TicketContext): {
+  maxInitialQuestions: number
+  draftTimeoutMs: number
+  minQuorum: number
+} {
+  const storedContext = getStoredTicketContext(context.ticketId)
+  const profile = appDb.select().from(profiles).get()
+
+  const maxInitialQuestions = storedContext?.localProject.interviewQuestions
+    ?? profile?.interviewQuestions
+    ?? 50
+  const draftTimeoutMs = storedContext?.localProject.councilResponseTimeout
+    ?? profile?.councilResponseTimeout
+    ?? 900000
+  const minQuorum = storedContext?.localProject.minCouncilQuorum
+    ?? profile?.minCouncilQuorum
+    ?? 2
+
+  return {
+    maxInitialQuestions,
+    draftTimeoutMs,
+    minQuorum,
+  }
+}
+
 function formatDurationMs(durationMs: number): string {
   if (durationMs >= 60000) return `${(durationMs / 60000).toFixed(1)}m`
   if (durationMs >= 1000) return `${(durationMs / 1000).toFixed(1)}s`
@@ -334,19 +730,29 @@ function summarizeDraftOutcomes(drafts: DraftResult[]) {
 }
 
 function emitDraftProgressInfoLog(
-  ticketId: number,
+  ticketId: string,
   ticketExternalId: string,
   phase: string,
   label: string,
   entry: DraftProgressEvent,
 ) {
   if (entry.status === 'session_created' && entry.sessionId) {
-    emitPhaseLog(
+    emitAiDetail(
       ticketId,
       ticketExternalId,
       phase,
       'info',
       `${label} draft session created for ${entry.memberId}: ${entry.sessionId}.`,
+      {
+        entryId: `${entry.sessionId}:created`,
+        audience: 'ai',
+        kind: 'session',
+        op: 'append',
+        source: `model:${entry.memberId}`,
+        modelId: entry.memberId,
+        sessionId: entry.sessionId,
+        streaming: false,
+      },
     )
     return
   }
@@ -357,18 +763,28 @@ function emitDraftProgressInfoLog(
       : `failed (${entry.error ?? 'invalid output'})`
     const durationText = typeof entry.duration === 'number' ? ` after ${formatDurationMs(entry.duration)}` : ''
     const sessionText = entry.sessionId ? ` session=${entry.sessionId}` : ''
-    emitPhaseLog(
+    emitAiDetail(
       ticketId,
       ticketExternalId,
       phase,
       'error',
       `${label} draft ${detail} for ${entry.memberId}${sessionText}${durationText}.`,
+      {
+        entryId: `${entry.sessionId ?? `${phase}:${entry.memberId}`}:draft-finished`,
+        audience: 'ai',
+        kind: 'error',
+        op: 'append',
+        source: `model:${entry.memberId}`,
+        modelId: entry.memberId,
+        sessionId: entry.sessionId,
+        streaming: false,
+      },
     )
   }
 }
 
 async function handleInterviewDeliberate(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -416,11 +832,12 @@ async function handleInterviewDeliberate(
     context.externalId,
     phase,
     'info',
-    `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`,
+    formatCouncilResolutionLog(context, council),
   )
 
   const ticketDescription = ticket?.description ?? ''
   emitPhaseLog(ticketId, context.externalId, phase, 'info', `Loaded codebase map artifact (${codebaseMap.length} chars).`)
+  const draftSettings = resolveInterviewDraftSettings(context)
 
   // Build context via buildMinimalContext with full ticket state
   const ticketState: TicketState = {
@@ -432,15 +849,24 @@ async function handleInterviewDeliberate(
   const ticketContext = buildMinimalContext('interview_draft', ticketState)
 
   emitPhaseLog(ticketId, context.externalId, phase, 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    `Interview draft settings: max_initial_questions=${draftSettings.maxInitialQuestions}, council_response_timeout=${draftSettings.draftTimeoutMs}ms, min_council_quorum=${draftSettings.minQuorum}.`,
+  )
   emitPhaseLog(ticketId, context.externalId, phase, 'info', `Dispatching interview draft requests to ${members.length} council members.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
+  const streamStates = new Map<string, OpenCodeStreamState>()
   const result = await deliberateInterview(
     adapter,
     members,
     ticketContext,
     worktreePath,
+    draftSettings,
     signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('interview', entry.stage)
@@ -453,6 +879,20 @@ async function handleInterviewDeliberate(
         entry.stage,
         entry.response,
         entry.messages,
+      )
+    },
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('interview', entry.stage)
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
       )
     },
     (entry) => {
@@ -480,34 +920,39 @@ async function handleInterviewDeliberate(
   })
 
   for (const draft of result.drafts) {
-    const questionCount = (draft.content.match(/\?/g) || []).length
     const detail = draft.outcome === 'timed_out'
       ? 'timed out'
       : draft.outcome === 'invalid_output'
-        ? 'invalid output'
-        : `proposed ${questionCount} questions`
-    emitPhaseLog(
+        ? `invalid output${draft.error ? ` (${draft.error})` : ''}`
+        : `proposed ${draft.questionCount ?? 0} questions`
+    emitAiDetail(
       ticketId,
       context.externalId,
       'COUNCIL_DELIBERATING',
       'model_output',
       `${draft.memberId} ${detail}.`,
       {
+        entryId: `draft-summary:${draft.memberId}`,
+        audience: 'ai',
+        kind: draft.outcome === 'completed' ? 'text' : 'error',
+        op: 'append',
+        source: `model:${draft.memberId}`,
         modelId: draft.memberId,
+        sessionId: undefined,
+        streaming: false,
         outcome: draft.outcome,
         duration: draft.duration,
+        ...(draft.questionCount !== undefined ? { questionCount: draft.questionCount } : {}),
+        ...(draft.error ? { error: draft.error } : {}),
       },
     )
   }
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase,
-      artifactType: 'interview_drafts',
-      content: JSON.stringify(result),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase,
+    artifactType: 'interview_drafts',
+    content: JSON.stringify(result),
+  })
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -522,7 +967,7 @@ async function handleInterviewDeliberate(
 }
 
 async function handleInterviewVote(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -534,6 +979,7 @@ async function handleInterviewVote(
 
   const { members } = resolveCouncilMembers(context)
   const voteContext = intermediate.contextBuilder('vote')
+  const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info',
     `Interview voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
@@ -559,6 +1005,19 @@ async function handleInterviewVote(
         entry.messages,
       )
     },
+    (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_INTERVIEW',
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   const { winnerId, totalScore } = selectWinner(votes, members)
@@ -567,14 +1026,11 @@ async function handleInterviewVote(
   intermediate.votes = votes
   intermediate.winnerId = winnerId
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'COUNCIL_VOTING_INTERVIEW',
-      artifactType: 'interview_votes',
-      content: JSON.stringify({ votes, winnerId, totalScore }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_VOTING_INTERVIEW',
+    artifactType: 'interview_votes',
+    content: JSON.stringify({ votes, winnerId, totalScore }),
+  })
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -587,7 +1043,7 @@ async function handleInterviewVote(
 }
 
 async function handleInterviewCompile(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -600,6 +1056,7 @@ async function handleInterviewCompile(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const refineContext = intermediate.contextBuilder('refine')
+  const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info',
     `Interview refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
@@ -624,6 +1081,19 @@ async function handleInterviewCompile(
         entry.messages,
       )
     },
+    (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'COMPILING_INTERVIEW',
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   // Clean up intermediate data
@@ -643,29 +1113,23 @@ async function handleInterviewCompile(
     console.warn(`[runner] Failed to parse YAML questions from refined content for ticket ${context.externalId}`)
   }
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'COMPILING_INTERVIEW',
-      artifactType: 'interview_compiled',
-      content: JSON.stringify({
-        winnerId: intermediate.winnerId,
-        refinedContent,
-        questions: parsedQuestions,
-      }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COMPILING_INTERVIEW',
+    artifactType: 'interview_compiled',
+    content: JSON.stringify({
+      winnerId: intermediate.winnerId,
+      refinedContent,
+      questions: parsedQuestions,
+    }),
+  })
 
   // Persist winnerId separately so it survives server restarts and is available
   // for VERIFYING_INTERVIEW_COVERAGE and downstream phases (PROM4/PROM5 wiring)
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'COMPILING_INTERVIEW',
-      artifactType: 'interview_winner',
-      content: JSON.stringify({ winnerId: intermediate.winnerId }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COMPILING_INTERVIEW',
+    artifactType: 'interview_winner',
+    content: JSON.stringify({ winnerId: intermediate.winnerId }),
+  })
 
   emitPhaseLog(
     ticketId,
@@ -675,8 +1139,8 @@ async function handleInterviewCompile(
     `Compiled final interview from winner ${intermediate.winnerId}. Parsed ${parsedQuestions.length} structured questions.`,
   )
   sendEvent({ type: 'READY' })
-  broadcaster.broadcast(String(ticketId), 'needs_input', {
-    ticketId: String(ticketId),
+  broadcaster.broadcast(ticketId, 'needs_input', {
+    ticketId,
     type: 'interview_questions',
     context: { questions: refinedContent, parsedQuestions, winnerId: intermediate.winnerId },
   })
@@ -691,21 +1155,22 @@ function resolveCouncilMembers(context: TicketContext): {
   let source: 'locked_ticket' | 'profile' | 'default' = 'default'
 
   if (context.lockedCouncilMembers && context.lockedCouncilMembers.length > 0) {
-    members = context.lockedCouncilMembers.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+    members = ensureMinimumCouncilMembers(context.lockedCouncilMembers)
+      .map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
     source = 'locked_ticket'
   } else {
-    const profile = db.select().from(profiles).get()
-    if (profile?.councilMembers) {
-      try {
-        const modelIds = JSON.parse(profile.councilMembers) as string[]
-        members = modelIds.map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
-        if (members.length > 0) source = 'profile'
-      } catch { /* fallback below */ }
+    const profile = appDb.select().from(profiles).get()
+    const configuredMembers = parseCouncilMembers(profile?.councilMembers)
+    if (configuredMembers.length > 0) {
+      members = ensureMinimumCouncilMembers(configuredMembers)
+        .map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+      source = 'profile'
     }
   }
 
   if (members.length === 0) {
-    members = [{ modelId: 'openai/gpt-5.3-codex', name: 'gpt-5.3-codex' }]
+    members = ensureMinimumCouncilMembers([])
+      .map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
     source = 'default'
   }
   return { members, source }
@@ -713,9 +1178,15 @@ function resolveCouncilMembers(context: TicketContext): {
 
 // --- Helper: load ticket dir paths and codebase map ---
 function loadTicketDirContext(context: TicketContext) {
-  const ticket = db.select().from(tickets).where(eq(tickets.id, Number(context.ticketId))).get()
-  const worktreePath = getTicketWorktreePath(context.externalId)
-  const ticketDir = getTicketDir(context.externalId)
+  const ticket = getStoredTicketContext(context.ticketId)
+  const paths = getTicketPaths(context.ticketId)
+
+  if (!ticket || !paths) {
+    throw new Error(`Ticket workspace not initialized: missing ticket context for ${context.externalId}`)
+  }
+
+  const worktreePath = paths.worktreePath
+  const ticketDir = paths.ticketDir
 
   if (!existsSync(ticketDir)) {
     throw new Error(`Ticket workspace not initialized: missing ticket directory for ${context.externalId}`)
@@ -728,13 +1199,13 @@ function loadTicketDirContext(context: TicketContext) {
 
   const codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
 
-  return { worktreePath, ticket, ticketDir, codebaseMap }
+  return { worktreePath, ticket: ticket.localTicket, ticketDir, codebaseMap }
 }
 
 // ─── PRD Phase Handlers ───
 
 async function handlePrdDraft(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -761,7 +1232,7 @@ async function handlePrdDraft(
   const ticketContext = buildMinimalContext('prd_draft', ticketState)
 
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
-    `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`)
+    formatCouncilResolutionLog(context, council))
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
     interview
       ? `Loaded interview artifact (${interview.length} chars).`
@@ -772,6 +1243,7 @@ async function handlePrdDraft(
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
+  const streamStates = new Map<string, OpenCodeStreamState>()
   const result = await draftPRD(
     adapter,
     members,
@@ -788,6 +1260,20 @@ async function handlePrdDraft(
         entry.stage,
         entry.response,
         entry.messages,
+      )
+    },
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('prd', entry.stage)
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
       )
     },
     (entry) => {
@@ -818,19 +1304,26 @@ async function handlePrdDraft(
       : draft.outcome === 'invalid_output'
         ? 'invalid output'
         : `drafted PRD (${draft.content.length} chars)`
-    emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
+    emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
       `${draft.memberId} ${detail}.`,
-      { modelId: draft.memberId, outcome: draft.outcome, duration: draft.duration })
+      {
+        entryId: `prd-draft-summary:${draft.memberId}`,
+        audience: 'ai',
+        kind: draft.outcome === 'completed' ? 'text' : 'error',
+        op: 'append',
+        source: `model:${draft.memberId}`,
+        modelId: draft.memberId,
+        streaming: false,
+        outcome: draft.outcome,
+        duration: draft.duration,
+      })
   }
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase,
-      artifactType: 'prd_drafts',
-      content: JSON.stringify(result),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase,
+    artifactType: 'prd_drafts',
+    content: JSON.stringify(result),
+  })
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -845,7 +1338,7 @@ async function handlePrdDraft(
 }
 
 async function handlePrdVote(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -857,6 +1350,7 @@ async function handlePrdVote(
 
   const { members } = resolveCouncilMembers(context)
   const voteContext = intermediate.contextBuilder('vote')
+  const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
@@ -882,6 +1376,19 @@ async function handlePrdVote(
         entry.messages,
       )
     },
+    (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_PRD',
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   const { winnerId, totalScore } = selectWinner(votes, members)
@@ -889,14 +1396,11 @@ async function handlePrdVote(
   intermediate.votes = votes
   intermediate.winnerId = winnerId
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'COUNCIL_VOTING_PRD',
-      artifactType: 'prd_votes',
-      content: JSON.stringify({ votes, winnerId, totalScore }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_VOTING_PRD',
+    artifactType: 'prd_votes',
+    content: JSON.stringify({ votes, winnerId, totalScore }),
+  })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
@@ -904,7 +1408,7 @@ async function handlePrdVote(
 }
 
 async function handlePrdRefine(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -917,6 +1421,7 @@ async function handlePrdRefine(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const refineContext = intermediate.contextBuilder('refine')
+  const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
@@ -941,25 +1446,39 @@ async function handlePrdRefine(
         entry.messages,
       )
     },
+    (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'REFINING_PRD',
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:prd`)
 
-  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const paths = getTicketPaths(ticketId)
+  if (!paths) {
+    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  }
+  const ticketDir = paths.ticketDir
   const prdPath = resolve(ticketDir, 'prd.yaml')
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'REFINING_PRD',
-      artifactType: 'prd_refined',
-      content: JSON.stringify({
-        winnerId: intermediate.winnerId,
-        refinedContent,
-      }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_PRD',
+    artifactType: 'prd_refined',
+    content: JSON.stringify({
+      winnerId: intermediate.winnerId,
+      refinedContent,
+    }),
+  })
 
   // Save refined PRD to disk
   safeAtomicWrite(prdPath, refinedContent)
@@ -975,7 +1494,7 @@ async function handlePrdRefine(
 // ─── Beads Phase Handlers ───
 
 async function handleBeadsDraft(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -1002,7 +1521,7 @@ async function handleBeadsDraft(
   const ticketContext = buildMinimalContext('beads_draft', ticketState)
 
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
-    `Council members resolved from ${describeCouncilMemberSource(council.source)}: ${members.length} members (${formatCouncilMemberRoster(members)}).`)
+    formatCouncilResolutionLog(context, council))
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
     prd
       ? `Loaded PRD artifact (${prd.length} chars).`
@@ -1013,6 +1532,7 @@ async function handleBeadsDraft(
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
+  const streamStates = new Map<string, OpenCodeStreamState>()
   const result = await draftBeads(
     adapter,
     members,
@@ -1029,6 +1549,20 @@ async function handleBeadsDraft(
         entry.stage,
         entry.response,
         entry.messages,
+      )
+    },
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('beads', entry.stage)
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
       )
     },
     (entry) => {
@@ -1059,19 +1593,26 @@ async function handleBeadsDraft(
       : draft.outcome === 'invalid_output'
         ? 'invalid output'
         : `drafted beads (${draft.content.length} chars)`
-    emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'model_output',
+    emitAiDetail(ticketId, context.externalId, 'DRAFTING_BEADS', 'model_output',
       `${draft.memberId} ${detail}.`,
-      { modelId: draft.memberId, outcome: draft.outcome, duration: draft.duration })
+      {
+        entryId: `beads-draft-summary:${draft.memberId}`,
+        audience: 'ai',
+        kind: draft.outcome === 'completed' ? 'text' : 'error',
+        op: 'append',
+        source: `model:${draft.memberId}`,
+        modelId: draft.memberId,
+        streaming: false,
+        outcome: draft.outcome,
+        duration: draft.duration,
+      })
   }
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase,
-      artifactType: 'beads_drafts',
-      content: JSON.stringify(result),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase,
+    artifactType: 'beads_drafts',
+    content: JSON.stringify(result),
+  })
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -1086,7 +1627,7 @@ async function handleBeadsDraft(
 }
 
 async function handleBeadsVote(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -1098,6 +1639,7 @@ async function handleBeadsVote(
 
   const { members } = resolveCouncilMembers(context)
   const voteContext = intermediate.contextBuilder('vote')
+  const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
     `Beads voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
@@ -1123,6 +1665,19 @@ async function handleBeadsVote(
         entry.messages,
       )
     },
+    (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_BEADS',
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   const { winnerId, totalScore } = selectWinner(votes, members)
@@ -1130,14 +1685,11 @@ async function handleBeadsVote(
   intermediate.votes = votes
   intermediate.winnerId = winnerId
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'COUNCIL_VOTING_BEADS',
-      artifactType: 'beads_votes',
-      content: JSON.stringify({ votes, winnerId, totalScore }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_VOTING_BEADS',
+    artifactType: 'beads_votes',
+    content: JSON.stringify({ votes, winnerId, totalScore }),
+  })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
     `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
@@ -1145,7 +1697,7 @@ async function handleBeadsVote(
 }
 
 async function handleBeadsRefine(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -1158,6 +1710,7 @@ async function handleBeadsRefine(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const refineContext = intermediate.contextBuilder('refine')
+  const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
     `Beads refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
@@ -1182,12 +1735,29 @@ async function handleBeadsRefine(
         entry.messages,
       )
     },
+    (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'REFINING_BEADS',
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:beads`)
 
-  const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', context.externalId, '.ticket')
+  const paths = getTicketPaths(ticketId)
+  if (!paths) {
+    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  }
+  const ticketDir = paths.ticketDir
   const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
 
   // Parse refined content as bead subsets and expand to full beads
@@ -1201,18 +1771,15 @@ async function handleBeadsRefine(
 
   const expandedBeads = expandBeads(beadSubsets)
 
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'REFINING_BEADS',
-      artifactType: 'beads_refined',
-      content: JSON.stringify({
-        winnerId: intermediate.winnerId,
-        refinedContent,
-        expandedBeads,
-      }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_BEADS',
+    artifactType: 'beads_refined',
+    content: JSON.stringify({
+      winnerId: intermediate.winnerId,
+      refinedContent,
+      expandedBeads,
+    }),
+  })
 
   // Save expanded beads to disk as JSONL
   writeJsonl(beadsPath, expandedBeads)
@@ -1260,8 +1827,8 @@ function buildInterviewYaml(
     let qIndex = 1
     for (const line of refinedContent.split('\n')) {
       const trimmed = line.trim()
-      if (/^\d+[\.\)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
-        const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
+      if (/^\d+[.)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
+        const q = trimmed.replace(/^[-*\d.)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
         if (q.length > 5) {
           parsedQuestions.push({
             id: `Q${qIndex++}`,
@@ -1331,7 +1898,7 @@ function buildInterviewYaml(
  * Per arch.md §B.I/II/III: "Coverage Verification Pass (winning AIC)"
  */
 async function handleCoverageVerification(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   phase: 'interview' | 'prd' | 'beads',
@@ -1346,7 +1913,7 @@ async function handleCoverageVerification(
       : 'VERIFYING_BEADS_COVERAGE'
 
   // Resolve the council result to find the winning model
-  let councilResult = phaseResults.get(`${ticketId}:${phase}`)
+  const councilResult = phaseResults.get(`${ticketId}:${phase}`)
   let winnerId: string
 
   if (councilResult) {
@@ -1358,13 +1925,7 @@ async function handleCoverageVerification(
       : phase === 'prd'
         ? 'prd_votes'
         : 'beads_votes'
-    const winnerArtifact = db.select().from(phaseArtifacts)
-      .where(and(
-        eq(phaseArtifacts.ticketId, ticketId),
-        eq(phaseArtifacts.artifactType, winnerArtifactType),
-      ))
-      .orderBy(desc(phaseArtifacts.id))
-      .get()
+    const winnerArtifact = getLatestPhaseArtifact(ticketId, winnerArtifactType)
 
     if (!winnerArtifact) {
       const msg = `No council result found for ${phase} phase — cannot determine winning model`
@@ -1414,13 +1975,7 @@ async function handleCoverageVerification(
       : phase === 'prd'
         ? 'prd_refined'
         : 'beads_refined'
-    const compiledArtifact = db.select().from(phaseArtifacts)
-      .where(and(
-        eq(phaseArtifacts.ticketId, ticketId),
-        eq(phaseArtifacts.artifactType, compiledArtifactType),
-      ))
-      .orderBy(desc(phaseArtifacts.id))
-      .get()
+    const compiledArtifact = getLatestPhaseArtifact(ticketId, compiledArtifactType)
     if (compiledArtifact) {
       try {
         const parsed = JSON.parse(compiledArtifact.content) as { refinedContent?: string }
@@ -1437,14 +1992,7 @@ async function handleCoverageVerification(
     interview: refinedContent,
   }
 
-  const interviewUiState = db.select().from(phaseArtifacts)
-    .where(and(
-      eq(phaseArtifacts.ticketId, ticketId),
-      eq(phaseArtifacts.phase, 'UI_STATE'),
-      eq(phaseArtifacts.artifactType, 'ui_state:interview_qa'),
-    ))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
+  const interviewUiState = getLatestPhaseArtifact(ticketId, 'ui_state:interview_qa', 'UI_STATE')
 
   if (interviewUiState) {
     try {
@@ -1477,30 +2025,56 @@ async function handleCoverageVerification(
   const coverageContext = buildMinimalContext(contextPhase, ticketState)
   const promptContent = buildPromptFromTemplate(
     promptTemplate,
-    coverageContext.map(p => ({ type: p.type, content: p.content })),
+    coverageContext,
   )
 
   // Use a single session for the winning model only (not all council members)
   if (signal.aborted) throw new CancelledError(ticketId)
-  const session = await adapter.createSession(worktreePath, signal)
-  emitPhaseLog(
-    ticketId,
-    context.externalId,
-    stateLabel,
-    'info',
-    `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
-  )
-  const response = await adapter.promptSession(session.id, [
-    { type: 'text', content: promptContent },
-  ], signal)
-  const coverageMessages = await adapter.getSessionMessages(session.id)
+  const streamState = createOpenCodeStreamState()
+  let sessionId = ''
+  const runResult = await runOpenCodePrompt({
+    adapter,
+    projectPath: worktreePath,
+    parts: [{ type: 'text', content: promptContent }],
+    signal,
+    model: winnerId,
+    onSessionCreated: (session) => {
+      sessionId = session.id
+      emitAiMilestone(
+        ticketId,
+        context.externalId,
+        stateLabel,
+        `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
+        `${stateLabel}:${session.id}:coverage-created`,
+        {
+          modelId: winnerId,
+          sessionId: session.id,
+          source: `model:${winnerId}`,
+        },
+      )
+    },
+    onStreamEvent: (event) => {
+      if (!sessionId) return
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        stateLabel,
+        winnerId,
+        sessionId,
+        event,
+        streamState,
+      )
+    },
+  })
+  const response = runResult.response
+  const coverageMessages = runResult.messages
 
   emitOpenCodeSessionLogs(
     ticketId,
     context.externalId,
     stateLabel,
     winnerId,
-    session.id,
+    runResult.session.id,
     'coverage',
     response,
     coverageMessages,
@@ -1512,14 +2086,11 @@ async function handleCoverageVerification(
     : phase === 'prd'
       ? JSON.stringify({ prd: ticketState.prd, refinedContent })
       : JSON.stringify({ beads: ticketState.beads, refinedContent })
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: stateLabel,
-      artifactType: `${phase}_coverage_input`,
-      content: coverageInputContent,
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: stateLabel,
+    artifactType: `${phase}_coverage_input`,
+    content: coverageInputContent,
+  })
 
   // Parse response: detect gaps vs clean coverage
   // Strategy: try YAML structured fields first, then explicit markers, then heuristic
@@ -1556,14 +2127,11 @@ async function handleCoverageVerification(
   }
 
   // Store the coverage result artifact
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: stateLabel,
-      artifactType: `${phase}_coverage`,
-      content: JSON.stringify({ winnerId, response, hasGaps: detectedGaps }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: stateLabel,
+    artifactType: `${phase}_coverage`,
+    content: JSON.stringify({ winnerId, response, hasGaps: detectedGaps }),
+  })
 
   if (detectedGaps) {
     emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
@@ -1599,7 +2167,7 @@ async function handleCoverageVerification(
 // ─── Interview QA Batch Handlers ───
 
 async function handleInterviewQAStart(
-  ticketId: number,
+  ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
@@ -1607,13 +2175,7 @@ async function handleInterviewQAStart(
   const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
 
   // Resolve winnerId from persisted artifact
-  const winnerArtifact = db.select().from(phaseArtifacts)
-    .where(and(
-      eq(phaseArtifacts.ticketId, ticketId),
-      eq(phaseArtifacts.artifactType, 'interview_winner'),
-    ))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
+  const winnerArtifact = getLatestPhaseArtifact(ticketId, 'interview_winner')
 
   let winnerId = ''
   if (winnerArtifact) {
@@ -1630,13 +2192,7 @@ async function handleInterviewQAStart(
   }
 
   // Load compiled questions
-  const compiledArtifact = db.select().from(phaseArtifacts)
-    .where(and(
-      eq(phaseArtifacts.ticketId, ticketId),
-      eq(phaseArtifacts.artifactType, 'interview_compiled'),
-    ))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
+  const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
 
   let compiledQuestions = ''
   let maxQuestions = 50
@@ -1662,38 +2218,58 @@ async function handleInterviewQAStart(
     `Starting PROM4 interview session with winning model: ${winnerId}`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  const streamState = createOpenCodeStreamState()
 
   const { sessionId, firstBatch } = await startInterviewSession(
-    adapter, worktreePath, winnerId, compiledQuestions, ticketState, maxQuestions, signal,
+    adapter,
+    worktreePath,
+    winnerId,
+    compiledQuestions,
+    ticketState,
+    maxQuestions,
+    signal,
+    (entry) => {
+      emitOpenCodeStreamEvent(
+        ticketId,
+        context.externalId,
+        'WAITING_INTERVIEW_ANSWERS',
+        winnerId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
   )
 
   // Store session info
   interviewQASessions.set(ticketId, { sessionId, winnerId })
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'WAITING_INTERVIEW_ANSWERS',
-      artifactType: 'interview_qa_session',
-      content: JSON.stringify({ sessionId, winnerId }),
-    })
-    .run()
+  insertPhaseArtifact(ticketId, {
+    phase: 'WAITING_INTERVIEW_ANSWERS',
+    artifactType: 'interview_qa_session',
+    content: JSON.stringify({ sessionId, winnerId }),
+  })
 
   // Store current batch
-  db.insert(phaseArtifacts)
-    .values({
-      ticketId,
-      phase: 'WAITING_INTERVIEW_ANSWERS',
-      artifactType: 'interview_current_batch',
-      content: JSON.stringify(firstBatch),
-    })
-    .run()
+  upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(firstBatch))
 
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
     `PROM4 session started (session=${sessionId}). First batch: ${firstBatch.questions.length} questions.`)
+  emitAiMilestone(
+    ticketId,
+    context.externalId,
+    'WAITING_INTERVIEW_ANSWERS',
+    `PROM4 session created for ${winnerId} (session=${sessionId}).`,
+    `${sessionId}:prom4-created`,
+    {
+      modelId: winnerId,
+      sessionId,
+      source: `model:${winnerId}`,
+    },
+  )
 
   // Broadcast first batch to frontend via SSE
-  broadcaster.broadcast(String(ticketId), 'needs_input', {
-    ticketId: String(ticketId),
+  broadcaster.broadcast(ticketId, 'needs_input', {
+    ticketId,
     type: 'interview_batch',
     batch: firstBatch,
   })
@@ -1704,19 +2280,44 @@ async function handleInterviewQAStart(
  * Called by the API route, not the state machine subscriber.
  */
 export async function handleInterviewQABatch(
-  ticketId: number,
+  ticketId: string,
   batchAnswers: Record<string, string>,
 ): Promise<BatchResponse> {
+  if (isMockOpenCodeMode()) {
+    const ticket = getTicketByRef(ticketId)
+    const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
+    const refinedContent = compiledArtifact
+      ? (() => {
+          try {
+            return (JSON.parse(compiledArtifact.content) as { refinedContent?: string }).refinedContent ?? ''
+          } catch {
+            return ''
+          }
+        })()
+      : ''
+
+    const finalYaml = buildInterviewYaml(
+      ticket?.externalId ?? ticketId,
+      'mock-model-1',
+      refinedContent,
+      JSON.stringify(batchAnswers),
+    )
+
+    return {
+      questions: [],
+      progress: { current: 1, total: 1 },
+      isComplete: true,
+      isFinalFreeForm: false,
+      aiCommentary: 'Mock interview complete.',
+      finalYaml,
+      batchNumber: 1,
+    }
+  }
+
   // Get session info from memory or reload from DB
   let sessionInfo = interviewQASessions.get(ticketId)
   if (!sessionInfo) {
-    const artifact = db.select().from(phaseArtifacts)
-      .where(and(
-        eq(phaseArtifacts.ticketId, ticketId),
-        eq(phaseArtifacts.artifactType, 'interview_qa_session'),
-      ))
-      .orderBy(desc(phaseArtifacts.id))
-      .get()
+    const artifact = getLatestPhaseArtifact(ticketId, 'interview_qa_session')
     if (artifact) {
       try {
         sessionInfo = JSON.parse(artifact.content) as { sessionId: string; winnerId: string }
@@ -1729,20 +2330,32 @@ export async function handleInterviewQABatch(
     throw new Error('No active PROM4 session for this ticket')
   }
 
-  const ticket = db.select().from(tickets).where(eq(tickets.id, ticketId)).get()
-  const externalId = ticket?.externalId ?? String(ticketId)
+  const ticket = getTicketByRef(ticketId)
+  const externalId = ticket?.externalId ?? ticketId
 
   const signal = getOrCreateAbortSignal(ticketId)
-  const result = await submitBatchToSession(adapter, sessionInfo.sessionId, batchAnswers, signal)
+  const streamState = createOpenCodeStreamState()
+  const result = await submitBatchToSession(
+    adapter,
+    sessionInfo.sessionId,
+    batchAnswers,
+    signal,
+    sessionInfo.winnerId,
+    (entry) => {
+      emitOpenCodeStreamEvent(
+        ticketId,
+        externalId,
+        'WAITING_INTERVIEW_ANSWERS',
+        sessionInfo.winnerId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
+  )
 
   // Accumulate answers in batch history
-  const existingHistory = db.select().from(phaseArtifacts)
-    .where(and(
-      eq(phaseArtifacts.ticketId, ticketId),
-      eq(phaseArtifacts.artifactType, 'interview_batch_history'),
-    ))
-    .orderBy(desc(phaseArtifacts.id))
-    .get()
+  const existingHistory = getLatestPhaseArtifact(ticketId, 'interview_batch_history')
 
   let history: Array<{ batchNumber: number; answers: Record<string, string> }> = []
   if (existingHistory) {
@@ -1751,54 +2364,22 @@ export async function handleInterviewQABatch(
   history.push({ batchNumber: result.batchNumber, answers: batchAnswers })
 
   // Upsert history
-  if (existingHistory) {
-    db.update(phaseArtifacts)
-      .set({ content: JSON.stringify(history) })
-      .where(eq(phaseArtifacts.id, existingHistory.id))
-      .run()
-  } else {
-    db.insert(phaseArtifacts)
-      .values({
-        ticketId,
-        phase: 'WAITING_INTERVIEW_ANSWERS',
-        artifactType: 'interview_batch_history',
-        content: JSON.stringify(history),
-      })
-      .run()
-  }
+  upsertLatestPhaseArtifact(ticketId, 'interview_batch_history', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(history))
 
   if (result.isComplete && result.finalYaml) {
     // Write final interview YAML to disk
-    const ticketDir = resolve(process.cwd(), '.looptroop/worktrees', externalId, '.ticket')
+    const paths = getTicketPaths(ticketId)
+    if (!paths) {
+      throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
+    }
+    const ticketDir = paths.ticketDir
     const interviewPath = resolve(ticketDir, 'interview.yaml')
     safeAtomicWrite(interviewPath, result.finalYaml)
     emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
       `PROM4 interview complete. Final YAML written to ${interviewPath}.`)
   } else {
     // Store next batch as current
-    const currentBatchArtifact = db.select().from(phaseArtifacts)
-      .where(and(
-        eq(phaseArtifacts.ticketId, ticketId),
-        eq(phaseArtifacts.artifactType, 'interview_current_batch'),
-      ))
-      .orderBy(desc(phaseArtifacts.id))
-      .get()
-
-    if (currentBatchArtifact) {
-      db.update(phaseArtifacts)
-        .set({ content: JSON.stringify(result) })
-        .where(eq(phaseArtifacts.id, currentBatchArtifact.id))
-        .run()
-    } else {
-      db.insert(phaseArtifacts)
-        .values({
-          ticketId,
-          phase: 'WAITING_INTERVIEW_ANSWERS',
-          artifactType: 'interview_current_batch',
-          content: JSON.stringify(result),
-        })
-        .run()
-    }
+    upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(result))
 
     emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
       `PROM4 batch ${result.batchNumber}: ${result.questions.length} questions. Progress: ${result.progress.current}/${result.progress.total}.`)
@@ -1807,8 +2388,770 @@ export async function handleInterviewQABatch(
   return result
 }
 
+function buildMockInterviewQuestions() {
+  return [
+    {
+      id: 'goal',
+      phase: 'discovery',
+      question: 'What is the primary outcome this ticket should deliver?',
+      priority: 'critical',
+      rationale: 'Clarifies the core success criteria.',
+    },
+    {
+      id: 'constraints',
+      phase: 'delivery',
+      question: 'What implementation constraints or boundaries should the agent respect?',
+      priority: 'high',
+      rationale: 'Prevents invalid implementation choices.',
+    },
+    {
+      id: 'verification',
+      phase: 'validation',
+      question: 'How should success be verified once implementation is complete?',
+      priority: 'high',
+      rationale: 'Defines acceptance and testing expectations.',
+    },
+  ] as const
+}
+
+function buildMockInterviewCompiledContent() {
+  return jsYaml.dump({
+    questions: buildMockInterviewQuestions().map(({ id, phase, question, priority, rationale }) => ({
+      id,
+      phase,
+      question,
+      priority,
+      rationale,
+    })),
+  }, { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildMockPrdContent(context: TicketContext) {
+  return jsYaml.dump({
+    schema_version: 1,
+    artifact: 'prd',
+    title: context.title,
+    summary: `Mock PRD for ${context.title}`,
+    goals: [
+      'Keep all LoopTroop runtime state inside the project-local .looptroop directory.',
+      'Preserve ticket lifecycle metadata and artifacts for restart and inspection.',
+    ],
+    constraints: [
+      'Do not write ticket data into the app checkout.',
+      'Keep the workflow deterministic in mock mode for testing.',
+    ],
+    acceptance_criteria: [
+      'Project-local db.sqlite exists inside the attached repo.',
+      'Ticket artifacts and execution log are written under the project-local worktree.',
+      'The ticket can progress through the full lifecycle in mock mode.',
+    ],
+  }, { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildMockBeadSubsets(context: TicketContext): BeadSubset[] {
+  return [
+    {
+      id: 'bead-1',
+      title: 'Project-local storage plumbing',
+      prdRefs: ['AC-1'],
+      description: `Store ${context.title} runtime state under the project-local .looptroop directory.`,
+      contextGuidance: 'Update path resolution and local-db ownership first.',
+      acceptanceCriteria: ['All ticket files resolve under <project>/.looptroop/worktrees/<ticket-id>/.ticket/.'],
+      tests: ['Create a ticket and verify its meta and execution log paths.'],
+      testCommands: ['npm run test -- server/routes'],
+    },
+    {
+      id: 'bead-2',
+      title: 'String ticket refs through the app',
+      prdRefs: ['AC-2'],
+      description: 'Propagate <projectId>:<externalId> ticket refs through API, SSE, and UI state.',
+      contextGuidance: 'Keep project ids numeric while converting public ticket ids to strings.',
+      acceptanceCriteria: ['Routes, SSE, and UI all accept string ticket refs.'],
+      tests: ['Fetch and open a ticket using its string ref.'],
+      testCommands: ['npm run test -- src/hooks'],
+    },
+    {
+      id: 'bead-3',
+      title: 'Deterministic mock lifecycle verification',
+      prdRefs: ['AC-3'],
+      description: 'Support a deterministic mock runtime for complete browser-driven lifecycle tests.',
+      contextGuidance: 'Mock mode should create stable artifacts and pass through the full flow.',
+      acceptanceCriteria: ['A ticket reaches COMPLETED in mock mode without external AI dependencies.'],
+      tests: ['Run the browser lifecycle script end-to-end.'],
+      testCommands: ['npm run test'],
+    },
+  ]
+}
+
+function getBeadsPath(ticketId: string): string {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${ticketId}`)
+  return resolve(paths.ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+}
+
+function readTicketBeads(ticketId: string): Bead[] {
+  return readJsonl<Bead>(getBeadsPath(ticketId))
+}
+
+function writeTicketBeads(ticketId: string, beads: Bead[]) {
+  writeJsonl(getBeadsPath(ticketId), beads)
+}
+
+function updateTicketProgressFromBeads(ticketId: string, beads: Bead[]) {
+  const total = beads.length
+  const completed = beads.filter(bead => bead.status === 'completed' || bead.status === 'skipped').length
+  const currentIndex = total === 0
+    ? 0
+    : completed >= total
+      ? total
+      : completed + 1
+  const percentComplete = total === 0 ? 0 : Math.round((completed / total) * 100)
+
+  patchTicket(ticketId, {
+    currentBead: currentIndex,
+    totalBeads: total,
+    percentComplete,
+  })
+}
+
+async function handleMockCouncilDeliberate(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const refinedContent = buildMockInterviewCompiledContent()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_DELIBERATING',
+    artifactType: 'interview_drafts',
+    content: JSON.stringify({
+      phase: 'interview',
+      drafts: [{ memberId: 'mock-model-1', content: refinedContent, outcome: 'completed', duration: 1 }],
+      memberOutcomes: { 'mock-model-1': { outcome: 'completed' } },
+    }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', 'Mock interview drafting complete.')
+  sendEvent({ type: 'QUESTIONS_READY', result: { winnerId: 'mock-model-1' } })
+}
+
+async function handleMockInterviewVote(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_VOTING_INTERVIEW',
+    artifactType: 'interview_votes',
+    content: JSON.stringify({ winnerId: 'mock-model-1', totalScore: 1 }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info', 'Mock interview winner selected.')
+  sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
+}
+
+async function handleMockInterviewCompile(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const refinedContent = buildMockInterviewCompiledContent()
+  const questions = buildMockInterviewQuestions()
+  insertPhaseArtifact(ticketId, {
+    phase: 'COMPILING_INTERVIEW',
+    artifactType: 'interview_compiled',
+    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent, questions }),
+  })
+  insertPhaseArtifact(ticketId, {
+    phase: 'COMPILING_INTERVIEW',
+    artifactType: 'interview_winner',
+    content: JSON.stringify({ winnerId: 'mock-model-1' }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info', 'Mock interview compiled.')
+  sendEvent({ type: 'READY' })
+}
+
+async function handleMockInterviewQAStart(
+  ticketId: string,
+  context: TicketContext,
+) {
+  const batch: BatchResponse = {
+    questions: buildMockInterviewQuestions().map(({ id, question, phase, priority, rationale }) => ({
+      id,
+      question,
+      phase,
+      priority,
+      rationale,
+    })),
+    progress: { current: 1, total: 1 },
+    isComplete: false,
+    isFinalFreeForm: false,
+    aiCommentary: 'Mock interview batch ready.',
+    batchNumber: 1,
+  }
+
+  interviewQASessions.set(ticketId, { sessionId: 'mock-session', winnerId: 'mock-model-1' })
+  insertPhaseArtifact(ticketId, {
+    phase: 'WAITING_INTERVIEW_ANSWERS',
+    artifactType: 'interview_qa_session',
+    content: JSON.stringify({ sessionId: 'mock-session', winnerId: 'mock-model-1' }),
+  })
+  upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(batch))
+  emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info', 'Mock interview questions ready for input.')
+  broadcaster.broadcast(ticketId, 'needs_input', {
+    ticketId,
+    type: 'interview_batch',
+    batch,
+  })
+}
+
+async function handleMockCoverage(
+  ticketId: string,
+  context: TicketContext,
+  phase: 'interview' | 'prd' | 'beads',
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const stateLabel = phase === 'interview'
+    ? 'VERIFYING_INTERVIEW_COVERAGE'
+    : phase === 'prd'
+      ? 'VERIFYING_PRD_COVERAGE'
+      : 'VERIFYING_BEADS_COVERAGE'
+
+  insertPhaseArtifact(ticketId, {
+    phase: stateLabel,
+    artifactType: `${phase}_coverage`,
+    content: JSON.stringify({ winnerId: 'mock-model-1', response: 'mock coverage clean', hasGaps: false }),
+  })
+
+  if (phase === 'interview') {
+    const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
+    const refinedContent = compiledArtifact
+      ? (() => {
+          try {
+            return (JSON.parse(compiledArtifact.content) as { refinedContent?: string }).refinedContent ?? ''
+          } catch {
+            return ''
+          }
+        })()
+      : ''
+    const paths = getTicketPaths(ticketId)
+    if (paths) {
+      safeAtomicWrite(
+        resolve(paths.ticketDir, 'interview.yaml'),
+        buildInterviewYaml(context.externalId, 'mock-model-1', refinedContent),
+      )
+    }
+  }
+
+  emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', `Mock ${phase} coverage passed.`)
+  sendEvent({ type: 'COVERAGE_CLEAN' })
+}
+
+async function handleMockPrdDraft(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  insertPhaseArtifact(ticketId, {
+    phase: 'DRAFTING_PRD',
+    artifactType: 'prd_drafts',
+    content: JSON.stringify({ drafts: [{ memberId: 'mock-model-1', outcome: 'completed' }] }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'info', 'Mock PRD drafts ready.')
+  sendEvent({ type: 'DRAFTS_READY' })
+}
+
+async function handleMockPrdVote(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_VOTING_PRD',
+    artifactType: 'prd_votes',
+    content: JSON.stringify({ winnerId: 'mock-model-1', totalScore: 1 }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info', 'Mock PRD winner selected.')
+  sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
+}
+
+async function handleMockPrdRefine(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const refinedContent = buildMockPrdContent(context)
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_PRD',
+    artifactType: 'prd_refined',
+    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent }),
+  })
+  safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), refinedContent)
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info', 'Mock PRD written to disk.')
+  sendEvent({ type: 'REFINED' })
+}
+
+async function handleMockBeadsDraft(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  insertPhaseArtifact(ticketId, {
+    phase: 'DRAFTING_BEADS',
+    artifactType: 'beads_drafts',
+    content: JSON.stringify({ drafts: [{ memberId: 'mock-model-1', outcome: 'completed' }] }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'info', 'Mock beads drafts ready.')
+  sendEvent({ type: 'DRAFTS_READY' })
+}
+
+async function handleMockBeadsVote(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  insertPhaseArtifact(ticketId, {
+    phase: 'COUNCIL_VOTING_BEADS',
+    artifactType: 'beads_votes',
+    content: JSON.stringify({ winnerId: 'mock-model-1', totalScore: 1 }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info', 'Mock beads winner selected.')
+  sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
+}
+
+async function handleMockBeadsRefine(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const beadSubsets = buildMockBeadSubsets(context)
+  const expandedBeads = expandBeads(beadSubsets)
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_BEADS',
+    artifactType: 'beads_refined',
+    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent: JSON.stringify(beadSubsets), expandedBeads }),
+  })
+  writeJsonl(resolve(paths.ticketDir, 'beads', 'main', '.beads', 'issues.jsonl'), expandedBeads)
+  patchTicket(ticketId, {
+    totalBeads: expandedBeads.length,
+    currentBead: 0,
+    percentComplete: 0,
+  })
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info', `Mock beads expanded to ${expandedBeads.length} tasks.`)
+  sendEvent({ type: 'REFINED' })
+}
+
+async function handleMockPreFlight(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const beadsPath = resolve(paths.ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+  const beads = existsSync(beadsPath)
+    ? readFileSync(beadsPath, 'utf-8').split('\n').filter(Boolean).map(line => JSON.parse(line))
+    : []
+  const report = await runPreFlightChecks(adapter, ticketId, beads)
+  insertPhaseArtifact(ticketId, {
+    phase: 'PRE_FLIGHT_CHECK',
+    artifactType: 'preflight_report',
+    content: JSON.stringify(report),
+  })
+  if (!report.passed) {
+    sendEvent({ type: 'CHECKS_FAILED', errors: report.criticalFailures.map(check => check.message) })
+    return
+  }
+  emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'info', 'Mock pre-flight checks passed.')
+  sendEvent({ type: 'CHECKS_PASSED' })
+}
+
+async function handleMockCoding(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const beads = readTicketBeads(ticketId).map((bead) => ({
+    ...bead,
+    status: 'completed' as const,
+    updatedAt: new Date().toISOString(),
+    iteration: Math.max(bead.iteration ?? 0, 1),
+  }))
+  writeTicketBeads(ticketId, beads)
+  updateTicketProgressFromBeads(ticketId, beads)
+
+  const mockOutputPath = resolve(paths.worktreePath, 'looptroop-mock-output.md')
+  safeAtomicWrite(
+    mockOutputPath,
+    [
+      `# ${context.externalId}`,
+      '',
+      `Mock execution completed for ${context.title}.`,
+      '',
+      'Completed beads:',
+      ...beads.map(bead => `- ${bead.title}`),
+    ].join('\n'),
+  )
+
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Mock coding completed ${beads.length} beads.`)
+  sendEvent({ type: 'ALL_BEADS_DONE' })
+}
+
+async function handleMockFinalTest(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info', 'Mock final tests passed.')
+  sendEvent({ type: 'TESTS_PASSED' })
+}
+
+async function handleMockIntegration(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info', 'Mock integration completed.')
+  sendEvent({ type: 'INTEGRATION_DONE' })
+}
+
+async function handleMockCleanup(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const report = cleanupTicketResources(ticketId)
+  insertPhaseArtifact(ticketId, {
+    phase: 'CLEANING_ENV',
+    artifactType: 'cleanup_report',
+    content: JSON.stringify(report),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'CLEANING_ENV', 'info', 'Mock cleanup completed.')
+  sendEvent({ type: 'CLEANUP_DONE' })
+}
+
+async function handlePreFlight(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const beads = readTicketBeads(ticketId)
+  const report = await runPreFlightChecks(adapter, ticketId, beads)
+  insertPhaseArtifact(ticketId, {
+    phase: 'PRE_FLIGHT_CHECK',
+    artifactType: 'preflight_report',
+    content: JSON.stringify(report),
+  })
+
+  if (!report.passed) {
+    emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', 'Pre-flight checks failed.', {
+      failures: report.criticalFailures.map(check => check.message),
+    })
+    sendEvent({ type: 'CHECKS_FAILED', errors: report.criticalFailures.map(check => check.message) })
+    return
+  }
+
+  updateTicketProgressFromBeads(ticketId, beads)
+  emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'info', `Pre-flight checks passed with ${beads.length} beads ready.`)
+  sendEvent({ type: 'CHECKS_PASSED' })
+}
+
+async function handleCoding(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+
+  const beads = readTicketBeads(ticketId)
+  if (beads.length === 0) {
+    throw new Error('No beads available for execution')
+  }
+
+  if (isAllComplete(beads)) {
+    updateTicketProgressFromBeads(ticketId, beads)
+    sendEvent({ type: 'ALL_BEADS_DONE' })
+    return
+  }
+
+  if (isMockOpenCodeMode()) {
+    await handleMockCoding(ticketId, context, sendEvent)
+    return
+  }
+
+  const nextBead = getNextBead(beads)
+  if (!nextBead) {
+    throw new Error('No runnable bead found; unresolved dependencies remain')
+  }
+
+  const now = new Date().toISOString()
+  const inProgressBeads = beads.map(bead => bead.id === nextBead.id
+    ? { ...bead, status: 'in_progress' as const, updatedAt: now }
+    : bead)
+  writeTicketBeads(ticketId, inProgressBeads)
+  updateTicketProgressFromBeads(ticketId, inProgressBeads)
+
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`)
+
+  const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
+  const codingModelId = context.lockedMainImplementer ?? 'implementer'
+  const streamStates = new Map<string, OpenCodeStreamState>()
+  const result = await executeBead(
+    adapter,
+    nextBead,
+    contextParts,
+    paths.worktreePath,
+    context.maxIterations,
+    undefined,
+    {
+      model: codingModelId,
+      onSessionCreated: (sessionId, iteration) => {
+        emitAiMilestone(
+          ticketId,
+          context.externalId,
+          'CODING',
+          `Coding session created for bead ${nextBead.id} attempt ${iteration} (session=${sessionId}).`,
+          `${nextBead.id}:${iteration}:created`,
+          {
+            modelId: codingModelId,
+            sessionId,
+            source: `model:${codingModelId}`,
+          },
+        )
+      },
+      onOpenCodeStreamEvent: ({ sessionId, event }) => {
+        const streamState = streamStates.get(sessionId) ?? createOpenCodeStreamState()
+        streamStates.set(sessionId, streamState)
+        emitOpenCodeStreamEvent(
+          ticketId,
+          context.externalId,
+          'CODING',
+          codingModelId,
+          sessionId,
+          event,
+          streamState,
+        )
+      },
+    },
+  )
+
+  insertPhaseArtifact(ticketId, {
+    phase: 'CODING',
+    artifactType: `bead_execution:${nextBead.id}`,
+    content: JSON.stringify(result),
+  })
+
+  if (!result.success) {
+    const failedBeads = inProgressBeads.map(bead => bead.id === nextBead.id
+      ? {
+          ...bead,
+          status: 'failed' as const,
+          iteration: result.iteration,
+          updatedAt: new Date().toISOString(),
+        }
+      : bead)
+    writeTicketBeads(ticketId, failedBeads)
+    updateTicketProgressFromBeads(ticketId, failedBeads)
+    emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', `Bead ${nextBead.id} failed.`, {
+      errors: result.errors,
+    })
+    sendEvent({ type: 'BEAD_ERROR' })
+    return
+  }
+
+  const completedBeads = inProgressBeads.map(bead => bead.id === nextBead.id
+    ? {
+        ...bead,
+        status: 'completed' as const,
+        iteration: result.iteration,
+        updatedAt: new Date().toISOString(),
+      }
+    : bead)
+  writeTicketBeads(ticketId, completedBeads)
+  updateTicketProgressFromBeads(ticketId, completedBeads)
+
+  broadcaster.broadcast(ticketId, 'bead_complete', {
+    ticketId,
+    beadId: nextBead.id,
+    title: nextBead.title,
+    completed: completedBeads.filter(bead => bead.status === 'completed' || bead.status === 'skipped').length,
+    total: completedBeads.length,
+  })
+
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'bead_complete', `Completed bead ${nextBead.id}: ${nextBead.title}`)
+  if (isAllComplete(completedBeads)) {
+    sendEvent({ type: 'ALL_BEADS_DONE' })
+  } else {
+    sendEvent({ type: 'BEAD_COMPLETE' })
+  }
+}
+
+async function handleFinalTest(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  if (isMockOpenCodeMode()) {
+    await handleMockFinalTest(ticketId, context, sendEvent)
+    return
+  }
+
+  const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
+  const ticketDir = getTicketPaths(ticketId)?.ticketDir
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+    codebaseMap,
+  }
+
+  if (ticketDir) {
+    const interviewPath = resolve(ticketDir, 'interview.yaml')
+    const prdPath = resolve(ticketDir, 'prd.yaml')
+    const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+
+    if (existsSync(interviewPath)) {
+      try { ticketState.interview = readFileSync(interviewPath, 'utf-8') } catch { /* ignore */ }
+    }
+    if (existsSync(prdPath)) {
+      try { ticketState.prd = readFileSync(prdPath, 'utf-8') } catch { /* ignore */ }
+    }
+    if (existsSync(beadsPath)) {
+      try { ticketState.beads = readFileSync(beadsPath, 'utf-8') } catch { /* ignore */ }
+    }
+  }
+
+  const finalTestContext = buildMinimalContext('final_test', ticketState)
+  const finalTestModelId = context.lockedMainImplementer ?? 'implementer'
+  const streamStates = new Map<string, OpenCodeStreamState>()
+  const output = await generateFinalTests(
+    adapter,
+    finalTestContext,
+    worktreePath,
+    {
+      model: finalTestModelId,
+      onSessionCreated: (sessionId) => {
+        emitAiMilestone(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          `Final test session created for ${finalTestModelId} (session=${sessionId}).`,
+          `${sessionId}:final-test-created`,
+          {
+            modelId: finalTestModelId,
+            sessionId,
+            source: `model:${finalTestModelId}`,
+          },
+        )
+      },
+      onOpenCodeStreamEvent: ({ sessionId, event }) => {
+        const streamState = streamStates.get(sessionId) ?? createOpenCodeStreamState()
+        streamStates.set(sessionId, streamState)
+        emitOpenCodeStreamEvent(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          finalTestModelId,
+          sessionId,
+          event,
+          streamState,
+        )
+      },
+    },
+  )
+
+  const report = {
+    passed: true,
+    checkedAt: new Date().toISOString(),
+    message: `Final test report generated by ${finalTestModelId}.`,
+    output,
+  }
+  insertPhaseArtifact(ticketId, {
+    phase: 'RUNNING_FINAL_TEST',
+    artifactType: 'final_test_report',
+    content: JSON.stringify(report),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'test_result', report.message, {
+    audience: 'all',
+    kind: 'test',
+    op: 'append',
+    source: `model:${finalTestModelId}`,
+    modelId: finalTestModelId,
+    streaming: false,
+  })
+  sendEvent({ type: 'TESTS_PASSED' })
+}
+
+async function handleIntegration(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  if (isMockOpenCodeMode()) {
+    await handleMockIntegration(ticketId, context, sendEvent)
+    return
+  }
+
+  insertPhaseArtifact(ticketId, {
+    phase: 'INTEGRATING_CHANGES',
+    artifactType: 'integration_report',
+    content: JSON.stringify({
+      completedAt: new Date().toISOString(),
+      message: 'Integration phase completed. Manual verification is required before cleanup.',
+    }),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info', 'Integration phase completed.')
+  sendEvent({ type: 'INTEGRATION_DONE' })
+}
+
+async function handleCleanup(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  if (isMockOpenCodeMode()) {
+    await handleMockCleanup(ticketId, context, sendEvent)
+    return
+  }
+
+  const report = cleanupTicketResources(ticketId)
+  insertPhaseArtifact(ticketId, {
+    phase: 'CLEANING_ENV',
+    artifactType: 'cleanup_report',
+    content: JSON.stringify(report),
+  })
+  emitPhaseLog(ticketId, context.externalId, 'CLEANING_ENV', 'info', 'Cleanup phase completed.')
+  sendEvent({ type: 'CLEANUP_DONE' })
+}
+
+async function handleMockLifecycleState(
+  ticketId: string,
+  context: TicketContext,
+  state: string,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  switch (state) {
+    case 'COUNCIL_DELIBERATING':
+      await handleMockCouncilDeliberate(ticketId, context, sendEvent)
+      return
+    case 'COUNCIL_VOTING_INTERVIEW':
+      await handleMockInterviewVote(ticketId, context, sendEvent)
+      return
+    case 'COMPILING_INTERVIEW':
+      await handleMockInterviewCompile(ticketId, context, sendEvent)
+      return
+    case 'WAITING_INTERVIEW_ANSWERS':
+      if (!interviewQASessions.has(ticketId)) {
+        await handleMockInterviewQAStart(ticketId, context)
+      }
+      return
+    case 'VERIFYING_INTERVIEW_COVERAGE':
+      await handleMockCoverage(ticketId, context, 'interview', sendEvent)
+      return
+    case 'DRAFTING_PRD':
+      await handleMockPrdDraft(ticketId, context, sendEvent)
+      return
+    case 'COUNCIL_VOTING_PRD':
+      await handleMockPrdVote(ticketId, context, sendEvent)
+      return
+    case 'REFINING_PRD':
+      await handleMockPrdRefine(ticketId, context, sendEvent)
+      return
+    case 'VERIFYING_PRD_COVERAGE':
+      await handleMockCoverage(ticketId, context, 'prd', sendEvent)
+      return
+    case 'DRAFTING_BEADS':
+      await handleMockBeadsDraft(ticketId, context, sendEvent)
+      return
+    case 'COUNCIL_VOTING_BEADS':
+      await handleMockBeadsVote(ticketId, context, sendEvent)
+      return
+    case 'REFINING_BEADS':
+      await handleMockBeadsRefine(ticketId, context, sendEvent)
+      return
+    case 'VERIFYING_BEADS_COVERAGE':
+      await handleMockCoverage(ticketId, context, 'beads', sendEvent)
+      return
+    case 'PRE_FLIGHT_CHECK':
+      await handleMockPreFlight(ticketId, context, sendEvent)
+      return
+    case 'CODING':
+      await handleMockCoding(ticketId, context, sendEvent)
+      return
+    case 'RUNNING_FINAL_TEST':
+      await handleMockFinalTest(ticketId, context, sendEvent)
+      return
+    case 'INTEGRATING_CHANGES':
+      await handleMockIntegration(ticketId, context, sendEvent)
+      return
+    case 'CLEANING_ENV':
+      await handleMockCleanup(ticketId, context, sendEvent)
+      return
+  }
+}
+
 export function attachWorkflowRunner(
-  ticketId: number,
+  ticketId: string,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
   sendEvent: (event: TicketEvent) => void,
 ) {
@@ -1827,6 +3170,45 @@ export function attachWorkflowRunner(
     if (runningPhases.has(key)) return
 
     const signal = getOrCreateAbortSignal(ticketId)
+
+    if (isMockOpenCodeMode()) {
+      const mockHandledStates = new Set([
+        'COUNCIL_DELIBERATING',
+        'COUNCIL_VOTING_INTERVIEW',
+        'COMPILING_INTERVIEW',
+        'WAITING_INTERVIEW_ANSWERS',
+        'VERIFYING_INTERVIEW_COVERAGE',
+        'DRAFTING_PRD',
+        'COUNCIL_VOTING_PRD',
+        'REFINING_PRD',
+        'VERIFYING_PRD_COVERAGE',
+        'DRAFTING_BEADS',
+        'COUNCIL_VOTING_BEADS',
+        'REFINING_BEADS',
+        'VERIFYING_BEADS_COVERAGE',
+        'PRE_FLIGHT_CHECK',
+        'CODING',
+        'RUNNING_FINAL_TEST',
+        'INTEGRATING_CHANGES',
+        'CLEANING_ENV',
+      ])
+
+      if (mockHandledStates.has(state)) {
+        runningPhases.add(key)
+        handleMockLifecycleState(ticketId, context, state, sendEvent)
+          .catch((err: unknown) => {
+            if (err instanceof CancelledError) return
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[runner] ${state} failed for ticket ${context.externalId}: ${errMsg}`)
+            emitPhaseLog(ticketId, context.externalId, state, 'error', errMsg)
+            sendEvent({ type: 'ERROR', message: errMsg, codes: ['MOCK_LIFECYCLE_FAILED'] })
+          })
+          .finally(() => {
+            runningPhases.delete(key)
+          })
+        return
+      }
+    }
 
     if (state === 'COUNCIL_DELIBERATING') {
       runningPhases.add(key)
@@ -2016,6 +3398,71 @@ export function attachWorkflowRunner(
           console.error(`[runner] VERIFYING_BEADS_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_BEADS_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'PRE_FLIGHT_CHECK') {
+      runningPhases.add(key)
+      handlePreFlight(ticketId, context, sendEvent)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] PRE_FLIGHT_CHECK failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['PREFLIGHT_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'CODING') {
+      runningPhases.add(key)
+      handleCoding(ticketId, context, sendEvent)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] CODING failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['CODING_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'RUNNING_FINAL_TEST') {
+      runningPhases.add(key)
+      handleFinalTest(ticketId, context, sendEvent)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] RUNNING_FINAL_TEST failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['TESTS_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'INTEGRATING_CHANGES') {
+      runningPhases.add(key)
+      handleIntegration(ticketId, context, sendEvent)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] INTEGRATING_CHANGES failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['INTEGRATION_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'CLEANING_ENV') {
+      runningPhases.add(key)
+      handleCleanup(ticketId, context, sendEvent)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] CLEANING_ENV failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'CLEANING_ENV', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['CLEANUP_FAILED'] })
         })
         .finally(() => {
           runningPhases.delete(key)

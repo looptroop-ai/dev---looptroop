@@ -1,5 +1,6 @@
 import { existsSync, rmSync } from 'fs'
 import { resolve } from 'path'
+import { getTicketPaths } from '../../storage/tickets'
 
 export interface CleanupReport {
   removedDirs: string[]
@@ -8,7 +9,7 @@ export interface CleanupReport {
   preservedPaths: string[]
 }
 
-export function cleanupTicketResources(ticketExternalId: string): CleanupReport {
+export function cleanupTicketResources(ticketId: string): CleanupReport {
   const report: CleanupReport = {
     removedDirs: [],
     removedFiles: [],
@@ -16,42 +17,49 @@ export function cleanupTicketResources(ticketExternalId: string): CleanupReport 
     preservedPaths: [],
   }
 
-  const ticketRoot = resolve(process.cwd(), '.looptroop/worktrees', ticketExternalId)
+  const paths = getTicketPaths(ticketId)
+  if (!paths) {
+    report.errors.push('Ticket directory not found')
+    return report
+  }
+
+  const ticketRoot = paths.worktreePath
 
   if (!existsSync(ticketRoot)) {
     report.errors.push('Ticket directory not found')
     return report
   }
 
-  // Only remove runtime directories — never delete planning artifacts
-  const runtimeDirs = [
-    resolve(ticketRoot, '.ticket', 'runtime'),
-    resolve(ticketRoot, '.ticket', 'locks'),
-    resolve(ticketRoot, '.ticket', 'streams'),
-    resolve(ticketRoot, '.ticket', 'sessions'),
-    resolve(ticketRoot, '.ticket', 'tmp'),
+  // Remove transient runtime state but preserve audit/debug evidence.
+  const runtimePaths = [
+    resolve(ticketRoot, '.ticket', 'runtime', 'locks'),
+    resolve(ticketRoot, '.ticket', 'runtime', 'sessions'),
+    resolve(ticketRoot, '.ticket', 'runtime', 'streams'),
+    resolve(ticketRoot, '.ticket', 'runtime', 'tmp'),
+    resolve(ticketRoot, '.ticket', 'runtime', 'state.yaml'),
   ]
 
-  for (const dir of runtimeDirs) {
-    if (existsSync(dir)) {
+  for (const targetPath of runtimePaths) {
+    if (existsSync(targetPath)) {
       try {
-        rmSync(dir, { recursive: true, force: true })
-        report.removedDirs.push(dir)
+        rmSync(targetPath, { recursive: true, force: true })
+        report.removedDirs.push(targetPath)
       } catch (err) {
         report.errors.push(
-          `Failed to remove ${dir}: ${err instanceof Error ? err.message : 'Unknown'}`,
+          `Failed to remove ${targetPath}: ${err instanceof Error ? err.message : 'Unknown'}`,
         )
       }
     }
   }
 
-  // Preserve planning artifacts
+  // Preserve planning artifacts and the execution log needed for audit/debug history.
   const preservedArtifacts = [
-    'meta.json',
+    'meta/ticket.meta.json',
     'interview.yaml',
     'prd.yaml',
     'codebase-map.yaml',
-    'issues.jsonl',
+    'beads/main/.beads/issues.jsonl',
+    'runtime/execution-log.jsonl',
   ]
   for (const artifact of preservedArtifacts) {
     const path = resolve(ticketRoot, '.ticket', artifact)

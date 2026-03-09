@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react'
 
 interface UIState {
-  selectedTicketId: number | null
+  selectedTicketId: string | null
   selectedTicketExternalId: string | null
   sidebarOpen: boolean
   activeView: 'kanban' | 'ticket' | 'project' | 'config'
@@ -15,7 +15,7 @@ interface UIState {
 }
 
 type UIAction =
-  | { type: 'SELECT_TICKET'; ticketId: number | null; externalId?: string | null }
+  | { type: 'SELECT_TICKET'; ticketId: string | null; externalId?: string | null }
   | { type: 'TOGGLE_SIDEBAR' }
   | { type: 'SET_VIEW'; view: UIState['activeView'] }
   | { type: 'SET_LOG_PANEL_HEIGHT'; height: number }

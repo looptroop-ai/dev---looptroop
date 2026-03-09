@@ -23,7 +23,7 @@ vi.mock('@/components/editor/YamlEditor', () => ({
 }))
 
 const baseTicket: Ticket = {
-  id: 42,
+  id: '7:LOOP-42',
   externalId: 'LOOP-42',
   projectId: 7,
   title: 'Test ticket',
@@ -96,7 +96,7 @@ describe('ApprovalView cascade warnings', () => {
         })
       }
 
-      if (url.includes('/api/files/42/interview')) {
+      if (url.includes('/api/files/7:LOOP-42/interview')) {
         return createJsonResponse({
           content: 'artifact: interview\nquestions: []\n',
           exists: true,

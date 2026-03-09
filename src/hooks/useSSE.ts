@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { queryClient } from '@/lib/queryClient'
 
 interface SSEOptions {
-  ticketId: number | null
+  ticketId: string | null
   onEvent?: (event: { type: string; data: Record<string, unknown> }) => void
 }
 
@@ -17,6 +17,9 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
     const url = new URL(`/api/stream`, window.location.origin)
     url.searchParams.set('ticketId', String(ticketId))
+    if (lastEventIdRef.current && lastEventIdRef.current !== '0') {
+      url.searchParams.set('lastEventId', lastEventIdRef.current)
+    }
 
     const es = new EventSource(url.toString())
     eventSourceRef.current = es
@@ -44,6 +47,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
     })
 
     es.addEventListener('log', (e) => {
+      lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
       try {
         const data = JSON.parse(e.data) as Record<string, unknown>
         onEvent?.({ type: 'log', data })
@@ -55,6 +59,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
     // Named 'error' event from the server (MessageEvent with data)
     es.addEventListener('error', (e) => {
       const me = e as MessageEvent
+      lastEventIdRef.current = me.lastEventId || lastEventIdRef.current
       if (typeof me.data !== 'string') return
       try {
         const data = JSON.parse(me.data) as Record<string, unknown>

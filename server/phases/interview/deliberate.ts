@@ -3,14 +3,20 @@ import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../
 import { generateDrafts } from '../../council/drafter'
 import { checkQuorum } from '../../council/quorum'
 import { buildPromptFromTemplate, PROM1, PROM2, PROM3 } from '../../prompts/index'
-import type { Message, PromptPart } from '../../opencode/types'
+import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
+import { validateInterviewDraft } from './validation'
+
+interface InterviewDeliberationOptions {
+  draftTimeoutMs: number
+  minQuorum: number
+  maxInitialQuestions: number
+}
 
 /** Build a context builder that returns PROM2 (vote) or PROM3 (refine) context. */
 export function buildInterviewContextBuilder(ticketContext: PromptPart[]) {
-  const contextForTemplate = ticketContext.map(p => ({ type: p.type, content: p.content }))
   return (step: 'vote' | 'refine'): PromptPart[] => {
     const template = step === 'vote' ? PROM2 : PROM3
-    return [{ type: 'text', content: buildPromptFromTemplate(template, contextForTemplate) }]
+    return [{ type: 'text', content: buildPromptFromTemplate(template, ticketContext) }]
   }
 }
 
@@ -19,6 +25,7 @@ export async function deliberateInterview(
   members: CouncilMember[],
   ticketContext: PromptPart[],
   projectPath: string,
+  options: InterviewDeliberationOptions,
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
     stage: 'draft' | 'vote' | 'refine'
@@ -27,23 +34,35 @@ export async function deliberateInterview(
     response: string
     messages: Message[]
   }) => void,
+  onOpenCodeStreamEvent?: (entry: {
+    stage: 'draft'
+    memberId: string
+    sessionId: string
+    event: StreamEvent
+  }) => void,
   onDraftProgress?: (entry: DraftProgressEvent) => void,
 ): Promise<DraftPhaseResult> {
-  const contextForTemplate = ticketContext.map(p => ({ type: p.type, content: p.content }))
-  const promptContent = buildPromptFromTemplate(PROM1, contextForTemplate)
+  const promptContent = [
+    buildPromptFromTemplate(PROM1, ticketContext),
+    '',
+    '## Configuration',
+    `max_initial_questions: ${options.maxInitialQuestions}`,
+  ].join('\n')
 
   const drafts = await generateDrafts(
     adapter,
     members,
     [{ type: 'text', content: promptContent }],
     projectPath,
-    300000,
+    options.draftTimeoutMs,
     signal,
     onOpenCodeSessionLog,
+    onOpenCodeStreamEvent,
     onDraftProgress,
+    (content) => validateInterviewDraft(content, options.maxInitialQuestions),
   )
 
-  const quorum = checkQuorum(drafts, 2)
+  const quorum = checkQuorum(drafts, options.minQuorum)
   if (!quorum.passed) {
     throw new Error(`Council quorum not met for interview_draft: ${quorum.message}`)
   }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCreateTicket } from '@/hooks/useTickets'
@@ -20,13 +20,14 @@ export function TicketForm({ onClose }: TicketFormProps) {
   const [projectId, setProjectId] = useState<number | ''>('')
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
 
-  const selectedProject = useMemo(() => projects.find(p => p.id === projectId), [projects, projectId])
+  const selectedProject = projects.find(p => p.id === projectId) ?? projects[0]
+  const effectiveProjectId = selectedProject?.id ?? ''
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!projectId) return
+    if (!effectiveProjectId) return
     createTicket.mutate(
-      { projectId: Number(projectId), title, description: description || undefined, priority },
+      { projectId: effectiveProjectId, title, description: description || undefined, priority },
       { onSuccess: onClose },
     )
   }
@@ -76,7 +77,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
                     <div className="px-3 py-2 text-sm text-muted-foreground">No projects available</div>
                   )}
                   {projects.map((p, idx) => {
-                    const selected = projectId === p.id
+                    const selected = effectiveProjectId === p.id
                     return (
                       <button
                         key={p.id}
@@ -156,7 +157,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
         <Button type="button" variant="outline" onClick={onClose} title="Close without creating ticket">
           Cancel
         </Button>
-        <Button type="submit" disabled={createTicket.isPending || !projectId} title="Create ticket in selected project">
+        <Button type="submit" disabled={createTicket.isPending || !effectiveProjectId} title="Create ticket in selected project">
           {createTicket.isPending ? 'Creating...' : 'Create Ticket'}
         </Button>
       </div>

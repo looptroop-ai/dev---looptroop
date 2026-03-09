@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 
 interface DBartifact {
   id: number
-  ticketId: number
+  ticketId: string
   phase: string
   artifactType: string
   filePath: string | null
@@ -11,13 +11,17 @@ interface DBartifact {
 }
 
 // Module-level cache: persists across component mounts/unmounts and phase switches
-const cache = new Map<number, DBartifact[]>()
+const cache = new Map<string, DBartifact[]>()
+
+export function clearTicketArtifactsCache(ticketId: string) {
+  cache.delete(ticketId)
+}
 
 /**
  * Fetches and caches ticket artifacts. Returns cached data instantly on cache hit,
  * then background-refreshes for live phases.
  */
-export function useTicketArtifacts(ticketId?: number, opts?: { skipFetch?: boolean }) {
+export function useTicketArtifacts(ticketId?: string, opts?: { skipFetch?: boolean }) {
   const cached = ticketId ? cache.get(ticketId) : undefined
   const [artifacts, setArtifacts] = useState<DBartifact[]>(cached ?? [])
   const [isLoading, setIsLoading] = useState(!cached && !!ticketId)

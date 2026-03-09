@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCreateProject, useUpdateProject, useDeleteProject } from '@/hooks/useProjects'
-import type { Project } from '@/hooks/useProjects'
+import type { ExistingProjectPreview, Project } from '@/hooks/useProjects'
 import { useToast } from '@/components/shared/Toast'
-import { ArrowLeft, Search, X, Upload, Trash2, CheckCircle2, XCircle, CircleDot } from 'lucide-react'
+import { ArrowLeft, Search, X, Upload, Trash2, CheckCircle2, XCircle, CircleDot, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
@@ -56,6 +56,8 @@ interface GitCheckResponse {
   message?: string
   scope?: 'root' | 'subfolder'
   repoRoot?: string
+  hasLoopTroopState?: boolean
+  existingProject?: ExistingProjectPreview | null
 }
 
 export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
@@ -74,32 +76,58 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const [emojiSearch, setEmojiSearch] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const selectedColor = PROJECT_COLORS.find(c => c.value === color)
-  const [gitStatus, setGitStatus] = useState<'none' | 'checking' | 'valid' | 'invalid'>('none')
-  const [gitMessage, setGitMessage] = useState('')
+  const [gitInfo, setGitInfo] = useState<GitCheckResponse>({ isGit: false, status: 'none' })
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const restorePrefillKeyRef = useRef<string | null>(null)
+  const closeView = onBack ?? onClose
+  const restoreMode = !isEditing && gitInfo.hasLoopTroopState === true && !!gitInfo.existingProject
+  const gitStatus = gitInfo.status
+  const gitMessage = gitInfo.message ?? ''
 
   useEffect(() => {
     if (!folder.trim()) {
-      setGitStatus('none')
-      setGitMessage('')
+      setGitInfo({ isGit: false, status: 'none' })
+      restorePrefillKeyRef.current = null
       return
     }
-    setGitStatus('checking')
-    setGitMessage('Checking repository...')
+    let cancelled = false
+    setGitInfo({
+      isGit: false,
+      status: 'checking',
+      message: 'Checking repository...',
+    })
     const timer = setTimeout(() => {
       fetch(`/api/projects/check-git?path=${encodeURIComponent(folder)}`)
         .then(r => r.json())
         .then((data: GitCheckResponse) => {
-          setGitStatus(data.isGit ? 'valid' : 'invalid')
-          setGitMessage(String(data.message ?? ''))
+          if (cancelled) return
+          setGitInfo(data)
         })
         .catch(() => {
-          setGitStatus('invalid')
-          setGitMessage('Git check failed. Verify the absolute folder path and try again.')
+          if (cancelled) return
+          setGitInfo({
+            isGit: false,
+            status: 'invalid',
+            message: 'Git check failed. Verify the absolute folder path and try again.',
+          })
         })
     }, 500)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [folder])
+
+  useEffect(() => {
+    if (isEditing || !restoreMode || !gitInfo.existingProject || !gitInfo.repoRoot) return
+    if (restorePrefillKeyRef.current === gitInfo.repoRoot) return
+
+    setName(gitInfo.existingProject.name)
+    setShortname(gitInfo.existingProject.shortname)
+    setIcon(gitInfo.existingProject.icon ?? '📁')
+    setColor(gitInfo.existingProject.color ?? '#3b82f6')
+    restorePrefillKeyRef.current = gitInfo.repoRoot
+  }, [gitInfo.existingProject, gitInfo.repoRoot, isEditing, restoreMode])
 
   const handleBrowseFolder = () => {
     setFolderPickerOpen(true)
@@ -113,9 +141,25 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (isEditing) {
-      updateProject.mutate({ id: project.id, name, icon, color }, { onSuccess: onBack ?? onClose })
+      updateProject.mutate(
+        { id: project.id, name, icon, color },
+        {
+          onSuccess: () => {
+            addToast('success', 'Project updated.')
+            closeView()
+          },
+        },
+      )
     } else {
-      createProject.mutate({ name, shortname, folderPath: folder, icon, color }, { onSuccess: onBack ?? onClose })
+      createProject.mutate(
+        { name, shortname, folderPath: folder, icon, color },
+        {
+          onSuccess: () => {
+            addToast('success', restoreMode ? 'Project restored from existing LoopTroop data.' : 'Project created.')
+            closeView()
+          },
+        },
+      )
     }
   }
 
@@ -123,7 +167,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     if (!project) return
     if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return
     deleteProject.mutate(project.id, {
-      onSuccess: () => (onBack ?? onClose)(),
+      onSuccess: () => closeView(),
       onError: (err) => {
         const message = (err as any)?.message || 'Failed to delete project'
         addToast('error', message, 5000)
@@ -170,7 +214,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
             </div>
             <div className="w-32">
               <label htmlFor="project-shortname" className="text-sm font-medium block mb-1">Short Name</label>
-              {isEditing ? (
+              {isEditing || restoreMode ? (
                 <span className="inline-block px-3 py-2 text-sm font-mono text-muted-foreground uppercase">{shortname}</span>
               ) : (
                 <input
@@ -185,6 +229,9 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                   maxLength={5}
                   required
                 />
+              )}
+              {restoreMode && (
+                <p className="mt-1 text-xs text-muted-foreground">Restored from existing project data and kept immutable.</p>
               )}
             </div>
           </div>
@@ -432,7 +479,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                     Browse...
                   </Button>
                 </div>
-                {gitMessage && (
+                {gitMessage && !restoreMode && (
                   <p className={cn(
                     'text-xs',
                     gitStatus === 'valid' ? 'text-green-600 dark:text-green-400' : gitStatus === 'invalid' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground',
@@ -440,6 +487,45 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
                     {gitMessage}
                   </p>
                 )}
+              </div>
+            </div>
+          )}
+          {restoreMode && gitInfo.existingProject && (
+            <div className="rounded-lg border border-amber-300/70 bg-amber-50/70 p-4 text-sm dark:border-amber-700/60 dark:bg-amber-950/20">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div className="min-w-0 space-y-3">
+                  <div>
+                    <p className="font-medium text-amber-900 dark:text-amber-100">Existing LoopTroop project detected</p>
+                    <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-200/80">
+                      This folder already contains LoopTroop state. Attaching it will restore the existing tickets and workflow data from disk.
+                    </p>
+                    {gitInfo.scope === 'subfolder' && gitInfo.repoRoot && (
+                      <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-200/80">
+                        Repository root: <span className="font-mono">{gitInfo.repoRoot}</span>
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-100">Restored from existing project data</p>
+                      <ul className="mt-1 space-y-1 text-xs text-amber-800 dark:text-amber-200/90">
+                        <li>Short name: <span className="font-mono">{gitInfo.existingProject.shortname}</span></li>
+                        <li>Ticket counter: <span className="font-mono">{gitInfo.existingProject.ticketCounter}</span></li>
+                        <li>Existing tickets: {gitInfo.existingProject.ticketCount}</li>
+                        <li>Ticket workflow and artifact state</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-100">Updated from your current form</p>
+                      <ul className="mt-1 space-y-1 text-xs text-amber-800 dark:text-amber-200/90">
+                        <li>Name: {name}</li>
+                        <li>Icon: {icon?.startsWith('data:') ? 'Custom image' : icon}</li>
+                        <li>Color: <span className="font-mono">{color}</span></li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -453,8 +539,10 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
           </Button>
         )}
         <div className="flex gap-2 ml-auto">
-          <Button type="button" variant="outline" onClick={onBack ?? onClose}>Cancel</Button>
-          <Button type="submit" disabled={isBusy || (!isEditing && gitStatus !== 'valid')}>{isEditing ? 'Save Changes' : 'Create Project'}</Button>
+          <Button type="button" variant="outline" onClick={closeView}>Cancel</Button>
+          <Button type="submit" disabled={isBusy || (!isEditing && gitStatus !== 'valid')}>
+            {isEditing ? 'Save Changes' : restoreMode ? 'Restore Project' : 'Create Project'}
+          </Button>
         </div>
       </div>
     </form>

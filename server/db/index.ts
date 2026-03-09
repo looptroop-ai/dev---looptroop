@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { resolve, isAbsolute } from 'path'
+import { isAbsolute, resolve } from 'path'
+import { homedir } from 'os'
 import { mkdirSync } from 'fs'
 import * as schema from './schema'
 
@@ -8,29 +9,33 @@ const isTestRuntime = process.env.NODE_ENV === 'test'
   || process.env.VITEST === 'true'
   || process.env.VITEST === '1'
 
-const defaultDbPath = resolve(
-  process.cwd(),
-  isTestRuntime ? '.looptroop/test-db.sqlite' : '.looptroop/db.sqlite',
-)
+function resolveAppConfigDir(): string {
+  const configured = process.env.LOOPTROOP_CONFIG_DIR?.trim()
+  if (configured) {
+    return isAbsolute(configured) ? configured : resolve(process.cwd(), configured)
+  }
 
-const configuredDbPath = process.env.LOOPTROOP_DB_PATH
+  if (isTestRuntime) {
+    return resolve(process.cwd(), '.looptroop-test-config')
+  }
+
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim()
+  const baseDir = xdgConfigHome
+    ? (isAbsolute(xdgConfigHome) ? xdgConfigHome : resolve(process.cwd(), xdgConfigHome))
+    : resolve(homedir(), '.config')
+  return resolve(baseDir, 'looptroop')
+}
+
+const APP_CONFIG_DIR = resolveAppConfigDir()
+const defaultDbPath = resolve(APP_CONFIG_DIR, 'app.sqlite')
+const configuredDbPath = process.env.LOOPTROOP_APP_DB_PATH?.trim()
 const DB_PATH = configuredDbPath
   ? (isAbsolute(configuredDbPath) ? configuredDbPath : resolve(process.cwd(), configuredDbPath))
   : defaultDbPath
 
-if (isTestRuntime && DB_PATH === resolve(process.cwd(), '.looptroop/db.sqlite')) {
-  throw new Error(
-    `[db] Refusing to use primary DB during tests: ${DB_PATH}. ` +
-    `Use LOOPTROOP_DB_PATH or allow default test DB.`,
-  )
-}
-
-// Ensure directory exists
-mkdirSync(resolve(process.cwd(), '.looptroop'), { recursive: true })
+mkdirSync(APP_CONFIG_DIR, { recursive: true })
 
 const sqlite = new Database(DB_PATH)
-
-// WAL hardening pragmas (applied on every connection)
 sqlite.pragma('journal_mode=WAL')
 sqlite.pragma('locking_mode=NORMAL')
 sqlite.pragma('synchronous=NORMAL')
@@ -38,9 +43,8 @@ sqlite.pragma('busy_timeout=5000')
 sqlite.pragma('wal_autocheckpoint=1000')
 
 export const db = drizzle(sqlite, { schema })
-export { sqlite }
+export { sqlite, DB_PATH as APP_DB_PATH, APP_CONFIG_DIR }
 
-// Idle WAL checkpoint every 30s
 let checkpointInterval: ReturnType<typeof setInterval> | null = null
 
 export function startWalCheckpoint() {
@@ -48,7 +52,7 @@ export function startWalCheckpoint() {
     try {
       sqlite.pragma('wal_checkpoint(PASSIVE)')
     } catch {
-      // Silently handle checkpoint errors
+      // Ignore checkpoint errors.
     }
   }, 30000)
 }

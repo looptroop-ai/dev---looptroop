@@ -6,6 +6,7 @@ import { checkQuorum } from '../quorum'
 import { selectWinner } from '../voter'
 import type { CouncilMember, DraftResult, Vote } from '../types'
 import type { PromptPart } from '../../opencode/types'
+import { deliberateInterview } from '../../phases/interview/deliberate'
 
 describe('Council Pipeline', () => {
   let adapter: MockOpenCodeAdapter
@@ -90,6 +91,7 @@ describe('Council Pipeline', () => {
       300000,
       undefined,
       undefined,
+      undefined,
       progressEvents,
     )
 
@@ -106,6 +108,79 @@ describe('Council Pipeline', () => {
       outcome: 'completed',
     }))
   })
+
+  it('marks invalid drafts when validator fails and preserves the raw response', async () => {
+    adapter.mockResponses.set('mock-session-1', 'not valid yaml')
+
+    const drafts = await generateDrafts(
+      adapter,
+      [members[0]!],
+      [{ type: 'text', content: 'draft prompt' }],
+      '/tmp/test',
+      300000,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        throw new Error('schema validation failed')
+      },
+    )
+
+    expect(drafts[0]!.outcome).toBe('invalid_output')
+    expect(drafts[0]!.content).toBe('not valid yaml')
+    expect(drafts[0]!.error).toBe('schema validation failed')
+  })
+
+  it('respects configured draft timeouts', async () => {
+    class SlowAdapter extends MockOpenCodeAdapter {
+      override async promptSession(sessionId: string, parts: PromptPart[]): Promise<string> {
+        await new Promise(resolve => setTimeout(resolve, 30))
+        return super.promptSession(sessionId, parts)
+      }
+    }
+
+    const slowAdapter = new SlowAdapter()
+    const drafts = await generateDrafts(
+      slowAdapter,
+      [members[0]!],
+      [{ type: 'text', content: 'draft prompt' }],
+      '/tmp/test',
+      5,
+    )
+
+    expect(drafts[0]!.outcome).toBe('timed_out')
+  })
+
+  it('deliberateInterview proceeds when validated drafts still meet quorum', async () => {
+    adapter.mockResponses.set('mock-session-1', 'not valid yaml')
+    adapter.mockResponses.set('mock-session-2', [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What is the goal?"',
+    ].join('\n'))
+    adapter.mockResponses.set('mock-session-3', [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "Who is the user?"',
+    ].join('\n'))
+
+    const result = await deliberateInterview(
+      adapter,
+      members,
+      [
+        { type: 'text', source: 'ticket_details', content: '# Ticket: Test\nNeed a change' },
+        { type: 'text', source: 'codebase_map', content: 'files:\n  - "src/main.ts"' },
+      ],
+      '/tmp/test',
+      { draftTimeoutMs: 300000, minQuorum: 2, maxInitialQuestions: 10 },
+    )
+
+    expect(result.drafts.filter(d => d.outcome === 'completed')).toHaveLength(2)
+    expect(result.drafts.find(d => d.memberId === 'model-a')?.outcome).toBe('invalid_output')
+  })
 })
 
 describe('Quorum', () => {
@@ -120,7 +195,7 @@ describe('Quorum', () => {
   it('fails when not enough valid drafts', () => {
     const drafts: DraftResult[] = [
       { memberId: 'a', content: 'draft', outcome: 'completed', duration: 100 },
-      { memberId: 'b', content: '', outcome: 'timed_out', duration: 100 },
+      { memberId: 'b', content: '', outcome: 'timed_out', duration: 100, error: 'Timeout' },
     ]
     expect(checkQuorum(drafts, 2).passed).toBe(false)
   })
@@ -131,6 +206,15 @@ describe('Quorum', () => {
       { memberId: 'b', content: 'draft', outcome: 'completed', duration: 100 },
     ]
     expect(checkQuorum(drafts, 2).passed).toBe(false)
+  })
+
+  it('excludes invalid_output drafts from quorum', () => {
+    const drafts: DraftResult[] = [
+      { memberId: 'a', content: 'questions: []', outcome: 'completed', duration: 100 },
+      { memberId: 'b', content: 'invalid', outcome: 'invalid_output', duration: 100, error: 'schema validation failed' },
+    ]
+    expect(checkQuorum(drafts, 2).passed).toBe(false)
+    expect(checkQuorum(drafts, 2).message).toContain('schema validation failed')
   })
 })
 

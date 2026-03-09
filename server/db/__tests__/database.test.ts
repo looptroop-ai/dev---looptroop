@@ -1,118 +1,113 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import Database from 'better-sqlite3'
-import { resolve } from 'path'
-import { mkdirSync, rmSync } from 'fs'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { APP_CONFIG_DIR, APP_DB_PATH, db as appDb, sqlite } from '../index'
+import { initializeDatabase } from '../init'
+import { clearProjectDatabaseCache, getProjectDatabase } from '../project'
+import { attachedProjects, profiles, projects, tickets } from '../schema'
+import { attachProject } from '../../storage/projects'
+import { createTicket } from '../../storage/tickets'
+import { stopAllActors } from '../../machines/persistence'
+import { resetOpenCodeAdapter } from '../../opencode/factory'
 
-const TEST_DB_PATH = resolve(process.cwd(), '.looptroop/test-db.sqlite')
+const repoDirs: string[] = []
 
-describe('SQLite Database', () => {
-  let db: Database.Database
+function createGitRepo(prefix: string): string {
+  const repoDir = fs.mkdtempSync(path.join(tmpdir(), prefix))
+  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
+  fs.writeFileSync(path.join(repoDir, 'README.md'), '# Fixture\n')
+  execFileSync('git', ['-C', repoDir, 'add', 'README.md'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', repoDir, 'branch', '-M', 'main'], { stdio: 'pipe' })
+  repoDirs.push(repoDir)
+  return repoDir
+}
 
-  beforeAll(() => {
-    mkdirSync(resolve(process.cwd(), '.looptroop'), { recursive: true })
-    db = new Database(TEST_DB_PATH)
+function listTableNames(database: { prepare: (sql: string) => { all: () => { name: string }[] } }) {
+  return database
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all()
+    .map(row => row.name)
+}
 
-    // Apply WAL hardening pragmas
-    db.pragma('journal_mode=WAL')
-    db.pragma('locking_mode=NORMAL')
-    db.pragma('synchronous=NORMAL')
-    db.pragma('busy_timeout=5000')
-    db.pragma('wal_autocheckpoint=1000')
+beforeAll(() => {
+  initializeDatabase()
+})
 
-    // Create tables
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS profiles (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL,
-        icon TEXT DEFAULT '👤',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        shortname TEXT NOT NULL,
-        icon TEXT DEFAULT '📁',
-        color TEXT DEFAULT '#3b82f6',
-        folder TEXT NOT NULL,
-        ticket_counter INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS tickets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        external_id TEXT NOT NULL UNIQUE,
-        project_id INTEGER NOT NULL REFERENCES projects(id),
-        title TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'DRAFT',
-        xstate_snapshot TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS opencode_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        ticket_id INTEGER REFERENCES tickets(id),
-        phase TEXT NOT NULL,
-        state TEXT NOT NULL DEFAULT 'active',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `)
+beforeEach(() => {
+  stopAllActors()
+  resetOpenCodeAdapter()
+  clearProjectDatabaseCache()
+  appDb.delete(attachedProjects).run()
+  appDb.delete(profiles).run()
+})
+
+afterEach(() => {
+  stopAllActors()
+  resetOpenCodeAdapter()
+  clearProjectDatabaseCache()
+  appDb.delete(attachedProjects).run()
+  appDb.delete(profiles).run()
+  for (const repoDir of repoDirs.splice(0)) {
+    fs.rmSync(repoDir, { recursive: true, force: true })
+  }
+})
+
+describe('Database layout', () => {
+  it('initializes the app database with only global tables', () => {
+    expect(APP_CONFIG_DIR.endsWith('.looptroop-test-config')).toBe(true)
+    expect(APP_DB_PATH.endsWith(path.join('.looptroop-test-config', 'app.sqlite'))).toBe(true)
+    expect(sqlite.pragma('journal_mode', { simple: true })).toBe('wal')
+    expect(sqlite.pragma('busy_timeout', { simple: true })).toBe(5000)
+    expect(listTableNames(sqlite)).toEqual(['attached_projects', 'profiles'])
   })
 
-  afterAll(() => {
-    db.close()
-    try { rmSync(TEST_DB_PATH, { force: true }) } catch { /* ignore */ }
-    try { rmSync(TEST_DB_PATH + '-wal', { force: true }) } catch { /* ignore */ }
-    try { rmSync(TEST_DB_PATH + '-shm', { force: true }) } catch { /* ignore */ }
+  it('creates project-local databases with project and ticket state tables', () => {
+    const repoDir = createGitRepo('looptroop-db-local-')
+    const project = attachProject({
+      folderPath: repoDir,
+      name: 'Database Fixture',
+      shortname: 'DBX',
+    })
+
+    const projectDatabase = getProjectDatabase(repoDir)
+    expect(listTableNames(projectDatabase.sqlite)).toEqual([
+      'opencode_sessions',
+      'phase_artifacts',
+      'projects',
+      'ticket_status_history',
+      'tickets',
+    ])
+
+    const localProject = projectDatabase.db.select().from(projects).limit(1).get()
+    expect(localProject?.folderPath).toBe(repoDir)
+    expect(appDb.select().from(attachedProjects).all()).toHaveLength(1)
+    expect(project.id).toBeGreaterThan(0)
   })
 
-  it('should have WAL journal mode', () => {
-    const mode = db.pragma('journal_mode', { simple: true })
-    expect(mode).toBe('wal')
-  })
+  it('stores tickets in the project-local database and not the app database', () => {
+    const repoDir = createGitRepo('looptroop-db-ticket-')
+    const project = attachProject({
+      folderPath: repoDir,
+      name: 'Ticket Fixture',
+      shortname: 'TKT',
+    })
 
-  it('should have correct busy_timeout', () => {
-    const timeout = db.pragma('busy_timeout', { simple: true })
-    expect(timeout).toBe(5000)
-  })
+    const created = createTicket({
+      projectId: project.id,
+      title: 'Move storage local',
+    })
 
-  it('should have NORMAL synchronous mode', () => {
-    const sync = db.pragma('synchronous', { simple: true })
-    // SQLite returns 1 for NORMAL
-    expect(sync).toBe(1)
-  })
+    const projectDatabase = getProjectDatabase(repoDir)
+    const localTickets = projectDatabase.db.select().from(tickets).all()
+    expect(localTickets).toHaveLength(1)
+    expect(localTickets[0]?.externalId).toBe('TKT-1')
+    expect(created.id).toBe(`${project.id}:TKT-1`)
 
-  it('should create all 4 tables', () => {
-    const tables = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-    ).all() as { name: string }[]
-    const tableNames = tables.map(t => t.name).sort()
-    expect(tableNames).toEqual(['opencode_sessions', 'profiles', 'projects', 'tickets'])
-  })
-
-  it('should insert and query a project', () => {
-    const stmt = db.prepare('INSERT INTO projects (name, shortname, folder) VALUES (?, ?, ?)')
-    const result = stmt.run('Test Project', 'TEST', '/tmp/test')
-    expect(result.lastInsertRowid).toBeTruthy()
-
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(result.lastInsertRowid) as Record<string, unknown>
-    expect(project.name).toBe('Test Project')
-    expect(project.shortname).toBe('TEST')
-  })
-
-  it('should insert and query a ticket', () => {
-    const project = db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: number }
-    const stmt = db.prepare('INSERT INTO tickets (external_id, project_id, title) VALUES (?, ?, ?)')
-    const result = stmt.run('TEST-1', project.id, 'First Ticket')
-    expect(result.lastInsertRowid).toBeTruthy()
-
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(result.lastInsertRowid) as Record<string, unknown>
-    expect(ticket.external_id).toBe('TEST-1')
-    expect(ticket.status).toBe('DRAFT')
-  })
-
-  it('should enforce unique external_id on tickets', () => {
-    const project = db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: number }
-    expect(() => {
-      db.prepare('INSERT INTO tickets (external_id, project_id, title) VALUES (?, ?, ?)').run('TEST-1', project.id, 'Duplicate')
-    }).toThrow()
+    expect(() => appDb.select().from(tickets).all()).toThrow()
   })
 })

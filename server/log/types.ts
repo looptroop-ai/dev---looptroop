@@ -1,6 +1,9 @@
 export type LogEventType = 'state_change' | 'model_output' | 'test_result' | 'error' | 'bead_complete' | 'info' | 'debug'
 
 export type LogSource = 'system' | 'opencode' | 'error' | 'debug' | `model:${string}`
+export type LogAudience = 'all' | 'ai' | 'debug'
+export type LogEntryOperation = 'append' | 'upsert' | 'finalize'
+export type LogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'error' | 'test'
 
 export interface LogEvent {
   timestamp: string
@@ -8,7 +11,15 @@ export interface LogEvent {
   ticketId: string
   phase: string
   message: string
+  content?: string
   source?: LogSource
   status?: string
   data?: Record<string, unknown>
+  entryId?: string
+  op?: LogEntryOperation
+  audience?: LogAudience
+  kind?: LogKind
+  modelId?: string
+  sessionId?: string
+  streaming?: boolean
 }

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { X, Ban, Info } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
+import { X, Ban, Info, FolderOpen, Copy, Check as CheckIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -7,6 +7,7 @@ import { useUI } from '@/context/UIContext'
 import { useTicketAction } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
+import { TerminalTicketDelete } from '@/components/workspace/TerminalTicketDelete'
 import { getStatusUserLabel, STATUS_ORDER, STATUS_TO_PHASE } from '@/lib/workflowMeta'
 
 function getStatusProgress(status: string): number | null {
@@ -96,12 +97,53 @@ function getStatusBadgeClasses(status: string): string {
 
 const NON_CANCELABLE = ['COMPLETED', 'CANCELED']
 
+function CopyablePathRow({ label, path }: { label: string; path: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    navigator.clipboard.writeText(path).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <div className="col-span-2">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="mt-0.5 flex items-center gap-1.5 group">
+        <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <code className="text-xs font-mono text-muted-foreground truncate flex-1" title={path}>{path}</code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
+          title="Copy path"
+        >
+          {copied ? <CheckIcon className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const { dispatch } = useUI()
   const { mutate: performAction, isPending } = useTicketAction()
   const [showDetails, setShowDetails] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [showBottomFade, setShowBottomFade] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setShowBottomFade(el.scrollHeight - el.scrollTop - el.clientHeight > 8)
+  }, [])
+  const detailsScrollInit = useCallback(() => {
+    setShowBottomFade(true)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => handleScroll())
+    })
+  }, [handleScroll])
   const canCancel = !NON_CANCELABLE.includes(ticket.status)
+  const canDelete = NON_CANCELABLE.includes(ticket.status)
   const { data: projects = [] } = useProjects()
   const project = projects.find(p => p.id === ticket.projectId)
   const statusLabel = getStatusUserLabel(ticket.status, {
@@ -137,6 +179,17 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               <span className="text-xs">Details</span>
             </Button>
           )}
+          {canDelete && (
+            <TerminalTicketDelete
+              ticket={ticket}
+              statusLabel={ticket.status === 'COMPLETED' ? 'completed' : 'canceled'}
+              buttonLabel="Delete"
+              buttonTitle="Delete this ticket permanently"
+              buttonVariant="ghost"
+              buttonSize="sm"
+              buttonClassName="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 h-8 px-2"
+            />
+          )}
           {canCancel && (
             <Button
               variant="ghost"
@@ -162,12 +215,17 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
         </div>
       </div>
 
-      <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="max-w-md">
+      <Dialog open={showDetails} onOpenChange={(open) => { setShowDetails(open); if (open) detailsScrollInit() }}>
+        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-sm">Ticket Details</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="relative flex-1 min-h-0 overflow-hidden">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="grid grid-cols-2 gap-3 text-sm overflow-y-auto pr-1 max-h-[calc(80vh-6rem)] [scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:var(--border)_transparent]"
+          >
             <div>
               <span className="text-xs font-medium text-muted-foreground">External ID</span>
               <p className="font-mono mt-0.5">{ticket.externalId}</p>
@@ -190,6 +248,22 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               <div>
                 <span className="text-xs font-medium text-muted-foreground">Started At</span>
                 <p className="mt-0.5">{ticket.startedAt ? new Date(ticket.startedAt).toLocaleString() : '—'}</p>
+              </div>
+            )}
+            {ticket.startedAt && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Duration</span>
+                <p className="mt-0.5">{(() => {
+                  const start = new Date(ticket.startedAt).getTime()
+                  const end = ['COMPLETED', 'CANCELED', 'BLOCKED_ERROR'].includes(ticket.status)
+                    ? new Date(ticket.updatedAt).getTime()
+                    : Date.now()
+                  const diffMs = end - start
+                  const mins = Math.floor(diffMs / 60000)
+                  if (mins < 60) return `${mins}m`
+                  const hrs = Math.floor(mins / 60)
+                  return `${hrs}h ${mins % 60}m`
+                })()}</p>
               </div>
             )}
             <div className="col-span-2">
@@ -262,6 +336,44 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <p className="mt-0.5">{ticket.currentBead ?? 0} / {ticket.totalBeads}</p>
               </div>
             )}
+            {ticket.totalBeads && ticket.percentComplete !== null && ticket.percentComplete !== undefined && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Completion</span>
+                <p className="mt-0.5">{Math.round(ticket.percentComplete)}%</p>
+              </div>
+            )}
+            {(() => {
+              if (!ticket.xstateSnapshot) return null
+              try {
+                const snap = JSON.parse(ticket.xstateSnapshot) as { context?: { iterationCount?: number; maxIterations?: number } }
+                const iter = snap.context?.iterationCount
+                const max = snap.context?.maxIterations
+                if (iter == null || iter < 1) return null
+                return (
+                  <div>
+                    <span className="text-xs font-medium text-muted-foreground">Iterations</span>
+                    <p className="mt-0.5">{iter}{max ? ` / ${max}` : ''}</p>
+                  </div>
+                )
+              } catch { return null }
+            })()}
+            {ticket.errorMessage && (
+              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
+                <span className="text-xs font-medium text-muted-foreground">Error</span>
+                <div className="mt-1 max-h-32 overflow-y-auto rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2">
+                  <p className="text-xs text-red-700 dark:text-red-400 whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono">{ticket.errorMessage}</p>
+                </div>
+              </div>
+            )}
+            {project && ticket.status !== 'DRAFT' && (
+              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
+                <CopyablePathRow label="Artifacts Location" path={`${project.folderPath}/.looptroop/worktrees/${ticket.externalId}`} />
+              </div>
+            )}
+          </div>
+          {showBottomFade && (
+            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+          )}
           </div>
         </DialogContent>
       </Dialog>

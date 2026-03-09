@@ -1,7 +1,14 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { CouncilMember, DraftProgressEvent, DraftResult } from './types'
 import { CancelledError } from './types'
-import type { Message, PromptPart } from '../opencode/types'
+import type { Message, PromptPart, StreamEvent } from '../opencode/types'
+import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
+
+interface DraftValidationResult {
+  questionCount?: number
+}
+
+type DraftValidator = (content: string) => DraftValidationResult
 
 export async function generateDrafts(
   adapter: OpenCodeAdapter,
@@ -17,7 +24,14 @@ export async function generateDrafts(
     response: string
     messages: Message[]
   }) => void,
+  onOpenCodeStreamEvent?: (entry: {
+    stage: 'draft'
+    memberId: string
+    sessionId: string
+    event: StreamEvent
+  }) => void,
   onDraftProgress?: (entry: DraftProgressEvent) => void,
+  validateDraft?: DraftValidator,
 ): Promise<DraftResult[]> {
   const results: DraftResult[] = []
 
@@ -25,33 +39,49 @@ export async function generateDrafts(
   const promises = members.map(async (member): Promise<DraftResult> => {
     const startTime = Date.now()
     let sessionId: string | undefined
+    let content = ''
     try {
       if (signal?.aborted) throw new CancelledError()
-      const session = await adapter.createSession(projectPath, signal)
-      sessionId = session.id
-      onDraftProgress?.({
-        memberId: member.modelId,
-        status: 'session_created',
-        sessionId,
+      const result = await runOpenCodePrompt({
+        adapter,
+        projectPath,
+        parts: contextParts,
+        signal,
+        timeoutMs: timeout,
+        model: member.modelId,
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          onDraftProgress?.({
+            memberId: member.modelId,
+            status: 'session_created',
+            sessionId,
+          })
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          onOpenCodeStreamEvent?.({
+            stage: 'draft',
+            memberId: member.modelId,
+            sessionId,
+            event,
+          })
+        },
       })
-      let content = ''
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), timeout),
-      )
-
-      const draftPromise = adapter.promptSession(session.id, contextParts, signal)
-
-      content = await Promise.race([draftPromise, timeoutPromise])
-      const messages: Message[] = await adapter.getSessionMessages(session.id)
+      content = result.response
+      const messages: Message[] = result.messages
 
       onOpenCodeSessionLog?.({
         stage: 'draft',
         memberId: member.modelId,
-        sessionId: session.id,
+        sessionId: result.session.id,
         response: content,
         messages,
       })
+
+      let validation: DraftValidationResult | undefined
+      if (validateDraft) {
+        validation = validateDraft(content)
+      }
 
       onDraftProgress?.({
         memberId: member.modelId,
@@ -66,6 +96,7 @@ export async function generateDrafts(
         content,
         outcome: 'completed',
         duration: Date.now() - startTime,
+        questionCount: validation?.questionCount,
       }
     } catch (err) {
       if (err instanceof CancelledError || (err instanceof Error && err.name === 'AbortError')) {
@@ -85,9 +116,10 @@ export async function generateDrafts(
       })
       return {
         memberId: member.modelId,
-        content: isTimeout ? '' : `error: ${errorDetail}`,
+        content: isTimeout ? '' : content,
         outcome,
         duration,
+        error: errorDetail,
       }
     }
   })

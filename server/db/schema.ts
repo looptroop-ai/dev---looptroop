@@ -17,6 +17,13 @@ export const profiles = sqliteTable('profiles', {
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
 
+export const attachedProjects = sqliteTable('attached_projects', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  folderPath: text('folder_path').notNull().unique(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
 export const projects = sqliteTable('projects', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -24,7 +31,7 @@ export const projects = sqliteTable('projects', {
   icon: text('icon').default('📁'),
   color: text('color').default('#3b82f6'),
   folderPath: text('folder_path').notNull(),
-  profileId: integer('profile_id').references(() => profiles.id),
+  profileId: integer('profile_id'),
   councilMembers: text('council_members'), // JSON array, nullable override
   maxIterations: integer('max_iterations'),
   perIterationTimeout: integer('per_iteration_timeout'),

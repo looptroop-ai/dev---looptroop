@@ -10,7 +10,7 @@ import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 interface PhaseArtifactsPanelProps {
   phase: string
   isCompleted: boolean
-  ticketId?: number
+  ticketId?: string
   councilMemberCount?: number
   councilMemberNames?: string[]
   prefixElement?: React.ReactNode
@@ -26,7 +26,7 @@ interface ArtifactDef {
 
 interface DBartifact {
   id: number
-  ticketId: number
+  ticketId: string
   phase: string
   artifactType: string
   filePath: string | null

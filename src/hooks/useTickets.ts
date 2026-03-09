@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { clearPersistedTicketLogs } from '@/context/LogContext'
+import { clearTicketArtifactsCache } from './useTicketArtifacts'
 
 interface Ticket {
-  id: number
+  id: string
   externalId: string
   projectId: number
   title: string
@@ -29,6 +31,13 @@ interface CreateTicketInput {
   priority?: number
 }
 
+interface TicketActionResponse {
+  message: string
+  ticketId: string
+  status?: string
+  state?: string
+}
+
 async function fetchTickets(projectId?: number): Promise<Ticket[]> {
   const url = projectId ? `/api/tickets?projectId=${projectId}` : '/api/tickets'
   const res = await fetch(url)
@@ -36,7 +45,7 @@ async function fetchTickets(projectId?: number): Promise<Ticket[]> {
   return res.json()
 }
 
-async function fetchTicket(id: number): Promise<Ticket> {
+async function fetchTicket(id: string): Promise<Ticket> {
   const res = await fetch(`/api/tickets/${id}`)
   if (!res.ok) throw new Error('Failed to fetch ticket')
   return res.json()
@@ -55,7 +64,7 @@ async function createTicket(input: CreateTicketInput): Promise<Ticket> {
   return res.json()
 }
 
-async function updateTicket(id: number, input: Partial<Pick<Ticket, 'title' | 'description' | 'priority'>>): Promise<Ticket> {
+async function updateTicket(id: string, input: Partial<Pick<Ticket, 'title' | 'description' | 'priority'>>): Promise<Ticket> {
   const res = await fetch(`/api/tickets/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -68,11 +77,25 @@ async function updateTicket(id: number, input: Partial<Pick<Ticket, 'title' | 'd
   return res.json()
 }
 
-async function ticketAction(id: number, action: 'start' | 'approve' | 'cancel' | 'retry'): Promise<{ message: string }> {
+async function ticketAction(id: string, action: 'start' | 'approve' | 'cancel' | 'retry' | 'verify'): Promise<TicketActionResponse> {
   const res = await fetch(`/api/tickets/${id}/${action}`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json()
     throw new Error(err.error || `Failed to ${action} ticket`)
+  }
+  return res.json()
+}
+
+function patchTicketStatus(ticket: Ticket, ticketId: string, status: string): Ticket {
+  if (ticket.id !== ticketId || ticket.status === status) return ticket
+  return { ...ticket, status }
+}
+
+async function deleteTicket(id: string): Promise<{ success: boolean; ticketId: string }> {
+  const res = await fetch(`/api/tickets/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to delete ticket')
   }
   return res.json()
 }
@@ -94,14 +117,14 @@ interface InterviewData {
   draftUpdatedAt: string | null
 }
 
-async function fetchInterview(ticketId: number): Promise<InterviewData> {
+async function fetchInterview(ticketId: string): Promise<InterviewData> {
   const res = await fetch(`/api/tickets/${ticketId}/interview`)
   if (!res.ok) throw new Error('Failed to fetch interview data')
   return res.json()
 }
 
 async function submitAnswers(
-  ticketId: number,
+  ticketId: string,
   payload: { answers: Record<string, string> },
 ): Promise<{ message: string }> {
   const res = await fetch(`/api/tickets/${ticketId}/answer`, {
@@ -117,7 +140,7 @@ async function submitAnswers(
 }
 
 async function skipInterview(
-  ticketId: number,
+  ticketId: string,
   payload: { answers: Record<string, string> } = { answers: {} },
 ): Promise<{ message: string }> {
   const res = await fetch(`/api/tickets/${ticketId}/skip`, {
@@ -140,7 +163,7 @@ interface TicketUIStateResponse<T = unknown> {
 }
 
 async function fetchTicketUIState<T = unknown>(
-  ticketId: number,
+  ticketId: string,
   scope: string,
 ): Promise<TicketUIStateResponse<T>> {
   const params = new URLSearchParams({ scope })
@@ -153,7 +176,7 @@ async function fetchTicketUIState<T = unknown>(
 }
 
 async function saveTicketUIState(
-  ticketId: number,
+  ticketId: string,
   scope: string,
   data: unknown,
 ): Promise<{ success: boolean; scope: string; updatedAt: string }> {
@@ -176,7 +199,7 @@ export function useTickets(projectId?: number) {
   })
 }
 
-export function useTicket(id: number | null) {
+export function useTicket(id: string | null) {
   const queryClient = useQueryClient()
   return useQuery({
     queryKey: ['ticket', id],
@@ -206,7 +229,7 @@ export function useCreateTicket() {
 export function useUpdateTicket() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: number } & Partial<Pick<Ticket, 'title' | 'description' | 'priority'>>) =>
+    mutationFn: ({ id, ...input }: { id: string } & Partial<Pick<Ticket, 'title' | 'description' | 'priority'>>) =>
       updateTicket(id, input),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
@@ -218,16 +241,62 @@ export function useUpdateTicket() {
 export function useTicketAction() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, action }: { id: number; action: 'start' | 'approve' | 'cancel' | 'retry' }) =>
+    mutationFn: ({ id, action }: { id: string; action: 'start' | 'approve' | 'cancel' | 'retry' | 'verify' }) =>
       ticketAction(id, action),
-    onSuccess: (_, variables) => {
+    onSuccess: (result, variables) => {
+      if (result.status) {
+        const ticketId = result.ticketId || variables.id
+        const status = result.status
+
+        queryClient.setQueryData<Ticket | undefined>(['ticket', ticketId], (ticket) =>
+          ticket ? patchTicketStatus(ticket, ticketId, status) : ticket,
+        )
+
+        queryClient.setQueriesData<Ticket[]>({ queryKey: ['tickets'] }, (tickets) => {
+          if (!tickets) return tickets
+
+          let changed = false
+          const nextTickets = tickets.map((ticket) => {
+            const nextTicket = patchTicketStatus(ticket, ticketId, status)
+            if (nextTicket !== ticket) changed = true
+            return nextTicket
+          })
+
+          return changed ? nextTickets : tickets
+        })
+      }
+
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.id] })
     },
   })
 }
 
-export function useInterviewQuestions(ticketId: number) {
+export function useDeleteTicket() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: deleteTicket,
+    onSuccess: (_, ticketId) => {
+      queryClient.setQueriesData<Ticket[]>({ queryKey: ['tickets'] }, (tickets) =>
+        tickets?.filter(ticket => ticket.id !== ticketId) ?? tickets,
+      )
+      queryClient.removeQueries({ queryKey: ['ticket', ticketId], exact: true })
+      queryClient.removeQueries({ queryKey: ['interview', ticketId], exact: true })
+      queryClient.removeQueries({ queryKey: ['interview-batch', ticketId], exact: true })
+      queryClient.removeQueries({ queryKey: ['ticket-ui-state', ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+
+      clearTicketArtifactsCache(ticketId)
+      clearPersistedTicketLogs(ticketId)
+
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(`error-seen-${ticketId}`)
+      }
+    },
+  })
+}
+
+export function useInterviewQuestions(ticketId: string) {
   return useQuery({
     queryKey: ['interview', ticketId],
     queryFn: () => fetchInterview(ticketId),
@@ -237,7 +306,7 @@ export function useInterviewQuestions(ticketId: number) {
 export function useSubmitAnswers() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketId, answers }: { ticketId: number; answers: Record<string, string> }) =>
+    mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
       submitAnswers(ticketId, { answers }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
@@ -251,7 +320,7 @@ export function useSubmitAnswers() {
 export function useSkipInterview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketId, answers = {} }: { ticketId: number; answers?: Record<string, string> }) =>
+    mutationFn: ({ ticketId, answers = {} }: { ticketId: string; answers?: Record<string, string> }) =>
       skipInterview(ticketId, { answers }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
@@ -262,7 +331,7 @@ export function useSkipInterview() {
   })
 }
 
-export function useTicketUIState<T = unknown>(ticketId: number, scope: string, enabled: boolean = true) {
+export function useTicketUIState<T = unknown>(ticketId: string, scope: string, enabled: boolean = true) {
   return useQuery({
     queryKey: ['ticket-ui-state', ticketId, scope],
     queryFn: () => fetchTicketUIState<T>(ticketId, scope),
@@ -273,7 +342,7 @@ export function useTicketUIState<T = unknown>(ticketId: number, scope: string, e
 export function useSaveTicketUIState() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketId, scope, data }: { ticketId: number; scope: string; data: unknown }) =>
+    mutationFn: ({ ticketId, scope, data }: { ticketId: string; scope: string; data: unknown }) =>
       saveTicketUIState(ticketId, scope, data),
     onSuccess: (result, variables) => {
       queryClient.setQueryData<TicketUIStateResponse<unknown>>(
@@ -313,14 +382,14 @@ interface InterviewBatchResponse {
   status: 'ok' | 'no_batch' | 'parse_error'
 }
 
-async function fetchInterviewBatch(ticketId: number): Promise<InterviewBatchResponse> {
+async function fetchInterviewBatch(ticketId: string): Promise<InterviewBatchResponse> {
   const res = await fetch(`/api/tickets/${ticketId}/interview-batch`)
   if (!res.ok) throw new Error('Failed to fetch interview batch')
   return res.json()
 }
 
 async function submitBatch(
-  ticketId: number,
+  ticketId: string,
   answers: Record<string, string>,
 ): Promise<BatchData> {
   const res = await fetch(`/api/tickets/${ticketId}/answer-batch`, {
@@ -335,7 +404,7 @@ async function submitBatch(
   return res.json()
 }
 
-export function useInterviewBatch(ticketId: number) {
+export function useInterviewBatch(ticketId: string) {
   return useQuery({
     queryKey: ['interview-batch', ticketId],
     queryFn: () => fetchInterviewBatch(ticketId),
@@ -345,7 +414,7 @@ export function useInterviewBatch(ticketId: number) {
 export function useSubmitBatch() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketId, answers }: { ticketId: number; answers: Record<string, string> }) =>
+    mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
       submitBatch(ticketId, answers),
     onSuccess: (data, variables) => {
       // Update batch cache with returned data

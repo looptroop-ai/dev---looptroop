@@ -14,7 +14,7 @@ export function checkQuorum(
   const failures = results
     .filter(r => r.outcome !== 'completed')
     .map(r => {
-      const reason = r.content.startsWith('error: ') ? r.content.slice(7) : r.outcome
+      const reason = r.error ?? (r.content.startsWith('error: ') ? r.content.slice(7) : r.outcome)
       return `${r.memberId}: ${reason}`
     })
   const failureDetail = failures.length > 0 ? ` Failures: ${failures.join('; ')}` : ''

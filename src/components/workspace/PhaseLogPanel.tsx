@@ -18,9 +18,9 @@ type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 
 function getEntryColor(entry: LogEntry): string {
-  if (entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
-  if (entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
-  if (entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
+  if (entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
+  if (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
+  if (entry.audience === 'ai' || entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
   return 'text-foreground'
 }
 
@@ -159,18 +159,14 @@ const MULTI_MODEL_PHASES = new Set([
 ])
 
 function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
-  const isDebug = (entry: LogEntry) => entry.source === 'debug' || entry.line.includes('[DEBUG]')
-  const isError = (entry: LogEntry) => entry.source === 'error' || entry.line.includes('[ERROR]')
-  const isAi = (entry: LogEntry) => entry.source === 'opencode' || entry.source.startsWith('model:')
-  const isSystem = (entry: LogEntry) =>
-    entry.source === 'system' ||
-    entry.line.includes('[SYS]') ||
-    entry.line.includes('[TEST]') ||
-    entry.line.includes('[BEAD]')
+  const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
+  const isError = (entry: LogEntry) => entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')
+  const isAi = (entry: LogEntry) => entry.audience === 'ai'
+  const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
 
   switch (tab) {
     case 'ALL':
-      return entries.filter(e => !isDebug(e))
+      return entries.filter(entry => entry.audience === 'all')
     case 'SYS':
       return entries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':
@@ -180,8 +176,7 @@ function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     case 'DEBUG':
       return entries.filter(isDebug)
     default:
-      // Per-model tab: tab value is a modelId, filter by exact model source
-      return entries.filter(e => e.source === `model:${tab}`)
+      return entries.filter(entry => entry.audience === 'ai' && entry.modelId === tab)
   }
 }
 
@@ -194,21 +189,26 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   const [activeTab, setActiveTab] = useState<string>('ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
+  const lockedCouncilMembers = ticket?.lockedCouncilMembers ?? null
 
   const configuredModelIds = useMemo(() => {
-    if (!ticket?.lockedCouncilMembers) return []
+    if (!lockedCouncilMembers) return []
     try {
-      const parsed = JSON.parse(ticket.lockedCouncilMembers) as string[]
+      const parsed = JSON.parse(lockedCouncilMembers) as string[]
       return Array.isArray(parsed) ? parsed.filter(Boolean) : []
     } catch {
       return []
     }
-  }, [ticket?.lockedCouncilMembers])
+  }, [lockedCouncilMembers])
 
   // Detect model IDs from structured source field
   const detectedModelIds = useMemo(() => {
     const ids = new Set<string>()
     for (const entry of phaseLogs) {
+      if (entry.modelId) {
+        ids.add(entry.modelId)
+        continue
+      }
       if (entry.source.startsWith('model:')) {
         ids.add(entry.source.slice('model:'.length))
       }

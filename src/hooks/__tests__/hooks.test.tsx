@@ -18,16 +18,16 @@ describe('UIContext', () => {
   it('handles SELECT_TICKET action', () => {
     const { result } = renderHook(() => useUI(), { wrapper })
     act(() => {
-      result.current.dispatch({ type: 'SELECT_TICKET', ticketId: 1 })
+      result.current.dispatch({ type: 'SELECT_TICKET', ticketId: '1:TEST-1' })
     })
-    expect(result.current.state.selectedTicketId).toBe(1)
+    expect(result.current.state.selectedTicketId).toBe('1:TEST-1')
     expect(result.current.state.activeView).toBe('ticket')
   })
 
   it('handles CLOSE_TICKET action', () => {
     const { result } = renderHook(() => useUI(), { wrapper })
     act(() => {
-      result.current.dispatch({ type: 'SELECT_TICKET', ticketId: 1 })
+      result.current.dispatch({ type: 'SELECT_TICKET', ticketId: '1:TEST-1' })
     })
     act(() => {
       result.current.dispatch({ type: 'CLOSE_TICKET' })

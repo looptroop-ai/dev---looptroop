@@ -1,7 +1,8 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { Bead } from '../beads/types'
-import type { PromptPart } from '../../opencode/types'
+import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { parseCompletionMarker } from './completionChecker'
+import { runOpenCodePrompt } from '../../workflow/runOpenCodePrompt'
 
 const COMPLETION_INSTRUCTIONS = [
   'When complete, output a <BEAD_STATUS>COMPLETE</BEAD_STATUS> marker.',
@@ -23,6 +24,11 @@ export async function executeBead(
   projectPath: string,
   maxIterations: number = 5,
   timeout: number = 600000,
+  callbacks?: {
+    model?: string
+    onSessionCreated?: (sessionId: string, iteration: number) => void
+    onOpenCodeStreamEvent?: (entry: { sessionId: string; iteration: number; event: StreamEvent }) => void
+  },
 ): Promise<ExecutionResult> {
   let iteration = 0
   let lastOutput = ''
@@ -32,9 +38,7 @@ export async function executeBead(
     iteration++
 
     try {
-      // Fresh session per attempt
-      const session = await adapter.createSession(projectPath)
-
+      let sessionId = ''
       const beadPrompt: PromptPart[] = [
         ...contextParts,
         {
@@ -55,13 +59,27 @@ export async function executeBead(
         },
       ]
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Execution timeout')), timeout),
-      )
+      const runResult = await runOpenCodePrompt({
+        adapter,
+        projectPath,
+        parts: beadPrompt,
+        timeoutMs: timeout,
+        model: callbacks?.model,
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          callbacks?.onSessionCreated?.(session.id, iteration)
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          callbacks?.onOpenCodeStreamEvent?.({
+            sessionId,
+            iteration,
+            event,
+          })
+        },
+      })
 
-      const execPromise = adapter.promptSession(session.id, beadPrompt)
-
-      lastOutput = await Promise.race([execPromise, timeoutPromise])
+      lastOutput = runResult.response
 
       // Check completion
       const result = parseCompletionMarker(lastOutput)

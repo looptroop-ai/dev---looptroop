@@ -3,7 +3,7 @@ import { PhaseTimeline } from '@/components/navigator/PhaseTimeline'
 import { ContextTree } from '@/components/navigator/ContextTree'
 
 interface NavigatorPanelProps {
-  ticketId: number
+  ticketId: string
   currentStatus: string
   selectedPhase: string
   canceledFromStatus?: string
