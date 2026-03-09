@@ -42,8 +42,11 @@ export class TicketInitializationError extends Error {
 }
 
 const RUNTIME_GITIGNORE = [
-  'runtime/',
   'runtime/**',
+  'locks/**',
+  'streams/**',
+  'sessions/**',
+  'tmp/**',
 ].join('\n') + '\n'
 
 export function getTicketWorktreePath(projectRoot: string, externalId: string): string {
