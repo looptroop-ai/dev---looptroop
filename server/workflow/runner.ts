@@ -11,7 +11,7 @@ import { expandBeads } from '../phases/beads/expand'
 import type { Bead, BeadSubset } from '../phases/beads/types'
 import { executeBead } from '../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../phases/execution/scheduler'
-import type { CouncilResult, DraftProgressEvent, DraftResult, Vote } from '../council/types'
+import type { CouncilResult, DraftPhaseResult, DraftProgressEvent, DraftResult, Vote } from '../council/types'
 import { CancelledError } from '../council/types'
 import { ensureMinimumCouncilMembers, parseCouncilMembers } from '../council/members'
 import { conductVoting, selectWinner } from '../council/voter'
@@ -60,6 +60,92 @@ interface PhaseIntermediateData {
   winnerId?: string
 }
 const phaseIntermediate = new Map<string, PhaseIntermediateData>()
+
+/**
+ * Attempt to recover phaseIntermediate data from persisted artifacts after a
+ * server restart. Returns true if the data was recovered (or already present).
+ */
+function tryRecoverPhaseIntermediate(
+  ticketId: string,
+  context: TicketContext,
+  pipeline: 'interview' | 'prd' | 'beads',
+  needsVotes: boolean,
+): boolean {
+  const key = `${ticketId}:${pipeline}`
+  if (phaseIntermediate.has(key)) return true
+
+  try {
+    const artifact = getLatestPhaseArtifact(ticketId, `${pipeline}_drafts`)
+    if (!artifact) return false
+
+    const result = JSON.parse(artifact.content) as DraftPhaseResult
+    if (!result.drafts || result.drafts.length === 0) return false
+
+    const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+
+    let contextBuilder: PhaseIntermediateData['contextBuilder']
+    if (pipeline === 'interview') {
+      const ticketState: TicketState = {
+        ticketId: context.externalId,
+        title: context.title,
+        description: ticket?.description ?? '',
+        codebaseMap,
+      }
+      contextBuilder = buildInterviewContextBuilder(buildMinimalContext('interview_draft', ticketState))
+    } else if (pipeline === 'prd') {
+      const interviewPath = resolve(ticketDir, 'interview.yaml')
+      let interview: string | undefined
+      if (existsSync(interviewPath)) {
+        try { interview = readFileSync(interviewPath, 'utf-8') } catch { /* ignore */ }
+      }
+      const ticketState: TicketState = {
+        ticketId: context.externalId,
+        title: context.title,
+        description: ticket?.description ?? '',
+        codebaseMap,
+        interview,
+      }
+      contextBuilder = buildPrdContextBuilder(buildMinimalContext('prd_draft', ticketState))
+    } else {
+      const prdPath = resolve(ticketDir, 'prd.yaml')
+      let prd: string | undefined
+      if (existsSync(prdPath)) {
+        try { prd = readFileSync(prdPath, 'utf-8') } catch { /* ignore */ }
+      }
+      const ticketState: TicketState = {
+        ticketId: context.externalId,
+        title: context.title,
+        description: ticket?.description ?? '',
+        codebaseMap,
+        prd,
+      }
+      contextBuilder = buildBeadsContextBuilder(buildMinimalContext('beads_draft', ticketState))
+    }
+
+    const data: PhaseIntermediateData = {
+      drafts: result.drafts,
+      memberOutcomes: result.memberOutcomes,
+      contextBuilder,
+      worktreePath,
+      phase: result.phase,
+    }
+
+    if (needsVotes) {
+      const voteArtifact = getLatestPhaseArtifact(ticketId, `${pipeline}_votes`)
+      if (!voteArtifact) return false
+      const voteResult = JSON.parse(voteArtifact.content) as { votes: Vote[]; winnerId: string }
+      data.votes = voteResult.votes
+      data.winnerId = voteResult.winnerId
+    }
+
+    phaseIntermediate.set(key, data)
+    console.log(`[runner] Recovered ${pipeline} intermediate data from persisted artifact for ticket ${context.externalId}`)
+    return true
+  } catch (err) {
+    console.error(`[runner] Failed to recover ${pipeline} intermediate data for ticket ${context.externalId}: ${err instanceof Error ? err.message : String(err)}`)
+    return false
+  }
+}
 
 /**
  * Cancel all running phases for a ticket by aborting its AbortController.
@@ -3231,7 +3317,7 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'COUNCIL_VOTING_INTERVIEW') {
-      if (phaseIntermediate.has(`${ticketId}:interview`)) {
+      if (phaseIntermediate.has(`${ticketId}:interview`) || tryRecoverPhaseIntermediate(ticketId, context, 'interview', false)) {
         runningPhases.add(key)
         handleInterviewVote(ticketId, context, sendEvent, signal)
           .catch(err => {
@@ -3244,9 +3330,11 @@ export function attachWorkflowRunner(
           .finally(() => {
             runningPhases.delete(key)
           })
+      } else {
+        sendEvent({ type: 'ERROR', message: 'Council data lost after restart. Retry to re-run deliberation.', codes: ['INTERMEDIATE_DATA_LOST'] })
       }
     } else if (state === 'COMPILING_INTERVIEW') {
-      if (phaseIntermediate.has(`${ticketId}:interview`)) {
+      if (phaseIntermediate.has(`${ticketId}:interview`) || tryRecoverPhaseIntermediate(ticketId, context, 'interview', true)) {
         runningPhases.add(key)
         handleInterviewCompile(ticketId, context, sendEvent, signal)
           .catch(err => {
@@ -3259,6 +3347,8 @@ export function attachWorkflowRunner(
           .finally(() => {
             runningPhases.delete(key)
           })
+      } else {
+        sendEvent({ type: 'ERROR', message: 'Council data lost after restart. Retry to re-run deliberation.', codes: ['INTERMEDIATE_DATA_LOST'] })
       }
     } else if (state === 'WAITING_INTERVIEW_ANSWERS') {
       // Start PROM4 session if not already running
@@ -3304,7 +3394,7 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'COUNCIL_VOTING_PRD') {
-      if (phaseIntermediate.has(`${ticketId}:prd`)) {
+      if (phaseIntermediate.has(`${ticketId}:prd`) || tryRecoverPhaseIntermediate(ticketId, context, 'prd', false)) {
         runningPhases.add(key)
         handlePrdVote(ticketId, context, sendEvent, signal)
           .catch(err => {
@@ -3317,9 +3407,11 @@ export function attachWorkflowRunner(
           .finally(() => {
             runningPhases.delete(key)
           })
+      } else {
+        sendEvent({ type: 'ERROR', message: 'Council data lost after restart. Retry to re-run PRD drafting.', codes: ['INTERMEDIATE_DATA_LOST'] })
       }
     } else if (state === 'REFINING_PRD') {
-      if (phaseIntermediate.has(`${ticketId}:prd`)) {
+      if (phaseIntermediate.has(`${ticketId}:prd`) || tryRecoverPhaseIntermediate(ticketId, context, 'prd', true)) {
         runningPhases.add(key)
         handlePrdRefine(ticketId, context, sendEvent, signal)
           .catch(err => {
@@ -3332,6 +3424,8 @@ export function attachWorkflowRunner(
           .finally(() => {
             runningPhases.delete(key)
           })
+      } else {
+        sendEvent({ type: 'ERROR', message: 'Council data lost after restart. Retry to re-run PRD drafting.', codes: ['INTERMEDIATE_DATA_LOST'] })
       }
     } else if (state === 'VERIFYING_PRD_COVERAGE') {
       runningPhases.add(key)
@@ -3360,7 +3454,7 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'COUNCIL_VOTING_BEADS') {
-      if (phaseIntermediate.has(`${ticketId}:beads`)) {
+      if (phaseIntermediate.has(`${ticketId}:beads`) || tryRecoverPhaseIntermediate(ticketId, context, 'beads', false)) {
         runningPhases.add(key)
         handleBeadsVote(ticketId, context, sendEvent, signal)
           .catch(err => {
@@ -3373,9 +3467,11 @@ export function attachWorkflowRunner(
           .finally(() => {
             runningPhases.delete(key)
           })
+      } else {
+        sendEvent({ type: 'ERROR', message: 'Council data lost after restart. Retry to re-run beads drafting.', codes: ['INTERMEDIATE_DATA_LOST'] })
       }
     } else if (state === 'REFINING_BEADS') {
-      if (phaseIntermediate.has(`${ticketId}:beads`)) {
+      if (phaseIntermediate.has(`${ticketId}:beads`) || tryRecoverPhaseIntermediate(ticketId, context, 'beads', true)) {
         runningPhases.add(key)
         handleBeadsRefine(ticketId, context, sendEvent, signal)
           .catch(err => {
@@ -3388,6 +3484,8 @@ export function attachWorkflowRunner(
           .finally(() => {
             runningPhases.delete(key)
           })
+      } else {
+        sendEvent({ type: 'ERROR', message: 'Council data lost after restart. Retry to re-run beads drafting.', codes: ['INTERMEDIATE_DATA_LOST'] })
       }
     } else if (state === 'VERIFYING_BEADS_COVERAGE') {
       runningPhases.add(key)

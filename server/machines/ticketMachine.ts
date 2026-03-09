@@ -10,8 +10,6 @@ export const ticketMachine = setup({
     input: {} as TicketInput,
   },
   actions: {
-    persistState: () => {},
-    notifyFrontend: () => {},
     recordError: assign({
       error: ({ event }) => {
         if (event.type === 'ERROR') return event.message
@@ -74,8 +72,6 @@ export const ticketMachine = setup({
     DRAFT: {
       entry: [
         { type: 'updateStatus', params: { status: 'DRAFT' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         START: {
@@ -92,8 +88,6 @@ export const ticketMachine = setup({
     COUNCIL_DELIBERATING: {
       entry: [
         { type: 'updateStatus', params: { status: 'COUNCIL_DELIBERATING' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         QUESTIONS_READY: { target: 'COUNCIL_VOTING_INTERVIEW' },
@@ -107,8 +101,6 @@ export const ticketMachine = setup({
           type: 'updateStatus',
           params: { status: 'COUNCIL_VOTING_INTERVIEW' },
         },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         WINNER_SELECTED: { target: 'COMPILING_INTERVIEW' },
@@ -119,8 +111,6 @@ export const ticketMachine = setup({
     COMPILING_INTERVIEW: {
       entry: [
         { type: 'updateStatus', params: { status: 'COMPILING_INTERVIEW' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         READY: { target: 'WAITING_INTERVIEW_ANSWERS' },
@@ -134,8 +124,6 @@ export const ticketMachine = setup({
           type: 'updateStatus',
           params: { status: 'WAITING_INTERVIEW_ANSWERS' },
         },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         ANSWER_SUBMITTED: { target: 'VERIFYING_INTERVIEW_COVERAGE' },
@@ -152,8 +140,6 @@ export const ticketMachine = setup({
           type: 'updateStatus',
           params: { status: 'VERIFYING_INTERVIEW_COVERAGE' },
         },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         COVERAGE_CLEAN: { target: 'WAITING_INTERVIEW_APPROVAL' },
@@ -168,8 +154,6 @@ export const ticketMachine = setup({
           type: 'updateStatus',
           params: { status: 'WAITING_INTERVIEW_APPROVAL' },
         },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         APPROVE: { target: 'DRAFTING_PRD' },
@@ -181,8 +165,6 @@ export const ticketMachine = setup({
     DRAFTING_PRD: {
       entry: [
         { type: 'updateStatus', params: { status: 'DRAFTING_PRD' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         DRAFTS_READY: { target: 'COUNCIL_VOTING_PRD' },
@@ -193,8 +175,6 @@ export const ticketMachine = setup({
     COUNCIL_VOTING_PRD: {
       entry: [
         { type: 'updateStatus', params: { status: 'COUNCIL_VOTING_PRD' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         WINNER_SELECTED: { target: 'REFINING_PRD' },
@@ -205,8 +185,6 @@ export const ticketMachine = setup({
     REFINING_PRD: {
       entry: [
         { type: 'updateStatus', params: { status: 'REFINING_PRD' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         REFINED: { target: 'VERIFYING_PRD_COVERAGE' },
@@ -217,8 +195,6 @@ export const ticketMachine = setup({
     VERIFYING_PRD_COVERAGE: {
       entry: [
         { type: 'updateStatus', params: { status: 'VERIFYING_PRD_COVERAGE' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         COVERAGE_CLEAN: { target: 'WAITING_PRD_APPROVAL' },
@@ -230,8 +206,6 @@ export const ticketMachine = setup({
     WAITING_PRD_APPROVAL: {
       entry: [
         { type: 'updateStatus', params: { status: 'WAITING_PRD_APPROVAL' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         APPROVE: { target: 'DRAFTING_BEADS' },
@@ -243,8 +217,6 @@ export const ticketMachine = setup({
     DRAFTING_BEADS: {
       entry: [
         { type: 'updateStatus', params: { status: 'DRAFTING_BEADS' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         DRAFTS_READY: { target: 'COUNCIL_VOTING_BEADS' },
@@ -255,8 +227,6 @@ export const ticketMachine = setup({
     COUNCIL_VOTING_BEADS: {
       entry: [
         { type: 'updateStatus', params: { status: 'COUNCIL_VOTING_BEADS' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         WINNER_SELECTED: { target: 'REFINING_BEADS' },
@@ -267,8 +237,6 @@ export const ticketMachine = setup({
     REFINING_BEADS: {
       entry: [
         { type: 'updateStatus', params: { status: 'REFINING_BEADS' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         REFINED: { target: 'VERIFYING_BEADS_COVERAGE' },
@@ -282,8 +250,6 @@ export const ticketMachine = setup({
           type: 'updateStatus',
           params: { status: 'VERIFYING_BEADS_COVERAGE' },
         },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         COVERAGE_CLEAN: { target: 'WAITING_BEADS_APPROVAL' },
@@ -295,8 +261,6 @@ export const ticketMachine = setup({
     WAITING_BEADS_APPROVAL: {
       entry: [
         { type: 'updateStatus', params: { status: 'WAITING_BEADS_APPROVAL' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         APPROVE: { target: 'PRE_FLIGHT_CHECK' },
@@ -308,8 +272,6 @@ export const ticketMachine = setup({
     PRE_FLIGHT_CHECK: {
       entry: [
         { type: 'updateStatus', params: { status: 'PRE_FLIGHT_CHECK' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         CHECKS_PASSED: { target: 'CODING' },
@@ -321,8 +283,6 @@ export const ticketMachine = setup({
     CODING: {
       entry: [
         { type: 'updateStatus', params: { status: 'CODING' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         BEAD_COMPLETE: [
@@ -339,8 +299,6 @@ export const ticketMachine = setup({
     RUNNING_FINAL_TEST: {
       entry: [
         { type: 'updateStatus', params: { status: 'RUNNING_FINAL_TEST' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         TESTS_PASSED: { target: 'INTEGRATING_CHANGES' },
@@ -352,8 +310,6 @@ export const ticketMachine = setup({
     INTEGRATING_CHANGES: {
       entry: [
         { type: 'updateStatus', params: { status: 'INTEGRATING_CHANGES' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         INTEGRATION_DONE: { target: 'WAITING_MANUAL_VERIFICATION' },
@@ -367,8 +323,6 @@ export const ticketMachine = setup({
           type: 'updateStatus',
           params: { status: 'WAITING_MANUAL_VERIFICATION' },
         },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         VERIFY_COMPLETE: { target: 'CLEANING_ENV' },
@@ -379,8 +333,6 @@ export const ticketMachine = setup({
     CLEANING_ENV: {
       entry: [
         { type: 'updateStatus', params: { status: 'CLEANING_ENV' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         CLEANUP_DONE: { target: 'COMPLETED' },
@@ -391,11 +343,10 @@ export const ticketMachine = setup({
     BLOCKED_ERROR: {
       entry: [
         { type: 'updateStatus', params: { status: 'BLOCKED_ERROR' } },
-        'persistState',
-        'notifyFrontend',
       ],
       on: {
         RETRY: [
+          { guard: ({ context }) => context.previousStatus === 'DRAFT', target: 'DRAFT' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'COUNCIL_DELIBERATING', target: 'COUNCIL_DELIBERATING' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'COUNCIL_VOTING_INTERVIEW', target: 'COUNCIL_VOTING_INTERVIEW' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'COMPILING_INTERVIEW', target: 'COMPILING_INTERVIEW' as const, actions: ['clearError'] },
@@ -427,16 +378,12 @@ export const ticketMachine = setup({
       type: 'final' as const,
       entry: [
         { type: 'updateStatus', params: { status: 'COMPLETED' } },
-        'persistState',
-        'notifyFrontend',
       ],
     },
     CANCELED: {
       type: 'final' as const,
       entry: [
         { type: 'updateStatus', params: { status: 'CANCELED' } },
-        'persistState',
-        'notifyFrontend',
       ],
     },
   },

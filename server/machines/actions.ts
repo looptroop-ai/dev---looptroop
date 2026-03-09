@@ -1,28 +1,4 @@
-// Action stubs — referenced by ticketMachine via inline no-ops.
-// These will be wired up when the corresponding infrastructure is ready.
-
-export const persistState = () => {
-  // TODO: Persist XState snapshot to SQLite via db.update(tickets).set({ snapshot })
-  // so ticket state survives server restarts. See arch.md §7.2.
-}
-
-export const persistBeadsTracker = () => {
-  // TODO: Write bead progress to .looptroop/worktrees/<id>/.ticket/beads/issues.jsonl
-  // after each bead completion. See arch.md §6.3.
-}
-
-export const notifyFrontend = () => {
-  // TODO: Call broadcaster.broadcast(ticketId, 'state_change', payload)
-  // to push SSE events to connected frontend clients. The broadcaster
-  // module exists at server/sse/broadcaster.ts.
-}
-
-export const gitCommitAndPush = () => {
-  // TODO: Run git add (allowlisted paths only) + git commit + git push
-  // on the ticket worktree branch. See arch.md §8.1 for allowlist rules.
-}
-
-export const finalMergeToMain = () => {
-  // TODO: Merge ticket branch to main via fast-forward or squash merge.
-  // Requires squash.ts to produce a real commit first.
-}
+// Persistence and SSE notification are handled by the subscription in
+// persistence.ts (attachPersistenceSubscription). No inline action stubs
+// are needed — the subscription fires on every actor snapshot change and
+// calls persistSnapshot(), which writes to SQLite and broadcasts via SSE.

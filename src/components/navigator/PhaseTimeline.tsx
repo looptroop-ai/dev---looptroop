@@ -9,6 +9,7 @@ import { STATUS_DESCRIPTIONS, getStatusUserLabel } from '@/lib/workflowMeta'
 interface PhaseTimelineProps {
   currentStatus: string
   canceledFromStatus?: string
+  previousStatus?: string
   onSelectPhase?: (phase: string) => void
   selectedPhase?: string | null
 }
@@ -81,9 +82,17 @@ const PHASE_GROUPS: PhaseGroup[] = [
 
 const ALL_PHASE_IDS = PHASE_GROUPS.flatMap(g => g.phases.map(p => p.id))
 
-function getPhaseIndicatorStatus(phaseId: string, currentStatus: string, canceledFromStatus?: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
+function getPhaseIndicatorStatus(phaseId: string, currentStatus: string, canceledFromStatus?: string, previousStatus?: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
   if (currentStatus === 'BLOCKED_ERROR') {
     if (phaseId === 'BLOCKED_ERROR') return 'error'
+    if (previousStatus) {
+      const prevIndex = ALL_PHASE_IDS.indexOf(previousStatus)
+      const phaseIndex = ALL_PHASE_IDS.indexOf(phaseId)
+      if (prevIndex >= 0 && phaseIndex >= 0) {
+        if (phaseIndex < prevIndex) return 'completed'
+        if (phaseIndex === prevIndex) return 'error'
+      }
+    }
     return 'pending'
   }
 
@@ -113,8 +122,8 @@ function getPhaseIndicatorStatus(phaseId: string, currentStatus: string, cancele
   return phaseIndex < currentIndex ? 'completed' : 'pending'
 }
 
-function getGroupStatus(group: PhaseGroup, currentStatus: string, canceledFromStatus?: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
-  const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus, canceledFromStatus))
+function getGroupStatus(group: PhaseGroup, currentStatus: string, canceledFromStatus?: string, previousStatus?: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
+  const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus, canceledFromStatus, previousStatus))
 
   if (group.id === 'todo' && currentStatus === 'DRAFT') {
     return 'pending'
@@ -133,7 +142,7 @@ function getPhaseTooltip(phaseId: string): string {
   return STATUS_DESCRIPTIONS[phaseId] ?? phaseId.replace(/_/g, ' ')
 }
 
-export function PhaseTimeline({ currentStatus, canceledFromStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
+export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
   const activeGroupIndex = useMemo(() => {
     return PHASE_GROUPS.findIndex(g => g.phases.some(p => p.id === currentStatus))
   }, [currentStatus])
@@ -161,7 +170,7 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, onSelectPhase
     <ScrollArea className="h-full">
       <div className="p-2 space-y-1">
         {PHASE_GROUPS.map((group, gi) => {
-          const groupStatus = getGroupStatus(group, currentStatus, canceledFromStatus)
+          const groupStatus = getGroupStatus(group, currentStatus, canceledFromStatus, previousStatus)
           const isExpanded = expandedGroups.has(gi)
 
           return (
@@ -186,7 +195,7 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, onSelectPhase
               {isExpanded && (
                 <div className="ml-3 space-y-0.5 mt-0.5">
                   {group.phases.map(phase => {
-                    const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus, canceledFromStatus)
+                    const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus, canceledFromStatus, previousStatus)
                     const isSelected = selectedPhase === phase.id
                     const isPast = indicatorStatus === 'completed'
                     const isFuture = indicatorStatus === 'pending'

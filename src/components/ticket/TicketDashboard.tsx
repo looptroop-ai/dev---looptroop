@@ -130,14 +130,17 @@ export function TicketDashboard() {
   })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
-  const canceledFromStatus = useMemo(() => {
-    if (ticket?.status !== 'CANCELED' || !ticket.xstateSnapshot) return undefined
+  const snapshotPreviousStatus = useMemo(() => {
+    if (!ticket?.xstateSnapshot) return undefined
     try {
       const snap = JSON.parse(ticket.xstateSnapshot) as { context?: { previousStatus?: string | null } }
       const prev = snap.context?.previousStatus
       return typeof prev === 'string' ? prev : undefined
     } catch { return undefined }
-  }, [ticket?.status, ticket?.xstateSnapshot])
+  }, [ticket?.xstateSnapshot])
+
+  const canceledFromStatus = ticket?.status === 'CANCELED' ? snapshotPreviousStatus : undefined
+  const previousStatus = ticket?.status === 'BLOCKED_ERROR' ? snapshotPreviousStatus : undefined
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
   const selectedPhase = phaseSelection.ticketId === ticketId ? phaseSelection.phase : null
@@ -230,6 +233,7 @@ export function TicketDashboard() {
                 currentStatus={ticket.status}
                 selectedPhase={activePhase}
                 canceledFromStatus={canceledFromStatus}
+                previousStatus={previousStatus}
                 onSelectPhase={(phase) => {
                   handleSelectPhase(phase)
                   setMobileNavOpen(false)
@@ -251,6 +255,7 @@ export function TicketDashboard() {
             currentStatus={ticket.status}
             selectedPhase={activePhase}
             canceledFromStatus={canceledFromStatus}
+            previousStatus={previousStatus}
             onSelectPhase={handleSelectPhase}
           />
         </div>

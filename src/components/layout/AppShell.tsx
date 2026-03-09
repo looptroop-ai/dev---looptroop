@@ -1,9 +1,11 @@
-import { SunMoon, Moon, Sun, Settings, FolderOpen, Plus } from 'lucide-react'
+import { SunMoon, Moon, Sun, Settings, FolderOpen, Plus, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useUI } from '@/context/UIContext'
+import { useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 
 interface AppShellProps {
   children: React.ReactNode
@@ -16,6 +18,14 @@ interface AppShellProps {
 export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket, isModalOpen = false }: AppShellProps) {
   const { state, dispatch } = useUI()
   const theme = state.theme
+  const queryClient = useQueryClient()
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await queryClient.refetchQueries()
+    setIsRefreshing(false)
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -63,6 +73,20 @@ export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket,
               </Button>
             </TooltipTrigger>
             <TooltipContent>Configuration</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handleRefresh} 
+                disabled={isModalOpen || isRefreshing} 
+                aria-label="Refresh Dashboard"
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
           <DropdownMenu>
             <Tooltip>
