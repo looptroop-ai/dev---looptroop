@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { isAbsolute, resolve } from 'path'
-import { homedir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { mkdirSync } from 'fs'
+import { isMainThread, threadId } from 'worker_threads'
 import * as schema from './schema'
 
 const isTestRuntime = process.env.NODE_ENV === 'test'
@@ -16,7 +17,8 @@ function resolveAppConfigDir(): string {
   }
 
   if (isTestRuntime) {
-    return resolve(process.cwd(), '.looptroop-test-config')
+    const workerSuffix = `${process.pid}-${isMainThread ? 'main' : `thread-${threadId}`}`
+    return resolve(tmpdir(), 'looptroop-vitest', workerSuffix)
   }
 
   const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim()

@@ -136,7 +136,10 @@ function deriveOperation(data: Record<string, unknown>): LogEntry['op'] {
   return 'append'
 }
 
-function formatLine(type: string, content: string, fallback: unknown): string {
+function formatLine(type: string, kind: string, content: string, fallback: unknown): string {
+  if (kind === 'reasoning' && content) {
+    return content
+  }
   const tag = LOG_TYPE_TAGS[type] || '[SYS]'
   if (content) {
     return /^\[[A-Z_]+\]/.test(content.trim()) ? content : `${tag} ${content}`
@@ -155,7 +158,7 @@ function normalizeLogRecord(data: Record<string, unknown>, fallbackPhase: string
   const kind = deriveKind(data, type, audience)
   const status = String(data.status ?? data.phase ?? fallbackPhase)
   const timestamp = typeof data.timestamp === 'string' ? data.timestamp : undefined
-  const line = formatLine(type, extractContent(data), data)
+  const line = formatLine(type, kind, extractContent(data), data)
   const entryId = typeof data.entryId === 'string' && data.entryId
     ? data.entryId
     : fallbackEntryId(status, source, timestamp, line)

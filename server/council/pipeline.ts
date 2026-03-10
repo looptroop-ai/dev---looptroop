@@ -5,7 +5,7 @@ import type { Message, PromptPart } from '../opencode/types'
 import { generateDrafts } from './drafter'
 import { conductVoting, selectWinner } from './voter'
 import { refineDraft } from './refiner'
-import { checkQuorum } from './quorum'
+import { checkMemberResponseQuorum, checkQuorum } from './quorum'
 
 export interface OpenCodeSessionLog {
   stage: 'draft' | 'vote' | 'refine'
@@ -47,7 +47,7 @@ export async function runCouncilPipeline(
 
   // Step 1: Draft — parallel generation
   throwIfAborted(signal)
-  const drafts = await generateDrafts(
+  const draftRun = await generateDrafts(
     adapter,
     members,
     contextParts,
@@ -55,60 +55,72 @@ export async function runCouncilPipeline(
     draftTimeout,
     signal,
     onOpenCodeSessionLog,
+    undefined,
+    undefined,
+    undefined,
   )
 
   // Step 2: Quorum check
   throwIfAborted(signal)
-  const quorum = checkQuorum(drafts, minQuorum)
+  const quorum = checkQuorum(draftRun.drafts, minQuorum)
   if (!quorum.passed) {
     throw new Error(`Council quorum not met for ${phase}: ${quorum.message}`)
   }
 
   // Per arch.md §9.1: rebuild context between council steps when a builder is provided
-  const voteContext = contextBuilder ? contextBuilder('vote', drafts) : contextParts
+  const voteContext = contextBuilder ? contextBuilder('vote', draftRun.drafts) : contextParts
 
   // Step 3: Vote — parallel anonymized voting
   throwIfAborted(signal)
-  const votes = await conductVoting(
+  const voteRun = await conductVoting(
     adapter,
     members,
-    drafts,
+    draftRun.drafts,
     voteContext,
     projectPath,
     phase,
+    draftTimeout,
     signal,
     onOpenCodeSessionLog,
   )
+  const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, minQuorum)
+  if (!voteQuorum.passed) {
+    throw new Error(`Council voting quorum not met for ${phase}: ${voteQuorum.message}`)
+  }
+  if (voteRun.votes.length === 0) {
+    throw new Error(`Council voting failed for ${phase}: no valid vote responses received`)
+  }
 
   // Step 4: Select winner
   throwIfAborted(signal)
-  const { winnerId } = selectWinner(votes, members)
-  const winnerDraft = drafts.find(d => d.memberId === winnerId)!
-  const losingDrafts = drafts.filter(d => d.memberId !== winnerId && d.outcome === 'completed')
+  const { winnerId } = selectWinner(voteRun.votes, members)
+  const winnerDraft = draftRun.drafts.find(d => d.memberId === winnerId)!
+  const losingDrafts = draftRun.drafts.filter(d => d.memberId !== winnerId && d.outcome === 'completed')
 
   // Step 5: Refine — sequential
   throwIfAborted(signal)
-  const refineContext = contextBuilder ? contextBuilder('refine', drafts) : contextParts
+  const refineContext = contextBuilder ? contextBuilder('refine', draftRun.drafts) : contextParts
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
     losingDrafts,
     refineContext,
     projectPath,
+    draftTimeout,
     signal,
     onOpenCodeSessionLog,
   )
 
   // Build outcome map
   const memberOutcomes: Record<string, MemberOutcome> = {}
-  for (const draft of drafts) {
+  for (const draft of draftRun.drafts) {
     memberOutcomes[draft.memberId] = draft.outcome
   }
 
   return {
     phase,
-    drafts,
-    votes,
+    drafts: draftRun.drafts,
+    votes: voteRun.votes,
     winnerId,
     winnerContent: winnerDraft.content,
     refinedContent,

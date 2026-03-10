@@ -1,6 +1,7 @@
 import { createActor } from 'xstate'
 import { ticketMachine } from './ticketMachine'
 import { TERMINAL_STATES } from './types'
+import { PROFILE_DEFAULTS } from '../db/defaults'
 import { attachWorkflowRunner } from '../workflow/runner'
 import { broadcaster } from '../sse/broadcaster'
 import { appendLogEvent } from '../log/executionLog'
@@ -198,7 +199,7 @@ export function createTicketActor(
       projectId: input.projectId,
       externalId: input.externalId,
       title: input.title,
-      maxIterations: input.maxIterations ?? 5,
+      maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
       lockedMainImplementer: input.lockedMainImplementer ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
     },
@@ -233,7 +234,7 @@ export function hydrateTicketActor(
       projectId: input.projectId,
       externalId: input.externalId,
       title: input.title,
-      maxIterations: input.maxIterations ?? 5,
+      maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
       lockedMainImplementer: input.lockedMainImplementer ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
     },

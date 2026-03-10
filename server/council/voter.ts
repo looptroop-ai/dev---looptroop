@@ -1,8 +1,20 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
-import type { CouncilMember, DraftResult, Vote, VoteScore } from './types'
+import type { CouncilMember, DraftResult, MemberOutcome, Vote, VoteScore, VotingPhaseResult } from './types'
+import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
+import { warnIfVerbose } from '../runtime'
+
+const PHASE_DEADLINE_ERROR = 'CouncilPhaseDeadlineReached'
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function isPhaseDeadlineError(error: unknown) {
+  return error instanceof Error && error.message === PHASE_DEADLINE_ERROR
+}
 
 /**
  * Parse a numerical score from an AI voter response for a specific draft.
@@ -24,7 +36,7 @@ export function parseScore(response: string, draftLabel: string, category: strin
 
   // Fallback: random score between 8-18
   const fallback = Math.floor(Math.random() * 11) + 8
-  console.warn(`[voter] parseScore fallback for draft="${draftLabel}" category="${category}": using ${fallback}`)
+  warnIfVerbose(`[voter] parseScore fallback for draft="${draftLabel}" category="${category}": using ${fallback}`)
   return fallback
 }
 
@@ -112,6 +124,7 @@ export async function conductVoting(
   contextParts: PromptPart[],
   projectPath: string,
   phase?: string,
+  timeoutMs?: number,
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
     stage: 'draft' | 'vote' | 'refine'
@@ -126,20 +139,67 @@ export async function conductVoting(
     sessionId: string
     event: StreamEvent
   }) => void,
-): Promise<Vote[]> {
+  onVoteProgress?: (entry: {
+    memberId: string
+    outcome: MemberOutcome
+    votes: Vote[]
+    error?: string
+  }) => void,
+): Promise<VotingPhaseResult> {
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
   const rubric = phase ? getVotingRubricForPhase(phase) : VOTING_RUBRIC
+  const memberOutcomes = voters.reduce<Record<string, MemberOutcome>>((outcomes, voter) => {
+    outcomes[voter.modelId] = 'pending'
+    return outcomes
+  }, {})
+  const finalizedMembers = new Set<string>()
+  const deadlineAt = timeoutMs && timeoutMs > 0 ? Date.now() + timeoutMs : null
+  let deadlineReached = false
 
-  if (validDrafts.length === 0) return votes
+  function recordOutcome(
+    memberId: string,
+    outcome: MemberOutcome,
+    voterVotes: Vote[],
+    error?: string,
+  ): boolean {
+    if (finalizedMembers.has(memberId)) return false
 
-  // Each voter votes in parallel with anonymized, randomized draft order
+    finalizedMembers.add(memberId)
+    memberOutcomes[memberId] = outcome
+    if (outcome === 'completed' && voterVotes.length > 0) {
+      votes.push(...voterVotes)
+    }
+    onVoteProgress?.({
+      memberId,
+      outcome,
+      votes: voterVotes,
+      error,
+    })
+    return true
+  }
+
+  if (validDrafts.length === 0) {
+    return { votes, memberOutcomes, deadlineReached: false }
+  }
+
   const promises = voters.map(async (voter): Promise<Vote[]> => {
     const anonymized = anonymizeDrafts(validDrafts, voter.modelId)
     const voterVotes: Vote[] = []
     let sessionId = ''
+    let closed = false
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
-    try {
+    const markTimedOut = async () => {
+      if (closed) return
+      closed = true
+      deadlineReached = true
+      if (sessionId) {
+        await adapter.abortSession(sessionId)
+      }
+    }
+
+    const executeVote = (async () => {
       const votingPrompt: PromptPart[] = [
         ...contextParts,
         {
@@ -162,9 +222,15 @@ export async function conductVoting(
         signal,
         model: voter.modelId,
         onSessionCreated: (session) => {
+          if (closed) {
+            void adapter.abortSession(session.id)
+            return
+          }
+
           sessionId = session.id
         },
         onStreamEvent: (event) => {
+          if (closed) return
           onOpenCodeStreamEvent?.({
             stage: 'vote',
             memberId: voter.modelId,
@@ -173,16 +239,12 @@ export async function conductVoting(
           })
         },
       })
-      const response = result.response
-      const messages: Message[] = result.messages
 
-      onOpenCodeSessionLog?.({
-        stage: 'vote',
-        memberId: voter.modelId,
-        sessionId: result.session.id,
-        response,
-        messages,
-      })
+      if (closed) {
+        return voterVotes
+      }
+
+      const response = result.response
 
       // Parse voting response — extract real scores from AI output
       for (const draft of anonymized) {
@@ -201,21 +263,72 @@ export async function conductVoting(
           totalScore: scores.reduce((sum, s) => sum + s.score, 0),
         })
       }
-    } catch {
-      // Voter failed — skip
-    }
 
-    return voterVotes
+      if (!recordOutcome(voter.modelId, 'completed', voterVotes)) {
+        return voterVotes
+      }
+
+      onOpenCodeSessionLog?.({
+        stage: 'vote',
+        memberId: voter.modelId,
+        sessionId: result.session.id,
+        response,
+        messages: result.messages,
+      })
+
+      return voterVotes
+    })()
+
+    const deadlinePromise = deadlineAt === null
+      ? null
+      : new Promise<never>((_, reject) => {
+        const remainingMs = Math.max(0, deadlineAt - Date.now())
+        timeoutHandle = setTimeout(() => {
+          void markTimedOut()
+          reject(new Error(PHASE_DEADLINE_ERROR))
+        }, remainingMs)
+      })
+
+    try {
+      return deadlinePromise
+        ? await Promise.race([executeVote, deadlinePromise])
+        : await executeVote
+    } catch (error) {
+      if (signal?.aborted || error instanceof CancelledError || (isAbortError(error) && signal?.aborted)) {
+        throw new CancelledError()
+      }
+
+      const errorDetail = error instanceof Error ? error.message : String(error)
+      const outcome: MemberOutcome = isPhaseDeadlineError(error) || closed
+        ? 'timed_out'
+        : 'failed'
+      recordOutcome(voter.modelId, outcome, [], outcome === 'timed_out'
+        ? `Council response timeout reached after ${timeoutMs}ms`
+        : errorDetail)
+      return []
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+    }
   })
 
   const settled = await Promise.allSettled(promises)
+  if (signal?.aborted) {
+    throw new CancelledError()
+  }
+
   for (const result of settled) {
-    if (result.status === 'fulfilled') {
-      votes.push(...result.value)
+    if (result.status === 'rejected') {
+      throw result.reason
     }
   }
 
-  return votes
+  return {
+    votes,
+    memberOutcomes,
+    deadlineReached,
+  }
 }
 
 // Select winner: highest score, MAI (first member) wins ties

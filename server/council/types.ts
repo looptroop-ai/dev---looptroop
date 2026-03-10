@@ -11,7 +11,7 @@ export function throwIfAborted(signal?: AbortSignal, ticketId?: number | string)
   if (signal?.aborted) throw new CancelledError(ticketId)
 }
 
-export type MemberOutcome = 'completed' | 'timed_out' | 'invalid_output'
+export type MemberOutcome = 'pending' | 'completed' | 'timed_out' | 'invalid_output' | 'failed'
 
 export interface CouncilMember {
   modelId: string
@@ -34,6 +34,14 @@ export interface DraftProgressEvent {
   outcome?: MemberOutcome
   duration?: number
   error?: string
+  content?: string
+  questionCount?: number
+}
+
+export interface DraftGenerationResult {
+  drafts: DraftResult[]
+  memberOutcomes: Record<string, MemberOutcome>
+  deadlineReached: boolean
 }
 
 export interface VoteScore {
@@ -49,6 +57,20 @@ export interface Vote {
   totalScore: number
 }
 
+export interface VotingPhaseResult {
+  votes: Vote[]
+  memberOutcomes: Record<string, MemberOutcome>
+  deadlineReached: boolean
+}
+
+export interface VoterResult {
+  voterId: string
+  outcome: MemberOutcome
+  duration: number
+  votes: Vote[]
+  error?: string
+}
+
 export interface CouncilResult {
   phase: string
   drafts: DraftResult[]
@@ -57,6 +79,7 @@ export interface CouncilResult {
   winnerContent: string
   refinedContent: string
   memberOutcomes: Record<string, MemberOutcome>
+  isFinal?: boolean
 }
 
 /** Returned by draft-only phase functions (before vote/refine). */
@@ -64,6 +87,8 @@ export interface DraftPhaseResult {
   phase: string
   drafts: DraftResult[]
   memberOutcomes: Record<string, MemberOutcome>
+  deadlineReached?: boolean
+  isFinal?: boolean
 }
 
 // Phase-specific voting rubrics per cl-prompt.md PROM2/PROM11/PROM21

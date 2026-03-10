@@ -15,6 +15,7 @@ import type {
 import { parseModelRef } from './types'
 import type { TicketState } from './contextBuilder'
 import { resolve } from 'path'
+import { logIfVerbose, warnIfVerbose } from '../runtime'
 
 interface RawEvent {
   type: string
@@ -71,16 +72,21 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string> {
+    const promptSignal = options?.signal ?? signal
     const promptOptions = {
       ...options,
-      signal: options?.signal ?? signal,
+      signal: promptSignal,
     }
     const model = promptOptions.model ?? parseModelRef(promptOptions.modelRef)
 
     const directory = await this.resolveSessionDirectory(sessionId)
     const { systemText, promptParts } = this.partitionPromptParts(parts, promptOptions.system)
+    const streamAbortController = promptOptions.onEvent ? new AbortController() : null
+    const streamSignal = streamAbortController
+      ? (promptSignal ? AbortSignal.any([promptSignal, streamAbortController.signal]) : streamAbortController.signal)
+      : undefined
     const streamDrain = promptOptions.onEvent
-      ? this.consumeStreamEvents(sessionId, promptOptions.onEvent, promptOptions.signal)
+      ? this.consumeStreamEvents(sessionId, promptOptions.onEvent, streamSignal)
       : null
 
     try {
@@ -98,16 +104,17 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
       const responseText = this.extractResponseText(res.data?.parts)
       if (!responseText) {
-        console.warn(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
+        warnIfVerbose(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
       }
-      await this.waitForStreamDrain(streamDrain)
       return responseText
     } catch (err) {
-      await this.waitForStreamDrain(streamDrain)
       if (err instanceof Error && (err.name === 'AbortError' || promptOptions.signal?.aborted)) throw err
       throw new Error(
         `Failed to prompt OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
       )
+    } finally {
+      streamAbortController?.abort()
+      await this.waitForStreamDrain(streamDrain)
     }
   }
 
@@ -157,6 +164,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     )
 
     const partCache = new Map<string, GenericMessagePart>()
+    const finalizedPartIds = new Set<string>()
     let emittedDone = false
     let lastStatus: string | undefined
 
@@ -164,7 +172,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       if (signal?.aborted) break
       if (!this.eventBelongsToSession(rawEvent, sessionId)) continue
 
-      const normalized = this.normalizeStreamEvent(rawEvent, sessionId, partCache)
+      const normalized = this.normalizeStreamEvent(rawEvent, sessionId, partCache, finalizedPartIds)
       if (!normalized) continue
 
       if (normalized.type === 'session_status') {
@@ -180,7 +188,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
     }
 
-    if (!emittedDone) {
+    if (!emittedDone && !signal?.aborted) {
       yield { type: 'done', sessionId }
     }
   }
@@ -188,14 +196,14 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   async assembleBeadContext(ticketId: string, beadId: string): Promise<PromptPart[]> {
     const { buildMinimalContext } = await import('./contextBuilder')
     const ticketState = await this.loadTicketState(ticketId)
-    console.log(`[adapter] assembleBeadContext ticket=${ticketId} bead=${beadId} hasDescription=${!!ticketState.description}`)
+    logIfVerbose(`[adapter] assembleBeadContext ticket=${ticketId} bead=${beadId} hasDescription=${!!ticketState.description}`)
     return buildMinimalContext('coding', ticketState, beadId)
   }
 
   async assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]> {
     const { buildMinimalContext } = await import('./contextBuilder')
     const ticketState = await this.loadTicketState(ticketId)
-    console.log(`[adapter] assembleCouncilContext ticket=${ticketId} phase=${phase} hasDescription=${!!ticketState.description} hasCodebaseMap=${!!ticketState.codebaseMap}`)
+    logIfVerbose(`[adapter] assembleCouncilContext ticket=${ticketId} phase=${phase} hasDescription=${!!ticketState.description} hasCodebaseMap=${!!ticketState.codebaseMap}`)
     return buildMinimalContext(phase, ticketState)
   }
 
@@ -210,7 +218,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       state.title = ticket.localTicket.title
       state.description = ticket.localTicket.description ?? undefined
     } else {
-      console.warn(`[adapter] loadTicketState: ticket not found in DB for id=${ticketId}`)
+      warnIfVerbose(`[adapter] loadTicketState: ticket not found in DB for id=${ticketId}`)
     }
 
     const paths = getTicketPaths(ticketId)
@@ -229,7 +237,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       try {
         ;(state as unknown as Record<string, unknown>)[field] = readFileSync(filePath, 'utf-8')
       } catch (err) {
-        console.warn(`[adapter] Failed to read ${file}:`, err)
+        warnIfVerbose(`[adapter] Failed to read ${file}:`, err)
       }
     }
 
@@ -238,7 +246,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       try {
         state.beads = readFileSync(beadsPath, 'utf-8')
       } catch (err) {
-        console.warn(`[adapter] Failed to read issues.jsonl:`, err)
+        warnIfVerbose(`[adapter] Failed to read issues.jsonl:`, err)
       }
     }
 
@@ -337,6 +345,9 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         if (event.type === 'done') break
       }
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        return
+      }
       onEvent({
         type: 'session_error',
         sessionId,
@@ -376,6 +387,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     event: RawEvent,
     sessionId: string,
     partCache: Map<string, GenericMessagePart>,
+    finalizedPartIds: Set<string>,
   ): StreamEvent | null {
     const props = event.properties ?? {}
 
@@ -383,25 +395,45 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       case 'message.part.updated': {
         const part = this.getRecord(props.part) as GenericMessagePart | null
         if (!part?.id) return null
-        partCache.set(String(part.id), part)
-        return this.mapPartUpdate(part)
+        const partId = String(part.id)
+        if (finalizedPartIds.has(partId)) return null
+
+        const nextPart = this.clonePart(part)
+        const previousPart = partCache.get(partId)
+        if (previousPart && !this.hasMeaningfulPartUpdate(previousPart, nextPart)) {
+          return null
+        }
+
+        partCache.set(partId, nextPart)
+        const normalized = this.mapPartUpdate(nextPart)
+        if (normalized && 'complete' in normalized && normalized.complete) {
+          finalizedPartIds.add(partId)
+        }
+        return normalized
       }
 
       case 'message.part.delta': {
         const partId = typeof props.partID === 'string' ? props.partID : undefined
         const delta = typeof props.delta === 'string' ? props.delta : ''
         if (!partId || !delta) return null
+        if (finalizedPartIds.has(partId)) return null
         const part = partCache.get(partId)
         if (!part) return null
         return this.mapPartDelta(part, delta)
       }
 
-      case 'message.part.removed':
+      case 'message.part.removed': {
+        const partId = typeof props.partID === 'string' ? props.partID : undefined
+        if (partId) {
+          partCache.delete(partId)
+          finalizedPartIds.delete(partId)
+        }
         return {
           type: 'part_removed',
           sessionId,
-          partId: typeof props.partID === 'string' ? props.partID : undefined,
+          partId,
         }
+      }
 
       case 'session.status': {
         const status = this.getRecord(props.status)
@@ -564,6 +596,59 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
 
     return null
+  }
+
+  private clonePart(part: GenericMessagePart): GenericMessagePart {
+    return typeof structuredClone === 'function'
+      ? structuredClone(part)
+      : JSON.parse(JSON.stringify(part)) as GenericMessagePart
+  }
+
+  private hasMeaningfulPartUpdate(previous: GenericMessagePart, next: GenericMessagePart) {
+    return this.buildPartStreamKey(previous) !== this.buildPartStreamKey(next)
+  }
+
+  private buildPartStreamKey(part: GenericMessagePart): string {
+    if (part.type === 'text' || part.type === 'reasoning') {
+      return JSON.stringify({
+        type: part.type,
+        text: typeof part.text === 'string' ? part.text : '',
+        end: this.getRecord(part.time)?.end ?? null,
+      })
+    }
+
+    if (part.type === 'tool') {
+      const toolPart = part as unknown as ToolMessagePart
+      return JSON.stringify({
+        type: toolPart.type,
+        callId: toolPart.callID,
+        tool: toolPart.tool,
+        status: toolPart.state?.status ?? null,
+        title: toolPart.state?.title ?? null,
+        output: toolPart.state?.output ?? null,
+        error: toolPart.state?.error ?? null,
+      })
+    }
+
+    if (part.type === 'step-start') {
+      return JSON.stringify({
+        type: part.type,
+        snapshot: typeof part.snapshot === 'string' ? part.snapshot : null,
+      })
+    }
+
+    if (part.type === 'step-finish') {
+      const finishPart = part as unknown as StepFinishMessagePart
+      return JSON.stringify({
+        type: finishPart.type,
+        reason: finishPart.reason,
+        snapshot: typeof finishPart.snapshot === 'string' ? finishPart.snapshot : null,
+        cost: typeof finishPart.cost === 'number' ? finishPart.cost : null,
+        tokens: finishPart.tokens ?? null,
+      })
+    }
+
+    return JSON.stringify(part)
   }
 
   private describeError(error: unknown): string {

@@ -66,12 +66,23 @@
   50% { transform: scale(1.15); }
 }
 
+@keyframes loading-dots {
+  0% { opacity: 0.2; }
+  20% { opacity: 1; }
+  100% { opacity: 0.2; }
+}
+
 .animate-wiggle {
   animation: wiggle 1.5s ease-in-out infinite;
 }
 
 .animate-pulse-scale {
   animation: pulse-scale 2s ease-in-out infinite;
+}
+
+.animate-loading-dot {
+  animation: loading-dots 1.4s infinite;
+  animation-fill-mode: both;
 }
 
 body {

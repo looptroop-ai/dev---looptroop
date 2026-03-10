@@ -86,6 +86,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
 
   useEffect(() => {
     if (!folder.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGitInfo({ isGit: false, status: 'none' })
       restorePrefillKeyRef.current = null
       return
@@ -122,6 +123,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     if (isEditing || !restoreMode || !gitInfo.existingProject || !gitInfo.repoRoot) return
     if (restorePrefillKeyRef.current === gitInfo.repoRoot) return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(gitInfo.existingProject.name)
     setShortname(gitInfo.existingProject.shortname)
     setIcon(gitInfo.existingProject.icon ?? '📁')
@@ -169,7 +171,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     deleteProject.mutate(project.id, {
       onSuccess: () => closeView(),
       onError: (err) => {
-        const message = (err as any)?.message || 'Failed to delete project'
+        const message = (err as Error)?.message || 'Failed to delete project'
         addToast('error', message, 5000)
       },
     })
@@ -179,7 +181,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   useEffect(() => {
     const err = createProject.error || updateProject.error
     if (err) {
-      const message = (err as any)?.message || 'Failed to save project'
+      const message = (err as Error)?.message || 'Failed to save project'
       addToast('error', message, 5000)
     }
   }, [createProject.error, updateProject.error, addToast])

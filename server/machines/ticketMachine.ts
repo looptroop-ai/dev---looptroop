@@ -1,5 +1,6 @@
 import { assign, setup } from 'xstate'
 import type { TicketContext, TicketEvent } from './types'
+import { PROFILE_DEFAULTS } from '../db/defaults'
 
 export type TicketInput = Partial<TicketContext>
 
@@ -63,7 +64,7 @@ export const ticketMachine = setup({
     errorCodes: [],
     beadProgress: { total: 0, completed: 0, current: null },
     iterationCount: 0,
-    maxIterations: input.maxIterations ?? 5,
+    maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
     councilResults: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

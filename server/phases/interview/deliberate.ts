@@ -1,7 +1,6 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../council/types'
 import { generateDrafts } from '../../council/drafter'
-import { checkQuorum } from '../../council/quorum'
 import { buildPromptFromTemplate, PROM1, PROM2, PROM3 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { validateInterviewDraft } from './validation'
@@ -49,7 +48,7 @@ export async function deliberateInterview(
     `max_initial_questions: ${options.maxInitialQuestions}`,
   ].join('\n')
 
-  const drafts = await generateDrafts(
+  const draftRun = await generateDrafts(
     adapter,
     members,
     [{ type: 'text', content: promptContent }],
@@ -62,15 +61,10 @@ export async function deliberateInterview(
     (content) => validateInterviewDraft(content, options.maxInitialQuestions),
   )
 
-  const quorum = checkQuorum(drafts, options.minQuorum)
-  if (!quorum.passed) {
-    throw new Error(`Council quorum not met for interview_draft: ${quorum.message}`)
+  return {
+    phase: 'interview_draft',
+    drafts: draftRun.drafts,
+    memberOutcomes: draftRun.memberOutcomes,
+    deadlineReached: draftRun.deadlineReached,
   }
-
-  const memberOutcomes: Record<string, import('../../council/types').MemberOutcome> = {}
-  for (const draft of drafts) {
-    memberOutcomes[draft.memberId] = draft.outcome
-  }
-
-  return { phase: 'interview_draft', drafts, memberOutcomes }
 }

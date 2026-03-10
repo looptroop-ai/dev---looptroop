@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { queryClient } from '@/lib/queryClient'
 
-interface DBartifact {
+export interface DBartifact {
   id: number
   ticketId: string
   phase: string
@@ -10,11 +11,67 @@ interface DBartifact {
   createdAt: string
 }
 
-// Module-level cache: persists across component mounts/unmounts and phase switches
-const cache = new Map<string, DBartifact[]>()
+export function normalizeTicketArtifact(input: unknown, fallbackTicketId?: string): DBartifact | null {
+  if (!input || typeof input !== 'object') return null
+
+  const raw = input as Record<string, unknown>
+  const id = typeof raw.id === 'number' ? raw.id : Number(raw.id)
+  if (!Number.isFinite(id)) return null
+
+  const phase = typeof raw.phase === 'string' ? raw.phase : null
+  const artifactType = typeof raw.artifactType === 'string'
+    ? raw.artifactType
+    : raw.artifactType == null
+      ? ''
+      : null
+  const createdAt = typeof raw.createdAt === 'string' ? raw.createdAt : null
+  if (!phase || artifactType === null || !createdAt) return null
+
+  const ticketId = typeof raw.ticketId === 'string'
+    ? raw.ticketId
+    : fallbackTicketId ?? (raw.ticketId != null ? String(raw.ticketId) : '')
+
+  return {
+    id,
+    ticketId,
+    phase,
+    artifactType,
+    filePath: typeof raw.filePath === 'string' ? raw.filePath : null,
+    content: typeof raw.content === 'string' ? raw.content : null,
+    createdAt,
+  }
+}
+
+export function mergeTicketArtifactSnapshot(
+  currentArtifacts: DBartifact[] | undefined,
+  artifact: DBartifact,
+): DBartifact[] {
+  const existing = currentArtifacts ?? []
+  const existingIndex = existing.findIndex(entry => entry.id === artifact.id)
+
+  if (existingIndex < 0) {
+    return [...existing, artifact]
+  }
+
+  return existing.map((entry, index) => (index === existingIndex ? artifact : entry))
+}
+
+async function fetchTicketArtifacts(ticketId: string): Promise<DBartifact[]> {
+  const res = await fetch(`/api/tickets/${ticketId}/artifacts`)
+  if (!res.ok) return []
+  const payload = await res.json()
+  if (!Array.isArray(payload)) return []
+  return payload
+    .map((artifact) => normalizeTicketArtifact(artifact, ticketId))
+    .filter((artifact): artifact is DBartifact => artifact !== null)
+}
+
+export function getTicketArtifactsQueryKey(ticketId: string) {
+  return ['ticket-artifacts', ticketId] as const
+}
 
 export function clearTicketArtifactsCache(ticketId: string) {
-  cache.delete(ticketId)
+  queryClient.removeQueries({ queryKey: getTicketArtifactsQueryKey(ticketId), exact: true })
 }
 
 /**
@@ -22,36 +79,24 @@ export function clearTicketArtifactsCache(ticketId: string) {
  * then background-refreshes for live phases.
  */
 export function useTicketArtifacts(ticketId?: string, opts?: { skipFetch?: boolean }) {
-  const cached = ticketId ? cache.get(ticketId) : undefined
-  const [artifacts, setArtifacts] = useState<DBartifact[]>(cached ?? [])
-  const [isLoading, setIsLoading] = useState(!cached && !!ticketId)
+  const queryKey = ticketId
+    ? getTicketArtifactsQueryKey(ticketId)
+    : ['ticket-artifacts', '__missing__'] as const
 
-  useEffect(() => {
-    if (!ticketId || opts?.skipFetch) return
+  const cached = ticketId
+    ? queryClient.getQueryData<DBartifact[]>(getTicketArtifactsQueryKey(ticketId))
+    : undefined
 
-    // If we have cache, serve it immediately (no loading state)
-    const hasCached = cache.has(ticketId)
-    if (hasCached) {
-      setArtifacts(cache.get(ticketId)!)
-      setIsLoading(false)
-    } else {
-      setIsLoading(true)
-    }
+  const query = useQuery({
+    queryKey,
+    queryFn: () => fetchTicketArtifacts(ticketId!),
+    enabled: !!ticketId && !opts?.skipFetch,
+    // Only hydrate from the exact query cache entry for this ticket.
+    placeholderData: cached,
+  })
 
-    // Always fetch in background to pick up new artifacts for live phases
-    fetch(`/api/tickets/${ticketId}/artifacts`)
-      .then(r => r.ok ? r.json() : [])
-      .then((data: DBartifact[]) => {
-        cache.set(ticketId, data)
-        setArtifacts(data)
-        setIsLoading(false)
-      })
-      .catch(() => {
-        setIsLoading(false)
-      })
-  }, [ticketId, opts?.skipFetch])
-
-  return { artifacts, isLoading }
+  return {
+    artifacts: opts?.skipFetch ? (cached ?? []) : (query.data ?? cached ?? []),
+    isLoading: opts?.skipFetch ? false : query.isLoading,
+  }
 }
-
-export type { DBartifact }

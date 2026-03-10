@@ -257,6 +257,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                   const start = new Date(ticket.startedAt).getTime()
                   const end = ['COMPLETED', 'CANCELED', 'BLOCKED_ERROR'].includes(ticket.status)
                     ? new Date(ticket.updatedAt).getTime()
+                    // eslint-disable-next-line react-hooks/purity
                     : Date.now()
                   const diffMs = end - start
                   const mins = Math.floor(diffMs / 60000)

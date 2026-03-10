@@ -1,8 +1,6 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
 import { db as appDb } from '../../db/index'
 import { initializeDatabase } from '../../db/init'
 import { clearProjectDatabaseCache } from '../../db/project'
@@ -15,27 +13,24 @@ import { attachProject } from '../../storage/projects'
 import { createTicket } from '../../storage/tickets'
 import { getTicketExecutionLogPath, getTicketRuntimeDir, getTicketWorktreePath } from '../../storage/paths'
 import { initializeTicket } from '../initialize'
+import { createFixtureRepoManager } from '../../test/fixtureRepo'
 
-const repoDirs: string[] = []
-
-function createGitRepo(): string {
-  const repoDir = mkdtempSync(resolve(tmpdir(), 'looptroop-ticket-lifecycle-'))
-  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
-  writeFileSync(resolve(repoDir, 'package.json'), JSON.stringify({ name: 'fixture', private: true }, null, 2))
-  execFileSync('git', ['-C', repoDir, 'add', 'package.json'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'branch', '-M', 'main'], { stdio: 'pipe' })
-  repoDirs.push(repoDir)
-  return repoDir
-}
+const repoFixture = createFixtureRepoManager({
+  templatePrefix: 'looptroop-ticket-lifecycle-template-',
+  files: {
+    'package.json': JSON.stringify({ name: 'fixture', private: true }, null, 2),
+  },
+})
 
 let projectRepoPath = ''
 let projectId = 0
 
 beforeAll(() => {
   initializeDatabase()
+})
+
+afterAll(() => {
+  repoFixture.cleanup()
 })
 
 beforeEach(() => {
@@ -45,7 +40,7 @@ beforeEach(() => {
   appDb.delete(attachedProjects).run()
   appDb.delete(profiles).run()
 
-  projectRepoPath = createGitRepo()
+  projectRepoPath = repoFixture.createRepo('looptroop-ticket-lifecycle-')
   const project = attachProject({
     folderPath: projectRepoPath,
     name: 'Test Project',
@@ -60,9 +55,6 @@ afterEach(() => {
   clearProjectDatabaseCache()
   appDb.delete(attachedProjects).run()
   appDb.delete(profiles).run()
-  for (const repoDir of repoDirs.splice(0)) {
-    rmSync(repoDir, { recursive: true, force: true })
-  }
 })
 
 describe('Ticket Lifecycle', () => {

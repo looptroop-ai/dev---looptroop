@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -18,8 +18,11 @@ interface KanbanColumnProps {
 
 export function KanbanColumn({ column, tickets, projectMap }: KanbanColumnProps) {
   const [currentPage, setCurrentPage] = useState(1)
-
-  useEffect(() => setCurrentPage(1), [tickets.length])
+  const [prevLength, setPrevLength] = useState(tickets.length)
+  if (prevLength !== tickets.length) {
+    setPrevLength(tickets.length)
+    setCurrentPage(1)
+  }
 
   const totalPages = Math.ceil(tickets.length / PAGE_SIZE)
   const sortedTickets = [...tickets].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())

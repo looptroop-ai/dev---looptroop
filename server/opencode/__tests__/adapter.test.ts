@@ -144,4 +144,108 @@ describe('OpenCodeSDKAdapter', () => {
     expect(createSession).toHaveBeenCalledTimes(1)
     expect(createSession).toHaveBeenCalledWith({ directory: '/tmp/worktree' }, undefined)
   })
+
+  it('stops the per-prompt event stream when the prompt resolves', async () => {
+    let streamSignal: AbortSignal | undefined
+    let streamClosed = false
+
+    const client = {
+      session: {
+        get: vi.fn().mockResolvedValue({ data: { directory: '/tmp/worktree' } }),
+        prompt: vi.fn().mockResolvedValue({
+          data: { parts: [{ type: 'text', text: 'final answer' }] },
+        }),
+      },
+      event: {
+        subscribe: vi.fn().mockImplementation((_args, options?: { signal?: AbortSignal }) => {
+          streamSignal = options?.signal
+          return {
+            stream: (async function *streamEvents() {
+              if (options?.signal?.aborted && streamClosed) {
+                yield { type: 'session_error', sessionId: 'unused', error: 'unused' } as StreamEvent
+              }
+              try {
+                while (!options?.signal?.aborted) {
+                  await new Promise(resolve => setTimeout(resolve, 10))
+                }
+              } finally {
+                streamClosed = true
+              }
+            })(),
+          }
+        }),
+      },
+    } as unknown as ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>
+
+    const adapter = new OpenCodeSDKAdapter(9999, client)
+    const events: StreamEvent[] = []
+
+    const response = await adapter.promptSession(
+      'session-1',
+      [{ type: 'text', content: 'hello' }],
+      undefined,
+      { onEvent: event => events.push(event) },
+    )
+
+    expect(response).toBe('final answer')
+    expect(streamSignal?.aborted).toBe(true)
+    expect(streamClosed).toBe(true)
+    expect(events.find(event => event.type === 'session_error')).toBeUndefined()
+  })
+
+  it('suppresses duplicate completed part updates from the event stream', async () => {
+    const client = {
+      session: {
+        get: vi.fn().mockResolvedValue({ data: { directory: '/tmp/worktree' } }),
+      },
+      event: {
+        subscribe: vi.fn().mockResolvedValue({
+          stream: (async function *streamEvents() {
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'part-1',
+                  sessionID: 'session-1',
+                  messageID: 'msg-1',
+                  type: 'text',
+                  text: 'hello',
+                  time: { end: 1 },
+                },
+              },
+            }
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'part-1',
+                  sessionID: 'session-1',
+                  messageID: 'msg-1',
+                  type: 'text',
+                  text: 'hello',
+                  time: { end: 1 },
+                },
+              },
+            }
+            yield {
+              type: 'session.idle',
+              properties: {
+                info: { id: 'session-1' },
+              },
+            }
+          })(),
+        }),
+      },
+    } as unknown as ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>
+
+    const adapter = new OpenCodeSDKAdapter(9999, client)
+    const events: StreamEvent[] = []
+
+    for await (const event of adapter.subscribeToEvents('session-1')) {
+      events.push(event)
+    }
+
+    expect(events.filter(event => event.type === 'text')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'done')).toHaveLength(1)
+  })
 })

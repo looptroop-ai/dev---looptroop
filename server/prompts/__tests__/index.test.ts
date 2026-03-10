@@ -52,7 +52,7 @@ describe('prompt builders', () => {
     const qaPrompt = buildPromptFromTemplate(PROM4, contextParts)
     const coveragePrompt = buildPromptFromTemplate(PROM5, contextParts)
 
-    expect(draftPrompt).toContain('Treat `max_initial_questions` as a hard upper bound, not a target.')
+    expect(draftPrompt).toContain('Treat `max_initial_questions` as a hard upper bound, but endeavor to approach that limit')
     expect(draftPrompt).not.toContain('Aim to use nearly all available question slots')
 
     expect(refinePrompt).toContain('do not pad the list just because space remains')

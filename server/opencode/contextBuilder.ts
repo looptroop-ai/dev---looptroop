@@ -1,4 +1,5 @@
 import type { PromptPart } from './types'
+import { logIfVerbose, warnIfVerbose } from '../runtime'
 
 // Phase allowlists — only specified sources are included
 // Phase allowlists derived from cl-prompt.md PROM context_input specs
@@ -142,7 +143,7 @@ export function buildMinimalContext(
     )
   }
 
-  console.log(`[contextBuilder] buildMinimalContext phase=${phase} ticket=${ticketState.ticketId} allowlist=[${allowlist.join(',')}]`)
+  logIfVerbose(`[contextBuilder] buildMinimalContext phase=${phase} ticket=${ticketState.ticketId} allowlist=[${allowlist.join(',')}]`)
 
   const parts: ContextSourcePart[] = []
   let order = 0
@@ -157,9 +158,9 @@ export function buildMinimalContext(
         const desc = ticketState.description ?? ''
         const content = formatTicketDetails(title, desc)
         if (!desc) {
-          console.warn(`[contextBuilder] ticket_details: description is empty for ticket=${ticketState.ticketId}`)
+          warnIfVerbose(`[contextBuilder] ticket_details: description is empty for ticket=${ticketState.ticketId}`)
         }
-        console.log(`[contextBuilder] ticket_details: title="${title}" descLength=${desc.length}`)
+        logIfVerbose(`[contextBuilder] ticket_details: title="${title}" descLength=${desc.length}`)
         parts.push({ source, content, order: order++ })
         break
       }
@@ -168,9 +169,9 @@ export function buildMinimalContext(
         const content = cached ?? ticketState.codebaseMap ?? '# Codebase map not yet generated'
         if (!cached && ticketState.codebaseMap) setCachedContext(cacheKey, content)
         if (!ticketState.codebaseMap && !cached) {
-          console.warn(`[contextBuilder] codebase_map: not available for ticket=${ticketState.ticketId}, using placeholder`)
+          warnIfVerbose(`[contextBuilder] codebase_map: not available for ticket=${ticketState.ticketId}, using placeholder`)
         } else {
-          console.log(`[contextBuilder] codebase_map: loaded (${content.length} chars, cached=${!!cached})`)
+          logIfVerbose(`[contextBuilder] codebase_map: loaded (${content.length} chars, cached=${!!cached})`)
         }
         parts.push({ source, content, order: order++ })
         break
@@ -268,9 +269,9 @@ export function buildMinimalContext(
     }
   }
 
-  console.log(`[contextBuilder] phase=${phase} assembled ${orderedParts.length} parts, totalTokens=${orderedParts.reduce((s, p) => s + estimateTokens(p.content), 0)}`)
+  logIfVerbose(`[contextBuilder] phase=${phase} assembled ${orderedParts.length} parts, totalTokens=${orderedParts.reduce((s, p) => s + estimateTokens(p.content), 0)}`)
   if (orderedParts.length === 0) {
-    console.warn(`[contextBuilder] WARNING: context is empty for phase=${phase} ticket=${ticketState.ticketId}`)
+    warnIfVerbose(`[contextBuilder] WARNING: context is empty for phase=${phase} ticket=${ticketState.ticketId}`)
   }
 
   // Convert to PromptParts

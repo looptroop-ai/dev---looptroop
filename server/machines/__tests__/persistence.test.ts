@@ -1,11 +1,7 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db as appDb } from '../../db/index'
-import { clearProjectDatabaseCache } from '../../db/project'
-import { attachedProjects, profiles } from '../../db/schema'
+import { clearProjectDatabaseCache, getProjectDatabase } from '../../db/project'
+import { attachedProjects, opencodeSessions, phaseArtifacts, profiles, ticketStatusHistory, tickets } from '../../db/schema'
 import { initializeDatabase } from '../../db/init'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getTicketContext } from '../../storage/tickets'
@@ -19,52 +15,54 @@ import {
   sendTicketEvent,
   stopAllActors,
 } from '../persistence'
+import { createFixtureRepoManager } from '../../test/fixtureRepo'
 
 vi.mock('../../workflow/runner', () => ({
   attachWorkflowRunner: () => {},
 }))
 
 let projectId: number
-const repoDirs: string[] = []
-
-function createGitRepo(prefix: string): string {
-  const repoDir = fs.mkdtempSync(path.join(tmpdir(), prefix))
-  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
-  fs.writeFileSync(path.join(repoDir, 'README.md'), '# Fixture\n')
-  execFileSync('git', ['-C', repoDir, 'add', 'README.md'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'branch', '-M', 'main'], { stdio: 'pipe' })
-  repoDirs.push(repoDir)
-  return repoDir
-}
+let projectRoot = ''
+const repoFixture = createFixtureRepoManager({
+  templatePrefix: 'looptroop-persist-template-',
+  files: {
+    'README.md': '# Fixture\n',
+  },
+})
 
 beforeAll(() => {
   initializeDatabase()
-})
-
-beforeEach(() => {
-  stopAllActors()
-  clearProjectDatabaseCache()
-  appDb.delete(attachedProjects).run()
-  appDb.delete(profiles).run()
-
-  const repoDir = createGitRepo('looptroop-persist-')
+  projectRoot = repoFixture.createRepo('looptroop-persist-project-')
   const project = attachProject({
-    folderPath: repoDir,
+    folderPath: projectRoot,
     name: 'Persist Project',
     shortname: 'PST',
   })
   projectId = project.id
 })
 
+beforeEach(() => {
+  stopAllActors()
+  clearProjectDatabaseCache()
+  appDb.delete(profiles).run()
+  const projectDb = getProjectDatabase(projectRoot).db
+  projectDb.delete(opencodeSessions).run()
+  projectDb.delete(phaseArtifacts).run()
+  projectDb.delete(ticketStatusHistory).run()
+  projectDb.delete(tickets).run()
+})
+
 afterEach(() => {
   stopAllActors()
   clearProjectDatabaseCache()
-  for (const dir of repoDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
+})
+
+afterAll(() => {
+  stopAllActors()
+  clearProjectDatabaseCache()
+  appDb.delete(attachedProjects).run()
+  appDb.delete(profiles).run()
+  repoFixture.cleanup()
 })
 
 function insertTicket(overrides: Partial<{ title: string }> = {}) {

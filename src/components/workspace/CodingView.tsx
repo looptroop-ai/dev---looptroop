@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Loader2, CheckCircle2, Circle, Play, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { LoadingText } from '@/components/ui/LoadingText'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import type { Ticket } from '@/hooks/useTickets'
@@ -77,7 +78,7 @@ export function CodingView({ ticket }: CodingViewProps) {
             disabled={isPending}
             className="shrink-0"
           >
-            {isPending ? 'Verifying…' : '✅ Mark Verified'}
+            {isPending ? <LoadingText text="Verifying" /> : '✅ Mark Verified'}
           </Button>
         </div>
       )}

@@ -21,7 +21,7 @@ export const PROM1: PromptTemplate = {
     'Phase 1 - Foundation (What/Who/Why): First establish project intent, target user, core value, constraints (and out of scope), and non-goals. Exit criteria: no core ambiguity remains for problem, user, and objective.',
     'Phase 2 - Structure (Complete Feature Inventory): Then capture the full list of required features and major user flows before deep implementation details. Exit criteria: feature inventory is complete, deduplicated, and prioritized.',
     'Phase 3 - Assembly (Deep Dive Per Feature): Then go feature-by-feature and define implementation-level expectations (behavior, edge cases, acceptance criteria, test intent, dependencies). Exit criteria: each in-scope feature has enough detail to support PRD generation without guessing.',
-    'Question Limit: Treat `max_initial_questions` as a hard upper bound, not a target. Ask only as many questions as needed to remove meaningful ambiguity and gather enough detail for PRD generation. Stop once additional questions would be redundant or low-value.',
+    'Question Limit: Treat `max_initial_questions` as a hard upper bound, but endeavor to approach that limit when doing so is necessary to remove ambiguity and ensure comprehensive requirements gathering. Ask only as many questions as are needed to remove meaningful ambiguity and gather enough detail for PRD generation; stop once additional questions would be redundant or low-value.',
     `Output Format: Output strict machine-readable YAML. The top-level key MUST be \`questions\` containing a list. Each entry MUST have exactly three fields: \`id\`, \`phase\`, and \`question\`.
     Example:
     \`\`\`yaml

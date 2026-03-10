@@ -30,7 +30,7 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   }, [])
 
   useEffect(() => {
-    if (!open) { setPositioned(false); return }
+    if (!open) { setPositioned(false); return } // eslint-disable-line react-hooks/set-state-in-effect
     updatePosition()
     setPositioned(true)
     const handler = (e: MouseEvent) => {

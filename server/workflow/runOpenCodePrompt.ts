@@ -70,6 +70,7 @@ export async function runOpenCodeSessionPrompt({
   onStreamError,
 }: OpenCodeRunOptions & { session: Session }): Promise<OpenCodeRunResult> {
   let response = ''
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
   const parsedModel = model ? parseModelRef(model) : undefined
   const promptOptions: PromptSessionOptions = {
     ...(signal ? { signal } : {}),
@@ -83,9 +84,9 @@ export async function runOpenCodeSessionPrompt({
     if (timeoutMs) {
       response = await Promise.race([
         adapter.promptSession(session.id, parts, signal, promptOptions),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout')), timeoutMs),
-        ),
+        new Promise<string>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error('Timeout')), timeoutMs)
+        }),
       ])
     } else {
       response = await adapter.promptSession(session.id, parts, signal, promptOptions)
@@ -96,6 +97,10 @@ export async function runOpenCodeSessionPrompt({
     }
     onStreamError?.(error)
     throw error
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle)
+    }
   }
 
   let messages: Message[] = []

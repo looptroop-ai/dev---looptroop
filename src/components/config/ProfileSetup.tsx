@@ -9,6 +9,7 @@ import { Plus, X, Search, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
+import { PROFILE_DEFAULTS } from '@server/db/defaults'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
 
@@ -39,12 +40,42 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     icon: profile?.icon ?? '🧑‍💻',
     background: profile?.background ?? '',
     mainImplementer: profile?.mainImplementer ?? '',
-    minCouncilQuorum: profile?.minCouncilQuorum ?? 2,
-    perIterationTimeout: profile?.perIterationTimeout ?? 1200000,
-    councilResponseTimeout: profile?.councilResponseTimeout ?? 900000,
-    interviewQuestions: profile?.interviewQuestions ?? 50,
-    maxIterations: profile?.maxIterations ?? 5,
+    minCouncilQuorum: profile?.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
+    perIterationTimeout: profile?.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
+    councilResponseTimeout: profile?.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
+    interviewQuestions: profile?.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
+    maxIterations: profile?.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
   })
+
+  // Raw string state for numeric fields so users can freely type
+  const numericFields = {
+    perIterationTimeout: { min: 10, max: 3600, label: 'Per-Iteration Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
+    councilResponseTimeout: { min: 10, max: 3600, label: 'Council Response Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
+    maxIterations: { min: 1, max: 20, label: 'Max Iterations', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    minCouncilQuorum: { min: 2, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    interviewQuestions: { min: 5, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+  } as const
+
+  const [rawNumeric, setRawNumeric] = useState<Record<string, string>>(() => ({
+    perIterationTimeout: numericFields.perIterationTimeout.fromStore(formData.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout),
+    councilResponseTimeout: numericFields.councilResponseTimeout.fromStore(formData.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout),
+    maxIterations: String(formData.maxIterations ?? PROFILE_DEFAULTS.maxIterations),
+    minCouncilQuorum: String(formData.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum),
+    interviewQuestions: String(formData.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions),
+  }))
+
+  const getFieldError = (key: keyof typeof numericFields): string | null => {
+    const raw = rawNumeric[key]
+    const cfg = numericFields[key]
+    if (raw === '' || raw === undefined) return `Required (${cfg.min}–${cfg.max})`
+    const n = Number(raw)
+    if (isNaN(n) || !Number.isInteger(n)) return `Must be a whole number (${cfg.min}–${cfg.max})`
+    if (n < cfg.min) return `Minimum is ${cfg.min}`
+    if (n > cfg.max) return `Maximum is ${cfg.max}`
+    return null
+  }
+
+  const hasNumericErrors = (Object.keys(numericFields) as (keyof typeof numericFields)[]).some(k => getFieldError(k) !== null)
 
   const [councilSlots, setCouncilSlots] = useState<string[]>([])
   const [iconOpen, setIconOpen] = useState(false)
@@ -54,16 +85,24 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   // Sync form state when profile data loads
   useEffect(() => {
     if (!profile) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormData({
       username: profile.username ?? '',
       icon: profile.icon ?? '🧑‍💻',
       background: profile.background ?? '',
       mainImplementer: profile.mainImplementer ?? '',
-      minCouncilQuorum: profile.minCouncilQuorum ?? 2,
-      perIterationTimeout: profile.perIterationTimeout ?? 1200000,
-      councilResponseTimeout: profile.councilResponseTimeout ?? 900000,
-      interviewQuestions: profile.interviewQuestions ?? 50,
-      maxIterations: profile.maxIterations ?? 5,
+      minCouncilQuorum: profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
+      perIterationTimeout: profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
+      councilResponseTimeout: profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
+      interviewQuestions: profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
+      maxIterations: profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
+    })
+    setRawNumeric({
+      perIterationTimeout: numericFields.perIterationTimeout.fromStore(profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout),
+      councilResponseTimeout: numericFields.councilResponseTimeout.fromStore(profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout),
+      maxIterations: String(profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations),
+      minCouncilQuorum: String(profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum),
+      interviewQuestions: String(profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions),
     })
     try {
       const council: string[] = profile.councilMembers ? JSON.parse(profile.councilMembers) : []
@@ -83,9 +122,16 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const allCouncil = [formData.mainImplementer, ...councilSlots].filter(Boolean)
+    if (hasNumericErrors) return
+    // Build payload with validated numeric values
+    const validatedData = { ...formData }
+    for (const [key, cfg] of Object.entries(numericFields)) {
+      const n = Number(rawNumeric[key]);
+      (validatedData as Record<string, unknown>)[key] = cfg.toStore(n)
+    }
+    const allCouncil = [validatedData.mainImplementer, ...councilSlots].filter(Boolean)
     const uniqueCouncil = [...new Set(allCouncil)]
-    const payload = { ...formData, councilMembers: JSON.stringify(uniqueCouncil) }
+    const payload = { ...validatedData, councilMembers: JSON.stringify(uniqueCouncil) }
     if (profile) {
       updateProfile.mutate(payload, { onSuccess: onClose })
     } else {
@@ -358,76 +404,86 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
 
           <Separator />
 
-          {/* ── Timing & Limits ── */}
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Timing &amp; Limits</div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium block mb-1">Per-Iteration Timeout (s)</label>
-              <input
-                type="number"
-                min={10}
-                max={3600}
-                value={Math.round((formData.perIterationTimeout ?? 20000) / 1000)}
-                onChange={e => updateField('perIterationTimeout', Math.min(3600, Math.max(10, Number(e.target.value))) * 1000)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Maximum time in seconds before a bead iteration is considered failed</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium block mb-1">Max Iterations</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={formData.maxIterations}
-                onChange={e => updateField('maxIterations', Number(e.target.value))}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Maximum number of implementation iterations per bead</p>
-            </div>
-          </div>
+          {/* ── AI Thinking ── */}
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">AI Thinking</div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium block mb-1">Council Response Timeout (s)</label>
               <input
                 type="number"
-                min={10}
-                max={3600}
-                value={Math.round((formData.councilResponseTimeout ?? 900000) / 1000)}
-                onChange={e => updateField('councilResponseTimeout', Math.min(3600, Math.max(10, Number(e.target.value))) * 1000)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={rawNumeric.councilResponseTimeout}
+                onChange={e => setRawNumeric(prev => ({ ...prev, councilResponseTimeout: e.target.value }))}
+                className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('councilResponseTimeout') ? 'border-red-500' : 'border-input')}
               />
-              <p className="text-xs text-muted-foreground mt-1">How long to wait for each council member to respond</p>
+              {getFieldError('councilResponseTimeout') ? (
+                <p className="text-xs text-red-500 mt-1">{getFieldError('councilResponseTimeout')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">Wait time for council responses (10–3600s)</p>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Min Council Quorum</label>
               <input
                 type="number"
-                min={2}
-                max={4}
-                value={formData.minCouncilQuorum}
-                onChange={e => updateField('minCouncilQuorum', Math.min(4, Math.max(2, Number(e.target.value))))}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={rawNumeric.minCouncilQuorum}
+                onChange={e => setRawNumeric(prev => ({ ...prev, minCouncilQuorum: e.target.value }))}
+                className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('minCouncilQuorum') ? 'border-red-500' : 'border-input')}
               />
-              <p className="text-xs text-muted-foreground mt-1">Minimum number of council votes required to proceed</p>
+              {getFieldError('minCouncilQuorum') ? (
+                <p className="text-xs text-red-500 mt-1">{getFieldError('minCouncilQuorum')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">Minimum council votes required (2–4)</p>
+              )}
             </div>
+          </div>
+          <div className="mt-3">
+            <label className="text-sm font-medium block mb-1">Max Interview Questions</label>
+            <input
+              type="number"
+              value={rawNumeric.interviewQuestions}
+              onChange={e => setRawNumeric(prev => ({ ...prev, interviewQuestions: e.target.value }))}
+              className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('interviewQuestions') ? 'border-red-500' : 'border-input')}
+            />
+            {getFieldError('interviewQuestions') ? (
+              <p className="text-xs text-red-500 mt-1">{getFieldError('interviewQuestions')}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1">Maximum clarifying questions (5–50)</p>
+            )}
           </div>
 
           <Separator />
 
-          {/* ── Interview ── */}
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Interview</div>
-          <div>
-            <label className="text-sm font-medium block mb-1">Max Interview Questions</label>
-            <input
-              type="number"
-              min={5}
-              max={50}
-              value={formData.interviewQuestions}
-              onChange={e => updateField('interviewQuestions', Number(e.target.value))}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-muted-foreground mt-1">Maximum number of clarifying questions the AI can ask before starting work</p>
+          {/* ── Execution Phase ── */}
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Execution Phase</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium block mb-1">Max Iterations</label>
+              <input
+                type="number"
+                value={rawNumeric.maxIterations}
+                onChange={e => setRawNumeric(prev => ({ ...prev, maxIterations: e.target.value }))}
+                className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('maxIterations') ? 'border-red-500' : 'border-input')}
+              />
+              {getFieldError('maxIterations') ? (
+                <p className="text-xs text-red-500 mt-1">{getFieldError('maxIterations')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">Maximum implementation attempts (1–20)</p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Per-Iteration Timeout (s)</label>
+              <input
+                type="number"
+                value={rawNumeric.perIterationTimeout}
+                onChange={e => setRawNumeric(prev => ({ ...prev, perIterationTimeout: e.target.value }))}
+                className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('perIterationTimeout') ? 'border-red-500' : 'border-input')}
+              />
+              {getFieldError('perIterationTimeout') ? (
+                <p className="text-xs text-red-500 mt-1">{getFieldError('perIterationTimeout')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">Timeout for each attempt (10–3600s)</p>
+              )}
+            </div>
           </div>
 
           {openCodeConnected !== null && (
@@ -446,7 +502,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={createProfile.isPending || updateProfile.isPending}>
+        <Button type="submit" disabled={createProfile.isPending || updateProfile.isPending || hasNumericErrors}>
           {profile ? 'Update Configuration' : 'Save Configuration'}
         </Button>
       </div>

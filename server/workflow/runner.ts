@@ -3,6 +3,7 @@ import { ticketMachine } from '../machines/ticketMachine'
 import type { TicketContext, TicketEvent } from '../machines/types'
 import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
+import { PROFILE_DEFAULTS } from '../db/defaults'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview, buildInterviewContextBuilder } from '../phases/interview/deliberate'
 import { draftPRD, buildPrdContextBuilder } from '../phases/prd/draft'
@@ -11,17 +12,19 @@ import { expandBeads } from '../phases/beads/expand'
 import type { Bead, BeadSubset } from '../phases/beads/types'
 import { executeBead } from '../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../phases/execution/scheduler'
-import type { CouncilResult, DraftPhaseResult, DraftProgressEvent, DraftResult, Vote } from '../council/types'
+import type { CouncilResult, DraftPhaseResult, DraftProgressEvent, DraftResult, MemberOutcome, Vote } from '../council/types'
 import { CancelledError } from '../council/types'
 import { ensureMinimumCouncilMembers, parseCouncilMembers } from '../council/members'
 import { conductVoting, selectWinner } from '../council/voter'
 import { refineDraft } from '../council/refiner'
+import { checkMemberResponseQuorum, checkQuorum } from '../council/quorum'
 import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType, LogSource } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
 import type { Message, StreamEvent } from '../opencode/types'
 import { buildPromptFromTemplate, PROM5, PROM13, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
+import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../phases/interview/questions'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
@@ -52,7 +55,7 @@ const interviewQASessions = new Map<string, { sessionId: string; winnerId: strin
 /** Intermediate data stored between draft→vote→refine state machine phases. */
 interface PhaseIntermediateData {
   drafts: DraftResult[]
-  memberOutcomes: Record<string, import('../council/types').MemberOutcome>
+  memberOutcomes: Record<string, MemberOutcome>
   contextBuilder: (step: 'vote' | 'refine') => import('../opencode/types').PromptPart[]
   worktreePath: string
   phase: string
@@ -79,7 +82,7 @@ function tryRecoverPhaseIntermediate(
     if (!artifact) return false
 
     const result = JSON.parse(artifact.content) as DraftPhaseResult
-    if (!result.drafts || result.drafts.length === 0) return false
+    if (result.isFinal !== true || !result.drafts || result.drafts.length === 0) return false
 
     const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
 
@@ -133,7 +136,8 @@ function tryRecoverPhaseIntermediate(
     if (needsVotes) {
       const voteArtifact = getLatestPhaseArtifact(ticketId, `${pipeline}_votes`)
       if (!voteArtifact) return false
-      const voteResult = JSON.parse(voteArtifact.content) as { votes: Vote[]; winnerId: string }
+      const voteResult = JSON.parse(voteArtifact.content) as { votes: Vote[]; winnerId: string; isFinal?: boolean }
+      if (voteResult.isFinal !== true) return false
       data.votes = voteResult.votes
       data.winnerId = voteResult.winnerId
     }
@@ -618,6 +622,15 @@ function emitOpenCodeStreamEvent(
     return
   }
 
+  if (event.type === 'part_removed') {
+    const partId = event.partId
+    if (partId) {
+      state.liveKinds.delete(partId)
+      state.liveContents.delete(partId)
+    }
+    return
+  }
+
   if (event.type === 'done') {
     finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
     emitAiMilestone(
@@ -777,21 +790,34 @@ function resolveInterviewDraftSettings(context: TicketContext): {
   draftTimeoutMs: number
   minQuorum: number
 } {
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const storedContext = getStoredTicketContext(context.ticketId)
   const profile = appDb.select().from(profiles).get()
-
   const maxInitialQuestions = storedContext?.localProject.interviewQuestions
     ?? profile?.interviewQuestions
     ?? 50
-  const draftTimeoutMs = storedContext?.localProject.councilResponseTimeout
-    ?? profile?.councilResponseTimeout
-    ?? 900000
-  const minQuorum = storedContext?.localProject.minCouncilQuorum
-    ?? profile?.minCouncilQuorum
-    ?? 2
 
   return {
     maxInitialQuestions,
+    draftTimeoutMs: councilSettings.draftTimeoutMs,
+    minQuorum: councilSettings.minQuorum,
+  }
+}
+
+function resolveCouncilRuntimeSettings(context: TicketContext): {
+  draftTimeoutMs: number
+  minQuorum: number
+} {
+  const storedContext = getStoredTicketContext(context.ticketId)
+  const profile = appDb.select().from(profiles).get()
+  const draftTimeoutMs = storedContext?.localProject.councilResponseTimeout
+    ?? profile?.councilResponseTimeout
+    ?? PROFILE_DEFAULTS.councilResponseTimeout
+  const minQuorum = storedContext?.localProject.minCouncilQuorum
+    ?? profile?.minCouncilQuorum
+    ?? PROFILE_DEFAULTS.minCouncilQuorum
+
+  return {
     draftTimeoutMs,
     minQuorum,
   }
@@ -808,10 +834,11 @@ function summarizeDraftOutcomes(drafts: DraftResult[]) {
     (summary, draft) => {
       if (draft.outcome === 'completed') summary.completed++
       else if (draft.outcome === 'timed_out') summary.timedOut++
+      else if (draft.outcome === 'failed') summary.failed++
       else summary.invalidOutput++
       return summary
     },
-    { completed: 0, timedOut: 0, invalidOutput: 0 },
+    { completed: 0, timedOut: 0, invalidOutput: 0, failed: 0 },
   )
 }
 
@@ -846,7 +873,9 @@ function emitDraftProgressInfoLog(
   if (entry.status === 'finished' && entry.outcome && entry.outcome !== 'completed') {
     const detail = entry.outcome === 'timed_out'
       ? 'timed out'
-      : `failed (${entry.error ?? 'invalid output'})`
+      : entry.outcome === 'invalid_output'
+        ? `invalid output (${entry.error ?? 'malformed response'})`
+        : `failed (${entry.error ?? 'runtime error'})`
     const durationText = typeof entry.duration === 'number' ? ` after ${formatDurationMs(entry.duration)}` : ''
     const sessionText = entry.sessionId ? ` session=${entry.sessionId}` : ''
     emitAiDetail(
@@ -867,6 +896,119 @@ function emitDraftProgressInfoLog(
       },
     )
   }
+}
+
+function createPendingDrafts(members: Array<{ modelId: string }>): DraftResult[] {
+  return members.map(member => ({
+    memberId: member.modelId,
+    content: '',
+    outcome: 'pending',
+    duration: 0,
+  }))
+}
+
+function tryBuildInterviewQuestionPreview(label: string, content?: string): string | null {
+  if (!content?.trim()) return null
+
+  try {
+    const questions = parseInterviewQuestions(content, { allowTopLevelArray: true })
+    if (questions.length === 0) return null
+    return formatInterviewQuestionPreview(label, questions)
+  } catch {
+    return null
+  }
+}
+
+function upsertCouncilDraftArtifact(
+  ticketId: string,
+  phase: string,
+  artifactType: string,
+  drafts: DraftResult[],
+  memberOutcomes?: Record<string, MemberOutcome>,
+  isFinal: boolean = false,
+) {
+  const resolvedOutcomes = memberOutcomes ?? drafts.reduce<Record<string, MemberOutcome>>(
+    (acc, draft) => {
+      acc[draft.memberId] = draft.outcome
+      return acc
+    },
+    {},
+  )
+
+  upsertLatestPhaseArtifact(ticketId, artifactType, phase, JSON.stringify({
+    phase: artifactType.replace(/s$/, ''),
+    drafts,
+    memberOutcomes: resolvedOutcomes,
+    isFinal,
+  }))
+}
+
+function upsertCouncilVoteArtifact(
+  ticketId: string,
+  phase: string,
+  artifactType: string,
+  drafts: DraftResult[],
+  votes: Vote[],
+  memberOutcomes: Record<string, MemberOutcome>,
+  winnerId?: string,
+  totalScore?: number,
+  isFinal: boolean = false,
+) {
+  upsertLatestPhaseArtifact(ticketId, artifactType, phase, JSON.stringify({
+    drafts,
+    votes,
+    voterOutcomes: memberOutcomes,
+    ...(winnerId ? { winnerId } : {}),
+    ...(typeof totalScore === 'number' ? { totalScore } : {}),
+    isFinal,
+  }))
+}
+
+function collectMembersByOutcome(
+  memberOutcomes: Record<string, MemberOutcome>,
+  outcome: MemberOutcome,
+) {
+  return Object.entries(memberOutcomes)
+    .filter(([, memberOutcome]) => memberOutcome === outcome)
+    .map(([memberId]) => memberId)
+}
+
+function emitCouncilDecisionLogs(
+  ticketId: string,
+  externalId: string,
+  phase: string,
+  timeoutMs: number,
+  deadlineReached: boolean,
+  memberOutcomes: Record<string, MemberOutcome>,
+  quorum: { passed: boolean; message: string },
+  nextStatus: string,
+) {
+  const completedMembers = collectMembersByOutcome(memberOutcomes, 'completed')
+  const timedOutMembers = collectMembersByOutcome(memberOutcomes, 'timed_out')
+
+  emitPhaseLog(
+    ticketId,
+    externalId,
+    phase,
+    'info',
+    deadlineReached
+      ? `Council response deadline reached after ${timeoutMs}ms. completed_members=${completedMembers.length > 0 ? completedMembers.join(', ') : 'none'}. timed_out_members=${timedOutMembers.length > 0 ? timedOutMembers.join(', ') : 'none'}.`
+      : `Council responses settled before the ${timeoutMs}ms deadline. completed_members=${completedMembers.length > 0 ? completedMembers.join(', ') : 'none'}. timed_out_members=${timedOutMembers.length > 0 ? timedOutMembers.join(', ') : 'none'}.`,
+  )
+  emitPhaseLog(
+    ticketId,
+    externalId,
+    phase,
+    quorum.passed ? 'info' : 'error',
+    `Council quorum ${quorum.passed ? 'passed' : 'failed'}: ${quorum.message}.`,
+  )
+  emitPhaseLog(
+    ticketId,
+    externalId,
+    phase,
+    'info',
+    `Council transition selected: ${nextStatus}.`,
+  )
 }
 
 async function handleInterviewDeliberate(
@@ -947,6 +1089,8 @@ async function handleInterviewDeliberate(
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveDrafts = createPendingDrafts(members)
+  upsertCouncilDraftArtifact(ticketId, phase, 'interview_drafts', liveDrafts)
   const result = await deliberateInterview(
     adapter,
     members,
@@ -983,6 +1127,44 @@ async function handleInterviewDeliberate(
     },
     (entry) => {
       emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'Interview', entry)
+      if (entry.status !== 'finished' || !entry.outcome) return
+      const draftIndex = liveDrafts.findIndex(draft => draft.memberId === entry.memberId)
+      if (draftIndex < 0) return
+      liveDrafts[draftIndex] = {
+        ...liveDrafts[draftIndex]!,
+        content: entry.content ?? liveDrafts[draftIndex]!.content,
+        outcome: entry.outcome,
+        duration: entry.duration ?? liveDrafts[draftIndex]!.duration,
+        error: entry.error,
+        questionCount: entry.questionCount,
+      }
+      upsertCouncilDraftArtifact(ticketId, phase, 'interview_drafts', liveDrafts)
+
+      if (entry.outcome !== 'completed') return
+
+      const questionPreview = tryBuildInterviewQuestionPreview(
+        `Questions received from ${entry.memberId}`,
+        entry.content,
+      )
+      if (!questionPreview) return
+
+      emitAiDetail(
+        ticketId,
+        context.externalId,
+        phase,
+        'model_output',
+        questionPreview,
+        {
+          entryId: `${entry.sessionId ?? `${phase}:${entry.memberId}`}:questions-preview`,
+          audience: 'ai',
+          kind: 'text',
+          op: 'append',
+          source: `model:${entry.memberId}`,
+          modelId: entry.memberId,
+          sessionId: entry.sessionId,
+          streaming: false,
+        },
+      )
     },
   )
 
@@ -992,25 +1174,29 @@ async function handleInterviewDeliberate(
     context.externalId,
     phase,
     'info',
-    `Interview draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, invalid_output=${draftSummary.invalidOutput}.`,
+    `Interview draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, failed=${draftSummary.failed}, invalid_output=${draftSummary.invalidOutput}.`,
   )
-
-  // Store intermediate data for vote/refine steps
-  const contextBuilder = buildInterviewContextBuilder(ticketContext)
-  phaseIntermediate.set(`${ticketId}:interview`, {
-    drafts: result.drafts,
-    memberOutcomes: result.memberOutcomes,
-    contextBuilder,
-    worktreePath,
-    phase: result.phase,
-  })
+  const quorum = checkQuorum(result.drafts, draftSettings.minQuorum)
+  const nextStatus = quorum.passed ? 'COUNCIL_VOTING_INTERVIEW' : 'BLOCKED_ERROR'
+  emitCouncilDecisionLogs(
+    ticketId,
+    context.externalId,
+    phase,
+    draftSettings.draftTimeoutMs,
+    Boolean(result.deadlineReached),
+    result.memberOutcomes,
+    quorum,
+    nextStatus,
+  )
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
       ? 'timed out'
       : draft.outcome === 'invalid_output'
         ? `invalid output${draft.error ? ` (${draft.error})` : ''}`
-        : `proposed ${draft.questionCount ?? 0} questions`
+        : draft.outcome === 'failed'
+          ? `failed${draft.error ? ` (${draft.error})` : ''}`
+          : `proposed ${draft.questionCount ?? 0} questions`
     emitAiDetail(
       ticketId,
       context.externalId,
@@ -1034,18 +1220,28 @@ async function handleInterviewDeliberate(
     )
   }
 
-  insertPhaseArtifact(ticketId, {
-    phase,
-    artifactType: 'interview_drafts',
-    content: JSON.stringify(result),
-  })
+  upsertCouncilDraftArtifact(ticketId, phase, 'interview_drafts', result.drafts, result.memberOutcomes, true)
   emitPhaseLog(
     ticketId,
     context.externalId,
     phase,
     'info',
-    `Saved interview draft artifact and cached ${Object.keys(result.memberOutcomes).length} member outcomes for voting.`,
+    `Saved interview draft artifact with ${Object.keys(result.memberOutcomes).length} member outcomes.`,
   )
+
+  if (!quorum.passed) {
+    throw new Error(`Council quorum not met for interview_draft: ${quorum.message}`)
+  }
+
+  // Store intermediate data for vote/refine steps
+  const contextBuilder = buildInterviewContextBuilder(ticketContext)
+  phaseIntermediate.set(`${ticketId}:interview`, {
+    drafts: result.drafts,
+    memberOutcomes: result.memberOutcomes,
+    contextBuilder,
+    worktreePath,
+    phase: result.phase,
+  })
 
   sendEvent({ type: 'QUESTIONS_READY', result: result as unknown as Record<string, unknown> })
 
@@ -1064,20 +1260,28 @@ async function handleInterviewVote(
   }
 
   const { members } = resolveCouncilMembers(context)
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const voteContext = intermediate.contextBuilder('vote')
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveVotes: Vote[] = []
+  const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
+    acc[member.modelId] = 'pending'
+    return acc
+  }, {})
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info',
     `Interview voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, [], liveVoterOutcomes)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  const votes = await conductVoting(
+  const voteRun = await conductVoting(
     adapter,
     members,
     intermediate.drafts,
     voteContext,
     intermediate.worktreePath,
     intermediate.phase,
+    councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1104,19 +1308,42 @@ async function handleInterviewVote(
         streamState,
       )
     },
+    (entry) => {
+      liveVoterOutcomes[entry.memberId] = entry.outcome
+      if (entry.votes.length > 0) liveVotes.push(...entry.votes)
+      upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
+    },
   )
 
-  const { winnerId, totalScore } = selectWinner(votes, members)
+  const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, councilSettings.minQuorum)
+  const nextVoteStatus = voteQuorum.passed ? 'COMPILING_INTERVIEW' : 'BLOCKED_ERROR'
+  emitCouncilDecisionLogs(
+    ticketId,
+    context.externalId,
+    'COUNCIL_VOTING_INTERVIEW',
+    councilSettings.draftTimeoutMs,
+    voteRun.deadlineReached,
+    voteRun.memberOutcomes,
+    voteQuorum,
+    nextVoteStatus,
+  )
+
+  if (!voteQuorum.passed) {
+    upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, undefined, undefined, true)
+    throw new Error(`Interview voting quorum not met: ${voteQuorum.message}`)
+  }
+
+  if (voteRun.votes.length === 0) {
+    throw new Error('Interview voting failed: no valid vote responses received')
+  }
+
+  const { winnerId, totalScore } = selectWinner(voteRun.votes, members)
 
   // Store vote results for refine step
-  intermediate.votes = votes
+  intermediate.votes = voteRun.votes
   intermediate.winnerId = winnerId
 
-  insertPhaseArtifact(ticketId, {
-    phase: 'COUNCIL_VOTING_INTERVIEW',
-    artifactType: 'interview_votes',
-    content: JSON.stringify({ votes, winnerId, totalScore }),
-  })
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, winnerId, totalScore, true)
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -1141,6 +1368,7 @@ async function handleInterviewCompile(
 
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
 
@@ -1154,6 +1382,7 @@ async function handleInterviewCompile(
     losingDrafts,
     refineContext,
     intermediate.worktreePath,
+    councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1188,12 +1417,7 @@ async function handleInterviewCompile(
   // Parse YAML questions from refined content into structured list
   let parsedQuestions: unknown[] = []
   try {
-    const yamlParsed = jsYaml.load(refinedContent) as Record<string, unknown> | unknown[] | null
-    if (Array.isArray(yamlParsed)) {
-      parsedQuestions = yamlParsed
-    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
-      parsedQuestions = (yamlParsed as Record<string, unknown>).questions as unknown[]
-    }
+    parsedQuestions = parseInterviewQuestions(refinedContent, { allowTopLevelArray: true })
   } catch {
     // If YAML parsing fails, fall back to raw content (questions will be empty array)
     console.warn(`[runner] Failed to parse YAML questions from refined content for ticket ${context.externalId}`)
@@ -1224,6 +1448,28 @@ async function handleInterviewCompile(
     'info',
     `Compiled final interview from winner ${intermediate.winnerId}. Parsed ${parsedQuestions.length} structured questions.`,
   )
+  const compiledQuestionPreview = tryBuildInterviewQuestionPreview(
+    `Compiled interview questions from ${intermediate.winnerId}`,
+    refinedContent,
+  )
+  if (compiledQuestionPreview) {
+    emitAiDetail(
+      ticketId,
+      context.externalId,
+      'COMPILING_INTERVIEW',
+      'model_output',
+      compiledQuestionPreview,
+      {
+        entryId: `compiled-questions:${intermediate.winnerId}`,
+        audience: 'ai',
+        kind: 'text',
+        op: 'append',
+        source: `model:${intermediate.winnerId}`,
+        modelId: intermediate.winnerId,
+        streaming: false,
+      },
+    )
+  }
   sendEvent({ type: 'READY' })
   broadcaster.broadcast(ticketId, 'needs_input', {
     ticketId,
@@ -1325,16 +1571,23 @@ async function handlePrdDraft(
       : 'Interview artifact missing; PRD drafting will rely on available ticket context.')
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
     `PRD council drafting started. Context: ${ticketContext.length} parts, interview=${interview ? 'loaded' : 'missing'}.`)
+  const councilSettings = resolveCouncilRuntimeSettings(context)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
+    `PRD draft settings: council_response_timeout=${councilSettings.draftTimeoutMs}ms, min_council_quorum=${councilSettings.minQuorum}.`)
   emitPhaseLog(ticketId, context.externalId, phase, 'info', `Dispatching PRD draft requests to ${members.length} council members.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveDrafts = createPendingDrafts(members)
+  upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
   const result = await draftPRD(
     adapter,
     members,
     ticketContext,
     worktreePath,
+    councilSettings,
+    signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('prd', entry.stage)
       emitOpenCodeSessionLogs(
@@ -1364,6 +1617,18 @@ async function handlePrdDraft(
     },
     (entry) => {
       emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'PRD', entry)
+      if (entry.status !== 'finished' || !entry.outcome) return
+      const draftIndex = liveDrafts.findIndex(draft => draft.memberId === entry.memberId)
+      if (draftIndex < 0) return
+      liveDrafts[draftIndex] = {
+        ...liveDrafts[draftIndex]!,
+        content: entry.content ?? liveDrafts[draftIndex]!.content,
+        outcome: entry.outcome,
+        duration: entry.duration ?? liveDrafts[draftIndex]!.duration,
+        error: entry.error,
+        questionCount: entry.questionCount,
+      }
+      upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
     },
   )
 
@@ -1373,23 +1638,29 @@ async function handlePrdDraft(
     context.externalId,
     phase,
     'info',
-    `PRD draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, invalid_output=${draftSummary.invalidOutput}.`,
+    `PRD draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, failed=${draftSummary.failed}, invalid_output=${draftSummary.invalidOutput}.`,
   )
-
-  phaseIntermediate.set(`${ticketId}:prd`, {
-    drafts: result.drafts,
-    memberOutcomes: result.memberOutcomes,
-    contextBuilder: buildPrdContextBuilder(ticketContext),
-    worktreePath,
-    phase: result.phase,
-  })
+  const quorum = checkQuorum(result.drafts, councilSettings.minQuorum)
+  const nextStatus = quorum.passed ? 'COUNCIL_VOTING_PRD' : 'BLOCKED_ERROR'
+  emitCouncilDecisionLogs(
+    ticketId,
+    context.externalId,
+    phase,
+    councilSettings.draftTimeoutMs,
+    Boolean(result.deadlineReached),
+    result.memberOutcomes,
+    quorum,
+    nextStatus,
+  )
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
       ? 'timed out'
       : draft.outcome === 'invalid_output'
         ? 'invalid output'
-        : `drafted PRD (${draft.content.length} chars)`
+        : draft.outcome === 'failed'
+          ? 'failed'
+          : `drafted PRD (${draft.content.length} chars)`
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
       `${draft.memberId} ${detail}.`,
       {
@@ -1405,18 +1676,26 @@ async function handlePrdDraft(
       })
   }
 
-  insertPhaseArtifact(ticketId, {
-    phase,
-    artifactType: 'prd_drafts',
-    content: JSON.stringify(result),
-  })
+  upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', result.drafts, result.memberOutcomes, true)
   emitPhaseLog(
     ticketId,
     context.externalId,
     phase,
     'info',
-    `Saved PRD draft artifact and cached ${Object.keys(result.memberOutcomes).length} member outcomes for voting.`,
+    `Saved PRD draft artifact with ${Object.keys(result.memberOutcomes).length} member outcomes.`,
   )
+
+  if (!quorum.passed) {
+    throw new Error(`Council quorum not met for prd_draft: ${quorum.message}`)
+  }
+
+  phaseIntermediate.set(`${ticketId}:prd`, {
+    drafts: result.drafts,
+    memberOutcomes: result.memberOutcomes,
+    contextBuilder: buildPrdContextBuilder(ticketContext),
+    worktreePath,
+    phase: result.phase,
+  })
 
   sendEvent({ type: 'DRAFTS_READY' })
 
@@ -1435,20 +1714,28 @@ async function handlePrdVote(
   }
 
   const { members } = resolveCouncilMembers(context)
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const voteContext = intermediate.contextBuilder('vote')
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveVotes: Vote[] = []
+  const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
+    acc[member.modelId] = 'pending'
+    return acc
+  }, {})
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, [], liveVoterOutcomes)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  const votes = await conductVoting(
+  const voteRun = await conductVoting(
     adapter,
     members,
     intermediate.drafts,
     voteContext,
     intermediate.worktreePath,
     intermediate.phase,
+    councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1475,18 +1762,41 @@ async function handlePrdVote(
         streamState,
       )
     },
+    (entry) => {
+      liveVoterOutcomes[entry.memberId] = entry.outcome
+      if (entry.votes.length > 0) liveVotes.push(...entry.votes)
+      upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
+    },
   )
 
-  const { winnerId, totalScore } = selectWinner(votes, members)
+  const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, councilSettings.minQuorum)
+  const nextVoteStatus = voteQuorum.passed ? 'REFINING_PRD' : 'BLOCKED_ERROR'
+  emitCouncilDecisionLogs(
+    ticketId,
+    context.externalId,
+    'COUNCIL_VOTING_PRD',
+    councilSettings.draftTimeoutMs,
+    voteRun.deadlineReached,
+    voteRun.memberOutcomes,
+    voteQuorum,
+    nextVoteStatus,
+  )
 
-  intermediate.votes = votes
+  if (!voteQuorum.passed) {
+    upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, undefined, undefined, true)
+    throw new Error(`PRD voting quorum not met: ${voteQuorum.message}`)
+  }
+
+  if (voteRun.votes.length === 0) {
+    throw new Error('PRD voting failed: no valid vote responses received')
+  }
+
+  const { winnerId, totalScore } = selectWinner(voteRun.votes, members)
+
+  intermediate.votes = voteRun.votes
   intermediate.winnerId = winnerId
 
-  insertPhaseArtifact(ticketId, {
-    phase: 'COUNCIL_VOTING_PRD',
-    artifactType: 'prd_votes',
-    content: JSON.stringify({ votes, winnerId, totalScore }),
-  })
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, winnerId, totalScore, true)
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
@@ -1506,6 +1816,7 @@ async function handlePrdRefine(
 
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
 
@@ -1519,6 +1830,7 @@ async function handlePrdRefine(
     losingDrafts,
     refineContext,
     intermediate.worktreePath,
+    councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1614,16 +1926,23 @@ async function handleBeadsDraft(
       : 'PRD artifact missing; beads drafting will rely on available ticket context.')
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
     `Beads council drafting started. Context: ${ticketContext.length} parts, prd=${prd ? 'loaded' : 'missing'}.`)
+  const councilSettings = resolveCouncilRuntimeSettings(context)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info',
+    `Beads draft settings: council_response_timeout=${councilSettings.draftTimeoutMs}ms, min_council_quorum=${councilSettings.minQuorum}.`)
   emitPhaseLog(ticketId, context.externalId, phase, 'info', `Dispatching beads draft requests to ${members.length} council members.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveDrafts = createPendingDrafts(members)
+  upsertCouncilDraftArtifact(ticketId, phase, 'beads_drafts', liveDrafts)
   const result = await draftBeads(
     adapter,
     members,
     ticketContext,
     worktreePath,
+    councilSettings,
+    signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('beads', entry.stage)
       emitOpenCodeSessionLogs(
@@ -1653,6 +1972,18 @@ async function handleBeadsDraft(
     },
     (entry) => {
       emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'Beads', entry)
+      if (entry.status !== 'finished' || !entry.outcome) return
+      const draftIndex = liveDrafts.findIndex(draft => draft.memberId === entry.memberId)
+      if (draftIndex < 0) return
+      liveDrafts[draftIndex] = {
+        ...liveDrafts[draftIndex]!,
+        content: entry.content ?? liveDrafts[draftIndex]!.content,
+        outcome: entry.outcome,
+        duration: entry.duration ?? liveDrafts[draftIndex]!.duration,
+        error: entry.error,
+        questionCount: entry.questionCount,
+      }
+      upsertCouncilDraftArtifact(ticketId, phase, 'beads_drafts', liveDrafts)
     },
   )
 
@@ -1662,23 +1993,29 @@ async function handleBeadsDraft(
     context.externalId,
     phase,
     'info',
-    `Beads draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, invalid_output=${draftSummary.invalidOutput}.`,
+    `Beads draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, failed=${draftSummary.failed}, invalid_output=${draftSummary.invalidOutput}.`,
   )
-
-  phaseIntermediate.set(`${ticketId}:beads`, {
-    drafts: result.drafts,
-    memberOutcomes: result.memberOutcomes,
-    contextBuilder: buildBeadsContextBuilder(ticketContext),
-    worktreePath,
-    phase: result.phase,
-  })
+  const quorum = checkQuorum(result.drafts, councilSettings.minQuorum)
+  const nextStatus = quorum.passed ? 'COUNCIL_VOTING_BEADS' : 'BLOCKED_ERROR'
+  emitCouncilDecisionLogs(
+    ticketId,
+    context.externalId,
+    phase,
+    councilSettings.draftTimeoutMs,
+    Boolean(result.deadlineReached),
+    result.memberOutcomes,
+    quorum,
+    nextStatus,
+  )
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
       ? 'timed out'
       : draft.outcome === 'invalid_output'
         ? 'invalid output'
-        : `drafted beads (${draft.content.length} chars)`
+        : draft.outcome === 'failed'
+          ? 'failed'
+          : `drafted beads (${draft.content.length} chars)`
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_BEADS', 'model_output',
       `${draft.memberId} ${detail}.`,
       {
@@ -1694,18 +2031,26 @@ async function handleBeadsDraft(
       })
   }
 
-  insertPhaseArtifact(ticketId, {
-    phase,
-    artifactType: 'beads_drafts',
-    content: JSON.stringify(result),
-  })
+  upsertCouncilDraftArtifact(ticketId, phase, 'beads_drafts', result.drafts, result.memberOutcomes, true)
   emitPhaseLog(
     ticketId,
     context.externalId,
     phase,
     'info',
-    `Saved beads draft artifact and cached ${Object.keys(result.memberOutcomes).length} member outcomes for voting.`,
+    `Saved beads draft artifact with ${Object.keys(result.memberOutcomes).length} member outcomes.`,
   )
+
+  if (!quorum.passed) {
+    throw new Error(`Council quorum not met for beads_draft: ${quorum.message}`)
+  }
+
+  phaseIntermediate.set(`${ticketId}:beads`, {
+    drafts: result.drafts,
+    memberOutcomes: result.memberOutcomes,
+    contextBuilder: buildBeadsContextBuilder(ticketContext),
+    worktreePath,
+    phase: result.phase,
+  })
 
   sendEvent({ type: 'DRAFTS_READY' })
 
@@ -1724,20 +2069,28 @@ async function handleBeadsVote(
   }
 
   const { members } = resolveCouncilMembers(context)
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const voteContext = intermediate.contextBuilder('vote')
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveVotes: Vote[] = []
+  const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
+    acc[member.modelId] = 'pending'
+    return acc
+  }, {})
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
     `Beads voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, [], liveVoterOutcomes)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  const votes = await conductVoting(
+  const voteRun = await conductVoting(
     adapter,
     members,
     intermediate.drafts,
     voteContext,
     intermediate.worktreePath,
     intermediate.phase,
+    councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1764,18 +2117,41 @@ async function handleBeadsVote(
         streamState,
       )
     },
+    (entry) => {
+      liveVoterOutcomes[entry.memberId] = entry.outcome
+      if (entry.votes.length > 0) liveVotes.push(...entry.votes)
+      upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
+    },
   )
 
-  const { winnerId, totalScore } = selectWinner(votes, members)
+  const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, councilSettings.minQuorum)
+  const nextVoteStatus = voteQuorum.passed ? 'REFINING_BEADS' : 'BLOCKED_ERROR'
+  emitCouncilDecisionLogs(
+    ticketId,
+    context.externalId,
+    'COUNCIL_VOTING_BEADS',
+    councilSettings.draftTimeoutMs,
+    voteRun.deadlineReached,
+    voteRun.memberOutcomes,
+    voteQuorum,
+    nextVoteStatus,
+  )
 
-  intermediate.votes = votes
+  if (!voteQuorum.passed) {
+    upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, undefined, undefined, true)
+    throw new Error(`Beads voting quorum not met: ${voteQuorum.message}`)
+  }
+
+  if (voteRun.votes.length === 0) {
+    throw new Error('Beads voting failed: no valid vote responses received')
+  }
+
+  const { winnerId, totalScore } = selectWinner(voteRun.votes, members)
+
+  intermediate.votes = voteRun.votes
   intermediate.winnerId = winnerId
 
-  insertPhaseArtifact(ticketId, {
-    phase: 'COUNCIL_VOTING_BEADS',
-    artifactType: 'beads_votes',
-    content: JSON.stringify({ votes, winnerId, totalScore }),
-  })
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, winnerId, totalScore, true)
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
     `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
@@ -1795,6 +2171,7 @@ async function handleBeadsRefine(
 
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
 
@@ -1808,6 +2185,7 @@ async function handleBeadsRefine(
     losingDrafts,
     refineContext,
     intermediate.worktreePath,
+    councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
       emitOpenCodeSessionLogs(
@@ -1997,6 +2375,7 @@ async function handleCoverageVerification(
     : phase === 'prd'
       ? 'VERIFYING_PRD_COVERAGE'
       : 'VERIFYING_BEADS_COVERAGE'
+  const councilSettings = resolveCouncilRuntimeSettings(context)
 
   // Resolve the council result to find the winning model
   const councilResult = phaseResults.get(`${ticketId}:${phase}`)
@@ -2123,6 +2502,7 @@ async function handleCoverageVerification(
     projectPath: worktreePath,
     parts: [{ type: 'text', content: promptContent }],
     signal,
+    timeoutMs: councilSettings.draftTimeoutMs,
     model: winnerId,
     onSessionCreated: (session) => {
       sessionId = session.id
@@ -3325,7 +3705,7 @@ export function attachWorkflowRunner(
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`[runner] COUNCIL_VOTING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', errMsg)
-            sendEvent({ type: 'ERROR', message: errMsg })
+            sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
           })
           .finally(() => {
             runningPhases.delete(key)
@@ -3402,7 +3782,7 @@ export function attachWorkflowRunner(
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`[runner] COUNCIL_VOTING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'error', errMsg)
-            sendEvent({ type: 'ERROR', message: errMsg })
+            sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
           })
           .finally(() => {
             runningPhases.delete(key)
@@ -3462,7 +3842,7 @@ export function attachWorkflowRunner(
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`[runner] COUNCIL_VOTING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'error', errMsg)
-            sendEvent({ type: 'ERROR', message: errMsg })
+            sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
           })
           .finally(() => {
             runningPhases.delete(key)

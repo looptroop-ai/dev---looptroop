@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { LoadingText } from '@/components/ui/LoadingText'
 import { useTicketAction } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
@@ -63,7 +64,7 @@ export function DraftView({ ticket }: DraftViewProps) {
             onClick={() => performAction({ id: ticket.id, action: 'start' })}
             disabled={isPending}
           >
-            {isPending ? 'Starting…' : '🚀 Start Ticket'}
+            {isPending ? <LoadingText text="Starting" /> : '🚀 Start Ticket'}
           </Button>
         </div>
       </div>

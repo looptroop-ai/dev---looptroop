@@ -1,7 +1,6 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../council/types'
 import { generateDrafts } from '../../council/drafter'
-import { checkQuorum } from '../../council/quorum'
 import { buildPromptFromTemplate, PROM10, PROM11, PROM12 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 
@@ -18,6 +17,11 @@ export async function draftPRD(
   members: CouncilMember[],
   ticketContext: PromptPart[],
   projectPath: string,
+  options: {
+    draftTimeoutMs: number
+    minQuorum: number
+  },
+  signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
     stage: 'draft' | 'vote' | 'refine'
     memberId: string
@@ -35,27 +39,22 @@ export async function draftPRD(
 ): Promise<DraftPhaseResult> {
   const promptContent = buildPromptFromTemplate(PROM10, ticketContext)
 
-  const drafts = await generateDrafts(
+  const draftRun = await generateDrafts(
     adapter,
     members,
     [{ type: 'text', content: promptContent }],
     projectPath,
-    300000,
-    undefined,
+    options.draftTimeoutMs,
+    signal,
     onOpenCodeSessionLog,
     onOpenCodeStreamEvent,
     onDraftProgress,
   )
 
-  const quorum = checkQuorum(drafts, 2)
-  if (!quorum.passed) {
-    throw new Error(`Council quorum not met for prd_draft: ${quorum.message}`)
+  return {
+    phase: 'prd_draft',
+    drafts: draftRun.drafts,
+    memberOutcomes: draftRun.memberOutcomes,
+    deadlineReached: draftRun.deadlineReached,
   }
-
-  const memberOutcomes: Record<string, import('../../council/types').MemberOutcome> = {}
-  for (const draft of drafts) {
-    memberOutcomes[draft.memberId] = draft.outcome
-  }
-
-  return { phase: 'prd_draft', drafts, memberOutcomes }
 }

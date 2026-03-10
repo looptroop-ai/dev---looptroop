@@ -153,6 +153,7 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatu
   useEffect(() => {
     const newActiveGroupIndex = PHASE_GROUPS.findIndex(g => g.phases.some(p => p.id === currentStatus))
     if (newActiveGroupIndex >= 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpandedGroups(new Set([newActiveGroupIndex]))
     }
   }, [currentStatus])

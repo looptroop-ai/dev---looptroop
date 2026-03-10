@@ -6,6 +6,8 @@ import { getProjectContextById, getProjectById, listProjects } from './projects'
 import { opencodeSessions, phaseArtifacts, projects, ticketStatusHistory, tickets } from '../db/schema'
 import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { safeAtomicWrite } from '../io/atomicWrite'
+import { broadcaster } from '../sse/broadcaster'
+import type { ArtifactSnapshot } from '../sse/eventTypes'
 
 type LocalTicketRow = typeof tickets.$inferSelect
 type LocalProjectRow = typeof projects.$inferSelect
@@ -15,6 +17,8 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id'> {
   id: string
   projectId: number
 }
+
+export type PublicPhaseArtifactRow = ArtifactSnapshot
 
 export interface TicketContext {
   ticketRef: string
@@ -46,6 +50,32 @@ function toPublicTicket(projectId: number, ticket: LocalTicketRow): PublicTicket
     id: buildTicketRef(projectId, ticket.externalId),
     projectId,
   }
+}
+
+function toPublicPhaseArtifact(ticketRef: string, artifact: LocalPhaseArtifactRow): PublicPhaseArtifactRow {
+  return {
+    id: artifact.id,
+    ticketId: ticketRef,
+    phase: artifact.phase,
+    artifactType: artifact.artifactType ?? '',
+    filePath: null,
+    content: artifact.content,
+    createdAt: artifact.createdAt,
+  }
+}
+
+function broadcastArtifactChange(
+  ticketRef: string,
+  phase: string,
+  artifactType: string,
+  artifact: LocalPhaseArtifactRow,
+) {
+  broadcaster.broadcast(ticketRef, 'artifact_change', {
+    ticketId: ticketRef,
+    phase,
+    artifactType,
+    artifact: toPublicPhaseArtifact(ticketRef, artifact),
+  })
 }
 
 function runGit(projectRoot: string, args: string[]) {
@@ -251,10 +281,15 @@ export function listNonTerminalTickets(): PublicTicket[] {
   return listTickets().filter(ticket => !['COMPLETED', 'CANCELED'].includes(ticket.status))
 }
 
-export function listPhaseArtifacts(ticketRef: string): LocalPhaseArtifactRow[] {
+export function listPhaseArtifacts(ticketRef: string): PublicPhaseArtifactRow[] {
   const context = getTicketContext(ticketRef)
   if (!context) return []
-  return context.projectDb.select().from(phaseArtifacts).where(eq(phaseArtifacts.ticketId, context.localTicketId)).all()
+  return context.projectDb
+    .select()
+    .from(phaseArtifacts)
+    .where(eq(phaseArtifacts.ticketId, context.localTicketId))
+    .all()
+    .map((artifact) => toPublicPhaseArtifact(ticketRef, artifact))
 }
 
 export function getLatestPhaseArtifact(ticketRef: string, artifactType: string, phase?: string): LocalPhaseArtifactRow | undefined {
@@ -273,10 +308,11 @@ export function getLatestPhaseArtifact(ticketRef: string, artifactType: string, 
 export function insertPhaseArtifact(ticketRef: string, artifact: Omit<typeof phaseArtifacts.$inferInsert, 'ticketId'>): void {
   const context = getTicketContext(ticketRef)
   if (!context) throw new Error(`Ticket not found: ${ticketRef}`)
-  context.projectDb.insert(phaseArtifacts).values({
+  const inserted = context.projectDb.insert(phaseArtifacts).values({
     ...artifact,
     ticketId: context.localTicketId,
-  }).run()
+  }).returning().get()
+  broadcastArtifactChange(ticketRef, artifact.phase, artifact.artifactType ?? '', inserted)
 }
 
 export function upsertLatestPhaseArtifact(ticketRef: string, artifactType: string, phase: string, content: string): void {
@@ -295,14 +331,19 @@ export function upsertLatestPhaseArtifact(ticketRef: string, artifactType: strin
       .set({ content })
       .where(eq(phaseArtifacts.id, existing.id))
       .run()
+    broadcastArtifactChange(ticketRef, phase, artifactType, {
+      ...existing,
+      content,
+    })
     return
   }
-  context.projectDb.insert(phaseArtifacts).values({
+  const inserted = context.projectDb.insert(phaseArtifacts).values({
     ticketId: context.localTicketId,
     phase,
     artifactType,
     content,
-  }).run()
+  }).returning().get()
+  broadcastArtifactChange(ticketRef, phase, artifactType, inserted)
 }
 
 export function getTicketPaths(ticketRef: string): {

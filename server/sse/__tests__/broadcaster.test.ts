@@ -38,6 +38,23 @@ describe('SSEBroadcaster', () => {
     expect(JSON.parse(missed[1]!.data)).toMatchObject({ content: 'line 3' })
   })
 
+  it('buffers and replays artifact_change events', () => {
+    broadcaster.broadcast('ticket-1', 'artifact_change', {
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_DELIBERATING',
+      artifactType: 'interview_drafts',
+    })
+
+    const missed = broadcaster.getEventsSince('ticket-1', '0')
+    expect(missed).toHaveLength(1)
+    expect(missed[0]!.event).toBe('artifact_change')
+    expect(JSON.parse(missed[0]!.data)).toMatchObject({
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_DELIBERATING',
+      artifactType: 'interview_drafts',
+    })
+  })
+
   it('returns all events when lastEventId is invalid', () => {
     broadcaster.broadcast('ticket-1', 'log', { content: 'line 1' })
     broadcaster.broadcast('ticket-1', 'log', { content: 'line 2' })

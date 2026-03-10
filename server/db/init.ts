@@ -1,4 +1,5 @@
 import { sqlite } from './index'
+import { logIfVerbose } from '../runtime'
 
 export function initializeDatabase() {
   sqlite.exec(`
@@ -27,5 +28,5 @@ export function initializeDatabase() {
     );
   `)
 
-  console.log('[db] App database initialized')
+  logIfVerbose('[db] App database initialized')
 }

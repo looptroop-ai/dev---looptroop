@@ -1,11 +1,20 @@
-import { useState, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { FileText, Users, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
+import { FileText, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
-import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
+import { useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
+import {
+  buildCouncilMemberArtifacts,
+  getCouncilAction,
+  getCouncilStatusEmoji,
+  getCouncilStatusLabel,
+  type CouncilMemberArtifactChip,
+  type CouncilOutcome,
+  type CouncilViewerArtifact,
+} from './councilArtifacts'
 
 interface PhaseArtifactsPanelProps {
   phase: string
@@ -24,35 +33,59 @@ interface ArtifactDef {
   icon: React.ReactNode
 }
 
-interface DBartifact {
-  id: number
-  ticketId: string
-  phase: string
-  artifactType: string
-  filePath: string | null
-  content: string | null
-  createdAt: string
+interface ParsedQuestionItem {
+  question?: string
+  prompt?: string
+  phase?: string
+  category?: string
 }
 
-// Local model utils removed in favor of shared ones
-
-function getStatusEmoji(outcome?: string, action?: string): string {
-  if (outcome === 'timed_out') return '⏰'
-  if (outcome === 'invalid_output') return '❌'
-  if (outcome === 'completed') return '✅'
-  if (action === 'drafting') return '✏️'
-  if (action === 'scoring') return '⏳'
-  if (action === 'refining') return '🔄'
-  if (action === 'verifying') return '🔍'
-  return '✏️'
+interface InterviewAnswerField {
+  skipped?: boolean
+  free_text?: string
 }
 
-function getPhaseAction(phase: string): string {
-  if (phase.includes('DELIBERATING') || phase.includes('DRAFTING')) return 'drafting'
-  if (phase.includes('VOTING')) return 'scoring'
-  if (phase.includes('COMPILING') || phase.includes('REFINING')) return 'refining'
-  if (phase.includes('VERIFYING')) return 'verifying'
-  return 'drafting'
+interface InterviewArtifactQuestion {
+  id?: string
+  prompt?: string
+  answer?: InterviewAnswerField
+}
+
+interface InterviewArtifactData {
+  artifact?: string
+  questions?: InterviewArtifactQuestion[]
+  refinedContent?: string
+  userAnswers?: string
+}
+
+interface CoverageInputData {
+  prd?: string
+  beads?: string
+  refinedContent?: string
+}
+
+interface CouncilDraftData {
+  memberId: string
+  outcome?: CouncilOutcome
+  content?: string
+  duration?: number
+  error?: string
+}
+
+interface CouncilVoteData {
+  voterId: string
+  draftId: string
+  totalScore: number
+  scores: Array<{ category: string; score: number }>
+}
+
+interface CouncilResultData {
+  drafts?: CouncilDraftData[]
+  votes?: CouncilVoteData[]
+  winnerId?: string
+  winnerContent?: string
+  refinedContent?: string
+  voterOutcomes?: Record<string, CouncilOutcome>
 }
 
 function extractDraftDetail(content: string | null): string {
@@ -67,10 +100,12 @@ function extractDraftDetail(content: string | null): string {
 }
 
 // Try to parse content as JSON CouncilResult
-function tryParseCouncilResult(content: string): any | null {
+function tryParseCouncilResult(content: string): CouncilResultData | null {
   try {
-    const parsed = JSON.parse(content)
-    if (parsed && (parsed.drafts || parsed.votes || parsed.winnerId)) return parsed
+    const parsed = JSON.parse(content) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const result = parsed as CouncilResultData
+    if (result.drafts || result.votes || result.winnerId) return result
     return null
   } catch {
     return null
@@ -94,12 +129,12 @@ function parseInterviewQuestions(content: string): { q: string; section?: string
   const questions: { q: string; section?: string }[] = []
   let parsedFromYaml = false
   try {
-    const parsed = jsYaml.load(content)
-    let items: any[] = []
-    if (Array.isArray(parsed)) items = parsed
-    else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).questions))
-      items = (parsed as any).questions
-    if (items.length > 0 && items.some((q: any) => q?.question || q?.prompt)) {
+    const parsed = jsYaml.load(content) as unknown
+    let items: ParsedQuestionItem[] = []
+    if (Array.isArray(parsed)) items = parsed as ParsedQuestionItem[]
+    else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { questions?: unknown[] }).questions))
+      items = (parsed as { questions: ParsedQuestionItem[] }).questions
+    if (items.length > 0 && items.some((q) => q?.question || q?.prompt)) {
       for (const item of items) {
         const text = (item?.question ?? item?.prompt) as string | undefined
         if (text) questions.push({ q: text, section: (item.phase ?? item.category) as string | undefined })
@@ -114,8 +149,8 @@ function parseInterviewQuestions(content: string): { q: string; section?: string
       const trimmed = line.trim()
       if (trimmed.startsWith('#')) {
         currentSection = trimmed.replace(/^#+\s*/, '')
-      } else if (/^\d+[\.\)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
-        const q = trimmed.replace(/^[-*\d\.\)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
+      } else if (/^\d+[.)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
+        const q = trimmed.replace(/^[-*\d.)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
         if (q.length > 5) questions.push({ q, section: currentSection })
       }
     }
@@ -171,7 +206,7 @@ export function RawContentView({ content }: { content: string }) {
 
 // Render user interview answers
 export function InterviewAnswersView({ content }: { content: string }) {
-  let parsedContent: any = null
+  let parsedContent: unknown = null
   try {
     parsedContent = JSON.parse(content)
   } catch {
@@ -187,8 +222,9 @@ export function InterviewAnswersView({ content }: { content: string }) {
   const orphanAnswers: Record<string, string> = {}
 
   // Native interview.yaml parsing
-  if (parsedContent && typeof parsedContent === 'object' && parsedContent.artifact === 'interview') {
-    const qs = Array.isArray(parsedContent.questions) ? parsedContent.questions : []
+  if (parsedContent && typeof parsedContent === 'object' && (parsedContent as InterviewArtifactData).artifact === 'interview') {
+    const artifact = parsedContent as InterviewArtifactData
+    const qs = Array.isArray(artifact.questions) ? artifact.questions : []
     for (const [i, q] of qs.entries()) {
       const qId = q.id || `Q${i + 1}`
       const prompt = q.prompt || ''
@@ -204,8 +240,11 @@ export function InterviewAnswersView({ content }: { content: string }) {
     }
   } else {
     // Handle interview_coverage_input format which has refinedContent (questions) and userAnswers
-    const questionsContent = parsedContent?.refinedContent || ''
-    const answersJson = parsedContent?.userAnswers || '{}'
+    const artifact = parsedContent && typeof parsedContent === 'object'
+      ? parsedContent as InterviewArtifactData
+      : null
+    const questionsContent = artifact?.refinedContent || ''
+    const answersJson = artifact?.userAnswers || '{}'
 
     const questions = parseInterviewQuestions(questionsContent)
     let answers: Record<string, string> = {}
@@ -330,15 +369,32 @@ function BeadsDraftView({ content }: { content: string }) {
 }
 
 // Render voting results with score table and winner
-function VotingResultsView({ data }: { data: any }) {
-  const votes = data.votes as Array<{ voterId: string; draftId: string; scores: Array<{ category: string; score: number }>; totalScore: number }>
-  const winnerId = data.winnerId as string
-  if (!votes || votes.length === 0) return <div className="text-xs text-muted-foreground italic">No voting data available</div>
+function VotingResultsView({ data }: { data: CouncilResultData }) {
+  const votes = Array.isArray(data.votes)
+    ? data.votes
+    : []
+  const winnerId = data.winnerId ?? ''
+  const voterOutcomes = (data.voterOutcomes ?? {}) as Record<string, CouncilOutcome>
 
   // Get unique drafts and voters
   const draftIds = [...new Set(votes.map(v => v.draftId))]
-  const voterIds = [...new Set(votes.map(v => v.voterId))]
+  const voterIds = Object.keys(voterOutcomes).length > 0
+    ? Object.keys(voterOutcomes)
+    : [...new Set(votes.map(v => v.voterId))]
   const categories = votes[0]?.scores?.map(s => s.category) ?? []
+  const getVoterOutcome = (voterId: string): CouncilOutcome => {
+    const outcome = voterOutcomes[voterId]
+    if (outcome === 'completed' || outcome === 'failed' || outcome === 'timed_out' || outcome === 'invalid_output' || outcome === 'pending') {
+      return outcome
+    }
+    return votes.some(v => v.voterId === voterId) ? 'completed' : 'pending'
+  }
+  const completedCount = voterIds.filter(voterId => getVoterOutcome(voterId) === 'completed').length
+  const hasLiveOutcomes = voterIds.length > 0
+
+  if (votes.length === 0 && !hasLiveOutcomes) {
+    return <div className="text-xs text-muted-foreground italic">No voting data available</div>
+  }
 
   // Aggregate scores per draft
   const draftScores = draftIds.map(draftId => {
@@ -353,26 +409,59 @@ function VotingResultsView({ data }: { data: any }) {
 
   return (
     <div className="space-y-3">
+      {hasLiveOutcomes && (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold">
+            Voter Status <span className="text-muted-foreground font-normal">({completedCount}/{voterIds.length} complete)</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {voterIds.map(voterId => {
+              const outcome = getVoterOutcome(voterId)
+              return (
+                <ModelBadge
+                  key={voterId}
+                  modelId={voterId}
+                  className="px-2.5 py-1.5 h-auto items-start"
+                >
+                  <div className="min-w-0 text-left">
+                    <div className="text-[10px] font-medium truncate">{getModelDisplayName(voterId)}</div>
+                    <div className="text-[10px] opacity-80 mt-0.5">
+                      {getCouncilStatusEmoji(outcome, 'scoring')} {getCouncilStatusLabel(outcome, 'scoring')}
+                    </div>
+                  </div>
+                </ModelBadge>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {draftScores.length === 0 && (
+        <div className="text-xs text-muted-foreground italic">No completed votes yet.</div>
+      )}
+
       {/* Rankings */}
-      <div className="space-y-1.5">
-        <div className="text-xs font-semibold mb-1">Rankings</div>
-        {draftScores.map((d, rank) => (
-          <ModelBadge
-            key={d.draftId}
-            modelId={d.draftId}
-            active={d.isWinner}
-            className="w-full px-2.5 py-1.5 h-auto items-center"
-          >
-            <span className="font-mono w-5 text-center font-bold opacity-80">{rank === 0 ? 'W' : `#${rank + 1}`}</span>
-            <span className="font-medium flex-1 text-left ml-1">{getModelDisplayName(d.draftId)}</span>
-            <span className={`ml-auto font-mono font-semibold ${d.isWinner ? 'text-primary-foreground' : 'text-secondary-foreground'}`}>{d.total}</span>
-            {d.isWinner && <Trophy className="h-3.5 w-3.5 text-primary-foreground ml-1" />}
-          </ModelBadge>
-        ))}
-      </div>
+      {draftScores.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-xs font-semibold mb-1">Rankings</div>
+          {draftScores.map((d, rank) => (
+            <ModelBadge
+              key={d.draftId}
+              modelId={d.draftId}
+              active={d.isWinner}
+              className="w-full px-2.5 py-1.5 h-auto items-center"
+            >
+              <span className="font-mono w-5 text-center font-bold opacity-80">{rank === 0 ? 'W' : `#${rank + 1}`}</span>
+              <span className="font-medium flex-1 text-left ml-1">{getModelDisplayName(d.draftId)}</span>
+              <span className={`ml-auto font-mono font-semibold ${d.isWinner ? 'text-primary-foreground' : 'text-secondary-foreground'}`}>{d.total}</span>
+              {d.isWinner && <Trophy className="h-3.5 w-3.5 text-primary-foreground ml-1" />}
+            </ModelBadge>
+          ))}
+        </div>
+      )}
 
       {/* Score table */}
-      {categories.length > 0 && (
+      {draftScores.length > 0 && categories.length > 0 && (
         <div className="overflow-x-auto">
           <div className="text-xs font-semibold mb-1">Score Breakdown</div>
           <table className="w-full text-xs border-collapse">
@@ -410,14 +499,33 @@ function VotingResultsView({ data }: { data: any }) {
         <div className="space-y-2">
           {voterIds.map(voterId => (
             <div key={voterId} className="space-y-1">
-              <div className="font-medium flex items-center gap-1">{getModelIcon(voterId)} {getModelDisplayName(voterId)}</div>
-              {votes.filter(v => v.voterId === voterId).map(v => (
-                <div key={v.draftId} className="ml-4 flex items-center gap-2 text-muted-foreground">
-                  <span>→ {getModelDisplayName(v.draftId)}</span>
-                  <span className="font-mono">{v.totalScore}pts</span>
-                  {v.draftId === winnerId && <span className="font-bold text-[10px] text-primary bg-primary/10 px-1 rounded">winner</span>}
+              <div className="font-medium flex items-center gap-1">
+                {getModelIcon(voterId)} {getModelDisplayName(voterId)}
+                <span className="text-[10px] text-muted-foreground ml-1">
+                  {getCouncilStatusEmoji(getVoterOutcome(voterId), 'scoring')} {getCouncilStatusLabel(getVoterOutcome(voterId), 'scoring')}
+                </span>
+              </div>
+              {votes.filter(v => v.voterId === voterId).length === 0 ? (
+                <div className="ml-4 text-muted-foreground italic">
+                  {getVoterOutcome(voterId) === 'pending'
+                    ? 'Still scoring drafts.'
+                    : getVoterOutcome(voterId) === 'failed'
+                      ? 'Failed before submitting scores.'
+                      : getVoterOutcome(voterId) === 'timed_out'
+                        ? 'Timed out before submitting scores.'
+                        : getVoterOutcome(voterId) === 'invalid_output'
+                          ? 'Returned malformed scores.'
+                          : 'No scores recorded.'}
                 </div>
-              ))}
+              ) : (
+                votes.filter(v => v.voterId === voterId).map(v => (
+                  <div key={v.draftId} className="ml-4 flex items-center gap-2 text-muted-foreground">
+                    <span>→ {getModelDisplayName(v.draftId)}</span>
+                    <span className="font-mono">{v.totalScore}pts</span>
+                    {v.draftId === winnerId && <span className="font-bold text-[10px] text-primary bg-primary/10 px-1 rounded">winner</span>}
+                  </div>
+                ))
+              )}
             </div>
           ))}
         </div>
@@ -426,72 +534,24 @@ function VotingResultsView({ data }: { data: any }) {
   )
 }
 
-function getPhaseArtifacts(phase: string, councilMemberCount: number = 3, councilMemberNames?: string[]): ArtifactDef[] {
-  const memberLabel = (i: number) => {
-    const raw = councilMemberNames?.[i]
-    if (!raw) return `Model ${i + 1}`
-    return raw.includes('/') ? raw.split('/').pop()! : raw
-  }
-  const memberIcon = (i: number) => {
-    const raw = councilMemberNames?.[i]
-    return raw ? getModelIcon(raw) : '⚪'
-  }
-  if (phase === 'COUNCIL_DELIBERATING') {
-    return Array.from({ length: councilMemberCount }, (_, i) => ({
-      id: `draft-${i + 1}`,
-      label: `${memberIcon(i)} Interview Draft — ${memberLabel(i)}`,
-      description: 'Independent question set draft',
-      icon: <FileText className="h-3.5 w-3.5" />,
-    }))
-  }
+function getSupplementalArtifacts(phase: string): ArtifactDef[] {
   if (phase === 'COUNCIL_VOTING_INTERVIEW') {
-    return [
-      { id: 'votes', label: '⏳ Voting Results', description: 'Weighted scoring rubric results', icon: <Users className="h-3.5 w-3.5" /> },
-      { id: 'winner-draft', label: '🏆 Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> },
-    ]
+    return [{ id: 'winner-draft', label: 'Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
   }
-  if (phase === 'COMPILING_INTERVIEW') {
-    return [{ id: 'final-interview', label: '🔄 Final Interview Questions', description: 'Compiled question set', icon: <FileText className="h-3.5 w-3.5" /> }]
-  }
-  if (phase === 'WAITING_INTERVIEW_ANSWERS' || phase === 'VERIFYING_INTERVIEW_COVERAGE') {
+  if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
     return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
-  }
-  if (phase === 'WAITING_INTERVIEW_APPROVAL') {
-    return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
-  }
-  if (phase === 'DRAFTING_PRD') {
-    return Array.from({ length: councilMemberCount }, (_, i) => ({
-      id: `prd-draft-${i + 1}`,
-      label: `${memberIcon(i)} PRD Draft — ${memberLabel(i)}`,
-      description: 'Independent PRD draft',
-      icon: <FileText className="h-3.5 w-3.5" />,
-    }))
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
-    return [
-      { id: 'prd-votes', label: '⏳ PRD Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> },
-      { id: 'winner-prd-draft', label: '🏆 Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> },
-    ]
+    return [{ id: 'winner-prd-draft', label: 'Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
   }
-  if (phase === 'REFINING_PRD' || phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
-    return [{ id: 'refined-prd', label: '🔄 Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
-  }
-  if (phase === 'DRAFTING_BEADS') {
-    return Array.from({ length: councilMemberCount }, (_, i) => ({
-      id: `beads-draft-${i + 1}`,
-      label: `${memberIcon(i)} Beads Draft — ${memberLabel(i)}`,
-      description: 'Independent beads breakdown',
-      icon: <FileText className="h-3.5 w-3.5" />,
-    }))
+  if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
+    return [{ id: 'refined-prd', label: 'Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COUNCIL_VOTING_BEADS') {
-    return [
-      { id: 'beads-votes', label: '⏳ Beads Voting Results', description: 'Weighted scoring results', icon: <Users className="h-3.5 w-3.5" /> },
-      { id: 'winner-beads-draft', label: '🏆 Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> },
-    ]
+    return [{ id: 'winner-beads-draft', label: 'Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
   }
-  if (phase === 'REFINING_BEADS' || phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
-    return [{ id: 'refined-beads', label: '🔄 Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
+    return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'PRE_FLIGHT_CHECK') {
     return [{ id: 'diagnostics', label: 'Doctor Diagnostics', description: 'Pre-flight validation report', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
@@ -516,12 +576,40 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
     return <InterviewAnswersView content={content} />
   }
 
-  let parsedCoverageInput: any = null
+  let coverageResult: { response?: string; hasGaps?: boolean } | null = null
   try {
-    const p = JSON.parse(content)
+    const parsed = JSON.parse(content) as unknown
+    if (parsed && typeof parsed === 'object') {
+      const result = parsed as { response?: string; hasGaps?: boolean }
+      if ('response' in result || 'hasGaps' in result) coverageResult = result
+    }
+  } catch {
+    coverageResult = null
+  }
+
+  if (artifactId?.endsWith('coverage-result')) {
+    if (!coverageResult) {
+      return <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>
+    }
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-xs font-medium">
+          <span>{coverageResult.hasGaps ? '⚠️' : '✅'}</span>
+          <span>{coverageResult.hasGaps ? 'Coverage gaps found' : 'Coverage complete'}</span>
+        </div>
+        {coverageResult.response
+          ? <RawContentView content={coverageResult.response} />
+          : <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>}
+      </div>
+    )
+  }
+
+  let parsedCoverageInput: CoverageInputData | null = null
+  try {
+    const p = JSON.parse(content) as unknown
     // Check if this looks like a coverage input JSON rather than CouncilResult
-    if (p && !p.drafts && !p.votes && p.refinedContent) {
-      parsedCoverageInput = p
+    if (p && typeof p === 'object' && 'refinedContent' in p && !('drafts' in p) && !('votes' in p)) {
+      parsedCoverageInput = p as CoverageInputData
     }
   } catch { /* not json */ }
 
@@ -559,7 +647,7 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
 
     const isWinnerArtifact = artifactId?.startsWith('winner')
     if (isWinnerArtifact) {
-      const winnerDraft = councilResult.drafts?.find((d: any) => d.memberId === councilResult.winnerId)
+      const winnerDraft = councilResult.drafts?.find((d) => d.memberId === councilResult.winnerId)
       const winnerContent = winnerDraft?.content ?? councilResult.winnerContent ?? ''
       if (!winnerContent) return <div className="text-xs text-muted-foreground italic">Voting still in progress — winner not yet determined.</div>
       const header = winnerDraft ? (
@@ -584,37 +672,54 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
       return <>{header}{structured || <RawContentView content={winnerContent} />}</>
     }
 
-    // For individual draft views, extract the specific draft
-    const draftIndex = artifactId?.match(/(\d+)$/)?.[1]
+    // For individual draft views, extract the specific draft by memberId
+    const memberMatch = artifactId?.match(/member-(.+)$/)
+    const memberId = memberMatch?.[1] ? decodeURIComponent(memberMatch[1]) : null
+
+    // Legacy positional fallback for existing artifacts
+    const draftIndex = !memberId ? artifactId?.match(/(\d+)$/)?.[1] : null
     const draftIdx = draftIndex ? parseInt(draftIndex, 10) - 1 : -1
-    const draft = draftIdx >= 0 && councilResult.drafts?.[draftIdx]
+
+    const draft = memberId
+      ? (councilResult.drafts?.find(d => d.memberId === memberId) ?? null)
+      : (draftIdx >= 0 ? (councilResult.drafts?.[draftIdx] ?? null) : null)
     const draftContent = draft?.content ?? councilResult.refinedContent ?? councilResult.winnerContent ?? ''
+
+    const header = draft ? (
+      <div className="flex items-center gap-2 mb-4 pb-0">
+        <ModelBadge
+          modelId={draft.memberId}
+          active={draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING')}
+          className="flex-1 px-3 py-2 h-auto"
+        >
+          <div className="min-w-0 text-left flex-1">
+            <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
+            <div className="text-[10px] mt-0.5 opacity-80 flex items-center gap-1 flex-wrap normal-case">
+              <span>
+                {draft.outcome === 'completed'
+                  ? '✅ Completed'
+                  : draft.outcome === 'timed_out'
+                    ? '⏰ Timed out'
+                    : draft.outcome === 'failed'
+                      ? '💥 Failed'
+                      : draft.outcome === 'pending'
+                        ? '⏳ In progress'
+                        : '❌ Invalid output'}
+              </span>
+              {draft.duration ? <span>· {(draft.duration / 1000).toFixed(1)}s</span> : null}
+              {draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING') && (
+                <span className="font-bold text-primary-foreground/90 ml-1">🏆 Winner</span>
+              )}
+            </div>
+          </div>
+        </ModelBadge>
+      </div>
+    ) : null
 
     if (draftContent) {
       const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
       const isPrd = artifactId?.includes('prd')
       const isBeads = artifactId?.includes('beads')
-
-      // Show model info header for individual drafts
-      const isWinner = draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING')
-      const header = draft ? (
-        <div className="flex items-center gap-2 mb-4 pb-0">
-          <ModelBadge
-            modelId={draft.memberId}
-            active={isWinner}
-            className="flex-1 px-3 py-2 h-auto"
-          >
-            <div className="min-w-0 text-left flex-1">
-              <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
-              <div className="text-[10px] mt-0.5 opacity-80 flex items-center gap-1 flex-wrap normal-case">
-                <span>{draft.outcome === 'completed' ? '✅ Completed' : draft.outcome === 'timed_out' ? '⏰ Timed out' : '❌ Invalid output'}</span>
-                {draft.duration ? <span>· {(draft.duration / 1000).toFixed(1)}s</span> : null}
-                {isWinner && <span className="font-bold text-primary-foreground/90 ml-1">🏆 Winner</span>}
-              </div>
-            </div>
-          </ModelBadge>
-        </div>
-      ) : null
 
       const structured = isInterview ? <InterviewDraftView content={draftContent} />
         : isPrd ? <PrdDraftView content={draftContent} />
@@ -625,121 +730,237 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
       // Fall through to raw rendering with header
       return <>{header}<RawContentView content={draftContent} /></>
     }
+
+    if (draft) {
+      // For invalid_output with actual content, show warning + content
+      if (draft.outcome === 'invalid_output' && draft.content) {
+        const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
+        const isPrd = artifactId?.includes('prd')
+        const isBeads = artifactId?.includes('beads')
+        const structured = isInterview ? <InterviewDraftView content={draft.content} />
+          : isPrd ? <PrdDraftView content={draft.content} />
+            : isBeads ? <BeadsDraftView content={draft.content} />
+              : null
+        return (
+          <>
+            {header}
+            <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2 py-1 mb-2">
+              ⚠️ Output did not pass strict validation{draft.error ? `: ${draft.error}` : ''} — content shown below may have formatting issues.
+            </div>
+            {structured || <RawContentView content={draft.content} />}
+          </>
+        )
+      }
+
+      const waitingMessage = draft.outcome === 'pending'
+        ? 'Artifact is still being generated for this member.'
+        : draft.outcome === 'timed_out'
+          ? 'No response was received before the council timeout.'
+          : draft.outcome === 'failed'
+            ? (draft.error || 'This member failed before producing output.')
+            : draft.outcome === 'invalid_output'
+              ? (draft.error || 'This member returned malformed output.')
+              : 'No content available yet.'
+      return (
+        <>
+          {header}
+          <div className="text-xs text-muted-foreground italic">{waitingMessage}</div>
+        </>
+      )
+    }
   }
 
   return <RawContentView content={content} />
 }
 
+type ViewingArtifact = CouncilViewerArtifact & { icon?: React.ReactNode }
+type ViewingArtifactSelection =
+  | { kind: 'member'; key: string }
+  | { kind: 'supplemental'; id: string }
+
+function getArtifactTargetPhases(phase: string): string[] {
+  const phaseMap: Record<string, string[]> = {
+    WAITING_INTERVIEW_APPROVAL: ['VERIFYING_INTERVIEW_COVERAGE', 'COMPILING_INTERVIEW'],
+    WAITING_PRD_APPROVAL: ['VERIFYING_PRD_COVERAGE', 'REFINING_PRD'],
+    WAITING_BEADS_APPROVAL: ['VERIFYING_BEADS_COVERAGE', 'REFINING_BEADS'],
+  }
+
+  return phaseMap[phase] || [phase]
+}
+
+function resolveStaticArtifact(
+  artifactDef: ArtifactDef,
+  phase: string,
+  reversedArtifacts: DBartifact[],
+): DBartifact | undefined {
+  const targetPhases = getArtifactTargetPhases(phase)
+  const findExactType = (artifactType: string) =>
+    reversedArtifacts.find(artifact => targetPhases.includes(artifact.phase) && artifact.artifactType === artifactType)
+  const findByPredicate = (predicate: (artifact: DBartifact) => boolean) =>
+    reversedArtifacts.find(artifact => targetPhases.includes(artifact.phase) && predicate(artifact))
+
+  switch (artifactDef.id) {
+    case 'winner-draft':
+      return findExactType('interview_votes')
+    case 'winner-prd-draft':
+      return findExactType('prd_votes')
+    case 'winner-beads-draft':
+      return findExactType('beads_votes')
+    case 'interview-answers':
+      if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
+        return findExactType('interview_coverage_input')
+      }
+      break
+    case 'refined-prd':
+      return findExactType('prd_coverage_input')
+    case 'refined-beads':
+      return findExactType('beads_coverage_input')
+    case 'diagnostics':
+      return findExactType('preflight_report')
+    case 'bead-commits':
+      return findByPredicate(artifact => artifact.artifactType.startsWith('bead_execution:'))
+    case 'test-results':
+      return findExactType('final_test_report')
+    case 'commit-summary':
+      return findExactType('integration_report')
+    case 'cleanup-report':
+      return findExactType('cleanup_report')
+  }
+
+  const prefix = artifactDef.id.split('-')[0] ?? ''
+  return findByPredicate(artifact => artifact.artifactType.toLowerCase().includes(prefix))
+    ?? findByPredicate(artifact => Boolean(artifact.content))
+}
+
 export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement, preloadedArtifacts }: PhaseArtifactsPanelProps) {
-  const artifacts = getPhaseArtifacts(phase, councilMemberCount, councilMemberNames)
-  const [viewingArtifact, setViewingArtifact] = useState<ArtifactDef | null>(null)
+  const supplementalArtifacts = getSupplementalArtifacts(phase)
+  const [viewingSelection, setViewingSelection] = useState<ViewingArtifactSelection | null>(null)
   const { artifacts: cachedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticketId, { skipFetch: !!preloadedArtifacts })
-
   const dbArtifacts = preloadedArtifacts ?? cachedArtifacts
-
-  if (artifacts.length === 0 && !prefixElement) return null
-  if (artifacts.length === 0) {
-    return <div className="flex flex-row flex-wrap gap-2">{prefixElement}</div>
-  }
-
-  const action = getPhaseAction(phase)
-
   const reversedArtifacts = useMemo(() => [...dbArtifacts].reverse(), [dbArtifacts])
+  const configuredMembers = useMemo(() => councilMemberNames ?? [], [councilMemberNames])
+  const memberArtifacts = useMemo(
+    () => buildCouncilMemberArtifacts(phase, dbArtifacts, configuredMembers, isCompleted, councilMemberCount),
+    [configuredMembers, councilMemberCount, dbArtifacts, isCompleted, phase],
+  )
+  const action = getCouncilAction(phase)
 
-  // Match a UI artifact def to the closest DB artifact for this phase
-  function findDbContent(artifactDef: ArtifactDef): string | null {
-    const prefix = artifactDef.id.split('-')[0] ?? ''
-
-    // Map approval phases to the phase where their artifacts were actually generated
-    const phaseMap: Record<string, string[]> = {
-      'WAITING_INTERVIEW_APPROVAL': ['VERIFYING_INTERVIEW_COVERAGE', 'COMPILING_INTERVIEW'],
-      'WAITING_PRD_APPROVAL': ['VERIFYING_PRD_COVERAGE', 'REFINING_PRD'],
-      'WAITING_BEADS_APPROVAL': ['VERIFYING_BEADS_COVERAGE', 'REFINING_BEADS'],
-    }
-    const targetPhases = phaseMap[phase] || [phase]
-
-    // Map UI artifact IDs to DB artifactTypes for verification inputs
-    const typeMap: Record<string, string> = {
-      'refined-prd': 'prd_coverage_input',
-      'refined-beads': 'beads_coverage_input',
-      'interview-answers': 'interview_coverage_input'
-    }
-    const expectedType = typeMap[artifactDef.id]
-
-    if (expectedType) {
-      const exactMatch = reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.artifactType === expectedType)
-      if (exactMatch) return exactMatch.content
-    }
-
-    // Try matching by artifactType first, then fall back to phase-only match
-    const match = reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.artifactType?.toLowerCase().includes(prefix))
-      ?? reversedArtifacts.find(a => targetPhases.includes(a.phase) && a.content)
+  const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
+    const match = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
     return match?.content ?? null
-  }
+  }, [phase, reversedArtifacts])
 
-  // Extract outcome from DB artifact's CouncilResult for a specific draft index
-  function getDraftOutcome(artifactDef: ArtifactDef): { outcome?: string; detail?: string } {
-    const draftIndex = artifactDef.id.match(/(\d+)$/)?.[1]
-    if (!draftIndex) return {}
-    const content = findDbContent(artifactDef)
+  function getArtifactState(artifact: ArtifactDef): { outcome?: CouncilOutcome; detail?: string } {
+    const content = findDbContent(artifact)
     if (!content) return {}
     const council = tryParseCouncilResult(content)
-    if (!council?.drafts) return { detail: extractDraftDetail(content) }
-    const idx = parseInt(draftIndex, 10) - 1
-    const draft = council.drafts[idx]
-    if (!draft) return {}
-    const isWinner = draft.memberId === council.winnerId
-    let detail = ''
-    if (draft.outcome === 'timed_out') detail = 'no response received'
-    else if (draft.outcome === 'invalid_output') detail = 'malformed response'
-    else {
-      const questionCount = draft.content ? parseInterviewQuestions(draft.content).length : 0
-      if (questionCount > 0) detail = `proposed ${questionCount} questions`
-      else {
-        const lineCount = draft.content?.split('\n').filter((l: string) => l.trim()).length ?? 0
-        if (lineCount > 0) detail = `${lineCount} lines generated`
-      }
+
+    if (artifact.id.includes('winner')) {
+      const winnerId = council?.winnerId
+      return winnerId ? { outcome: 'completed', detail: `winner: ${getModelDisplayName(winnerId)}` } : {}
     }
-    const isThinkingPhase = phase.includes('DELIBERATING') || phase.includes('DRAFTING')
-    if (isWinner && draft.outcome === 'completed' && !isThinkingPhase) detail = 'Winner — refining draft'
-    return { outcome: draft.outcome, detail }
+
+    if (artifact.id.includes('refined') || artifact.id.includes('answers')) {
+      return { outcome: isCompleted ? 'completed' : 'pending' }
+    }
+
+    const detail = extractDraftDetail(content)
+    return detail ? { detail } : {}
   }
+
+  const viewingArtifact = useMemo<ViewingArtifact | null>(() => {
+    if (!viewingSelection) return null
+
+    if (viewingSelection.kind === 'member') {
+      return memberArtifacts.find((artifact) => artifact.key === viewingSelection.key)?.viewer ?? null
+    }
+
+    const artifact = supplementalArtifacts.find((item) => item.id === viewingSelection.id)
+    if (!artifact) return null
+
+    return {
+      id: artifact.id,
+      label: artifact.label,
+      description: artifact.description,
+      content: findDbContent(artifact) ?? '',
+      icon: artifact.icon,
+    }
+  }, [findDbContent, memberArtifacts, supplementalArtifacts, viewingSelection])
+
+  const hasArtifacts = memberArtifacts.length > 0 || supplementalArtifacts.length > 0 || Boolean(prefixElement)
+  if (!hasArtifacts) return null
 
   return (
     <>
       <div>
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">Artifacts</span>
-        <div className="flex flex-row flex-wrap gap-2 mt-1">
-          {artifacts.map((artifact) => {
-            const isDraft = artifact.id.match(/draft-\d+$/)
-            const { outcome, detail } = isDraft ? getDraftOutcome(artifact) : {}
-            const statusEmoji = outcome ? getStatusEmoji(outcome) : isCompleted ? '✅' : getStatusEmoji(undefined, action)
-            return (
-              <button
-                key={artifact.id}
-                onClick={() => setViewingArtifact(artifact)}
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 hover:bg-accent/50 cursor-pointer transition-colors text-xs whitespace-nowrap"
-              >
-                <span className="text-muted-foreground">{artifact.icon}</span>
-                <div className="text-left">
-                  <span className="font-medium">{artifact.label}</span>
-                  {detail && <div className="text-[10px] text-blue-500">{detail}</div>}
-                </div>
-                <span className="ml-auto shrink-0">{statusEmoji}</span>
-              </button>
-            )
-          })}
-          {prefixElement}
-        </div>
+
+        {memberArtifacts.length > 0 && (
+          <div className="flex flex-row flex-wrap gap-2 mt-1">
+            {memberArtifacts.map((artifact: CouncilMemberArtifactChip) => {
+              const detailTone = artifact.outcome === 'failed' || artifact.outcome === 'invalid_output'
+                ? 'text-red-400'
+                : artifact.outcome === 'timed_out'
+                  ? 'text-amber-400'
+                  : 'text-blue-400'
+              return (
+                <ModelBadge
+                  key={artifact.key}
+                  modelId={artifact.modelId}
+                  active={Boolean(artifact.isWinner)}
+                  onClick={() => setViewingSelection({ kind: 'member', key: artifact.key })}
+                  className="min-w-[220px] flex-1 px-3 py-2 h-auto items-start gap-2"
+                >
+                  <div className="min-w-0 text-left flex-1">
+                    <div className="text-xs font-medium truncate">{getModelDisplayName(artifact.modelId)}</div>
+                    <div className="text-[10px] opacity-80 mt-0.5">
+                      {getCouncilStatusEmoji(artifact.outcome, artifact.action)} {getCouncilStatusLabel(artifact.outcome, artifact.action)}
+                    </div>
+                    {artifact.detail && <div className={`text-[10px] mt-0.5 ${detailTone}`}>{artifact.detail}</div>}
+                  </div>
+                </ModelBadge>
+              )
+            })}
+          </div>
+        )}
+
+        {(supplementalArtifacts.length > 0 || prefixElement) && (
+          <div className={`flex flex-row flex-wrap gap-2 ${memberArtifacts.length > 0 ? 'mt-2' : 'mt-1'}`}>
+            {supplementalArtifacts.map((artifact) => {
+              const artifactState = getArtifactState(artifact)
+              const statusEmoji = artifactState.outcome
+                ? getCouncilStatusEmoji(artifactState.outcome, action)
+                : isCompleted ? '✅' : getCouncilStatusEmoji(undefined, action)
+              return (
+                <button
+                  key={artifact.id}
+                  onClick={() => setViewingSelection({ kind: 'supplemental', id: artifact.id })}
+                  className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 hover:bg-accent/50 cursor-pointer transition-colors text-xs whitespace-nowrap"
+                >
+                  <span className="text-muted-foreground">{artifact.icon}</span>
+                  <div className="text-left">
+                    <span className="font-medium">{artifact.label}</span>
+                    {artifactState.detail && <div className="text-[10px] text-blue-500">{artifactState.detail}</div>}
+                  </div>
+                  <span className="ml-auto shrink-0">{statusEmoji}</span>
+                </button>
+              )
+            })}
+            {prefixElement}
+          </div>
+        )}
       </div>
 
-      <Dialog open={!!viewingArtifact} onOpenChange={(open) => !open && setViewingArtifact(null)}>
+      <Dialog open={!!viewingArtifact} onOpenChange={(open) => !open && setViewingSelection(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-2">
-              {viewingArtifact?.icon}
+              {viewingArtifact?.icon ?? null}
               {viewingArtifact?.label}
             </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {viewingArtifact?.description ?? 'Artifact details for the current council phase.'}
+            </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <div className="bg-muted rounded-md p-4">
@@ -750,7 +971,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
               ) : (
                 <ArtifactContent
                   artifactId={viewingArtifact?.id}
-                  content={viewingArtifact ? (findDbContent(viewingArtifact) || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`) : ''}
+                  content={viewingArtifact
+                    ? (viewingArtifact.content || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`)
+                    : ''}
                   phase={phase}
                 />
               )}

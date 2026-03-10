@@ -1,8 +1,6 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
 import { APP_CONFIG_DIR, APP_DB_PATH, db as appDb, sqlite } from '../index'
 import { initializeDatabase } from '../init'
 import { clearProjectDatabaseCache, getProjectDatabase } from '../project'
@@ -11,21 +9,14 @@ import { attachProject } from '../../storage/projects'
 import { createTicket } from '../../storage/tickets'
 import { stopAllActors } from '../../machines/persistence'
 import { resetOpenCodeAdapter } from '../../opencode/factory'
+import { createFixtureRepoManager } from '../../test/fixtureRepo'
 
-const repoDirs: string[] = []
-
-function createGitRepo(prefix: string): string {
-  const repoDir = fs.mkdtempSync(path.join(tmpdir(), prefix))
-  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
-  fs.writeFileSync(path.join(repoDir, 'README.md'), '# Fixture\n')
-  execFileSync('git', ['-C', repoDir, 'add', 'README.md'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'branch', '-M', 'main'], { stdio: 'pipe' })
-  repoDirs.push(repoDir)
-  return repoDir
-}
+const repoFixture = createFixtureRepoManager({
+  templatePrefix: 'looptroop-db-template-',
+  files: {
+    'README.md': '# Fixture\n',
+  },
+})
 
 function listTableNames(database: { prepare: (sql: string) => { all: () => { name: string }[] } }) {
   return database
@@ -36,6 +27,10 @@ function listTableNames(database: { prepare: (sql: string) => { all: () => { nam
 
 beforeAll(() => {
   initializeDatabase()
+})
+
+afterAll(() => {
+  repoFixture.cleanup()
 })
 
 beforeEach(() => {
@@ -52,22 +47,21 @@ afterEach(() => {
   clearProjectDatabaseCache()
   appDb.delete(attachedProjects).run()
   appDb.delete(profiles).run()
-  for (const repoDir of repoDirs.splice(0)) {
-    fs.rmSync(repoDir, { recursive: true, force: true })
-  }
 })
 
 describe('Database layout', () => {
   it('initializes the app database with only global tables', () => {
-    expect(APP_CONFIG_DIR.endsWith('.looptroop-test-config')).toBe(true)
-    expect(APP_DB_PATH.endsWith(path.join('.looptroop-test-config', 'app.sqlite'))).toBe(true)
+    expect(path.isAbsolute(APP_CONFIG_DIR)).toBe(true)
+    expect(APP_CONFIG_DIR).toContain(path.join('looptroop-vitest'))
+    expect(APP_DB_PATH).toBe(path.join(APP_CONFIG_DIR, 'app.sqlite'))
+    expect(fs.existsSync(APP_CONFIG_DIR)).toBe(true)
     expect(sqlite.pragma('journal_mode', { simple: true })).toBe('wal')
     expect(sqlite.pragma('busy_timeout', { simple: true })).toBe(5000)
     expect(listTableNames(sqlite)).toEqual(['attached_projects', 'profiles'])
   })
 
   it('creates project-local databases with project and ticket state tables', () => {
-    const repoDir = createGitRepo('looptroop-db-local-')
+    const repoDir = repoFixture.createRepo('looptroop-db-local-')
     const project = attachProject({
       folderPath: repoDir,
       name: 'Database Fixture',
@@ -90,7 +84,7 @@ describe('Database layout', () => {
   })
 
   it('stores tickets in the project-local database and not the app database', () => {
-    const repoDir = createGitRepo('looptroop-db-ticket-')
+    const repoDir = repoFixture.createRepo('looptroop-db-ticket-')
     const project = attachProject({
       folderPath: repoDir,
       name: 'Ticket Fixture',

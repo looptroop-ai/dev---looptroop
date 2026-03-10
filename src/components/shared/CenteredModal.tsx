@@ -14,6 +14,7 @@ export function CenteredModal({ open, onClose, title, children, maxWidth = 'max-
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDirtySession(false)
     }
   }, [open])

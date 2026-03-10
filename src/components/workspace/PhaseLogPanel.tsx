@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { useLogs, type LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { ModelBadge } from '@/components/shared/ModelBadge'
+import { LoadingText } from '@/components/ui/LoadingText'
 import type { Ticket } from '@/hooks/useTickets'
 
 interface PhaseLogPanelProps {
@@ -20,6 +21,7 @@ const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 function getEntryColor(entry: LogEntry): string {
   if (entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
   if (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
+  if (entry.kind === 'reasoning') return 'text-purple-400'
   if (entry.audience === 'ai' || entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
   return 'text-foreground'
 }
@@ -48,6 +50,15 @@ function renderLogLine(entry: LogEntry) {
       <>
         <span className={cn('font-semibold', color)}>{tag}</span>
         {rest}
+      </>
+    )
+  }
+  if (entry.kind === 'reasoning' && !tagMatch) {
+    const color = getEntryColor(entry)
+    return (
+      <>
+        <span className={cn('font-semibold', color)}>[THINKING]</span>
+        {' '}{entry.line}
       </>
     )
   }
@@ -161,22 +172,30 @@ const MULTI_MODEL_PHASES = new Set([
 function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
   const isError = (entry: LogEntry) => entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')
-  const isAi = (entry: LogEntry) => entry.audience === 'ai'
+  const isFromOpenCode = (entry: LogEntry) =>
+    entry.audience === 'ai' ||
+    entry.source === 'opencode' ||
+    entry.source.startsWith('model:') ||
+    Boolean(entry.modelId) ||
+    Boolean(entry.sessionId)
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
+  const isImportantAiSummary = (entry: LogEntry) =>
+    entry.line.includes('Questions received from') ||
+    entry.line.includes('Compiled interview questions from')
 
   switch (tab) {
     case 'ALL':
-      return entries.filter(entry => entry.audience === 'all')
+      return entries.filter(entry => (entry.audience === 'all' || isError(entry) || isImportantAiSummary(entry)) && !isDebug(entry))
     case 'SYS':
       return entries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':
-      return entries.filter(isAi)
+      return entries.filter(isFromOpenCode)
     case 'ERROR':
       return entries.filter(isError)
     case 'DEBUG':
       return entries.filter(isDebug)
     default:
-      return entries.filter(entry => entry.audience === 'ai' && entry.modelId === tab)
+      return entries.filter(entry => entry.modelId === tab)
   }
 }
 
@@ -190,6 +209,25 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
   const lockedCouncilMembers = ticket?.lockedCouncilMembers ?? null
+
+  // ── Smart auto-scroll ──────────────────────────────────────────────
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const userScrolledAway = useRef(false)
+  const prevLogCount = useRef(0)
+
+  const BOTTOM_THRESHOLD = 50 // px from bottom to consider "at bottom"
+
+  // Attach scroll listener directly on the viewport (scroll events don't bubble)
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      userScrolledAway.current = distanceFromBottom > BOTTOM_THRESHOLD
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
   const configuredModelIds = useMemo(() => {
     if (!lockedCouncilMembers) return []
@@ -217,8 +255,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   }, [phaseLogs])
 
   const modelTabs = useMemo(() => {
-    const hasMultiModelOutput = detectedModelIds.length > 1
-    const enableModelTabs = isKnownMultiModelPhase || hasMultiModelOutput
+    const enableModelTabs = isKnownMultiModelPhase || detectedModelIds.length > 0
     if (!enableModelTabs) return []
 
     const seen = new Set<string>()
@@ -235,7 +272,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
     return tabs
   }, [isKnownMultiModelPhase, configuredModelIds, detectedModelIds])
 
-  const showModelTabs = modelTabs.length > 1
+  const showModelTabs = modelTabs.length > 0
   const availableTabs: string[] = useMemo(
     () => (showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]),
     [showModelTabs, modelTabs],
@@ -243,7 +280,42 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   const effectiveTab = availableTabs.includes(activeTab) ? activeTab : 'ALL'
   const filteredLogs = filterEntries(phaseLogs, effectiveTab)
   const hasLogs = filteredLogs.length > 0
-  const description = PHASE_LOG_DESCRIPTIONS[phase] ?? 'Processing…'
+  const description = PHASE_LOG_DESCRIPTIONS[phase] ?? <LoadingText text="Processing" />
+
+  // Auto-scroll to bottom when new entries arrive, unless user scrolled away
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    if (filteredLogs.length > prevLogCount.current && !userScrolledAway.current) {
+      // Use rAF to ensure DOM has laid out the new entries before scrolling
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      })
+    }
+    prevLogCount.current = filteredLogs.length
+  }, [filteredLogs.length])
+
+  // Scroll to bottom on initial mount once content is available
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el || filteredLogs.length === 0) return
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLogs]) // triggers once when logs first appear
+
+  // Reset scroll lock when switching tabs so the new tab starts at latest
+  useEffect(() => {
+    userScrolledAway.current = false
+    prevLogCount.current = 0
+    const el = viewportRef.current
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight })
+      })
+    }
+  }, [effectiveTab])
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -307,7 +379,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         })}
         <span className="ml-auto text-xs text-muted-foreground pl-2">{filteredLogs.length} entries</span>
       </div>
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="flex-1 min-h-0" viewportRef={viewportRef}>
         <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
           {hasLogs ? (
             filteredLogs.map((entry, i) => (

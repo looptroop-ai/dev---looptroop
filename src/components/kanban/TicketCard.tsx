@@ -219,6 +219,7 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
   useEffect(() => {
     if (!isError && errorSeen) {
       localStorage.removeItem(`error-seen-${ticket.id}`)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setErrorSeen(false)
     }
   }, [isError, ticket.id, errorSeen])

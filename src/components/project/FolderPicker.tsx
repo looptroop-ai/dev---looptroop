@@ -74,7 +74,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
                 setInputPath(d.currentPath)
                 checkGit(d.currentPath)
             }
-        } catch (err) {
+        } catch {
             setError('Failed to fetch directory contents.')
         } finally {
             setLoading(false)

@@ -64,6 +64,13 @@ describe('safeAtomicAppend', () => {
     safeAtomicAppend(filePath, 'appended')
     expect(readFileSync(filePath, 'utf-8')).toBe('existing\nappended\n')
   })
+
+  it('creates parent directories before appending', () => {
+    const filePath = join(TEST_DIR, 'nested', 'logs', 'append.txt')
+    safeAtomicAppend(filePath, 'line 1')
+    safeAtomicAppend(filePath, 'line 2')
+    expect(readFileSync(filePath, 'utf-8')).toBe('line 1\nline 2\n')
+  })
 })
 
 describe('recoverOrphanTmpFiles', () => {

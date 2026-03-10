@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCreateTicket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
+import { LoadingText } from '@/components/ui/LoadingText'
 import { ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -158,7 +159,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
           Cancel
         </Button>
         <Button type="submit" disabled={createTicket.isPending || !effectiveProjectId} title="Create ticket in selected project">
-          {createTicket.isPending ? 'Creating...' : 'Create Ticket'}
+          {createTicket.isPending ? <LoadingText text="Creating" /> : 'Create Ticket'}
         </Button>
       </div>
     </form>

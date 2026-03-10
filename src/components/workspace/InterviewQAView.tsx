@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { LoadingText } from '@/components/ui/LoadingText'
 import {
   useInterviewBatch,
   useSubmitBatch,
@@ -52,6 +53,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     if (hydratedRef.current) return
     const saved = persistedUiState?.data
     if (saved?.allAnswers && typeof saved.allAnswers === 'object') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAllAnswers(saved.allAnswers)
     }
     hydratedRef.current = true
@@ -76,6 +78,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   // Resolve current batch from SSE push or HTTP fetch
   useEffect(() => {
     if (sseFirstBatch) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentBatch(sseFirstBatch)
       setBatchAnswers({})
       setViewState('batch')
@@ -151,7 +154,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
         <div className="text-center space-y-2">
-          <div className="animate-pulse">Starting AI interview session…</div>
+          <LoadingText text="Starting AI interview session" className="text-sm font-medium animate-pulse" />
           <p className="text-[10px]">The winning AI model is preparing questions.</p>
         </div>
       </div>
@@ -177,7 +180,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
         <div className="text-center space-y-2">
-          <div className="animate-pulse">AI is analyzing your answers…</div>
+          <LoadingText text="AI is analyzing your answers" className="text-sm font-medium animate-pulse" />
           <p className="text-[10px]">Preparing the next batch of questions.</p>
         </div>
       </div>
@@ -282,7 +285,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                   disabled={isBusy}
                   className="h-7 text-xs text-muted-foreground"
                 >
-                  {isSkipping ? 'Skipping…' : 'Skip All'}
+                  {isSkipping ? <LoadingText text="Skipping" /> : 'Skip All'}
                 </Button>
                 <Button
                   variant="outline"
@@ -291,7 +294,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                   disabled={isBusy}
                   className="h-7 text-xs text-muted-foreground"
                 >
-                  {isSubmittingAll ? 'Submitting…' : 'Submit All Remaining'}
+                  {isSubmittingAll ? <LoadingText text="Submitting" /> : 'Submit All Remaining'}
                 </Button>
               </div>
               <Button
@@ -301,7 +304,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                 className="h-7 text-xs"
               >
                 {isSubmitting
-                  ? 'Submitting…'
+                  ? <LoadingText text="Submitting" />
                   : allBatchAnswersFilled
                     ? 'Submit Answers'
                     : 'Submit (with skips)'}

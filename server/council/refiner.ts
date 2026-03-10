@@ -9,6 +9,7 @@ export async function refineDraft(
   losingDrafts: DraftResult[],
   contextParts: PromptPart[],
   projectPath: string,
+  timeoutMs: number = 300000,
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
     stage: 'draft' | 'vote' | 'refine'
@@ -44,6 +45,7 @@ export async function refineDraft(
     projectPath,
     parts: refineParts,
     signal,
+    timeoutMs,
     model: winnerDraft.memberId,
     onSessionCreated: (session) => {
       sessionId = session.id

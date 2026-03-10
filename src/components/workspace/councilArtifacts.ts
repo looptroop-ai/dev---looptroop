@@ -1,0 +1,478 @@
+import { getModelDisplayName } from '@/components/shared/ModelBadge'
+import type { DBartifact } from '@/hooks/useTicketArtifacts'
+
+export type CouncilAction = 'drafting' | 'scoring' | 'refining' | 'verifying' | 'working'
+export type CouncilOutcome = 'pending' | 'completed' | 'timed_out' | 'invalid_output' | 'failed'
+
+export interface CouncilViewerArtifact {
+  id: string
+  label: string
+  description: string
+  content: string
+}
+
+export interface CouncilMemberArtifactChip {
+  key: string
+  modelId: string
+  action: CouncilAction
+  outcome?: CouncilOutcome
+  detail?: string
+  isWinner?: boolean
+  viewer: CouncilViewerArtifact
+}
+
+interface DraftLike {
+  memberId: string
+  content?: string
+  outcome?: CouncilOutcome
+  error?: string
+  questionCount?: number
+}
+
+interface VoteLike {
+  voterId: string
+  draftId: string
+  totalScore: number
+}
+
+interface CouncilResultLike {
+  drafts?: DraftLike[]
+  votes?: VoteLike[]
+  winnerId?: string
+  voterOutcomes?: Record<string, CouncilOutcome>
+  memberOutcomes?: Record<string, CouncilOutcome>
+}
+
+interface CoverageResultLike {
+  winnerId?: string
+  response?: string
+  hasGaps?: boolean
+}
+
+type Domain = 'interview' | 'prd' | 'beads'
+type ArtifactSource = Pick<DBartifact, 'phase' | 'artifactType' | 'content'>
+
+export function getCouncilAction(phase: string): CouncilAction {
+  if (phase.includes('DELIBERATING') || phase.includes('DRAFTING')) return 'drafting'
+  if (phase.includes('VOTING')) return 'scoring'
+  if (phase.includes('COMPILING') || phase.includes('REFINING')) return 'refining'
+  if (phase.includes('VERIFYING')) return 'verifying'
+  return 'working'
+}
+
+export function getCouncilStatusEmoji(outcome?: CouncilOutcome, action?: CouncilAction): string {
+  if (outcome === 'failed') return '💥'
+  if (outcome === 'timed_out') return '⏰'
+  if (outcome === 'invalid_output') return '❌'
+  if (outcome === 'completed') return '✅'
+  if (outcome === 'pending') return action === 'scoring' ? '⏳' : action === 'verifying' ? '🔍' : action === 'refining' ? '🔄' : '✏️'
+  if (action === 'drafting') return '✏️'
+  if (action === 'scoring') return '⏳'
+  if (action === 'refining') return '🔄'
+  if (action === 'verifying') return '🔍'
+  return '✏️'
+}
+
+export function getCouncilStatusLabel(outcome?: CouncilOutcome, action?: CouncilAction): string {
+  if (outcome === 'failed') return 'Failed'
+  if (outcome === 'timed_out') return 'Timed Out'
+  if (outcome === 'invalid_output') return 'Invalid Output'
+  if (outcome === 'completed') return 'Finished'
+  if (outcome === 'pending') {
+    if (action === 'drafting') return 'Drafting'
+    if (action === 'scoring') return 'Scoring'
+    if (action === 'refining') return 'Refining'
+    if (action === 'verifying') return 'Verifying'
+  }
+  if (action === 'drafting') return 'Drafting'
+  if (action === 'scoring') return 'Scoring'
+  if (action === 'refining') return 'Refining'
+  if (action === 'verifying') return 'Verifying'
+  return 'Working'
+}
+
+export function buildCouncilMemberArtifacts(
+  phase: string,
+  artifacts: DBartifact[],
+  configuredMembers: string[],
+  isCompleted: boolean,
+  fallbackCount: number = 3,
+): CouncilMemberArtifactChip[] {
+  const action = getCouncilAction(phase)
+  if (action === 'drafting') return buildDraftMemberArtifacts(phase, artifacts, configuredMembers, fallbackCount)
+  if (action === 'scoring') return buildVotingMemberArtifacts(phase, artifacts, configuredMembers, fallbackCount)
+  if (action === 'refining') return buildRefiningMemberArtifacts(phase, artifacts, configuredMembers, isCompleted, fallbackCount)
+  if (action === 'verifying') return buildVerificationMemberArtifacts(phase, artifacts, isCompleted)
+  return []
+}
+
+function buildDraftMemberArtifacts(
+  phase: string,
+  artifacts: DBartifact[],
+  configuredMembers: string[],
+  fallbackCount: number,
+): CouncilMemberArtifactChip[] {
+  const domain = getPhaseDomain(phase)
+  if (!domain) return []
+
+  const draftArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_drafts`)
+  const draftResult = parseCouncilResult(draftArtifact?.content)
+  const drafts = Array.isArray(draftResult?.drafts) ? draftResult.drafts : []
+  const draftByMember = new Map(drafts.map((draft) => [draft.memberId, draft]))
+  const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
+
+  return orderedMembers.map((memberId) => {
+    const draft = draftByMember.get(memberId)
+    const viewer = makeDraftViewer(domain, memberId, draftArtifact?.content ?? '')
+    return {
+      key: `${phase}:${memberId}`,
+      modelId: memberId,
+      action: 'drafting',
+      outcome: draft?.outcome ?? 'pending',
+      detail: getDraftDetail(draft),
+      viewer,
+    }
+  })
+}
+
+function buildVotingMemberArtifacts(
+  phase: string,
+  artifacts: DBartifact[],
+  configuredMembers: string[],
+  fallbackCount: number,
+): CouncilMemberArtifactChip[] {
+  const domain = getPhaseDomain(phase)
+  if (!domain) return []
+
+  const voteArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_votes`)
+  const voteResult = parseCouncilResult(voteArtifact?.content)
+  const voterOutcomes = voteResult?.voterOutcomes ?? {}
+  const orderedMembers = getOrderedMembers(
+    configuredMembers,
+    Object.keys(voterOutcomes).length > 0 ? Object.keys(voterOutcomes) : unique(voteResult?.votes?.map((vote) => vote.voterId) ?? []),
+    fallbackCount,
+  )
+  const viewer = makeVotingViewer(domain, voteArtifact?.content ?? '')
+
+  return orderedMembers.map((memberId) => {
+    const outcome = voterOutcomes[memberId] ?? 'pending'
+    const voteCount = (voteResult?.votes ?? []).filter((vote) => vote.voterId === memberId).length
+    return {
+      key: `${phase}:${memberId}`,
+      modelId: memberId,
+      action: 'scoring',
+      outcome,
+      detail: getVotingDetail(outcome, voteCount),
+      viewer,
+    }
+  })
+}
+
+function buildRefiningMemberArtifacts(
+  phase: string,
+  artifacts: DBartifact[],
+  configuredMembers: string[],
+  isCompleted: boolean,
+  fallbackCount: number,
+): CouncilMemberArtifactChip[] {
+  const domain = getPhaseDomain(phase)
+  if (!domain) return []
+
+  const votePhase = getVotePhaseForRefine(phase)
+  const voteArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === votePhase && artifact.artifactType === `${domain}_votes`)
+  const voteResult = parseCouncilResult(voteArtifact?.content)
+  const drafts = Array.isArray(voteResult?.drafts) ? voteResult.drafts : []
+  const winnerId = voteResult?.winnerId ?? ''
+  const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
+  const refinedArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === getRefinedArtifactType(domain))
+
+  return orderedMembers.map((memberId) => {
+    const draft = drafts.find((d) => d.memberId === memberId)
+    const isWinner = memberId === winnerId
+    const viewer = isWinner
+      ? makeWinnerViewer(domain, phase, memberId, refinedArtifact?.content ?? voteArtifact?.content ?? '', refinedArtifact?.content ? true : false)
+      : makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
+
+    return {
+      key: `${phase}:${memberId}`,
+      modelId: memberId,
+      action: isWinner && !isCompleted ? 'refining' : 'working',
+      outcome: isWinner && !isCompleted ? 'pending' : 'completed',
+      detail: isWinner ? 'Winner — refining draft' : getDraftCompletionDetail(draft),
+      isWinner,
+      viewer,
+    }
+  })
+}
+
+function buildVerificationMemberArtifacts(
+  phase: string,
+  artifacts: DBartifact[],
+  isCompleted: boolean,
+): CouncilMemberArtifactChip[] {
+  const domain = getPhaseDomain(phase)
+  if (!domain) return []
+
+  const coverageArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_coverage`)
+  const coverageResult = parseCoverageResult(coverageArtifact?.content)
+  const winnerId = coverageResult?.winnerId
+    ?? parseWinnerIdFromArtifacts(domain, phase, artifacts)
+
+  if (!winnerId) return []
+
+  const coverageComplete = isCompleted || Boolean(coverageArtifact?.content)
+  return [{
+    key: `${phase}:${winnerId}`,
+    modelId: winnerId,
+    action: coverageComplete ? 'working' : 'verifying',
+    outcome: coverageComplete ? 'completed' : 'pending',
+    detail: getCoverageDetail(coverageResult),
+    isWinner: true,
+    viewer: makeCoverageViewer(domain, coverageArtifact?.content ?? ''),
+  }]
+}
+
+function getDraftDetail(draft: DraftLike | undefined): string {
+  if (!draft) return 'waiting for response'
+  if (draft.outcome === 'pending') return 'waiting for response'
+  if (draft.outcome === 'timed_out') return 'no response received'
+  if (draft.outcome === 'failed') return draft.error || 'runtime failure'
+  if (draft.outcome === 'invalid_output') {
+    // Still try to show useful detail if content exists
+    if (draft.content) {
+      const detail = getDraftCompletionDetail(draft)
+      if (detail) return detail
+    }
+    return draft.error || 'malformed response'
+  }
+  return getDraftCompletionDetail(draft)
+}
+
+function getDraftCompletionDetail(draft: DraftLike | undefined): string {
+  if (!draft?.content) return ''
+  const questionCount = typeof draft.questionCount === 'number'
+    ? draft.questionCount
+    : countQuestionsInContent(draft.content)
+  if (questionCount > 0) return `proposed ${questionCount} questions`
+  const lineCount = draft.content.split('\n').filter((line) => line.trim()).length
+  return lineCount > 0 ? `${lineCount} lines generated` : ''
+}
+
+function getVotingDetail(outcome: CouncilOutcome, voteCount: number): string {
+  if (outcome === 'completed') return voteCount > 0 ? `scored ${voteCount} drafts` : 'scoring complete'
+  if (outcome === 'timed_out') return 'vote timed out'
+  if (outcome === 'failed') return 'vote failed'
+  if (outcome === 'invalid_output') return 'malformed scores'
+  return 'waiting for scores'
+}
+
+function getCoverageDetail(result: CoverageResultLike | null): string {
+  if (!result) return 'waiting for coverage result'
+  if (result.hasGaps === true) return 'coverage gaps found'
+  if (result.hasGaps === false) return 'coverage complete'
+  return 'coverage result available'
+}
+
+function makeDraftViewer(domain: Domain, modelId: string, content: string): CouncilViewerArtifact {
+  return {
+    id: getDraftArtifactId(domain, modelId),
+    label: `${getDomainLabel(domain)} Draft — ${getModelDisplayName(modelId)}`,
+    description: getDraftDescription(domain),
+    content,
+  }
+}
+
+function makeVotingViewer(domain: Domain, content: string): CouncilViewerArtifact {
+  return {
+    id: getVotesArtifactId(domain),
+    label: `${getDomainLabel(domain)} Voting Results`,
+    description: 'Weighted scoring results',
+    content,
+  }
+}
+
+function makeWinnerViewer(
+  domain: Domain,
+  phase: string,
+  modelId: string,
+  content: string,
+  hasRefinedArtifact: boolean,
+): CouncilViewerArtifact {
+  if (!hasRefinedArtifact) return makeDraftViewer(domain, modelId, content)
+  if (phase === 'COMPILING_INTERVIEW') {
+    return {
+      id: 'final-interview',
+      label: 'Final Interview Questions',
+      description: 'Compiled question set',
+      content,
+    }
+  }
+  if (domain === 'prd') {
+    return {
+      id: 'refined-prd',
+      label: 'Refined PRD',
+      description: 'Winning draft with improvements',
+      content,
+    }
+  }
+  return {
+    id: 'refined-beads',
+    label: 'Refined Beads',
+    description: 'Winning beads with improvements',
+    content,
+  }
+}
+
+function makeCoverageViewer(domain: Domain, content: string): CouncilViewerArtifact {
+  return {
+    id: `${domain}-coverage-result`,
+    label: `${getDomainLabel(domain)} Coverage Result`,
+    description: 'Coverage verification result from the winning model',
+    content,
+  }
+}
+
+function parseWinnerIdFromArtifacts(domain: Domain, phase: string, artifacts: ArtifactSource[]): string | undefined {
+  const coverageArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_coverage`)
+  const coverageWinner = parseCoverageResult(coverageArtifact?.content)?.winnerId
+  if (coverageWinner) return coverageWinner
+
+  const refinedArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === getRefinedArtifactType(domain))
+  const refinedWinner = parseCouncilResult(refinedArtifact?.content)?.winnerId
+  if (refinedWinner) return refinedWinner
+
+  const winnerArtifactType = domain === 'interview' ? 'interview_winner' : `${domain}_votes`
+  const winnerArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === winnerArtifactType)
+  if (!winnerArtifact?.content) return undefined
+  try {
+    const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+    return parsed.winnerId
+  } catch {
+    return undefined
+  }
+}
+
+function parseCouncilResult(content: string | null | undefined): CouncilResultLike | null {
+  if (!content) return null
+  try {
+    const parsed = JSON.parse(content) as CouncilResultLike
+    if (parsed.drafts || parsed.votes || parsed.voterOutcomes || parsed.winnerId) return parsed
+  } catch {
+    return null
+  }
+  return null
+}
+
+function parseCoverageResult(content: string | null | undefined): CoverageResultLike | null {
+  if (!content) return null
+  try {
+    const parsed = JSON.parse(content) as unknown
+    if (parsed && typeof parsed === 'object') {
+      const result = parsed as CoverageResultLike
+      if ('response' in result || 'hasGaps' in result || 'winnerId' in result) return result
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function findLatestArtifact(
+  artifacts: ArtifactSource[],
+  predicate: (artifact: ArtifactSource) => boolean,
+): ArtifactSource | undefined {
+  for (let index = artifacts.length - 1; index >= 0; index -= 1) {
+    const artifact = artifacts[index]
+    if (artifact && predicate(artifact)) return artifact
+  }
+  return undefined
+}
+
+function getOrderedMembers(configuredMembers: string[], discoveredMembers: string[], fallbackCount: number): string[] {
+  if (configuredMembers.length > 0) return configuredMembers
+  if (discoveredMembers.length > 0) return unique(discoveredMembers)
+  return Array.from({ length: fallbackCount }, (_, index) => `Model ${index + 1}`)
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))]
+}
+
+function getPhaseDomain(phase: string): Domain | null {
+  if (phase.includes('INTERVIEW') || phase === 'COUNCIL_DELIBERATING' || phase === 'COMPILING_INTERVIEW') return 'interview'
+  if (phase.includes('PRD')) return 'prd'
+  if (phase.includes('BEADS')) return 'beads'
+  return null
+}
+
+function getDomainLabel(domain: Domain): string {
+  if (domain === 'interview') return 'Interview'
+  if (domain === 'prd') return 'PRD'
+  return 'Beads'
+}
+
+function getDraftDescription(domain: Domain): string {
+  if (domain === 'interview') return 'Independent question set draft'
+  if (domain === 'prd') return 'Independent PRD draft'
+  return 'Independent beads breakdown'
+}
+
+function getDraftArtifactId(domain: Domain, memberId: string): string {
+  const safe = encodeURIComponent(memberId)
+  if (domain === 'interview') return `draft-member-${safe}`
+  if (domain === 'prd') return `prd-draft-member-${safe}`
+  return `beads-draft-member-${safe}`
+}
+
+function getVotesArtifactId(domain: Domain): string {
+  if (domain === 'interview') return 'votes'
+  if (domain === 'prd') return 'prd-votes'
+  return 'beads-votes'
+}
+
+function getVotePhaseForRefine(phase: string): string {
+  if (phase === 'COMPILING_INTERVIEW') return 'COUNCIL_VOTING_INTERVIEW'
+  if (phase === 'REFINING_PRD') return 'COUNCIL_VOTING_PRD'
+  return 'COUNCIL_VOTING_BEADS'
+}
+
+function getRefinedArtifactType(domain: Domain): string {
+  if (domain === 'interview') return 'interview_compiled'
+  if (domain === 'prd') return 'prd_refined'
+  return 'beads_refined'
+}
+
+function countQuestionsInContent(content: string): number {
+  // Try YAML parse first
+  try {
+    // Use simple JSON parse attempt (council artifacts store YAML-like JSON)
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.questions)) return parsed.questions.length
+      if (Array.isArray(parsed)) return parsed.length
+    }
+  } catch {
+    // Not JSON, try line-based counting
+  }
+
+  // Count structured list items (numbered or bulleted) that look like questions
+  const lines = content.split('\n').map(l => l.trim()).filter(Boolean)
+  let count = 0
+  for (const line of lines) {
+    // Numbered items: "1.", "1)", "Q1:", etc.
+    if (/^\d+[.)]\s/.test(line) || /^Q\d+/i.test(line)) {
+      count++
+      continue
+    }
+    // Bulleted items with substantial content (not headers/metadata)
+    if (/^[-*]\s/.test(line) && line.length > 15) {
+      count++
+      continue
+    }
+    // Lines ending with ?
+    if (line.endsWith('?')) {
+      count++
+    }
+  }
+  return count
+}

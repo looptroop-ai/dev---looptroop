@@ -47,6 +47,15 @@ Thumbs.db
 .agents/
 .claude/
 
+# Temp analysis/debug files
+ARTIFACT_AND_SSE_ANALYSIS.md
+BROADCAST_GAPS_QUICK_REFERENCE.md
+EXACT_CODE_LOCATIONS.md
+README_ARTIFACT_ANALYSIS.md
+VISUAL_SUMMARY.txt
+fix-loop7.ts
+new.txt
+
 # Database files
 *.db
 *.db-journal

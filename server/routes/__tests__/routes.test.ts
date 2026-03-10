@@ -1,9 +1,8 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { Hono } from 'hono'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
 import { db as appDb } from '../../db/index'
 import { initializeDatabase } from '../../db/init'
 import { clearProjectDatabaseCache } from '../../db/project'
@@ -12,10 +11,12 @@ import { appendLogEvent } from '../../log/executionLog'
 import { stopAllActors } from '../../machines/persistence'
 import { resetOpenCodeAdapter } from '../../opencode/factory'
 import { getProjectContextById } from '../../storage/projects'
-import { getTicketPaths, patchTicket } from '../../storage/tickets'
+import { getTicketByRef, getTicketPaths, patchTicket } from '../../storage/tickets'
 import { getProjectDbPath, getProjectLoopTroopDir, getTicketExecutionLogPath, getTicketRuntimeDir, getTicketWorktreePath } from '../../storage/paths'
 import { initializeTicket } from '../../ticket/initialize'
 import { validateJson } from '../../middleware/validation'
+import { broadcaster } from '../../sse/broadcaster'
+import { cancelTicket } from '../../workflow/runner'
 import { beadsRouter } from '../beads'
 import { filesRouter } from '../files'
 import { health } from '../health'
@@ -23,6 +24,7 @@ import { modelsRouter } from '../models'
 import { profileRouter } from '../profiles'
 import { projectRouter } from '../projects'
 import { ticketRouter } from '../tickets'
+import { createFixtureRepoManager } from '../../test/fixtureRepo'
 
 const app = new Hono()
 app.use('/api/*', validateJson)
@@ -34,48 +36,94 @@ app.route('/api', modelsRouter)
 app.route('/api', filesRouter)
 app.route('/api', beadsRouter)
 
-const repoDirs: string[] = []
+const repoFixture = createFixtureRepoManager({
+  templatePrefix: 'looptroop-routes-template-',
+  files: {
+    'package.json': JSON.stringify({ name: 'fixture', private: true }, null, 2),
+    'src/index.ts': 'export const ready = true\n',
+  },
+})
+const createdTicketIds = new Set<string>()
 
 function createGitRepo(prefix: string): string {
-  const repoDir = fs.mkdtempSync(path.join(tmpdir(), prefix))
-  execFileSync('git', ['-C', repoDir, 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'LoopTroop Tests'], { stdio: 'pipe' })
-  fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true })
-  fs.writeFileSync(path.join(repoDir, 'package.json'), JSON.stringify({ name: 'fixture', private: true }, null, 2))
-  fs.writeFileSync(path.join(repoDir, 'src', 'index.ts'), 'export const ready = true\n')
-  execFileSync('git', ['-C', repoDir, 'add', '.'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'commit', '-m', 'init'], { stdio: 'pipe' })
-  execFileSync('git', ['-C', repoDir, 'branch', '-M', 'main'], { stdio: 'pipe' })
-  repoDirs.push(repoDir)
-  return repoDir
+  return repoFixture.createRepo(prefix)
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
   return await response.json() as T
 }
 
-async function waitForTicketStatus(ticketId: string, expectedStatus: string, timeoutMs: number = 8000) {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < timeoutMs) {
-    const response = await app.request(`/api/tickets/${encodeURIComponent(ticketId)}`)
-    const body = await parseJson<{ status: string } | { error: string }>(response)
-    if ('status' in body && body.status === expectedStatus) {
-      return body
-    }
-    await new Promise(resolveWait => setTimeout(resolveWait, 25))
+function trackTicket(ticketId: string) {
+  createdTicketIds.add(ticketId)
+  return ticketId
+}
+
+async function waitForTicketStatus(ticketId: string, expectedStatus: string, timeoutMs: number = 4000) {
+  const currentStatus = getTicketByRef(ticketId)?.status
+  if (currentStatus === expectedStatus) {
+    return { status: currentStatus }
   }
 
-  const last = await app.request(`/api/tickets/${encodeURIComponent(ticketId)}`)
-  const lastBody = await parseJson<{ status?: string; error?: string }>(last)
-  throw new Error(`Timed out waiting for ${ticketId} to reach ${expectedStatus}; last response was ${JSON.stringify(lastBody)}`)
+  return await new Promise<{ status: string }>((resolve, reject) => {
+    const clientId = `test-wait-${ticketId}-${Date.now()}`
+    const cleanup = () => {
+      clearTimeout(timer)
+      broadcaster.removeClient(ticketId, clientId)
+    }
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error(`Timed out waiting for ${ticketId} to reach ${expectedStatus}; last status was ${getTicketByRef(ticketId)?.status ?? 'missing'}`))
+    }, timeoutMs)
+
+    broadcaster.addClient(ticketId, {
+      id: clientId,
+      ticketId,
+      send: (event, data) => {
+        if (event !== 'state_change') return
+        const payload = JSON.parse(data) as { to?: string }
+        if (payload.to === expectedStatus) {
+          cleanup()
+          resolve({ status: expectedStatus })
+        }
+      },
+      close: cleanup,
+    })
+
+    const latestStatus = getTicketByRef(ticketId)?.status
+    if (latestStatus === expectedStatus) {
+      cleanup()
+      resolve({ status: latestStatus })
+    }
+  })
+}
+
+async function requestAndWaitForTicketStatus(
+  ticketId: string,
+  expectedStatus: string,
+  request: () => Response | Promise<Response>,
+  timeoutMs?: number,
+) {
+  const pendingStatus = waitForTicketStatus(ticketId, expectedStatus, timeoutMs)
+  try {
+    const response = await request()
+    await pendingStatus
+    return response
+  } catch (error) {
+    await pendingStatus.catch(() => undefined)
+    throw error
+  }
 }
 
 beforeAll(() => {
   initializeDatabase()
 })
 
+afterAll(() => {
+  repoFixture.cleanup()
+})
+
 beforeEach(() => {
+  createdTicketIds.clear()
   stopAllActors()
   resetOpenCodeAdapter()
   clearProjectDatabaseCache()
@@ -84,14 +132,16 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  for (const ticketId of createdTicketIds) {
+    cancelTicket(ticketId)
+    broadcaster.clearTicket(ticketId)
+  }
   stopAllActors()
+  createdTicketIds.clear()
   resetOpenCodeAdapter()
   clearProjectDatabaseCache()
   appDb.delete(attachedProjects).run()
   appDb.delete(profiles).run()
-  for (const repoDir of repoDirs.splice(0)) {
-    fs.rmSync(repoDir, { recursive: true, force: true })
-  }
 })
 
 describe('Routes', () => {
@@ -282,6 +332,7 @@ describe('Routes', () => {
     })
     expect(createTicket.status).toBe(201)
     const ticket = await parseJson<{ id: string; externalId: string }>(createTicket)
+    trackTicket(ticket.id)
     expect(ticket.id).toBe(`${project.id}:LFC-1`)
 
     const worktreePath = getTicketWorktreePath(repoDir, ticket.externalId)
@@ -289,7 +340,11 @@ describe('Routes', () => {
     expect(fs.existsSync(metaPath)).toBe(true)
     expect(fs.existsSync(path.join(worktreePath, '.ticket', 'codebase-map.yaml'))).toBe(false)
 
-    const start = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/start`, { method: 'POST' })
+    const start = await requestAndWaitForTicketStatus(
+      ticket.id,
+      'WAITING_INTERVIEW_ANSWERS',
+      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/start`, { method: 'POST' }),
+    )
     expect(start.status).toBe(200)
     const startedTicket = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}`)
     expect(startedTicket.status).toBe(200)
@@ -297,7 +352,6 @@ describe('Routes', () => {
       lockedMainImplementer: 'openai/codex-mini-latest',
       lockedCouncilMembers: JSON.stringify(['openai/codex-mini-latest', 'openai/gpt-5.3-codex']),
     })
-    await waitForTicketStatus(ticket.id, 'WAITING_INTERVIEW_ANSWERS')
 
     const runtimeDir = getTicketRuntimeDir(repoDir, ticket.externalId)
     expect(fs.existsSync(path.join(worktreePath, '.ticket', 'codebase-map.yaml'))).toBe(true)
@@ -313,30 +367,39 @@ describe('Routes', () => {
     const batchAnswers = Object.fromEntries(
       batchPayload.batch.questions.map((question, index) => [question.id, `answer-${index + 1}`]),
     )
-    const answerBatch = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/answer-batch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answers: batchAnswers }),
-    })
+    const answerBatch = await requestAndWaitForTicketStatus(
+      ticket.id,
+      'WAITING_INTERVIEW_APPROVAL',
+      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/answer-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: batchAnswers }),
+      }),
+    )
     expect(answerBatch.status).toBe(200)
     expect(await parseJson<{ isComplete: boolean }>(answerBatch)).toMatchObject({ isComplete: true })
-    await waitForTicketStatus(ticket.id, 'WAITING_INTERVIEW_APPROVAL')
 
     const interviewFile = await app.request(`/api/files/${encodeURIComponent(ticket.id)}/interview`)
     expect(interviewFile.status).toBe(200)
     expect(await parseJson<{ exists: boolean }>(interviewFile)).toMatchObject({ exists: true })
 
-    const approveInterview = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-interview`, { method: 'POST' })
+    const approveInterview = await requestAndWaitForTicketStatus(
+      ticket.id,
+      'WAITING_PRD_APPROVAL',
+      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-interview`, { method: 'POST' }),
+    )
     expect(approveInterview.status).toBe(200)
-    await waitForTicketStatus(ticket.id, 'WAITING_PRD_APPROVAL')
 
     const prdFile = await app.request(`/api/files/${encodeURIComponent(ticket.id)}/prd`)
     expect(prdFile.status).toBe(200)
     expect(await parseJson<{ exists: boolean; content: string }>(prdFile)).toMatchObject({ exists: true })
 
-    const approvePrd = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-prd`, { method: 'POST' })
+    const approvePrd = await requestAndWaitForTicketStatus(
+      ticket.id,
+      'WAITING_BEADS_APPROVAL',
+      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-prd`, { method: 'POST' }),
+    )
     expect(approvePrd.status).toBe(200)
-    await waitForTicketStatus(ticket.id, 'WAITING_BEADS_APPROVAL')
 
     const beadsResponse = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/beads`)
     expect(beadsResponse.status).toBe(200)
@@ -344,9 +407,12 @@ describe('Routes', () => {
     expect(beads.length).toBeGreaterThan(0)
     expect(beads.every(bead => bead.status === 'pending')).toBe(true)
 
-    const approveBeads = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-beads`, { method: 'POST' })
+    const approveBeads = await requestAndWaitForTicketStatus(
+      ticket.id,
+      'WAITING_MANUAL_VERIFICATION',
+      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-beads`, { method: 'POST' }),
+    )
     expect(approveBeads.status).toBe(200)
-    await waitForTicketStatus(ticket.id, 'WAITING_MANUAL_VERIFICATION')
 
     const executionLogPath = getTicketExecutionLogPath(repoDir, ticket.externalId)
     expect(fs.existsSync(executionLogPath)).toBe(true)
@@ -358,9 +424,12 @@ describe('Routes', () => {
     expect(logs.length).toBeGreaterThan(0)
     expect(logs.some(entry => entry.phase === 'WAITING_MANUAL_VERIFICATION')).toBe(true)
 
-    const verify = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/verify`, { method: 'POST' })
+    const verify = await requestAndWaitForTicketStatus(
+      ticket.id,
+      'COMPLETED',
+      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/verify`, { method: 'POST' }),
+    )
     expect(verify.status).toBe(200)
-    await waitForTicketStatus(ticket.id, 'COMPLETED')
 
     expect(fs.existsSync(executionLogPath)).toBe(true)
     expect(fs.existsSync(path.join(runtimeDir, 'sessions'))).toBe(false)
@@ -406,6 +475,7 @@ describe('Routes', () => {
     })
     expect(createTicket.status).toBe(201)
     const ticket = await parseJson<{ id: string; externalId: string }>(createTicket)
+    trackTicket(ticket.id)
 
     initializeTicket({
       externalId: ticket.externalId,
@@ -498,6 +568,7 @@ describe('Routes', () => {
       }),
     })
     const ticket = await parseJson<{ id: string }>(createTicket)
+    trackTicket(ticket.id)
 
     const deleteResponse = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}`, { method: 'DELETE' })
     expect(deleteResponse.status).toBe(409)

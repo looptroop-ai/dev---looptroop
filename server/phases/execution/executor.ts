@@ -3,6 +3,7 @@ import type { Bead } from '../beads/types'
 import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { parseCompletionMarker } from './completionChecker'
 import { runOpenCodePrompt } from '../../workflow/runOpenCodePrompt'
+import { PROFILE_DEFAULTS } from '../../db/defaults'
 
 const COMPLETION_INSTRUCTIONS = [
   'When complete, output a <BEAD_STATUS>COMPLETE</BEAD_STATUS> marker.',
@@ -22,7 +23,7 @@ export async function executeBead(
   bead: Bead,
   contextParts: PromptPart[],
   projectPath: string,
-  maxIterations: number = 5,
+  maxIterations: number = PROFILE_DEFAULTS.maxIterations,
   timeout: number = 600000,
   callbacks?: {
     model?: string

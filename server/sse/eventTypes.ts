@@ -1,4 +1,4 @@
-export type SSEEventType = 'state_change' | 'log' | 'progress' | 'error' | 'bead_complete' | 'needs_input'
+export type SSEEventType = 'state_change' | 'log' | 'progress' | 'error' | 'bead_complete' | 'needs_input' | 'artifact_change'
 
 export interface SSEEvent {
   id: string
@@ -56,4 +56,21 @@ export interface NeedsInputEvent {
   type: string
   questionIndex?: number
   context?: Record<string, unknown>
+}
+
+export interface ArtifactSnapshot {
+  id: number
+  ticketId: string
+  phase: string
+  artifactType: string
+  filePath: string | null
+  content: string | null
+  createdAt: string
+}
+
+export interface ArtifactChangeEvent {
+  ticketId: string
+  phase: string
+  artifactType: string
+  artifact?: ArtifactSnapshot
 }

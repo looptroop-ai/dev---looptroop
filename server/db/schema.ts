@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import { PROFILE_DEFAULTS } from './defaults'
 
 export const profiles = sqliteTable('profiles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -7,11 +8,11 @@ export const profiles = sqliteTable('profiles', {
   background: text('background'),
   mainImplementer: text('main_implementer'),
   councilMembers: text('council_members'), // JSON array of model IDs
-  minCouncilQuorum: integer('min_council_quorum').default(2),
-  perIterationTimeout: integer('per_iteration_timeout').default(1200000),
-  councilResponseTimeout: integer('council_response_timeout').default(900000),
-  interviewQuestions: integer('interview_questions').default(50),
-  maxIterations: integer('max_iterations').default(5),
+  minCouncilQuorum: integer('min_council_quorum').default(PROFILE_DEFAULTS.minCouncilQuorum),
+  perIterationTimeout: integer('per_iteration_timeout').default(PROFILE_DEFAULTS.perIterationTimeout),
+  councilResponseTimeout: integer('council_response_timeout').default(PROFILE_DEFAULTS.councilResponseTimeout),
+  interviewQuestions: integer('interview_questions').default(PROFILE_DEFAULTS.interviewQuestions),
+  maxIterations: integer('max_iterations').default(PROFILE_DEFAULTS.maxIterations),
   disableAnalogies: integer('disable_analogies').default(0),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),

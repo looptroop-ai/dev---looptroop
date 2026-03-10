@@ -18,7 +18,7 @@ function App() {
   const { state, dispatch } = useUI()
   const { data: tickets } = useTickets()
   const ticketsRef = useRef(tickets)
-  ticketsRef.current = tickets
+  useEffect(() => { ticketsRef.current = tickets }, [tickets])
   const initialUrlProcessed = useRef(false)
   const [showProfile, setShowProfile] = useState(false)
   const [showProject, setShowProject] = useState(false)
