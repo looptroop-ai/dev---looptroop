@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, isAbsolute, resolve } from 'path'
+import { resolveBaseBranch } from '../git/repository'
 
 export function normalizeFolderPath(input: string): string {
   let output = input.trim().replace(/[\\/]+$/, '')
@@ -31,6 +32,10 @@ export function resolveGitRepoRoot(folderPath: string): string | null {
 
 export function isGitRepo(folderPath: string): boolean {
   return resolveGitRepoRoot(folderPath) !== null
+}
+
+export function detectGitBaseBranch(projectRoot: string): string {
+  return resolveBaseBranch(projectRoot)
 }
 
 export function getProjectLoopTroopDir(projectRoot: string): string {

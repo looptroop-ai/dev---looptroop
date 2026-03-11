@@ -20,6 +20,8 @@ export async function draftBeads(
   options: {
     draftTimeoutMs: number
     minQuorum: number
+    ticketId?: string
+    phaseAttempt?: number
   },
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
@@ -49,6 +51,12 @@ export async function draftBeads(
     onOpenCodeSessionLog,
     onOpenCodeStreamEvent,
     onDraftProgress,
+    undefined,
+    {
+      ticketId: options.ticketId,
+      phase: 'DRAFTING_BEADS',
+      phaseAttempt: options.phaseAttempt,
+    },
   )
 
   return {

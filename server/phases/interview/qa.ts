@@ -80,6 +80,7 @@ export async function startInterviewSession(
   maxQuestions: number,
   signal?: AbortSignal,
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
+  ticketId?: string,
 ): Promise<{ sessionId: string; firstBatch: BatchResponse }> {
   const contextParts = buildMinimalContext('interview_qa', ticketState)
   const prompt = buildConversationalPrompt(PROM4, contextParts)
@@ -107,6 +108,16 @@ export async function startInterviewSession(
       parts: [{ type: 'text', content: fullPrompt }] as PromptPart[],
       signal,
       model: winnerId,
+      ...(ticketId
+        ? {
+            sessionOwnership: {
+              ticketId,
+              phase: 'WAITING_INTERVIEW_ANSWERS',
+              memberId: winnerId,
+              keepActive: true,
+            },
+          }
+        : {}),
       onSessionCreated: (session) => {
         sessionId = session.id
       },
@@ -138,6 +149,7 @@ export async function submitBatchToSession(
   signal?: AbortSignal,
   model?: string,
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
+  ticketId?: string,
 ): Promise<BatchResponse> {
   const answerLines = Object.entries(batchAnswers).map(([id, answer]) => {
     const text = answer.trim() || '[SKIPPED]'
@@ -161,6 +173,16 @@ export async function submitBatchToSession(
       parts: [{ type: 'text', content: message }] as PromptPart[],
       signal,
       model,
+      ...(ticketId
+        ? {
+            sessionOwnership: {
+              ticketId,
+              phase: 'WAITING_INTERVIEW_ANSWERS',
+              memberId: model,
+              keepActive: true,
+            },
+          }
+        : {}),
       onStreamEvent: (event) => {
         onOpenCodeStreamEvent?.({
           sessionId,

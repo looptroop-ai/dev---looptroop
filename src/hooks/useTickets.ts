@@ -1,8 +1,29 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clearPersistedTicketLogs } from '@/context/LogContext'
 import { clearTicketArtifactsCache } from './useTicketArtifacts'
+import type { WorkflowAction } from '@shared/workflowMeta'
 
-interface Ticket {
+export interface TicketRuntime {
+  baseBranch: string
+  currentBead: number
+  completedBeads: number
+  totalBeads: number
+  percentComplete: number
+  iterationCount: number
+  maxIterations: number | null
+  artifactRoot: string
+  beads?: Array<{
+    id: string
+    title: string
+    status: string
+    iteration: number
+  }>
+  candidateCommitSha: string | null
+  preSquashHead: string | null
+  finalTestStatus: 'passed' | 'failed' | 'pending'
+}
+
+export interface Ticket {
   id: string
   externalId: string
   projectId: number
@@ -17,7 +38,10 @@ interface Ticket {
   percentComplete: number | null
   errorMessage: string | null
   lockedMainImplementer: string | null
-  lockedCouncilMembers: string | null
+  lockedCouncilMembers: string[]
+  availableActions: WorkflowAction[]
+  previousStatus?: string | null
+  runtime: TicketRuntime
   startedAt: string | null
   plannedDate: string | null
   createdAt: string
@@ -430,4 +454,4 @@ export function useSubmitBatch() {
   })
 }
 
-export type { Ticket, CreateTicketInput, InterviewQuestion, InterviewData, TicketUIStateResponse, BatchQuestion, BatchData }
+export type { CreateTicketInput, InterviewQuestion, InterviewData, TicketUIStateResponse, BatchQuestion, BatchData }

@@ -6,11 +6,9 @@ import { runOpenCodePrompt } from '../../workflow/runOpenCodePrompt'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
+import { buildCompletionInstructions } from './completionSchema'
 
-const COMPLETION_INSTRUCTIONS = [
-  'When complete, output a <BEAD_STATUS>COMPLETE</BEAD_STATUS> marker.',
-  'If you cannot complete, output <BEAD_STATUS>FAILED: reason</BEAD_STATUS>.',
-].join('\n')
+const COMPLETION_INSTRUCTIONS = buildCompletionInstructions()
 
 export interface ExecutionResult {
   beadId: string
@@ -29,6 +27,7 @@ export async function executeBead(
   timeout: number = 600000,
   signal?: AbortSignal,
   callbacks?: {
+    ticketId?: string
     model?: string
     onSessionCreated?: (sessionId: string, iteration: number) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; iteration: number; event: StreamEvent }) => void
@@ -38,7 +37,7 @@ export async function executeBead(
   let lastOutput = ''
   const errors: string[] = []
 
-  while (iteration < maxIterations) {
+  while (maxIterations <= 0 || iteration < maxIterations) {
     iteration++
     throwIfAborted(signal)
 
@@ -49,15 +48,11 @@ export async function executeBead(
         {
           type: 'text',
           content: [
-            `## Bead: ${bead.title}`,
+            `## Active Bead`,
             `ID: ${bead.id}`,
-            `Description: ${bead.description}`,
-            `Acceptance Criteria:`,
-            ...bead.acceptanceCriteria.map((ac) => `- ${ac}`),
-            `Tests:`,
-            ...bead.tests.map((t) => `- ${t}`),
-            `Test Commands:`,
-            ...bead.testCommands.map((c) => `- ${c}`),
+            `Title: ${bead.title}`,
+            'Use the bead_data and bead_notes context above as the source of truth for requirements, files, tests, and prior failures.',
+            'Update the worktree until every required quality gate passes.',
             '',
             COMPLETION_INSTRUCTIONS,
           ].join('\n'),
@@ -71,6 +66,17 @@ export async function executeBead(
         signal,
         timeoutMs: timeout,
         model: callbacks?.model,
+        ...(callbacks?.ticketId
+          ? {
+              sessionOwnership: {
+                ticketId: callbacks.ticketId,
+                phase: 'CODING',
+                memberId: callbacks.model,
+                beadId: bead.id,
+                iteration,
+              },
+            }
+          : {}),
         onSessionCreated: (session) => {
           sessionId = session.id
           callbacks?.onSessionCreated?.(session.id, iteration)

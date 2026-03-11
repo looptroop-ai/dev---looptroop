@@ -3,6 +3,21 @@ import { render, screen } from '@testing-library/react'
 import { CouncilView } from '../CouncilView'
 import type { Ticket } from '@/hooks/useTickets'
 
+const baseRuntime: Ticket['runtime'] = {
+  baseBranch: 'main',
+  currentBead: 0,
+  completedBeads: 0,
+  totalBeads: 0,
+  percentComplete: 0,
+  iterationCount: 0,
+  maxIterations: null,
+  artifactRoot: '/tmp/looptroop',
+  beads: [],
+  candidateCommitSha: null,
+  preSquashHead: null,
+  finalTestStatus: 'pending',
+}
+
 const mockUseTicketArtifacts = vi.fn()
 
 vi.mock('@/hooks/useTicketArtifacts', () => ({
@@ -32,7 +47,10 @@ const baseTicket: Ticket = {
   percentComplete: null,
   errorMessage: null,
   lockedMainImplementer: null,
-  lockedCouncilMembers: null,
+  lockedCouncilMembers: [],
+  availableActions: ['cancel'],
+  previousStatus: null,
+  runtime: baseRuntime,
   startedAt: null,
   plannedDate: null,
   createdAt: '2026-03-10T08:28:04.000Z',
@@ -82,11 +100,11 @@ describe('CouncilView', () => {
         phase="COUNCIL_DELIBERATING"
         ticket={{
           ...baseTicket,
-          lockedCouncilMembers: JSON.stringify([
+          lockedCouncilMembers: [
             'openai/codex-mini-latest',
             'anthropic/claude-sonnet-4',
             'google/gemini-2.5-pro',
-          ]),
+          ],
         }}
       />,
     )
@@ -164,10 +182,10 @@ describe('CouncilView', () => {
         ticket={{
           ...baseTicket,
           status: 'REFINING_PRD',
-          lockedCouncilMembers: JSON.stringify([
+          lockedCouncilMembers: [
             'anthropic/claude-sonnet-4',
             'openai/gpt-5',
-          ]),
+          ],
         }}
       />,
     )

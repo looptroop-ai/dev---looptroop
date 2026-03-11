@@ -14,6 +14,7 @@ import { createTicket } from '../../storage/tickets'
 import { getTicketExecutionLogPath, getTicketRuntimeDir, getTicketWorktreePath } from '../../storage/paths'
 import { initializeTicket } from '../initialize'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import { getTicketBeadsPath } from '../metadata'
 
 const repoFixture = createFixtureRepoManager({
   templatePrefix: 'looptroop-ticket-lifecycle-template-',
@@ -87,6 +88,7 @@ describe('Ticket Lifecycle', () => {
 
     expect(result.reused).toBe(false)
     expect(result.branchName).toBe(ticket.externalId)
+    expect(result.baseBranch.length).toBeGreaterThan(0)
     expect(result.worktreePath).toBe(getTicketWorktreePath(projectRepoPath, ticket.externalId))
 
     const ticketDir = resolve(result.worktreePath, '.ticket')
@@ -114,7 +116,8 @@ describe('Ticket Lifecycle', () => {
 
     writeFileSync(resolve(ticketDir, 'interview.yaml'), 'questions: []\n')
     writeFileSync(resolve(ticketDir, 'prd.yaml'), 'epics: []\n')
-    writeFileSync(resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl'), '{"id":"b1"}\n')
+    const beadsPath = getTicketBeadsPath(projectRepoPath, ticket.externalId)
+    writeFileSync(beadsPath, '{"id":"b1"}\n')
     writeFileSync(resolve(runtimeDir, 'sessions', 'active.json'), '{"state":"active"}\n')
     writeFileSync(resolve(runtimeDir, 'streams', 'events.log'), 'stream\n')
     writeFileSync(resolve(runtimeDir, 'locks', 'ticket.lock'), 'lock\n')
@@ -130,7 +133,7 @@ describe('Ticket Lifecycle', () => {
     expect(report.preservedPaths).toContain(executionLogPath)
     expect(report.preservedPaths).toContain(resolve(ticketDir, 'interview.yaml'))
     expect(report.preservedPaths).toContain(resolve(ticketDir, 'prd.yaml'))
-    expect(report.preservedPaths).toContain(resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl'))
+    expect(report.preservedPaths).toContain(beadsPath)
     expect(existsSync(executionLogPath)).toBe(true)
     expect(existsSync(resolve(runtimeDir, 'sessions'))).toBe(false)
     expect(existsSync(resolve(runtimeDir, 'streams'))).toBe(false)

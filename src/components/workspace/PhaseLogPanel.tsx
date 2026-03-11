@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLogs, type LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
-import { ModelBadge } from '@/components/shared/ModelBadge'
+import { getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
 import { LoadingText } from '@/components/ui/LoadingText'
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -26,8 +26,6 @@ function getEntryColor(entry: LogEntry): string {
   return 'text-foreground'
 }
 
-// Deleted getModelLabel (using shared getModelDisplayName)
-
 function formatTimestamp(timestamp?: string): string {
   if (!timestamp) return '--:--:--'
   const parsed = new Date(timestamp)
@@ -40,11 +38,27 @@ function formatTimestamp(timestamp?: string): string {
   })
 }
 
-function renderLogLine(entry: LogEntry) {
-  const tagMatch = entry.line.match(/^(\[[\w]+\])(.*)$/)
+function getEntryModelDisplayName(entry: LogEntry): string | null {
+  const rawModelId = entry.modelId || (entry.source.startsWith('model:') ? entry.source : '')
+  const displayName = rawModelId ? getModelDisplayName(rawModelId) : ''
+  return displayName || null
+}
+
+function formatVisibleTag(tag: string, entry: LogEntry, showModelName: boolean): string {
+  if (!showModelName) return tag
+
+  const bareTag = tag.slice(1, -1)
+  if (bareTag !== 'MODEL' && bareTag !== 'THINKING') return tag
+
+  const modelDisplayName = getEntryModelDisplayName(entry)
+  return modelDisplayName ? `[${bareTag}-${modelDisplayName}]` : tag
+}
+
+function renderLogLine(entry: LogEntry, showModelName: boolean) {
+  const tagMatch = entry.line.match(/^(\[[^\]]+\])([\s\S]*)$/)
   if (tagMatch) {
-    const tag = tagMatch[1]
-    const rest = tagMatch[2]
+    const [, rawTag = '', rest = ''] = tagMatch
+    const tag = formatVisibleTag(rawTag, entry, showModelName)
     const color = getEntryColor(entry)
     return (
       <>
@@ -55,9 +69,10 @@ function renderLogLine(entry: LogEntry) {
   }
   if (entry.kind === 'reasoning' && !tagMatch) {
     const color = getEntryColor(entry)
+    const tag = formatVisibleTag('[THINKING]', entry, showModelName)
     return (
       <>
-        <span className={cn('font-semibold', color)}>[THINKING]</span>
+        <span className={cn('font-semibold', color)}>{tag}</span>
         {' '}{entry.line}
       </>
     )
@@ -65,7 +80,7 @@ function renderLogLine(entry: LogEntry) {
   return <>{entry.line}</>
 }
 
-function LogEntryRow({ entry, index }: { entry: LogEntry; index: number }) {
+function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: number; showModelName: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isTruncatable, setIsTruncatable] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -120,7 +135,7 @@ function LogEntryRow({ entry, index }: { entry: LogEntry; index: number }) {
               !isExpanded && 'line-clamp-3'
             )}
           >
-            {renderLogLine(entry)}
+            {renderLogLine(entry, showModelName)}
           </div>
           {isTruncatable && !isExpanded && (
             <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-muted to-transparent pointer-events-none" />
@@ -155,7 +170,7 @@ const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   INTEGRATING_CHANGES: 'Squashing commits, finalizing commit history, running pre-merge checks.',
   WAITING_MANUAL_VERIFICATION: 'Candidate branch ready for manual verification.',
   CLEANING_ENV: 'Removing temporary files, worktrees, and processes created during execution.',
-  COMPLETED: 'All phases completed successfully. Code merged to main.',
+  COMPLETED: 'All phases completed successfully. Candidate branch was verified and cleanup finished.',
   CANCELED: 'Ticket was canceled.',
   BLOCKED_ERROR: 'An error occurred during processing.',
 }
@@ -180,6 +195,7 @@ function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     Boolean(entry.sessionId)
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
   const isImportantAiSummary = (entry: LogEntry) =>
+    entry.entryId?.endsWith(':transcript-summary') ||
     entry.line.includes('Questions received from') ||
     entry.line.includes('Compiled interview questions from')
 
@@ -208,7 +224,10 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   const [activeTab, setActiveTab] = useState<string>('ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
-  const lockedCouncilMembers = ticket?.lockedCouncilMembers ?? null
+  const lockedCouncilMembers = useMemo(
+    () => ticket?.lockedCouncilMembers ?? [],
+    [ticket?.lockedCouncilMembers],
+  )
 
   // ── Smart auto-scroll ──────────────────────────────────────────────
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -238,13 +257,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   }, [])
 
   const configuredModelIds = useMemo(() => {
-    if (!lockedCouncilMembers) return []
-    try {
-      const parsed = JSON.parse(lockedCouncilMembers) as string[]
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
-    } catch {
-      return []
-    }
+    return lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0)
   }, [lockedCouncilMembers])
 
   // Detect model IDs from structured source field
@@ -287,6 +300,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   )
   const effectiveTab = availableTabs.includes(activeTab) ? activeTab : 'ALL'
   const filteredLogs = filterEntries(phaseLogs, effectiveTab)
+  const showModelNameInLogTags = effectiveTab === 'ALL' || effectiveTab === 'AI'
   const hasLogs = filteredLogs.length > 0
   const visibleLogTail = useMemo(() => {
     const lastEntry = filteredLogs.at(-1)
@@ -318,11 +332,12 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         cancelAnimationFrame(scrollFrameRef.current)
       }
 
+      const behavior: ScrollBehavior = viewChanged ? 'auto' : 'smooth'
       scrollFrameRef.current = requestAnimationFrame(() => {
         const el = viewportRef.current
         scrollFrameRef.current = null
         if (!el) return
-        el.scrollTo({ top: el.scrollHeight, behavior: viewChanged ? 'auto' : 'smooth' })
+        el.scrollTo({ top: el.scrollHeight, behavior })
       })
     }
 
@@ -396,7 +411,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
           {hasLogs ? (
             filteredLogs.map((entry, i) => (
-              <LogEntryRow key={entry.entryId} entry={entry} index={i} />
+              <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName={showModelNameInLogTags} />
             ))
           ) : (
             <span className="text-muted-foreground/50 italic">

@@ -412,9 +412,9 @@ function getDomainLabel(domain: Domain): string {
 }
 
 function getDraftDescription(domain: Domain): string {
-  if (domain === 'interview') return 'Independent question set draft'
-  if (domain === 'prd') return 'Independent PRD draft'
-  return 'Independent beads breakdown'
+  if (domain === 'interview') return 'Model-proposed interview questions'
+  if (domain === 'prd') return 'Model-proposed product requirements draft'
+  return 'Model-proposed implementation breakdown'
 }
 
 function getDraftArtifactId(domain: Domain, memberId: string): string {

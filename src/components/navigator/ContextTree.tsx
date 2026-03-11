@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
+import type { WorkflowContextKey } from '@shared/workflowMeta'
 
 interface ContextTreeProps {
   selectedPhase: string
@@ -96,37 +98,7 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
   },
 }
 
-const STATUS_ALLOWED_CONTEXT: Record<string, string[]> = {
-  DRAFT: ['ticket_details'],
-  COUNCIL_DELIBERATING: ['codebase_map', 'ticket_details'],
-  COUNCIL_VOTING_INTERVIEW: ['codebase_map', 'ticket_details', 'drafts'],
-  COMPILING_INTERVIEW: ['codebase_map', 'ticket_details', 'drafts'],
-  WAITING_INTERVIEW_ANSWERS: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
-  VERIFYING_INTERVIEW_COVERAGE: ['ticket_details', 'user_answers', 'interview'],
-  WAITING_INTERVIEW_APPROVAL: ['interview', 'user_answers'],
-  DRAFTING_PRD: ['codebase_map', 'ticket_details', 'interview'],
-  COUNCIL_VOTING_PRD: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
-  REFINING_PRD: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
-  VERIFYING_PRD_COVERAGE: ['interview', 'prd'],
-  WAITING_PRD_APPROVAL: ['prd', 'interview'],
-  DRAFTING_BEADS: ['codebase_map', 'ticket_details', 'prd'],
-  COUNCIL_VOTING_BEADS: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
-  REFINING_BEADS: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
-  VERIFYING_BEADS_COVERAGE: ['prd', 'beads', 'tests'],
-  WAITING_BEADS_APPROVAL: ['beads', 'prd'],
-  PRE_FLIGHT_CHECK: ['codebase_map', 'ticket_details'],
-  CODING: ['bead_data', 'bead_notes'],
-  RUNNING_FINAL_TEST: ['ticket_details', 'interview', 'prd', 'beads'],
-  INTEGRATING_CHANGES: ['ticket_details', 'prd', 'beads', 'tests'],
-  WAITING_MANUAL_VERIFICATION: ['ticket_details', 'interview', 'prd', 'beads', 'tests'],
-  CLEANING_ENV: ['ticket_details', 'beads'],
-  COMPLETED: ['ticket_details', 'interview', 'prd', 'beads', 'tests'],
-  CANCELED: ['ticket_details'],
-  BLOCKED_ERROR: ['bead_data', 'error_context'],
-}
-
-function getAllowedContextItems(phase: string): ContextItem[] {
-  const keys = STATUS_ALLOWED_CONTEXT[phase] ?? ['ticket_details']
+function getAllowedContextItems(keys: WorkflowContextKey[]): ContextItem[] {
   return keys
     .map(key => CONTEXT_LABELS[key])
     .filter((item): item is ContextItem => Boolean(item))
@@ -145,8 +117,9 @@ function ContextRow({ item }: { item: ContextItem }) {
 }
 
 export function ContextTree({ selectedPhase }: ContextTreeProps) {
+  const { phaseMap } = useWorkflowMeta()
   const [collapsed, setCollapsed] = useState(true)
-  const items = getAllowedContextItems(selectedPhase)
+  const items = getAllowedContextItems(phaseMap[selectedPhase]?.contextSummary ?? ['ticket_details'])
 
   return (
     <div className="p-2">

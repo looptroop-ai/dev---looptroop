@@ -58,7 +58,6 @@ export function cleanupTicketResources(ticketId: string): CleanupReport {
     'interview.yaml',
     'prd.yaml',
     'codebase-map.yaml',
-    'beads/main/.beads/issues.jsonl',
     'runtime/execution-log.jsonl',
   ]
   for (const artifact of preservedArtifacts) {
@@ -66,6 +65,10 @@ export function cleanupTicketResources(ticketId: string): CleanupReport {
     if (existsSync(path)) {
       report.preservedPaths.push(path)
     }
+  }
+
+  if (existsSync(paths.beadsPath)) {
+    report.preservedPaths.push(paths.beadsPath)
   }
 
   return report

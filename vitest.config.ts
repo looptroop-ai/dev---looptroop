@@ -9,6 +9,7 @@ const sharedResolve = {
   alias: {
     '@': resolve(__dirname, './src'),
     '@server': resolve(__dirname, './server'),
+    '@shared': resolve(__dirname, './shared'),
   },
 }
 

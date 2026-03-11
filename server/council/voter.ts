@@ -4,7 +4,6 @@ import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
-import { warnIfVerbose } from '../runtime'
 
 const PHASE_DEADLINE_ERROR = 'CouncilPhaseDeadlineReached'
 
@@ -19,9 +18,9 @@ function isPhaseDeadlineError(error: unknown) {
 /**
  * Parse a numerical score from an AI voter response for a specific draft.
  * Looks for common patterns: "Score: X/20", "X/20", "Rating: X", JSON scores,
- * or bare numbers on a line. Falls back to a random score in [8, 18].
+ * or bare numbers on a line. Returns null when the score cannot be parsed.
  */
-export function parseScore(response: string, draftLabel: string, category: string): number {
+export function parseScore(response: string, draftLabel: string, category: string): number | null {
   // Try to isolate the section for this draft
   const draftSection = extractDraftSection(response, draftLabel)
   const text = draftSection ?? response
@@ -34,10 +33,7 @@ export function parseScore(response: string, draftLabel: string, category: strin
   const genericScore = parseGenericScore(text)
   if (genericScore !== null) return clampScore(genericScore)
 
-  // Fallback: random score between 8-18
-  const fallback = Math.floor(Math.random() * 11) + 8
-  warnIfVerbose(`[voter] parseScore fallback for draft="${draftLabel}" category="${category}": using ${fallback}`)
-  return fallback
+  return null
 }
 
 function extractDraftSection(response: string, draftLabel: string): string | null {
@@ -145,6 +141,11 @@ export async function conductVoting(
     votes: Vote[]
     error?: string
   }) => void,
+  sessionOwnership?: {
+    ticketId: string
+    phase: string
+    phaseAttempt?: number
+  },
 ): Promise<VotingPhaseResult> {
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
@@ -221,6 +222,16 @@ export async function conductVoting(
         parts: votingPrompt,
         signal,
         model: voter.modelId,
+        ...(sessionOwnership
+          ? {
+              sessionOwnership: {
+                ticketId: sessionOwnership.ticketId,
+                phase: sessionOwnership.phase,
+                phaseAttempt: sessionOwnership.phaseAttempt ?? 1,
+                memberId: voter.modelId,
+              },
+            }
+          : {}),
         onSessionCreated: (session) => {
           if (closed) {
             void adapter.abortSession(session.id)
@@ -247,14 +258,29 @@ export async function conductVoting(
       const response = result.response
 
       // Parse voting response — extract real scores from AI output
+      const parseErrors: string[] = []
       for (const draft of anonymized) {
         const draftMemberId = validDrafts[draft.index]!.memberId
         const draftLabel = `Draft ${anonymized.indexOf(draft) + 1}`
-        const scores: VoteScore[] = rubric.map(r => ({
-          category: r.category,
-          score: parseScore(response, draftLabel, r.category),
-          justification: 'Evaluated by council member',
-        }))
+        const scores: VoteScore[] = []
+        let draftValid = true
+        for (const rubricItem of rubric) {
+          const parsedScore = parseScore(response, draftLabel, rubricItem.category)
+          if (parsedScore === null) {
+            draftValid = false
+            parseErrors.push(`Missing score for ${draftLabel} / ${rubricItem.category}`)
+            break
+          }
+          scores.push({
+            category: rubricItem.category,
+            score: parsedScore,
+            justification: 'Evaluated by council member',
+          })
+        }
+
+        if (!draftValid) {
+          continue
+        }
 
         voterVotes.push({
           voterId: voter.modelId,
@@ -262,6 +288,18 @@ export async function conductVoting(
           scores,
           totalScore: scores.reduce((sum, s) => sum + s.score, 0),
         })
+      }
+
+      if (parseErrors.length > 0 || voterVotes.length !== anonymized.length) {
+        recordOutcome(
+          voter.modelId,
+          'invalid_output',
+          [],
+          parseErrors.length > 0
+            ? parseErrors.join('; ')
+            : 'Voting response did not include a complete scorecard for every draft',
+        )
+        return voterVotes
       }
 
       if (!recordOutcome(voter.modelId, 'completed', voterVotes)) {

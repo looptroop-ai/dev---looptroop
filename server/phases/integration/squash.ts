@@ -1,25 +1,70 @@
+import { execFileSync } from 'node:child_process'
+import { resolveBaseBranchRef } from '../../git/repository'
+
 export interface SquashResult {
   success: boolean
   message: string
   commitHash?: string
+  mergeBase?: string
+  preSquashHead?: string
+  commitCount?: number
 }
 
 export function prepareSquashCandidate(
-  beadCommits: string[],
+  worktreePath: string,
+  baseBranch: string,
   ticketTitle: string,
   ticketId: string,
 ): SquashResult {
-  if (beadCommits.length === 0) {
-    return { success: false, message: 'No bead commits to squash' }
-  }
+  const runGit = (args: string[]) => execFileSync('git', ['-C', worktreePath, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
 
-  // TODO: Implement actual git rebase --interactive squash using the ticket worktree.
-  // Steps: 1) git rebase -i HEAD~N in the worktree, 2) squash all bead commits into one,
-  // 3) set commit message to "ticketId: ticketTitle", 4) return the real commit hash.
-  // Currently returns a fake hash for pipeline scaffolding.
-  return {
-    success: true,
-    message: `Prepared squash candidate from ${beadCommits.length} commits for ${ticketId}: ${ticketTitle}`,
-    commitHash: `squash-${ticketId}`,
+  try {
+    const baseBranchRef = resolveBaseBranchRef(worktreePath, baseBranch)
+    const preSquashHead = runGit(['rev-parse', 'HEAD'])
+    const mergeBase = runGit(['merge-base', 'HEAD', baseBranchRef])
+    const commitCount = Number(runGit(['rev-list', '--count', `${mergeBase}..HEAD`]))
+
+    runGit(['reset', '--soft', mergeBase])
+    runGit(['add', '-A'])
+
+    const stagedChanges = runGit(['status', '--porcelain'])
+    if (!stagedChanges) {
+      runGit(['reset', '--soft', preSquashHead])
+      return {
+        success: false,
+        message: 'No candidate changes were available to squash',
+        mergeBase,
+        preSquashHead,
+        commitCount,
+      }
+    }
+
+    runGit([
+      '-c',
+      'user.name=LoopTroop',
+      '-c',
+      'user.email=looptroop@local',
+      'commit',
+      '--no-verify',
+      '-m',
+      `${ticketId}: ${ticketTitle}`,
+    ])
+    const commitHash = runGit(['rev-parse', 'HEAD'])
+    return {
+      success: true,
+      message: `Prepared candidate commit ${commitHash} from ${commitCount} commit(s) on ${ticketId}`,
+      commitHash,
+      mergeBase,
+      preSquashHead,
+      commitCount,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : String(error),
+    }
   }
 }

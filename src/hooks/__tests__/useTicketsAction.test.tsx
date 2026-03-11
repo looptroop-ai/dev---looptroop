@@ -4,6 +4,21 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTicketAction, type Ticket } from '../useTickets'
 
+const baseRuntime: Ticket['runtime'] = {
+  baseBranch: 'main',
+  currentBead: 0,
+  completedBeads: 0,
+  totalBeads: 0,
+  percentComplete: 0,
+  iterationCount: 0,
+  maxIterations: null,
+  artifactRoot: '/tmp/looptroop',
+  beads: [],
+  candidateCommitSha: null,
+  preSquashHead: null,
+  finalTestStatus: 'pending',
+}
+
 function createJsonResponse(data: unknown) {
   return {
     ok: true,
@@ -47,7 +62,10 @@ const baseTicket: Ticket = {
   percentComplete: null,
   errorMessage: null,
   lockedMainImplementer: null,
-  lockedCouncilMembers: null,
+  lockedCouncilMembers: [],
+  availableActions: ['start', 'cancel'],
+  previousStatus: null,
+  runtime: baseRuntime,
   startedAt: null,
   plannedDate: null,
   createdAt: '2026-03-08T09:00:00.000Z',

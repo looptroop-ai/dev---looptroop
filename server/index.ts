@@ -11,12 +11,14 @@ import { modelsRouter } from './routes/models'
 import { filesRouter } from './routes/files'
 import { beadsRouter } from './routes/beads'
 import { validateJson } from './middleware/validation'
+import { getBackendPort, getFrontendOrigin } from '../shared/appConfig'
+import { workflowRouter } from './routes/workflow'
 
 const app = new Hono()
 
 // Global middleware
 app.use('/api/*', cors({
-  origin: 'http://localhost:5173',
+  origin: getFrontendOrigin(),
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowHeaders: ['Content-Type', 'Last-Event-ID'],
 }))
@@ -31,11 +33,12 @@ app.route('/api', streamRouter)
 app.route('/api', modelsRouter)
 app.route('/api', filesRouter)
 app.route('/api', beadsRouter)
+app.route('/api', workflowRouter)
 
 // Startup sequence: DB init, WAL checkpoint, hydrate actors
 startupSequence()
 
-const port = 3000
+const port = getBackendPort()
 console.log(`[server] LoopTroop backend starting on port ${port}`)
 
 serve({ fetch: app.fetch, port })

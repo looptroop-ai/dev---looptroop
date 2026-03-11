@@ -43,7 +43,7 @@ export const ticketMachine = setup({
   },
   guards: {
     hasReachedMaxIterations: ({ context }) =>
-      context.iterationCount >= context.maxIterations,
+      context.maxIterations > 0 && context.iterationCount >= context.maxIterations,
     allBeadsComplete: ({ context }) =>
       context.beadProgress.completed >= context.beadProgress.total &&
       context.beadProgress.total > 0,

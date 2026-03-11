@@ -5,6 +5,7 @@ import { StatusIndicator } from './StatusIndicator'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STATUS_DESCRIPTIONS, getStatusUserLabel } from '@/lib/workflowMeta'
+import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 
 interface PhaseTimelineProps {
   currentStatus: string
@@ -14,80 +15,20 @@ interface PhaseTimelineProps {
   selectedPhase?: string | null
 }
 
-interface PhaseGroup {
-  id: string
-  label: string
-  phases: Array<{ id: string }>
-}
+type PhaseIndicatorStatus = 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled'
 
-const PHASE_GROUPS: PhaseGroup[] = [
-  {
-    id: 'todo',
-    label: 'To Do',
-    phases: [{ id: 'DRAFT' }],
-  },
-  {
-    id: 'interview',
-    label: 'Interview',
-    phases: [
-      { id: 'COUNCIL_DELIBERATING' },
-      { id: 'COUNCIL_VOTING_INTERVIEW' },
-      { id: 'COMPILING_INTERVIEW' },
-      { id: 'WAITING_INTERVIEW_ANSWERS' },
-      { id: 'VERIFYING_INTERVIEW_COVERAGE' },
-      { id: 'WAITING_INTERVIEW_APPROVAL' },
-    ],
-  },
-  {
-    id: 'prd',
-    label: 'Specs (PRD)',
-    phases: [
-      { id: 'DRAFTING_PRD' },
-      { id: 'COUNCIL_VOTING_PRD' },
-      { id: 'REFINING_PRD' },
-      { id: 'VERIFYING_PRD_COVERAGE' },
-      { id: 'WAITING_PRD_APPROVAL' },
-    ],
-  },
-  {
-    id: 'beads',
-    label: 'Blueprint (Beads)',
-    phases: [
-      { id: 'DRAFTING_BEADS' },
-      { id: 'COUNCIL_VOTING_BEADS' },
-      { id: 'REFINING_BEADS' },
-      { id: 'VERIFYING_BEADS_COVERAGE' },
-      { id: 'WAITING_BEADS_APPROVAL' },
-    ],
-  },
-  {
-    id: 'execution',
-    label: 'Execution',
-    phases: [
-      { id: 'PRE_FLIGHT_CHECK' },
-      { id: 'CODING' },
-      { id: 'RUNNING_FINAL_TEST' },
-      { id: 'INTEGRATING_CHANGES' },
-      { id: 'WAITING_MANUAL_VERIFICATION' },
-      { id: 'CLEANING_ENV' },
-      { id: 'BLOCKED_ERROR' },
-    ],
-  },
-  {
-    id: 'done',
-    label: 'Done',
-    phases: [{ id: 'COMPLETED' }, { id: 'CANCELED' }],
-  },
-]
-
-const ALL_PHASE_IDS = PHASE_GROUPS.flatMap(g => g.phases.map(p => p.id))
-
-function getPhaseIndicatorStatus(phaseId: string, currentStatus: string, canceledFromStatus?: string, previousStatus?: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
+function getPhaseIndicatorStatus(
+  phaseId: string,
+  currentStatus: string,
+  phaseOrder: string[],
+  canceledFromStatus?: string,
+  previousStatus?: string,
+): PhaseIndicatorStatus {
   if (currentStatus === 'BLOCKED_ERROR') {
     if (phaseId === 'BLOCKED_ERROR') return 'error'
     if (previousStatus) {
-      const prevIndex = ALL_PHASE_IDS.indexOf(previousStatus)
-      const phaseIndex = ALL_PHASE_IDS.indexOf(phaseId)
+      const prevIndex = phaseOrder.indexOf(previousStatus)
+      const phaseIndex = phaseOrder.indexOf(phaseId)
       if (prevIndex >= 0 && phaseIndex >= 0) {
         if (phaseIndex < prevIndex) return 'completed'
         if (phaseIndex === prevIndex) return 'error'
@@ -103,8 +44,8 @@ function getPhaseIndicatorStatus(phaseId: string, currentStatus: string, cancele
   if (currentStatus === 'CANCELED') {
     if (phaseId === 'CANCELED') return 'canceled'
     if (canceledFromStatus && canceledFromStatus !== 'BLOCKED_ERROR') {
-      const cutoffIndex = ALL_PHASE_IDS.indexOf(canceledFromStatus)
-      const phaseIndex = ALL_PHASE_IDS.indexOf(phaseId)
+      const cutoffIndex = phaseOrder.indexOf(canceledFromStatus)
+      const phaseIndex = phaseOrder.indexOf(phaseId)
       if (cutoffIndex >= 0 && phaseIndex >= 0 && phaseIndex <= cutoffIndex) {
         return 'completed'
       }
@@ -115,15 +56,21 @@ function getPhaseIndicatorStatus(phaseId: string, currentStatus: string, cancele
   if (currentStatus === 'COMPLETED' && phaseId === 'COMPLETED') return 'completed-final'
   if (phaseId === currentStatus) return 'active'
 
-  const currentIndex = ALL_PHASE_IDS.indexOf(currentStatus)
-  const phaseIndex = ALL_PHASE_IDS.indexOf(phaseId)
+  const currentIndex = phaseOrder.indexOf(currentStatus)
+  const phaseIndex = phaseOrder.indexOf(phaseId)
 
   if (currentIndex === -1 || phaseIndex === -1) return 'pending'
   return phaseIndex < currentIndex ? 'completed' : 'pending'
 }
 
-function getGroupStatus(group: PhaseGroup, currentStatus: string, canceledFromStatus?: string, previousStatus?: string): 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled' {
-  const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus, canceledFromStatus, previousStatus))
+function getGroupStatus(
+  group: { id: string; phases: Array<{ id: string }> },
+  currentStatus: string,
+  phaseOrder: string[],
+  canceledFromStatus?: string,
+  previousStatus?: string,
+): PhaseIndicatorStatus {
+  const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus, phaseOrder, canceledFromStatus, previousStatus))
 
   if (group.id === 'todo' && currentStatus === 'DRAFT') {
     return 'pending'
@@ -143,20 +90,27 @@ function getPhaseTooltip(phaseId: string): string {
 }
 
 export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
+  const { groups, phases } = useWorkflowMeta()
+  const phaseGroups = useMemo(() => groups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    phases: phases.filter((phase) => phase.groupId === group.id).map((phase) => ({ id: phase.id })),
+  })), [groups, phases])
+  const phaseOrder = useMemo(() => phases.map((phase) => phase.id), [phases])
   const activeGroupIndex = useMemo(() => {
-    return PHASE_GROUPS.findIndex(g => g.phases.some(p => p.id === currentStatus))
-  }, [currentStatus])
+    return phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentStatus))
+  }, [currentStatus, phaseGroups])
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set([Math.max(0, activeGroupIndex)]))
 
   // Auto-collapse previous group and expand new active group when status changes
   useEffect(() => {
-    const newActiveGroupIndex = PHASE_GROUPS.findIndex(g => g.phases.some(p => p.id === currentStatus))
+    const newActiveGroupIndex = phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentStatus))
     if (newActiveGroupIndex >= 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpandedGroups(new Set([newActiveGroupIndex]))
     }
-  }, [currentStatus])
+  }, [currentStatus, phaseGroups])
 
   const toggleGroup = (idx: number) => {
     setExpandedGroups(prev => {
@@ -170,8 +124,8 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatu
   return (
     <ScrollArea className="h-full">
       <div className="p-2 space-y-1">
-        {PHASE_GROUPS.map((group, gi) => {
-          const groupStatus = getGroupStatus(group, currentStatus, canceledFromStatus, previousStatus)
+        {phaseGroups.map((group, gi) => {
+          const groupStatus = getGroupStatus(group, currentStatus, phaseOrder, canceledFromStatus, previousStatus)
           const isExpanded = expandedGroups.has(gi)
 
           return (
@@ -196,7 +150,7 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatu
               {isExpanded && (
                 <div className="ml-3 space-y-0.5 mt-0.5">
                   {group.phases.map(phase => {
-                    const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus, canceledFromStatus, previousStatus)
+                    const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus, phaseOrder, canceledFromStatus, previousStatus)
                     const isSelected = selectedPhase === phase.id
                     const isPast = indicatorStatus === 'completed'
                     const isFuture = indicatorStatus === 'pending'

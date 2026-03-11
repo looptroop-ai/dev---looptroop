@@ -199,6 +199,61 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/raw provider payload/i)).toBeInTheDocument()
   })
 
+  it('shows model-aware MODEL and THINKING tags in aggregated log tabs', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'ai-summary',
+        entryId: 'ai-summary',
+        line: '[MODEL] Questions received from openai/gpt-5-codex (2 total):\n- [foundation] What problem are we solving?\n- [structure] Which users should be supported first?',
+        source: 'model:openai/gpt-5-codex',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:01.000Z',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5-codex',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'ai-status',
+        entryId: 'ai-status',
+        line: '[MODEL] Session status: running.',
+        source: 'model:openai/gpt-5-codex',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:01.500Z',
+        audience: 'ai',
+        kind: 'session',
+        modelId: 'openai/gpt-5-codex',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'ai-thinking',
+        entryId: 'ai-thinking',
+        line: 'Checking whether the interview coverage is balanced.',
+        source: 'model:openai/gpt-5-codex',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:02.000Z',
+        audience: 'ai',
+        kind: 'reasoning',
+        modelId: 'openai/gpt-5-codex',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    render(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
+
+    expect(screen.getByText(/\[MODEL-gpt-5-codex\]/i)).toBeInTheDocument()
+    expect(screen.queryByText(/\[THINKING-gpt-5-codex\]/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(screen.getAllByText(/\[MODEL-gpt-5-codex\]/i)).toHaveLength(2)
+    expect(screen.getByText(/\[THINKING-gpt-5-codex\]/i)).toBeInTheDocument()
+    expect(screen.getByText(/Checking whether the interview coverage is balanced/i)).toBeInTheDocument()
+  })
+
   it('pins the viewport to the latest logs by default and follows new visible entries', () => {
     const firstLog = makeLog('log-1', '[SYS] First visible log line')
     const secondLog = makeLog('log-2', '[SYS] Second visible log line', {

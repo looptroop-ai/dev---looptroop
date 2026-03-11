@@ -2,7 +2,7 @@ import type { TicketContext } from './types'
 
 export const guards = {
   hasReachedMaxIterations: ({ context }: { context: TicketContext }) => {
-    return context.iterationCount >= context.maxIterations
+    return context.maxIterations > 0 && context.iterationCount >= context.maxIterations
   },
   isPreFlightPassing: (_: { context: TicketContext }) => {
     return true // Stub — will check actual pre-flight results

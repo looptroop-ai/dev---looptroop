@@ -24,6 +24,11 @@ export async function refineDraft(
     sessionId: string
     event: StreamEvent
   }) => void,
+  sessionOwnership?: {
+    ticketId: string
+    phase: string
+    phaseAttempt?: number
+  },
 ): Promise<string> {
   let sessionId = ''
   const refineParts: PromptPart[] = [
@@ -47,6 +52,16 @@ export async function refineDraft(
     signal,
     timeoutMs,
     model: winnerDraft.memberId,
+    ...(sessionOwnership
+      ? {
+          sessionOwnership: {
+            ticketId: sessionOwnership.ticketId,
+            phase: sessionOwnership.phase,
+            phaseAttempt: sessionOwnership.phaseAttempt ?? 1,
+            memberId: winnerDraft.memberId,
+          },
+        }
+      : {}),
     onSessionCreated: (session) => {
       sessionId = session.id
     },

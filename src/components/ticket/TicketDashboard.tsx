@@ -130,14 +130,10 @@ export function TicketDashboard() {
   })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
-  const snapshotPreviousStatus = useMemo(() => {
-    if (!ticket?.xstateSnapshot) return undefined
-    try {
-      const snap = JSON.parse(ticket.xstateSnapshot) as { context?: { previousStatus?: string | null } }
-      const prev = snap.context?.previousStatus
-      return typeof prev === 'string' ? prev : undefined
-    } catch { return undefined }
-  }, [ticket?.xstateSnapshot])
+  const snapshotPreviousStatus = useMemo(
+    () => ticket?.previousStatus ?? undefined,
+    [ticket?.previousStatus],
+  )
 
   const canceledFromStatus = ticket?.status === 'CANCELED' ? snapshotPreviousStatus : undefined
   const previousStatus = ticket?.status === 'BLOCKED_ERROR' ? snapshotPreviousStatus : undefined

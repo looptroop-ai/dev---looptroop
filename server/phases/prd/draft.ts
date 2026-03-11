@@ -20,6 +20,8 @@ export async function draftPRD(
   options: {
     draftTimeoutMs: number
     minQuorum: number
+    ticketId?: string
+    phaseAttempt?: number
   },
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
@@ -49,6 +51,12 @@ export async function draftPRD(
     onOpenCodeSessionLog,
     onOpenCodeStreamEvent,
     onDraftProgress,
+    undefined,
+    {
+      ticketId: options.ticketId,
+      phase: 'DRAFTING_PRD',
+      phaseAttempt: options.phaseAttempt,
+    },
   )
 
   return {

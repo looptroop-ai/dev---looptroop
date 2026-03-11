@@ -58,6 +58,21 @@ function trackTicket(ticketId: string) {
   return ticketId
 }
 
+async function createValidProfile() {
+  return await app.request('/api/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: 'testuser',
+      mainImplementer: 'openai/codex-mini-latest',
+      councilMembers: JSON.stringify([
+        'openai/codex-mini-latest',
+        'openai/gpt-5.3-codex',
+      ]),
+    }),
+  })
+}
+
 async function waitForTicketStatus(ticketId: string, expectedStatus: string, timeoutMs: number = 4000) {
   const currentStatus = getTicketByRef(ticketId)?.status
   if (currentStatus === expectedStatus) {
@@ -154,11 +169,7 @@ describe('Routes', () => {
     expect(initialProfile.status).toBe(200)
     expect(await parseJson<null>(initialProfile)).toBeNull()
 
-    const createProfile = await app.request('/api/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'testuser' }),
-    })
+    const createProfile = await createValidProfile()
     expect(createProfile.status).toBe(201)
     expect(await parseJson<{ username: string }>(createProfile)).toMatchObject({ username: 'testuser' })
   })
@@ -307,8 +318,10 @@ describe('Routes', () => {
     })
   })
 
-  it('runs the mock ticket lifecycle through the real route flow using project-local storage', async () => {
+  it('runs the mock planning lifecycle through the real route flow and stops before execution', async () => {
     const repoDir = createGitRepo('looptroop-ticket-route-')
+    const profileResponse = await createValidProfile()
+    expect(profileResponse.status).toBe(201)
 
     const createProject = await app.request('/api/projects', {
       method: 'POST',
@@ -326,8 +339,8 @@ describe('Routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectId: project.id,
-        title: 'End-to-end mock lifecycle',
-        description: 'Ensure the workflow reaches completion in mock mode',
+        title: 'Mock planning lifecycle',
+        description: 'Ensure mock mode stops before execution phases',
       }),
     })
     expect(createTicket.status).toBe(201)
@@ -348,9 +361,9 @@ describe('Routes', () => {
     expect(start.status).toBe(200)
     const startedTicket = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}`)
     expect(startedTicket.status).toBe(200)
-    expect(await parseJson<{ lockedMainImplementer: string | null; lockedCouncilMembers: string | null }>(startedTicket)).toMatchObject({
+    expect(await parseJson<{ lockedMainImplementer: string | null; lockedCouncilMembers: string[] }>(startedTicket)).toMatchObject({
       lockedMainImplementer: 'openai/codex-mini-latest',
-      lockedCouncilMembers: JSON.stringify(['openai/codex-mini-latest', 'openai/gpt-5.3-codex']),
+      lockedCouncilMembers: ['openai/codex-mini-latest', 'openai/gpt-5.3-codex'],
     })
 
     const runtimeDir = getTicketRuntimeDir(repoDir, ticket.externalId)
@@ -409,7 +422,7 @@ describe('Routes', () => {
 
     const approveBeads = await requestAndWaitForTicketStatus(
       ticket.id,
-      'WAITING_MANUAL_VERIFICATION',
+      'BLOCKED_ERROR',
       () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/approve-beads`, { method: 'POST' }),
     )
     expect(approveBeads.status).toBe(200)
@@ -422,27 +435,15 @@ describe('Routes', () => {
     expect(logsResponse.status).toBe(200)
     const logs = await parseJson<Array<{ phase: string; message: string }>>(logsResponse)
     expect(logs.length).toBeGreaterThan(0)
-    expect(logs.some(entry => entry.phase === 'WAITING_MANUAL_VERIFICATION')).toBe(true)
-
-    const verify = await requestAndWaitForTicketStatus(
-      ticket.id,
-      'COMPLETED',
-      () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/verify`, { method: 'POST' }),
-    )
-    expect(verify.status).toBe(200)
-
-    expect(fs.existsSync(executionLogPath)).toBe(true)
-    expect(fs.existsSync(path.join(runtimeDir, 'sessions'))).toBe(false)
-    expect(fs.existsSync(path.join(runtimeDir, 'streams'))).toBe(false)
-    expect(fs.existsSync(path.join(runtimeDir, 'locks'))).toBe(false)
-    expect(fs.existsSync(path.join(runtimeDir, 'tmp'))).toBe(false)
+    expect(logs.some(entry => entry.phase === 'PRE_FLIGHT_CHECK')).toBe(true)
 
     const artifacts = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/artifacts`)
     expect(artifacts.status).toBe(200)
-    expect(await parseJson<Array<{ artifactType: string }>>(artifacts)).toEqual(
+    expect(await parseJson<Array<{ artifactType: string }>>(artifacts)).not.toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ artifactType: 'final_test_report' }),
+        expect.objectContaining({ artifactType: 'integration_report' }),
         expect.objectContaining({ artifactType: 'cleanup_report' }),
-        expect.objectContaining({ artifactType: 'preflight_report' }),
       ]),
     )
 

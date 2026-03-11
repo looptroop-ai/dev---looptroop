@@ -42,10 +42,62 @@ describe('parseInterviewQuestions', () => {
       },
     ])
   })
+
+  it('normalizes prompt/category aliases and ignores extra wrapper fields', () => {
+    const questions = parseInterviewQuestions([
+      'metadata:',
+      '  model: big-pickle',
+      'questions:',
+      '  - id: Q01',
+      '    category: Foundation',
+      '    prompt: "What problem are we solving?"',
+      '    rationale: "Need the core objective first."',
+      '  - id: Q02',
+      '    category: Structure',
+      '    prompt: "Which user flows matter most?"',
+      '    notes: "Optional internal note."',
+    ].join('\n'))
+
+    expect(questions).toEqual([
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        question: 'What problem are we solving?',
+      },
+      {
+        id: 'Q02',
+        phase: 'Structure',
+        question: 'Which user flows matter most?',
+      },
+    ])
+  })
+
+  it('extracts the YAML payload when models wrap it in prose and fences', () => {
+    const questions = parseInterviewQuestions([
+      'Here is the proposed interview draft.',
+      '',
+      '```yaml',
+      'questions:',
+      '  - id: Q01',
+      '    category: Foundation',
+      '    prompt: "What problem are we solving?"',
+      '```',
+      '',
+      'Let me know if you want refinements.',
+    ].join('\n'))
+
+    expect(questions).toEqual([
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        question: 'What problem are we solving?',
+      },
+    ])
+  })
 })
 
 describe('formatInterviewQuestionPreview', () => {
-  it('formats a bounded multiline preview for the log viewer', () => {
+  it('formats the full multiline preview for the log viewer by default', () => {
     const preview = formatInterviewQuestionPreview('Questions received from openai/gpt-5-mini', [
       { id: 'Q01', phase: 'Foundation', question: 'What problem are we solving?' },
       { id: 'Q02', phase: 'Structure', question: 'Which users should be supported first?' },
@@ -58,7 +110,7 @@ describe('formatInterviewQuestionPreview', () => {
       '- [foundation] What problem are we solving?',
       '- [structure] Which users should be supported first?',
       '- [assembly] How will success be verified?',
-      '... 1 more question',
+      '- [assembly] What is explicitly out of scope?',
     ].join('\n'))
   })
 

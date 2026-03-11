@@ -6,17 +6,18 @@ import { safeAtomicWrite } from '../io/atomicWrite'
 
 const beadsRouter = new Hono()
 
-function resolveBeadsPath(ticketId: string, flow: string): string | null {
+function resolveBeadsPath(ticketId: string, flow?: string): string | null {
   const paths = getTicketPaths(ticketId)
   if (!paths) return null
-  return path.join(paths.ticketDir, 'beads', flow, '.beads', 'issues.jsonl')
+  const resolvedFlow = flow?.trim() || paths.baseBranch
+  return path.join(paths.ticketDir, 'beads', resolvedFlow, '.beads', 'issues.jsonl')
 }
 
 beadsRouter.get('/tickets/:id/beads', (c) => {
   const ticketId = c.req.param('id')
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
-  const flow = c.req.query('flow') ?? 'main'
+  const flow = c.req.query('flow')
   const filePath = resolveBeadsPath(ticketId, flow)
   if (!filePath) return c.json({ error: 'Ticket not found' }, 404)
 
@@ -38,7 +39,7 @@ beadsRouter.put('/tickets/:id/beads', async (c) => {
   const ticketId = c.req.param('id')
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
-  const flow = c.req.query('flow') ?? 'main'
+  const flow = c.req.query('flow')
   const body = await c.req.json()
   if (!Array.isArray(body)) {
     return c.json({ error: 'Request body must be a JSON array' }, 400)

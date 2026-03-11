@@ -11,6 +11,9 @@ interface DraftValidationResult {
 type DraftValidator = (content: string) => DraftValidationResult
 
 interface GenerateDraftsRuntimeOptions {
+  ticketId?: string
+  phase?: string
+  phaseAttempt?: number
   onDraftResult?: (draft: DraftResult) => void
 }
 
@@ -112,6 +115,16 @@ export async function generateDrafts(
         parts: contextParts,
         signal,
         model: member.modelId,
+        ...(runtimeOptions?.ticketId && runtimeOptions.phase
+          ? {
+              sessionOwnership: {
+                ticketId: runtimeOptions.ticketId,
+                phase: runtimeOptions.phase,
+                phaseAttempt: runtimeOptions.phaseAttempt ?? 1,
+                memberId: member.modelId,
+              },
+            }
+          : {}),
         onSessionCreated: (session) => {
           if (closed) {
             void adapter.abortSession(session.id)

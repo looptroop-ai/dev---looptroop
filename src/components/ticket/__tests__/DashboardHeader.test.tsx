@@ -5,6 +5,21 @@ import { UIProvider } from '@/context/UIContext'
 import { DashboardHeader } from '../DashboardHeader'
 import type { Ticket } from '@/hooks/useTickets'
 
+const baseRuntime: Ticket['runtime'] = {
+  baseBranch: 'main',
+  currentBead: 0,
+  completedBeads: 0,
+  totalBeads: 0,
+  percentComplete: 0,
+  iterationCount: 0,
+  maxIterations: null,
+  artifactRoot: '/tmp/looptroop',
+  beads: [],
+  candidateCommitSha: null,
+  preSquashHead: null,
+  finalTestStatus: 'pending',
+}
+
 const cancelMutateMock = vi.fn()
 const deleteMutateMock = vi.fn()
 const resetMock = vi.fn()
@@ -43,7 +58,10 @@ const baseTicket: Ticket = {
   percentComplete: null,
   errorMessage: null,
   lockedMainImplementer: null,
-  lockedCouncilMembers: null,
+  lockedCouncilMembers: [],
+  availableActions: [],
+  previousStatus: null,
+  runtime: baseRuntime,
   startedAt: null,
   plannedDate: null,
   createdAt: '2026-03-08T09:00:00.000Z',
@@ -86,7 +104,7 @@ describe('DashboardHeader', () => {
   })
 
   it('shows cancel instead of delete for non-terminal tickets', () => {
-    renderHeader({ status: 'CODING' })
+    renderHeader({ status: 'CODING', availableActions: ['cancel'] })
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()

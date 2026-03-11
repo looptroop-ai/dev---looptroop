@@ -193,6 +193,56 @@ describe('OpenCodeSDKAdapter', () => {
     expect(events.find(event => event.type === 'session_error')).toBeUndefined()
   })
 
+  it('falls back to session messages when prompt response parts are empty', async () => {
+    const client = {
+      session: {
+        get: vi.fn().mockResolvedValue({ data: { directory: '/tmp/worktree' } }),
+        prompt: vi.fn().mockResolvedValue({
+          data: {
+            info: { id: 'assistant-1' },
+            parts: [],
+          },
+        }),
+        messages: vi.fn().mockResolvedValue({
+          data: [
+            {
+              info: {
+                id: 'assistant-1',
+                role: 'assistant',
+                time: { created: Date.parse('2026-03-11T10:00:00.000Z') },
+              },
+              parts: [
+                {
+                  id: 'part-1',
+                  sessionID: 'session-1',
+                  messageID: 'assistant-1',
+                  type: 'text',
+                  text: 'fallback answer',
+                },
+              ],
+            },
+          ],
+        }),
+      },
+      event: {
+        subscribe: vi.fn().mockResolvedValue({
+          stream: (async function *streamEvents() {
+            yield { type: 'done', sessionId: 'session-1' } as StreamEvent
+          })(),
+        }),
+      },
+    } as unknown as ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>
+
+    const adapter = new OpenCodeSDKAdapter(9999, client)
+
+    const response = await adapter.promptSession(
+      'session-1',
+      [{ type: 'text', content: 'hello' }],
+    )
+
+    expect(response).toBe('fallback answer')
+  })
+
   it('suppresses duplicate completed part updates from the event stream', async () => {
     const client = {
       session: {

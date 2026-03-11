@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { getBackendOrigin, getFrontendPort } from './shared/appConfig'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -12,6 +13,7 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, './src'),
       '@server': resolve(__dirname, './server'),
+      '@shared': resolve(__dirname, './shared'),
     },
     dedupe: [
       '@codemirror/state',
@@ -22,13 +24,14 @@ export default defineConfig({
   },
   appType: 'spa',
   server: {
-    port: 5173,
+    port: getFrontendPort(),
+    strictPort: true,
     watch: {
       usePolling: true,
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: getBackendOrigin(),
         changeOrigin: true,
       },
     },

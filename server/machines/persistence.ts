@@ -262,7 +262,7 @@ export function hydrateAllTickets() {
         externalId: ticket.externalId,
         title: ticket.title,
         lockedMainImplementer: ticket.lockedMainImplementer ?? null,
-        lockedCouncilMembers: ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : null,
+        lockedCouncilMembers: ticket.lockedCouncilMembers.length > 0 ? ticket.lockedCouncilMembers : null,
       })
       hydrated++
     } catch (err) {

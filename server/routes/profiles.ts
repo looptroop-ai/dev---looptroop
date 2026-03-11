@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../db/index'
 import { profiles } from '../db/schema'
 import { eq } from 'drizzle-orm'
+import { validateModelSelection } from '../opencode/modelValidation'
 
 const profileRouter = new Hono()
 
@@ -31,11 +32,21 @@ profileRouter.post('/profile', async (c) => {
   if (!parsed.success) {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400)
   }
+  let validatedModels
+  try {
+    validatedModels = await validateModelSelection(parsed.data.mainImplementer, parsed.data.councilMembers)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Invalid model configuration' }, 400)
+  }
   const existing = db.select().from(profiles).limit(1).get()
   if (existing) {
     return c.json({ error: 'Profile already exists. Use PATCH to update.' }, 409)
   }
-  const result = db.insert(profiles).values(parsed.data).returning().get()
+  const result = db.insert(profiles).values({
+    ...parsed.data,
+    mainImplementer: validatedModels.mainImplementer,
+    councilMembers: JSON.stringify(validatedModels.councilMembers),
+  }).returning().get()
   return c.json(result, 201)
 })
 
@@ -49,8 +60,22 @@ profileRouter.patch('/profile', async (c) => {
   if (!existing) {
     return c.json({ error: 'No profile found' }, 404)
   }
+  let validatedModels
+  try {
+    validatedModels = await validateModelSelection(
+      parsed.data.mainImplementer ?? existing.mainImplementer,
+      parsed.data.councilMembers ?? existing.councilMembers,
+    )
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Invalid model configuration' }, 400)
+  }
   const result = db.update(profiles)
-    .set({ ...parsed.data, updatedAt: new Date().toISOString() })
+    .set({
+      ...parsed.data,
+      mainImplementer: validatedModels.mainImplementer,
+      councilMembers: JSON.stringify(validatedModels.councilMembers),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(profiles.id, existing.id))
     .returning()
     .get()

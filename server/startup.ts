@@ -4,8 +4,10 @@ import { startWalCheckpoint } from './db/index'
 import { createIndexes } from './db/indexes'
 import { hydrateAllTickets } from './machines/persistence'
 import { getOpenCodeAdapter } from './opencode/factory'
+import { SessionManager } from './opencode/sessionManager'
 import { opencodeSessions } from './db/schema'
 import { getProjectContextById, listProjects } from './storage/projects'
+import { findTicketRefByLocalId } from './storage/tickets'
 
 export function startupSequence() {
   console.log('[startup] Step 1: Initialize database')
@@ -41,8 +43,8 @@ export function startupSequence() {
     return
   }
 
-  adapter.listSessions().then(remoteSessions => {
-    const remoteIds = new Set(remoteSessions.map(session => session.id))
+  adapter.listSessions().then(async () => {
+    const sessionManager = new SessionManager(adapter)
     let reconnected = 0
     let abandoned = 0
 
@@ -56,7 +58,17 @@ export function startupSequence() {
         .all()
 
       for (const session of activeDbSessions) {
-        if (remoteIds.has(session.sessionId)) {
+        const ticketRef = session.ticketId != null ? findTicketRefByLocalId(session.ticketId) : undefined
+        const recovered = ticketRef
+          ? await sessionManager.validateAndReconnect(ticketRef, session.phase, {
+              ...(session.phaseAttempt != null ? { phaseAttempt: session.phaseAttempt } : {}),
+              memberId: session.memberId,
+              beadId: session.beadId,
+              ...(session.iteration != null ? { iteration: session.iteration } : {}),
+            })
+          : null
+
+        if (recovered && recovered.id === session.sessionId) {
           reconnected++
           continue
         }

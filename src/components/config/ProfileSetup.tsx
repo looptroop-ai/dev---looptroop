@@ -49,11 +49,11 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
 
   // Raw string state for numeric fields so users can freely type
   const numericFields = {
-    perIterationTimeout: { min: 10, max: 3600, label: 'Per-Iteration Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
+    perIterationTimeout: { min: 0, max: 3600, label: 'Per-Iteration Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
     councilResponseTimeout: { min: 10, max: 3600, label: 'Council Response Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
-    maxIterations: { min: 1, max: 20, label: 'Max Iterations', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    maxIterations: { min: 0, max: 20, label: 'Max Iterations', fromStore: (v: number) => String(v), toStore: (v: number) => v },
     minCouncilQuorum: { min: 2, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
-    interviewQuestions: { min: 5, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    interviewQuestions: { min: 0, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   } as const
 
   const [rawNumeric, setRawNumeric] = useState<Record<string, string>>(() => ({
@@ -115,8 +115,16 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const [openCodeConnected, setOpenCodeConnected] = useState<boolean | null>(null)
 
   useEffect(() => {
-    fetch('http://localhost:4096/api/health')
-      .then(res => { setOpenCodeConnected(res.ok) })
+    fetch('/api/health/opencode')
+      .then(async (res) => {
+        if (!res.ok) {
+          setOpenCodeConnected(false)
+          return
+        }
+
+        const payload = await res.json().catch(() => null) as { status?: string } | null
+        setOpenCodeConnected(payload?.status === 'ok')
+      })
       .catch(() => { setOpenCodeConnected(false) })
   }, [])
 
@@ -344,7 +352,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
             <p className="text-xs text-muted-foreground mt-1">Primary model used for code generation and implementation</p>
             {openCodeConnected === false && (
               <div className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                OpenCode server not reachable on port 4096. Start it with <code className="font-mono bg-muted-foreground/10 px-1 rounded">opencode serve</code>
+                LoopTroop could not reach the configured OpenCode server. Start it with <code className="font-mono bg-muted-foreground/10 px-1 rounded">opencode serve</code> or check the backend OpenCode URL.
               </div>
             )}
           </div>

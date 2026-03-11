@@ -11,12 +11,15 @@ import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 import { safeAtomicWrite } from '../io/atomicWrite'
+import { resolveBaseBranchRef } from '../git/repository'
 import {
+  detectGitBaseBranch,
   getTicketDir as resolveTicketDir,
   getTicketRuntimeDir,
   getTicketWorktreePath as resolveTicketWorktreePath,
 } from '../storage/paths'
 import { generateCodebaseMapYaml } from './codebaseMap'
+import { getTicketBeadsDir, updateTicketMeta } from './metadata'
 
 interface InitializeOptions {
   externalId: string
@@ -27,6 +30,7 @@ export interface InitializeTicketResult {
   worktreePath: string
   ticketDir: string
   branchName: string
+  baseBranch: string
   codebaseMapPath: string
   reused: boolean
 }
@@ -97,11 +101,13 @@ function ensureGitRepo(projectFolder: string) {
   }
 }
 
-function ensureMainBranch(projectFolder: string) {
-  if (!gitCommandSucceeds(['show-ref', '--verify', '--quiet', 'refs/heads/main'], projectFolder)) {
+function ensureBaseBranch(projectFolder: string, baseBranch: string): string {
+  try {
+    return resolveBaseBranchRef(projectFolder, baseBranch)
+  } catch {
     throw new TicketInitializationError(
-      'INIT_MAIN_BRANCH_MISSING',
-      `Project repository does not have a main branch: ${projectFolder}`,
+      'INIT_BASE_BRANCH_MISSING',
+      `Project repository does not have the detected base branch "${baseBranch}": ${projectFolder}`,
     )
   }
 }
@@ -196,7 +202,12 @@ function preserveTicketSkeleton(worktreePath: string): {
   }
 }
 
-function ensureTicketDirectories(ticketDir: string) {
+function ensureTicketDirectories(
+  projectRoot: string,
+  externalId: string,
+  ticketDir: string,
+  baseBranch: string,
+) {
   const runtimeDir = resolve(ticketDir, 'runtime')
   const dirs = [
     ticketDir,
@@ -207,7 +218,7 @@ function ensureTicketDirectories(ticketDir: string) {
     resolve(runtimeDir, 'sessions'),
     resolve(runtimeDir, 'locks'),
     resolve(runtimeDir, 'tmp'),
-    resolve(ticketDir, 'beads', 'main', '.beads'),
+    getTicketBeadsDir(projectRoot, externalId, baseBranch),
   ]
 
   for (const dir of dirs) {
@@ -230,11 +241,12 @@ function materializeWorktree(
   projectFolder: string,
   worktreePath: string,
   branchName: string,
+  baseBranchRef: string,
 ) {
   if (!existsSync(worktreePath)) {
     const args = branchExists(projectFolder, branchName)
       ? ['worktree', 'add', worktreePath, branchName]
-      : ['worktree', 'add', '-b', branchName, worktreePath, 'main']
+      : ['worktree', 'add', '-b', branchName, worktreePath, baseBranchRef]
     runGit(args, projectFolder, 'INIT_WORKTREE_CREATE_FAILED', 'Failed to create ticket worktree')
     return
   }
@@ -254,7 +266,7 @@ function materializeWorktree(
   try {
     const args = branchExists(projectFolder, branchName)
       ? ['worktree', 'add', worktreePath, branchName]
-      : ['worktree', 'add', '-b', branchName, worktreePath, 'main']
+      : ['worktree', 'add', '-b', branchName, worktreePath, baseBranchRef]
     runGit(args, projectFolder, 'INIT_WORKTREE_CREATE_FAILED', 'Failed to create ticket worktree')
     preserved.restore()
   } catch (err) {
@@ -265,15 +277,16 @@ function materializeWorktree(
 
 export function initializeTicket(options: InitializeOptions): InitializeTicketResult {
   const branchName = options.externalId
+  const baseBranch = detectGitBaseBranch(options.projectFolder)
+  const baseBranchRef = ensureBaseBranch(options.projectFolder, baseBranch)
   const worktreePath = getTicketWorktreePath(options.projectFolder, options.externalId)
   const ticketDir = getTicketDir(options.projectFolder, options.externalId)
 
   ensureGitRepo(options.projectFolder)
-  ensureMainBranch(options.projectFolder)
 
   const reused = isValidTicketWorktree(options.projectFolder, worktreePath, branchName)
   if (!reused) {
-    materializeWorktree(options.projectFolder, worktreePath, branchName)
+    materializeWorktree(options.projectFolder, worktreePath, branchName, baseBranchRef)
   }
 
   if (!isValidTicketWorktree(options.projectFolder, worktreePath, branchName)) {
@@ -283,9 +296,10 @@ export function initializeTicket(options: InitializeOptions): InitializeTicketRe
     )
   }
 
-  ensureTicketDirectories(ticketDir)
+  ensureTicketDirectories(options.projectFolder, options.externalId, ticketDir, baseBranch)
   mkdirSync(getTicketRuntimeDir(options.projectFolder, options.externalId), { recursive: true })
   writeRuntimeGitignore(ticketDir)
+  updateTicketMeta(options.projectFolder, options.externalId, { baseBranch })
 
   let codebaseMapPath: string
   try {
@@ -302,6 +316,7 @@ export function initializeTicket(options: InitializeOptions): InitializeTicketRe
     worktreePath,
     ticketDir,
     branchName,
+    baseBranch,
     codebaseMapPath,
     reused,
   }

@@ -1,9 +1,9 @@
-export interface BeadChecks {
-  tests: string
-  lint: string
-  typecheck: string
-  qualitative: string
-}
+import type { BeadChecks } from './completionSchema'
+import {
+  BEAD_STATUS_END,
+  BEAD_STATUS_MARKER,
+  REQUIRED_GATES,
+} from './completionSchema'
 
 export interface CompletionResult {
   complete: boolean
@@ -13,10 +13,6 @@ export interface CompletionResult {
   checks?: BeadChecks
   errors: string[]
 }
-
-const BEAD_STATUS_MARKER = '<BEAD_STATUS>'
-const BEAD_STATUS_END = '</BEAD_STATUS>'
-const REQUIRED_GATES: (keyof BeadChecks)[] = ['tests', 'lint', 'typecheck', 'qualitative']
 
 export function parseCompletionMarker(output: string): CompletionResult {
   const errors: string[] = []

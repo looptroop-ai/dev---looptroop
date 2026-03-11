@@ -11,6 +11,7 @@ export async function generateFinalTests(
   projectPath: string,
   signal?: AbortSignal,
   callbacks?: {
+    ticketId?: string
     model?: string
     onSessionCreated?: (sessionId: string) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
@@ -27,6 +28,16 @@ export async function generateFinalTests(
       parts: [{ type: 'text', content: promptContent }],
       signal,
       model: callbacks?.model,
+      ...(callbacks?.ticketId
+        ? {
+            sessionOwnership: {
+              ticketId: callbacks.ticketId,
+              phase: 'RUNNING_FINAL_TEST',
+              phaseAttempt: 1,
+              ...(callbacks.model ? { memberId: callbacks.model } : {}),
+            },
+          }
+        : {}),
       onSessionCreated: (session) => {
         sessionId = session.id
         callbacks?.onSessionCreated?.(session.id)

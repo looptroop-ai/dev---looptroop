@@ -1,4 +1,5 @@
 import { MockOpenCodeAdapter, OpenCodeSDKAdapter, type OpenCodeAdapter } from './adapter'
+import { getOpenCodeBaseUrl } from './runtimeConfig'
 
 let singleton: OpenCodeAdapter | null = null
 
@@ -8,7 +9,7 @@ export function isMockOpenCodeMode(): boolean {
 
 export function getOpenCodeAdapter(): OpenCodeAdapter {
   if (singleton) return singleton
-  singleton = isMockOpenCodeMode() ? new MockOpenCodeAdapter() : new OpenCodeSDKAdapter()
+  singleton = isMockOpenCodeMode() ? new MockOpenCodeAdapter() : new OpenCodeSDKAdapter(getOpenCodeBaseUrl())
   return singleton
 }
 

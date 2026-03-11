@@ -21,10 +21,10 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
     totalBeads: ticket.totalBeads,
     errorMessage: ticket.errorMessage,
   })
-  const councilMemberNames = useMemo(() => {
-    try { return ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) as string[] : [] }
-    catch { return [] }
-  }, [ticket.lockedCouncilMembers])
+  const councilMemberNames = useMemo(
+    () => ticket.lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0),
+    [ticket.lockedCouncilMembers],
+  )
   const councilMemberCount = councilMemberNames.length || 3
   const isDraft = phase === 'DRAFT'
   const { artifacts: preloadedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticket.id)

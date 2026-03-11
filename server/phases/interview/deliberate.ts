@@ -9,6 +9,8 @@ interface InterviewDeliberationOptions {
   draftTimeoutMs: number
   minQuorum: number
   maxInitialQuestions: number
+  ticketId?: string
+  phaseAttempt?: number
 }
 
 /** Build a context builder that returns PROM2 (vote) or PROM3 (refine) context. */
@@ -59,6 +61,11 @@ export async function deliberateInterview(
     onOpenCodeStreamEvent,
     onDraftProgress,
     (content) => validateInterviewDraft(content, options.maxInitialQuestions),
+    {
+      ticketId: options.ticketId,
+      phase: 'COUNCIL_DELIBERATING',
+      phaseAttempt: options.phaseAttempt,
+    },
   )
 
   return {

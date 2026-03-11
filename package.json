@@ -4,6 +4,7 @@
   "description": "",
   "main": "eslint.config.js",
   "scripts": {
+    "predev": "tsx scripts/dev-preflight.ts",
     "dev": "concurrently -n fe,be -c blue,green \"vite\" \"CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts\"",
     "dev:frontend": "vite",
     "dev:backend": "CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts",

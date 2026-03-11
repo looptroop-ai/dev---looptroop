@@ -3,6 +3,8 @@ import type {
   GenericMessagePart,
   HealthStatus,
   Message,
+  MessageInfo,
+  MessagePart,
   PromptPart,
   PromptSessionOptions,
   ReasoningMessagePart,
@@ -16,6 +18,8 @@ import { parseModelRef } from './types'
 import type { TicketState } from './contextBuilder'
 import { resolve } from 'path'
 import { logIfVerbose, warnIfVerbose } from '../runtime'
+import { getOpenCodeBaseUrl } from './runtimeConfig'
+import type { Bead } from '../phases/beads/types'
 
 interface RawEvent {
   type: string
@@ -39,13 +43,44 @@ export interface OpenCodeAdapter {
   checkHealth(): Promise<HealthStatus>
 }
 
-// Real implementation — connects to opencode serve on port 4096
+function formatBeadContext(bead: Bead): string {
+  return [
+    `# Active Bead`,
+    `ID: ${bead.id}`,
+    `Title: ${bead.title}`,
+    '',
+    `## Description`,
+    bead.description,
+    '',
+    `## Context Guidance`,
+    bead.contextGuidance || 'No additional guidance provided.',
+    '',
+    `## Acceptance Criteria`,
+    ...bead.acceptanceCriteria.map((item) => `- ${item}`),
+    '',
+    `## Target Files`,
+    ...(bead.targetFiles.length > 0 ? bead.targetFiles.map((item) => `- ${item}`) : ['- No target files listed.']),
+    '',
+    `## Required Tests`,
+    ...bead.tests.map((item) => `- ${item}`),
+    '',
+    `## Test Commands`,
+    ...bead.testCommands.map((item) => `- ${item}`),
+    '',
+    `## Dependencies`,
+    ...(bead.dependencies.length > 0 ? bead.dependencies.map((item) => `- ${item}`) : ['- None']),
+  ].join('\n')
+}
+
 export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   private client: ReturnType<typeof createOpencodeClient>
   private sessionDirectories = new Map<string, string>()
 
-  constructor(port = 4096, client?: ReturnType<typeof createOpencodeClient>) {
-    this.client = client ?? createOpencodeClient({ baseUrl: `http://localhost:${port}` })
+  constructor(baseUrlOrPort: string | number = getOpenCodeBaseUrl(), client?: ReturnType<typeof createOpencodeClient>) {
+    const baseUrl = typeof baseUrlOrPort === 'number'
+      ? `http://localhost:${baseUrlOrPort}`
+      : baseUrlOrPort
+    this.client = client ?? createOpencodeClient({ baseUrl })
   }
 
   async createSession(projectPath: string, signal?: AbortSignal): Promise<Session> {
@@ -102,7 +137,14 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         parts: promptParts,
       }, this.requestOptions(promptOptions.signal))
 
-      const responseText = this.extractResponseText(res.data?.parts)
+      let responseText = this.extractResponseText(res.data?.parts)
+      if (!responseText) {
+        const preferredMessageId = typeof this.getRecord(res.data?.info)?.id === 'string'
+          ? String(this.getRecord(res.data?.info)?.id)
+          : undefined
+        const messages = await this.getSessionMessages(sessionId)
+        responseText = this.extractLatestAssistantText(messages, preferredMessageId)
+      }
       if (!responseText) {
         warnIfVerbose(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
       }
@@ -137,7 +179,9 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         ...(directory ? { directory } : {}),
         limit: 10000,
       })
-      return Array.isArray(res.data) ? res.data as unknown as Message[] : []
+      return Array.isArray(res.data)
+        ? res.data.map((entry) => this.mapMessageRecord(entry))
+        : []
     } catch {
       return []
     }
@@ -195,7 +239,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
   async assembleBeadContext(ticketId: string, beadId: string): Promise<PromptPart[]> {
     const { buildMinimalContext } = await import('./contextBuilder')
-    const ticketState = await this.loadTicketState(ticketId)
+    const ticketState = await this.loadTicketState(ticketId, beadId)
     logIfVerbose(`[adapter] assembleBeadContext ticket=${ticketId} bead=${beadId} hasDescription=${!!ticketState.description}`)
     return buildMinimalContext('coding', ticketState, beadId)
   }
@@ -207,7 +251,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     return buildMinimalContext(phase, ticketState)
   }
 
-  private async loadTicketState(ticketId: string): Promise<TicketState> {
+  private async loadTicketState(ticketId: string, beadId?: string): Promise<TicketState> {
     const { existsSync, readFileSync } = await import('fs')
     const { getTicketContext, getTicketPaths } = await import('../storage/tickets')
 
@@ -241,10 +285,25 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
     }
 
-    const beadsPath = resolve(ticketDir, 'beads', 'main', '.beads', 'issues.jsonl')
+    const beadsPath = paths.beadsPath
     if (existsSync(beadsPath)) {
       try {
-        state.beads = readFileSync(beadsPath, 'utf-8')
+        const beadFile = readFileSync(beadsPath, 'utf-8')
+        state.beads = beadFile
+
+        if (beadId) {
+          const bead = beadFile
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as Bead)
+            .find((entry) => entry.id === beadId)
+
+          if (bead) {
+            state.beadData = formatBeadContext(bead)
+            state.beadNotes = bead.notes.filter((note) => note.trim().length > 0)
+          }
+        }
       } catch (err) {
         warnIfVerbose(`[adapter] Failed to read issues.jsonl:`, err)
       }
@@ -318,6 +377,53 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       .filter(part => part.type === 'text')
       .map(part => part.text ?? '')
       .join('')
+  }
+
+  private extractLatestAssistantText(messages: Message[], preferredMessageId?: string): string {
+    const reversed = [...messages].reverse()
+    const ordered = preferredMessageId
+      ? [
+          ...reversed.filter((message) => message.id === preferredMessageId),
+          ...reversed.filter((message) => message.id !== preferredMessageId),
+        ]
+      : reversed
+
+    for (const message of ordered) {
+      if (message.role !== 'assistant') continue
+      const fromParts = this.extractResponseText(message.parts)
+      if (fromParts) return fromParts
+      if (message.content?.trim()) return message.content.trim()
+      if (message.info?.structured !== undefined) {
+        try {
+          return JSON.stringify(message.info.structured, null, 2)
+        } catch {
+          return String(message.info.structured)
+        }
+      }
+    }
+
+    return ''
+  }
+
+  private mapMessageRecord(entry: unknown): Message {
+    const record = this.getRecord(entry)
+    const info = this.getRecord(record?.info) as MessageInfo | null
+    const parts = Array.isArray(record?.parts) ? record.parts as MessagePart[] : []
+    const createdAt = typeof info?.time?.created === 'number'
+      ? new Date(info.time.created).toISOString()
+      : typeof info?.timestamp === 'string'
+        ? info.timestamp
+        : undefined
+    const content = this.extractResponseText(parts)
+
+    return {
+      id: typeof info?.id === 'string' ? info.id : '',
+      role: typeof info?.role === 'string' ? info.role : undefined,
+      content: content || undefined,
+      timestamp: createdAt,
+      info: info ?? undefined,
+      parts,
+    }
   }
 
   private async resolveSessionDirectory(sessionId: string): Promise<string | undefined> {
@@ -714,7 +820,8 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
     _signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string> {
-    const response = this.mockResponses.get(sessionId) ?? 'Mock response'
+    const promptText = parts.map(part => part.content).join('\n')
+    const response = this.mockResponses.get(sessionId) ?? this.buildMockResponse(promptText)
 
     const messages = this.messages.get(sessionId) ?? []
     for (const part of parts) {
@@ -747,6 +854,25 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
     options?.onEvent?.({ type: 'done', sessionId })
 
     return response
+  }
+
+  private buildMockResponse(promptText: string): string {
+    if (promptText.includes('Score each draft')) {
+      const draftCount = Array.from(promptText.matchAll(/Draft\s+\d+:/g)).length || 3
+      return Array.from({ length: draftCount }, (_, index) => (
+        `Draft ${index + 1}:\nScore: ${18 - index}/20`
+      )).join('\n\n')
+    }
+
+    if (promptText.includes('## Winning Draft')) {
+      return 'Mock refined response'
+    }
+
+    if (promptText.includes('<FINAL_TEST_COMMANDS>') || promptText.includes('FINAL_TEST_COMMANDS')) {
+      return '<FINAL_TEST_COMMANDS>{"commands":["echo mock-final-test"],"summary":"mock final test plan"}</FINAL_TEST_COMMANDS>'
+    }
+
+    return 'Mock response'
   }
 
   async listSessions(): Promise<Session[]> {

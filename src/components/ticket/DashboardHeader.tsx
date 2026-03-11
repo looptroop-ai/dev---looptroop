@@ -142,13 +142,13 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
       requestAnimationFrame(() => handleScroll())
     })
   }, [handleScroll])
-  const canCancel = !NON_CANCELABLE.includes(ticket.status)
+  const canCancel = ticket.availableActions.includes('cancel')
   const canDelete = NON_CANCELABLE.includes(ticket.status)
   const { data: projects = [] } = useProjects()
   const project = projects.find(p => p.id === ticket.projectId)
   const statusLabel = getStatusUserLabel(ticket.status, {
-    currentBead: ticket.currentBead,
-    totalBeads: ticket.totalBeads,
+    currentBead: ticket.runtime.currentBead,
+    totalBeads: ticket.runtime.totalBeads,
     errorMessage: ticket.errorMessage,
   })
   const progress = getStatusProgress(ticket.status)
@@ -289,38 +289,39 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 </div>
               </div>
             )}
-            {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers) && (
+            {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers.length > 0) && (
               <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1">
                 <span className="text-xs font-medium text-muted-foreground">Models Selected</span>
                 <div className="mt-1 space-y-1 text-xs text-muted-foreground">
                   {(() => {
-                    try {
-                      const mainModel = ticket.lockedMainImplementer
-                      const members: string[] = ticket.lockedCouncilMembers ? JSON.parse(ticket.lockedCouncilMembers) : []
-                      const otherMembers = (members.length > 0 && members[0] === mainModel) ? members.slice(1) : members
+                    const mainModel = ticket.lockedMainImplementer
+                    const members: string[] = ticket.lockedCouncilMembers
+                    const otherMembers = (members.length > 0 && members[0] === mainModel) ? members.slice(1) : members
 
-                      return (
-                        <>
-                          {mainModel && (
-                            <div className="flex justify-between items-center">
-                              <div className="flex flex-col space-y-1">
-                                <span>Main Implementer</span>
-                                <span>Council Member A</span>
-                              </div>
-                              <span className="font-mono text-right">{mainModel}</span>
+                    return (
+                      <>
+                        {mainModel && (
+                          <div className="flex justify-between items-center">
+                            <div className="flex flex-col space-y-1">
+                              <span>Main Implementer</span>
+                              <span>Council Member A</span>
                             </div>
-                          )}
-                          {otherMembers.length > 0 && (
-                            <>
-                              <div className="my-2 border-t-[2px] border-border/70" />
-                              {otherMembers.map((m, i) => (
-                                <div key={i} className="flex justify-between"><span>Council Member {String.fromCharCode(66 + i)}</span><span className="font-mono">{m}</span></div>
-                              ))}
-                            </>
-                          )}
-                        </>
-                      )
-                    } catch { return null }
+                            <span className="font-mono text-right">{mainModel}</span>
+                          </div>
+                        )}
+                        {otherMembers.length > 0 && (
+                          <>
+                            <div className="my-2 border-t-[2px] border-border/70" />
+                            {otherMembers.map((member, index) => (
+                              <div key={member} className="flex justify-between">
+                                <span>Council Member {String.fromCharCode(66 + index)}</span>
+                                <span className="font-mono">{member}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    )
                   })()}
                 </div>
               </div>
@@ -331,33 +332,37 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <p className="font-mono mt-0.5">{ticket.branchName}</p>
               </div>
             )}
-            {ticket.totalBeads && (
+            {ticket.runtime.totalBeads > 0 && (
               <div>
                 <span className="text-xs font-medium text-muted-foreground">Beads</span>
-                <p className="mt-0.5">{ticket.currentBead ?? 0} / {ticket.totalBeads}</p>
+                <p className="mt-0.5">{ticket.runtime.currentBead} / {ticket.runtime.totalBeads}</p>
               </div>
             )}
-            {ticket.totalBeads && ticket.percentComplete !== null && ticket.percentComplete !== undefined && (
+            {ticket.runtime.totalBeads > 0 && (
               <div>
                 <span className="text-xs font-medium text-muted-foreground">Completion</span>
-                <p className="mt-0.5">{Math.round(ticket.percentComplete)}%</p>
+                <p className="mt-0.5">{Math.round(ticket.runtime.percentComplete)}%</p>
               </div>
             )}
-            {(() => {
-              if (!ticket.xstateSnapshot) return null
-              try {
-                const snap = JSON.parse(ticket.xstateSnapshot) as { context?: { iterationCount?: number; maxIterations?: number } }
-                const iter = snap.context?.iterationCount
-                const max = snap.context?.maxIterations
-                if (iter == null || iter < 1) return null
-                return (
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">Iterations</span>
-                    <p className="mt-0.5">{iter}{max ? ` / ${max}` : ''}</p>
-                  </div>
-                )
-              } catch { return null }
-            })()}
+            {ticket.runtime.iterationCount > 0 && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Iterations</span>
+                <p className="mt-0.5">
+                  {ticket.runtime.iterationCount}
+                  {ticket.runtime.maxIterations && ticket.runtime.maxIterations > 0 ? ` / ${ticket.runtime.maxIterations}` : ''}
+                </p>
+              </div>
+            )}
+            <div>
+              <span className="text-xs font-medium text-muted-foreground">Base Branch</span>
+              <p className="font-mono mt-0.5">{ticket.runtime.baseBranch}</p>
+            </div>
+            {ticket.runtime.candidateCommitSha && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Candidate Commit</span>
+                <p className="font-mono mt-0.5">{ticket.runtime.candidateCommitSha}</p>
+              </div>
+            )}
             {ticket.errorMessage && (
               <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
                 <span className="text-xs font-medium text-muted-foreground">Error</span>
@@ -368,7 +373,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             )}
             {project && ticket.status !== 'DRAFT' && (
               <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
-                <CopyablePathRow label="Artifacts Location" path={`${project.folderPath}/.looptroop/worktrees/${ticket.externalId}`} />
+                <CopyablePathRow label="Artifacts Location" path={ticket.runtime.artifactRoot || `${project.folderPath}/.looptroop/worktrees/${ticket.externalId}`} />
               </div>
             )}
           </div>

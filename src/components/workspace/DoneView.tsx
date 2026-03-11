@@ -10,7 +10,7 @@ export function DoneView() {
           <div>
             <h3 className="text-sm font-semibold text-green-600">Completed Successfully</h3>
             <p className="text-xs text-muted-foreground">
-              Fully implemented, tested, and merged to main.
+              Fully implemented, tested, verified, and cleaned up.
             </p>
           </div>
         </div>

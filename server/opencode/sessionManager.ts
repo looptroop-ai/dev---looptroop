@@ -1,10 +1,18 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { opencodeSessions } from '../db/schema'
 import type { OpenCodeAdapter } from './adapter'
 import type { Session } from './types'
 import { getOpenCodeAdapter } from './factory'
 import { getProjectContextById, listProjects } from '../storage/projects'
-import { getTicketContext } from '../storage/tickets'
+import { getTicketByRef, getTicketContext } from '../storage/tickets'
+
+export interface SessionOwnership {
+  ticketId?: string
+  phaseAttempt?: number
+  memberId?: string | null
+  beadId?: string | null
+  iteration?: number | null
+}
 
 function findSessionRecord(sessionId: string) {
   for (const project of listProjects()) {
@@ -53,6 +61,23 @@ export class SessionManager {
     return session
   }
 
+  createSessionForOwnership(
+    ticketId: string,
+    phase: string,
+    ownership: SessionOwnership,
+    projectPath?: string,
+  ): Promise<Session> {
+    return this.createSessionForPhase(
+      ticketId,
+      phase,
+      ownership.phaseAttempt ?? 1,
+      ownership.memberId ?? undefined,
+      ownership.beadId ?? undefined,
+      ownership.iteration ?? undefined,
+      projectPath,
+    )
+  }
+
   async completeSession(sessionId: string) {
     const found = findSessionRecord(sessionId)
     if (!found) return
@@ -89,8 +114,46 @@ export class SessionManager {
       .get()
   }
 
-  async validateAndReconnect(ticketId: string, phase: string): Promise<Session | null> {
-    const existing = this.getActiveSession(ticketId, phase)
+  getOwnedActiveSession(ticketId: string, phase: string, ownership: SessionOwnership) {
+    const context = getTicketContext(ticketId)
+    if (!context) return undefined
+    const conditions = [
+      eq(opencodeSessions.ticketId, context.localTicketId),
+      eq(opencodeSessions.phase, phase),
+      eq(opencodeSessions.phaseAttempt, ownership.phaseAttempt ?? 1),
+      eq(opencodeSessions.state, 'active'),
+    ]
+    if (ownership.memberId == null) {
+      conditions.push(isNull(opencodeSessions.memberId))
+    } else {
+      conditions.push(eq(opencodeSessions.memberId, ownership.memberId))
+    }
+    if (ownership.beadId == null) {
+      conditions.push(isNull(opencodeSessions.beadId))
+    } else {
+      conditions.push(eq(opencodeSessions.beadId, ownership.beadId))
+    }
+    if (ownership.iteration === undefined || ownership.iteration === null) {
+      conditions.push(isNull(opencodeSessions.iteration))
+    } else {
+      conditions.push(eq(opencodeSessions.iteration, ownership.iteration))
+    }
+    return context.projectDb
+      .select()
+      .from(opencodeSessions)
+      .where(and(...conditions))
+      .get()
+  }
+
+  async validateAndReconnect(ticketId: string, phase: string, ownership?: SessionOwnership): Promise<Session | null> {
+    const ticket = getTicketByRef(ticketId)
+    if (!ticket || ticket.status !== phase) {
+      return null
+    }
+
+    const existing = ownership
+      ? this.getOwnedActiveSession(ticketId, phase, ownership)
+      : this.getActiveSession(ticketId, phase)
     if (!existing) return null
 
     const sessions = await this.adapter.listSessions()

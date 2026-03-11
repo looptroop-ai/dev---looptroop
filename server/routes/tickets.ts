@@ -5,11 +5,6 @@ import jsYaml from 'js-yaml'
 import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
 import {
-  DEFAULT_MAIN_IMPLEMENTER,
-  ensureMinimumCouncilMembers,
-  parseCouncilMembers,
-} from '../council/members'
-import {
   createTicketActor,
   ensureActorForTicket,
   sendTicketEvent,
@@ -23,6 +18,7 @@ import { cancelTicket, handleInterviewQABatch } from '../workflow/runner'
 import { createTicket as createTicketRecord } from '../ticket/create'
 import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
 import { getProjectContextById } from '../storage/projects'
+import { validateModelSelection } from '../opencode/modelValidation'
 import {
   getLatestPhaseArtifact,
   getTicketByRef,
@@ -117,15 +113,6 @@ function normalizeInterviewDraft(data: unknown): { answers: Record<string, strin
 
 function getProfileDefaults() {
   return appDb.select().from(profiles).get()
-}
-
-function resolveLockedCouncilMembers(raw: string | null | undefined): string[] {
-  return ensureMinimumCouncilMembers(parseCouncilMembers(raw))
-}
-
-function resolveLockedMainImplementer(raw: string | null | undefined): string {
-  const trimmed = typeof raw === 'string' ? raw.trim() : ''
-  return trimmed || DEFAULT_MAIN_IMPLEMENTER
 }
 
 function respondWithState(c: Context, ticketId: string, message: string) {
@@ -273,7 +260,7 @@ ticketRouter.delete('/tickets/:id', async (c) => {
   }
 })
 
-ticketRouter.post('/tickets/:id/start', (c) => {
+ticketRouter.post('/tickets/:id/start', async (c) => {
   const ticketId = c.req.param('id')
   const ticketContext = getTicketContext(ticketId)
   if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
@@ -282,9 +269,13 @@ ticketRouter.post('/tickets/:id/start', (c) => {
   }
 
   const profile = getProfileDefaults()
-  const lockedMainImplementer = resolveLockedMainImplementer(profile?.mainImplementer)
   const councilRaw = ticketContext.localProject.councilMembers ?? profile?.councilMembers ?? null
-  const lockedCouncilMembers = resolveLockedCouncilMembers(councilRaw)
+  let modelSelection
+  try {
+    modelSelection = await validateModelSelection(profile?.mainImplementer, councilRaw)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Invalid model configuration' }, 400)
+  }
 
   let init: ReturnType<typeof initializeTicket>
   try {
@@ -322,15 +313,19 @@ ticketRouter.post('/tickets/:id/start', (c) => {
   }
 
   patchTicket(ticketId, {
-    lockedMainImplementer,
-    lockedCouncilMembers: JSON.stringify(lockedCouncilMembers),
+    lockedMainImplementer: modelSelection.mainImplementer,
+    lockedCouncilMembers: JSON.stringify(modelSelection.councilMembers),
     branchName: init.branchName,
     startedAt: new Date().toISOString(),
   })
 
   try {
     ensureActorForTicket(ticketId)
-    sendTicketEvent(ticketId, { type: 'START', lockedMainImplementer, lockedCouncilMembers })
+    sendTicketEvent(ticketId, {
+      type: 'START',
+      lockedMainImplementer: modelSelection.mainImplementer,
+      lockedCouncilMembers: modelSelection.councilMembers,
+    })
   } catch (err) {
     console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to start ticket', details: String(err) }, 500)

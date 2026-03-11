@@ -1,23 +1,31 @@
 import { Hono } from 'hono'
 import { getOpenCodeAdapter } from '../opencode/factory'
+import { fetchProviderCatalog, flattenCatalogModels } from '../opencode/providerCatalog'
 
 const modelsRouter = new Hono()
 
 modelsRouter.get('/models', async (c) => {
-  const adapter = getOpenCodeAdapter()
-  const health = await adapter.checkHealth()
-  if (!health.available) {
+  try {
+    const catalog = await fetchProviderCatalog()
+    return c.json({
+      models: flattenCatalogModels(catalog, 'connected'),
+      allModels: flattenCatalogModels(catalog, 'all'),
+      connectedProviders: catalog.connected,
+      defaultModels: catalog.default,
+    })
+  } catch {
+    const adapter = getOpenCodeAdapter()
+    const health = await adapter.checkHealth()
     return c.json({
       models: [],
-      message: 'OpenCode server is not reachable. Start it with `opencode serve`.',
+      allModels: [],
+      connectedProviders: [],
+      defaultModels: {},
+      message: health.available
+        ? 'OpenCode catalog is not available.'
+        : 'OpenCode server is not reachable. Start it with `opencode serve`.',
     })
   }
-  return c.json({
-    models: health.models ?? [],
-    // TODO: OpenCode SDK does not yet expose a dedicated model-listing endpoint.
-    // Models are returned from the health check when available. Once OpenCode
-    // adds a /models endpoint, call adapter.listModels() here instead.
-  })
 })
 
 export { modelsRouter }

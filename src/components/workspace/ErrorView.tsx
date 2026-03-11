@@ -12,16 +12,10 @@ interface ErrorViewProps {
 }
 
 function getBlockingPhase(ticket: Ticket): string | null {
-  if (ticket.status !== 'BLOCKED_ERROR' || !ticket.xstateSnapshot) return null
-  try {
-    const snapshot = JSON.parse(ticket.xstateSnapshot) as { context?: { previousStatus?: unknown } }
-    const previousStatus = snapshot.context?.previousStatus
-    return typeof previousStatus === 'string' && previousStatus !== 'BLOCKED_ERROR'
-      ? previousStatus
-      : null
-  } catch {
-    return null
-  }
+  if (ticket.status !== 'BLOCKED_ERROR') return null
+  return ticket.previousStatus && ticket.previousStatus !== 'BLOCKED_ERROR'
+    ? ticket.previousStatus
+    : null
 }
 
 function mergeErrorLogs(previousPhaseLogs: LogEntry[], blockedLogs: LogEntry[]): LogEntry[] {

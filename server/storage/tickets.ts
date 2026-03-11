@@ -6,16 +6,41 @@ import { getProjectContextById, getProjectById, listProjects } from './projects'
 import { opencodeSessions, phaseArtifacts, projects, ticketStatusHistory, tickets } from '../db/schema'
 import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { safeAtomicWrite } from '../io/atomicWrite'
+import { readJsonl } from '../io/jsonl'
 import { broadcaster } from '../sse/broadcaster'
 import type { ArtifactSnapshot } from '../sse/eventTypes'
+import { getAvailableWorkflowActions } from '@shared/workflowMeta'
+import { getTicketBeadsPath, resolveTicketBaseBranch } from '../ticket/metadata'
 
 type LocalTicketRow = typeof tickets.$inferSelect
 type LocalProjectRow = typeof projects.$inferSelect
 type LocalPhaseArtifactRow = typeof phaseArtifacts.$inferSelect
 
-export interface PublicTicket extends Omit<LocalTicketRow, 'id'> {
+export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncilMembers'> {
   id: string
   projectId: number
+  lockedCouncilMembers: string[]
+  availableActions: string[]
+  previousStatus: string | null
+  runtime: {
+    baseBranch: string
+    currentBead: number
+    completedBeads: number
+    totalBeads: number
+    percentComplete: number
+    iterationCount: number
+    maxIterations: number | null
+    artifactRoot: string
+    beads: Array<{
+      id: string
+      title: string
+      status: string
+      iteration: number
+    }>
+    candidateCommitSha: string | null
+    preSquashHead: string | null
+    finalTestStatus: 'passed' | 'failed' | 'pending'
+  }
 }
 
 export type PublicPhaseArtifactRow = ArtifactSnapshot
@@ -45,10 +70,122 @@ export function parseTicketRef(ticketRef: string): { projectId: number; external
 }
 
 function toPublicTicket(projectId: number, ticket: LocalTicketRow): PublicTicket {
+  const project = getProjectById(projectId)
+  const baseBranch = project ? resolveTicketBaseBranch(project.folderPath, ticket.externalId) : 'unknown'
+  const lockedCouncilMembers = parseJsonArray(ticket.lockedCouncilMembers)
+  const snapshot = parseJsonObject<{ context?: { previousStatus?: unknown } }>(ticket.xstateSnapshot)
+  const runtime = project ? buildRuntime(projectId, project.folderPath, ticket, baseBranch) : {
+    baseBranch,
+    currentBead: ticket.currentBead ?? 0,
+    completedBeads: 0,
+    totalBeads: ticket.totalBeads ?? 0,
+    percentComplete: Math.round(ticket.percentComplete ?? 0),
+    iterationCount: 0,
+    maxIterations: null,
+    artifactRoot: '',
+    beads: [],
+    candidateCommitSha: null,
+    preSquashHead: null,
+    finalTestStatus: 'pending' as const,
+  }
+
   return {
     ...ticket,
     id: buildTicketRef(projectId, ticket.externalId),
     projectId,
+    lockedCouncilMembers,
+    availableActions: getAvailableWorkflowActions(ticket.status),
+    previousStatus: typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null,
+    runtime,
+  }
+}
+
+function parseJsonArray(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function parseJsonObject<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+function buildRuntime(
+  projectId: number,
+  projectRoot: string,
+  ticket: LocalTicketRow,
+  baseBranch: string,
+): PublicTicket['runtime'] {
+  const projectContext = getProjectContextById(projectId)
+  const snapshot = parseJsonObject<{ context?: { iterationCount?: unknown; maxIterations?: unknown } }>(ticket.xstateSnapshot)
+  const iterationCount = typeof snapshot?.context?.iterationCount === 'number' ? snapshot.context.iterationCount : 0
+  const maxIterations = typeof snapshot?.context?.maxIterations === 'number'
+    ? snapshot.context.maxIterations
+    : projectContext?.project.maxIterations ?? null
+  const finalTestArtifact = projectContext?.projectDb.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticket.id),
+      eq(phaseArtifacts.artifactType, 'final_test_report'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+  const integrationArtifact = projectContext?.projectDb.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticket.id),
+      eq(phaseArtifacts.artifactType, 'integration_report'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+  const finalTestReport = parseJsonObject<{ status?: 'passed' | 'failed'; passed?: boolean }>(finalTestArtifact?.content)
+  const integrationReport = parseJsonObject<{ candidateCommitSha?: string | null; preSquashHead?: string | null }>(integrationArtifact?.content)
+  const beads = readRuntimeBeads(projectRoot, ticket.externalId, baseBranch)
+  const totalBeads = ticket.totalBeads ?? 0
+  const currentBead = ticket.currentBead ?? 0
+  const completedBeads = totalBeads === 0
+    ? 0
+    : currentBead >= totalBeads
+      ? totalBeads
+      : Math.max(0, currentBead - 1)
+
+  return {
+    baseBranch,
+    currentBead,
+    completedBeads,
+    totalBeads,
+    percentComplete: Math.round(ticket.percentComplete ?? 0),
+    iterationCount,
+    maxIterations,
+    artifactRoot: getTicketDir(projectRoot, ticket.externalId),
+    beads,
+    candidateCommitSha: integrationReport?.candidateCommitSha ?? null,
+    preSquashHead: integrationReport?.preSquashHead ?? null,
+    finalTestStatus: finalTestReport?.status ?? (finalTestReport?.passed ? 'passed' : 'pending'),
+  }
+}
+
+function readRuntimeBeads(projectRoot: string, externalId: string, baseBranch: string) {
+  try {
+    return readJsonl<Record<string, unknown>>(getTicketBeadsPath(projectRoot, externalId, baseBranch))
+      .map((bead) => ({
+        id: typeof bead.id === 'string' ? bead.id : '',
+        title: typeof bead.title === 'string' ? bead.title : 'Untitled',
+        status: typeof bead.status === 'string' ? bead.status : 'pending',
+        iteration: typeof bead.iteration === 'number' ? bead.iteration : 0,
+      }))
+      .filter((bead) => bead.id.length > 0)
+  } catch {
+    return []
   }
 }
 
@@ -84,6 +221,7 @@ function runGit(projectRoot: string, args: string[]) {
 
 function removeTicketFilesystem(projectRoot: string, externalId: string, branchName?: string | null) {
   const worktreePath = getTicketWorktreePath(projectRoot, externalId)
+  const baseBranch = resolveTicketBaseBranch(projectRoot, externalId)
   const resolvedBranchName = branchName?.trim() || externalId
 
   if (existsSync(worktreePath)) {
@@ -99,7 +237,7 @@ function removeTicketFilesystem(projectRoot: string, externalId: string, branchN
     }
   }
 
-  if (resolvedBranchName !== 'main') {
+  if (resolvedBranchName !== baseBranch) {
     try {
       runGit(projectRoot, ['branch', '-D', resolvedBranchName])
     } catch {
@@ -350,12 +488,17 @@ export function getTicketPaths(ticketRef: string): {
   worktreePath: string
   ticketDir: string
   executionLogPath: string
+  baseBranch: string
+  beadsPath: string
 } | undefined {
   const storage = getTicketStorageContext(ticketRef)
   if (!storage) return undefined
+  const baseBranch = resolveTicketBaseBranch(storage.projectRoot, storage.externalId)
   return {
     worktreePath: getTicketWorktreePath(storage.projectRoot, storage.externalId),
     ticketDir: getTicketDir(storage.projectRoot, storage.externalId),
     executionLogPath: getTicketExecutionLogPath(storage.projectRoot, storage.externalId),
+    baseBranch,
+    beadsPath: getTicketBeadsPath(storage.projectRoot, storage.externalId, baseBranch),
   }
 }

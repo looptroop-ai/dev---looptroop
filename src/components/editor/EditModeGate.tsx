@@ -1,16 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import type { Ticket } from '@/hooks/useTickets'
-
-const PRE_EXECUTION_STATUSES = [
-  'DRAFT', 'COUNCIL_DELIBERATING', 'COUNCIL_VOTING_INTERVIEW',
-  'COMPILING_INTERVIEW', 'WAITING_INTERVIEW_ANSWERS',
-  'VERIFYING_INTERVIEW_COVERAGE', 'WAITING_INTERVIEW_APPROVAL',
-  'DRAFTING_PRD', 'COUNCIL_VOTING_PRD', 'REFINING_PRD',
-  'VERIFYING_PRD_COVERAGE', 'WAITING_PRD_APPROVAL',
-  'DRAFTING_BEADS', 'COUNCIL_VOTING_BEADS', 'REFINING_BEADS',
-  'VERIFYING_BEADS_COVERAGE', 'WAITING_BEADS_APPROVAL',
-  'PRE_FLIGHT_CHECK',
-]
+import { getWorkflowPhaseMeta } from '@shared/workflowMeta'
 
 interface EditModeGateProps {
   ticket: Ticket
@@ -20,7 +10,7 @@ interface EditModeGateProps {
 }
 
 export function EditModeGate({ ticket, children, editView }: EditModeGateProps) {
-  const isEditable = PRE_EXECUTION_STATUSES.includes(ticket.status)
+  const isEditable = getWorkflowPhaseMeta(ticket.status)?.editable ?? false
 
   if (!isEditable) {
     return (

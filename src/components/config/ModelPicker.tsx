@@ -264,8 +264,8 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
             {isError && (
               <div className="flex items-center gap-2 px-4 py-6 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                Could not connect to OpenCode at 127.0.0.1:4096.
-                Make sure <code className="font-mono text-xs">opencode serve</code> is running.
+                LoopTroop could not load models from the configured OpenCode connection.
+                Make sure <code className="font-mono text-xs">opencode serve</code> is running and the backend OpenCode URL is correct.
               </div>
             )}
 

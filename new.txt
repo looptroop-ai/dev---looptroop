@@ -1,33 +1,30 @@
-Start the app and fix if any problems when starting. Opencode serve is running in another process if needed. For each request below check using agent-browser if you did an EXCELLENT work.
+PLAN + FULL PERMISSIONS
+CODEX si a doua oara si in COPILOT/CLAUDE CODE (sau AMP) !!!
 
 
-1. understand Selecting best questions status (and any equivalent statuses in prd and beads) and compare them to how i first architeted them in architecture.md.
+- parsed wrong some ai models questions in artifacts ui view
 
 
-3. understnad Interview Q&A batch system, then read architecture.md spec and tell me how they compare, mostlly architecture.md should have been source of truth but htings changed since the file was created. 
 
-4. app is stuck in coverage check (interview), verify in architecture.md what it should really do in each coverage check statuses. Also coverage check status should be done with only winning ai council member, other ai models should not be present as exaplined in architecture.md. In coverage check you should see as artifacts: one - the questions and answers, two - at the very end of coverage check, the whole interview and answers with any followup questions and answers (artifacts should be shown in a human friendly format in UI).
+Start the app and fix if any problems appear when starting. Opencode serve is running in another process if needed. This app (looptroop) was created based on architecture.md file (but things changed, added, improved since then).
 
-
-6. voting on best drafts phase passes too quickly, i think it is not implemented correctlly, check again arhictecture.md for the required flow and prompt to be sent.
+Understand how the app does Selecting Best Questions status vs how was initially described in arhchitecure.md. FOcus only on this part. I'm interested in the situation for this status only, for now.
 
 
-7. Preparing Interview, Refining Specs and Finalizing Plan, where winning model should implement additions from loosing drafts is mostly surelly not working. check architecture.md how it should be implemented and what prompt to be passed to ai models.
-
-8 in all approving statuses(interview, ped, beads), as per architecture.md, there should be a disclaimer that editing some artifacts will restart phases above. but this should not be shown when phase above hasnt started yet. eg, when editing artifacts in approving interview you get this disclaimer: Cascading Edit Warning
-Editing Interview Results will restart the PRD and Beads phases. All previous PRD and Beads data will be lost.
-> but this should not happen if prd phases has not even started.
-
-9. if i click too fast on an artifact, before it is loaded i assume, it shows something wrong. it happened on AI Council Thinking , but i think it happens in other phases too, can you check. Same it takes a couple of houndred of milisecionds for a status to show, can you make it instant or at least show a loading until page is fully loaded.
-
-DE PUS SI IN CLAUDE ce e new 1
+what is missing and how to fix, give me a summary and then details (including the part referenced in architecture.md file). If its missing, but better implemented already, ignore it or improve it. 
 
 
-Delete the current projects and tickets and create 3 new mock projects with data and 20 mock tickets in different statuses, but add mock data for previous statuses too, respecting the files requirments.
-Before the very end create a ticket and make a full lifecycle checking each status with agent-browser to see if it works coreectly (including creating a project and a new ticket).
-For ui changes use the skills available. If you need newer docuemntation use ref mcp server (especially for opencode).
-architecture.md should be used in case some things are not fully understood.
-do check, lints and anything needed to check you implemented correctlly.
 
+I'm thinking about this part (plus  more details explained in architecure.md): 
+        *   Second: SYS anonymizes and randomizes draft order per voter before voting. Context is refreshed; now each member gets the codebase map, ticket details, and interview drafts (AIC). The council votes to determine the winning question set using PROM2. (AIC). SYS selects the winning draft, the draft with the highest score.
+
+
+
+Ask me questions if there are multiple way forward.
+When considering the plan, do not bother to fix existing projects or tickets, they can even be deleted if fixes need it, if you can still work with existing projects and or tickets, thats better, but if not, delete them.
+Use subagents or parallel agents if needed, to be more efficient.
+For ui changes use the skills available. If you need newer docuemntation use ref or context7 mcp server (especially for opencode). at the very end of the plan onsider how the changes will impact other parts of the app too. When the actual implementation will start, for each action point check using agent-browser if you did an EXCELLENT work, including a test ticket in the status or statuses impacted (but only in interview phase maximum for now, do not go further than this for testing a ticket).
+
+do check, lints, tests and anything needed to verify you implemented correctlly. you can even optimise the tests as they last a little too long.
 At the very end check using curl and or agent-browser the app is working. wait 60 seconds and then check again and only then tell me that you finished.
 Check if anything else needs to be added to .gitignore. Then commit and push everything, including other files not modified during this session.
