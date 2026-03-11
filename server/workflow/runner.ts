@@ -869,7 +869,7 @@ function buildInterviewVotePrompt(
         'Detailed scoring rubric:',
         ...rubric.map(item => `- ${item.category} (${item.weight}pts): ${item.description}`),
         '',
-        'Respond with scores for each draft in YAML format.',
+        'Use the exact PROM2 `draft_scores` YAML schema. Keep the exact draft labels, include only rubric integer fields plus `total_score`, and do not add prose or extra keys.',
       ].join('\n'),
     },
   ]

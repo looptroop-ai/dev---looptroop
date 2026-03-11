@@ -329,6 +329,76 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getAllByText(/Scoring/).length).toBeGreaterThan(0)
   })
 
+  it('keeps malformed-score messaging for voting invalid_output outcomes', async () => {
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_VOTING_PRD"
+        isCompleted={false}
+        ticketId="7:KRPI4-27"
+        councilMemberNames={['openai/gpt-5']}
+        preloadedArtifacts={[
+          {
+            id: 3,
+            ticketId: '7:KRPI4-27',
+            phase: 'COUNCIL_VOTING_PRD',
+            artifactType: 'prd_votes',
+            filePath: null,
+            createdAt: '2026-03-11T14:00:00.000Z',
+            content: JSON.stringify({
+              drafts: [
+                { memberId: 'anthropic/claude-sonnet-4', outcome: 'completed', content: '# Draft A' },
+              ],
+              votes: [],
+              voterOutcomes: {
+                'openai/gpt-5': 'invalid_output',
+              },
+            }),
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('malformed scores')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /gpt-5/i }))
+    expect(await screen.findByText('Returned malformed scores.')).toBeInTheDocument()
+  })
+
+  it('keeps generic malformed-output messaging for draft invalid_output outcomes without content', async () => {
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_DELIBERATING"
+        isCompleted={false}
+        ticketId="7:KRPI4-28"
+        councilMemberNames={['openai/gpt-5-mini']}
+        preloadedArtifacts={[
+          {
+            id: 4,
+            ticketId: '7:KRPI4-28',
+            phase: 'COUNCIL_DELIBERATING',
+            artifactType: 'interview_drafts',
+            filePath: null,
+            createdAt: '2026-03-11T14:05:00.000Z',
+            content: JSON.stringify({
+              drafts: [
+                {
+                  memberId: 'openai/gpt-5-mini',
+                  outcome: 'invalid_output',
+                  content: '',
+                },
+              ],
+            }),
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('malformed response')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /gpt-5-mini/i }))
+    expect(await screen.findByText('This member returned malformed output.')).toBeInTheDocument()
+  })
+
   it('shows audited presentation order details for interview voting artifacts', async () => {
     renderWithProviders(
       <PhaseArtifactsPanel

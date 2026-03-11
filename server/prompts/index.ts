@@ -1,4 +1,5 @@
 import type { PromptPart } from '../opencode/types'
+import { VOTING_RUBRIC_BEADS, VOTING_RUBRIC_INTERVIEW, VOTING_RUBRIC_PRD } from '../council/types'
 import { GLOBAL_RULES, CONVERSATIONAL_RULES } from './globalRules'
 
 interface PromptTemplate {
@@ -10,6 +11,31 @@ interface PromptTemplate {
   outputFormat: string
   contextInputs: string[]
 }
+
+function buildStrictVoteOutputInstruction(categories: string[]): string {
+  const exampleScoresA = [18, 17, 16, 15, 18]
+  const exampleScoresB = [14, 15, 14, 16, 13]
+  const renderExampleDraft = (label: string, scores: number[]) => [
+    `  ${label}:`,
+    ...categories.map((category, index) => `    ${category}: ${scores[index] ?? 15}`),
+    `    total_score: ${categories.reduce((sum, _, index) => sum + (scores[index] ?? 15), 0)}`,
+  ].join('\n')
+
+  return [
+    'Output Format: Output strict machine-readable YAML. The top-level key MUST be `draft_scores`. Under `draft_scores`, include one mapping entry per presented draft using the exact provided draft label as the key (for example: `Draft 1`, `Draft 2`).',
+    `Each draft entry MUST contain exactly ${categories.length + 1} integer fields on single lines: ${categories.map(category => `\`${category}\``).join(', ')}, and \`total_score\`.`,
+    'All category scores MUST be plain integers from 0 to 20. `total_score` MUST be a plain integer from 0 to 100 and MUST equal the sum of the category scores for that draft.',
+    'Do not output prose, explanations, markdown fences, comments, rankings, winners, averages, extra keys, or omitted drafts.',
+    'Example:',
+    '```yaml',
+    'draft_scores:',
+    renderExampleDraft('Draft 1', exampleScoresA),
+    renderExampleDraft('Draft 2', exampleScoresB),
+    '```',
+  ].join('\n')
+}
+
+const STRICT_VOTE_OUTPUT_FORMAT = 'YAML with top-level `draft_scores` mapping keyed by exact draft labels. Each draft: rubric integer fields plus `total_score`. No other fields.'
 
 // Interview Phase Prompts
 export const PROM1: PromptTemplate = {
@@ -47,9 +73,9 @@ export const PROM2: PromptTemplate = {
     'Impartiality: Rate impartially as if all drafts are anonymous. Do not favor any draft based on its origin or style.',
     'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
-    'Output Format: Provide a clear breakdown of the score for each draft per category, followed by the final total score (0-100).',
+    buildStrictVoteOutputInstruction(VOTING_RUBRIC_INTERVIEW.map(item => item.category)),
   ],
-  outputFormat: 'YAML — structured scoring breakdown per candidate with final totals',
+  outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
 }
 
@@ -137,9 +163,9 @@ export const PROM11: PromptTemplate = {
     'Impartiality: Rate impartially as if all drafts are anonymous. Do not favor any draft based on its origin or style.',
     'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
-    'Output Format: Provide a clear breakdown of the score for each draft per category, followed by the final total score (0-100).',
+    buildStrictVoteOutputInstruction(VOTING_RUBRIC_PRD.map(item => item.category)),
   ],
-  outputFormat: 'YAML — structured scoring breakdown per candidate with final totals',
+  outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
 }
 
@@ -196,9 +222,9 @@ export const PROM21: PromptTemplate = {
     'Impartiality: Rate impartially as if all drafts are anonymous.',
     'Anti-anchoring: Drafts are presented in randomized order per evaluator.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of PRD requirements. 2) Correctness / feasibility of technical approach. 3) Quality and isolation of bead-scoped tests. 4) Minimal complexity / good dependency management. 5) Risks / edge cases addressed.',
-    'Output Format: Provide a clear breakdown of the score for each draft per category, followed by the final total score (0-100).',
+    buildStrictVoteOutputInstruction(VOTING_RUBRIC_BEADS.map(item => item.category)),
   ],
-  outputFormat: 'YAML — structured scoring breakdown per candidate with final totals',
+  outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
 }
 

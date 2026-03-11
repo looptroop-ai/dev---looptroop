@@ -96,6 +96,15 @@ function clampScore(score: number): number {
   return Math.max(0, Math.min(20, Math.round(score)))
 }
 
+function buildStrictVoteSchemaReminder(rubric: typeof VOTING_RUBRIC): string {
+  return [
+    'Output strict machine-readable YAML with top-level `draft_scores` keyed by the exact presented draft labels (`Draft 1`, `Draft 2`, etc.).',
+    `For each draft, include only these integer fields: ${rubric.map(item => `\`${item.category}\``).join(', ')}, and \`total_score\`.`,
+    'Each rubric score must be an integer from 0 to 20. `total_score` must equal the sum of the rubric scores for that draft.',
+    'Do not output prose, markdown fences, rankings, winners, comments, or extra keys.',
+  ].join('\n')
+}
+
 interface PresentedDraft {
   draftId: string
   content: string
@@ -254,7 +263,7 @@ export async function conductVoting(
                 '',
                 ...anonymized.map(d => d.content),
                 '',
-                'Respond with scores for each draft in YAML format.',
+                buildStrictVoteSchemaReminder(rubric),
               ].join('\n'),
             },
           ]
