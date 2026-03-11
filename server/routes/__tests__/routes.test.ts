@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -25,6 +25,7 @@ import { profileRouter } from '../profiles'
 import { projectRouter } from '../projects'
 import { ticketRouter } from '../tickets'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import * as modelValidation from '../../opencode/modelValidation'
 
 const app = new Hono()
 app.use('/api/*', validateJson)
@@ -151,6 +152,7 @@ afterEach(() => {
     cancelTicket(ticketId)
     broadcaster.clearTicket(ticketId)
   }
+  vi.restoreAllMocks()
   stopAllActors()
   createdTicketIds.clear()
   resetOpenCodeAdapter()
@@ -172,6 +174,35 @@ describe('Routes', () => {
     const createProfile = await createValidProfile()
     expect(createProfile.status).toBe(201)
     expect(await parseJson<{ username: string }>(createProfile)).toMatchObject({ username: 'testuser' })
+  })
+
+  it('updates non-model profile fields without revalidating unchanged model selections', async () => {
+    const createProfile = await createValidProfile()
+    expect(createProfile.status).toBe(201)
+    const created = await parseJson<{
+      username: string
+      mainImplementer: string
+      councilMembers: string
+      minCouncilQuorum: number
+    }>(createProfile)
+
+    const validateSpy = vi.spyOn(modelValidation, 'validateModelSelection')
+      .mockRejectedValue(new Error('OpenCode unavailable'))
+
+    const updateResponse = await app.request('/api/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'updated-user',
+        mainImplementer: created.mainImplementer,
+        councilMembers: created.councilMembers,
+        minCouncilQuorum: created.minCouncilQuorum,
+      }),
+    })
+
+    expect(updateResponse.status).toBe(200)
+    expect(await parseJson<{ username: string }>(updateResponse)).toMatchObject({ username: 'updated-user' })
+    expect(validateSpy).not.toHaveBeenCalled()
   })
 
   it('attaches project state under the repo-local .looptroop directory and restores existing state on reattach', async () => {

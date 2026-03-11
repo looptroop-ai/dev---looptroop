@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelPicker } from './ModelPicker'
 import { useProfile, useCreateProfile, useUpdateProfile } from '@/hooks/useProfile'
 import type { CreateProfileInput } from '@/hooks/useProfile'
@@ -9,6 +10,7 @@ import { Plus, X, Search, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
+import { useToast } from '@/components/shared/Toast'
 import { PROFILE_DEFAULTS } from '@server/db/defaults'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
@@ -34,6 +36,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const { data: profile } = useProfile()
   const createProfile = useCreateProfile()
   const updateProfile = useUpdateProfile()
+  const { addToast } = useToast()
 
   const [formData, setFormData] = useState<CreateProfileInput>({
     username: profile?.username ?? '',
@@ -52,7 +55,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     perIterationTimeout: { min: 0, max: 3600, label: 'Per-Iteration Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
     councilResponseTimeout: { min: 10, max: 3600, label: 'Council Response Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
     maxIterations: { min: 0, max: 20, label: 'Max Iterations', fromStore: (v: number) => String(v), toStore: (v: number) => v },
-    minCouncilQuorum: { min: 2, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    minCouncilQuorum: { min: 1, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
     interviewQuestions: { min: 0, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   } as const
 
@@ -128,6 +131,14 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       .catch(() => { setOpenCodeConnected(false) })
   }, [])
 
+  useEffect(() => {
+    const err = createProfile.error || updateProfile.error
+    if (!err) return
+
+    const message = err instanceof Error ? err.message : 'Failed to save configuration'
+    addToast('error', message, 5000)
+  }, [createProfile.error, updateProfile.error, addToast])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (hasNumericErrors) return
@@ -140,10 +151,14 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     const allCouncil = [validatedData.mainImplementer, ...councilSlots].filter(Boolean)
     const uniqueCouncil = [...new Set(allCouncil)]
     const payload = { ...validatedData, councilMembers: JSON.stringify(uniqueCouncil) }
+    const handleSuccess = () => {
+      addToast('success', 'Configuration saved.')
+      onClose()
+    }
     if (profile) {
-      updateProfile.mutate(payload, { onSuccess: onClose })
+      updateProfile.mutate(payload, { onSuccess: handleSuccess })
     } else {
-      createProfile.mutate(payload, { onSuccess: onClose })
+      createProfile.mutate(payload, { onSuccess: handleSuccess })
     }
   }
 
@@ -440,7 +455,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
               {getFieldError('minCouncilQuorum') ? (
                 <p className="text-xs text-red-500 mt-1">{getFieldError('minCouncilQuorum')}</p>
               ) : (
-                <p className="text-xs text-muted-foreground mt-1">Minimum council votes required (2–4)</p>
+                <p className="text-xs text-muted-foreground mt-1">Minimum council votes required (1–4)</p>
               )}
             </div>
           </div>
@@ -511,7 +526,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
         <Button type="submit" disabled={createProfile.isPending || updateProfile.isPending || hasNumericErrors}>
-          {profile ? 'Update Configuration' : 'Save Configuration'}
+          {createProfile.isPending || updateProfile.isPending ? <LoadingText text="Saving" /> : 'Save'}
         </Button>
       </div>
     </form>

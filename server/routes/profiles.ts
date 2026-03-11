@@ -4,6 +4,7 @@ import { db } from '../db/index'
 import { profiles } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { validateModelSelection } from '../opencode/modelValidation'
+import { parseCouncilMembers } from '../council/members'
 
 const profileRouter = new Hono()
 
@@ -20,6 +21,35 @@ const profileSchema = z.object({
   maxIterations: z.number().int().nonnegative().optional(), // 0 = infinite retries
   disableAnalogies: z.number().int().min(0).max(1).optional(),
 })
+
+function normalizeModelSelection(
+  mainImplementerRaw: string | null | undefined,
+  councilMembersRaw: string | null | undefined,
+) {
+  const mainImplementer = typeof mainImplementerRaw === 'string' ? mainImplementerRaw.trim() : ''
+  const councilMembers = Array.from(new Set([
+    mainImplementer,
+    ...parseCouncilMembers(councilMembersRaw),
+  ].filter(Boolean)))
+
+  return {
+    mainImplementer,
+    councilMembers,
+  }
+}
+
+function hasModelSelectionChange(
+  existing: { mainImplementer: string | null; councilMembers: string | null },
+  next: { mainImplementer: string | null | undefined; councilMembers: string | null | undefined },
+) {
+  const current = normalizeModelSelection(existing.mainImplementer, existing.councilMembers)
+  const requested = normalizeModelSelection(next.mainImplementer, next.councilMembers)
+
+  if (current.mainImplementer !== requested.mainImplementer) return true
+  if (current.councilMembers.length !== requested.councilMembers.length) return true
+
+  return current.councilMembers.some((memberId, index) => requested.councilMembers[index] !== memberId)
+}
 
 profileRouter.get('/profile', (c) => {
   const profile = db.select().from(profiles).limit(1).get()
@@ -60,20 +90,37 @@ profileRouter.patch('/profile', async (c) => {
   if (!existing) {
     return c.json({ error: 'No profile found' }, 404)
   }
-  let validatedModels
-  try {
-    validatedModels = await validateModelSelection(
-      parsed.data.mainImplementer ?? existing.mainImplementer,
-      parsed.data.councilMembers ?? existing.councilMembers,
-    )
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Invalid model configuration' }, 400)
+
+  const requestedMainImplementer = parsed.data.mainImplementer ?? existing.mainImplementer
+  const requestedCouncilMembers = parsed.data.councilMembers ?? existing.councilMembers
+  let modelPatch: Pick<typeof existing, 'mainImplementer' | 'councilMembers'>
+
+  if (hasModelSelectionChange(existing, {
+    mainImplementer: requestedMainImplementer,
+    councilMembers: requestedCouncilMembers,
+  })) {
+    let validatedModels
+    try {
+      validatedModels = await validateModelSelection(requestedMainImplementer, requestedCouncilMembers)
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Invalid model configuration' }, 400)
+    }
+
+    modelPatch = {
+      mainImplementer: validatedModels.mainImplementer,
+      councilMembers: JSON.stringify(validatedModels.councilMembers),
+    }
+  } else {
+    modelPatch = {
+      mainImplementer: existing.mainImplementer,
+      councilMembers: existing.councilMembers,
+    }
   }
+
   const result = db.update(profiles)
     .set({
       ...parsed.data,
-      mainImplementer: validatedModels.mainImplementer,
-      councilMembers: JSON.stringify(validatedModels.councilMembers),
+      ...modelPatch,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(profiles.id, existing.id))
