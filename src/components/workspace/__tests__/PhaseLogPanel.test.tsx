@@ -1,7 +1,63 @@
-import { beforeAll, describe, expect, it } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { PhaseLogPanel } from '../PhaseLogPanel'
+import type { ReactNode, Ref } from 'react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
+
+vi.mock('@/components/ui/scroll-area', () => ({
+  ScrollArea: ({
+    children,
+    viewportRef,
+    className,
+  }: {
+    children: ReactNode
+    viewportRef?: Ref<HTMLDivElement>
+    className?: string
+  }) => (
+    <div className={className}>
+      <div ref={viewportRef} data-testid="log-viewport">
+        {children}
+      </div>
+    </div>
+  ),
+}))
+
+import { PhaseLogPanel } from '../PhaseLogPanel'
+
+const animationFrames = new Map<number, FrameRequestCallback>()
+let nextAnimationFrameId = 1
+const scrollToMock = vi.fn(function scrollTo(this: HTMLElement, options?: ScrollToOptions | number) {
+  if (typeof options === 'object' && options && typeof options.top === 'number') {
+    this.scrollTop = options.top
+  }
+})
+
+function flushAnimationFrames() {
+  act(() => {
+    while (animationFrames.size > 0) {
+      const pending = Array.from(animationFrames.entries())
+      animationFrames.clear()
+      for (const [, callback] of pending) {
+        callback(0)
+      }
+    }
+  })
+}
+
+function makeLog(id: string, line: string, overrides: Partial<LogEntry> = {}): LogEntry {
+  return {
+    id,
+    entryId: id,
+    line,
+    source: 'system',
+    status: 'CODING',
+    timestamp: '2026-03-10T10:00:00.000Z',
+    audience: 'all',
+    kind: 'milestone',
+    streaming: false,
+    op: 'append',
+    ...overrides,
+  }
+}
 
 beforeAll(() => {
   class ResizeObserverMock {
@@ -10,10 +66,52 @@ beforeAll(() => {
     unobserve() {}
   }
 
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback: FrameRequestCallback) => {
+      const id = nextAnimationFrameId++
+      animationFrames.set(id, callback)
+      return id
+    },
+  })
+
+  Object.defineProperty(globalThis, 'cancelAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (id: number) => {
+      animationFrames.delete(id)
+    },
+  })
+
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get() {
+      return Number((this as HTMLElement).dataset.scrollHeight ?? 600)
+    },
+  })
+
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get() {
+      return Number((this as HTMLElement).dataset.clientHeight ?? 200)
+    },
+  })
+
+  Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+    configurable: true,
+    get() {
+      return Number((this as HTMLElement).dataset.scrollTop ?? 0)
+    },
+    set(value: number) {
+      ;(this as HTMLElement).dataset.scrollTop = String(value)
+    },
+  })
+
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
     writable: true,
-    value: () => undefined,
+    value: scrollToMock,
   })
 
   Object.defineProperty(globalThis, 'ResizeObserver', {
@@ -21,6 +119,12 @@ beforeAll(() => {
     writable: true,
     value: ResizeObserverMock,
   })
+})
+
+beforeEach(() => {
+  animationFrames.clear()
+  nextAnimationFrameId = 1
+  scrollToMock.mockClear()
 })
 
 describe('PhaseLogPanel', () => {
@@ -93,5 +197,63 @@ describe('PhaseLogPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DEBUG' }))
 
     expect(screen.getByText(/raw provider payload/i)).toBeInTheDocument()
+  })
+
+  it('pins the viewport to the latest logs by default and follows new visible entries', () => {
+    const firstLog = makeLog('log-1', '[SYS] First visible log line')
+    const secondLog = makeLog('log-2', '[SYS] Second visible log line', {
+      timestamp: '2026-03-10T10:00:01.000Z',
+    })
+
+    const { rerender } = render(<PhaseLogPanel phase="CODING" logs={[firstLog]} />)
+
+    flushAnimationFrames()
+
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'auto' })
+
+    scrollToMock.mockClear()
+
+    rerender(<PhaseLogPanel phase="CODING" logs={[firstLog, secondLog]} />)
+
+    flushAnimationFrames()
+
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'smooth' })
+  })
+
+  it('stops auto-scroll after the user scrolls away and resumes once they return to the bottom', () => {
+    const firstLog = makeLog('log-1', '[SYS] First visible log line')
+    const secondLog = makeLog('log-2', '[SYS] Second visible log line', {
+      timestamp: '2026-03-10T10:00:01.000Z',
+    })
+    const thirdLog = makeLog('log-3', '[SYS] Third visible log line', {
+      timestamp: '2026-03-10T10:00:02.000Z',
+    })
+
+    const { rerender } = render(<PhaseLogPanel phase="CODING" logs={[firstLog]} />)
+
+    flushAnimationFrames()
+    scrollToMock.mockClear()
+
+    const viewport = screen.getByTestId('log-viewport')
+    viewport.scrollTop = 100
+    fireEvent.scroll(viewport)
+
+    rerender(<PhaseLogPanel phase="CODING" logs={[firstLog, secondLog]} />)
+
+    flushAnimationFrames()
+
+    expect(scrollToMock).not.toHaveBeenCalled()
+
+    viewport.scrollTop = 360
+    fireEvent.scroll(viewport)
+
+    rerender(<PhaseLogPanel phase="CODING" logs={[firstLog, secondLog, thirdLog]} />)
+
+    flushAnimationFrames()
+
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'smooth' })
   })
 })

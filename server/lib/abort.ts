@@ -1,0 +1,42 @@
+import { CancelledError } from '../council/types'
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+export function throwIfCancelled(
+  error: unknown,
+  signal?: AbortSignal,
+  ticketId?: number | string,
+): void {
+  if (error instanceof CancelledError) throw error
+  if (signal?.aborted || isAbortError(error)) {
+    throw new CancelledError(ticketId)
+  }
+}
+
+export async function raceWithCancel<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  ticketId?: number | string,
+): Promise<T> {
+  if (!signal) return await operation
+  if (signal.aborted) throw new CancelledError(ticketId)
+
+  let onAbort: (() => void) | null = null
+  const abortPromise = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new CancelledError(ticketId))
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+
+  try {
+    return await Promise.race([operation, abortPromise])
+  } catch (error) {
+    throwIfCancelled(error, signal, ticketId)
+    throw error
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener('abort', onAbort)
+    }
+  }
+}

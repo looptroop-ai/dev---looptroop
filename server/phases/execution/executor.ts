@@ -4,6 +4,8 @@ import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { parseCompletionMarker } from './completionChecker'
 import { runOpenCodePrompt } from '../../workflow/runOpenCodePrompt'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
+import { throwIfAborted } from '../../council/types'
+import { throwIfCancelled } from '../../lib/abort'
 
 const COMPLETION_INSTRUCTIONS = [
   'When complete, output a <BEAD_STATUS>COMPLETE</BEAD_STATUS> marker.',
@@ -25,6 +27,7 @@ export async function executeBead(
   projectPath: string,
   maxIterations: number = PROFILE_DEFAULTS.maxIterations,
   timeout: number = 600000,
+  signal?: AbortSignal,
   callbacks?: {
     model?: string
     onSessionCreated?: (sessionId: string, iteration: number) => void
@@ -37,6 +40,7 @@ export async function executeBead(
 
   while (iteration < maxIterations) {
     iteration++
+    throwIfAborted(signal)
 
     try {
       let sessionId = ''
@@ -64,6 +68,7 @@ export async function executeBead(
         adapter,
         projectPath,
         parts: beadPrompt,
+        signal,
         timeoutMs: timeout,
         model: callbacks?.model,
         onSessionCreated: (session) => {
@@ -80,6 +85,7 @@ export async function executeBead(
         },
       })
 
+      throwIfAborted(signal)
       lastOutput = runResult.response
 
       // Check completion
@@ -90,6 +96,7 @@ export async function executeBead(
 
       errors.push(`Iteration ${iteration}: ${result.errors.join(', ') || 'Incomplete'}`)
     } catch (err) {
+      throwIfCancelled(err, signal)
       const msg = err instanceof Error ? err.message : 'Unknown error'
       errors.push(`Iteration ${iteration}: ${msg}`)
     }

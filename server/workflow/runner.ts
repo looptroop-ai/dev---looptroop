@@ -13,7 +13,7 @@ import type { Bead, BeadSubset } from '../phases/beads/types'
 import { executeBead } from '../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../phases/execution/scheduler'
 import type { CouncilResult, DraftPhaseResult, DraftProgressEvent, DraftResult, MemberOutcome, Vote } from '../council/types'
-import { CancelledError } from '../council/types'
+import { CancelledError, throwIfAborted } from '../council/types'
 import { ensureMinimumCouncilMembers, parseCouncilMembers } from '../council/members'
 import { conductVoting, selectWinner } from '../council/voter'
 import { refineDraft } from '../council/refiner'
@@ -45,6 +45,7 @@ import { runPreFlightChecks } from '../phases/preflight/doctor'
 import { cleanupTicketResources } from '../phases/cleanup/cleaner'
 import { runOpenCodePrompt } from './runOpenCodePrompt'
 import { generateFinalTests } from '../phases/finalTest/generator'
+import { raceWithCancel, throwIfCancelled } from '../lib/abort'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -1029,9 +1030,10 @@ async function handleInterviewDeliberate(
   )
 
   // Step 1: Health-check OpenCode before doing any work
-  if (signal.aborted) throw new CancelledError(ticketId)
+  throwIfAborted(signal, ticketId)
   try {
-    const health = await adapter.checkHealth()
+    const health = await raceWithCancel(adapter.checkHealth(), signal, ticketId)
+    throwIfAborted(signal, ticketId)
     if (!health.available) {
       const msg = `OpenCode server is not running. Start it with \`opencode serve\`. (${health.error ?? 'connection refused'})`
       emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
@@ -1045,6 +1047,7 @@ async function handleInterviewDeliberate(
       `OpenCode health check passed${health.version ? ` (version=${health.version})` : ''}.`,
     )
   } catch (err) {
+    throwIfCancelled(err, signal, ticketId)
     // Re-throw if we already formatted the message
     if (err instanceof Error && err.message.startsWith('OpenCode server is not running')) throw err
     const msg = `OpenCode server is not running. Start it with \`opencode serve\`. (${err instanceof Error ? err.message : String(err)})`
@@ -2494,44 +2497,51 @@ async function handleCoverageVerification(
   )
 
   // Use a single session for the winning model only (not all council members)
-  if (signal.aborted) throw new CancelledError(ticketId)
+  throwIfAborted(signal, ticketId)
   const streamState = createOpenCodeStreamState()
   let sessionId = ''
-  const runResult = await runOpenCodePrompt({
-    adapter,
-    projectPath: worktreePath,
-    parts: [{ type: 'text', content: promptContent }],
-    signal,
-    timeoutMs: councilSettings.draftTimeoutMs,
-    model: winnerId,
-    onSessionCreated: (session) => {
-      sessionId = session.id
-      emitAiMilestone(
-        ticketId,
-        context.externalId,
-        stateLabel,
-        `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
-        `${stateLabel}:${session.id}:coverage-created`,
-        {
-          modelId: winnerId,
-          sessionId: session.id,
-          source: `model:${winnerId}`,
-        },
-      )
-    },
-    onStreamEvent: (event) => {
-      if (!sessionId) return
-      emitOpenCodeStreamEvent(
-        ticketId,
-        context.externalId,
-        stateLabel,
-        winnerId,
-        sessionId,
-        event,
-        streamState,
-      )
-    },
-  })
+  let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>>
+  try {
+    runResult = await runOpenCodePrompt({
+      adapter,
+      projectPath: worktreePath,
+      parts: [{ type: 'text', content: promptContent }],
+      signal,
+      timeoutMs: councilSettings.draftTimeoutMs,
+      model: winnerId,
+      onSessionCreated: (session) => {
+        sessionId = session.id
+        emitAiMilestone(
+          ticketId,
+          context.externalId,
+          stateLabel,
+          `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
+          `${stateLabel}:${session.id}:coverage-created`,
+          {
+            modelId: winnerId,
+            sessionId: session.id,
+            source: `model:${winnerId}`,
+          },
+        )
+      },
+      onStreamEvent: (event) => {
+        if (!sessionId) return
+        emitOpenCodeStreamEvent(
+          ticketId,
+          context.externalId,
+          stateLabel,
+          winnerId,
+          sessionId,
+          event,
+          streamState,
+        )
+      },
+    })
+  } catch (error) {
+    throwIfCancelled(error, signal, ticketId)
+    throw error
+  }
+  throwIfAborted(signal, ticketId)
   const response = runResult.response
   const coverageMessages = runResult.messages
 
@@ -2706,6 +2716,7 @@ async function handleInterviewQAStart(
       )
     },
   )
+  throwIfAborted(signal, ticketId)
 
   // Store session info
   interviewQASessions.set(ticketId, { sessionId, winnerId })
@@ -2819,6 +2830,7 @@ export async function handleInterviewQABatch(
       )
     },
   )
+  throwIfAborted(signal, ticketId)
 
   // Accumulate answers in batch history
   const existingHistory = getLatestPhaseArtifact(ticketId, 'interview_batch_history')
@@ -3259,9 +3271,11 @@ async function handlePreFlight(
   ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
   const beads = readTicketBeads(ticketId)
-  const report = await runPreFlightChecks(adapter, ticketId, beads)
+  const report = await runPreFlightChecks(adapter, ticketId, beads, signal)
+  throwIfAborted(signal, ticketId)
   insertPhaseArtifact(ticketId, {
     phase: 'PRE_FLIGHT_CHECK',
     artifactType: 'preflight_report',
@@ -3285,6 +3299,7 @@ async function handleCoding(
   ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
   const paths = getTicketPaths(ticketId)
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
@@ -3320,6 +3335,7 @@ async function handleCoding(
   emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`)
 
   const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
+  throwIfAborted(signal, ticketId)
   const codingModelId = context.lockedMainImplementer ?? 'implementer'
   const streamStates = new Map<string, OpenCodeStreamState>()
   const result = await executeBead(
@@ -3329,6 +3345,7 @@ async function handleCoding(
     paths.worktreePath,
     context.maxIterations,
     undefined,
+    signal,
     {
       model: codingModelId,
       onSessionCreated: (sessionId, iteration) => {
@@ -3360,6 +3377,7 @@ async function handleCoding(
       },
     },
   )
+  throwIfAborted(signal, ticketId)
 
   insertPhaseArtifact(ticketId, {
     phase: 'CODING',
@@ -3416,6 +3434,7 @@ async function handleFinalTest(
   ticketId: string,
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
 ) {
   if (isMockOpenCodeMode()) {
     await handleMockFinalTest(ticketId, context, sendEvent)
@@ -3454,6 +3473,7 @@ async function handleFinalTest(
     adapter,
     finalTestContext,
     worktreePath,
+    signal,
     {
       model: finalTestModelId,
       onSessionCreated: (sessionId) => {
@@ -3485,6 +3505,7 @@ async function handleFinalTest(
       },
     },
   )
+  throwIfAborted(signal, ticketId)
 
   const report = {
     passed: true,
@@ -3882,7 +3903,7 @@ export function attachWorkflowRunner(
         })
     } else if (state === 'PRE_FLIGHT_CHECK') {
       runningPhases.add(key)
-      handlePreFlight(ticketId, context, sendEvent)
+      handlePreFlight(ticketId, context, sendEvent, signal)
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
@@ -3895,7 +3916,7 @@ export function attachWorkflowRunner(
         })
     } else if (state === 'CODING') {
       runningPhases.add(key)
-      handleCoding(ticketId, context, sendEvent)
+      handleCoding(ticketId, context, sendEvent, signal)
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
@@ -3908,7 +3929,7 @@ export function attachWorkflowRunner(
         })
     } else if (state === 'RUNNING_FINAL_TEST') {
       runningPhases.add(key)
-      handleFinalTest(ticketId, context, sendEvent)
+      handleFinalTest(ticketId, context, sendEvent, signal)
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)

@@ -111,6 +111,31 @@ describe('useTicketAction', () => {
     expect(queryClient.getQueryData<Ticket[]>(['tickets', { projectId: baseTicket.projectId }])?.[0]?.status).toBe('DRAFT')
   })
 
+  it('uses the live actor state when status is omitted from the action response', async () => {
+    const queryClient = createQueryClient()
+    const wrapper = createWrapper(queryClient)
+    seedTicketCaches(queryClient, {
+      ...baseTicket,
+      status: 'CODING',
+    })
+
+    fetchMock.mockResolvedValueOnce(createJsonResponse({
+      message: 'Cancel action accepted',
+      ticketId: baseTicket.id,
+      state: 'CANCELED',
+    }))
+
+    const { result } = renderHook(() => useTicketAction(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: baseTicket.id, action: 'cancel' })
+    })
+
+    expect(queryClient.getQueryData<Ticket>(['ticket', baseTicket.id])?.status).toBe('CANCELED')
+    expect(queryClient.getQueryData<Ticket[]>(['tickets'])?.[0]?.status).toBe('CANCELED')
+    expect(queryClient.getQueryData<Ticket[]>(['tickets', { projectId: baseTicket.projectId }])?.[0]?.status).toBe('CANCELED')
+  })
+
   it('patches caches for other workflow actions that return a next status', async () => {
     const queryClient = createQueryClient()
     const wrapper = createWrapper(queryClient)

@@ -244,9 +244,10 @@ export function useTicketAction() {
     mutationFn: ({ id, action }: { id: string; action: 'start' | 'approve' | 'cancel' | 'retry' | 'verify' }) =>
       ticketAction(id, action),
     onSuccess: (result, variables) => {
-      if (result.status) {
+      const nextStatus = result.state ?? result.status
+      if (nextStatus) {
         const ticketId = result.ticketId || variables.id
-        const status = result.status
+        const status = nextStatus
 
         queryClient.setQueryData<Ticket | undefined>(['ticket', ticketId], (ticket) =>
           ticket ? patchTicketStatus(ticket, ticketId, status) : ticket,

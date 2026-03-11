@@ -6,6 +6,8 @@ import { buildConversationalPrompt, PROM4 } from '../../prompts/index'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runOpenCodePrompt'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
+import { throwIfAborted } from '../../council/types'
+import { throwIfCancelled } from '../../lib/abort'
 
 export interface QABatch {
   questions: InterviewQuestion[]
@@ -96,23 +98,31 @@ export async function startInterviewSession(
   ].join('\n')
 
   let sessionId = ''
-  const result = await runOpenCodePrompt({
-    adapter,
-    projectPath,
-    parts: [{ type: 'text', content: fullPrompt }] as PromptPart[],
-    signal,
-    model: winnerId,
-    onSessionCreated: (session) => {
-      sessionId = session.id
-    },
-    onStreamEvent: (event) => {
-      onOpenCodeStreamEvent?.({
-        sessionId,
-        event,
-      })
-    },
-  })
+  throwIfAborted(signal)
+  let result: Awaited<ReturnType<typeof runOpenCodePrompt>>
+  try {
+    result = await runOpenCodePrompt({
+      adapter,
+      projectPath,
+      parts: [{ type: 'text', content: fullPrompt }] as PromptPart[],
+      signal,
+      model: winnerId,
+      onSessionCreated: (session) => {
+        sessionId = session.id
+      },
+      onStreamEvent: (event) => {
+        onOpenCodeStreamEvent?.({
+          sessionId,
+          event,
+        })
+      },
+    })
+  } catch (error) {
+    throwIfCancelled(error, signal)
+    throw error
+  }
 
+  throwIfAborted(signal)
   const firstBatch = parseBatchResponse(result.response)
   return { sessionId: result.session.id, firstBatch }
 }
@@ -142,20 +152,28 @@ export async function submitBatchToSession(
     `Please continue with the next batch of questions, or finalize the interview if complete.`,
   ].join('\n')
 
-  const result = await runOpenCodeSessionPrompt({
-    adapter,
-    session: { id: sessionId },
-    parts: [{ type: 'text', content: message }] as PromptPart[],
-    signal,
-    model,
-    onStreamEvent: (event) => {
-      onOpenCodeStreamEvent?.({
-        sessionId,
-        event,
-      })
-    },
-  })
+  throwIfAborted(signal)
+  let result: Awaited<ReturnType<typeof runOpenCodeSessionPrompt>>
+  try {
+    result = await runOpenCodeSessionPrompt({
+      adapter,
+      session: { id: sessionId },
+      parts: [{ type: 'text', content: message }] as PromptPart[],
+      signal,
+      model,
+      onStreamEvent: (event) => {
+        onOpenCodeStreamEvent?.({
+          sessionId,
+          event,
+        })
+      },
+    })
+  } catch (error) {
+    throwIfCancelled(error, signal)
+    throw error
+  }
 
+  throwIfAborted(signal)
   return parseBatchResponse(result.response)
 }
 

@@ -213,7 +213,9 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   // ── Smart auto-scroll ──────────────────────────────────────────────
   const viewportRef = useRef<HTMLDivElement>(null)
   const userScrolledAway = useRef(false)
-  const prevLogCount = useRef(0)
+  const previousViewRef = useRef<string | null>(null)
+  const previousVisibleTailRef = useRef<string | null>(null)
+  const scrollFrameRef = useRef<number | null>(null)
 
   const BOTTOM_THRESHOLD = 50 // px from bottom to consider "at bottom"
 
@@ -227,6 +229,12 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
   }, [])
 
   const configuredModelIds = useMemo(() => {
@@ -280,42 +288,47 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   const effectiveTab = availableTabs.includes(activeTab) ? activeTab : 'ALL'
   const filteredLogs = filterEntries(phaseLogs, effectiveTab)
   const hasLogs = filteredLogs.length > 0
+  const visibleLogTail = useMemo(() => {
+    const lastEntry = filteredLogs.at(-1)
+    if (!lastEntry) return null
+    return [
+      filteredLogs.length,
+      lastEntry.entryId,
+      lastEntry.timestamp ?? '',
+      lastEntry.line,
+      lastEntry.streaming ? 'streaming' : 'static',
+      lastEntry.op,
+    ].join('|')
+  }, [filteredLogs])
   const description = PHASE_LOG_DESCRIPTIONS[phase] ?? <LoadingText text="Processing" />
 
-  // Auto-scroll to bottom when new entries arrive, unless user scrolled away
+  // Pin the latest visible logs on mount/view changes, then keep following
+  // the tail until the user scrolls away from the bottom.
   useEffect(() => {
-    const el = viewportRef.current
-    if (!el) return
-    if (filteredLogs.length > prevLogCount.current && !userScrolledAway.current) {
-      // Use rAF to ensure DOM has laid out the new entries before scrolling
-      requestAnimationFrame(() => {
-        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    const currentView = `${phase}:${effectiveTab}`
+    const viewChanged = previousViewRef.current !== currentView
+    const visibleTailChanged = previousVisibleTailRef.current !== visibleLogTail
+
+    if (viewChanged) {
+      userScrolledAway.current = false
+    }
+
+    if (hasLogs && (viewChanged || (visibleTailChanged && !userScrolledAway.current))) {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+      }
+
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        const el = viewportRef.current
+        scrollFrameRef.current = null
+        if (!el) return
+        el.scrollTo({ top: el.scrollHeight, behavior: viewChanged ? 'auto' : 'smooth' })
       })
     }
-    prevLogCount.current = filteredLogs.length
-  }, [filteredLogs.length])
 
-  // Scroll to bottom on initial mount once content is available
-  useEffect(() => {
-    const el = viewportRef.current
-    if (!el || filteredLogs.length === 0) return
-    requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight })
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasLogs]) // triggers once when logs first appear
-
-  // Reset scroll lock when switching tabs so the new tab starts at latest
-  useEffect(() => {
-    userScrolledAway.current = false
-    prevLogCount.current = 0
-    const el = viewportRef.current
-    if (el) {
-      requestAnimationFrame(() => {
-        el.scrollTo({ top: el.scrollHeight })
-      })
-    }
-  }, [effectiveTab])
+    previousViewRef.current = currentView
+    previousVisibleTailRef.current = visibleLogTail
+  }, [phase, effectiveTab, hasLogs, visibleLogTail])
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -383,7 +396,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
           {hasLogs ? (
             filteredLogs.map((entry, i) => (
-              <LogEntryRow key={i} entry={entry} index={i} />
+              <LogEntryRow key={entry.entryId} entry={entry} index={i} />
             ))
           ) : (
             <span className="text-muted-foreground/50 italic">

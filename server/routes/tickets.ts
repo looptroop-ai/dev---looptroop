@@ -131,7 +131,7 @@ function resolveLockedMainImplementer(raw: string | null | undefined): string {
 function respondWithState(c: Context, ticketId: string, message: string) {
   const updated = getTicketByRef(ticketId)
   const state = getTicketState(ticketId)
-  return c.json({ message, ticketId, status: updated?.status, state: state?.state })
+  return c.json({ message, ticketId, status: state?.state ?? updated?.status, state: state?.state })
 }
 
 ticketRouter.get('/tickets', (c) => {

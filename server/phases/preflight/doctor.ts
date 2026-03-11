@@ -3,17 +3,22 @@ import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { Bead } from '../beads/types'
 import { existsSync } from 'fs'
 import { getTicketPaths } from '../../storage/tickets'
+import { throwIfAborted } from '../../council/types'
+import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 
 export async function runPreFlightChecks(
   adapter: OpenCodeAdapter,
   ticketId: string,
   beads: Bead[],
+  signal?: AbortSignal,
 ): Promise<PreFlightReport> {
   const checks: DiagnosticCheck[] = []
 
   // 1. OpenCode connectivity
   try {
-    const health = await adapter.checkHealth()
+    throwIfAborted(signal, ticketId)
+    const health = await raceWithCancel(adapter.checkHealth(), signal, ticketId)
+    throwIfAborted(signal, ticketId)
     checks.push({
       name: 'OpenCode Connectivity',
       category: 'connectivity',
@@ -21,6 +26,7 @@ export async function runPreFlightChecks(
       message: health.available ? 'OpenCode is reachable' : `OpenCode unreachable: ${health.error}`,
     })
   } catch (err) {
+    throwIfCancelled(err, signal, ticketId)
     checks.push({
       name: 'OpenCode Connectivity',
       category: 'connectivity',
