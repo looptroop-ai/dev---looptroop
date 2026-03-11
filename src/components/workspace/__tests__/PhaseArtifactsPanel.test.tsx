@@ -165,6 +165,116 @@ describe('PhaseArtifactsPanel', () => {
     expect(within(dialog).getByText('How should success be measured?')).toBeInTheDocument()
   })
 
+  it('renders big-pickle interview drafts even when the content is wrapped in transcript headers', async () => {
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_DELIBERATING"
+        isCompleted={false}
+        ticketId="1:KRPI4-22"
+        councilMemberNames={['opencode/big-pickle']}
+        preloadedArtifacts={[
+          {
+            id: 9,
+            ticketId: '1:KRPI4-22',
+            phase: 'COUNCIL_DELIBERATING',
+            artifactType: 'interview_drafts',
+            filePath: null,
+            createdAt: '2026-03-11T11:39:11.283Z',
+            content: JSON.stringify({
+              drafts: [
+                {
+                  memberId: 'opencode/big-pickle',
+                  outcome: 'completed',
+                  content: [
+                    '[assistant] [2026-03-11T11:36:54.291Z] ```yaml',
+                    'questions:',
+                    '  - id: Q01',
+                    '    phase: foundation',
+                    '    question: "What does improve mean to you specifically?"',
+                    '  - id: Q02',
+                    '    phase: structure',
+                    '    question: "Which GitOps components need security hardening?"',
+                    '```',
+                  ].join('\n'),
+                },
+              ],
+            }),
+          },
+        ]}
+      />,
+    )
+
+    const chip = screen.getByRole('button', { name: /big-pickle/i })
+    expect(chip).toHaveTextContent('Finished')
+    expect(chip).toHaveTextContent('proposed 2 questions')
+
+    fireEvent.click(chip)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('2 questions total')).toBeInTheDocument()
+    expect(within(dialog).getByText('What does improve mean to you specifically?')).toBeInTheDocument()
+    expect(within(dialog).getByText('Which GitOps components need security hardening?')).toBeInTheDocument()
+  })
+
+  it('shows only recovered questions when a yaml draft has a partially malformed block', async () => {
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_DELIBERATING"
+        isCompleted={false}
+        ticketId="1:KRPI4-23"
+        councilMemberNames={['opencode/big-pickle']}
+        preloadedArtifacts={[
+          {
+            id: 10,
+            ticketId: '1:KRPI4-23',
+            phase: 'COUNCIL_DELIBERATING',
+            artifactType: 'interview_drafts',
+            filePath: null,
+            createdAt: '2026-03-11T12:10:00.000Z',
+            content: JSON.stringify({
+              drafts: [
+                {
+                  memberId: 'opencode/big-pickle',
+                  outcome: 'completed',
+                  content: [
+                    '[MODEL] ```yaml',
+                    'questions:',
+                    '  - id: Q20',
+                    '    phase: structure',
+                    '    question: "Do you want to optimize the startup and shutdown scripts for the cluster?"',
+                    '  - id: Q21',
+                    '    phase: structure',
+                    '    question: "Should resource requests/limits be tuned for better cluster id: Q22',
+                    '    phase: efficiency?"',
+                    '  - assembly',
+                    '    question: "For Ansible playbook optimization, should we implement parallel execution, caching, or skip unchanged tasks?"',
+                    '  - id: Q23',
+                    '    phase: assembly',
+                    '    question: "What is the acceptable trade-off between optimization speed and playbook idempotency/reliability?"',
+                    '```',
+                    '[SYS] Step finished: stop',
+                  ].join('\n'),
+                },
+              ],
+            }),
+          },
+        ]}
+      />,
+    )
+
+    const chip = screen.getByRole('button', { name: /big-pickle/i })
+    expect(chip).toHaveTextContent('Finished')
+    expect(chip).toHaveTextContent('proposed 4 questions')
+
+    fireEvent.click(chip)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('4 questions total')).toBeInTheDocument()
+    expect(within(dialog).getByText('Should resource requests/limits be tuned for better cluster efficiency?')).toBeInTheDocument()
+    expect(within(dialog).getByText('For Ansible playbook optimization, should we implement parallel execution, caching, or skip unchanged tasks?')).toBeInTheDocument()
+    expect(within(dialog).queryByText(/Step finished: stop/)).not.toBeInTheDocument()
+  })
+
   it('shows voting chips with mixed voter outcomes and keeps the winning draft accessible', async () => {
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -217,6 +327,71 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.getAllByText(/Failed/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/Scoring/).length).toBeGreaterThan(0)
+  })
+
+  it('shows audited presentation order details for interview voting artifacts', async () => {
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_VOTING_INTERVIEW"
+        isCompleted={false}
+        ticketId="7:KRPI4-8"
+        councilMemberNames={[
+          'openai/gpt-5',
+          'anthropic/claude-sonnet-4',
+          'google/gemini-2.5-pro',
+        ]}
+        preloadedArtifacts={[
+          {
+            id: 22,
+            ticketId: '7:KRPI4-8',
+            phase: 'COUNCIL_VOTING_INTERVIEW',
+            artifactType: 'interview_votes',
+            filePath: null,
+            createdAt: '2026-03-11T13:20:00.000Z',
+            content: JSON.stringify({
+              drafts: [
+                { memberId: 'openai/gpt-5', outcome: 'completed', content: 'questions:\n  - question: "A"' },
+                { memberId: 'anthropic/claude-sonnet-4', outcome: 'completed', content: 'questions:\n  - question: "B"' },
+                { memberId: 'google/gemini-2.5-pro', outcome: 'completed', content: 'questions:\n  - question: "C"' },
+              ],
+              votes: [
+                {
+                  voterId: 'openai/gpt-5',
+                  draftId: 'anthropic/claude-sonnet-4',
+                  totalScore: 94,
+                  scores: [{ category: 'coverage', score: 19 }],
+                },
+              ],
+              voterOutcomes: {
+                'openai/gpt-5': 'completed',
+                'anthropic/claude-sonnet-4': 'pending',
+                'google/gemini-2.5-pro': 'pending',
+              },
+              presentationOrders: {
+                'openai/gpt-5': {
+                  seed: 'seed-openai-1234',
+                  order: [
+                    'google/gemini-2.5-pro',
+                    'anthropic/claude-sonnet-4',
+                    'openai/gpt-5',
+                  ],
+                },
+              },
+              winnerId: 'anthropic/claude-sonnet-4',
+            }),
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /gpt-5/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /Voter Details/i }))
+    expect(within(dialog).getByText(/Presentation Order/)).toBeInTheDocument()
+    expect(within(dialog).getByText('Draft 1: gemini-2.5-pro')).toBeInTheDocument()
+    expect(within(dialog).getByText('Draft 2: claude-sonnet-4')).toBeInTheDocument()
+    expect(within(dialog).getByText('Draft 3: gpt-5')).toBeInTheDocument()
   })
 
   it('shows the winner refining and keeps non-winner drafts finished', () => {

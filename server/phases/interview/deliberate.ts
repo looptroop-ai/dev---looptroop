@@ -1,7 +1,7 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../council/types'
 import { generateDrafts } from '../../council/drafter'
-import { buildPromptFromTemplate, PROM1, PROM2, PROM3 } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM1 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { validateInterviewDraft } from './validation'
 
@@ -11,14 +11,6 @@ interface InterviewDeliberationOptions {
   maxInitialQuestions: number
   ticketId?: string
   phaseAttempt?: number
-}
-
-/** Build a context builder that returns PROM2 (vote) or PROM3 (refine) context. */
-export function buildInterviewContextBuilder(ticketContext: PromptPart[]) {
-  return (step: 'vote' | 'refine'): PromptPart[] => {
-    const template = step === 'vote' ? PROM2 : PROM3
-    return [{ type: 'text', content: buildPromptFromTemplate(template, ticketContext) }]
-  }
 }
 
 export async function deliberateInterview(

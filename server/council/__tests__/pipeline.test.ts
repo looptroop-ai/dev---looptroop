@@ -3,7 +3,7 @@ import { MockOpenCodeAdapter } from '../../opencode/adapter'
 import { runCouncilPipeline } from '../pipeline'
 import { generateDrafts } from '../drafter'
 import { checkQuorum } from '../quorum'
-import { conductVoting, selectWinner } from '../voter'
+import { buildVotePresentationOrder, conductVoting, selectWinner } from '../voter'
 import { refineDraft } from '../refiner'
 import type { CouncilMember, DraftResult, Vote } from '../types'
 import type { PromptPart } from '../../opencode/types'
@@ -323,6 +323,50 @@ describe('Council Pipeline', () => {
       memberId: 'model-a',
       outcome: 'timed_out',
     }))
+  })
+
+  it('builds anonymized ballot orders that change between seeds', () => {
+    const completedDrafts: DraftResult[] = [
+      { memberId: 'model-a', content: 'draft-a', outcome: 'completed', duration: 1 },
+      { memberId: 'model-b', content: 'draft-b', outcome: 'completed', duration: 1 },
+      { memberId: 'model-c', content: 'draft-c', outcome: 'completed', duration: 1 },
+    ]
+
+    const firstBallot = buildVotePresentationOrder(completedDrafts, 'seed-alpha')
+    const secondBallot = buildVotePresentationOrder(completedDrafts, 'seed-beta')
+
+    expect(firstBallot.map(draft => draft.draftId)).not.toEqual(secondBallot.map(draft => draft.draftId))
+    expect(firstBallot.map(draft => draft.content)).toEqual([
+      expect.stringMatching(/^Draft 1:/),
+      expect.stringMatching(/^Draft 2:/),
+      expect.stringMatching(/^Draft 3:/),
+    ])
+    expect(firstBallot.every(draft => !draft.content.includes('model-'))).toBe(true)
+  })
+
+  it('returns replayable presentation order metadata for each voter', async () => {
+    const voteRun = await conductVoting(
+      adapter,
+      members.slice(0, 2),
+      [
+        { memberId: 'model-a', content: 'draft-a', outcome: 'completed', duration: 1 },
+        { memberId: 'model-b', content: 'draft-b', outcome: 'completed', duration: 1 },
+        { memberId: 'model-c', content: 'draft-c', outcome: 'completed', duration: 1 },
+      ],
+      [{ type: 'text', content: 'vote prompt' }],
+      '/tmp/test',
+      'interview_draft',
+    )
+
+    expect(Object.keys(voteRun.presentationOrders)).toEqual(['model-a', 'model-b'])
+    expect(voteRun.presentationOrders['model-a']).toMatchObject({
+      seed: expect.any(String),
+      order: expect.arrayContaining(['model-a', 'model-b', 'model-c']),
+    })
+    expect(voteRun.presentationOrders['model-b']).toMatchObject({
+      seed: expect.any(String),
+      order: expect.arrayContaining(['model-a', 'model-b', 'model-c']),
+    })
   })
 
   it('continues the council pipeline when voting times out after quorum is met', async () => {

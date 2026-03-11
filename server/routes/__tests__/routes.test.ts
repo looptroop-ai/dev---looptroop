@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { desc, eq } from 'drizzle-orm'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -390,6 +391,49 @@ describe('Routes', () => {
       () => app.request(`/api/tickets/${encodeURIComponent(ticket.id)}/start`, { method: 'POST' }),
     )
     expect(start.status).toBe(200)
+    const projectContext = getProjectContextById(project.id)
+    const interviewVoteArtifact = projectContext?.projectDb.select().from(phaseArtifacts)
+      .where(eq(phaseArtifacts.artifactType, 'interview_votes'))
+      .orderBy(desc(phaseArtifacts.id))
+      .get()
+    const interviewVoteResult = interviewVoteArtifact
+      ? JSON.parse(interviewVoteArtifact.content) as {
+          drafts?: Array<{ memberId: string }>
+          votes?: Array<{ voterId: string; draftId: string }>
+          voterOutcomes?: Record<string, { outcome: string } | string>
+          presentationOrders?: Record<string, { seed: string; order: string[] }>
+          winnerId?: string
+          totalScore?: number
+          isFinal?: boolean
+        }
+      : null
+    expect(interviewVoteResult).toMatchObject({
+      winnerId: 'openai/codex-mini-latest',
+      totalScore: expect.any(Number),
+      isFinal: true,
+    })
+    expect(interviewVoteResult?.drafts?.map((draft) => draft.memberId)).toEqual([
+      'openai/codex-mini-latest',
+      'openai/gpt-5.3-codex',
+    ])
+    expect(interviewVoteResult?.votes).toHaveLength(4)
+    expect(interviewVoteResult?.voterOutcomes).toMatchObject({
+      'openai/codex-mini-latest': 'completed',
+      'openai/gpt-5.3-codex': 'completed',
+    })
+    expect(interviewVoteResult?.presentationOrders).toBeTruthy()
+    expect(Object.values(interviewVoteResult?.presentationOrders ?? {})).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          seed: expect.any(String),
+          order: ['openai/codex-mini-latest', 'openai/gpt-5.3-codex'],
+        }),
+        expect.objectContaining({
+          seed: expect.any(String),
+          order: ['openai/gpt-5.3-codex', 'openai/codex-mini-latest'],
+        }),
+      ]),
+    )
     const startedTicket = await app.request(`/api/tickets/${encodeURIComponent(ticket.id)}`)
     expect(startedTicket.status).toBe(200)
     expect(await parseJson<{ lockedMainImplementer: string | null; lockedCouncilMembers: string[] }>(startedTicket)).toMatchObject({

@@ -57,10 +57,16 @@ export interface Vote {
   totalScore: number
 }
 
+export interface VotePresentationOrder {
+  seed: string
+  order: string[]
+}
+
 export interface VotingPhaseResult {
   votes: Vote[]
   memberOutcomes: Record<string, MemberOutcome>
   deadlineReached: boolean
+  presentationOrders: Record<string, VotePresentationOrder>
 }
 
 export interface VoterResult {
@@ -75,6 +81,7 @@ export interface CouncilResult {
   phase: string
   drafts: DraftResult[]
   votes: Vote[]
+  presentationOrders?: Record<string, VotePresentationOrder>
   winnerId: string
   winnerContent: string
   refinedContent: string

@@ -1,5 +1,6 @@
 import { getModelDisplayName } from '@/components/shared/ModelBadge'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
+import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 
 export type CouncilAction = 'drafting' | 'scoring' | 'refining' | 'verifying' | 'working'
 export type CouncilOutcome = 'pending' | 'completed' | 'timed_out' | 'invalid_output' | 'failed'
@@ -443,6 +444,9 @@ function getRefinedArtifactType(domain: Domain): string {
 }
 
 function countQuestionsInContent(content: string): number {
+  const parsedQuestions = extractInterviewQuestionPreviews(content)
+  if (parsedQuestions.length > 0) return parsedQuestions.length
+
   // Try YAML parse first
   try {
     // Use simple JSON parse attempt (council artifacts store YAML-like JSON)

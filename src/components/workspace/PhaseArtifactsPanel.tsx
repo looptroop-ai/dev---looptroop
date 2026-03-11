@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
 import { useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
+import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 import {
   buildCouncilMemberArtifacts,
   getCouncilAction,
@@ -31,13 +32,6 @@ interface ArtifactDef {
   label: string
   description: string
   icon: React.ReactNode
-}
-
-interface ParsedQuestionItem {
-  question?: string
-  prompt?: string
-  phase?: string
-  category?: string
 }
 
 interface InterviewAnswerField {
@@ -79,6 +73,11 @@ interface CouncilVoteData {
   scores: Array<{ category: string; score: number }>
 }
 
+interface VotePresentationOrderData {
+  seed: string
+  order: string[]
+}
+
 interface CouncilResultData {
   drafts?: CouncilDraftData[]
   votes?: CouncilVoteData[]
@@ -86,6 +85,7 @@ interface CouncilResultData {
   winnerContent?: string
   refinedContent?: string
   voterOutcomes?: Record<string, CouncilOutcome>
+  presentationOrders?: Record<string, VotePresentationOrderData>
 }
 
 function extractDraftDetail(content: string | null): string {
@@ -126,36 +126,11 @@ function CollapsibleSection({ title, defaultOpen = false, children }: { title: R
 }
 
 function parseInterviewQuestions(content: string): { q: string; section?: string }[] {
-  const questions: { q: string; section?: string }[] = []
-  let parsedFromYaml = false
-  try {
-    const parsed = jsYaml.load(content) as unknown
-    let items: ParsedQuestionItem[] = []
-    if (Array.isArray(parsed)) items = parsed as ParsedQuestionItem[]
-    else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { questions?: unknown[] }).questions))
-      items = (parsed as { questions: ParsedQuestionItem[] }).questions
-    if (items.length > 0 && items.some((q) => q?.question || q?.prompt)) {
-      for (const item of items) {
-        const text = (item?.question ?? item?.prompt) as string | undefined
-        if (text) questions.push({ q: text, section: (item.phase ?? item.category) as string | undefined })
-      }
-      parsedFromYaml = true
-    }
-  } catch { /* fall through to line-by-line */ }
-
-  if (!parsedFromYaml) {
-    let currentSection = ''
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim()
-      if (trimmed.startsWith('#')) {
-        currentSection = trimmed.replace(/^#+\s*/, '')
-      } else if (/^\d+[.)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
-        const q = trimmed.replace(/^[-*\d.)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
-        if (q.length > 5) questions.push({ q, section: currentSection })
-      }
-    }
-  }
-  return questions
+  return extractInterviewQuestionPreviews(content)
+    .map((question) => ({
+      q: question.question,
+      section: question.phase,
+    }))
 }
 
 // Render interview draft: Q&A pairs
@@ -375,6 +350,7 @@ function VotingResultsView({ data }: { data: CouncilResultData }) {
     : []
   const winnerId = data.winnerId ?? ''
   const voterOutcomes = (data.voterOutcomes ?? {}) as Record<string, CouncilOutcome>
+  const presentationOrders = data.presentationOrders ?? {}
 
   // Get unique drafts and voters
   const draftIds = [...new Set(votes.map(v => v.draftId))]
@@ -513,18 +489,34 @@ function VotingResultsView({ data }: { data: CouncilResultData }) {
                       ? 'Failed before submitting scores.'
                       : getVoterOutcome(voterId) === 'timed_out'
                         ? 'Timed out before submitting scores.'
-                        : getVoterOutcome(voterId) === 'invalid_output'
+                      : getVoterOutcome(voterId) === 'invalid_output'
                           ? 'Returned malformed scores.'
                           : 'No scores recorded.'}
                 </div>
               ) : (
-                votes.filter(v => v.voterId === voterId).map(v => (
-                  <div key={v.draftId} className="ml-4 flex items-center gap-2 text-muted-foreground">
-                    <span>→ {getModelDisplayName(v.draftId)}</span>
-                    <span className="font-mono">{v.totalScore}pts</span>
-                    {v.draftId === winnerId && <span className="font-bold text-[10px] text-primary bg-primary/10 px-1 rounded">winner</span>}
-                  </div>
-                ))
+                <div className="space-y-2">
+                  {votes.filter(v => v.voterId === voterId).map(v => (
+                    <div key={v.draftId} className="ml-4 flex items-center gap-2 text-muted-foreground">
+                      <span>→ {getModelDisplayName(v.draftId)}</span>
+                      <span className="font-mono">{v.totalScore}pts</span>
+                      {v.draftId === winnerId && <span className="font-bold text-[10px] text-primary bg-primary/10 px-1 rounded">winner</span>}
+                    </div>
+                  ))}
+                  {presentationOrders[voterId] && (
+                    <div className="ml-4 space-y-1">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Presentation Order <span className="normal-case tracking-normal">seed {presentationOrders[voterId]!.seed.slice(0, 8)}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {presentationOrders[voterId]!.order.map((draftId, index) => (
+                          <span key={`${voterId}:${draftId}:${index}`} className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground">
+                            Draft {index + 1}: {getModelDisplayName(draftId)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           ))}

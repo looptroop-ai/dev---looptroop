@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useTicket } from '@/hooks/useTickets'
+import { useSaveTicketUIState, useTicket } from '@/hooks/useTickets'
 import { useSSE } from '@/hooks/useSSE'
 import { useUI } from '@/context/UIContext'
 import { LogProvider, useLogs } from '@/context/LogContext'
@@ -8,6 +8,7 @@ import { NavigatorPanel } from './NavigatorPanel'
 import { ActiveWorkspace } from './ActiveWorkspace'
 import { ResizeHandle } from './ResizeHandle'
 import { Menu, X } from 'lucide-react'
+import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
 
 function toDebugJson(data: Record<string, unknown>) {
   try {
@@ -123,6 +124,7 @@ export function TicketDashboard() {
   const { state, dispatch } = useUI()
   const ticketId = state.selectedTicketId
   const { data: ticket } = useTicket(ticketId)
+  const { mutate: saveTicketUiState } = useSaveTicketUIState()
   const [navWidth, setNavWidth] = useState(280)
   const [phaseSelection, setPhaseSelection] = useState<{ ticketId: string | null; phase: string | null }>({
     ticketId: null,
@@ -137,12 +139,36 @@ export function TicketDashboard() {
 
   const canceledFromStatus = ticket?.status === 'CANCELED' ? snapshotPreviousStatus : undefined
   const previousStatus = ticket?.status === 'BLOCKED_ERROR' ? snapshotPreviousStatus : undefined
+  const errorSignature = ticket ? getErrorTicketSignature(ticket) : null
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
   const selectedPhase = phaseSelection.ticketId === ticketId ? phaseSelection.phase : null
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
   }, [ticketId])
+
+  useEffect(() => {
+    if (!ticket) return
+    if (errorSignature) {
+      markErrorTicketSeen(ticket.id, errorSignature)
+      if (ticket.errorSeenSignature !== errorSignature) {
+        saveTicketUiState({
+          ticketId: ticket.id,
+          scope: 'error_attention',
+          data: { seenSignature: errorSignature },
+        })
+      }
+      return
+    }
+    clearErrorTicketSeen(ticket.id)
+    if (ticket.errorSeenSignature !== null) {
+      saveTicketUiState({
+        ticketId: ticket.id,
+        scope: 'error_attention',
+        data: { seenSignature: null },
+      })
+    }
+  }, [ticket?.id, errorSignature, ticket?.errorSeenSignature, saveTicketUiState])
 
   // Escape key closes dashboard
   useEffect(() => {

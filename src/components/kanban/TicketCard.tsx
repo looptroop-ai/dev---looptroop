@@ -6,6 +6,12 @@ import { cn } from '@/lib/utils'
 import { Loader2, AlertTriangle, ChevronUp, ChevronDown, Minus } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
 import { STATUS_DESCRIPTIONS, STATUS_ORDER, STATUS_TO_PHASE, getStatusUserLabel } from '@/lib/workflowMeta'
+import {
+  clearErrorTicketSeen,
+  getErrorTicketSignature,
+  markErrorTicketSeen,
+  readErrorTicketSeen,
+} from '@/lib/errorTicketSeen'
 
 interface TicketCardProps {
   ticket: {
@@ -19,6 +25,7 @@ interface TicketCardProps {
     currentBead?: number | null
     totalBeads?: number | null
     errorMessage?: string | null
+    errorSeenSignature?: string | null
   }
   projectColor?: string
   projectIcon?: string
@@ -207,18 +214,16 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
     totalBeads: ticket.totalBeads,
     errorMessage: ticket.errorMessage,
   })
+  const errorSignature = getErrorTicketSignature(ticket)
 
   // Track "seen" state for BLOCKED_ERROR — stop flashing after first open
-  const [errorSeen, setErrorSeen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem(`error-seen-${ticket.id}`) === '1'
-    }
-    return false
-  })
+  const [errorSeen, setErrorSeen] = useState(() =>
+    readErrorTicketSeen(ticket.id, errorSignature, ticket.errorSeenSignature),
+  )
 
   useEffect(() => {
     if (!isError && errorSeen) {
-      localStorage.removeItem(`error-seen-${ticket.id}`)
+      clearErrorTicketSeen(ticket.id)
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setErrorSeen(false)
     }
@@ -226,7 +231,7 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
 
   const handleClick = () => {
     if (isError && !errorSeen) {
-      localStorage.setItem(`error-seen-${ticket.id}`, '1')
+      markErrorTicketSeen(ticket.id, errorSignature)
       setErrorSeen(true)
     }
     dispatch({ type: 'SELECT_TICKET', ticketId: ticket.id, externalId: ticket.externalId })
@@ -237,7 +242,6 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
       className={cn(
         'cursor-pointer p-3 transition-all hover:shadow-md',
         isError && !errorSeen && 'animate-pulse border-destructive border-2 ring-4 ring-red-500/70 bg-red-50/60 dark:bg-red-950/30 shadow-[0_0_0_2px_rgba(239,68,68,0.6),0_0_20px_rgba(239,68,68,0.4),0_10px_30px_rgba(239,68,68,0.3)]',
-        isError && errorSeen && 'border-destructive border-2 bg-red-50/20 dark:bg-red-950/10',
       )}
       style={{ borderLeftWidth: '4px', borderLeftColor: projectColor ?? '#3b82f6' }}
       onClick={handleClick}

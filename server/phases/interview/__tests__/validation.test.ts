@@ -29,6 +29,29 @@ describe('validateInterviewDraft', () => {
     expect(result.questionCount).toBe(1)
   })
 
+  it('accepts repaired yaml-like output when one question block is partially malformed', () => {
+    const result = validateInterviewDraft([
+      '[MODEL] ```yaml',
+      'questions:',
+      '  - id: Q20',
+      '    phase: structure',
+      '    question: "Do you want to optimize the startup and shutdown scripts for the cluster?"',
+      '  - id: Q21',
+      '    phase: structure',
+      '    question: "Should resource requests/limits be tuned for better cluster id: Q22',
+      '    phase: efficiency?"',
+      '  - assembly',
+      '    question: "For Ansible playbook optimization, should we implement parallel execution, caching, or skip unchanged tasks?"',
+      '  - id: Q23',
+      '    phase: assembly',
+      '    question: "What is the acceptable trade-off between optimization speed and playbook idempotency/reliability?"',
+      '```',
+      '[SYS] Step finished: stop',
+    ].join('\n'), 50)
+
+    expect(result.questionCount).toBe(4)
+  })
+
   it('rejects malformed YAML', () => {
     expect(() => validateInterviewDraft('questions: [', 10)).toThrow('Invalid YAML')
   })

@@ -22,6 +22,7 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
   lockedCouncilMembers: string[]
   availableActions: string[]
   previousStatus: string | null
+  errorSeenSignature: string | null
   runtime: {
     baseBranch: string
     currentBead: number
@@ -69,11 +70,29 @@ export function parseTicketRef(ticketRef: string): { projectId: number; external
   return { projectId, externalId }
 }
 
+function readErrorSeenSignature(projectContext: NonNullable<ReturnType<typeof getProjectContextById>>, localTicketId: number): string | null {
+  const artifact = projectContext.projectDb.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, localTicketId),
+      eq(phaseArtifacts.phase, 'UI_STATE'),
+      eq(phaseArtifacts.artifactType, 'ui_state:error_attention'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  if (!artifact) return null
+
+  const parsed = parseJsonObject<{ data?: { seenSignature?: unknown } }>(artifact.content)
+  return typeof parsed?.data?.seenSignature === 'string' ? parsed.data.seenSignature : null
+}
+
 function toPublicTicket(projectId: number, ticket: LocalTicketRow): PublicTicket {
   const project = getProjectById(projectId)
+  const projectContext = getProjectContextById(projectId)
   const baseBranch = project ? resolveTicketBaseBranch(project.folderPath, ticket.externalId) : 'unknown'
   const lockedCouncilMembers = parseJsonArray(ticket.lockedCouncilMembers)
   const snapshot = parseJsonObject<{ context?: { previousStatus?: unknown } }>(ticket.xstateSnapshot)
+  const errorSeenSignature = projectContext ? readErrorSeenSignature(projectContext, ticket.id) : null
   const runtime = project ? buildRuntime(projectId, project.folderPath, ticket, baseBranch) : {
     baseBranch,
     currentBead: ticket.currentBead ?? 0,
@@ -96,6 +115,7 @@ function toPublicTicket(projectId: number, ticket: LocalTicketRow): PublicTicket
     lockedCouncilMembers,
     availableActions: getAvailableWorkflowActions(ticket.status),
     previousStatus: typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null,
+    errorSeenSignature,
     runtime,
   }
 }

@@ -5,15 +5,15 @@ import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
 import { PROFILE_DEFAULTS } from '../db/defaults'
 import { broadcaster } from '../sse/broadcaster'
-import { deliberateInterview, buildInterviewContextBuilder } from '../phases/interview/deliberate'
+import { deliberateInterview } from '../phases/interview/deliberate'
 import { draftPRD, buildPrdContextBuilder } from '../phases/prd/draft'
 import { draftBeads, buildBeadsContextBuilder } from '../phases/beads/draft'
 import { expandBeads } from '../phases/beads/expand'
 import type { Bead, BeadSubset } from '../phases/beads/types'
 import { executeBead } from '../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../phases/execution/scheduler'
-import type { CouncilResult, DraftPhaseResult, DraftProgressEvent, DraftResult, MemberOutcome, Vote } from '../council/types'
-import { CancelledError, throwIfAborted } from '../council/types'
+import type { CouncilResult, DraftPhaseResult, DraftProgressEvent, DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../council/types'
+import { CancelledError, throwIfAborted, VOTING_RUBRIC_INTERVIEW } from '../council/types'
 import { parseCouncilMembers } from '../council/members'
 import { conductVoting, selectWinner } from '../council/voter'
 import { refineDraft } from '../council/refiner'
@@ -23,7 +23,7 @@ import type { LogEventType, LogSource } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
 import { SessionManager } from '../opencode/sessionManager'
 import type { Message, StreamEvent } from '../opencode/types'
-import { buildPromptFromTemplate, PROM5, PROM13, PROM24 } from '../prompts/index'
+import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM13, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../phases/interview/questions'
 import { readFileSync, existsSync } from 'fs'
@@ -61,10 +61,12 @@ const interviewQASessions = new Map<string, { sessionId: string; winnerId: strin
 interface PhaseIntermediateData {
   drafts: DraftResult[]
   memberOutcomes: Record<string, MemberOutcome>
-  contextBuilder: (step: 'vote' | 'refine') => import('../opencode/types').PromptPart[]
+  contextBuilder?: (step: 'vote' | 'refine') => import('../opencode/types').PromptPart[]
   worktreePath: string
   phase: string
+  ticketState?: TicketState
   votes?: Vote[]
+  presentationOrders?: Record<string, VotePresentationOrder>
   winnerId?: string
 }
 const phaseIntermediate = new Map<string, PhaseIntermediateData>()
@@ -124,6 +126,7 @@ function tryRecoverPhaseIntermediate(
     const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
 
     let contextBuilder: PhaseIntermediateData['contextBuilder']
+    let baseTicketState: TicketState | undefined
     if (pipeline === 'interview') {
       const ticketState: TicketState = {
         ticketId: context.externalId,
@@ -131,7 +134,7 @@ function tryRecoverPhaseIntermediate(
         description: ticket?.description ?? '',
         codebaseMap,
       }
-      contextBuilder = buildInterviewContextBuilder(buildMinimalContext('interview_draft', ticketState))
+      baseTicketState = ticketState
     } else if (pipeline === 'prd') {
       const interviewPath = resolve(ticketDir, 'interview.yaml')
       let interview: string | undefined
@@ -165,18 +168,27 @@ function tryRecoverPhaseIntermediate(
     const data: PhaseIntermediateData = {
       drafts: result.drafts,
       memberOutcomes: result.memberOutcomes,
-      contextBuilder,
       worktreePath,
       phase: result.phase,
+      ticketState: baseTicketState,
+    }
+    if (contextBuilder) {
+      data.contextBuilder = contextBuilder
     }
 
     if (needsVotes) {
       const voteArtifact = getLatestPhaseArtifact(ticketId, `${pipeline}_votes`)
       if (!voteArtifact) return false
-      const voteResult = JSON.parse(voteArtifact.content) as { votes: Vote[]; winnerId: string; isFinal?: boolean }
+      const voteResult = JSON.parse(voteArtifact.content) as {
+        votes: Vote[]
+        winnerId: string
+        presentationOrders?: Record<string, VotePresentationOrder>
+        isFinal?: boolean
+      }
       if (voteResult.isFinal !== true) return false
       data.votes = voteResult.votes
       data.winnerId = voteResult.winnerId
+      data.presentationOrders = voteResult.presentationOrders
     }
 
     phaseIntermediate.set(key, data)
@@ -840,6 +852,48 @@ function resolveInterviewDraftSettings(context: TicketContext): {
   }
 }
 
+function buildInterviewVotePrompt(
+  ticketState: TicketState,
+  anonymizedDrafts: string[],
+  rubric: Array<{ category: string; weight: number; description: string }>,
+) {
+  const voteContext = [
+    ...buildMinimalContext('interview_vote', {
+      ...ticketState,
+      drafts: anonymizedDrafts,
+    }),
+    {
+      type: 'text' as const,
+      source: 'vote_rubric',
+      content: [
+        'Detailed scoring rubric:',
+        ...rubric.map(item => `- ${item.category} (${item.weight}pts): ${item.description}`),
+        '',
+        'Respond with scores for each draft in YAML format.',
+      ].join('\n'),
+    },
+  ]
+  return [{ type: 'text' as const, content: buildPromptFromTemplate(PROM2, voteContext) }]
+}
+
+function buildInterviewRefinePrompt(
+  ticketState: TicketState,
+  winnerDraft: DraftResult,
+  losingDrafts: DraftResult[],
+) {
+  const refineContext = buildMinimalContext('interview_refine', {
+    ...ticketState,
+    drafts: [
+      ['## Winning Draft', winnerDraft.content].join('\n'),
+      ...losingDrafts.map((draft, index) => [
+        `## Alternative Draft ${index + 1}`,
+        draft.content,
+      ].join('\n')),
+    ],
+  })
+  return [{ type: 'text' as const, content: buildPromptFromTemplate(PROM3, refineContext) }]
+}
+
 function resolveCouncilRuntimeSettings(context: TicketContext): {
   draftTimeoutMs: number
   minQuorum: number
@@ -1006,6 +1060,7 @@ function upsertCouncilVoteArtifact(
   drafts: DraftResult[],
   votes: Vote[],
   memberOutcomes: Record<string, MemberOutcome>,
+  presentationOrders?: Record<string, VotePresentationOrder>,
   winnerId?: string,
   totalScore?: number,
   isFinal: boolean = false,
@@ -1014,6 +1069,7 @@ function upsertCouncilVoteArtifact(
     drafts,
     votes,
     voterOutcomes: memberOutcomes,
+    ...(presentationOrders ? { presentationOrders } : {}),
     ...(winnerId ? { winnerId } : {}),
     ...(typeof totalScore === 'number' ? { totalScore } : {}),
     isFinal,
@@ -1295,13 +1351,12 @@ async function handleInterviewDeliberate(
   }
 
   // Store intermediate data for vote/refine steps
-  const contextBuilder = buildInterviewContextBuilder(ticketContext)
   phaseIntermediate.set(`${ticketId}:interview`, {
     drafts: result.drafts,
     memberOutcomes: result.memberOutcomes,
-    contextBuilder,
     worktreePath,
     phase: result.phase,
+    ticketState,
   })
 
   sendEvent({ type: 'QUESTIONS_READY', result: result as unknown as Record<string, unknown> })
@@ -1322,7 +1377,15 @@ async function handleInterviewVote(
 
   const { members } = resolveCouncilMembers(context)
   const councilSettings = resolveCouncilRuntimeSettings(context)
-  const voteContext = intermediate.contextBuilder('vote')
+  const interviewTicketState = intermediate.ticketState ?? (() => {
+    const { ticket, codebaseMap } = loadTicketDirContext(context)
+    return {
+      ticketId: context.externalId,
+      title: context.title,
+      description: ticket?.description ?? '',
+      codebaseMap,
+    } satisfies TicketState
+  })()
   const streamStates = new Map<string, OpenCodeStreamState>()
   const liveVotes: Vote[] = []
   const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
@@ -1339,7 +1402,7 @@ async function handleInterviewVote(
     adapter,
     members,
     intermediate.drafts,
-    voteContext,
+    [],
     intermediate.worktreePath,
     intermediate.phase,
     councilSettings.draftTimeoutMs,
@@ -1374,6 +1437,11 @@ async function handleInterviewVote(
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
     },
+    ({ anonymizedDrafts, rubric }) => buildInterviewVotePrompt(
+      interviewTicketState,
+      anonymizedDrafts.map(draft => draft.content),
+      rubric,
+    ),
     {
       ticketId,
       phase: 'COUNCIL_VOTING_INTERVIEW',
@@ -1394,7 +1462,18 @@ async function handleInterviewVote(
   )
 
   if (!voteQuorum.passed) {
-    upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, undefined, undefined, true)
+    upsertCouncilVoteArtifact(
+      ticketId,
+      'COUNCIL_VOTING_INTERVIEW',
+      'interview_votes',
+      intermediate.drafts,
+      voteRun.votes,
+      voteRun.memberOutcomes,
+      voteRun.presentationOrders,
+      undefined,
+      undefined,
+      true,
+    )
     throw new Error(`Interview voting quorum not met: ${voteQuorum.message}`)
   }
 
@@ -1406,9 +1485,21 @@ async function handleInterviewVote(
 
   // Store vote results for refine step
   intermediate.votes = voteRun.votes
+  intermediate.presentationOrders = voteRun.presentationOrders
   intermediate.winnerId = winnerId
 
-  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, winnerId, totalScore, true)
+  upsertCouncilVoteArtifact(
+    ticketId,
+    'COUNCIL_VOTING_INTERVIEW',
+    'interview_votes',
+    intermediate.drafts,
+    voteRun.votes,
+    voteRun.memberOutcomes,
+    voteRun.presentationOrders,
+    winnerId,
+    totalScore,
+    true,
+  )
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -1434,7 +1525,15 @@ async function handleInterviewCompile(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const councilSettings = resolveCouncilRuntimeSettings(context)
-  const refineContext = intermediate.contextBuilder('refine')
+  const interviewTicketState = intermediate.ticketState ?? (() => {
+    const { ticket, codebaseMap } = loadTicketDirContext(context)
+    return {
+      ticketId: context.externalId,
+      title: context.title,
+      description: ticket?.description ?? '',
+      codebaseMap,
+    } satisfies TicketState
+  })()
   const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info',
@@ -1445,7 +1544,7 @@ async function handleInterviewCompile(
     adapter,
     winnerDraft,
     losingDrafts,
-    refineContext,
+    [],
     intermediate.worktreePath,
     councilSettings.draftTimeoutMs,
     signal,
@@ -1478,6 +1577,11 @@ async function handleInterviewCompile(
       ticketId,
       phase: 'COMPILING_INTERVIEW',
     },
+    (activeWinnerDraft, activeLosingDrafts) => buildInterviewRefinePrompt(
+      interviewTicketState,
+      activeWinnerDraft,
+      activeLosingDrafts,
+    ),
   )
 
   // Clean up intermediate data
@@ -1785,6 +1889,9 @@ async function handlePrdVote(
 
   const { members } = resolveCouncilMembers(context)
   const councilSettings = resolveCouncilRuntimeSettings(context)
+  if (!intermediate.contextBuilder) {
+    throw new Error('No PRD context builder found — cannot vote')
+  }
   const voteContext = intermediate.contextBuilder('vote')
   const streamStates = new Map<string, OpenCodeStreamState>()
   const liveVotes: Vote[] = []
@@ -1837,6 +1944,7 @@ async function handlePrdVote(
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
     },
+    undefined,
     {
       ticketId,
       phase: 'COUNCIL_VOTING_PRD',
@@ -1857,7 +1965,18 @@ async function handlePrdVote(
   )
 
   if (!voteQuorum.passed) {
-    upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, undefined, undefined, true)
+    upsertCouncilVoteArtifact(
+      ticketId,
+      'COUNCIL_VOTING_PRD',
+      'prd_votes',
+      intermediate.drafts,
+      voteRun.votes,
+      voteRun.memberOutcomes,
+      voteRun.presentationOrders,
+      undefined,
+      undefined,
+      true,
+    )
     throw new Error(`PRD voting quorum not met: ${voteQuorum.message}`)
   }
 
@@ -1870,7 +1989,18 @@ async function handlePrdVote(
   intermediate.votes = voteRun.votes
   intermediate.winnerId = winnerId
 
-  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, winnerId, totalScore, true)
+  upsertCouncilVoteArtifact(
+    ticketId,
+    'COUNCIL_VOTING_PRD',
+    'prd_votes',
+    intermediate.drafts,
+    voteRun.votes,
+    voteRun.memberOutcomes,
+    voteRun.presentationOrders,
+    winnerId,
+    totalScore,
+    true,
+  )
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
@@ -1891,6 +2021,9 @@ async function handlePrdRefine(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const councilSettings = resolveCouncilRuntimeSettings(context)
+  if (!intermediate.contextBuilder) {
+    throw new Error('No PRD context builder found — cannot refine')
+  }
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
 
@@ -2151,6 +2284,9 @@ async function handleBeadsVote(
 
   const { members } = resolveCouncilMembers(context)
   const councilSettings = resolveCouncilRuntimeSettings(context)
+  if (!intermediate.contextBuilder) {
+    throw new Error('No beads context builder found — cannot vote')
+  }
   const voteContext = intermediate.contextBuilder('vote')
   const streamStates = new Map<string, OpenCodeStreamState>()
   const liveVotes: Vote[] = []
@@ -2203,6 +2339,7 @@ async function handleBeadsVote(
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
     },
+    undefined,
     {
       ticketId,
       phase: 'COUNCIL_VOTING_BEADS',
@@ -2223,7 +2360,18 @@ async function handleBeadsVote(
   )
 
   if (!voteQuorum.passed) {
-    upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, undefined, undefined, true)
+    upsertCouncilVoteArtifact(
+      ticketId,
+      'COUNCIL_VOTING_BEADS',
+      'beads_votes',
+      intermediate.drafts,
+      voteRun.votes,
+      voteRun.memberOutcomes,
+      voteRun.presentationOrders,
+      undefined,
+      undefined,
+      true,
+    )
     throw new Error(`Beads voting quorum not met: ${voteQuorum.message}`)
   }
 
@@ -2236,7 +2384,18 @@ async function handleBeadsVote(
   intermediate.votes = voteRun.votes
   intermediate.winnerId = winnerId
 
-  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, voteRun.votes, voteRun.memberOutcomes, winnerId, totalScore, true)
+  upsertCouncilVoteArtifact(
+    ticketId,
+    'COUNCIL_VOTING_BEADS',
+    'beads_votes',
+    intermediate.drafts,
+    voteRun.votes,
+    voteRun.memberOutcomes,
+    voteRun.presentationOrders,
+    winnerId,
+    totalScore,
+    true,
+  )
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
     `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
@@ -2257,6 +2416,9 @@ async function handleBeadsRefine(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const councilSettings = resolveCouncilRuntimeSettings(context)
+  if (!intermediate.contextBuilder) {
+    throw new Error('No beads context builder found — cannot refine')
+  }
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
 
@@ -3004,7 +3166,7 @@ function buildMockInterviewQuestions() {
       priority: 'high',
       rationale: 'Defines acceptance and testing expectations.',
     },
-  ] as const
+  ]
 }
 
 function buildMockInterviewCompiledContent() {
@@ -3017,6 +3179,117 @@ function buildMockInterviewCompiledContent() {
       rationale,
     })),
   }, { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildMockInterviewDraftContent(variantIndex: number) {
+  const questions = buildMockInterviewQuestions().map((question) => ({ ...question }))
+  if (variantIndex > 0) {
+    questions.push({
+      id: `tradeoffs-${variantIndex + 1}`,
+      phase: 'delivery',
+      question: 'Which tradeoffs are acceptable if scope, timing, or implementation complexity conflict?',
+      priority: 'medium',
+      rationale: 'Surfaces prioritization decisions before implementation starts.',
+    })
+    const firstQuestion = questions.shift()
+    if (firstQuestion) {
+      questions.push(firstQuestion)
+    }
+  }
+
+  return jsYaml.dump({
+    questions: questions.map(({ id, phase, question, priority, rationale }) => ({
+      id,
+      phase,
+      question,
+      priority,
+      rationale,
+    })),
+  }, { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildMockInterviewDrafts(members: Array<{ modelId: string; name: string }>): DraftResult[] {
+  return members.map((member, index) => ({
+    memberId: member.modelId,
+    content: index === 0 ? buildMockInterviewCompiledContent() : buildMockInterviewDraftContent(index),
+    outcome: 'completed',
+    duration: 1,
+    questionCount: index === 0 ? buildMockInterviewQuestions().length : buildMockInterviewQuestions().length + 1,
+  }))
+}
+
+function buildMockInterviewVoteResult(
+  members: Array<{ modelId: string; name: string }>,
+  drafts: DraftResult[],
+): {
+  votes: Vote[]
+  voterOutcomes: Record<string, MemberOutcome>
+  presentationOrders: Record<string, VotePresentationOrder>
+  winnerId: string
+  totalScore: number
+} {
+  const winnerId = drafts[0]?.memberId ?? members[0]?.modelId ?? 'mock-model-1'
+  const winnerScorecards = [
+    [19, 19, 18, 18, 19],
+    [18, 19, 19, 18, 18],
+  ]
+  const challengerScorecards = [
+    [16, 15, 15, 16, 15],
+    [15, 16, 15, 15, 16],
+  ]
+
+  const votes: Vote[] = []
+  const voterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
+    acc[member.modelId] = 'completed'
+    return acc
+  }, {})
+  const presentationOrders: Record<string, VotePresentationOrder> = {}
+
+  members.forEach((member, memberIndex) => {
+    const orderedDrafts = memberIndex % 2 === 0 ? drafts : [...drafts].reverse()
+    presentationOrders[member.modelId] = {
+      seed: `mock-seed-interview-${memberIndex + 1}`,
+      order: orderedDrafts.map((draft) => draft.memberId),
+    }
+
+    orderedDrafts.forEach((draft) => {
+      const scoreTemplate = draft.memberId === winnerId
+        ? winnerScorecards[memberIndex % winnerScorecards.length]!
+        : challengerScorecards[memberIndex % challengerScorecards.length]!
+      const scores = VOTING_RUBRIC_INTERVIEW.map((criterion, scoreIndex) => ({
+        category: criterion.category,
+        score: scoreTemplate[scoreIndex] ?? 15,
+        justification: draft.memberId === winnerId
+          ? `Mock voter ${memberIndex + 1} preferred this draft on ${criterion.category.toLowerCase()}.`
+          : `Mock voter ${memberIndex + 1} found this draft weaker on ${criterion.category.toLowerCase()}.`,
+      }))
+      const totalScore = scores.reduce((sum, score) => sum + score.score, 0)
+      votes.push({
+        voterId: member.modelId,
+        draftId: draft.memberId,
+        scores,
+        totalScore,
+      })
+    })
+  })
+
+  const totalScore = votes
+    .filter((vote) => vote.draftId === winnerId)
+    .reduce((sum, vote) => sum + vote.totalScore, 0)
+
+  return { votes, voterOutcomes, presentationOrders, winnerId, totalScore }
+}
+
+function readMockInterviewWinnerId(ticketId: string, fallbackWinnerId: string): string {
+  const voteArtifact = getLatestPhaseArtifact(ticketId, 'interview_votes')
+  if (!voteArtifact) return fallbackWinnerId
+
+  try {
+    const parsed = JSON.parse(voteArtifact.content) as { winnerId?: unknown }
+    return typeof parsed.winnerId === 'string' ? parsed.winnerId : fallbackWinnerId
+  } catch {
+    return fallbackWinnerId
+  }
 }
 
 function buildMockPrdContent(context: TicketContext) {
@@ -3112,18 +3385,15 @@ async function handleMockCouncilDeliberate(
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
 ) {
-  const refinedContent = buildMockInterviewCompiledContent()
-  insertPhaseArtifact(ticketId, {
-    phase: 'COUNCIL_DELIBERATING',
-    artifactType: 'interview_drafts',
-    content: JSON.stringify({
-      phase: 'interview',
-      drafts: [{ memberId: 'mock-model-1', content: refinedContent, outcome: 'completed', duration: 1 }],
-      memberOutcomes: { 'mock-model-1': { outcome: 'completed' } },
-    }),
-  })
+  const { members } = resolveCouncilMembers(context)
+  const drafts = buildMockInterviewDrafts(members)
+  const memberOutcomes = drafts.reduce<Record<string, MemberOutcome>>((acc, draft) => {
+    acc[draft.memberId] = draft.outcome
+    return acc
+  }, {})
+  upsertCouncilDraftArtifact(ticketId, 'COUNCIL_DELIBERATING', 'interview_drafts', drafts, memberOutcomes, true)
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'info', 'Mock interview drafting complete.')
-  sendEvent({ type: 'QUESTIONS_READY', result: { winnerId: 'mock-model-1' } })
+  sendEvent({ type: 'QUESTIONS_READY', result: { winnerId: members[0]?.modelId } })
 }
 
 async function handleMockInterviewVote(
@@ -3131,13 +3401,23 @@ async function handleMockInterviewVote(
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
 ) {
-  insertPhaseArtifact(ticketId, {
-    phase: 'COUNCIL_VOTING_INTERVIEW',
-    artifactType: 'interview_votes',
-    content: JSON.stringify({ winnerId: 'mock-model-1', totalScore: 1 }),
-  })
+  const { members } = resolveCouncilMembers(context)
+  const drafts = buildMockInterviewDrafts(members)
+  const voteResult = buildMockInterviewVoteResult(members, drafts)
+  upsertCouncilVoteArtifact(
+    ticketId,
+    'COUNCIL_VOTING_INTERVIEW',
+    'interview_votes',
+    drafts,
+    voteResult.votes,
+    voteResult.voterOutcomes,
+    voteResult.presentationOrders,
+    voteResult.winnerId,
+    voteResult.totalScore,
+    true,
+  )
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info', 'Mock interview winner selected.')
-  sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
+  sendEvent({ type: 'WINNER_SELECTED', winner: voteResult.winnerId })
 }
 
 async function handleMockInterviewCompile(
@@ -3145,17 +3425,19 @@ async function handleMockInterviewCompile(
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
 ) {
+  const { members } = resolveCouncilMembers(context)
+  const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const refinedContent = buildMockInterviewCompiledContent()
   const questions = buildMockInterviewQuestions()
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',
     artifactType: 'interview_compiled',
-    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent, questions }),
+    content: JSON.stringify({ winnerId, refinedContent, questions }),
   })
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',
     artifactType: 'interview_winner',
-    content: JSON.stringify({ winnerId: 'mock-model-1' }),
+    content: JSON.stringify({ winnerId }),
   })
   emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info', 'Mock interview compiled.')
   sendEvent({ type: 'READY' })
@@ -3165,6 +3447,8 @@ async function handleMockInterviewQAStart(
   ticketId: string,
   context: TicketContext,
 ) {
+  const { members } = resolveCouncilMembers(context)
+  const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const batch: BatchResponse = {
     questions: buildMockInterviewQuestions().map(({ id, question, phase, priority, rationale }) => ({
       id,
@@ -3180,11 +3464,11 @@ async function handleMockInterviewQAStart(
     batchNumber: 1,
   }
 
-  interviewQASessions.set(ticketId, { sessionId: 'mock-session', winnerId: 'mock-model-1' })
+  interviewQASessions.set(ticketId, { sessionId: 'mock-session', winnerId })
   insertPhaseArtifact(ticketId, {
     phase: 'WAITING_INTERVIEW_ANSWERS',
     artifactType: 'interview_qa_session',
-    content: JSON.stringify({ sessionId: 'mock-session', winnerId: 'mock-model-1' }),
+    content: JSON.stringify({ sessionId: 'mock-session', winnerId }),
   })
   upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(batch))
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info', 'Mock interview questions ready for input.')
@@ -3201,6 +3485,8 @@ async function handleMockCoverage(
   phase: 'interview' | 'prd' | 'beads',
   sendEvent: (event: TicketEvent) => void,
 ) {
+  const { members } = resolveCouncilMembers(context)
+  const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const stateLabel = phase === 'interview'
     ? 'VERIFYING_INTERVIEW_COVERAGE'
     : phase === 'prd'
@@ -3210,7 +3496,7 @@ async function handleMockCoverage(
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,
     artifactType: `${phase}_coverage`,
-    content: JSON.stringify({ winnerId: 'mock-model-1', response: 'mock coverage clean', hasGaps: false }),
+    content: JSON.stringify({ winnerId, response: 'mock coverage clean', hasGaps: false }),
   })
 
   if (phase === 'interview') {
@@ -3228,7 +3514,7 @@ async function handleMockCoverage(
     if (paths) {
       safeAtomicWrite(
         resolve(paths.ticketDir, 'interview.yaml'),
-        buildInterviewYaml(context.externalId, 'mock-model-1', refinedContent),
+        buildInterviewYaml(context.externalId, winnerId, refinedContent),
       )
     }
   }
@@ -3251,7 +3537,16 @@ async function handleMockPrdVote(ticketId: string, context: TicketContext, sendE
   insertPhaseArtifact(ticketId, {
     phase: 'COUNCIL_VOTING_PRD',
     artifactType: 'prd_votes',
-    content: JSON.stringify({ winnerId: 'mock-model-1', totalScore: 1 }),
+    content: JSON.stringify({
+      winnerId: 'mock-model-1',
+      totalScore: 1,
+      presentationOrders: {
+        'mock-model-1': {
+          seed: 'mock-seed-prd',
+          order: ['mock-model-1'],
+        },
+      },
+    }),
   })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info', 'Mock PRD winner selected.')
   sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
@@ -3285,7 +3580,16 @@ async function handleMockBeadsVote(ticketId: string, context: TicketContext, sen
   insertPhaseArtifact(ticketId, {
     phase: 'COUNCIL_VOTING_BEADS',
     artifactType: 'beads_votes',
-    content: JSON.stringify({ winnerId: 'mock-model-1', totalScore: 1 }),
+    content: JSON.stringify({
+      winnerId: 'mock-model-1',
+      totalScore: 1,
+      presentationOrders: {
+        'mock-model-1': {
+          seed: 'mock-seed-beads',
+          order: ['mock-model-1'],
+        },
+      },
+    }),
   })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info', 'Mock beads winner selected.')
   sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })

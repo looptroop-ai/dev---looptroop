@@ -95,9 +95,10 @@ Voter C sees: [Draft A, Draft C, Draft B, Draft D]  (different random order)
 
 **Key properties:**
 - Drafts are **anonymized** — voters don't know which model produced which draft
-- Drafts are presented in a **randomized order per voter** (anti-anchoring)
+- Drafts are presented in a **randomized order per voter and per attempt** (anti-anchoring)
+- The presented order is persisted per voter in the vote artifact for audit/debug replay
 - Each voter gets a fresh session (no memory of the draft phase)
-- Context for voting: all draft contents + the rubric
+- Interview voting context is rebuilt for the step and includes the **codebase map**, **ticket details**, **anonymized draft contents**, and the PROM2 rubric/instructions
 
 ### 3. Refinement Phase
 
@@ -109,7 +110,8 @@ Winning Draft + Losing Drafts → Refiner → Refined Artifact
 
 **Key properties:**
 - The refiner incorporates **strong ideas from losing drafts** into the winner
-- The refiner receives **only the drafts** — NOT the vote scores or results
+- Interview refinement context is rebuilt for the step and includes the **codebase map**, **ticket details**, **winning draft**, and **losing drafts**
+- The refiner does **not** receive vote scores or vote results
 - This ensures refinement is based on content quality, not political scoring
 - Fresh session for the refinement step
 
@@ -221,8 +223,8 @@ Every council call uses `buildMinimalContext(phase, ticketState, activeItem?)`:
 | Phase | Allowed Context Sources |
 |-------|------------------------|
 | `interview_draft` | ticket description, codebase map |
-| `interview_vote` | all drafts, rubric |
-| `interview_refine` | winning draft, losing drafts |
+| `interview_vote` | codebase map, ticket details, anonymized drafts, rubric |
+| `interview_refine` | codebase map, ticket details, winning draft, losing drafts |
 | `interview_qa` | compiled questions, previous answers |
 | `interview_coverage` | interview results, ticket description |
 | `prd_draft` | interview results, codebase map |

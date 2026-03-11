@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import net from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_BACKEND_PORT, DEFAULT_FRONTEND_PORT } from '../shared/appConfig'
+import { getBackendPort, getFrontendPort } from '../shared/appConfig'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
@@ -82,7 +82,7 @@ if (stalePids.length > 0) {
 
 await new Promise((resolvePromise) => setTimeout(resolvePromise, stalePids.length > 0 ? 500 : 0))
 
-for (const port of [DEFAULT_FRONTEND_PORT, DEFAULT_BACKEND_PORT]) {
+for (const port of [getFrontendPort(), getBackendPort()]) {
   try {
     await ensurePortFree(port)
   } catch (error) {

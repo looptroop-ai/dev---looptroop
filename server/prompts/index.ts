@@ -64,7 +64,7 @@ export const PROM3: PromptTemplate = {
     'Formatting: Output the final refined draft using the exact same structural format required for this phase. Output only the final artifact.',
   ],
   outputFormat: 'YAML — same question list format as PROM1 output, matching PROM5.output_file questions schema',
-  contextInputs: ['codebase_map', 'ticket_details', 'drafts', 'votes'],
+  contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
 }
 
 export const PROM4: PromptTemplate = {

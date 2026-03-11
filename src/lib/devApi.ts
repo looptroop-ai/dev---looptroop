@@ -1,4 +1,3 @@
-const DEV_BACKEND_PORT = 3000
 const DEV_BACKEND_HEALTH_PATH = '/api/health'
 const DEV_BACKEND_POLL_MS = 250
 const DEV_BACKEND_TIMEOUT_MS = 30_000
@@ -30,10 +29,6 @@ function sleep(ms: number) {
   })
 }
 
-function getDevBackendOrigin() {
-  return `${window.location.protocol}//${window.location.hostname}:${DEV_BACKEND_PORT}`
-}
-
 function resolveUrl(input: RequestInfo | URL) {
   if (typeof input === 'string') return new URL(input, window.location.origin)
   if (input instanceof URL) return input
@@ -45,16 +40,12 @@ function isFrontendApiUrl(url: URL) {
   return url.origin === window.location.origin && (url.pathname === '/api' || url.pathname.startsWith('/api/'))
 }
 
-function toDirectBackendUrl(url: URL) {
-  return new URL(`${url.pathname}${url.search}${url.hash}`, getDevBackendOrigin())
-}
-
 async function pingDevBackend() {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), 1000)
 
   try {
-    const response = await nativeFetch(new URL(DEV_BACKEND_HEALTH_PATH, getDevBackendOrigin()).toString(), {
+    const response = await nativeFetch(new URL(DEV_BACKEND_HEALTH_PATH, window.location.origin).toString(), {
       cache: 'no-store',
       signal: controller.signal,
     })
@@ -122,11 +113,11 @@ export async function waitForDevBackend(signal?: AbortSignal) {
 export function getApiUrl(path: string, options?: { directInDevelopment?: boolean }) {
   if (typeof window === 'undefined') return path
 
-  const baseOrigin = isDevelopmentRuntime() && options?.directInDevelopment
-    ? getDevBackendOrigin()
-    : window.location.origin
+  if (isDevelopmentRuntime() && options?.directInDevelopment) {
+    return new URL(path, window.location.origin).toString()
+  }
 
-  return new URL(path, baseOrigin).toString()
+  return new URL(path, window.location.origin).toString()
 }
 
 export function installDevApiGuard() {
@@ -141,10 +132,6 @@ export function installDevApiGuard() {
     }
 
     await waitForDevBackend(init?.signal ?? undefined)
-
-    if (typeof input === 'string' || input instanceof URL) {
-      return originalFetch(toDirectBackendUrl(resolvedUrl).toString(), init)
-    }
 
     return originalFetch(input, init)
   }

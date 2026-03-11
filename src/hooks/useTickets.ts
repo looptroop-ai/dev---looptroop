@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clearPersistedTicketLogs } from '@/context/LogContext'
 import { clearTicketArtifactsCache } from './useTicketArtifacts'
 import type { WorkflowAction } from '@shared/workflowMeta'
+import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
 
 export interface TicketRuntime {
   baseBranch: string
@@ -37,6 +38,7 @@ export interface Ticket {
   totalBeads: number | null
   percentComplete: number | null
   errorMessage: string | null
+  errorSeenSignature?: string | null
   lockedMainImplementer: string | null
   lockedCouncilMembers: string[]
   availableActions: WorkflowAction[]
@@ -314,9 +316,7 @@ export function useDeleteTicket() {
       clearTicketArtifactsCache(ticketId)
       clearPersistedTicketLogs(ticketId)
 
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(`error-seen-${ticketId}`)
-      }
+      clearErrorTicketSeen(ticketId)
     },
   })
 }

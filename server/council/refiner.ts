@@ -29,21 +29,24 @@ export async function refineDraft(
     phase: string
     phaseAttempt?: number
   },
+  buildPrompt?: (winnerDraft: DraftResult, losingDrafts: DraftResult[]) => PromptPart[],
 ): Promise<string> {
   let sessionId = ''
-  const refineParts: PromptPart[] = [
-    ...contextParts,
-    {
-      type: 'text',
-      content: [
-        '## Winning Draft',
-        winnerDraft.content,
-        '',
-        '## Alternative Drafts',
-        ...losingDrafts.map((d, i) => `### Alternative ${i + 1}\n${d.content}`),
-      ].join('\n'),
-    },
-  ]
+  const refineParts = buildPrompt
+    ? buildPrompt(winnerDraft, losingDrafts)
+    : [
+        ...contextParts,
+        {
+          type: 'text' as const,
+          content: [
+            '## Winning Draft',
+            winnerDraft.content,
+            '',
+            '## Alternative Drafts',
+            ...losingDrafts.map((d, i) => `### Alternative ${i + 1}\n${d.content}`),
+          ].join('\n'),
+        },
+      ]
 
   const result = await runOpenCodePrompt({
     adapter,

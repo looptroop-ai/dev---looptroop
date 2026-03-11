@@ -121,6 +121,7 @@ export async function runCouncilPipeline(
     phase,
     drafts: draftRun.drafts,
     votes: voteRun.votes,
+    presentationOrders: voteRun.presentationOrders,
     winnerId,
     winnerContent: winnerDraft.content,
     refinedContent,

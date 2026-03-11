@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import type { OpenCodeAdapter } from '../opencode/adapter'
-import type { CouncilMember, DraftResult, MemberOutcome, Vote, VoteScore, VotingPhaseResult } from './types'
+import type { CouncilMember, DraftResult, MemberOutcome, Vote, VotePresentationOrder, VoteScore, VotingPhaseResult } from './types'
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
@@ -95,22 +96,51 @@ function clampScore(score: number): number {
   return Math.max(0, Math.min(20, Math.round(score)))
 }
 
-// Anonymize and randomize drafts per voter
-function anonymizeDrafts(drafts: DraftResult[], seed: string): { index: number; content: string }[] {
-  const shuffled = drafts
-    .map((d, i) => ({ index: i, content: d.content, sort: hashCode(d.memberId + seed) }))
-    .sort((a, b) => a.sort - b.sort)
-  return shuffled.map((d, i) => ({ index: d.index, content: `Draft ${i + 1}:\n${d.content}` }))
+interface PresentedDraft {
+  draftId: string
+  content: string
 }
 
-function hashCode(str: string): number {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash |= 0
+function hashSeed(seed: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
   }
-  return hash
+  return hash >>> 0
+}
+
+function createSeededRandom(seed: string) {
+  let state = hashSeed(seed) || 1
+  return () => {
+    state = (state + 0x6D2B79F5) >>> 0
+    let t = Math.imul(state ^ (state >>> 15), state | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// Anonymize and randomize drafts per voter with a replayable seed.
+export function buildVotePresentationOrder(
+  drafts: DraftResult[],
+  seed: string,
+): PresentedDraft[] {
+  const shuffled = drafts
+    .filter(draft => draft.outcome === 'completed' && draft.content)
+    .map(draft => ({ draftId: draft.memberId, content: draft.content }))
+  const nextRandom = createSeededRandom(seed)
+
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(nextRandom() * (index + 1))
+    const current = shuffled[index]
+    shuffled[index] = shuffled[swapIndex]!
+    shuffled[swapIndex] = current!
+  }
+
+  return shuffled.map((draft, index) => ({
+    draftId: draft.draftId,
+    content: `Draft ${index + 1}:\n${draft.content}`,
+  }))
 }
 
 export async function conductVoting(
@@ -141,6 +171,11 @@ export async function conductVoting(
     votes: Vote[]
     error?: string
   }) => void,
+  buildPromptForVoter?: (entry: {
+    voter: CouncilMember
+    anonymizedDrafts: PresentedDraft[]
+    rubric: typeof VOTING_RUBRIC
+  }) => PromptPart[],
   sessionOwnership?: {
     ticketId: string
     phase: string
@@ -150,6 +185,7 @@ export async function conductVoting(
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
   const rubric = phase ? getVotingRubricForPhase(phase) : VOTING_RUBRIC
+  const presentationOrders: Record<string, VotePresentationOrder> = {}
   const memberOutcomes = voters.reduce<Record<string, MemberOutcome>>((outcomes, voter) => {
     outcomes[voter.modelId] = 'pending'
     return outcomes
@@ -181,11 +217,16 @@ export async function conductVoting(
   }
 
   if (validDrafts.length === 0) {
-    return { votes, memberOutcomes, deadlineReached: false }
+    return { votes, memberOutcomes, deadlineReached: false, presentationOrders }
   }
 
   const promises = voters.map(async (voter): Promise<Vote[]> => {
-    const anonymized = anonymizeDrafts(validDrafts, voter.modelId)
+    const presentationSeed = randomUUID()
+    const anonymized = buildVotePresentationOrder(validDrafts, presentationSeed)
+    presentationOrders[voter.modelId] = {
+      seed: presentationSeed,
+      order: anonymized.map(draft => draft.draftId),
+    }
     const voterVotes: Vote[] = []
     let sessionId = ''
     let closed = false
@@ -201,20 +242,22 @@ export async function conductVoting(
     }
 
     const executeVote = (async () => {
-      const votingPrompt: PromptPart[] = [
-        ...contextParts,
-        {
-          type: 'text',
-          content: [
-            'Score each draft on these categories (0-20 points each):',
-            ...rubric.map(r => `- ${r.category} (${r.weight}pts): ${r.description}`),
-            '',
-            ...anonymized.map(d => d.content),
-            '',
-            'Respond with scores for each draft in YAML format.',
-          ].join('\n'),
-        },
-      ]
+      const votingPrompt = buildPromptForVoter
+        ? buildPromptForVoter({ voter, anonymizedDrafts: anonymized, rubric })
+        : [
+            ...contextParts,
+            {
+              type: 'text' as const,
+              content: [
+                'Score each draft on these categories (0-20 points each):',
+                ...rubric.map(r => `- ${r.category} (${r.weight}pts): ${r.description}`),
+                '',
+                ...anonymized.map(d => d.content),
+                '',
+                'Respond with scores for each draft in YAML format.',
+              ].join('\n'),
+            },
+          ]
 
       const result = await runOpenCodePrompt({
         adapter,
@@ -260,7 +303,6 @@ export async function conductVoting(
       // Parse voting response — extract real scores from AI output
       const parseErrors: string[] = []
       for (const draft of anonymized) {
-        const draftMemberId = validDrafts[draft.index]!.memberId
         const draftLabel = `Draft ${anonymized.indexOf(draft) + 1}`
         const scores: VoteScore[] = []
         let draftValid = true
@@ -284,7 +326,7 @@ export async function conductVoting(
 
         voterVotes.push({
           voterId: voter.modelId,
-          draftId: draftMemberId,
+          draftId: draft.draftId,
           scores,
           totalScore: scores.reduce((sum, s) => sum + s.score, 0),
         })
@@ -366,6 +408,7 @@ export async function conductVoting(
     votes,
     memberOutcomes,
     deadlineReached,
+    presentationOrders,
   }
 }
 
