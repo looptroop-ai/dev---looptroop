@@ -365,9 +365,6 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run dev
 
 **Fix:** Tests use in-memory SQLite and don't connect to OpenCode. If slow:
 ```bash
-# Run specific test files
-npx vitest run server/machines/__tests__/ticketMachine.test.ts
-
 # Run with reporter for debugging
 npx vitest run --reporter=verbose
 ```

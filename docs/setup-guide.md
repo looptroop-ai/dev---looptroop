@@ -160,28 +160,6 @@ When you start a ticket, LoopTroop:
 3. Works exclusively in that worktree (never touches your main branch directly)
 4. On completion, squashes commits and merges to main
 
-### Folder Structure Created
-
-```
-your-project/
-├── .looptroop/                      # Created by LoopTroop
-│   ├── config.yaml                  # Project-level config
-│   ├── db.sqlite                    # SQLite database
-│   └── worktrees/                   # Git worktrees (one per ticket)
-│       └── PROJ-1/                  # Ticket worktree
-│           ├── src/...              # Your source code
-│           └── .ticket/             # Ticket artifacts
-│               ├── meta/
-│               │   └── ticket.meta.json
-│               ├── interview.yaml
-│               ├── prd.yaml
-│               ├── codebase-map.yaml
-│               ├── beads/main/.beads/issues.jsonl
-│               └── runtime/         # Runtime files (gitignored)
-├── src/...                          # Your main branch source
-└── package.json
-```
-
 ---
 
 ## Step 6: Start Everything

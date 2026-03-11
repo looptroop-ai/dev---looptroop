@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:client": "vitest run --project client",
-    "test:server": "vitest run --project server-unit --project server-integration",
+    "test:server": "vitest run --project server-unit",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

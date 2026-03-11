@@ -61,7 +61,7 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run dev
 ## 3. How to Run Tests, Lint, Typecheck
 
 ```bash
-# Run all tests (Vitest) — 238 tests across 22 files
+# Run all tests (Vitest)
 npm run test
 
 # Type checking (TypeScript strict mode)
@@ -72,9 +72,6 @@ npm run lint
 
 # Build for production
 npm run build
-
-# Run specific test file
-npx vitest run server/machines/__tests__/ticketMachine.test.ts
 
 # Watch mode for development
 npm run test:watch
@@ -241,116 +238,7 @@ looptroop/
 
 ---
 
-## 8. Artifact File Format Overview
-
-### interview.yaml
-Questions and answers from the AI-driven interview process.
-```yaml
-schema_version: 1
-ticket_id: "PROJ-1"
-artifact: "interview"
-status: "approved"              # draft | approved
-generated_by:
-  winner_model: "provider/model"
-  generated_at: "2026-02-06T14:58:00Z"
-questions:
-  - id: "Q1"
-    prompt: "What features should be included?"
-    answer_type: "free_text"    # free_text | single_choice | multi_choice | boolean
-    options: []
-    answer:
-      skipped: false
-      selected_option_ids: []
-      free_text: "User-provided answer"
-      answered_by: "user"
-      answered_at: "2026-02-06T15:00:00Z"
-follow_up_rounds: []
-summary:
-  goals: []
-  constraints: []
-  non_goals: []
-approval:
-  approved_by: "user"
-  approved_at: "2026-02-06T15:30:00Z"
-```
-
-### prd.yaml
-Product Requirements Document with epics and user stories.
-```yaml
-schema_version: 1
-ticket_id: "PROJ-1"
-artifact: "prd"
-status: "approved"
-source_interview:
-  content_sha256: "<sha256 of interview.yaml>"
-product:
-  problem_statement: "Project overview"
-  target_users: []
-scope:
-  in_scope: []
-  out_of_scope: []
-technical_requirements:
-  architecture_constraints: []
-  data_model: []
-  api_contracts: []
-  security_constraints: []
-  performance_constraints: []
-  reliability_constraints: []
-  error_handling_rules: []
-  tooling_assumptions: []
-epics:
-  - id: "EPIC-1"
-    title: "Epic title"
-    objective: "..."
-    user_stories:
-      - id: "US-1"
-        title: "Story title"
-        acceptance_criteria: ["criterion 1"]
-        implementation_steps: []
-        verification:
-          required_commands: []
-risks: []
-approval:
-  approved_by: "user"
-  approved_at: "2026-02-06T15:30:00Z"
-```
-
-### codebase-map.yaml
-Auto-generated project structure map (created by SYS on ticket start).
-```yaml
-schema_version: 1
-ticket_id: "PROJ-1"
-artifact: "codebase_map"
-generated_by: "SYS"
-generated_at: "2026-02-06T14:58:00Z"
-source:
-  root: "."
-  ignore:
-    - ".git/"
-    - "node_modules/"
-summary:
-  total_files: 128
-  by_language:
-    TypeScript: 44
-    Markdown: 9
-manifests:
-  - "package.json"
-files:
-  - "src/auth/LoginForm.tsx"
-  - "src/auth/useAuth.ts"
-```
-
-### issues.jsonl
-Implementation beads — authoritative task graph (one JSON object per line, 22 fields each).
-```jsonl
-{"id":"PROJ-1-EPIC-1-US-1-task1-h7qd","priority":1,"title":"Implement login error state","status":"pending","issue_type":"task","external_ref":"PROJ-1","prd_references":"EPIC-1 / US-1","labels":["ticket:PROJ-1","epic:EPIC-1","story:US-1"],"description":"Add inline error handling...","context_guidance":{"patterns":["Use AppError class"],"anti_patterns":["Do not use alert()"]},"acceptance_criteria":"Show non-blocking inline message","dependencies":{"blocked_by":[],"blocks":[]},"target_files":["src/auth/LoginForm.tsx"],"tests":["Login error banner appears"],"test_commands":["npm test -- --grep \"login error\""],"notes":"","iteration":1,"created_at":"2026-02-06T16:10:00Z","updated_at":"2026-02-06T16:10:00Z","completed_at":"","started_at":"","bead_start_commit":""}
-```
-
-📖 **Complete field definitions:** [docs/artifact-formats.md](docs/artifact-formats.md)
-
----
-
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 ### OpenCode Not Reachable
 - Ensure OpenCode is running: `opencode serve`
@@ -393,7 +281,7 @@ Implementation beads — authoritative task graph (one JSON object per line, 22 
 
 ---
 
-## Documentation Map
+## 9. Documentation Map
 
 | Document | Content |
 |----------|---------|

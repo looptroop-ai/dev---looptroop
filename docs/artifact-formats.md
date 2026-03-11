@@ -91,18 +91,6 @@ Auto-generated project structure map. Created by SYS when a ticket transitions f
 
 **Location:** `<worktree>/.ticket/codebase-map.yaml`
 
-**Schema:**
-```yaml
-ticket_id: "PROJ-1"
-artifact: "codebase_map"
-manifests:
-  - "package.json"
-  - "pyproject.toml"
-files:
-  - "src/auth/LoginForm.tsx"
-  - "src/auth/useAuth.ts"
-```
-
 **Generation rules:**
 - Paths-only map (no directory entries)
 - Stack-agnostic manifest discovery
@@ -119,7 +107,7 @@ Implementation beads (task graph). One JSON object per line. This is the **autho
 
 | # | Field | Type | Description |
 |---|-------|------|-------------|
-| 1 | `id` | string | Hierarchical bead ID with 4-char suffix hash (e.g. `PROJ-1-EPIC-1-US-1-task1-h7qd`) |
+| 1 | `id` | string | Hierarchical bead ID with 4-char suffix hash |
 | 2 | `title` | string | Short task name |
 | 3 | `priority` | integer | Execution order (sequential) |
 | 4 | `status` | string | `pending` → `in_progress` → `done` / `error` |
@@ -142,11 +130,6 @@ Implementation beads (task graph). One JSON object per line. This is the **autho
 | 21 | `started_at` | ISO 8601 | When status set to `in_progress` |
 | 22 | `bead_start_commit` | string | Git SHA at bead execution start |
 
-**Example line:**
-```json
-{"id":"PROJ-1-EPIC-1-US-1-task1-h7qd","priority":1,"title":"Implement login error state","status":"pending","issue_type":"task","external_ref":"PROJ-1","prd_references":"EPIC-1 / US-1","labels":["ticket:PROJ-1","epic:EPIC-1","story:US-1"],"description":"Add inline error handling...","context_guidance":{"patterns":["Use AppError class"],"anti_patterns":["Do not use alert()"]},"acceptance_criteria":"Show non-blocking inline message","dependencies":{"blocked_by":[],"blocks":["PROJ-1-EPIC-1-US-1-task2-z8p1"]},"target_files":["src/auth/LoginForm.tsx"],"tests":["Login error banner appears"],"test_commands":["npm test -- --grep \"login error\""],"notes":"","iteration":1,"created_at":"2026-02-06T16:10:00Z","updated_at":"2026-02-06T16:10:00Z","completed_at":"","started_at":"","bead_start_commit":""}
-```
-
 ## execution-log.jsonl
 
 Append-only operational log for debugging and audit.
@@ -159,10 +142,6 @@ Append-only operational log for debugging and audit.
 
 ## Bead Completion Marker
 
-When a bead finishes execution, the AI agent outputs a structured marker:
-
-```
-<BEAD_STATUS>{"bead_id":"PROJ-1-EPIC-1-US-1-task1-h7qd","status":"completed","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}</BEAD_STATUS>
-```
+When a bead finishes execution, the AI agent outputs a structured marker.
 
 All four quality gates must be `"pass"` for the bead to be marked as complete. If any gate fails, the bead enters retry/context-wipe flow.

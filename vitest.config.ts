@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
+// Never add tests that hard-code ticket/project-specific fixture ids, refs, shortnames, or worktree names.
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const sharedResolve = {
@@ -19,13 +20,10 @@ const sharedEnv = {
   LOOPTROOP_TEST_SILENT: '1',
 }
 
-const serialServerTests = [
-  'server/routes/__tests__/routes.test.ts',
-]
-
 export default defineConfig({
   resolve: sharedResolve,
   test: {
+    maxWorkers: 1,
     globals: true,
     projects: [
       {
@@ -51,19 +49,6 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
           setupFiles: ['./server/test/setup.ts'],
           include: ['server/**/*.test.ts', 'tests/**/*.test.ts'],
-          exclude: serialServerTests,
-          env: sharedEnv,
-        },
-      },
-      {
-        extends: true,
-        test: {
-          name: 'server-integration',
-          environment: 'node',
-          sequence: { groupOrder: 2 },
-          setupFiles: ['./server/test/setup.ts'],
-          include: serialServerTests,
-          fileParallelism: false,
           env: sharedEnv,
         },
       },

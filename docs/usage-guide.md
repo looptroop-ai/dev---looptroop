@@ -54,7 +54,7 @@ The main application view is a **4-column Kanban board**:
 ### Ticket Cards
 
 Each ticket card displays:
-- **Ticket ID** (e.g., `PROJ-12`) and **title**
+- **Ticket ID** and **title**
 - **Project icon** and **border color** (using the project's selected color)
 - **Priority** indicator (Very High → Very Low)
 - **Current status** text
@@ -116,7 +116,7 @@ The `background` field adapts the interview experience:
 1. Click **"New Project"** in the top bar
 2. Fill in:
    - **Name** — Full project name (e.g., "My E-Commerce Platform")
-   - **Shortname** — 3-5 uppercase letters (e.g., "ECOM"). Used for ticket IDs: `ECOM-1`, `ECOM-2`, etc.
+   - **Shortname** — 3-5 uppercase letters
    - **Icon** — Optional emoji or image. A default is assigned if you skip this.
    - **Color** — Ticket border color. 32 color options available (red and yellow are excluded to avoid confusion with error/warning states).
    - **Folder Path** — Absolute path to the git-initialized project folder (e.g., `/home/user/projects/my-ecom`)
@@ -151,7 +151,7 @@ Projects can override profile-level settings:
 ### What Happens on Creation
 
 When you create a ticket:
-1. An auto-incremented ID is generated (e.g., `PROJ-1`, `PROJ-2`)
+1. An auto-incremented ID is generated
 2. The ticket is saved to SQLite
 3. A minimal metadata file is created at `.looptroop/worktrees/<ticket-id>/.ticket/meta/ticket.meta.json`
 4. **No source code files are created yet** — that happens on Start
@@ -172,7 +172,6 @@ The ticket dashboard is the primary interface for interacting with a ticket. It 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  [X]  PROJ-1: Add user authentication  ● In Progress   │  ← Header
 ├─────────────┬───────────────────────────────────────────┤
 │             │                                           │
 │  Navigator  │         Active Workspace                  │

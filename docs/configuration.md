@@ -60,7 +60,7 @@ Profile settings are global defaults that apply to all projects and tickets unle
 | Field | Type | Validation | Description |
 |-------|------|-----------|-------------|
 | `name` | string | Non-empty | Full project name |
-| `shortname` | string | 3-5 uppercase letters | Prefix for ticket IDs (e.g., "PROJ" → PROJ-1) |
+| `shortname` | string | 3-5 uppercase letters | Prefix for ticket IDs |
 | `folderPath` | string | Absolute path, git-initialized | Path to the project repository |
 
 ### Optional Fields
@@ -105,7 +105,7 @@ The `shortname` and `folderPath` are immutable after creation.
 | Field | Description |
 |-------|-------------|
 | `id` | Auto-incremented integer (database ID) |
-| `externalId` | Auto-generated (e.g., "PROJ-12") |
+| `externalId` | Auto-generated |
 | `status` | Current XState state name |
 | `xstateSnapshot` | Serialized XState snapshot (JSON) |
 | `createdAt` | Ticket creation timestamp |

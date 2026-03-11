@@ -226,7 +226,7 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run dev
 1. Click **"New Project"** in the top bar
 2. Fill in the details:
    - **Name** — Your project title (e.g., "My Web App")
-   - **Shortname** — 3-5 uppercase letters (e.g., "MYAPP") used for ticket IDs
+   - **Shortname** — 3-5 uppercase letters used for ticket IDs
    - **Icon** — Optional emoji or icon
    - **Color** — Border color for tickets (32 options; red and yellow excluded)
    - **Folder Path** — Absolute path to your git-initialized project folder
@@ -243,7 +243,7 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run dev
    - **Description** — Detailed requirements (the more detail, the better)
    - **Priority** — Very High, High, Normal (default), Low, or Very Low
 3. Click **Create** — The ticket appears in the **To Do** column
-4. The ticket gets an auto-generated ID like `MYAPP-1`, `MYAPP-2`, etc.
+4. The ticket gets an auto-generated ID
 
 ### The Ticket Lifecycle
 
@@ -395,10 +395,7 @@ Each bead is executed by the main AI implementer model through OpenCode:
 ```
 
 ### Completion Marker Format
-When a bead finishes, the AI outputs:
-```
-<BEAD_STATUS>{"bead_id":"PROJ-1-EPIC-1-US-1-task1-h7qd","status":"completed","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}</BEAD_STATUS>
-```
+When a bead finishes, the AI outputs a structured completion marker.
 
 All 4 quality gates must be `"pass"`. The completion checker validates JSON structure, bead_id, status, and all 4 gates.
 
