@@ -186,20 +186,28 @@ function buildRefiningMemberArtifacts(
   const winnerId = voteResult?.winnerId ?? ''
   const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
   const refinedArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === getRefinedArtifactType(domain))
+  const shouldSeparateInterviewResult = domain === 'interview' && phase === 'COMPILING_INTERVIEW'
 
   return orderedMembers.map((memberId) => {
     const draft = drafts.find((d) => d.memberId === memberId)
     const isWinner = memberId === winnerId
-    const viewer = isWinner
-      ? makeWinnerViewer(domain, phase, memberId, refinedArtifact?.content ?? voteArtifact?.content ?? '', refinedArtifact?.content ? true : false)
-      : makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
+    const viewer = shouldSeparateInterviewResult
+      ? makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
+      : isWinner
+        ? makeWinnerViewer(domain, phase, memberId, refinedArtifact?.content ?? voteArtifact?.content ?? '', refinedArtifact?.content ? true : false)
+        : makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
+    const detail = shouldSeparateInterviewResult
+      ? getDraftDetail(draft)
+      : isWinner
+        ? 'Winner — refining draft'
+        : getDraftCompletionDetail(draft)
 
     return {
       key: `${phase}:${memberId}`,
       modelId: memberId,
       action: isWinner && !isCompleted ? 'refining' : 'working',
       outcome: isWinner && !isCompleted ? 'pending' : 'completed',
-      detail: isWinner ? 'Winner — refining draft' : getDraftCompletionDetail(draft),
+      detail,
       isWinner,
       viewer,
     }

@@ -86,4 +86,85 @@ describe('PhaseArtifactsPanel', () => {
     expect(votingButton).toHaveTextContent('Voting Details')
     expect(winningButton).toHaveTextContent('Winning Draft')
   })
+
+  it('shows compact compiling interview draft chips and a separate final interview artifact', () => {
+    const voteArtifact: DBartifact = {
+      id: 1,
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      filePath: null,
+      createdAt: '2026-03-12T11:48:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        drafts: [
+          { memberId: 'openai/gpt-5.1-codex', outcome: 'completed', content: 'questions:\n  - id: Q01\n    question: "Draft A?"', questionCount: 21 },
+          { memberId: 'openai/gpt-5.2', outcome: 'completed', content: 'questions:\n  - id: Q01\n    question: "Draft B?"', questionCount: 48 },
+        ],
+      }),
+    }
+
+    const compiledArtifact: DBartifact = {
+      id: 2,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: 'questions:\n  - id: Q01\n    question: "Final?"',
+        questions: [{ id: 'Q01', phase: 'Foundation', question: 'Final?' }],
+        questionCount: 48,
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COMPILING_INTERVIEW"
+        isCompleted={false}
+        councilMemberCount={2}
+        councilMemberNames={['openai/gpt-5.1-codex', 'openai/gpt-5.2']}
+        preloadedArtifacts={[voteArtifact, compiledArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
+    expect(screen.getByText('proposed 21 questions')).toBeInTheDocument()
+    expect(screen.getByText('proposed 48 questions')).toBeInTheDocument()
+    expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
+    expect(screen.queryByText('Winner — refining draft')).not.toBeInTheDocument()
+    expect(screen.queryByText('🔄 Refining')).not.toBeInTheDocument()
+  })
+
+  it('keeps the final interview artifact available while waiting for interview answers', () => {
+    const compiledArtifact: DBartifact = {
+      id: 3,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: 'questions:\n  - id: Q01\n    question: "Final?"',
+        questions: [{ id: 'Q01', phase: 'Foundation', question: 'Final?' }],
+        questionCount: 48,
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_INTERVIEW_ANSWERS"
+        isCompleted={false}
+        preloadedArtifacts={[compiledArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('Interview Answers')).toBeInTheDocument()
+    expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
+  })
 })

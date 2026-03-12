@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
-import { useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
+import { normalizeTicketArtifact, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
 import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 import {
   buildCouncilMemberArtifacts,
@@ -97,6 +97,28 @@ function extractDraftDetail(content: string | null): string {
   const lineCount = content.split('\n').filter(l => l.trim()).length
   if (lineCount > 0) return `${lineCount} lines`
   return ''
+}
+
+function extractCompiledInterviewDetail(content: string | null): string {
+  if (!content) return ''
+  try {
+    const parsed = JSON.parse(content) as {
+      winnerId?: string
+      questionCount?: number
+      questions?: unknown[]
+    }
+    const count = typeof parsed.questionCount === 'number'
+      ? parsed.questionCount
+      : Array.isArray(parsed.questions)
+        ? parsed.questions.length
+        : 0
+    const detailParts: string[] = []
+    if (parsed.winnerId) detailParts.push(getModelDisplayName(parsed.winnerId))
+    if (count > 0) detailParts.push(`${count} question${count === 1 ? '' : 's'}`)
+    return detailParts.join(' · ')
+  } catch {
+    return ''
+  }
 }
 
 // Try to parse content as JSON CouncilResult
@@ -533,8 +555,14 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
       { id: 'winner-draft', label: 'Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> },
     ]
   }
+  if (phase === 'COMPILING_INTERVIEW') {
+    return [{ id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
-    return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
     return [{ id: 'winner-prd-draft', label: 'Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
@@ -775,7 +803,9 @@ type ViewingArtifactSelection =
 
 function getArtifactTargetPhases(phase: string): string[] {
   const phaseMap: Record<string, string[]> = {
-    WAITING_INTERVIEW_APPROVAL: ['VERIFYING_INTERVIEW_COVERAGE', 'COMPILING_INTERVIEW'],
+    WAITING_INTERVIEW_ANSWERS: ['WAITING_INTERVIEW_ANSWERS', 'COMPILING_INTERVIEW'],
+    VERIFYING_INTERVIEW_COVERAGE: ['VERIFYING_INTERVIEW_COVERAGE', 'WAITING_INTERVIEW_ANSWERS', 'COMPILING_INTERVIEW'],
+    WAITING_INTERVIEW_APPROVAL: ['VERIFYING_INTERVIEW_COVERAGE', 'WAITING_INTERVIEW_ANSWERS', 'COMPILING_INTERVIEW'],
     WAITING_PRD_APPROVAL: ['VERIFYING_PRD_COVERAGE', 'REFINING_PRD'],
     WAITING_BEADS_APPROVAL: ['VERIFYING_BEADS_COVERAGE', 'REFINING_BEADS'],
   }
@@ -799,6 +829,8 @@ function resolveStaticArtifact(
       return findExactType('interview_votes')
     case 'vote-details':
       return findExactType('interview_votes')
+    case 'final-interview':
+      return findExactType('interview_compiled')
     case 'winner-prd-draft':
       return findExactType('prd_votes')
     case 'winner-beads-draft':
@@ -834,10 +866,46 @@ function shouldCollapseVotingMemberArtifacts(phase: string): boolean {
 }
 
 export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement, preloadedArtifacts }: PhaseArtifactsPanelProps) {
-  const supplementalArtifacts = getSupplementalArtifacts(phase)
+  const supplementalArtifacts = useMemo(() => getSupplementalArtifacts(phase), [phase])
   const [viewingSelection, setViewingSelection] = useState<ViewingArtifactSelection | null>(null)
-  const { artifacts: cachedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticketId, { skipFetch: !!preloadedArtifacts })
-  const dbArtifacts = preloadedArtifacts ?? cachedArtifacts
+  const [fallbackArtifacts, setFallbackArtifacts] = useState<DBartifact[]>([])
+  const hasPreloadedArtifacts = Boolean(preloadedArtifacts && preloadedArtifacts.length > 0)
+  const { artifacts: cachedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticketId, { skipFetch: hasPreloadedArtifacts })
+  const normalizedCachedArtifacts = useMemo(() => cachedArtifacts ?? [], [cachedArtifacts])
+
+  useEffect(() => {
+    if (!ticketId || hasPreloadedArtifacts || normalizedCachedArtifacts.length > 0) return
+
+    let cancelled = false
+    void fetch(`/api/tickets/${ticketId}/artifacts`)
+      .then(async (res) => {
+        if (!res.ok) return []
+        const payload = await res.json()
+        if (!Array.isArray(payload)) return []
+        return payload
+          .map((artifact) => normalizeTicketArtifact(artifact, ticketId))
+          .filter((artifact): artifact is DBartifact => artifact !== null)
+      })
+      .then((artifacts) => {
+        if (!cancelled) setFallbackArtifacts(artifacts)
+      })
+      .catch(() => {
+        if (!cancelled) setFallbackArtifacts([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasPreloadedArtifacts, normalizedCachedArtifacts.length, ticketId])
+
+  const dbArtifacts = useMemo(
+    () => (hasPreloadedArtifacts
+      ? (preloadedArtifacts ?? [])
+      : normalizedCachedArtifacts.length > 0
+        ? normalizedCachedArtifacts
+        : fallbackArtifacts),
+    [fallbackArtifacts, hasPreloadedArtifacts, normalizedCachedArtifacts, preloadedArtifacts],
+  )
   const reversedArtifacts = useMemo(() => [...dbArtifacts].reverse(), [dbArtifacts])
   const configuredMembers = useMemo(() => councilMemberNames ?? [], [councilMemberNames])
   const memberArtifacts = useMemo(
@@ -877,6 +945,13 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       }
     }
 
+    if (artifact.id === 'final-interview') {
+      return {
+        outcome: 'completed',
+        detail: extractCompiledInterviewDetail(content) || undefined,
+      }
+    }
+
     if (artifact.id.includes('refined') || artifact.id.includes('answers')) {
       return { outcome: isCompleted ? 'completed' : 'pending' }
     }
@@ -905,6 +980,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   }, [findDbContent, memberArtifacts, supplementalArtifacts, viewingSelection])
 
   const visibleMemberArtifacts = collapseVotingMemberArtifacts ? [] : memberArtifacts
+  const compactInterviewArtifacts = phase === 'COMPILING_INTERVIEW'
   const hasTopArtifactRow = visibleMemberArtifacts.length > 0 || prominentSupplementalArtifacts.length > 0
   const hasArtifacts = hasTopArtifactRow || inlineSupplementalArtifacts.length > 0 || Boolean(prefixElement)
   if (!hasArtifacts) return null
@@ -928,13 +1004,17 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
                   modelId={artifact.modelId}
                   active={Boolean(artifact.isWinner)}
                   onClick={() => setViewingSelection({ kind: 'member', key: artifact.key })}
-                  className="min-w-[220px] flex-1 px-3 py-2 h-auto items-start gap-2"
+                  className={compactInterviewArtifacts
+                    ? 'min-w-[150px] max-w-[220px] px-3 py-2 h-auto flex-none items-start gap-2'
+                    : 'min-w-[220px] flex-1 px-3 py-2 h-auto items-start gap-2'}
                 >
                   <div className="min-w-0 text-left flex-1">
                     <div className="text-xs font-medium truncate">{getModelDisplayName(artifact.modelId)}</div>
-                    <div className="text-[10px] opacity-80 mt-0.5">
-                      {getCouncilStatusEmoji(artifact.outcome, artifact.action)} {getCouncilStatusLabel(artifact.outcome, artifact.action)}
-                    </div>
+                    {!compactInterviewArtifacts && (
+                      <div className="text-[10px] opacity-80 mt-0.5">
+                        {getCouncilStatusEmoji(artifact.outcome, artifact.action)} {getCouncilStatusLabel(artifact.outcome, artifact.action)}
+                      </div>
+                    )}
                     {artifact.detail && <div className={`text-[10px] mt-0.5 ${detailTone}`}>{artifact.detail}</div>}
                   </div>
                 </ModelBadge>
