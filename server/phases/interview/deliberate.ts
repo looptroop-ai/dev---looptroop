@@ -3,6 +3,7 @@ import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../
 import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM1 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
+import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { validateInterviewDraft } from './validation'
 
 interface InterviewDeliberationOptions {
@@ -33,6 +34,11 @@ export async function deliberateInterview(
     sessionId: string
     event: StreamEvent
   }) => void,
+  onOpenCodePromptDispatched?: (entry: {
+    stage: 'draft'
+    memberId: string
+    event: OpenCodePromptDispatchEvent
+  }) => void,
   onDraftProgress?: (entry: DraftProgressEvent) => void,
 ): Promise<DraftPhaseResult> {
   const promptContent = [
@@ -57,6 +63,7 @@ export async function deliberateInterview(
       ticketId: options.ticketId,
       phase: 'COUNCIL_DELIBERATING',
       phaseAttempt: options.phaseAttempt,
+      onPromptDispatched: onOpenCodePromptDispatched,
     },
   )
 

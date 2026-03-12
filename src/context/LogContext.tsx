@@ -1,4 +1,4 @@
-import { createContext, startTransition, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, startTransition, useCallback, useContext, useEffect, useState, useRef, type ReactNode } from 'react'
 
 export interface LogEntry {
   id: string
@@ -283,6 +283,53 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
   const [manualActivePhase, setManualActivePhase] = useState<string | null>(null)
   const activePhase = manualActivePhase ?? currentStatus ?? null
 
+  const pendingLogsRef = useRef<Record<string, LogEntry[]>>({})
+  const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current)
+        flushTimeoutRef.current = null
+      }
+    }
+  }, [])
+
+  const flushPendingLogs = useCallback(() => {
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current)
+      flushTimeoutRef.current = null
+    }
+
+    const pending = pendingLogsRef.current
+    if (Object.keys(pending).length === 0) return
+
+    pendingLogsRef.current = {}
+
+    startTransition(() => {
+      setLogsByPhase(prev => {
+        const merged = { ...prev }
+        let hasChanges = false
+        for (const [status, entries] of Object.entries(pending)) {
+          if (entries.length > 0) {
+            hasChanges = true
+            let bucket = merged[status] ?? []
+            for (const entry of entries) {
+              bucket = mergeEntry(bucket, entry)
+            }
+            merged[status] = bucket
+          }
+        }
+
+        if (hasChanges) {
+          persistLogs(ticketId, merged)
+          return merged
+        }
+        return prev
+      })
+    })
+  }, [ticketId])
+
   useEffect(() => {
     if (!ticketId) return
 
@@ -378,33 +425,27 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     }
     const entry = normalizeLogRecord(raw, phase)
 
-    startTransition(() => {
-      setLogsByPhase(prev => {
-        const merged = {
-          ...prev,
-          [entry.status]: mergeEntry(prev[entry.status] ?? [], entry),
-        }
-        persistLogs(ticketId, merged)
-        return merged
-      })
-    })
-  }, [ticketId])
+    const bucket = pendingLogsRef.current[entry.status] ?? []
+    bucket.push(entry)
+    pendingLogsRef.current[entry.status] = bucket
+
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, 200)
+    }
+  }, [flushPendingLogs])
 
   const addLogRecord = useCallback((phase: string, data: Record<string, unknown>) => {
     if (!phase) return
     const entry = normalizeLogRecord(data, phase)
 
-    startTransition(() => {
-      setLogsByPhase(prev => {
-        const merged = {
-          ...prev,
-          [entry.status]: mergeEntry(prev[entry.status] ?? [], entry),
-        }
-        persistLogs(ticketId, merged)
-        return merged
-      })
-    })
-  }, [ticketId])
+    const bucket = pendingLogsRef.current[entry.status] ?? []
+    bucket.push(entry)
+    pendingLogsRef.current[entry.status] = bucket
+
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, 200)
+    }
+  }, [flushPendingLogs])
 
   const getLogsForPhase = useCallback((phase: string) => logsByPhase[phase] ?? [], [logsByPhase])
 
@@ -416,6 +457,13 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
 
   const clearLogs = useCallback(() => {
     if (ticketId) clearPersistedTicketLogs(ticketId)
+    
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current)
+      flushTimeoutRef.current = null
+    }
+    pendingLogsRef.current = {}
+
     startTransition(() => {
       setLogsByPhase({})
       setManualActivePhase(null)

@@ -528,7 +528,10 @@ function VotingResultsView({ data }: { data: CouncilResultData }) {
 
 function getSupplementalArtifacts(phase: string): ArtifactDef[] {
   if (phase === 'COUNCIL_VOTING_INTERVIEW') {
-    return [{ id: 'winner-draft', label: 'Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'vote-details', label: 'Voting Details', description: 'Weighted scoring across all council votes', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'winner-draft', label: 'Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
     return [{ id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> }]
@@ -794,6 +797,8 @@ function resolveStaticArtifact(
   switch (artifactDef.id) {
     case 'winner-draft':
       return findExactType('interview_votes')
+    case 'vote-details':
+      return findExactType('interview_votes')
     case 'winner-prd-draft':
       return findExactType('prd_votes')
     case 'winner-beads-draft':
@@ -824,6 +829,10 @@ function resolveStaticArtifact(
     ?? findByPredicate(artifact => Boolean(artifact.content))
 }
 
+function shouldCollapseVotingMemberArtifacts(phase: string): boolean {
+  return phase === 'COUNCIL_VOTING_INTERVIEW'
+}
+
 export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement, preloadedArtifacts }: PhaseArtifactsPanelProps) {
   const supplementalArtifacts = getSupplementalArtifacts(phase)
   const [viewingSelection, setViewingSelection] = useState<ViewingArtifactSelection | null>(null)
@@ -836,6 +845,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     [configuredMembers, councilMemberCount, dbArtifacts, isCompleted, phase],
   )
   const action = getCouncilAction(phase)
+  const collapseVotingMemberArtifacts = shouldCollapseVotingMemberArtifacts(phase)
+  const prominentSupplementalArtifacts = collapseVotingMemberArtifacts ? supplementalArtifacts : []
+  const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : supplementalArtifacts
 
   const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
     const match = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
@@ -850,6 +862,19 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     if (artifact.id.includes('winner')) {
       const winnerId = council?.winnerId
       return winnerId ? { outcome: 'completed', detail: `winner: ${getModelDisplayName(winnerId)}` } : {}
+    }
+
+    if (artifact.id.includes('vote')) {
+      const voterCount = Object.keys(council?.voterOutcomes ?? {}).length
+        || new Set((council?.votes ?? []).map((vote) => vote.voterId)).size
+      const draftCount = new Set((council?.votes ?? []).map((vote) => vote.draftId)).size
+      const detailParts: string[] = []
+      if (voterCount > 0) detailParts.push(`${voterCount} voter${voterCount === 1 ? '' : 's'}`)
+      if (draftCount > 0) detailParts.push(`${draftCount} draft${draftCount === 1 ? '' : 's'}`)
+      return {
+        outcome: council ? (council.winnerId ? 'completed' : 'pending') : undefined,
+        detail: detailParts.join(' · ') || undefined,
+      }
     }
 
     if (artifact.id.includes('refined') || artifact.id.includes('answers')) {
@@ -879,7 +904,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
   }, [findDbContent, memberArtifacts, supplementalArtifacts, viewingSelection])
 
-  const hasArtifacts = memberArtifacts.length > 0 || supplementalArtifacts.length > 0 || Boolean(prefixElement)
+  const visibleMemberArtifacts = collapseVotingMemberArtifacts ? [] : memberArtifacts
+  const hasTopArtifactRow = visibleMemberArtifacts.length > 0 || prominentSupplementalArtifacts.length > 0
+  const hasArtifacts = hasTopArtifactRow || inlineSupplementalArtifacts.length > 0 || Boolean(prefixElement)
   if (!hasArtifacts) return null
 
   return (
@@ -887,9 +914,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       <div>
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">Artifacts</span>
 
-        {memberArtifacts.length > 0 && (
+        {hasTopArtifactRow && (
           <div className="flex flex-row flex-wrap gap-2 mt-1">
-            {memberArtifacts.map((artifact: CouncilMemberArtifactChip) => {
+            {visibleMemberArtifacts.map((artifact: CouncilMemberArtifactChip) => {
               const detailTone = artifact.outcome === 'failed' || artifact.outcome === 'invalid_output'
                 ? 'text-red-400'
                 : artifact.outcome === 'timed_out'
@@ -913,12 +940,32 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
                 </ModelBadge>
               )
             })}
+            {prominentSupplementalArtifacts.map((artifact) => {
+              const artifactState = getArtifactState(artifact)
+              const statusEmoji = artifactState.outcome
+                ? getCouncilStatusEmoji(artifactState.outcome, action)
+                : isCompleted ? '✅' : getCouncilStatusEmoji(undefined, action)
+              return (
+                <button
+                  key={artifact.id}
+                  onClick={() => setViewingSelection({ kind: 'supplemental', id: artifact.id })}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/50 bg-secondary px-2.5 py-1.5 text-xs text-secondary-foreground shadow-sm transition-colors hover:bg-secondary/80 whitespace-nowrap"
+                >
+                  <span className="text-muted-foreground">{artifact.icon}</span>
+                  <div className="text-left">
+                    <span className="font-medium">{artifact.label}</span>
+                    {artifactState.detail && <div className="text-[10px] text-blue-500">{artifactState.detail}</div>}
+                  </div>
+                  <span className="ml-auto shrink-0">{statusEmoji}</span>
+                </button>
+              )
+            })}
           </div>
         )}
 
-        {(supplementalArtifacts.length > 0 || prefixElement) && (
-          <div className={`flex flex-row flex-wrap gap-2 ${memberArtifacts.length > 0 ? 'mt-2' : 'mt-1'}`}>
-            {supplementalArtifacts.map((artifact) => {
+        {(inlineSupplementalArtifacts.length > 0 || prefixElement) && (
+          <div className={`flex flex-row flex-wrap gap-2 ${hasTopArtifactRow ? 'mt-2' : 'mt-1'}`}>
+            {inlineSupplementalArtifacts.map((artifact) => {
               const artifactState = getArtifactState(artifact)
               const statusEmoji = artifactState.outcome
                 ? getCouncilStatusEmoji(artifactState.outcome, action)

@@ -2,7 +2,7 @@ import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { Bead } from '../beads/types'
 import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { parseCompletionMarker } from './completionChecker'
-import { runOpenCodePrompt } from '../../workflow/runOpenCodePrompt'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
@@ -31,6 +31,7 @@ export async function executeBead(
     model?: string
     onSessionCreated?: (sessionId: string, iteration: number) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; iteration: number; event: StreamEvent }) => void
+    onPromptDispatched?: (entry: { sessionId: string; iteration: number; event: OpenCodePromptDispatchEvent }) => void
   },
 ): Promise<ExecutionResult> {
   let iteration = 0
@@ -85,6 +86,13 @@ export async function executeBead(
           if (!sessionId) return
           callbacks?.onOpenCodeStreamEvent?.({
             sessionId,
+            iteration,
+            event,
+          })
+        },
+        onPromptDispatched: (event) => {
+          callbacks?.onPromptDispatched?.({
+            sessionId: event.session.id,
             iteration,
             event,
           })

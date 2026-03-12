@@ -3,7 +3,7 @@ export type LogEventType = 'state_change' | 'model_output' | 'test_result' | 'er
 export type LogSource = 'system' | 'opencode' | 'error' | 'debug' | `model:${string}`
 export type LogAudience = 'all' | 'ai' | 'debug'
 export type LogEntryOperation = 'append' | 'upsert' | 'finalize'
-export type LogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'error' | 'test'
+export type LogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'prompt' | 'error' | 'test'
 
 export interface LogEvent {
   timestamp: string

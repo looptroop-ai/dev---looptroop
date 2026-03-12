@@ -3,7 +3,11 @@ import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { buildConversationalPrompt, PROM4 } from '../../prompts/index'
-import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runOpenCodePrompt'
+import {
+  runOpenCodePrompt,
+  runOpenCodeSessionPrompt,
+  type OpenCodePromptDispatchEvent,
+} from '../../workflow/runOpenCodePrompt'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { throwIfAborted } from '../../council/types'
@@ -80,6 +84,7 @@ export async function startInterviewSession(
   maxQuestions: number,
   signal?: AbortSignal,
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
+  onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void,
   ticketId?: string,
 ): Promise<{ sessionId: string; firstBatch: BatchResponse }> {
   const contextParts = buildMinimalContext('interview_qa', ticketState)
@@ -127,6 +132,12 @@ export async function startInterviewSession(
           event,
         })
       },
+      onPromptDispatched: (event) => {
+        onPromptDispatched?.({
+          sessionId: event.session.id,
+          event,
+        })
+      },
     })
   } catch (error) {
     throwIfCancelled(error, signal)
@@ -149,6 +160,7 @@ export async function submitBatchToSession(
   signal?: AbortSignal,
   model?: string,
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
+  onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void,
   ticketId?: string,
 ): Promise<BatchResponse> {
   const answerLines = Object.entries(batchAnswers).map(([id, answer]) => {
@@ -186,6 +198,12 @@ export async function submitBatchToSession(
       onStreamEvent: (event) => {
         onOpenCodeStreamEvent?.({
           sessionId,
+          event,
+        })
+      },
+      onPromptDispatched: (event) => {
+        onPromptDispatched?.({
+          sessionId: event.session.id,
           event,
         })
       },

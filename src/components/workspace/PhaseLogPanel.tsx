@@ -187,6 +187,7 @@ const MULTI_MODEL_PHASES = new Set([
 function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
   const isError = (entry: LogEntry) => entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')
+  const isPrompt = (entry: LogEntry) => entry.kind === 'prompt'
   const isFromOpenCode = (entry: LogEntry) =>
     entry.audience === 'ai' ||
     entry.source === 'opencode' ||
@@ -201,7 +202,7 @@ function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
 
   switch (tab) {
     case 'ALL':
-      return entries.filter(entry => (entry.audience === 'all' || isError(entry) || isImportantAiSummary(entry)) && !isDebug(entry))
+      return entries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isImportantAiSummary(entry)) && !isDebug(entry))
     case 'SYS':
       return entries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':

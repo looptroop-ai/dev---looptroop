@@ -3,6 +3,7 @@ import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../
 import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM20, PROM21, PROM22 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
+import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 
 /** Build a context builder that returns PROM21 (vote) or PROM22 (refine) context. */
 export function buildBeadsContextBuilder(ticketContext: PromptPart[]) {
@@ -37,6 +38,11 @@ export async function draftBeads(
     sessionId: string
     event: StreamEvent
   }) => void,
+  onOpenCodePromptDispatched?: (entry: {
+    stage: 'draft'
+    memberId: string
+    event: OpenCodePromptDispatchEvent
+  }) => void,
   onDraftProgress?: (entry: DraftProgressEvent) => void,
 ): Promise<DraftPhaseResult> {
   const promptContent = buildPromptFromTemplate(PROM20, ticketContext)
@@ -56,6 +62,7 @@ export async function draftBeads(
       ticketId: options.ticketId,
       phase: 'DRAFTING_BEADS',
       phaseAttempt: options.phaseAttempt,
+      onPromptDispatched: onOpenCodePromptDispatched,
     },
   )
 

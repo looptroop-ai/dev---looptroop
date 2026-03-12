@@ -19,7 +19,15 @@ function toDebugJson(data: Record<string, unknown>) {
   }
 }
 
-function SSELogConnector({ ticketId, currentStatus }: { ticketId: string | null; currentStatus: string }) {
+function SSELogConnector({
+  ticketId,
+  currentStatus,
+  onStateChange,
+}: {
+  ticketId: string | null
+  currentStatus: string
+  onStateChange?: (status: string) => void
+}) {
   const logCtx = useLogs()
 
   const handleEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
@@ -27,6 +35,7 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: string | null;
       const from = String(event.data.from ?? '')
       const to = String(event.data.to ?? '')
       if (to) {
+        onStateChange?.(to)
         logCtx?.setActivePhase(to)
         logCtx?.addLog(
           to,
@@ -113,7 +122,7 @@ function SSELogConnector({ ticketId, currentStatus }: { ticketId: string | null;
         },
       )
     }
-  }, [logCtx, currentStatus])
+  }, [currentStatus, logCtx, onStateChange])
 
   useSSE({ ticketId, onEvent: handleEvent })
 
@@ -130,6 +139,10 @@ export function TicketDashboard() {
     ticketId: null,
     phase: null,
   })
+  const [livePhase, setLivePhase] = useState<{ ticketId: string | null; phase: string | null }>({
+    ticketId: null,
+    phase: null,
+  })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const snapshotPreviousStatus = useMemo(
@@ -137,15 +150,45 @@ export function TicketDashboard() {
     [ticket?.previousStatus],
   )
 
-  const canceledFromStatus = ticket?.status === 'CANCELED' ? snapshotPreviousStatus : undefined
-  const previousStatus = ticket?.status === 'BLOCKED_ERROR' ? snapshotPreviousStatus : undefined
   const errorSignature = ticket ? getErrorTicketSignature(ticket) : null
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
   const selectedPhase = phaseSelection.ticketId === ticketId ? phaseSelection.phase : null
+  const liveStatus = livePhase.ticketId === ticketId ? livePhase.phase : null
+  const currentStatus = liveStatus ?? ticket?.status ?? ''
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
   }, [ticketId])
+  const handleLiveStatusChange = useCallback((phase: string) => {
+    setLivePhase((current) => {
+      if (current.ticketId === ticketId && current.phase === phase) return current
+      return { ticketId, phase }
+    })
+  }, [ticketId])
+
+  useEffect(() => {
+    setLivePhase((current) => {
+      if (current.ticketId === ticketId) return current
+      return { ticketId, phase: null }
+    })
+  }, [ticketId])
+
+  useEffect(() => {
+    if (!ticketId || !ticket || !liveStatus) return
+    if (ticket.status !== liveStatus) return
+    setLivePhase((current) => {
+      if (current.ticketId !== ticketId || current.phase !== liveStatus) return current
+      return { ticketId, phase: null }
+    })
+  }, [liveStatus, ticket?.status, ticketId])
+
+  useEffect(() => {
+    if (!ticketId) return
+    setPhaseSelection((current) => {
+      if (current.ticketId !== ticketId || current.phase !== currentStatus) return current
+      return { ticketId, phase: null }
+    })
+  }, [currentStatus, ticketId])
 
   useEffect(() => {
     if (!ticket) return
@@ -216,78 +259,83 @@ export function TicketDashboard() {
     </div>
   )
 
-  const activePhase = selectedPhase ?? ticket.status
+  const effectiveTicket = currentStatus === ticket.status
+    ? ticket
+    : { ...ticket, status: currentStatus }
+  const canceledFromStatus = currentStatus === 'CANCELED' ? snapshotPreviousStatus : undefined
+  const previousStatus = currentStatus === 'BLOCKED_ERROR' ? snapshotPreviousStatus : undefined
+  const activePhase = selectedPhase ?? currentStatus
 
   return (
-    <LogProvider key={ticketId} ticketId={ticketId} currentStatus={ticket.status}>
-    <SSELogConnector ticketId={ticketId} currentStatus={ticket.status} />
-    <div className="fixed inset-0 z-[60] bg-background flex flex-col">
-      <DashboardHeader ticket={ticket} />
+    <LogProvider key={ticketId} ticketId={ticketId} currentStatus={currentStatus}>
+      <SSELogConnector ticketId={ticketId} currentStatus={currentStatus} onStateChange={handleLiveStatusChange} />
+      <div className="fixed inset-0 z-[60] bg-background flex flex-col">
+        <DashboardHeader ticket={effectiveTicket} />
 
-      {/* Mobile nav toggle */}
-      <div className="md:hidden flex items-center px-3 py-2 border-b border-border">
-        <button
-          className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
-          onClick={() => setMobileNavOpen(true)}
-          aria-label="Open navigation"
-        >
-          <Menu className="h-4 w-4" />
-        </button>
-      </div>
+        {/* Mobile nav toggle */}
+        <div className="md:hidden flex items-center px-3 py-2 border-b border-border">
+          <button
+            className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open navigation"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        </div>
 
-      {/* Mobile nav overlay */}
-      {mobileNavOpen && (
-        <div className="md:hidden fixed inset-0 z-[70]">
-          <div className="fixed inset-0 bg-black/50" onClick={closeMobileNav} />
-          <div className="fixed left-0 top-0 bottom-0 z-[71] w-72 bg-background border-r border-border shadow-xl flex flex-col">
-            <div className="flex items-center justify-end p-2">
-              <button
-                className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
-                onClick={closeMobileNav}
-                aria-label="Close navigation"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <NavigatorPanel
-                ticketId={ticket.id}
-                currentStatus={ticket.status}
-                selectedPhase={activePhase}
-                canceledFromStatus={canceledFromStatus}
-                previousStatus={previousStatus}
-                onSelectPhase={(phase) => {
-                  handleSelectPhase(phase)
-                  setMobileNavOpen(false)
-                }}
-              />
+        {/* Mobile nav overlay */}
+        {mobileNavOpen && (
+          <div className="md:hidden fixed inset-0 z-[70]">
+            <div className="fixed inset-0 bg-black/50" onClick={closeMobileNav} />
+            <div className="fixed left-0 top-0 bottom-0 z-[71] w-72 bg-background border-r border-border shadow-xl flex flex-col">
+              <div className="flex items-center justify-end p-2">
+                <button
+                  className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
+                  onClick={closeMobileNav}
+                  aria-label="Close navigation"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <NavigatorPanel
+                  ticketId={ticket.id}
+                  currentStatus={currentStatus}
+                  selectedPhase={activePhase}
+                  canceledFromStatus={canceledFromStatus}
+                  previousStatus={previousStatus}
+                  onSelectPhase={(phase) => {
+                    handleSelectPhase(phase)
+                    setMobileNavOpen(false)
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Navigator Panel — hidden on mobile */}
-        <div
-          className="hidden md:block flex-shrink-0 border-r border-border overflow-hidden"
-          style={{ width: navWidth }}
-        >
-          <NavigatorPanel
-            ticketId={ticket.id}
-            currentStatus={ticket.status}
-            selectedPhase={activePhase}
-            canceledFromStatus={canceledFromStatus}
-            previousStatus={previousStatus}
-            onSelectPhase={handleSelectPhase}
-          />
-        </div>
-        <ResizeHandle onResize={setNavWidth} />
-        {/* Active Workspace */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          <ActiveWorkspace ticket={ticket} selectedPhase={activePhase} canceledFromStatus={canceledFromStatus} />
+        <div className="flex flex-1 overflow-hidden">
+          {/* Navigator Panel — hidden on mobile */}
+          <div
+            className="hidden md:block flex-shrink-0 border-r border-border overflow-hidden"
+            style={{ width: navWidth }}
+          >
+            <NavigatorPanel
+              ticketId={ticket.id}
+              currentStatus={currentStatus}
+              selectedPhase={activePhase}
+              canceledFromStatus={canceledFromStatus}
+              previousStatus={previousStatus}
+              onSelectPhase={handleSelectPhase}
+            />
+          </div>
+          <ResizeHandle onResize={setNavWidth} />
+          {/* Active Workspace */}
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <ActiveWorkspace ticket={effectiveTicket} selectedPhase={activePhase} canceledFromStatus={canceledFromStatus} />
+          </div>
         </div>
       </div>
-    </div>
     </LogProvider>
   )
 }

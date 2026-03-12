@@ -2,7 +2,17 @@ const DEV_BACKEND_HEALTH_PATH = '/api/health'
 const DEV_BACKEND_POLL_MS = 250
 const DEV_BACKEND_TIMEOUT_MS = 30_000
 
-const nativeFetch = typeof window !== 'undefined' ? window.fetch.bind(window) : fetch
+const nativeFetch = (() => {
+  if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+    return window.fetch.bind(window)
+  }
+
+  if (typeof globalThis.fetch === 'function') {
+    return globalThis.fetch.bind(globalThis)
+  }
+
+  throw new Error('Global fetch is not available')
+})()
 
 let devApiGuardInstalled = false
 let pendingBackendReadyCheck: Promise<void> | null = null
@@ -40,12 +50,16 @@ function isFrontendApiUrl(url: URL) {
   return url.origin === window.location.origin && (url.pathname === '/api' || url.pathname.startsWith('/api/'))
 }
 
+function getDirectDevApiUrl(path: string) {
+  return new URL(path, __LOOPTROOP_DEV_BACKEND_ORIGIN__).toString()
+}
+
 async function pingDevBackend() {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), 1000)
 
   try {
-    const response = await nativeFetch(new URL(DEV_BACKEND_HEALTH_PATH, window.location.origin).toString(), {
+    const response = await nativeFetch(getDirectDevApiUrl(DEV_BACKEND_HEALTH_PATH), {
       cache: 'no-store',
       signal: controller.signal,
     })
@@ -114,10 +128,14 @@ export function getApiUrl(path: string, options?: { directInDevelopment?: boolea
   if (typeof window === 'undefined') return path
 
   if (isDevelopmentRuntime() && options?.directInDevelopment) {
-    return new URL(path, window.location.origin).toString()
+    return getDirectDevApiUrl(path)
   }
 
   return new URL(path, window.location.origin).toString()
+}
+
+export const __devApiForTests = {
+  getDirectDevApiUrl,
 }
 
 export function installDevApiGuard() {

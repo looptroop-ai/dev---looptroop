@@ -1,7 +1,7 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { DraftResult } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
-import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 
 export async function refineDraft(
   adapter: OpenCodeAdapter,
@@ -23,6 +23,11 @@ export async function refineDraft(
     memberId: string
     sessionId: string
     event: StreamEvent
+  }) => void,
+  onOpenCodePromptDispatched?: (entry: {
+    stage: 'refine'
+    memberId: string
+    event: OpenCodePromptDispatchEvent
   }) => void,
   sessionOwnership?: {
     ticketId: string
@@ -73,6 +78,13 @@ export async function refineDraft(
         stage: 'refine',
         memberId: winnerDraft.memberId,
         sessionId,
+        event,
+      })
+    },
+    onPromptDispatched: (event) => {
+      onOpenCodePromptDispatched?.({
+        stage: 'refine',
+        memberId: winnerDraft.memberId,
         event,
       })
     },

@@ -254,6 +254,50 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/Checking whether the interview coverage is balanced/i)).toBeInTheDocument()
   })
 
+  it('shows prompt entries in ALL and AI while keeping generic AI session details AI-only', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'prompt-1',
+        entryId: 'prompt-1',
+        line: '[PROMPT] openai/gpt-5-mini prompt #1\n## System Role\nYou are an expert product manager.',
+        source: 'model:openai/gpt-5-mini',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:00.000Z',
+        audience: 'ai',
+        kind: 'prompt',
+        modelId: 'openai/gpt-5-mini',
+        sessionId: 'ses-1',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'session-1',
+        entryId: 'session-1',
+        line: '[MODEL] Session status: running.',
+        source: 'model:openai/gpt-5-mini',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:01.000Z',
+        audience: 'ai',
+        kind: 'session',
+        modelId: 'openai/gpt-5-mini',
+        sessionId: 'ses-1',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    render(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
+
+    expect(screen.getByText(/openai\/gpt-5-mini prompt #1/i)).toBeInTheDocument()
+    expect(screen.getByText(/You are an expert product manager/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Session status: running/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(screen.getByText(/openai\/gpt-5-mini prompt #1/i)).toBeInTheDocument()
+    expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
+  })
+
   it('pins the viewport to the latest logs by default and follows new visible entries', () => {
     const firstLog = makeLog('log-1', '[SYS] First visible log line')
     const secondLog = makeLog('log-2', '[SYS] Second visible log line', {

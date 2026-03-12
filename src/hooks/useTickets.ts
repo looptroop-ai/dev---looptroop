@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clearPersistedTicketLogs } from '@/context/LogContext'
 import { clearTicketArtifactsCache } from './useTicketArtifacts'
+import { patchTicketStatusInCache } from './ticketStatusCache'
 import type { WorkflowAction } from '@shared/workflowMeta'
 import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
 
@@ -110,11 +111,6 @@ async function ticketAction(id: string, action: 'start' | 'approve' | 'cancel' |
     throw new Error(err.error || `Failed to ${action} ticket`)
   }
   return res.json()
-}
-
-function patchTicketStatus(ticket: Ticket, ticketId: string, status: string): Ticket {
-  if (ticket.id !== ticketId || ticket.status === status) return ticket
-  return { ...ticket, status }
 }
 
 async function deleteTicket(id: string): Promise<{ success: boolean; ticketId: string }> {
@@ -273,24 +269,7 @@ export function useTicketAction() {
       const nextStatus = result.state ?? result.status
       if (nextStatus) {
         const ticketId = result.ticketId || variables.id
-        const status = nextStatus
-
-        queryClient.setQueryData<Ticket | undefined>(['ticket', ticketId], (ticket) =>
-          ticket ? patchTicketStatus(ticket, ticketId, status) : ticket,
-        )
-
-        queryClient.setQueriesData<Ticket[]>({ queryKey: ['tickets'] }, (tickets) => {
-          if (!tickets) return tickets
-
-          let changed = false
-          const nextTickets = tickets.map((ticket) => {
-            const nextTicket = patchTicketStatus(ticket, ticketId, status)
-            if (nextTicket !== ticket) changed = true
-            return nextTicket
-          })
-
-          return changed ? nextTickets : tickets
-        })
+        patchTicketStatusInCache<Ticket>(queryClient, ticketId, nextStatus)
       }
 
       queryClient.invalidateQueries({ queryKey: ['tickets'] })

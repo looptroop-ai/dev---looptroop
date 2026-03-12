@@ -1,10 +1,11 @@
-import { parseInterviewQuestions } from './questions'
+import { parseInterviewQuestions, type ParsedInterviewQuestion } from './questions'
 
 const VALID_PHASES = ['foundation', 'structure', 'assembly'] as const
 const PHASE_ORDER = new Map(VALID_PHASES.map((phase, index) => [phase, index]))
 
 export interface ValidatedInterviewDraft {
   questionCount: number
+  questions: ParsedInterviewQuestion[]
 }
 
 function normalizePhase(phase: string): string {
@@ -51,5 +52,6 @@ export function validateInterviewDraft(
 
   return {
     questionCount: questions.length,
+    questions,
   }
 }

@@ -313,6 +313,7 @@ describe('Council Pipeline', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       voteUpdates,
     )
 

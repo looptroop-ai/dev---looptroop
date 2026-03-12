@@ -1,7 +1,7 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { buildPromptFromTemplate, PROM52 } from '../../prompts/index'
-import { runOpenCodePrompt } from '../../workflow/runOpenCodePrompt'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 
@@ -15,6 +15,7 @@ export async function generateFinalTests(
     model?: string
     onSessionCreated?: (sessionId: string) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
+    onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
   },
 ): Promise<string> {
   const promptContent = buildPromptFromTemplate(PROM52, ticketContext)
@@ -46,6 +47,12 @@ export async function generateFinalTests(
         if (!sessionId) return
         callbacks?.onOpenCodeStreamEvent?.({
           sessionId,
+          event,
+        })
+      },
+      onPromptDispatched: (event) => {
+        callbacks?.onPromptDispatched?.({
+          sessionId: event.session.id,
           event,
         })
       },

@@ -24,7 +24,7 @@ export interface LogEvent {
   entryId?: string
   op?: 'append' | 'upsert' | 'finalize'
   audience?: 'all' | 'ai' | 'debug'
-  kind?: 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'error' | 'test'
+  kind?: 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'prompt' | 'error' | 'test'
   modelId?: string
   sessionId?: string
   streaming?: boolean

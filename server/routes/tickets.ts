@@ -1,7 +1,5 @@
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-// @ts-expect-error no type declarations for js-yaml
-import jsYaml from 'js-yaml'
 import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
 import {
@@ -30,6 +28,7 @@ import {
   updateTicket,
   upsertLatestPhaseArtifact,
 } from '../storage/tickets'
+import { parseCompiledInterviewArtifact } from '../phases/interview/compiled'
 
 const ticketRouter = new Hono()
 
@@ -614,21 +613,14 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
   }
 
   try {
-    const parsed = JSON.parse(artifact.content) as { winnerId: string; refinedContent: string; questions?: unknown[] }
-    const raw = parsed.refinedContent
-    const winnerId = parsed.winnerId
-
-    let questions: unknown[] = parsed.questions ?? []
-    if (questions.length === 0) {
-      const yamlParsed = jsYaml.load(raw) as Record<string, unknown> | unknown[] | null
-      if (Array.isArray(yamlParsed)) {
-        questions = yamlParsed
-      } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
-        questions = (yamlParsed as Record<string, unknown>).questions as unknown[]
-      }
-    }
-
-    return c.json({ questions, raw, winnerId, draft, draftUpdatedAt })
+    const parsed = parseCompiledInterviewArtifact(artifact.content)
+    return c.json({
+      questions: parsed.questions,
+      raw: parsed.refinedContent,
+      winnerId: parsed.winnerId,
+      draft,
+      draftUpdatedAt,
+    })
   } catch {
     return c.json({ questions: [], raw: artifact.content, winnerId: null, draft, draftUpdatedAt })
   }

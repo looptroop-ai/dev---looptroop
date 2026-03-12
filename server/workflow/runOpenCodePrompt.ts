@@ -11,8 +11,19 @@ import { SessionManager, type SessionOwnership } from '../opencode/sessionManage
 
 export interface OpenCodeRunCallbacks {
   onSessionCreated?: (session: Session) => void
+  onPromptDispatched?: (event: OpenCodePromptDispatchEvent) => void
   onStreamEvent?: (event: StreamEvent) => void
   onStreamError?: (error: unknown) => void
+}
+
+export interface OpenCodePromptDispatchEvent {
+  session: Session
+  parts: PromptPart[]
+  promptText: string
+  promptNumber: number
+  model?: string
+  agent?: string
+  variant?: string
 }
 
 export interface OpenCodeSessionOwnership extends SessionOwnership {
@@ -38,6 +49,21 @@ export interface OpenCodeRunResult {
   messages: Message[]
 }
 
+const sessionPromptDispatchCounts = new Map<string, number>()
+
+function formatPromptText(parts: PromptPart[]): string {
+  if (parts.length === 1 && !parts[0]?.source) {
+    return parts[0]?.content ?? ''
+  }
+
+  return parts
+    .map((part) => {
+      const label = part.source ?? part.type
+      return `### ${label}\n${part.content}`
+    })
+    .join('\n\n')
+}
+
 export async function runOpenCodePrompt({
   adapter,
   projectPath,
@@ -49,6 +75,7 @@ export async function runOpenCodePrompt({
   variant,
   sessionOwnership,
   onSessionCreated,
+  onPromptDispatched,
   onStreamEvent,
 }: OpenCodeRunOptions & { projectPath: string }): Promise<OpenCodeRunResult> {
   const sessionManager = sessionOwnership ? new SessionManager(adapter) : null
@@ -79,6 +106,7 @@ export async function runOpenCodePrompt({
       model,
       agent,
       variant,
+      onPromptDispatched,
       onStreamEvent,
     })
     if (sessionManager && !sessionOwnership?.keepActive) {
@@ -103,6 +131,7 @@ export async function runOpenCodeSessionPrompt({
   agent,
   variant,
   sessionOwnership,
+  onPromptDispatched,
   onStreamEvent,
   onStreamError,
 }: OpenCodeRunOptions & { session: Session }): Promise<OpenCodeRunResult> {
@@ -133,6 +162,18 @@ export async function runOpenCodeSessionPrompt({
   }
 
   try {
+    const promptNumber = (sessionPromptDispatchCounts.get(resolvedSession.id) ?? 0) + 1
+    sessionPromptDispatchCounts.set(resolvedSession.id, promptNumber)
+    onPromptDispatched?.({
+      session: resolvedSession,
+      parts,
+      promptText: formatPromptText(parts),
+      promptNumber,
+      ...(model ? { model } : {}),
+      ...(agent ? { agent } : {}),
+      ...(variant ? { variant } : {}),
+    })
+
     if (timeoutMs) {
       response = await Promise.race([
         adapter.promptSession(resolvedSession.id, parts, signal, promptOptions),

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { queryClient } from '@/lib/queryClient'
 import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
+import { patchTicketStatusInCache } from './ticketStatusCache'
 import {
   getTicketArtifactsQueryKey,
   mergeTicketArtifactSnapshot,
@@ -52,6 +53,9 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
+          if (ticketId && typeof data.to === 'string' && data.to.length > 0) {
+            patchTicketStatusInCache(queryClient, ticketId, data.to)
+          }
           queryClient.invalidateQueries({ queryKey: ['tickets'] })
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
           onEvent?.({ type: 'state_change', data })

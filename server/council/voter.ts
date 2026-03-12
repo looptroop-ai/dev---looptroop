@@ -4,7 +4,7 @@ import type { CouncilMember, DraftResult, MemberOutcome, Vote, VotePresentationO
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
-import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 
 const PHASE_DEADLINE_ERROR = 'CouncilPhaseDeadlineReached'
 
@@ -174,6 +174,11 @@ export async function conductVoting(
     sessionId: string
     event: StreamEvent
   }) => void,
+  onOpenCodePromptDispatched?: (entry: {
+    stage: 'vote'
+    memberId: string
+    event: OpenCodePromptDispatchEvent
+  }) => void,
   onVoteProgress?: (entry: {
     memberId: string
     outcome: MemberOutcome
@@ -298,6 +303,14 @@ export async function conductVoting(
             stage: 'vote',
             memberId: voter.modelId,
             sessionId,
+            event,
+          })
+        },
+        onPromptDispatched: (event) => {
+          if (closed) return
+          onOpenCodePromptDispatched?.({
+            stage: 'vote',
+            memberId: voter.modelId,
             event,
           })
         },

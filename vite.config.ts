@@ -6,8 +6,12 @@ import { fileURLToPath } from 'url'
 import { getBackendOrigin, getFrontendPort } from './shared/appConfig'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const backendOrigin = getBackendOrigin()
 
 export default defineConfig({
+  define: {
+    __LOOPTROOP_DEV_BACKEND_ORIGIN__: JSON.stringify(backendOrigin),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -31,7 +35,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: getBackendOrigin(),
+        target: backendOrigin,
         changeOrigin: true,
       },
     },

@@ -1,0 +1,89 @@
+import { render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { describe, expect, it } from 'vitest'
+import type { DBartifact } from '@/hooks/useTicketArtifacts'
+import { PhaseArtifactsPanel } from '../PhaseArtifactsPanel'
+
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>,
+  )
+}
+
+describe('PhaseArtifactsPanel', () => {
+  it('collapses interview voting artifacts into a winning draft card plus shared voting details', () => {
+    const voteArtifact: DBartifact = {
+      id: 1,
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      filePath: null,
+      createdAt: '2026-03-12T11:48:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        drafts: [
+          { memberId: 'openai/gpt-5.1-codex', outcome: 'completed', content: 'Draft 1' },
+          { memberId: 'openai/gpt-5.1-codex-mini', outcome: 'completed', content: 'Draft 2' },
+          { memberId: 'openai/gpt-5.2', outcome: 'completed', content: 'Draft 3' },
+          { memberId: 'opencode/big-pickle', outcome: 'completed', content: 'Draft 4' },
+        ],
+        votes: [
+          { voterId: 'openai/gpt-5.1-codex', draftId: 'openai/gpt-5.1-codex', totalScore: 80, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex', draftId: 'openai/gpt-5.1-codex-mini', totalScore: 82, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex', draftId: 'openai/gpt-5.2', totalScore: 89, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex', draftId: 'opencode/big-pickle', totalScore: 78, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex-mini', draftId: 'openai/gpt-5.1-codex', totalScore: 81, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex-mini', draftId: 'openai/gpt-5.1-codex-mini', totalScore: 83, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex-mini', draftId: 'openai/gpt-5.2', totalScore: 90, scores: [] },
+          { voterId: 'openai/gpt-5.1-codex-mini', draftId: 'opencode/big-pickle', totalScore: 79, scores: [] },
+          { voterId: 'openai/gpt-5.2', draftId: 'openai/gpt-5.1-codex', totalScore: 82, scores: [] },
+          { voterId: 'openai/gpt-5.2', draftId: 'openai/gpt-5.1-codex-mini', totalScore: 84, scores: [] },
+          { voterId: 'openai/gpt-5.2', draftId: 'openai/gpt-5.2', totalScore: 91, scores: [] },
+          { voterId: 'openai/gpt-5.2', draftId: 'opencode/big-pickle', totalScore: 80, scores: [] },
+          { voterId: 'opencode/big-pickle', draftId: 'openai/gpt-5.1-codex', totalScore: 79, scores: [] },
+          { voterId: 'opencode/big-pickle', draftId: 'openai/gpt-5.1-codex-mini', totalScore: 81, scores: [] },
+          { voterId: 'opencode/big-pickle', draftId: 'openai/gpt-5.2', totalScore: 88, scores: [] },
+          { voterId: 'opencode/big-pickle', draftId: 'opencode/big-pickle', totalScore: 77, scores: [] },
+        ],
+        voterOutcomes: {
+          'openai/gpt-5.1-codex': 'completed',
+          'openai/gpt-5.1-codex-mini': 'completed',
+          'openai/gpt-5.2': 'completed',
+          'opencode/big-pickle': 'completed',
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_VOTING_INTERVIEW"
+        isCompleted={false}
+        councilMemberCount={4}
+        councilMemberNames={[
+          'openai/gpt-5.1-codex',
+          'openai/gpt-5.1-codex-mini',
+          'openai/gpt-5.2',
+          'opencode/big-pickle',
+        ]}
+        preloadedArtifacts={[voteArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('Voting Details')).toBeInTheDocument()
+    expect(screen.getByText('Winning Draft')).toBeInTheDocument()
+    expect(screen.getByText('winner: gpt-5.2')).toBeInTheDocument()
+    expect(screen.getByText('4 voters · 4 drafts')).toBeInTheDocument()
+    expect(screen.queryByText('gpt-5.1-codex-mini')).not.toBeInTheDocument()
+    expect(screen.queryByText('big-pickle')).not.toBeInTheDocument()
+
+    const [votingButton, winningButton] = screen.getAllByRole('button')
+    expect(votingButton).toHaveTextContent('Voting Details')
+    expect(winningButton).toHaveTextContent('Winning Draft')
+  })
+})

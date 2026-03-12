@@ -26,6 +26,7 @@ import type { Message, StreamEvent } from '../opencode/types'
 import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM13, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../phases/interview/questions'
+import { buildCompiledInterviewArtifact, requireCompiledInterviewArtifact } from '../phases/interview/compiled'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
@@ -44,7 +45,7 @@ import {
 } from '../storage/tickets'
 import { runPreFlightChecks } from '../phases/preflight/doctor'
 import { cleanupTicketResources } from '../phases/cleanup/cleaner'
-import { runOpenCodePrompt } from './runOpenCodePrompt'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from './runOpenCodePrompt'
 import { generateFinalTests } from '../phases/finalTest/generator'
 import { parseFinalTestCommands } from '../phases/finalTest/parser'
 import { executeFinalTestCommands } from '../phases/finalTest/runner'
@@ -354,7 +355,7 @@ function stringifyForLog(value: unknown): string {
 }
 
 type StructuredLogAudience = 'all' | 'ai' | 'debug'
-type StructuredLogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'error' | 'test'
+type StructuredLogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'prompt' | 'error' | 'test'
 type StructuredLogOp = 'append' | 'upsert' | 'finalize'
 
 interface StructuredLogFields extends Record<string, unknown> {
@@ -444,6 +445,38 @@ function emitAiDetail(
     suppressDebugMirror: true,
     ...fields,
   })
+}
+
+function emitOpenCodePromptLog(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  memberId: string,
+  event: OpenCodePromptDispatchEvent,
+) {
+  const source = memberId ? `model:${memberId}` : 'opencode'
+  const promptBody = event.promptText.trim()
+  const promptHeader = memberId
+    ? `[PROMPT] ${memberId} prompt #${event.promptNumber}`
+    : `[PROMPT] Prompt #${event.promptNumber}`
+
+  emitAiDetail(
+    ticketId,
+    ticketExternalId,
+    phase,
+    'info',
+    promptBody ? `${promptHeader}\n${promptBody}` : promptHeader,
+    {
+      entryId: `${event.session.id}:prompt:${event.promptNumber}`,
+      audience: 'ai',
+      kind: 'prompt',
+      op: 'append',
+      source,
+      modelId: memberId || undefined,
+      sessionId: event.session.id,
+      streaming: false,
+    },
+  )
 }
 
 function finalizeOpenCodeParts(
@@ -1243,6 +1276,16 @@ async function handleInterviewDeliberate(
       )
     },
     (entry) => {
+      const targetStatus = mapCouncilStageToStatus('interview', entry.stage)
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.event,
+      )
+    },
+    (entry) => {
       emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'Interview', entry)
       if (entry.status !== 'finished' || !entry.outcome) return
       const draftIndex = liveDrafts.findIndex(draft => draft.memberId === entry.memberId)
@@ -1433,6 +1476,15 @@ async function handleInterviewVote(
       )
     },
     (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_INTERVIEW',
+        entry.memberId,
+        entry.event,
+      )
+    },
+    (entry) => {
       liveVoterOutcomes[entry.memberId] = entry.outcome
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
@@ -1573,6 +1625,15 @@ async function handleInterviewCompile(
         streamState,
       )
     },
+    (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'COMPILING_INTERVIEW',
+        entry.memberId,
+        entry.event,
+      )
+    },
     {
       ticketId,
       phase: 'COMPILING_INTERVIEW',
@@ -1587,68 +1648,71 @@ async function handleInterviewCompile(
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:interview`)
 
-  // Parse YAML questions from refined content into structured list
-  let parsedQuestions: unknown[] = []
   try {
-    parsedQuestions = parseInterviewQuestions(refinedContent, { allowTopLevelArray: true })
-  } catch {
-    // If YAML parsing fails, fall back to raw content (questions will be empty array)
-    console.warn(`[runner] Failed to parse YAML questions from refined content for ticket ${context.externalId}`)
-  }
-
-  insertPhaseArtifact(ticketId, {
-    phase: 'COMPILING_INTERVIEW',
-    artifactType: 'interview_compiled',
-    content: JSON.stringify({
-      winnerId: intermediate.winnerId,
+    const compiledArtifact = buildCompiledInterviewArtifact(
+      intermediate.winnerId,
       refinedContent,
-      questions: parsedQuestions,
-    }),
-  })
+      resolveInterviewDraftSettings(context).maxInitialQuestions,
+    )
 
-  // Persist winnerId separately so it survives server restarts and is available
-  // for VERIFYING_INTERVIEW_COVERAGE and downstream phases (PROM4/PROM5 wiring)
-  insertPhaseArtifact(ticketId, {
-    phase: 'COMPILING_INTERVIEW',
-    artifactType: 'interview_winner',
-    content: JSON.stringify({ winnerId: intermediate.winnerId }),
-  })
+    insertPhaseArtifact(ticketId, {
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      content: JSON.stringify(compiledArtifact),
+    })
 
-  emitPhaseLog(
-    ticketId,
-    context.externalId,
-    'COMPILING_INTERVIEW',
-    'info',
-    `Compiled final interview from winner ${intermediate.winnerId}. Parsed ${parsedQuestions.length} structured questions.`,
-  )
-  const compiledQuestionPreview = tryBuildInterviewQuestionPreview(
-    `Compiled interview questions from ${intermediate.winnerId}`,
-    refinedContent,
-  )
-  if (compiledQuestionPreview) {
-    emitAiDetail(
+    // Persist winnerId separately so it survives server restarts and is available
+    // for VERIFYING_INTERVIEW_COVERAGE and downstream phases (PROM4/PROM5 wiring)
+    insertPhaseArtifact(ticketId, {
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_winner',
+      content: JSON.stringify({ winnerId: intermediate.winnerId }),
+    })
+
+    emitPhaseLog(
       ticketId,
       context.externalId,
       'COMPILING_INTERVIEW',
-      'model_output',
-      compiledQuestionPreview,
-      {
-        entryId: `compiled-questions:${intermediate.winnerId}`,
-        audience: 'ai',
-        kind: 'text',
-        op: 'append',
-        source: `model:${intermediate.winnerId}`,
-        modelId: intermediate.winnerId,
-        streaming: false,
-      },
+      'info',
+      `Compiled final interview from winner ${intermediate.winnerId}. Validated ${compiledArtifact.questionCount} normalized questions.`,
     )
+    const compiledQuestionPreview = tryBuildInterviewQuestionPreview(
+      `Compiled interview questions from ${intermediate.winnerId}`,
+      compiledArtifact.refinedContent,
+    )
+    if (compiledQuestionPreview) {
+      emitAiDetail(
+        ticketId,
+        context.externalId,
+        'COMPILING_INTERVIEW',
+        'model_output',
+        compiledQuestionPreview,
+        {
+          entryId: `compiled-questions:${intermediate.winnerId}`,
+          audience: 'ai',
+          kind: 'text',
+          op: 'append',
+          source: `model:${intermediate.winnerId}`,
+          modelId: intermediate.winnerId,
+          streaming: false,
+        },
+      )
+    }
+
+    sendEvent({ type: 'READY' })
+    broadcaster.broadcast(ticketId, 'needs_input', {
+      ticketId,
+      type: 'interview_questions',
+      context: {
+        questions: compiledArtifact.refinedContent,
+        parsedQuestions: compiledArtifact.questions,
+        winnerId: intermediate.winnerId,
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`PROM3 refinement output failed validation: ${message}`)
   }
-  sendEvent({ type: 'READY' })
-  broadcaster.broadcast(ticketId, 'needs_input', {
-    ticketId,
-    type: 'interview_questions',
-    context: { questions: refinedContent, parsedQuestions, winnerId: intermediate.winnerId },
-  })
 }
 
 // --- Helper: resolve council members from context (shared by PRD/Beads draft handlers) ---
@@ -1787,6 +1851,16 @@ async function handlePrdDraft(
         entry.sessionId,
         entry.event,
         streamState,
+      )
+    },
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('prd', entry.stage)
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.event,
       )
     },
     (entry) => {
@@ -1940,6 +2014,15 @@ async function handlePrdVote(
       )
     },
     (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_PRD',
+        entry.memberId,
+        entry.event,
+      )
+    },
+    (entry) => {
       liveVoterOutcomes[entry.memberId] = entry.outcome
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
@@ -2064,6 +2147,15 @@ async function handlePrdRefine(
         streamState,
       )
     },
+    (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'REFINING_PRD',
+        entry.memberId,
+        entry.event,
+      )
+    },
     {
       ticketId,
       phase: 'REFINING_PRD',
@@ -2182,6 +2274,16 @@ async function handleBeadsDraft(
         entry.sessionId,
         entry.event,
         streamState,
+      )
+    },
+    (entry) => {
+      const targetStatus = mapCouncilStageToStatus('beads', entry.stage)
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        targetStatus,
+        entry.memberId,
+        entry.event,
       )
     },
     (entry) => {
@@ -2335,6 +2437,15 @@ async function handleBeadsVote(
       )
     },
     (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'COUNCIL_VOTING_BEADS',
+        entry.memberId,
+        entry.event,
+      )
+    },
+    (entry) => {
       liveVoterOutcomes[entry.memberId] = entry.outcome
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
@@ -2457,6 +2568,15 @@ async function handleBeadsRefine(
         entry.sessionId,
         entry.event,
         streamState,
+      )
+    },
+    (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'REFINING_BEADS',
+        entry.memberId,
+        entry.event,
       )
     },
     {
@@ -2789,6 +2909,15 @@ async function handleCoverageVerification(
           streamState,
         )
       },
+      onPromptDispatched: (event) => {
+        emitOpenCodePromptLog(
+          ticketId,
+          context.externalId,
+          stateLabel,
+          winnerId,
+          event,
+        )
+      },
     })
   } catch (error) {
     throwIfCancelled(error, signal, ticketId)
@@ -2951,19 +3080,20 @@ async function handleInterviewQAStart(
     return
   }
 
-  // Load compiled questions
   const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
 
-  let compiledQuestions = ''
-  let maxQuestions = 50
-  if (compiledArtifact) {
-    try {
-      const parsed = JSON.parse(compiledArtifact.content) as { refinedContent?: string; questions?: unknown[] }
-      compiledQuestions = parsed.refinedContent ?? ''
-      if (parsed.questions && Array.isArray(parsed.questions)) {
-        maxQuestions = parsed.questions.length
-      }
-    } catch { /* ignore */ }
+  let compiledInterview: ReturnType<typeof requireCompiledInterviewArtifact>
+  try {
+    compiledInterview = requireCompiledInterviewArtifact(compiledArtifact?.content)
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error)
+    const code = compiledArtifact ? 'PROM4_INVALID_COMPILED_INTERVIEW' : 'PROM4_NO_COMPILED_INTERVIEW'
+    const msg = compiledArtifact
+      ? `Compiled interview artifact invalid — cannot start PROM4 session: ${details}`
+      : 'No validated compiled interview found — cannot start PROM4 session'
+    emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: [code] })
+    return
   }
 
   const ticketState: TicketState = {
@@ -2971,7 +3101,7 @@ async function handleInterviewQAStart(
     title: context.title,
     description: ticket?.description ?? '',
     codebaseMap,
-    interview: compiledQuestions,
+    interview: compiledInterview.refinedContent,
   }
 
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
@@ -2984,9 +3114,9 @@ async function handleInterviewQAStart(
     adapter,
     worktreePath,
     winnerId,
-    compiledQuestions,
+    compiledInterview.refinedContent,
     ticketState,
-    maxQuestions,
+    compiledInterview.questionCount,
     signal,
     (entry) => {
       emitOpenCodeStreamEvent(
@@ -2997,6 +3127,15 @@ async function handleInterviewQAStart(
         entry.sessionId,
         entry.event,
         streamState,
+      )
+    },
+    (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        context.externalId,
+        'WAITING_INTERVIEW_ANSWERS',
+        winnerId,
+        entry.event,
       )
     },
     ticketId,
@@ -3105,6 +3244,15 @@ export async function handleInterviewQABatch(
         streamState,
       )
     },
+    (entry) => {
+      emitOpenCodePromptLog(
+        ticketId,
+        externalId,
+        'WAITING_INTERVIEW_ANSWERS',
+        sessionInfo.winnerId,
+        entry.event,
+      )
+    },
     ticketId,
   )
   throwIfAborted(signal, ticketId)
@@ -3147,21 +3295,21 @@ function buildMockInterviewQuestions() {
   return [
     {
       id: 'goal',
-      phase: 'discovery',
+      phase: 'foundation',
       question: 'What is the primary outcome this ticket should deliver?',
       priority: 'critical',
       rationale: 'Clarifies the core success criteria.',
     },
     {
       id: 'constraints',
-      phase: 'delivery',
+      phase: 'structure',
       question: 'What implementation constraints or boundaries should the agent respect?',
       priority: 'high',
       rationale: 'Prevents invalid implementation choices.',
     },
     {
       id: 'verification',
-      phase: 'validation',
+      phase: 'assembly',
       question: 'How should success be verified once implementation is complete?',
       priority: 'high',
       rationale: 'Defines acceptance and testing expectations.',
@@ -3186,15 +3334,11 @@ function buildMockInterviewDraftContent(variantIndex: number) {
   if (variantIndex > 0) {
     questions.push({
       id: `tradeoffs-${variantIndex + 1}`,
-      phase: 'delivery',
+      phase: 'assembly',
       question: 'Which tradeoffs are acceptable if scope, timing, or implementation complexity conflict?',
       priority: 'medium',
       rationale: 'Surfaces prioritization decisions before implementation starts.',
     })
-    const firstQuestion = questions.shift()
-    if (firstQuestion) {
-      questions.push(firstQuestion)
-    }
   }
 
   return jsYaml.dump({
@@ -3428,11 +3572,15 @@ async function handleMockInterviewCompile(
   const { members } = resolveCouncilMembers(context)
   const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const refinedContent = buildMockInterviewCompiledContent()
-  const questions = buildMockInterviewQuestions()
+  const compiledArtifact = buildCompiledInterviewArtifact(
+    winnerId,
+    refinedContent,
+    buildMockInterviewQuestions().length,
+  )
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',
     artifactType: 'interview_compiled',
-    content: JSON.stringify({ winnerId, refinedContent, questions }),
+    content: JSON.stringify(compiledArtifact),
   })
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',
@@ -3739,6 +3887,15 @@ async function handleCoding(
           streamState,
         )
       },
+      onPromptDispatched: ({ event }) => {
+        emitOpenCodePromptLog(
+          ticketId,
+          context.externalId,
+          'CODING',
+          codingModelId,
+          event,
+        )
+      },
     },
   )
   throwIfAborted(signal, ticketId)
@@ -3870,6 +4027,15 @@ async function handleFinalTest(
           sessionId,
           event,
           streamState,
+        )
+      },
+      onPromptDispatched: ({ event }) => {
+        emitOpenCodePromptLog(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          finalTestModelId,
+          event,
         )
       },
     },

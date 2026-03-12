@@ -2,7 +2,7 @@ import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { CouncilMember, DraftGenerationResult, DraftProgressEvent, DraftResult, MemberOutcome } from './types'
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
-import { runOpenCodePrompt } from '../workflow/runOpenCodePrompt'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 
 interface DraftValidationResult {
   questionCount?: number
@@ -14,6 +14,11 @@ interface GenerateDraftsRuntimeOptions {
   ticketId?: string
   phase?: string
   phaseAttempt?: number
+  onPromptDispatched?: (entry: {
+    stage: 'draft'
+    memberId: string
+    event: OpenCodePromptDispatchEvent
+  }) => void
   onDraftResult?: (draft: DraftResult) => void
 }
 
@@ -144,6 +149,14 @@ export async function generateDrafts(
             stage: 'draft',
             memberId: member.modelId,
             sessionId,
+            event,
+          })
+        },
+        onPromptDispatched: (event) => {
+          if (closed) return
+          runtimeOptions?.onPromptDispatched?.({
+            stage: 'draft',
+            memberId: member.modelId,
             event,
           })
         },
