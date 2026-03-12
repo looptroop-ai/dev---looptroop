@@ -142,13 +142,15 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('proposed 21 questions')).toBeInTheDocument()
     expect(screen.getByText('proposed 48 questions')).toBeInTheDocument()
     expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
-    expect(screen.getByText('Interview Draft Diff')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
-    expect(screen.getByText('1 change')).toBeInTheDocument()
     expect(screen.queryByText('Winner — refining draft')).not.toBeInTheDocument()
     expect(screen.queryByText('🔄 Refining')).not.toBeInTheDocument()
+    expect(screen.queryByText('Interview Draft Diff')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Interview Draft Diff/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
+    expect(screen.getByRole('button', { name: /Final Questions/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
     expect(screen.getByText('Original winner question?')).toBeInTheDocument()
     expect(screen.getByText('Refined winner question?')).toBeInTheDocument()
@@ -180,7 +182,60 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.getByText('Interview Answers')).toBeInTheDocument()
     expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
-    expect(screen.getByText('Interview Draft Diff')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
+    expect(screen.queryByText('Interview Draft Diff')).not.toBeInTheDocument()
+  })
+
+  it('keeps the final interview diff tab available in later interview review phases', () => {
+    const voteArtifact: DBartifact = {
+      id: 4,
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      filePath: null,
+      createdAt: '2026-03-12T11:48:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Original winner question?"',
+            questionCount: 1,
+          },
+        ],
+      }),
+    }
+
+    const compiledArtifact: DBartifact = {
+      id: 5,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"',
+        questions: [{ id: 'Q01', phase: 'Foundation', question: 'Refined winner question?' }],
+        questionCount: 1,
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_INTERVIEW_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[voteArtifact, compiledArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
+    expect(screen.getByRole('button', { name: /Final Questions/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
+    expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
+    expect(screen.getByText('Original winner question?')).toBeInTheDocument()
+    expect(screen.getByText('Refined winner question?')).toBeInTheDocument()
   })
 })

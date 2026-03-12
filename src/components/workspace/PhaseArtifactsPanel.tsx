@@ -94,6 +94,8 @@ interface InterviewDiffArtifactData {
   refinedContent?: string
   originalQuestionCount?: number
   refinedQuestionCount?: number
+  questionCount?: number
+  questions?: unknown[]
 }
 
 interface InterviewDiffEntry {
@@ -188,20 +190,8 @@ function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEn
   }
 }
 
-function extractInterviewDiffDetail(content: string | null): string {
-  const diffCount = buildInterviewDiffEntries(content ?? undefined).length
-  return diffCount > 0 ? `${diffCount} change${diffCount === 1 ? '' : 's'}` : ''
-}
-
-function buildInterviewDiffArtifactContent(voteContent: string | null | undefined, compiledContent: string | null | undefined): string | null {
-  if (!voteContent || !compiledContent) return null
-
-  const voteResult = tryParseCouncilResult(voteContent)
-  if (!voteResult?.winnerId) return null
-
-  const winnerDraft = (voteResult.drafts ?? []).find((draft) => draft.memberId === voteResult.winnerId)
-  if (!winnerDraft?.content) return null
-
+function buildFinalInterviewArtifactContent(voteContent: string | null | undefined, compiledContent: string | null | undefined): string | null {
+  if (!compiledContent) return null
   try {
     const compiled = JSON.parse(compiledContent) as {
       refinedContent?: string
@@ -212,16 +202,30 @@ function buildInterviewDiffArtifactContent(voteContent: string | null | undefine
     const refinedContent = typeof compiled.refinedContent === 'string' ? compiled.refinedContent : ''
     if (!refinedContent) return null
 
+    const voteResult = voteContent ? tryParseCouncilResult(voteContent) : null
+    const winnerId = compiled.winnerId ?? voteResult?.winnerId
+    const winnerDraft = voteResult?.winnerId
+      ? (voteResult.drafts ?? []).find((draft) => draft.memberId === voteResult.winnerId)
+      : null
+
     const payload: InterviewDiffArtifactData = {
-      winnerId: compiled.winnerId ?? voteResult.winnerId,
-      originalContent: winnerDraft.content,
+      winnerId,
+      originalContent: winnerDraft?.content,
       refinedContent,
-      originalQuestionCount: normalizeInterviewDiffQuestions(winnerDraft.content).length,
+      originalQuestionCount: winnerDraft?.content
+        ? normalizeInterviewDiffQuestions(winnerDraft.content).length
+        : undefined,
       refinedQuestionCount: typeof compiled.questionCount === 'number'
         ? compiled.questionCount
         : Array.isArray(compiled.questions)
           ? compiled.questions.length
           : normalizeInterviewDiffQuestions(refinedContent).length,
+      questionCount: typeof compiled.questionCount === 'number'
+        ? compiled.questionCount
+        : Array.isArray(compiled.questions)
+          ? compiled.questions.length
+          : normalizeInterviewDiffQuestions(refinedContent).length,
+      questions: Array.isArray(compiled.questions) ? compiled.questions : undefined,
     }
     return JSON.stringify(payload)
   } catch {
@@ -354,6 +358,51 @@ function InterviewDraftDiffView({ content }: { content: string }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function FinalInterviewArtifactView({ content }: { content: string }) {
+  const [activeTab, setActiveTab] = useState<'final' | 'diff'>('final')
+  let parsed: (InterviewDiffArtifactData & { questionCount?: number; questions?: unknown[] }) | null = null
+  try {
+    parsed = JSON.parse(content) as InterviewDiffArtifactData & { questionCount?: number; questions?: unknown[] }
+  } catch {
+    return <RawContentView content={content} />
+  }
+
+  const refinedContent = parsed?.refinedContent ?? ''
+  if (!refinedContent) return <RawContentView content={content} />
+
+  const diffEntries = buildInterviewDiffEntries(content)
+  const hasDiffTab = Boolean(parsed?.originalContent)
+  const currentTab = hasDiffTab ? activeTab : 'final'
+
+  return (
+    <div className="space-y-3">
+      {hasDiffTab && (
+        <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
+          <button
+            onClick={() => setActiveTab('final')}
+            className={currentTab === 'final'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Final Questions
+          </button>
+          <button
+            onClick={() => setActiveTab('diff')}
+            className={currentTab === 'diff'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Diff{diffEntries.length > 0 ? ` (${diffEntries.length})` : ''}
+          </button>
+        </div>
+      )}
+      {currentTab === 'final'
+        ? <InterviewDraftView content={refinedContent} />
+        : <InterviewDraftDiffView content={content} />}
     </div>
   )
 }
@@ -735,15 +784,11 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     ]
   }
   if (phase === 'COMPILING_INTERVIEW') {
-    return [
-      { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: 'final-interview-diff', label: 'Interview Draft Diff', description: 'Changes from the winning draft to the refined final interview', icon: <FileText className="h-3.5 w-3.5" /> },
-    ]
+    return [{ id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
     return [
       { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: 'final-interview-diff', label: 'Interview Draft Diff', description: 'Changes from the winning draft to the refined final interview', icon: <FileText className="h-3.5 w-3.5" /> },
       { id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> },
     ]
   }
@@ -778,11 +823,11 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
 }
 
 function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
+  if (artifactId === 'final-interview') {
+    return <FinalInterviewArtifactView content={content} />
+  }
   if (artifactId === 'interview-answers') {
     return <InterviewAnswersView content={content} />
-  }
-  if (artifactId === 'final-interview-diff') {
-    return <InterviewDraftDiffView content={content} />
   }
 
   let coverageResult: { response?: string; hasGaps?: boolean } | null = null
@@ -1017,8 +1062,6 @@ function resolveStaticArtifact(
       return findExactType('interview_votes')
     case 'final-interview':
       return findExactType('interview_compiled')
-    case 'final-interview-diff':
-      return findExactType('interview_compiled')
     case 'winner-prd-draft':
       return findExactType('prd_votes')
     case 'winner-beads-draft':
@@ -1106,10 +1149,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : supplementalArtifacts
 
   const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
-    if (artifactDef.id === 'final-interview-diff') {
+    if (artifactDef.id === 'final-interview') {
       const voteArtifact = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_VOTING_INTERVIEW' && artifact.artifactType === 'interview_votes')
       const compiledArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'interview_compiled')
-      return buildInterviewDiffArtifactContent(voteArtifact?.content, compiledArtifact?.content)
+      return buildFinalInterviewArtifactContent(voteArtifact?.content, compiledArtifact?.content)
     }
     const match = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
     return match?.content ?? null
@@ -1142,13 +1185,6 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       return {
         outcome: 'completed',
         detail: extractCompiledInterviewDetail(content) || undefined,
-      }
-    }
-
-    if (artifact.id === 'final-interview-diff') {
-      return {
-        outcome: 'completed',
-        detail: extractInterviewDiffDetail(content) || undefined,
       }
     }
 
