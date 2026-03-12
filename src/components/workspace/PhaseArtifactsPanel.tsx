@@ -48,6 +48,7 @@ interface InterviewArtifactQuestion {
 interface InterviewArtifactData {
   artifact?: string
   questions?: InterviewArtifactQuestion[]
+  interview?: string
   refinedContent?: string
   userAnswers?: string
 }
@@ -464,10 +465,14 @@ export function InterviewAnswersView({ content }: { content: string }) {
       viewData.push({ id: qId, q: prompt, answer, isSkipped })
     }
   } else {
-    // Handle interview_coverage_input format which has refinedContent (questions) and userAnswers
+    // Handle interview_coverage_input format which may contain canonical interview YAML or legacy refinedContent + userAnswers.
     const artifact = parsedContent && typeof parsedContent === 'object'
       ? parsedContent as InterviewArtifactData
       : null
+    if (artifact?.interview) {
+      return <InterviewAnswersView content={artifact.interview} />
+    }
+
     const questionsContent = artifact?.refinedContent || ''
     const answersJson = artifact?.userAnswers || '{}'
 

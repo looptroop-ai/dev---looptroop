@@ -3,6 +3,7 @@ import { clearPersistedTicketLogs } from '@/context/LogContext'
 import { clearTicketArtifactsCache } from './useTicketArtifacts'
 import { patchTicketStatusInCache } from './ticketStatusCache'
 import type { WorkflowAction } from '@shared/workflowMeta'
+import type { InterviewSessionSnapshot, InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
 import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
 
 export interface TicketRuntime {
@@ -41,6 +42,9 @@ export interface Ticket {
   errorMessage: string | null
   errorSeenSignature?: string | null
   lockedMainImplementer: string | null
+  lockedInterviewQuestions?: number | null
+  lockedUserBackground?: string | null
+  lockedDisableAnalogies?: number | null
   lockedCouncilMembers: string[]
   availableActions: WorkflowAction[]
   previousStatus?: string | null
@@ -122,58 +126,9 @@ async function deleteTicket(id: string): Promise<{ success: boolean; ticketId: s
   return res.json()
 }
 
-interface InterviewQuestion {
-  id: string
-  phase: string
-  question: string
-  priority: 'critical' | 'high' | 'medium' | 'low'
-  rationale: string
-}
-
-interface InterviewData {
-  questions: InterviewQuestion[]
-  raw: string | null
-  draft: {
-    answers: Record<string, string>
-  }
-  draftUpdatedAt: string | null
-}
-
-async function fetchInterview(ticketId: string): Promise<InterviewData> {
+async function fetchInterview(ticketId: string): Promise<InterviewSessionView> {
   const res = await fetch(`/api/tickets/${ticketId}/interview`)
   if (!res.ok) throw new Error('Failed to fetch interview data')
-  return res.json()
-}
-
-async function submitAnswers(
-  ticketId: string,
-  payload: { answers: Record<string, string> },
-): Promise<{ message: string }> {
-  const res = await fetch(`/api/tickets/${ticketId}/answer`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error || 'Failed to submit answers')
-  }
-  return res.json()
-}
-
-async function skipInterview(
-  ticketId: string,
-  payload: { answers: Record<string, string> } = { answers: {} },
-): Promise<{ message: string }> {
-  const res = await fetch(`/api/tickets/${ticketId}/skip`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error || 'Failed to skip')
-  }
   return res.json()
 }
 
@@ -288,7 +243,6 @@ export function useDeleteTicket() {
       )
       queryClient.removeQueries({ queryKey: ['ticket', ticketId], exact: true })
       queryClient.removeQueries({ queryKey: ['interview', ticketId], exact: true })
-      queryClient.removeQueries({ queryKey: ['interview-batch', ticketId], exact: true })
       queryClient.removeQueries({ queryKey: ['ticket-ui-state', ticketId] })
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
 
@@ -304,34 +258,6 @@ export function useInterviewQuestions(ticketId: string) {
   return useQuery({
     queryKey: ['interview', ticketId],
     queryFn: () => fetchInterview(ticketId),
-  })
-}
-
-export function useSubmitAnswers() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
-      submitAnswers(ticketId, { answers }),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['tickets'] })
-      queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
-      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
-      queryClient.invalidateQueries({ queryKey: ['ticket-ui-state', variables.ticketId, 'interview_qa'] })
-    },
-  })
-}
-
-export function useSkipInterview() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ ticketId, answers = {} }: { ticketId: string; answers?: Record<string, string> }) =>
-      skipInterview(ticketId, { answers }),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['tickets'] })
-      queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
-      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
-      queryClient.invalidateQueries({ queryKey: ['ticket-ui-state', variables.ticketId, 'interview_qa'] })
-    },
   })
 }
 
@@ -362,40 +288,10 @@ export function useSaveTicketUIState() {
   })
 }
 
-// ─── Interview Batch Types & Hooks ───
-
-interface BatchQuestion {
-  id: string
-  question: string
-  phase?: string
-  priority?: string
-  rationale?: string
-}
-
-interface BatchData {
-  questions: BatchQuestion[]
-  progress: { current: number; total: number }
-  isComplete: boolean
-  isFinalFreeForm: boolean
-  aiCommentary: string
-  batchNumber: number
-}
-
-interface InterviewBatchResponse {
-  batch: BatchData | null
-  status: 'ok' | 'no_batch' | 'parse_error'
-}
-
-async function fetchInterviewBatch(ticketId: string): Promise<InterviewBatchResponse> {
-  const res = await fetch(`/api/tickets/${ticketId}/interview-batch`)
-  if (!res.ok) throw new Error('Failed to fetch interview batch')
-  return res.json()
-}
-
 async function submitBatch(
   ticketId: string,
   answers: Record<string, string>,
-): Promise<BatchData> {
+): Promise<PersistedInterviewBatch> {
   const res = await fetch(`/api/tickets/${ticketId}/answer-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -408,29 +304,17 @@ async function submitBatch(
   return res.json()
 }
 
-export function useInterviewBatch(ticketId: string) {
-  return useQuery({
-    queryKey: ['interview-batch', ticketId],
-    queryFn: () => fetchInterviewBatch(ticketId),
-  })
-}
-
 export function useSubmitBatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
       submitBatch(ticketId, answers),
-    onSuccess: (data, variables) => {
-      // Update batch cache with returned data
-      queryClient.setQueryData<InterviewBatchResponse>(
-        ['interview-batch', variables.ticketId],
-        { batch: data, status: 'ok' },
-      )
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
-      queryClient.invalidateQueries({ queryKey: ['ticket-ui-state', variables.ticketId, 'interview_qa'] })
+      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
     },
   })
 }
 
-export type { CreateTicketInput, InterviewQuestion, InterviewData, TicketUIStateResponse, BatchQuestion, BatchData }
+export type { CreateTicketInput, InterviewSessionSnapshot, InterviewSessionView, TicketUIStateResponse, PersistedInterviewBatch }

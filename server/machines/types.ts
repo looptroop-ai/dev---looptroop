@@ -6,6 +6,9 @@ export interface TicketContext {
   status: string
   lockedMainImplementer: string | null
   lockedCouncilMembers: string[] | null
+  lockedInterviewQuestions: number | null
+  lockedUserBackground: string | null
+  lockedDisableAnalogies: boolean | null
   previousStatus: string | null
   error: string | null
   errorCodes: string[]
@@ -22,15 +25,20 @@ export interface TicketContext {
 }
 
 export type TicketEvent =
-  | { type: 'START'; lockedMainImplementer?: string | null; lockedCouncilMembers?: string[] | null }
+  | {
+      type: 'START'
+      lockedMainImplementer?: string | null
+      lockedCouncilMembers?: string[] | null
+      lockedInterviewQuestions?: number | null
+      lockedUserBackground?: string | null
+      lockedDisableAnalogies?: boolean | null
+    }
   | { type: 'INIT_FAILED'; message: string; codes?: string[] }
   | { type: 'QUESTIONS_READY'; result: Record<string, unknown> }
   | { type: 'WINNER_SELECTED'; winner: string }
   | { type: 'READY' }
-  | { type: 'ANSWER_SUBMITTED'; answers: Record<string, string> }
   | { type: 'BATCH_ANSWERED'; batchAnswers: Record<string, string> }
   | { type: 'INTERVIEW_COMPLETE' }
-  | { type: 'SKIP' }
   | { type: 'COVERAGE_CLEAN' }
   | { type: 'GAPS_FOUND' }
   | { type: 'APPROVE' }

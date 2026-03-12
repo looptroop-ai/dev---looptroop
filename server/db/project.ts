@@ -11,6 +11,17 @@ interface ProjectDatabase {
 
 const projectDbCache = new Map<string, ProjectDatabase>()
 
+function ensureColumn(
+  sqlite: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+) {
+  const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>
+  if (columns.some((entry) => entry.name === column)) return
+  sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+}
+
 function initializeProjectSqlite(sqlite: Database.Database) {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -48,6 +59,9 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       error_message TEXT,
       locked_main_implementer TEXT,
       locked_council_members TEXT,
+      locked_interview_questions INTEGER,
+      locked_user_background TEXT,
+      locked_disable_analogies INTEGER,
       started_at TEXT,
       planned_date TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -93,6 +107,10 @@ function initializeProjectSqlite(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket ON phase_artifacts(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase ON opencode_sessions(ticket_id, phase, state);
   `)
+
+  ensureColumn(sqlite, 'tickets', 'locked_interview_questions', 'INTEGER')
+  ensureColumn(sqlite, 'tickets', 'locked_user_background', 'TEXT')
+  ensureColumn(sqlite, 'tickets', 'locked_disable_analogies', 'INTEGER')
 }
 
 export function getProjectDatabase(projectRoot: string): ProjectDatabase {

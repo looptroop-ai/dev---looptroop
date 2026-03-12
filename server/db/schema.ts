@@ -60,6 +60,9 @@ export const tickets = sqliteTable('tickets', {
   errorMessage: text('error_message'),
   lockedMainImplementer: text('locked_main_implementer'),
   lockedCouncilMembers: text('locked_council_members'), // JSON array of model IDs, frozen at start
+  lockedInterviewQuestions: integer('locked_interview_questions'),
+  lockedUserBackground: text('locked_user_background'),
+  lockedDisableAnalogies: integer('locked_disable_analogies'),
   startedAt: text('started_at'),
   plannedDate: text('planned_date'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),

@@ -117,6 +117,8 @@ export interface TicketState {
   ticketId: string
   title?: string
   description?: string
+  userBackground?: string | null
+  disableAnalogies?: boolean
   codebaseMap?: string
   interview?: string
   prd?: string
@@ -156,7 +158,19 @@ export function buildMinimalContext(
       case 'ticket_details': {
         const title = ticketState.title ?? 'Untitled'
         const desc = ticketState.description ?? ''
-        const content = formatTicketDetails(title, desc)
+        const contentSections = [formatTicketDetails(title, desc)]
+        if (phase === 'interview_qa' && ticketState.userBackground?.trim()) {
+          contentSections.push(
+            [
+              '## User Interview Profile',
+              `Background / expertise: ${ticketState.userBackground.trim()}`,
+              ticketState.disableAnalogies
+                ? 'Adapt phrasing to the user background, but avoid analogies unless they are essential for clarity.'
+                : 'Adapt phrasing to the user background and use analogies only when they improve clarity.',
+            ].join('\n'),
+          )
+        }
+        const content = contentSections.join('\n\n')
         if (!desc) {
           warnIfVerbose(`[contextBuilder] ticket_details: description is empty for ticket=${ticketState.ticketId}`)
         }

@@ -21,6 +21,7 @@ import {
   getLatestPhaseArtifact,
   getTicketByRef,
   getTicketContext,
+  getTicketPaths,
   deleteTicket as deleteStoredTicket,
   listPhaseArtifacts,
   listTickets,
@@ -29,6 +30,13 @@ import {
   upsertLatestPhaseArtifact,
 } from '../storage/tickets'
 import { parseCompiledInterviewArtifact } from '../phases/interview/compiled'
+import {
+  buildInterviewQuestionViews,
+  INTERVIEW_SESSION_ARTIFACT,
+  parseInterviewSessionSnapshot,
+} from '../phases/interview/sessionState'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const ticketRouter = new Hono()
 
@@ -93,21 +101,6 @@ function upsertUiState(ticketId: string, scope: string, data: unknown): { update
 
   upsertLatestPhaseArtifact(ticketId, uiStateArtifactType(scope), UI_STATE_PHASE, payload)
   return { updatedAt: now }
-}
-
-function normalizeInterviewDraft(data: unknown): { answers: Record<string, string> } {
-  if (!data || typeof data !== 'object') return { answers: {} }
-
-  const rawAnswers = (data as { answers?: unknown }).answers
-  if (!rawAnswers || typeof rawAnswers !== 'object') return { answers: {} }
-
-  const answers: Record<string, string> = {}
-  for (const [key, value] of Object.entries(rawAnswers as Record<string, unknown>)) {
-    if (typeof value === 'string') {
-      answers[key] = value
-    }
-  }
-  return { answers }
 }
 
 function getProfileDefaults() {
@@ -311,9 +304,18 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
     })
   }
 
+  const lockedInterviewQuestions = ticketContext.localProject.interviewQuestions
+    ?? profile?.interviewQuestions
+    ?? 50
+  const lockedUserBackground = profile?.background?.trim() || null
+  const lockedDisableAnalogies = Boolean(profile?.disableAnalogies)
+
   patchTicket(ticketId, {
     lockedMainImplementer: modelSelection.mainImplementer,
     lockedCouncilMembers: JSON.stringify(modelSelection.councilMembers),
+    lockedInterviewQuestions,
+    lockedUserBackground,
+    lockedDisableAnalogies: lockedDisableAnalogies ? 1 : 0,
     branchName: init.branchName,
     startedAt: new Date().toISOString(),
   })
@@ -324,6 +326,9 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
       type: 'START',
       lockedMainImplementer: modelSelection.mainImplementer,
       lockedCouncilMembers: modelSelection.councilMembers,
+      lockedInterviewQuestions,
+      lockedUserBackground,
+      lockedDisableAnalogies,
     })
   } catch (err) {
     console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)
@@ -381,52 +386,22 @@ ticketRouter.post('/tickets/:id/answer', async (c) => {
   const ticketId = c.req.param('id')
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
-    return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
-  }
-
-  try {
-    const body = await c.req.json().catch(() => ({}))
-    const parsed = interviewAnswerPayloadSchema.safeParse(body)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
-    }
-
-    upsertUiState(ticketId, 'interview_qa', { answers: parsed.data.answers })
-    ensureActorForTicket(ticketId)
-    sendTicketEvent(ticketId, { type: 'ANSWER_SUBMITTED', answers: parsed.data.answers })
-  } catch (err) {
-    console.error(`[tickets] Failed to send ANSWER_SUBMITTED to ticket ${ticketId}:`, err)
-    return c.json({ error: 'Failed to submit answer', details: String(err) }, 500)
-  }
-
-  return respondWithState(c, ticketId, 'Answer submitted')
+  return c.json({
+    error: 'Direct interview answer submission is no longer supported. Use /answer-batch instead.',
+    ticketId,
+    status: ticket.status,
+  }, 410)
 })
 
 ticketRouter.post('/tickets/:id/skip', async (c) => {
   const ticketId = c.req.param('id')
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
-    return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
-  }
-
-  try {
-    const body = await c.req.json().catch(() => ({}))
-    const parsed = interviewAnswerPayloadSchema.safeParse(body)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
-    }
-
-    upsertUiState(ticketId, 'interview_qa', { answers: parsed.data.answers })
-    ensureActorForTicket(ticketId)
-    sendTicketEvent(ticketId, { type: 'SKIP' })
-  } catch (err) {
-    console.error(`[tickets] Failed to send SKIP to ticket ${ticketId}:`, err)
-    return c.json({ error: 'Failed to skip question', details: String(err) }, 500)
-  }
-
-  return respondWithState(c, ticketId, 'Question skipped')
+  return c.json({
+    error: 'Direct interview skip is no longer supported. Submit a batch with blank answers to mark skips.',
+    ticketId,
+    status: ticket.status,
+  }, 410)
 })
 
 ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
@@ -444,11 +419,6 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
       return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
     }
 
-    const existingUiState = readUiState(ticketId, 'interview_qa')
-    const existingAnswers = (existingUiState?.data as { answers?: Record<string, string> })?.answers ?? {}
-    const mergedAnswers = { ...existingAnswers, ...parsed.data.answers }
-    upsertUiState(ticketId, 'interview_qa', { answers: mergedAnswers })
-
     const result = await handleInterviewQABatch(ticketId, parsed.data.answers)
     ensureActorForTicket(ticketId)
     if (result.isComplete) {
@@ -464,27 +434,12 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
       isFinalFreeForm: result.isFinalFreeForm,
       aiCommentary: result.aiCommentary,
       batchNumber: result.batchNumber,
+      ...('source' in result && typeof result.source === 'string' ? { source: result.source } : {}),
+      ...('roundNumber' in result && typeof result.roundNumber === 'number' ? { roundNumber: result.roundNumber } : {}),
     })
   } catch (err) {
     console.error(`[tickets] Failed to process answer-batch for ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to process batch', details: String(err) }, 500)
-  }
-})
-
-ticketRouter.get('/tickets/:id/interview-batch', (c) => {
-  const ticketId = c.req.param('id')
-  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
-
-  const artifact = getLatestPhaseArtifact(ticketId, 'interview_current_batch')
-  if (!artifact) {
-    return c.json({ batch: null, status: 'no_batch' })
-  }
-
-  try {
-    const batch = JSON.parse(artifact.content)
-    return c.json({ batch, status: 'ok' })
-  } catch {
-    return c.json({ batch: null, status: 'parse_error' })
   }
 })
 
@@ -603,26 +558,46 @@ ticketRouter.get('/tickets/:id/interview', (c) => {
   const ticketId = c.req.param('id')
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
-  const uiState = readUiState(ticketId, 'interview_qa')
-  const draft = normalizeInterviewDraft(uiState?.data)
-  const draftUpdatedAt = uiState?.updatedAt ?? null
+  const sessionArtifact = getLatestPhaseArtifact(ticketId, INTERVIEW_SESSION_ARTIFACT)
+  const session = parseInterviewSessionSnapshot(sessionArtifact?.content)
+  const questions = session ? buildInterviewQuestionViews(session) : []
+
+  const ticketPaths = getTicketPaths(ticketId)
+  const canonicalInterviewPath = ticketPaths ? resolve(ticketPaths.ticketDir, 'interview.yaml') : null
+  let canonicalInterview: string | null = null
+  if (canonicalInterviewPath && existsSync(canonicalInterviewPath)) {
+    try {
+      canonicalInterview = readFileSync(canonicalInterviewPath, 'utf-8')
+    } catch {
+      canonicalInterview = null
+    }
+  }
 
   const artifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
   if (!artifact) {
-    return c.json({ questions: [], raw: null, draft, draftUpdatedAt })
+    return c.json({
+      winnerId: session?.winnerId ?? null,
+      raw: canonicalInterview,
+      session,
+      questions,
+    })
   }
 
   try {
     const parsed = parseCompiledInterviewArtifact(artifact.content)
     return c.json({
-      questions: parsed.questions,
-      raw: parsed.refinedContent,
-      winnerId: parsed.winnerId,
-      draft,
-      draftUpdatedAt,
+      raw: canonicalInterview ?? parsed.refinedContent,
+      winnerId: session?.winnerId ?? parsed.winnerId,
+      session,
+      questions,
     })
   } catch {
-    return c.json({ questions: [], raw: artifact.content, winnerId: null, draft, draftUpdatedAt })
+    return c.json({
+      raw: canonicalInterview ?? artifact.content,
+      winnerId: session?.winnerId ?? null,
+      session,
+      questions,
+    })
   }
 })
 

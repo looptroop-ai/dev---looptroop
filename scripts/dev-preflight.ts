@@ -69,6 +69,17 @@ function describePortOccupants(port: number) {
   }
 }
 
+function listPortOccupantPids(port: number): number[] {
+  try {
+    const output = execFileSync('ss', ['-ltnp', `( sport = :${port} )`], { encoding: 'utf8' })
+    const matches = output.matchAll(/pid=(\d+)/g)
+    return Array.from(new Set(Array.from(matches, (match) => Number(match[1]))))
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
+  } catch {
+    return []
+  }
+}
+
 const processes = listProcesses()
 const stalePids = processes
   .filter((entry) => entry.pid !== process.pid && isLoopTroopDevProcess(entry.args))
@@ -85,10 +96,22 @@ await new Promise((resolvePromise) => setTimeout(resolvePromise, stalePids.lengt
 for (const port of [getFrontendPort(), getBackendPort()]) {
   try {
     await ensurePortFree(port)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`[dev-preflight] Cannot start LoopTroop on port ${port}: ${message}`)
-    console.error(describePortOccupants(port))
-    process.exit(1)
+  } catch {
+    const occupantPids = listPortOccupantPids(port)
+    if (occupantPids.length > 0) {
+      for (const pid of occupantPids) {
+        killProcess(pid)
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 500))
+    }
+
+    try {
+      await ensurePortFree(port)
+    } catch (retryError) {
+      const message = retryError instanceof Error ? retryError.message : String(retryError)
+      console.error(`[dev-preflight] Cannot start LoopTroop on port ${port}: ${message}`)
+      console.error(describePortOccupants(port))
+      process.exit(1)
+    }
   }
 }

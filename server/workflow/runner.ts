@@ -27,6 +27,25 @@ import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM13, PROM24 } from '..
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../phases/interview/questions'
 import { buildCompiledInterviewArtifact, requireCompiledInterviewArtifact } from '../phases/interview/compiled'
+import {
+  buildCanonicalInterviewYaml,
+  buildCoverageFollowUpBatch,
+  buildInterviewQuestionViews,
+  buildPersistedBatch,
+  clearInterviewSessionBatch,
+  createInterviewSessionSnapshot,
+  extractCoverageFollowUpQuestions,
+  INTERVIEW_BATCH_HISTORY_ARTIFACT,
+  INTERVIEW_CURRENT_BATCH_ARTIFACT,
+  INTERVIEW_PROM4_FINAL_ARTIFACT,
+  INTERVIEW_QA_SESSION_ARTIFACT,
+  INTERVIEW_SESSION_ARTIFACT,
+  markInterviewSessionComplete,
+  parseInterviewSessionSnapshot,
+  recordBatchAnswers,
+  recordPreparedBatch,
+  serializeInterviewSessionSnapshot,
+} from '../phases/interview/sessionState'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
@@ -51,6 +70,7 @@ import { parseFinalTestCommands } from '../phases/finalTest/parser'
 import { executeFinalTestCommands } from '../phases/finalTest/runner'
 import { prepareSquashCandidate } from '../phases/integration/squash'
 import { raceWithCancel, throwIfCancelled } from '../lib/abort'
+import type { InterviewSessionSnapshot, PersistedInterviewBatch } from '@shared/interviewSession'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -73,7 +93,7 @@ interface PhaseIntermediateData {
 const phaseIntermediate = new Map<string, PhaseIntermediateData>()
 
 function readInterviewQASessionArtifact(ticketId: string): { sessionId: string; winnerId: string } | null {
-  const artifact = getLatestPhaseArtifact(ticketId, 'interview_qa_session')
+  const artifact = getLatestPhaseArtifact(ticketId, INTERVIEW_QA_SESSION_ARTIFACT)
   if (!artifact) return null
 
   try {
@@ -85,6 +105,84 @@ function readInterviewQASessionArtifact(ticketId: string): { sessionId: string; 
   } catch {
     return null
   }
+}
+
+function readInterviewSessionSnapshotArtifact(ticketId: string): InterviewSessionSnapshot | null {
+  const artifact = getLatestPhaseArtifact(ticketId, INTERVIEW_SESSION_ARTIFACT)
+  return parseInterviewSessionSnapshot(artifact?.content)
+}
+
+function writeInterviewSessionSnapshotArtifact(ticketId: string, snapshot: InterviewSessionSnapshot) {
+  upsertLatestPhaseArtifact(
+    ticketId,
+    INTERVIEW_SESSION_ARTIFACT,
+    'WAITING_INTERVIEW_ANSWERS',
+    serializeInterviewSessionSnapshot(snapshot),
+  )
+}
+
+function writeInterviewCurrentBatchArtifact(ticketId: string, batch: PersistedInterviewBatch | null) {
+  upsertLatestPhaseArtifact(
+    ticketId,
+    INTERVIEW_CURRENT_BATCH_ARTIFACT,
+    'WAITING_INTERVIEW_ANSWERS',
+    JSON.stringify(batch),
+  )
+}
+
+function writeInterviewBatchHistoryArtifact(ticketId: string, snapshot: InterviewSessionSnapshot) {
+  upsertLatestPhaseArtifact(
+    ticketId,
+    INTERVIEW_BATCH_HISTORY_ARTIFACT,
+    'WAITING_INTERVIEW_ANSWERS',
+    JSON.stringify(snapshot.batchHistory),
+  )
+}
+
+function persistInterviewSession(ticketId: string, snapshot: InterviewSessionSnapshot) {
+  writeInterviewSessionSnapshotArtifact(ticketId, snapshot)
+  writeInterviewCurrentBatchArtifact(ticketId, snapshot.currentBatch)
+  writeInterviewBatchHistoryArtifact(ticketId, snapshot)
+}
+
+function loadCanonicalInterview(ticketDir: string): string | undefined {
+  const interviewPath = resolve(ticketDir, 'interview.yaml')
+  if (!existsSync(interviewPath)) return undefined
+  try {
+    return readFileSync(interviewPath, 'utf-8')
+  } catch {
+    return undefined
+  }
+}
+
+function writeCanonicalInterview(ticketId: string, ticketDir: string, snapshot: InterviewSessionSnapshot) {
+  const interviewPath = resolve(ticketDir, 'interview.yaml')
+  safeAtomicWrite(interviewPath, buildCanonicalInterviewYaml(ticketId, snapshot))
+  return interviewPath
+}
+
+function buildInterviewAnswerSummary(snapshot: InterviewSessionSnapshot | null): string {
+  if (!snapshot) return ''
+  const views = buildInterviewQuestionViews(snapshot)
+  const answered = views
+    .filter((question) => question.status === 'answered' || question.status === 'skipped')
+    .map((question) => [
+      `${question.id}: ${question.question}`,
+      question.status === 'skipped'
+        ? 'Answer: [SKIPPED]'
+        : `Answer: ${question.answer ?? ''}`,
+    ].join('\n'))
+  return answered.join('\n\n')
+}
+
+function buildCoverageFollowUpCommentary(response: string): string {
+  const firstMeaningfulLine = response
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+  return firstMeaningfulLine
+    ? `Coverage follow-up needed: ${firstMeaningfulLine}`
+    : 'Coverage follow-up questions generated to close remaining gaps.'
 }
 
 async function restoreInterviewQASession(ticketId: string) {
@@ -870,11 +968,14 @@ function resolveInterviewDraftSettings(context: TicketContext): {
   maxInitialQuestions: number
   draftTimeoutMs: number
   minQuorum: number
+  userBackground: string | null
+  disableAnalogies: boolean
 } {
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const storedContext = getStoredTicketContext(context.ticketId)
   const profile = appDb.select().from(profiles).get()
-  const maxInitialQuestions = storedContext?.localProject.interviewQuestions
+  const maxInitialQuestions = context.lockedInterviewQuestions
+    ?? storedContext?.localProject.interviewQuestions
     ?? profile?.interviewQuestions
     ?? 50
 
@@ -882,6 +983,8 @@ function resolveInterviewDraftSettings(context: TicketContext): {
     maxInitialQuestions,
     draftTimeoutMs: councilSettings.draftTimeoutMs,
     minQuorum: councilSettings.minQuorum,
+    userBackground: context.lockedUserBackground ?? profile?.background ?? null,
+    disableAnalogies: context.lockedDisableAnalogies ?? Boolean(profile?.disableAnalogies),
   }
 }
 
@@ -2627,107 +2730,6 @@ async function handleBeadsRefine(
 }
 
 /**
- * Build interview.yaml content per PROM5 output_file schema.
- * Merges parsed questions from refinedContent with user answers.
- */
-function buildInterviewYaml(
-  ticketId: string,
-  winnerId: string,
-  refinedContent: string,
-  userAnswersJson?: string,
-): string {
-  const now = new Date().toISOString()
-
-  // Parse questions from the refined YAML content
-  interface ParsedQuestion {
-    id?: string
-    prompt?: string
-    question?: string
-    answer_type?: string
-    options?: unknown[]
-  }
-  let parsedQuestions: ParsedQuestion[] = []
-  try {
-    const yamlParsed = jsYaml.load(refinedContent) as Record<string, unknown> | unknown[] | null
-    if (Array.isArray(yamlParsed)) {
-      parsedQuestions = yamlParsed as ParsedQuestion[]
-    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
-      parsedQuestions = (yamlParsed as Record<string, unknown>).questions as ParsedQuestion[]
-    }
-  } catch { /* use empty array */ }
-
-  // Fallback to text parsing if YAML parsing found no questions
-  if (parsedQuestions.length === 0 && refinedContent) {
-    let qIndex = 1
-    for (const line of refinedContent.split('\n')) {
-      const trimmed = line.trim()
-      if (/^\d+[.)]\s/.test(trimmed) || /^[-*]\s/.test(trimmed) || /^\*\*Q\d/i.test(trimmed) || trimmed.endsWith('?')) {
-        const q = trimmed.replace(/^[-*\d.)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
-        if (q.length > 5) {
-          parsedQuestions.push({
-            id: `Q${qIndex++}`,
-            prompt: q,
-            answer_type: 'free_text',
-            options: []
-          })
-        }
-      }
-    }
-  }
-
-  // Parse user answers
-  let userAnswers: Record<string, string> = {}
-  if (userAnswersJson) {
-    try { userAnswers = JSON.parse(userAnswersJson) as Record<string, string> } catch { /* ignore */ }
-  }
-
-  // Build structured questions with answers merged in
-  const questions = parsedQuestions.map((q, idx) => {
-    const qId = q.id ?? `Q${idx + 1}`
-    const promptText = q.prompt ?? q.question ?? ''
-    const answerText = userAnswers[qId] ?? userAnswers[promptText] ?? ''
-    const skipped = !answerText
-    return {
-      id: qId,
-      prompt: promptText,
-      answer_type: q.answer_type ?? 'free_text',
-      options: q.options ?? [],
-      answer: {
-        skipped,
-        selected_option_ids: [],
-        free_text: answerText,
-        answered_by: skipped ? 'ai_skip' : 'user',
-        answered_at: skipped ? '' : now,
-      },
-    }
-  })
-
-  const interviewData = {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status: 'draft',
-    generated_by: {
-      winner_model: winnerId,
-      generated_at: now,
-    },
-    questions,
-    follow_up_rounds: [],
-    summary: {
-      goals: [],
-      constraints: [],
-      non_goals: [],
-    },
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
-
-  return jsYaml.dump(interviewData, { lineWidth: 120, noRefs: true }) as string
-}
-
-/**
  * Run coverage verification using ONLY the winning model from the council vote.
  * Per arch.md §B.I/II/III: "Coverage Verification Pass (winning AIC)"
  */
@@ -2820,28 +2822,41 @@ async function handleCoverageVerification(
     }
   }
 
+  const interviewSnapshot = phase === 'interview'
+    ? readInterviewSessionSnapshotArtifact(ticketId)
+    : null
+  let canonicalInterview = phase === 'interview'
+    ? loadCanonicalInterview(ticketDir)
+    : undefined
+
+  if (phase === 'interview' && !canonicalInterview) {
+    if (!interviewSnapshot) {
+      const msg = 'Interview coverage requires canonical interview state, but no normalized interview session snapshot was found.'
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+
+    try {
+      writeCanonicalInterview(context.externalId, ticketDir, interviewSnapshot)
+      canonicalInterview = loadCanonicalInterview(ticketDir)
+    } catch (err) {
+      const msg = `Failed to rebuild canonical interview.yaml before coverage: ${err instanceof Error ? err.message : String(err)}`
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+  }
+
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
     codebaseMap,
-    interview: refinedContent,
-  }
-
-  const interviewUiState = getLatestPhaseArtifact(ticketId, 'ui_state:interview_qa', 'UI_STATE')
-
-  if (interviewUiState) {
-    try {
-      const parsed = JSON.parse(interviewUiState.content) as {
-        data?: { answers?: Record<string, string> }
-      }
-      const answers = parsed?.data?.answers
-      if (answers && typeof answers === 'object') {
-        ticketState.userAnswers = JSON.stringify(answers)
-      }
-    } catch {
-      // Ignore malformed UI state payload and proceed with available context.
-    }
+    interview: phase === 'interview' ? canonicalInterview : refinedContent,
+    ...(phase === 'interview'
+      ? { userAnswers: buildInterviewAnswerSummary(interviewSnapshot) }
+      : {}),
   }
 
   // Load additional artifacts from disk for PRD/beads coverage phases
@@ -2940,7 +2955,7 @@ async function handleCoverageVerification(
 
   // Store the coverage input artifact so the UI can display Q&A / doc being verified
   const coverageInputContent = phase === 'interview'
-    ? JSON.stringify({ refinedContent, userAnswers: ticketState.userAnswers })
+    ? JSON.stringify({ interview: ticketState.interview, userAnswers: ticketState.userAnswers })
     : phase === 'prd'
       ? JSON.stringify({ prd: ticketState.prd, refinedContent })
       : JSON.stringify({ beads: ticketState.beads, refinedContent })
@@ -2992,23 +3007,50 @@ async function handleCoverageVerification(
   })
 
   if (detectedGaps) {
+    if (phase === 'interview') {
+      if (!interviewSnapshot) {
+        const msg = 'Coverage found interview gaps but no normalized interview session snapshot was available.'
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+
+      const followUpQuestions = extractCoverageFollowUpQuestions(response, interviewSnapshot)
+      if (followUpQuestions.length === 0) {
+        const msg = 'Coverage found interview gaps but produced no parseable follow-up questions.'
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+
+      const followUpBatch = buildCoverageFollowUpBatch(
+        interviewSnapshot,
+        followUpQuestions,
+        buildCoverageFollowUpCommentary(response),
+      )
+      const updatedSnapshot = recordPreparedBatch(
+        clearInterviewSessionBatch(interviewSnapshot),
+        followUpBatch,
+      )
+      persistInterviewSession(ticketId, updatedSnapshot)
+      insertPhaseArtifact(ticketId, {
+        phase: stateLabel,
+        artifactType: 'interview_coverage_followups',
+        content: JSON.stringify(followUpBatch),
+      })
+    }
+
     emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
       `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
     sendEvent({ type: 'GAPS_FOUND' })
   } else {
-    // Generate interview.yaml when interview coverage passes (PROM5 output_file schema)
     if (phase === 'interview') {
       try {
-        const interviewYaml = buildInterviewYaml(
-          context.externalId,
-          winnerId,
-          refinedContent ?? '',
-          ticketState.userAnswers,
-        )
-        const interviewPath = resolve(ticketDir, 'interview.yaml')
-        safeAtomicWrite(interviewPath, interviewYaml)
+        const interviewPath = interviewSnapshot
+          ? writeCanonicalInterview(context.externalId, ticketDir, interviewSnapshot)
+          : resolve(ticketDir, 'interview.yaml')
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
-          `Generated interview.yaml at ${interviewPath}`)
+          `Canonical interview.yaml ready at ${interviewPath}`)
       } catch (err) {
         console.error(`[runner] Failed to generate interview.yaml for ticket ${context.externalId}:`, err)
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
@@ -3030,13 +3072,30 @@ async function handleInterviewQAStart(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
+  const persistedSnapshot = readInterviewSessionSnapshotArtifact(ticketId)
+  if (persistedSnapshot?.currentBatch) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'WAITING_INTERVIEW_ANSWERS',
+      'info',
+      `Resuming persisted interview batch ${persistedSnapshot.currentBatch.batchNumber}.`,
+    )
+    broadcaster.broadcast(ticketId, 'needs_input', {
+      ticketId,
+      type: 'interview_batch',
+      batch: persistedSnapshot.currentBatch,
+    })
+    return
+  }
+
   const restoredSession = await restoreInterviewQASession(ticketId)
   if (restoredSession) {
-    const currentBatchArtifact = getLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS')
+    const currentBatchArtifact = getLatestPhaseArtifact(ticketId, INTERVIEW_CURRENT_BATCH_ARTIFACT, 'WAITING_INTERVIEW_ANSWERS')
     const persistedBatch = currentBatchArtifact
       ? (() => {
           try {
-            return JSON.parse(currentBatchArtifact.content) as BatchResponse
+            return JSON.parse(currentBatchArtifact.content) as PersistedInterviewBatch
           } catch {
             return null
           }
@@ -3062,6 +3121,7 @@ async function handleInterviewQAStart(
   }
 
   const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
+  const interviewSettings = resolveInterviewDraftSettings(context)
 
   // Resolve winnerId from persisted artifact
   const winnerArtifact = getLatestPhaseArtifact(ticketId, 'interview_winner')
@@ -3100,9 +3160,19 @@ async function handleInterviewQAStart(
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
+    userBackground: interviewSettings.userBackground,
+    disableAnalogies: interviewSettings.disableAnalogies,
     codebaseMap,
     interview: compiledInterview.refinedContent,
   }
+
+  const baseSnapshot = persistedSnapshot ?? createInterviewSessionSnapshot({
+    winnerId,
+    compiledQuestions: compiledInterview.questions,
+    maxInitialQuestions: interviewSettings.maxInitialQuestions,
+    userBackground: interviewSettings.userBackground,
+    disableAnalogies: interviewSettings.disableAnalogies,
+  })
 
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
     `Starting PROM4 interview session with winning model: ${winnerId}`)
@@ -3116,7 +3186,7 @@ async function handleInterviewQAStart(
     winnerId,
     compiledInterview.refinedContent,
     ticketState,
-    compiledInterview.questionCount,
+    interviewSettings.maxInitialQuestions,
     signal,
     (entry) => {
       emitOpenCodeStreamEvent(
@@ -3146,15 +3216,16 @@ async function handleInterviewQAStart(
   interviewQASessions.set(ticketId, { sessionId, winnerId })
   insertPhaseArtifact(ticketId, {
     phase: 'WAITING_INTERVIEW_ANSWERS',
-    artifactType: 'interview_qa_session',
+    artifactType: INTERVIEW_QA_SESSION_ARTIFACT,
     content: JSON.stringify({ sessionId, winnerId }),
   })
 
-  // Store current batch
-  upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(firstBatch))
+  const persistedBatch = buildPersistedBatch(firstBatch, 'prom4', baseSnapshot)
+  const updatedSnapshot = recordPreparedBatch(baseSnapshot, persistedBatch)
+  persistInterviewSession(ticketId, updatedSnapshot)
 
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
-    `PROM4 session started (session=${sessionId}). First batch: ${firstBatch.questions.length} questions.`)
+    `PROM4 session started (session=${sessionId}). First batch: ${persistedBatch.questions.length} questions.`)
   emitAiMilestone(
     ticketId,
     context.externalId,
@@ -3172,7 +3243,7 @@ async function handleInterviewQAStart(
   broadcaster.broadcast(ticketId, 'needs_input', {
     ticketId,
     type: 'interview_batch',
-    batch: firstBatch,
+    batch: persistedBatch,
   })
 }
 
@@ -3184,46 +3255,139 @@ export async function handleInterviewQABatch(
   ticketId: string,
   batchAnswers: Record<string, string>,
 ): Promise<BatchResponse> {
+  const snapshot = readInterviewSessionSnapshotArtifact(ticketId)
+  if (!snapshot?.currentBatch) {
+    throw new Error('No active interview batch for this ticket')
+  }
+
+  const ticket = getTicketByRef(ticketId)
+  const externalId = ticket?.externalId ?? ticketId
+  const currentBatch = snapshot.currentBatch
+  const answeredSnapshot = recordBatchAnswers(snapshot, batchAnswers)
+
   if (isMockOpenCodeMode()) {
-    const ticket = getTicketByRef(ticketId)
-    const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
-    const refinedContent = compiledArtifact
-      ? (() => {
-          try {
-            return (JSON.parse(compiledArtifact.content) as { refinedContent?: string }).refinedContent ?? ''
-          } catch {
-            return ''
-          }
-        })()
-      : ''
+    if (currentBatch.source === 'prom4' && currentBatch.batchNumber === 1) {
+      const followUpBatch = buildPersistedBatch(
+        {
+          questions: buildMockInterviewFollowUpQuestions().map(({ id, question, phase, priority, rationale }) => ({
+            id,
+            question,
+            phase,
+            priority,
+            rationale,
+          })),
+          progress: { current: 2, total: 2 },
+          isComplete: false,
+          isFinalFreeForm: false,
+          aiCommentary: 'Mock follow-up batch ready.',
+          batchNumber: 2,
+        },
+        'prom4',
+        answeredSnapshot,
+      )
+      const updatedSnapshot = recordPreparedBatch(answeredSnapshot, followUpBatch)
+      persistInterviewSession(ticketId, updatedSnapshot)
+      return followUpBatch
+    }
 
-    const finalYaml = buildInterviewYaml(
-      ticket?.externalId ?? ticketId,
-      'mock-model-1',
-      refinedContent,
-      JSON.stringify(batchAnswers),
-    )
-
+    const completedSnapshot = markInterviewSessionComplete(answeredSnapshot)
+    const paths = getTicketPaths(ticketId)
+    if (paths) {
+      writeCanonicalInterview(ticket?.externalId ?? ticketId, paths.ticketDir, completedSnapshot)
+    }
+    persistInterviewSession(ticketId, completedSnapshot)
     return {
       questions: [],
-      progress: { current: 1, total: 1 },
+      progress: currentBatch.progress,
+      isComplete: true,
+      isFinalFreeForm: currentBatch.isFinalFreeForm,
+      aiCommentary: 'Mock interview complete.',
+      batchNumber: currentBatch.batchNumber,
+    }
+  }
+
+  if (currentBatch.source === 'coverage') {
+    const paths = getTicketPaths(ticketId)
+    if (!paths) {
+      throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
+    }
+    const completedSnapshot = markInterviewSessionComplete(answeredSnapshot)
+    writeCanonicalInterview(externalId, paths.ticketDir, completedSnapshot)
+    persistInterviewSession(ticketId, completedSnapshot)
+    emitPhaseLog(
+      ticketId,
+      externalId,
+      'WAITING_INTERVIEW_ANSWERS',
+      'info',
+      `Coverage follow-up batch ${currentBatch.batchNumber} captured. Returning to interview coverage verification.`,
+    )
+    return {
+      questions: [],
+      progress: currentBatch.progress,
       isComplete: true,
       isFinalFreeForm: false,
-      aiCommentary: 'Mock interview complete.',
-      finalYaml,
-      batchNumber: 1,
+      aiCommentary: 'Coverage follow-up answers captured. Re-running coverage.',
+      batchNumber: currentBatch.batchNumber,
     }
   }
 
   // Get session info from memory or reload from DB
   const sessionInfo = await restoreInterviewQASession(ticketId)
-
   if (!sessionInfo) {
+    const persistedSessionInfo = readInterviewQASessionArtifact(ticketId)
+    if (persistedSessionInfo?.sessionId === 'mock-session') {
+      const paths = getTicketPaths(ticketId)
+      if (!paths) {
+        throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
+      }
+
+      const nextMockBatch = buildPersistedMockInterviewBatch(answeredSnapshot)
+      if (!nextMockBatch) {
+        const rawFinalYaml = buildCanonicalInterviewYaml(externalId, answeredSnapshot)
+        const completedSnapshot = markInterviewSessionComplete(answeredSnapshot, rawFinalYaml)
+        insertPhaseArtifact(ticketId, {
+          phase: 'WAITING_INTERVIEW_ANSWERS',
+          artifactType: INTERVIEW_PROM4_FINAL_ARTIFACT,
+          content: rawFinalYaml,
+        })
+        writeCanonicalInterview(externalId, paths.ticketDir, completedSnapshot)
+        persistInterviewSession(ticketId, completedSnapshot)
+
+        emitPhaseLog(
+          ticketId,
+          externalId,
+          'WAITING_INTERVIEW_ANSWERS',
+          'info',
+          'Persisted mock interview completed after restart-safe batch replay.',
+        )
+
+        return {
+          questions: [],
+          progress: currentBatch.progress,
+          isComplete: true,
+          isFinalFreeForm: currentBatch.isFinalFreeForm,
+          aiCommentary: 'Mock interview complete.',
+          batchNumber: currentBatch.batchNumber,
+        }
+      }
+
+      const persistedNextBatch = buildPersistedBatch(nextMockBatch, 'prom4', answeredSnapshot)
+      const updatedSnapshot = recordPreparedBatch(answeredSnapshot, persistedNextBatch)
+      persistInterviewSession(ticketId, updatedSnapshot)
+
+      emitPhaseLog(
+        ticketId,
+        externalId,
+        'WAITING_INTERVIEW_ANSWERS',
+        'info',
+        `Persisted mock interview advanced to batch ${persistedNextBatch.batchNumber}.`,
+      )
+
+      return persistedNextBatch
+    }
+
     throw new Error('No active PROM4 session for this ticket')
   }
-
-  const ticket = getTicketByRef(ticketId)
-  const externalId = ticket?.externalId ?? ticketId
 
   const signal = getOrCreateAbortSignal(ticketId)
   const streamState = createOpenCodeStreamState()
@@ -3257,38 +3421,45 @@ export async function handleInterviewQABatch(
   )
   throwIfAborted(signal, ticketId)
 
-  // Accumulate answers in batch history
-  const existingHistory = getLatestPhaseArtifact(ticketId, 'interview_batch_history')
-
-  let history: Array<{ batchNumber: number; answers: Record<string, string> }> = []
-  if (existingHistory) {
-    try { history = JSON.parse(existingHistory.content) as typeof history } catch { /* ignore */ }
-  }
-  history.push({ batchNumber: result.batchNumber, answers: batchAnswers })
-
-  // Upsert history
-  upsertLatestPhaseArtifact(ticketId, 'interview_batch_history', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(history))
-
-  if (result.isComplete && result.finalYaml) {
-    // Write final interview YAML to disk
+  if (result.isComplete) {
     const paths = getTicketPaths(ticketId)
     if (!paths) {
       throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
     }
-    const ticketDir = paths.ticketDir
-    const interviewPath = resolve(ticketDir, 'interview.yaml')
-    safeAtomicWrite(interviewPath, result.finalYaml)
-    emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
-      `PROM4 interview complete. Final YAML written to ${interviewPath}.`)
-  } else {
-    // Store next batch as current
-    upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(result))
 
-    emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
-      `PROM4 batch ${result.batchNumber}: ${result.questions.length} questions. Progress: ${result.progress.current}/${result.progress.total}.`)
+    const completedSnapshot = markInterviewSessionComplete(answeredSnapshot, result.finalYaml)
+    if (result.finalYaml?.trim()) {
+      insertPhaseArtifact(ticketId, {
+        phase: 'WAITING_INTERVIEW_ANSWERS',
+        artifactType: INTERVIEW_PROM4_FINAL_ARTIFACT,
+        content: result.finalYaml.trim(),
+      })
+    }
+    writeCanonicalInterview(externalId, paths.ticketDir, completedSnapshot)
+    persistInterviewSession(ticketId, completedSnapshot)
+
+    emitPhaseLog(
+      ticketId,
+      externalId,
+      'WAITING_INTERVIEW_ANSWERS',
+      'info',
+      `PROM4 interview complete. Canonical interview.yaml regenerated from normalized session state.`,
+    )
+
+    return {
+      ...result,
+      batchNumber: currentBatch.batchNumber,
+    }
   }
 
-  return result
+  const persistedNextBatch = buildPersistedBatch(result, 'prom4', answeredSnapshot)
+  const updatedSnapshot = recordPreparedBatch(answeredSnapshot, persistedNextBatch)
+  persistInterviewSession(ticketId, updatedSnapshot)
+
+  emitPhaseLog(ticketId, externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
+    `PROM4 batch ${persistedNextBatch.batchNumber}: ${persistedNextBatch.questions.length} questions. Progress: ${persistedNextBatch.progress.current}/${persistedNextBatch.progress.total}.`)
+
+  return persistedNextBatch
 }
 
 function buildMockInterviewQuestions() {
@@ -3315,6 +3486,71 @@ function buildMockInterviewQuestions() {
       rationale: 'Defines acceptance and testing expectations.',
     },
   ]
+}
+
+function buildMockInterviewFollowUpQuestions() {
+  return [
+    {
+      id: 'tradeoffs',
+      phase: 'assembly',
+      question: 'If scope or complexity has to move, which tradeoffs are acceptable and which are not?',
+      priority: 'medium',
+      rationale: 'Captures prioritization boundaries before implementation starts.',
+    },
+  ]
+}
+
+function buildMockInterviewFinalQuestion() {
+  return {
+    id: 'final_notes',
+    phase: 'assembly',
+    question: 'What is the most important implementation note or edge case the agent should not miss?',
+    priority: 'high',
+    rationale: 'Captures the last high-signal guidance before implementation begins.',
+  }
+}
+
+function buildPersistedMockInterviewBatch(
+  snapshot: InterviewSessionSnapshot,
+): BatchResponse | null {
+  const answeredBatchCount = snapshot.batchHistory.length
+
+  if (answeredBatchCount === 1) {
+    return {
+      questions: buildMockInterviewFollowUpQuestions().map(({ id, question, phase, priority, rationale }) => ({
+        id,
+        question,
+        phase,
+        priority,
+        rationale,
+      })),
+      progress: { current: 2, total: 3 },
+      isComplete: false,
+      isFinalFreeForm: false,
+      aiCommentary: 'One follow-up question to pin down acceptable tradeoffs.',
+      batchNumber: 2,
+    }
+  }
+
+  if (answeredBatchCount === 2) {
+    const finalQuestion = buildMockInterviewFinalQuestion()
+    return {
+      questions: [{
+        id: finalQuestion.id,
+        question: finalQuestion.question,
+        phase: finalQuestion.phase,
+        priority: finalQuestion.priority,
+        rationale: finalQuestion.rationale,
+      }],
+      progress: { current: 3, total: 3 },
+      isComplete: false,
+      isFinalFreeForm: true,
+      aiCommentary: 'One final question before the interview artifact is finalized.',
+      batchNumber: 3,
+    }
+  }
+
+  return null
 }
 
 function buildMockInterviewCompiledContent() {
@@ -3597,6 +3833,7 @@ async function handleMockInterviewQAStart(
 ) {
   const { members } = resolveCouncilMembers(context)
   const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
+  const interviewSettings = resolveInterviewDraftSettings(context)
   const batch: BatchResponse = {
     questions: buildMockInterviewQuestions().map(({ id, question, phase, priority, rationale }) => ({
       id,
@@ -3605,25 +3842,35 @@ async function handleMockInterviewQAStart(
       priority,
       rationale,
     })),
-    progress: { current: 1, total: 1 },
+    progress: { current: 1, total: 2 },
     isComplete: false,
     isFinalFreeForm: false,
     aiCommentary: 'Mock interview batch ready.',
     batchNumber: 1,
   }
 
+  const snapshot = createInterviewSessionSnapshot({
+    winnerId,
+    compiledQuestions: buildMockInterviewQuestions().map(({ id, phase, question }) => ({ id, phase, question })),
+    maxInitialQuestions: interviewSettings.maxInitialQuestions,
+    userBackground: interviewSettings.userBackground,
+    disableAnalogies: interviewSettings.disableAnalogies,
+  })
+  const persistedBatch = buildPersistedBatch(batch, 'prom4', snapshot)
+  const updatedSnapshot = recordPreparedBatch(snapshot, persistedBatch)
+
   interviewQASessions.set(ticketId, { sessionId: 'mock-session', winnerId })
   insertPhaseArtifact(ticketId, {
     phase: 'WAITING_INTERVIEW_ANSWERS',
-    artifactType: 'interview_qa_session',
+    artifactType: INTERVIEW_QA_SESSION_ARTIFACT,
     content: JSON.stringify({ sessionId: 'mock-session', winnerId }),
   })
-  upsertLatestPhaseArtifact(ticketId, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS', JSON.stringify(batch))
+  persistInterviewSession(ticketId, updatedSnapshot)
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info', 'Mock interview questions ready for input.')
   broadcaster.broadcast(ticketId, 'needs_input', {
     ticketId,
     type: 'interview_batch',
-    batch,
+    batch: persistedBatch,
   })
 }
 
@@ -3648,22 +3895,10 @@ async function handleMockCoverage(
   })
 
   if (phase === 'interview') {
-    const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
-    const refinedContent = compiledArtifact
-      ? (() => {
-          try {
-            return (JSON.parse(compiledArtifact.content) as { refinedContent?: string }).refinedContent ?? ''
-          } catch {
-            return ''
-          }
-        })()
-      : ''
     const paths = getTicketPaths(ticketId)
-    if (paths) {
-      safeAtomicWrite(
-        resolve(paths.ticketDir, 'interview.yaml'),
-        buildInterviewYaml(context.externalId, winnerId, refinedContent),
-      )
+    const snapshot = readInterviewSessionSnapshotArtifact(ticketId)
+    if (paths && snapshot) {
+      writeCanonicalInterview(context.externalId, paths.ticketDir, snapshot)
     }
   }
 

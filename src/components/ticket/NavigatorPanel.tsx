@@ -1,6 +1,7 @@
 import { Separator } from '@/components/ui/separator'
 import { PhaseTimeline } from '@/components/navigator/PhaseTimeline'
 import { ContextTree } from '@/components/navigator/ContextTree'
+import { InterviewNavigator } from '@/components/navigator/InterviewNavigator'
 
 interface NavigatorPanelProps {
   ticketId: string
@@ -38,10 +39,14 @@ export function NavigatorPanel({ ticketId, currentStatus, selectedPhase, cancele
       {selectedPhase !== 'DRAFT' && currentStatus !== 'DRAFT' && (
         <>
           <Separator />
-          <ContextTree
-            selectedPhase={selectedPhase}
-            ticketId={ticketId}
-          />
+          {selectedPhase === 'WAITING_INTERVIEW_ANSWERS'
+            ? <InterviewNavigator ticketId={ticketId} />
+            : (
+              <ContextTree
+                selectedPhase={selectedPhase}
+                ticketId={ticketId}
+              />
+            )}
         </>
       )}
     </div>

@@ -14,6 +14,11 @@ import {
 
 const activeActors = new Map<string, ReturnType<typeof createActor<typeof ticketMachine>>>()
 
+export function parseLockedDisableAnalogies(value: number | boolean | null | undefined): boolean | null {
+  if (value === null || value === undefined) return null
+  return Boolean(value)
+}
+
 function resolveTicketRef(ticketRef: string | number): string {
   if (typeof ticketRef === 'string' && ticketRef.includes(':')) return ticketRef
   const numericId = typeof ticketRef === 'number' ? ticketRef : Number(ticketRef)
@@ -115,6 +120,9 @@ export function ensureActorForTicket(ticketRef: string | number) {
     title: ticket.localTicket.title,
     lockedMainImplementer: ticket.localTicket.lockedMainImplementer ?? null,
     lockedCouncilMembers: ticket.localTicket.lockedCouncilMembers ? JSON.parse(ticket.localTicket.lockedCouncilMembers) as string[] : null,
+    lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
+    lockedUserBackground: ticket.localTicket.lockedUserBackground ?? null,
+    lockedDisableAnalogies: parseLockedDisableAnalogies(ticket.localTicket.lockedDisableAnalogies),
   }
 
   if (ticket.localTicket.xstateSnapshot) {
@@ -190,6 +198,9 @@ export function createTicketActor(
     maxIterations?: number
     lockedMainImplementer?: string | null
     lockedCouncilMembers?: string[] | null
+    lockedInterviewQuestions?: number | null
+    lockedUserBackground?: string | null
+    lockedDisableAnalogies?: boolean | null
   },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
@@ -202,6 +213,9 @@ export function createTicketActor(
       maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
       lockedMainImplementer: input.lockedMainImplementer ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
+      lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
+      lockedUserBackground: input.lockedUserBackground ?? null,
+      lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     },
   })
 
@@ -224,6 +238,9 @@ export function hydrateTicketActor(
     maxIterations?: number
     lockedMainImplementer?: string | null
     lockedCouncilMembers?: string[] | null
+    lockedInterviewQuestions?: number | null
+    lockedUserBackground?: string | null
+    lockedDisableAnalogies?: boolean | null
   },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
@@ -237,6 +254,9 @@ export function hydrateTicketActor(
       maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
       lockedMainImplementer: input.lockedMainImplementer ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
+      lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
+      lockedUserBackground: input.lockedUserBackground ?? null,
+      lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     },
   })
 
@@ -263,6 +283,9 @@ export function hydrateAllTickets() {
         title: ticket.title,
         lockedMainImplementer: ticket.lockedMainImplementer ?? null,
         lockedCouncilMembers: ticket.lockedCouncilMembers.length > 0 ? ticket.lockedCouncilMembers : null,
+        lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
+        lockedUserBackground: ticket.lockedUserBackground ?? null,
+        lockedDisableAnalogies: parseLockedDisableAnalogies(ticket.lockedDisableAnalogies),
       })
       hydrated++
     } catch (err) {

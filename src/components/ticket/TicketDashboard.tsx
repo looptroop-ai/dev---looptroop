@@ -153,8 +153,12 @@ export function TicketDashboard() {
   const errorSignature = ticket ? getErrorTicketSignature(ticket) : null
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
-  const selectedPhase = phaseSelection.ticketId === ticketId ? phaseSelection.phase : null
-  const liveStatus = livePhase.ticketId === ticketId ? livePhase.phase : null
+  const selectedPhase = phaseSelection.ticketId === ticketId && phaseSelection.phase !== (livePhase.ticketId === ticketId ? (livePhase.phase ?? ticket?.status ?? '') : ticket?.status ?? '')
+    ? phaseSelection.phase
+    : null
+  const liveStatus = livePhase.ticketId === ticketId && livePhase.phase !== ticket?.status
+    ? livePhase.phase
+    : null
   const currentStatus = liveStatus ?? ticket?.status ?? ''
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
@@ -164,31 +168,13 @@ export function TicketDashboard() {
       if (current.ticketId === ticketId && current.phase === phase) return current
       return { ticketId, phase }
     })
-  }, [ticketId])
-
-  useEffect(() => {
-    setLivePhase((current) => {
-      if (current.ticketId === ticketId) return current
-      return { ticketId, phase: null }
-    })
-  }, [ticketId])
-
-  useEffect(() => {
-    if (!ticketId || !ticket || !liveStatus) return
-    if (ticket.status !== liveStatus) return
-    setLivePhase((current) => {
-      if (current.ticketId !== ticketId || current.phase !== liveStatus) return current
-      return { ticketId, phase: null }
-    })
-  }, [liveStatus, ticket?.status, ticketId])
-
-  useEffect(() => {
-    if (!ticketId) return
     setPhaseSelection((current) => {
-      if (current.ticketId !== ticketId || current.phase !== currentStatus) return current
-      return { ticketId, phase: null }
+      if (current.ticketId === ticketId && current.phase === phase) {
+        return { ticketId, phase: null }
+      }
+      return current
     })
-  }, [currentStatus, ticketId])
+  }, [ticketId])
 
   useEffect(() => {
     if (!ticket) return
