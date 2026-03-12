@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
@@ -99,7 +99,12 @@ describe('PhaseArtifactsPanel', () => {
         winnerId: 'openai/gpt-5.2',
         drafts: [
           { memberId: 'openai/gpt-5.1-codex', outcome: 'completed', content: 'questions:\n  - id: Q01\n    question: "Draft A?"', questionCount: 21 },
-          { memberId: 'openai/gpt-5.2', outcome: 'completed', content: 'questions:\n  - id: Q01\n    question: "Draft B?"', questionCount: 48 },
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Original winner question?"\n  - id: Q02\n    phase: structure\n    question: "Unchanged question?"',
+            questionCount: 48,
+          },
         ],
       }),
     }
@@ -113,8 +118,11 @@ describe('PhaseArtifactsPanel', () => {
       createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
-        refinedContent: 'questions:\n  - id: Q01\n    question: "Final?"',
-        questions: [{ id: 'Q01', phase: 'Foundation', question: 'Final?' }],
+        refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"\n  - id: Q02\n    phase: structure\n    question: "Unchanged question?"',
+        questions: [
+          { id: 'Q01', phase: 'Foundation', question: 'Refined winner question?' },
+          { id: 'Q02', phase: 'Structure', question: 'Unchanged question?' },
+        ],
         questionCount: 48,
       }),
     }
@@ -134,9 +142,16 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('proposed 21 questions')).toBeInTheDocument()
     expect(screen.getByText('proposed 48 questions')).toBeInTheDocument()
     expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
+    expect(screen.getByText('Interview Draft Diff')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
+    expect(screen.getByText('1 change')).toBeInTheDocument()
     expect(screen.queryByText('Winner — refining draft')).not.toBeInTheDocument()
     expect(screen.queryByText('🔄 Refining')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Draft Diff/i }))
+    expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
+    expect(screen.getByText('Original winner question?')).toBeInTheDocument()
+    expect(screen.getByText('Refined winner question?')).toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {
@@ -165,6 +180,7 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.getByText('Interview Answers')).toBeInTheDocument()
     expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
+    expect(screen.getByText('Interview Draft Diff')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
   })
 })

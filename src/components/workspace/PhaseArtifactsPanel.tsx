@@ -88,6 +88,23 @@ interface CouncilResultData {
   presentationOrders?: Record<string, VotePresentationOrderData>
 }
 
+interface InterviewDiffArtifactData {
+  winnerId?: string
+  originalContent?: string
+  refinedContent?: string
+  originalQuestionCount?: number
+  refinedQuestionCount?: number
+}
+
+interface InterviewDiffEntry {
+  key: string
+  id: string
+  changeType: 'changed' | 'added' | 'removed'
+  phase?: string
+  before?: string
+  after?: string
+}
+
 function extractDraftDetail(content: string | null): string {
   if (!content) return ''
   const questionMatch = content.match(/(\d+)\s*(?:questions|Q)/i)
@@ -118,6 +135,97 @@ function extractCompiledInterviewDetail(content: string | null): string {
     return detailParts.join(' · ')
   } catch {
     return ''
+  }
+}
+
+function normalizeInterviewDiffQuestions(content: string | undefined): Array<{ id: string; phase?: string; question: string }> {
+  return extractInterviewQuestionPreviews(content ?? '')
+    .map((question, index) => ({
+      id: question.id || `Q${String(index + 1).padStart(2, '0')}`,
+      phase: question.phase,
+      question: question.question,
+    }))
+}
+
+function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEntry[] {
+  if (!content) return []
+  try {
+    const parsed = JSON.parse(content) as InterviewDiffArtifactData
+    const originalQuestions = normalizeInterviewDiffQuestions(parsed.originalContent)
+    const refinedQuestions = normalizeInterviewDiffQuestions(parsed.refinedContent)
+    const maxLength = Math.max(originalQuestions.length, refinedQuestions.length)
+    const diffs: InterviewDiffEntry[] = []
+
+    for (let index = 0; index < maxLength; index += 1) {
+      const before = originalQuestions[index]
+      const after = refinedQuestions[index]
+      const id = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
+      const phase = after?.phase || before?.phase
+
+      if (!before && after) {
+        diffs.push({ key: `${id}:added`, id, changeType: 'added', phase, after: after.question })
+        continue
+      }
+      if (before && !after) {
+        diffs.push({ key: `${id}:removed`, id, changeType: 'removed', phase, before: before.question })
+        continue
+      }
+      if (before && after && (before.question !== after.question || before.phase !== after.phase)) {
+        diffs.push({
+          key: `${id}:changed`,
+          id,
+          changeType: 'changed',
+          phase,
+          before: before.question,
+          after: after.question,
+        })
+      }
+    }
+
+    return diffs
+  } catch {
+    return []
+  }
+}
+
+function extractInterviewDiffDetail(content: string | null): string {
+  const diffCount = buildInterviewDiffEntries(content ?? undefined).length
+  return diffCount > 0 ? `${diffCount} change${diffCount === 1 ? '' : 's'}` : ''
+}
+
+function buildInterviewDiffArtifactContent(voteContent: string | null | undefined, compiledContent: string | null | undefined): string | null {
+  if (!voteContent || !compiledContent) return null
+
+  const voteResult = tryParseCouncilResult(voteContent)
+  if (!voteResult?.winnerId) return null
+
+  const winnerDraft = (voteResult.drafts ?? []).find((draft) => draft.memberId === voteResult.winnerId)
+  if (!winnerDraft?.content) return null
+
+  try {
+    const compiled = JSON.parse(compiledContent) as {
+      refinedContent?: string
+      questionCount?: number
+      questions?: unknown[]
+      winnerId?: string
+    }
+    const refinedContent = typeof compiled.refinedContent === 'string' ? compiled.refinedContent : ''
+    if (!refinedContent) return null
+
+    const payload: InterviewDiffArtifactData = {
+      winnerId: compiled.winnerId ?? voteResult.winnerId,
+      originalContent: winnerDraft.content,
+      refinedContent,
+      originalQuestionCount: normalizeInterviewDiffQuestions(winnerDraft.content).length,
+      refinedQuestionCount: typeof compiled.questionCount === 'number'
+        ? compiled.questionCount
+        : Array.isArray(compiled.questions)
+          ? compiled.questions.length
+          : normalizeInterviewDiffQuestions(refinedContent).length,
+    }
+    return JSON.stringify(payload)
+  } catch {
+    return null
   }
 }
 
@@ -175,6 +283,77 @@ function InterviewDraftView({ content }: { content: string }) {
           </ol>
         </CollapsibleSection>
       ))}
+    </div>
+  )
+}
+
+function InterviewDraftDiffView({ content }: { content: string }) {
+  let parsed: InterviewDiffArtifactData | null = null
+  try {
+    parsed = JSON.parse(content) as InterviewDiffArtifactData
+  } catch {
+    return <RawContentView content={content} />
+  }
+
+  const diffs = buildInterviewDiffEntries(content)
+  const changedCount = diffs.filter((diff) => diff.changeType === 'changed').length
+  const addedCount = diffs.filter((diff) => diff.changeType === 'added').length
+  const removedCount = diffs.filter((diff) => diff.changeType === 'removed').length
+  const winnerLabel = parsed?.winnerId ? getModelDisplayName(parsed.winnerId) : 'winning model'
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-muted-foreground">
+        Comparing winning draft from {winnerLabel} ({parsed?.originalQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.originalContent).length} questions) with the final refined interview ({parsed?.refinedQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.refinedContent).length} questions).
+      </div>
+      <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {changedCount}</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Added {addedCount}</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Removed {removedCount}</span>
+      </div>
+      {diffs.length === 0 ? (
+        <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+          No differences detected between the winning draft and the final refined interview.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {diffs.map((diff) => (
+            <CollapsibleSection
+              key={diff.key}
+              defaultOpen
+              title={(
+                <span className="flex items-center gap-2">
+                  <span>{diff.id}</span>
+                  {diff.phase ? <span className="text-muted-foreground">{diff.phase}</span> : null}
+                  <span className={diff.changeType === 'added'
+                    ? 'text-green-600 dark:text-green-400'
+                    : diff.changeType === 'removed'
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-blue-600 dark:text-blue-400'}
+                  >
+                    {diff.changeType === 'changed' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
+                  </span>
+                </span>
+              )}
+            >
+              <div className="space-y-3">
+                {diff.before && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900/60 dark:bg-red-950/20">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
+                    <div className="text-xs text-red-950 dark:text-red-100">{diff.before}</div>
+                  </div>
+                )}
+                {diff.after && (
+                  <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900/60 dark:bg-green-950/20">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
+                    <div className="text-xs text-green-950 dark:text-green-100">{diff.after}</div>
+                  </div>
+                )}
+              </div>
+            </CollapsibleSection>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -556,12 +735,16 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     ]
   }
   if (phase === 'COMPILING_INTERVIEW') {
-    return [{ id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'final-interview-diff', label: 'Interview Draft Diff', description: 'Changes from the winning draft to the refined final interview', icon: <FileText className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
     return [
-      { id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> },
       { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'final-interview-diff', label: 'Interview Draft Diff', description: 'Changes from the winning draft to the refined final interview', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> },
     ]
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
@@ -597,6 +780,9 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
 function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
   if (artifactId === 'interview-answers') {
     return <InterviewAnswersView content={content} />
+  }
+  if (artifactId === 'final-interview-diff') {
+    return <InterviewDraftDiffView content={content} />
   }
 
   let coverageResult: { response?: string; hasGaps?: boolean } | null = null
@@ -831,6 +1017,8 @@ function resolveStaticArtifact(
       return findExactType('interview_votes')
     case 'final-interview':
       return findExactType('interview_compiled')
+    case 'final-interview-diff':
+      return findExactType('interview_compiled')
     case 'winner-prd-draft':
       return findExactType('prd_votes')
     case 'winner-beads-draft':
@@ -918,6 +1106,11 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : supplementalArtifacts
 
   const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
+    if (artifactDef.id === 'final-interview-diff') {
+      const voteArtifact = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_VOTING_INTERVIEW' && artifact.artifactType === 'interview_votes')
+      const compiledArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'interview_compiled')
+      return buildInterviewDiffArtifactContent(voteArtifact?.content, compiledArtifact?.content)
+    }
     const match = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
     return match?.content ?? null
   }, [phase, reversedArtifacts])
@@ -949,6 +1142,13 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       return {
         outcome: 'completed',
         detail: extractCompiledInterviewDetail(content) || undefined,
+      }
+    }
+
+    if (artifact.id === 'final-interview-diff') {
+      return {
+        outcome: 'completed',
+        detail: extractInterviewDiffDetail(content) || undefined,
       }
     }
 
