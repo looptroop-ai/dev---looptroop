@@ -64,6 +64,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const [draftAnswers, setDraftAnswers] = useState<Record<string, Record<string, string>>>({})
   const [showHistory, setShowHistory] = useState(true)
   const [sseBatch, setSseBatch] = useState<PersistedInterviewBatch | null>(null)
+  const [processingError, setProcessingError] = useState<string | null>(null)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const session = interviewData?.session ?? null
@@ -90,9 +91,14 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data) as { type?: string; ticketId?: string; batch?: PersistedInterviewBatch }
-        if (data.type === 'interview_batch' && String(data.ticketId) === String(ticket.id) && data.batch) {
+        const data = JSON.parse(event.data) as { type?: string; ticketId?: string; batch?: PersistedInterviewBatch; error?: string }
+        if (String(data.ticketId) !== String(ticket.id)) return
+        if (data.type === 'interview_batch' && data.batch) {
           setSseBatch(data.batch)
+          setProcessingError(null)
+        }
+        if (data.type === 'interview_error') {
+          setProcessingError(data.error ?? 'Failed to process interview batch')
         }
       } catch {
         // Ignore malformed messages.
@@ -185,6 +191,30 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
           <CardContent className="py-6 text-center space-y-2">
             <p className="text-sm font-medium text-foreground">Interview Complete</p>
             <p className="text-xs">The normalized interview artifact is ready. Moving to coverage verification…</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (processingError && !currentBatch) {
+    return (
+      <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+        <Card className="max-w-sm border-destructive/40">
+          <CardContent className="py-6 text-center space-y-3">
+            <p className="text-sm font-medium text-destructive">Processing Error</p>
+            <p className="text-xs text-muted-foreground">{processingError}</p>
+            <p className="text-[10px] text-muted-foreground">
+              The batch has been restored — you can re-submit your answers.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => setProcessingError(null)}
+            >
+              Dismiss
+            </Button>
           </CardContent>
         </Card>
       </div>

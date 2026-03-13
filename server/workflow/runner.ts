@@ -21,7 +21,6 @@ import { checkMemberResponseQuorum, checkQuorum } from '../council/quorum'
 import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType, LogSource } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
-import { SessionManager } from '../opencode/sessionManager'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM12, PROM13, PROM22, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
@@ -218,20 +217,18 @@ function normalizeCoverageQuestionsToYaml(questions: CoverageFollowUpQuestion[])
 }
 
 async function restoreInterviewQASession(ticketId: string) {
-  const sessionInfo = interviewQASessions.get(ticketId) ?? readInterviewQASessionArtifact(ticketId)
-  if (!sessionInfo) return null
+  const cached = interviewQASessions.get(ticketId)
+  if (cached) return cached
 
-  const sessionManager = new SessionManager(adapter)
-  const session = await sessionManager.validateAndReconnect(ticketId, 'WAITING_INTERVIEW_ANSWERS', {
-    phaseAttempt: 1,
-    memberId: sessionInfo.winnerId,
-  })
-  if (!session || session.id !== sessionInfo.sessionId) {
-    return null
-  }
+  // After server restart the in-memory map is empty. Reload from DB and trust
+  // the persisted session ID — adapter.listSessions() silently returns [] on
+  // transient errors, causing valid sessions to be abandoned. The actual
+  // OpenCode prompt call will surface a real error if the session is gone.
+  const persisted = readInterviewQASessionArtifact(ticketId)
+  if (!persisted) return null
 
-  interviewQASessions.set(ticketId, sessionInfo)
-  return sessionInfo
+  interviewQASessions.set(ticketId, persisted)
+  return persisted
 }
 
 /**
@@ -3465,6 +3462,11 @@ export async function handleInterviewQABatch(
     }
   }
 
+  // Persist intermediate state immediately: answers saved, currentBatch cleared.
+  // This ensures GET /interview returns the correct state while the AI processes
+  // the next batch, and answers are not lost if the OpenCode call fails.
+  persistInterviewSession(ticketId, answeredSnapshot)
+
   // Get session info from memory or reload from DB
   const sessionInfo = await restoreInterviewQASession(ticketId)
   if (!sessionInfo) {
@@ -3594,6 +3596,32 @@ export async function handleInterviewQABatch(
     `PROM4 batch ${persistedNextBatch.batchNumber}: ${persistedNextBatch.questions.length} questions. Progress: ${persistedNextBatch.progress.current}/${persistedNextBatch.progress.total}.`)
 
   return persistedNextBatch
+}
+
+/**
+ * Fire-and-forget wrapper for handleInterviewQABatch.
+ * Records answers synchronously (via handleInterviewQABatch's intermediate persist),
+ * then processes the AI call in the background. On error, reverts to the original
+ * snapshot so the user can retry.
+ *
+ * Returns a Promise that resolves with the BatchResponse (for .then()/.catch() chaining
+ * in the route handler). Callers should NOT await this — call it fire-and-forget.
+ */
+export function processInterviewBatchAsync(
+  ticketId: string,
+  batchAnswers: Record<string, string>,
+  originalSnapshot: InterviewSessionSnapshot,
+): Promise<BatchResponse> {
+  return handleInterviewQABatch(ticketId, batchAnswers)
+    .catch((err) => {
+      // Revert to original snapshot so the user can retry the submission
+      try {
+        persistInterviewSession(ticketId, originalSnapshot)
+      } catch (revertErr) {
+        console.error(`[runner] Failed to revert interview snapshot for ${ticketId}:`, revertErr)
+      }
+      throw err
+    })
 }
 
 function buildMockInterviewQuestions() {

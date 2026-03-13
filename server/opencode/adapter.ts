@@ -166,7 +166,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       return Array.isArray(res.data)
         ? res.data.map(session => this.mapSession(session as Record<string, unknown>))
         : []
-    } catch {
+    } catch (err) {
+      warnIfVerbose(`[adapter] listSessions failed: ${err instanceof Error ? err.message : err}`)
       return []
     }
   }

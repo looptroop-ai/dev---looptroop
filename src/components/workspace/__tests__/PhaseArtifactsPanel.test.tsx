@@ -4,6 +4,14 @@ import { describe, expect, it } from 'vitest'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { PhaseArtifactsPanel } from '../PhaseArtifactsPanel'
 
+/** Find the innermost element whose full textContent (including children) matches exactly. */
+function getByTextContent(text: string) {
+  return screen.getByText((_content, element) => {
+    return element?.textContent === text
+      && Array.from(element?.children ?? []).every((child) => child.textContent !== text)
+  })
+}
+
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -127,7 +135,7 @@ describe('PhaseArtifactsPanel', () => {
       }),
     }
 
-    const { container } = renderWithProviders(
+    renderWithProviders(
       <PhaseArtifactsPanel
         phase="COMPILING_INTERVIEW"
         isCompleted={false}
@@ -152,9 +160,9 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
-    expect(screen.getByText('Original winner question?')).toBeInTheDocument()
-    expect(screen.getByText('Refined winner question?')).toBeInTheDocument()
-    expect(Array.from(container.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(['Original', 'Refined'])
+    expect(getByTextContent('Original winner question?')).toBeInTheDocument()
+    expect(getByTextContent('Refined winner question?')).toBeInTheDocument()
+    expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(['Original', 'Refined'])
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {
@@ -236,7 +244,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
-    expect(screen.getByText('Original winner question?')).toBeInTheDocument()
-    expect(screen.getByText('Refined winner question?')).toBeInTheDocument()
+    expect(getByTextContent('Original winner question?')).toBeInTheDocument()
+    expect(getByTextContent('Refined winner question?')).toBeInTheDocument()
   })
 })

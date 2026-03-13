@@ -241,9 +241,9 @@ function buildQuestionDiffSegments(before: string | undefined, after: string | u
 
   for (let beforeIndex = beforeTokens.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
     for (let afterIndex = afterTokens.length - 1; afterIndex >= 0; afterIndex -= 1) {
-      lcs[beforeIndex][afterIndex] = beforeTokens[beforeIndex] === afterTokens[afterIndex]
-        ? lcs[beforeIndex + 1][afterIndex + 1] + 1
-        : Math.max(lcs[beforeIndex + 1][afterIndex], lcs[beforeIndex][afterIndex + 1])
+      lcs[beforeIndex]![afterIndex] = beforeTokens[beforeIndex] === afterTokens[afterIndex]
+        ? (lcs[beforeIndex + 1]?.[afterIndex + 1] ?? 0) + 1
+        : Math.max(lcs[beforeIndex + 1]?.[afterIndex] ?? 0, lcs[beforeIndex]![afterIndex + 1] ?? 0)
     }
   }
 
@@ -254,7 +254,7 @@ function buildQuestionDiffSegments(before: string | undefined, after: string | u
 
   while (beforeIndex < beforeTokens.length && afterIndex < afterTokens.length) {
     if (beforeTokens[beforeIndex] === afterTokens[afterIndex]) {
-      const shared = beforeTokens[beforeIndex]
+      const shared = beforeTokens[beforeIndex]!
       beforeSegments.push({ text: shared, changed: false })
       afterSegments.push({ text: shared, changed: false })
       beforeIndex += 1
@@ -262,23 +262,23 @@ function buildQuestionDiffSegments(before: string | undefined, after: string | u
       continue
     }
 
-    if (lcs[beforeIndex + 1][afterIndex] >= lcs[beforeIndex][afterIndex + 1]) {
-      beforeSegments.push({ text: beforeTokens[beforeIndex], changed: true })
+    if ((lcs[beforeIndex + 1]?.[afterIndex] ?? 0) >= (lcs[beforeIndex]?.[afterIndex + 1] ?? 0)) {
+      beforeSegments.push({ text: beforeTokens[beforeIndex]!, changed: true })
       beforeIndex += 1
       continue
     }
 
-    afterSegments.push({ text: afterTokens[afterIndex], changed: true })
+    afterSegments.push({ text: afterTokens[afterIndex]!, changed: true })
     afterIndex += 1
   }
 
   while (beforeIndex < beforeTokens.length) {
-    beforeSegments.push({ text: beforeTokens[beforeIndex], changed: true })
+    beforeSegments.push({ text: beforeTokens[beforeIndex]!, changed: true })
     beforeIndex += 1
   }
 
   while (afterIndex < afterTokens.length) {
-    afterSegments.push({ text: afterTokens[afterIndex], changed: true })
+    afterSegments.push({ text: afterTokens[afterIndex]!, changed: true })
     afterIndex += 1
   }
 

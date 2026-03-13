@@ -11,8 +11,9 @@ import {
 } from '../machines/persistence'
 import { abortTicketSessions } from '../opencode/sessionManager'
 import { clearContextCache } from '../opencode/contextBuilder'
+import { isMockOpenCodeMode } from '../opencode/factory'
 import { broadcaster } from '../sse/broadcaster'
-import { cancelTicket, handleInterviewQABatch } from '../workflow/runner'
+import { cancelTicket, handleInterviewQABatch, processInterviewBatchAsync } from '../workflow/runner'
 import { createTicket as createTicketRecord } from '../ticket/create'
 import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
 import { getProjectContextById } from '../storage/projects'
@@ -419,6 +420,46 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
       return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
     }
 
+    // Determine if the batch needs a slow AI call (PROM4) or can be handled fast
+    const sessionArt = getLatestPhaseArtifact(ticketId, INTERVIEW_SESSION_ARTIFACT)
+    const session = parseInterviewSessionSnapshot(sessionArt?.content)
+    const isCoverageBatch = session?.currentBatch?.source === 'coverage'
+    const needsAsyncProcessing = !isMockOpenCodeMode() && !isCoverageBatch
+
+    if (needsAsyncProcessing) {
+      // ASYNC path: return 202 immediately, process AI call in background.
+      // handleInterviewQABatch persists the intermediate state (answers saved,
+      // currentBatch cleared) synchronously before its first await, so the
+      // snapshot is consistent by the time we return.
+      ensureActorForTicket(ticketId)
+      sendTicketEvent(ticketId, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers })
+
+      processInterviewBatchAsync(ticketId, parsed.data.answers, session!)
+        .then(result => {
+          ensureActorForTicket(ticketId)
+          if (result.isComplete) {
+            sendTicketEvent(ticketId, { type: 'INTERVIEW_COMPLETE' })
+          } else {
+            broadcaster.broadcast(ticketId, 'needs_input', {
+              ticketId,
+              type: 'interview_batch',
+              batch: result,
+            })
+          }
+        })
+        .catch(err => {
+          console.error(`[tickets] Async batch processing failed for ${ticketId}:`, err)
+          broadcaster.broadcast(ticketId, 'needs_input', {
+            ticketId,
+            type: 'interview_error',
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
+
+      return c.json({ accepted: true }, 202)
+    }
+
+    // SYNC path: mock mode or coverage batches (fast, no AI call)
     const result = await handleInterviewQABatch(ticketId, parsed.data.answers)
     ensureActorForTicket(ticketId)
     if (result.isComplete) {

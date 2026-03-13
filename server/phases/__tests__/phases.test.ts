@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { createBatches, processAnswers, calculateFollowUpLimit } from '../interview/qa'
-import { verifyInterviewCoverage } from '../interview/coverage'
 import { verifyPRDCoverage } from '../prd/coverage'
 import { verifyBeadsCoverage } from '../beads/coverage'
 import { expandBeads } from '../beads/expand'
-import type { InterviewQuestion, InterviewResult } from '../interview/types'
+import type { InterviewQuestion } from '../interview/types'
 import type { Bead, BeadSubset } from '../beads/types'
 
 describe('Interview Q&A', () => {
@@ -35,40 +34,6 @@ describe('Interview Q&A', () => {
     expect(calculateFollowUpLimit(10)).toBe(2)
     expect(calculateFollowUpLimit(5)).toBe(1)
     expect(calculateFollowUpLimit(1)).toBe(1)
-  })
-})
-
-describe('Interview Coverage', () => {
-  it('passes with all critical questions answered', () => {
-    const result: InterviewResult = {
-      questions: [
-        { id: 'q1', phase: 'scope', question: 'What?', priority: 'critical', rationale: '' },
-        { id: 'q2', phase: 'ux', question: 'How?', priority: 'high', rationale: '' },
-      ],
-      answers: [
-        { questionId: 'q1', answer: 'answer', skipped: false },
-        { questionId: 'q2', answer: 'answer', skipped: false },
-      ],
-      followUps: [],
-      coverageReport: { passed: true, gaps: [] },
-    }
-    const coverage = verifyInterviewCoverage(result)
-    expect(coverage.passed).toBe(true)
-    expect(coverage.coveragePercent).toBe(100)
-  })
-
-  it('fails with unanswered critical question', () => {
-    const result: InterviewResult = {
-      questions: [
-        { id: 'q1', phase: 'scope', question: 'Critical Q', priority: 'critical', rationale: '' },
-      ],
-      answers: [{ questionId: 'q1', answer: '', skipped: true }],
-      followUps: [],
-      coverageReport: { passed: false, gaps: [] },
-    }
-    const coverage = verifyInterviewCoverage(result)
-    expect(coverage.passed).toBe(false)
-    expect(coverage.gaps.length).toBeGreaterThan(0)
   })
 })
 

@@ -291,7 +291,7 @@ export function useSaveTicketUIState() {
 async function submitBatch(
   ticketId: string,
   answers: Record<string, string>,
-): Promise<PersistedInterviewBatch> {
+): Promise<PersistedInterviewBatch | { accepted: boolean }> {
   const res = await fetch(`/api/tickets/${ticketId}/answer-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

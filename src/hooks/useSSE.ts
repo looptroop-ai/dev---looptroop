@@ -113,7 +113,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           queryClient.invalidateQueries({ queryKey: ['tickets'] })
-          if (data.type === 'interview_batch' && ticketId) {
+          if ((data.type === 'interview_batch' || data.type === 'interview_error') && ticketId) {
             queryClient.invalidateQueries({ queryKey: ['interview', ticketId] })
           }
           onEvent?.({ type: 'needs_input', data })

@@ -108,6 +108,15 @@ function SSELogConnector({
       }), '*')
     }
 
+    // Forward interview_error events so InterviewQAView can show the error
+    if (event.type === 'needs_input' && event.data.type === 'interview_error') {
+      window.postMessage(JSON.stringify({
+        type: 'interview_error',
+        ticketId: event.data.ticketId,
+        error: event.data.error,
+      }), '*')
+    }
+
     const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
     if (phase) {
       logCtx?.addLog(

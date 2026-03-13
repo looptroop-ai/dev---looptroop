@@ -205,16 +205,6 @@ export async function submitBatchToSession(
       parts: [{ type: 'text', content: message }] as PromptPart[],
       signal,
       model,
-      ...(ticketId
-        ? {
-            sessionOwnership: {
-              ticketId,
-              phase: 'WAITING_INTERVIEW_ANSWERS',
-              memberId: model,
-              keepActive: true,
-            },
-          }
-        : {}),
       onStreamEvent: (event) => {
         onOpenCodeStreamEvent?.({
           sessionId,
@@ -316,16 +306,6 @@ async function parseBatchResponseWithRetry(input: {
       parts: retryParts,
       signal: input.signal,
       model: input.model,
-      ...(input.ticketId
-        ? {
-            sessionOwnership: {
-              ticketId: input.ticketId,
-              phase: 'WAITING_INTERVIEW_ANSWERS',
-              memberId: input.model,
-              keepActive: true,
-            },
-          }
-        : {}),
       onStreamEvent: (event) => {
         input.onOpenCodeStreamEvent?.({
           sessionId: input.sessionId,
