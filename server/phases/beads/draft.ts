@@ -4,6 +4,7 @@ import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM20, PROM21, PROM22 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
+import { normalizeBeadSubsetYamlOutput } from '../../structuredOutput'
 
 /** Build a context builder that returns PROM21 (vote) or PROM22 (refine) context. */
 export function buildBeadsContextBuilder(ticketContext: PromptPart[]) {
@@ -57,12 +58,21 @@ export async function draftBeads(
     onOpenCodeSessionLog,
     onOpenCodeStreamEvent,
     onDraftProgress,
-    undefined,
+    (content) => {
+      const result = normalizeBeadSubsetYamlOutput(content)
+      if (!result.ok) throw new Error(result.error)
+      return {
+        normalizedContent: result.normalizedContent,
+        repairApplied: result.repairApplied,
+        repairWarnings: result.repairWarnings,
+      }
+    },
     {
       ticketId: options.ticketId,
       phase: 'DRAFTING_BEADS',
       phaseAttempt: options.phaseAttempt,
       onPromptDispatched: onOpenCodePromptDispatched,
+      structuredRetrySchemaReminder: PROM20.outputFormat,
     },
   )
 

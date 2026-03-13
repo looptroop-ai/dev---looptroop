@@ -4,7 +4,7 @@ import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM1 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
-import { validateInterviewDraft } from './validation'
+import { normalizeInterviewQuestionsOutput } from '../../structuredOutput'
 
 interface InterviewDeliberationOptions {
   draftTimeoutMs: number
@@ -58,12 +58,22 @@ export async function deliberateInterview(
     onOpenCodeSessionLog,
     onOpenCodeStreamEvent,
     onDraftProgress,
-    (content) => validateInterviewDraft(content, options.maxInitialQuestions),
+    (content) => {
+      const result = normalizeInterviewQuestionsOutput(content, options.maxInitialQuestions)
+      if (!result.ok) throw new Error(result.error)
+      return {
+        questionCount: result.value.questionCount,
+        normalizedContent: result.normalizedContent,
+        repairApplied: result.repairApplied,
+        repairWarnings: result.repairWarnings,
+      }
+    },
     {
       ticketId: options.ticketId,
       phase: 'COUNCIL_DELIBERATING',
       phaseAttempt: options.phaseAttempt,
       onPromptDispatched: onOpenCodePromptDispatched,
+      structuredRetrySchemaReminder: PROM1.outputFormat,
     },
   )
 

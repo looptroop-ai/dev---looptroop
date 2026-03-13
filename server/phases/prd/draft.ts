@@ -4,6 +4,7 @@ import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM10, PROM11, PROM12 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
+import { normalizePrdYamlOutput } from '../../structuredOutput'
 
 /** Build a context builder that returns PROM11 (vote) or PROM12 (refine) context. */
 export function buildPrdContextBuilder(ticketContext: PromptPart[]) {
@@ -46,6 +47,7 @@ export async function draftPRD(
   onDraftProgress?: (entry: DraftProgressEvent) => void,
 ): Promise<DraftPhaseResult> {
   const promptContent = buildPromptFromTemplate(PROM10, ticketContext)
+  const interviewContent = ticketContext.find((part) => part.source === 'interview')?.content
 
   const draftRun = await generateDrafts(
     adapter,
@@ -57,12 +59,24 @@ export async function draftPRD(
     onOpenCodeSessionLog,
     onOpenCodeStreamEvent,
     onDraftProgress,
-    undefined,
+    (content) => {
+      const result = normalizePrdYamlOutput(content, {
+        ticketId: options.ticketId ?? '',
+        interviewContent,
+      })
+      if (!result.ok) throw new Error(result.error)
+      return {
+        normalizedContent: result.normalizedContent,
+        repairApplied: result.repairApplied,
+        repairWarnings: result.repairWarnings,
+      }
+    },
     {
       ticketId: options.ticketId,
       phase: 'DRAFTING_PRD',
       phaseAttempt: options.phaseAttempt,
       onPromptDispatched: onOpenCodePromptDispatched,
+      structuredRetrySchemaReminder: PROM10.outputFormat,
     },
   )
 

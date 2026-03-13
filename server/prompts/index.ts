@@ -36,6 +36,11 @@ function buildStrictVoteOutputInstruction(categories: string[]): string {
 }
 
 const STRICT_VOTE_OUTPUT_FORMAT = 'YAML with top-level `draft_scores` mapping keyed by exact draft labels. Each draft: rubric integer fields plus `total_score`. No other fields.'
+const STRUCTURED_SELF_CHECK = 'Final Self-Check: before responding, verify that you are returning only the artifact, using the exact required top-level shape, with no prose, no markdown fences, no commentary, and no extra wrapper keys.'
+const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of strings. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
+const INTERVIEW_PHASE_ORDER_RULE = 'Phase Order Is Mandatory: all `foundation` questions first, then all `structure` questions, then all `assembly` questions. Never go backwards to an earlier phase once you have entered a later phase.'
+const BEAD_SUBSET_OUTPUT_FORMAT = 'YAML with top-level `beads` list. Each bead item must include exactly: `id`, `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, `testCommands`.'
+const BEADS_JSONL_OUTPUT_FORMAT = 'JSONL only. One JSON object per line. No markdown fences, no surrounding array, no prose, and no wrapper object.'
 
 // Interview Phase Prompts
 export const PROM1: PromptTemplate = {
@@ -47,6 +52,7 @@ export const PROM1: PromptTemplate = {
     'Phase 1 - Foundation (What/Who/Why): First establish project intent, target user, core value, constraints (and out of scope), and non-goals. Exit criteria: no core ambiguity remains for problem, user, and objective.',
     'Phase 2 - Structure (Complete Feature Inventory): Then capture the full list of required features and major user flows before deep implementation details. Exit criteria: feature inventory is complete, deduplicated, and prioritized.',
     'Phase 3 - Assembly (Deep Dive Per Feature): Then go feature-by-feature and define implementation-level expectations (behavior, edge cases, acceptance criteria, test intent, dependencies). Exit criteria: each in-scope feature has enough detail to support PRD generation without guessing.',
+    INTERVIEW_PHASE_ORDER_RULE,
     'Question Limit: Treat `max_initial_questions` as a hard upper bound, but endeavor to approach that limit when doing so is necessary to remove ambiguity and ensure comprehensive requirements gathering. Ask only as many questions as are needed to remove meaningful ambiguity and gather enough detail for PRD generation; stop once additional questions would be redundant or low-value.',
     `Output Format: Output strict machine-readable YAML. The top-level key MUST be \`questions\` containing a list. Each entry MUST have exactly three fields: \`id\`, \`phase\`, and \`question\`.
     Example:
@@ -59,6 +65,7 @@ export const PROM1: PromptTemplate = {
         phase: structure
         question: "Another question?"
     \`\`\``,
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML with top-level `questions` list. Each item: {id, phase, question}. No other fields.',
   contextInputs: ['codebase_map', 'ticket_details'],
@@ -74,6 +81,7 @@ export const PROM2: PromptTemplate = {
     'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_INTERVIEW.map(item => item.category)),
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
@@ -89,7 +97,9 @@ export const PROM3: PromptTemplate = {
     'Gap Scan: Read through the alternative drafts and note anything they cover that your draft does not: topics you skipped, edge cases you missed, or questions that are unambiguously clearer or more precise than yours. These are candidates — not automatic additions.',
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a variation of something you already cover well? If it fills a real gap, add it. If it is a strictly better phrasing of one of your existing questions, replace yours with it. Otherwise, discard it.',
     'Restraint: Avoid appending near-duplicate questions that merely rephrase something you already cover. But if genuine gaps exist — topics missed, edge cases overlooked — fill them; `max_initial_questions` is a ceiling, not a target to stay away from, but never pass it',
+    INTERVIEW_PHASE_ORDER_RULE,
     'Formatting: Output the final refined draft using the exact same structural format required for this phase. Output only the final artifact.',
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — same question list format as PROM1 output, matching PROM5.output_file questions schema',
   contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
@@ -120,6 +130,9 @@ export const PROM4: PromptTemplate = {
       priority: (critical | high | medium | low)
       rationale: (why this question matters)`,
     `Final Complete Output: When the interview is fully complete (after the final free-form answer), wrap the final output in <INTERVIEW_COMPLETE> tags containing the complete interview results YAML matching PROM5.output_file schema.`,
+    'Output Discipline: For intermediate turns, return exactly one <INTERVIEW_BATCH> block and nothing else outside it. For the final turn, return exactly one <INTERVIEW_COMPLETE> block and nothing else outside it.',
+    'Formatting Discipline: Do not place markdown fences inside either tag block. Keep YAML indentation valid so every question field stays nested under its list item.',
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — complete interview results file matching PROM5.output_file schema',
   contextInputs: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
@@ -134,8 +147,10 @@ export const PROM5: PromptTemplate = {
     'Coverage Check: Detect unresolved ambiguity, missing constraints, missing edge cases, missing non-goals, and inconsistent answers.',
     'Identify Gaps: List any specific gaps or discrepancies found between the source material and the Interview Results.',
     'Follow-up: If gaps exist, generate only the targeted follow-up questions strictly necessary to resolve them (no more than 20% of `max_initial_questions`). Do not generate follow-up questions merely because budget remains. If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation.',
+    'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. Use `status: clean` with an empty `follow_up_questions` list when coverage is complete. Use `status: gaps` only when at least one real unresolved gap remains.',
+    STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'YAML',
+  outputFormat: COVERAGE_OUTPUT_FORMAT,
   contextInputs: ['ticket_details', 'user_answers', 'interview'],
 }
 
@@ -151,6 +166,7 @@ export const PROM10: PromptTemplate = {
     'Implementation Steps: For each user story, include detailed technical implementation steps decomposed as far as possible — data flows, state changes, component interactions, and integration points.',
     'Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, explicit non-goals.',
     'Output Format: Output a single, comprehensive PRD document covering all of the above in one artifact.',
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — complete PRD matching the schema defined in PROM13.output_file',
   contextInputs: ['codebase_map', 'ticket_details', 'interview'],
@@ -166,6 +182,7 @@ export const PROM11: PromptTemplate = {
     'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_PRD.map(item => item.category)),
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
@@ -182,6 +199,8 @@ export const PROM12: PromptTemplate = {
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a rephrasing of something you already cover well? If it fills a real gap, add it. If it is a strictly better formulation of something you already have, replace yours with it. Otherwise, discard it.',
     'Restraint: Avoid adding content that merely restates what you already cover. But if genuine gaps exist — missing requirements, unaddressed risks, overlooked error states — add them; completeness matters more than brevity.',
     'Formatting: Output the final refined PRD. Output only the final artifact.',
+    'Schema Preservation: keep the same PRD schema, required top-level sections, and nested field structure. Do not wrap the PRD in another object.',
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — same PRD format as PROM10 output, matching PROM13.output_file schema',
   contextInputs: ['codebase_map', 'ticket_details', 'interview', 'drafts', 'votes'],
@@ -196,8 +215,10 @@ export const PROM13: PromptTemplate = {
     'Coverage Check: Detect and patch missing requirements, edge cases, constraints, and acceptance criteria.',
     'Identify Gaps: List any specific gaps or discrepancies found between the Interview Results and the PRD.',
     'Resolution: Provide the necessary additions or modifications to the PRD to resolve any identified gaps. If no gaps exist, confirm that the PRD is complete and ready for the Beads phase.',
+    'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. For PRD coverage, `follow_up_questions` should normally be an empty list; use `status: gaps` plus `gaps` to trigger another refinement pass.',
+    STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'YAML',
+  outputFormat: COVERAGE_OUTPUT_FORMAT,
   contextInputs: ['interview', 'prd'],
 }
 
@@ -210,10 +231,11 @@ export const PROM20: PromptTemplate = {
   instructions: [
     'Decomposition: Split each user story into one or more beads using phased modular decomposition appropriate to the feature domain to keep flow logical and dependencies minimal.',
     'Granularity: Each bead must be the smallest independently-completable unit of work — small enough that a single AI agent call can implement it with its defined tests, but complete enough to be meaningful.',
-    'Draft Bead Structure: Each bead in this draft phase must include only: Title, PRD references, Description, Context & Architectural Guidance (patterns + anti_patterns), Acceptance criteria, Bead-scoped tests, Test commands.',
+    'Draft Bead Structure: Each bead in this draft phase must include only: id, Title, PRD references, Description, Context & Architectural Guidance (patterns + anti_patterns), Acceptance criteria, Bead-scoped tests, Test commands.',
     'Output Format: Output a structured Beads workspace definition containing all beads in dependency order.',
+    STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'YAML — structured bead list with subset fields',
+  outputFormat: BEAD_SUBSET_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'prd'],
 }
 
@@ -227,6 +249,7 @@ export const PROM21: PromptTemplate = {
     'Anti-anchoring: Drafts are presented in randomized order per evaluator.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of PRD requirements. 2) Correctness / feasibility of technical approach. 3) Quality and isolation of bead-scoped tests. 4) Minimal complexity / good dependency management. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_BEADS.map(item => item.category)),
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
@@ -243,8 +266,10 @@ export const PROM22: PromptTemplate = {
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a variation of something you already cover well? If it fills a real gap, add the bead. If an alternative has a strictly better definition of one of your existing beads — tighter scope, better tests, cleaner dependencies — replace yours with it. Otherwise, discard it.',
     'Restraint: Avoid adding beads that merely restate work already covered by an existing bead. But if genuine gaps exist — missing work units, uncovered error paths, overlooked dependencies — add them; a complete graph matters more than a short one.',
     'Formatting: Output the final refined Beads breakdown. Output only the final artifact.',
+    'Schema Preservation: keep the same bead subset schema and output a single top-level `beads` list. Do not wrap it in prose or a second object.',
+    STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'YAML — same bead list format as PROM20 output',
+  outputFormat: BEAD_SUBSET_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'prd', 'drafts', 'votes'],
 }
 
@@ -257,8 +282,10 @@ export const PROM23: PromptTemplate = {
     'Expansion Fields: For each bead, add: ID (hierarchical + 4-char suffix hash), Priority (sequential order), Status (pending), Issue type, External reference, Labels, Dependencies (blocked_by + blocks arrays), Target files, Notes (empty), Iteration (1), Created at, Updated at, Completed at (empty), Started at (empty), Bead start commit (empty).',
     'Dependency Graph: Ensure all dependency edges are valid — no dangling references, no self-dependencies, no circular dependencies. Priority order should respect dependency ordering.',
     'Output Format: Output the complete final Beads breakdown with all 22 fields per bead, in dependency order. Output as JSONL.',
+    'Output Discipline: output JSONL only. No surrounding array. No markdown fences. No prose before or after the JSONL.',
+    STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'JSONL — one JSON object per line per bead',
+  outputFormat: BEADS_JSONL_OUTPUT_FORMAT,
   contextInputs: ['codebase_map', 'ticket_details', 'prd', 'beads_draft'],
 }
 
@@ -271,8 +298,10 @@ export const PROM24: PromptTemplate = {
     'Coverage Check: Detect uncovered PRD requirements, missing dependency edges, oversized beads, and missing verification steps.',
     'Identify Gaps: List any specific gaps or discrepancies found between the PRD and the Beads breakdown.',
     'Resolution: Provide necessary additions or modifications. Ensure each in-scope PRD requirement maps to at least one bead with explicit verification. If no gaps exist, confirm ready for Execution.',
+    'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. For beads coverage, `follow_up_questions` should usually be an empty list; use `status: gaps` plus concrete gap strings to trigger another refinement pass.',
+    STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'JSONL',
+  outputFormat: COVERAGE_OUTPUT_FORMAT,
   contextInputs: ['prd', 'beads', 'tests'],
 }
 
@@ -305,8 +334,10 @@ export const PROM52: PromptTemplate = {
     'Determinism: Tests must be deterministic and repeatable.',
     'Test Commands: Provide the exact commands to run the final test(s).',
     'Command Marker: End your response with `<FINAL_TEST_COMMANDS>{"commands":["<cmd1>","<cmd2>"],"summary":"short explanation"}</FINAL_TEST_COMMANDS>`.',
+    'Output Discipline: Return exactly one `<FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS>` block and nothing else outside it. Inside the marker, return only the machine-readable object with a non-empty `commands` field.',
     'Do not claim the tests passed yourself. LoopTroop will execute the commands and determine pass/fail from the real exit codes.',
     'Failure Handling: If you added or updated tests, include only the commands needed to verify the final implementation state.',
+    STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'Test file(s) + execution commands',
   contextInputs: ['ticket_details', 'interview', 'prd', 'beads'],

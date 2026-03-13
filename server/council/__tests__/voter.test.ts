@@ -54,4 +54,30 @@ describe('conductVoting', () => {
     expect(result.votes.every(vote => vote.scores.length === rubric.length)).toBe(true)
     expect(result.votes[0]?.scores.map(score => score.category)).toEqual(rubric.map(item => item.category))
   })
+
+  it('retries invalid vote output once before marking the voter invalid', async () => {
+    const adapter = new MockOpenCodeAdapter()
+    const voters: CouncilMember[] = [
+      { modelId: 'model-a', name: 'Model A' },
+    ]
+    const drafts: DraftResult[] = [
+      { memberId: 'draft-a', content: 'draft-a content', outcome: 'completed', duration: 1 },
+      { memberId: 'draft-b', content: 'draft-b content', outcome: 'completed', duration: 1 },
+    ]
+
+    adapter.mockResponses.set('mock-session-1', 'Draft 1:\nScore: 18/20')
+    adapter.mockResponses.set('mock-session-2', buildStrictScorecardResponse(VOTING_RUBRIC_INTERVIEW.map(item => item.category)))
+
+    const result = await conductVoting(
+      adapter,
+      voters,
+      drafts,
+      [{ type: 'text', content: 'vote prompt' }],
+      '/tmp/test',
+      'interview_draft',
+    )
+
+    expect(result.memberOutcomes).toEqual({ 'model-a': 'completed' })
+    expect(result.votes).toHaveLength(2)
+  })
 })

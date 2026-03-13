@@ -22,8 +22,8 @@ import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType, LogSource } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
 import { SessionManager } from '../opencode/sessionManager'
-import type { Message, StreamEvent } from '../opencode/types'
-import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM13, PROM24 } from '../prompts/index'
+import type { Message, PromptPart, StreamEvent } from '../opencode/types'
+import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM12, PROM13, PROM22, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../phases/interview/questions'
 import { buildCompiledInterviewArtifact, requireCompiledInterviewArtifact } from '../phases/interview/compiled'
@@ -50,7 +50,6 @@ import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
-import { repairYamlIndentation } from '@shared/yamlRepair'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { readJsonl, writeJsonl } from '../io/jsonl'
 import { getOpenCodeAdapter, isMockOpenCodeMode } from '../opencode/factory'
@@ -72,6 +71,16 @@ import { executeFinalTestCommands } from '../phases/finalTest/runner'
 import { prepareSquashCandidate } from '../phases/integration/squash'
 import { raceWithCancel, throwIfCancelled } from '../lib/abort'
 import type { InterviewSessionSnapshot, PersistedInterviewBatch } from '@shared/interviewSession'
+import {
+  buildStructuredRetryPrompt,
+  normalizeBeadSubsetYamlOutput,
+  normalizeBeadsJsonlOutput,
+  normalizeCoverageResultOutput,
+  normalizeInterviewQuestionsOutput,
+  normalizePrdYamlOutput,
+  type CoverageFollowUpQuestion,
+  type StructuredOutputMetadata,
+} from '../structuredOutput'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -184,6 +193,28 @@ function buildCoverageFollowUpCommentary(response: string): string {
   return firstMeaningfulLine
     ? `Coverage follow-up needed: ${firstMeaningfulLine}`
     : 'Coverage follow-up questions generated to close remaining gaps.'
+}
+
+function buildStructuredMetadata(
+  base: Partial<StructuredOutputMetadata> | null | undefined,
+  extra?: Partial<StructuredOutputMetadata>,
+): StructuredOutputMetadata {
+  return {
+    repairApplied: Boolean(base?.repairApplied || extra?.repairApplied),
+    repairWarnings: [...(base?.repairWarnings ?? []), ...(extra?.repairWarnings ?? [])],
+    autoRetryCount: Math.max(base?.autoRetryCount ?? 0, extra?.autoRetryCount ?? 0),
+    ...(extra?.validationError
+      ? { validationError: extra.validationError }
+      : base?.validationError
+        ? { validationError: base.validationError }
+        : {}),
+  }
+}
+
+function normalizeCoverageQuestionsToYaml(questions: CoverageFollowUpQuestion[]): string {
+  return questions.length > 0
+    ? JSON.stringify({ follow_up_questions: questions })
+    : ''
 }
 
 async function restoreInterviewQASession(ticketId: string) {
@@ -1696,6 +1727,7 @@ async function handleInterviewCompile(
     `Interview refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
@@ -1747,6 +1779,26 @@ async function handleInterviewCompile(
       activeWinnerDraft,
       activeLosingDrafts,
     ),
+    (content) => {
+      const result = normalizeInterviewQuestionsOutput(
+        content,
+        resolveInterviewDraftSettings(context).maxInitialQuestions,
+      )
+      if (!result.ok) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError: result.error,
+        })
+        throw new Error(result.error)
+      }
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: result.repairApplied,
+        repairWarnings: result.repairWarnings,
+        autoRetryCount: structuredMeta.autoRetryCount,
+      })
+      return { normalizedContent: result.normalizedContent }
+    },
+    PROM3.outputFormat,
   )
 
   // Clean up intermediate data
@@ -1762,7 +1814,10 @@ async function handleInterviewCompile(
     insertPhaseArtifact(ticketId, {
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
-      content: JSON.stringify(compiledArtifact),
+      content: JSON.stringify({
+        ...compiledArtifact,
+        structuredOutput: structuredMeta,
+      }),
     })
 
     // Persist winnerId separately so it survives server restarts and is available
@@ -2213,11 +2268,27 @@ async function handlePrdRefine(
   }
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const paths = getTicketPaths(ticketId)
+  if (!paths) {
+    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  }
+  const ticketDir = paths.ticketDir
+  const interviewPath = resolve(ticketDir, 'interview.yaml')
+  const interviewContent = existsSync(interviewPath)
+    ? (() => {
+        try {
+          return readFileSync(interviewPath, 'utf-8')
+        } catch {
+          return undefined
+        }
+      })()
+    : undefined
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
@@ -2264,16 +2335,30 @@ async function handlePrdRefine(
       ticketId,
       phase: 'REFINING_PRD',
     },
+    undefined,
+    (content) => {
+      const result = normalizePrdYamlOutput(content, {
+        ticketId: context.externalId,
+        interviewContent,
+      })
+      if (!result.ok) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError: result.error,
+        })
+        throw new Error(result.error)
+      }
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: result.repairApplied,
+        repairWarnings: result.repairWarnings,
+      })
+      return { normalizedContent: result.normalizedContent }
+    },
+    PROM12.outputFormat,
   )
 
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:prd`)
-
-  const paths = getTicketPaths(ticketId)
-  if (!paths) {
-    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
-  }
-  const ticketDir = paths.ticketDir
   const prdPath = resolve(ticketDir, 'prd.yaml')
 
   insertPhaseArtifact(ticketId, {
@@ -2282,6 +2367,7 @@ async function handlePrdRefine(
     content: JSON.stringify({
       winnerId: intermediate.winnerId,
       refinedContent,
+      structuredOutput: structuredMeta,
     }),
   })
 
@@ -2636,11 +2722,17 @@ async function handleBeadsRefine(
   }
   const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const paths = getTicketPaths(ticketId)
+  if (!paths) {
+    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  }
+  const beadsPath = paths.beadsPath
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
     `Beads refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
@@ -2687,27 +2779,41 @@ async function handleBeadsRefine(
       ticketId,
       phase: 'REFINING_BEADS',
     },
+    undefined,
+    (content) => {
+      const result = normalizeBeadSubsetYamlOutput(content)
+      if (!result.ok) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError: result.error,
+        })
+        throw new Error(result.error)
+      }
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: result.repairApplied,
+        repairWarnings: result.repairWarnings,
+      })
+      return { normalizedContent: result.normalizedContent }
+    },
+    PROM22.outputFormat,
   )
 
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:beads`)
 
-  const paths = getTicketPaths(ticketId)
-  if (!paths) {
-    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
-  }
-  const beadsPath = paths.beadsPath
-
   // Parse refined content as bead subsets and expand to full beads
-  let beadSubsets: BeadSubset[] = []
-  try {
-    beadSubsets = JSON.parse(refinedContent) as BeadSubset[]
-  } catch {
-    // If refinedContent is not valid JSON array, wrap as single-item
-    beadSubsets = [{ id: 'bead-1', title: 'Main task', prdRefs: [], description: refinedContent, contextGuidance: '', acceptanceCriteria: [], tests: [], testCommands: [] }]
+  const beadSubsetResult = normalizeBeadSubsetYamlOutput(refinedContent)
+  if (!beadSubsetResult.ok) {
+    throw new Error(`PROM22 refinement output failed validation: ${beadSubsetResult.error}`)
   }
+  const beadSubsets: BeadSubset[] = beadSubsetResult.value
 
   const expandedBeads = expandBeads(beadSubsets)
+  const expandedBeadsJsonl = expandedBeads.map((bead) => JSON.stringify(bead)).join('\n')
+  const beadsJsonlResult = normalizeBeadsJsonlOutput(expandedBeadsJsonl)
+  if (!beadsJsonlResult.ok) {
+    throw new Error(`Expanded bead graph failed validation: ${beadsJsonlResult.error}`)
+  }
 
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
@@ -2716,11 +2822,12 @@ async function handleBeadsRefine(
       winnerId: intermediate.winnerId,
       refinedContent,
       expandedBeads,
+      structuredOutput: structuredMeta,
     }),
   })
 
   // Save expanded beads to disk as JSONL
-  writeJsonl(beadsPath, expandedBeads)
+  writeJsonl(beadsPath, beadsJsonlResult.value)
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
     `Refined and expanded ${expandedBeads.length} beads from winner ${intermediate.winnerId}. Saved to ${beadsPath}.`)
@@ -2884,75 +2991,119 @@ async function handleCoverageVerification(
   throwIfAborted(signal, ticketId)
   const streamState = createOpenCodeStreamState()
   let sessionId = ''
-  let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>>
-  try {
-    runResult = await runOpenCodePrompt({
-      adapter,
-      projectPath: worktreePath,
-      parts: [{ type: 'text', content: promptContent }],
-      signal,
-      timeoutMs: councilSettings.draftTimeoutMs,
-      model: winnerId,
-      sessionOwnership: {
-        ticketId,
-        phase: stateLabel,
-        memberId: winnerId,
-      },
-      onSessionCreated: (session) => {
-        sessionId = session.id
-        emitAiMilestone(
-          ticketId,
-          context.externalId,
-          stateLabel,
-          `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
-          `${stateLabel}:${session.id}:coverage-created`,
-          {
-            modelId: winnerId,
-            sessionId: session.id,
-            source: `model:${winnerId}`,
-          },
-        )
-      },
-      onStreamEvent: (event) => {
-        if (!sessionId) return
-        emitOpenCodeStreamEvent(
-          ticketId,
-          context.externalId,
-          stateLabel,
-          winnerId,
-          sessionId,
-          event,
-          streamState,
-        )
-      },
-      onPromptDispatched: (event) => {
-        emitOpenCodePromptLog(
-          ticketId,
-          context.externalId,
-          stateLabel,
-          winnerId,
-          event,
-        )
-      },
-    })
-  } catch (error) {
-    throwIfCancelled(error, signal, ticketId)
-    throw error
-  }
-  throwIfAborted(signal, ticketId)
-  const response = runResult.response
-  const coverageMessages = runResult.messages
+  let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>> | undefined
+  let response = ''
+  let coverageEnvelope: ReturnType<typeof normalizeCoverageResultOutput> | null = null
+  let promptParts: PromptPart[] = [{ type: 'text', content: promptContent }]
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
 
-  emitOpenCodeSessionLogs(
-    ticketId,
-    context.externalId,
-    stateLabel,
-    winnerId,
-    runResult.session.id,
-    'coverage',
-    response,
-    coverageMessages,
-  )
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
+    try {
+      runResult = await runOpenCodePrompt({
+        adapter,
+        projectPath: worktreePath,
+        parts: promptParts,
+        signal,
+        timeoutMs: councilSettings.draftTimeoutMs,
+        model: winnerId,
+        sessionOwnership: {
+          ticketId,
+          phase: stateLabel,
+          memberId: winnerId,
+        },
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          emitAiMilestone(
+            ticketId,
+            context.externalId,
+            stateLabel,
+            `OpenCode coverage: sending ${phase} verification prompt to ${winnerId} (session=${session.id}).`,
+            `${stateLabel}:${session.id}:coverage-created`,
+            {
+              modelId: winnerId,
+              sessionId: session.id,
+              source: `model:${winnerId}`,
+            },
+          )
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          emitOpenCodeStreamEvent(
+            ticketId,
+            context.externalId,
+            stateLabel,
+            winnerId,
+            sessionId,
+            event,
+            streamState,
+          )
+        },
+        onPromptDispatched: (event) => {
+          emitOpenCodePromptLog(
+            ticketId,
+            context.externalId,
+            stateLabel,
+            winnerId,
+            event,
+          )
+        },
+      })
+    } catch (error) {
+      throwIfCancelled(error, signal, ticketId)
+      throw error
+    }
+
+    throwIfAborted(signal, ticketId)
+    response = runResult.response
+
+    emitOpenCodeSessionLogs(
+      ticketId,
+      context.externalId,
+      stateLabel,
+      winnerId,
+      runResult.session.id,
+      'coverage',
+      response,
+      runResult.messages,
+    )
+
+    coverageEnvelope = normalizeCoverageResultOutput(response)
+    if (coverageEnvelope.ok) {
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: coverageEnvelope.repairApplied,
+        repairWarnings: coverageEnvelope.repairWarnings,
+      })
+      break
+    }
+
+    if (attempt === 1) {
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError: coverageEnvelope.error,
+      })
+      const msg = `Coverage output failed validation after retry: ${coverageEnvelope.error}`
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+
+    structuredMeta = buildStructuredMetadata(structuredMeta, {
+      autoRetryCount: 1,
+      validationError: coverageEnvelope.error,
+    })
+    promptParts = buildStructuredRetryPrompt([{ type: 'text', content: promptContent }], {
+      validationError: coverageEnvelope.error,
+      rawResponse: response,
+      schemaReminder: promptTemplate.outputFormat,
+    })
+  }
+
+  if (!coverageEnvelope?.ok || !runResult) {
+    const msg = 'Coverage verification finished without a parseable structured result.'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
 
   // Store the coverage input artifact so the UI can display Q&A / doc being verified
   const coverageInputContent = phase === 'interview'
@@ -2965,46 +3116,20 @@ async function handleCoverageVerification(
     artifactType: `${phase}_coverage_input`,
     content: coverageInputContent,
   })
-
-  // Parse response: detect gaps vs clean coverage
-  // Strategy: try YAML structured fields first, then explicit markers, then heuristic
-  let detectedGaps = false
-  try {
-    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
-    if (parsed && typeof parsed === 'object') {
-      // Structured YAML: check for gaps field or status field
-      if (Array.isArray(parsed.gaps)) {
-        detectedGaps = parsed.gaps.length > 0
-      } else if (typeof parsed.status === 'string') {
-        const s = parsed.status.toLowerCase()
-        detectedGaps = !(s === 'clean' || s === 'pass' || s === 'complete')
-      } else if (parsed.follow_up_questions && Array.isArray(parsed.follow_up_questions)) {
-        detectedGaps = (parsed.follow_up_questions as unknown[]).length > 0
-      }
-    }
-  } catch {
-    // Not valid YAML — fall through to marker-based detection
-    const lowerResponse = response.toLowerCase()
-
-    // Explicit markers (highest confidence)
-    if (lowerResponse.includes('coverage_complete') || lowerResponse.includes('coverage_pass')) {
-      detectedGaps = false
-    } else if (lowerResponse.includes('coverage_fail') || lowerResponse.includes('coverage_gaps')) {
-      detectedGaps = true
-    } else {
-      // Heuristic: check for follow-up questions being generated (not just mentioned)
-      const hasFollowUpQuestions = /follow-up questions?:\s*\n\s*[-\d]/.test(lowerResponse)
-        || /additional questions?\s*(needed|required|to ask)/i.test(response)
-      detectedGaps = hasFollowUpQuestions
-      // When ambiguous, default to clean (retry loop via GAPS_FOUND handles false negatives)
-    }
-  }
+  const detectedGaps = coverageEnvelope.value.status === 'gaps'
 
   // Store the coverage result artifact
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,
     artifactType: `${phase}_coverage`,
-    content: JSON.stringify({ winnerId, response, hasGaps: detectedGaps }),
+    content: JSON.stringify({
+      winnerId,
+      response,
+      normalizedContent: coverageEnvelope.normalizedContent,
+      hasGaps: detectedGaps,
+      parsed: coverageEnvelope.value,
+      structuredOutput: structuredMeta,
+    }),
   })
 
   if (detectedGaps) {
@@ -3016,7 +3141,15 @@ async function handleCoverageVerification(
         return
       }
 
-      const followUpQuestions = extractCoverageFollowUpQuestions(response, interviewSnapshot)
+      const structuredFollowUps = coverageEnvelope.value.followUpQuestions.length > 0
+        ? extractCoverageFollowUpQuestions(
+            normalizeCoverageQuestionsToYaml(coverageEnvelope.value.followUpQuestions),
+            interviewSnapshot,
+          )
+        : []
+      const followUpQuestions = structuredFollowUps.length > 0
+        ? structuredFollowUps
+        : extractCoverageFollowUpQuestions(response, interviewSnapshot)
       if (followUpQuestions.length === 0) {
         const msg = 'Coverage found interview gaps but produced no parseable follow-up questions.'
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)

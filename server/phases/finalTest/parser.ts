@@ -1,3 +1,5 @@
+import { normalizeFinalTestCommandsOutput } from '../../structuredOutput'
+
 export const FINAL_TEST_COMMANDS_MARKER = '<FINAL_TEST_COMMANDS>'
 export const FINAL_TEST_COMMANDS_END = '</FINAL_TEST_COMMANDS>'
 
@@ -6,50 +8,31 @@ export interface FinalTestCommandPlan {
   commands: string[]
   summary: string | null
   errors: string[]
+  repairApplied?: boolean
+  repairWarnings?: string[]
+  validationError?: string
 }
 
 export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
-  const markerStart = output.lastIndexOf(FINAL_TEST_COMMANDS_MARKER)
-  const markerEnd = output.lastIndexOf(FINAL_TEST_COMMANDS_END)
-
-  if (markerStart === -1 || markerEnd === -1 || markerEnd < markerStart) {
+  const normalized = normalizeFinalTestCommandsOutput(output)
+  if (!normalized.ok) {
     return {
-      markerFound: false,
+      markerFound: normalized.error !== 'No final test command marker found',
       commands: [],
       summary: null,
-      errors: ['No final test command marker found'],
+      errors: [normalized.error],
+      repairApplied: normalized.repairApplied,
+      repairWarnings: normalized.repairWarnings,
+      validationError: normalized.error,
     }
   }
 
-  const markerContent = output
-    .slice(markerStart + FINAL_TEST_COMMANDS_MARKER.length, markerEnd)
-    .trim()
-
-  try {
-    const parsed = JSON.parse(markerContent) as {
-      commands?: unknown
-      summary?: unknown
-    }
-
-    const commands = Array.isArray(parsed.commands)
-      ? parsed.commands.filter((command): command is string => typeof command === 'string' && command.trim().length > 0)
-      : []
-    const errors = commands.length === 0
-      ? ['No executable final test commands were provided']
-      : []
-
-    return {
-      markerFound: true,
-      commands,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : null,
-      errors,
-    }
-  } catch {
-    return {
-      markerFound: true,
-      commands: [],
-      summary: null,
-      errors: ['Invalid JSON in final test command marker'],
-    }
+  return {
+    markerFound: true,
+    commands: normalized.value.commands,
+    summary: normalized.value.summary,
+    errors: [],
+    repairApplied: normalized.repairApplied,
+    repairWarnings: normalized.repairWarnings,
   }
 }

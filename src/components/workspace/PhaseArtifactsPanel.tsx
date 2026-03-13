@@ -108,6 +108,13 @@ interface InterviewDiffEntry {
   after?: string
 }
 
+interface QuestionDiffSegment {
+  text: string
+  changed: boolean
+}
+
+const QUESTION_DIFF_TOKEN_PATTERN = /(\s+|[A-Za-z0-9_]+|[^A-Za-z0-9_\s]+)/g
+
 function extractDraftDetail(content: string | null): string {
   if (!content) return ''
   const questionMatch = content.match(/(\d+)\s*(?:questions|Q)/i)
@@ -189,6 +196,108 @@ function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEn
   } catch {
     return []
   }
+}
+
+function tokenizeQuestionDiffText(text: string): string[] {
+  return text.match(QUESTION_DIFF_TOKEN_PATTERN) ?? []
+}
+
+function mergeQuestionDiffSegments(segments: QuestionDiffSegment[]): QuestionDiffSegment[] {
+  const merged: QuestionDiffSegment[] = []
+
+  for (const segment of segments) {
+    if (!segment.text) continue
+    const previous = merged[merged.length - 1]
+    if (previous && previous.changed === segment.changed) {
+      previous.text += segment.text
+      continue
+    }
+    merged.push({ ...segment })
+  }
+
+  return merged
+}
+
+function buildQuestionDiffSegments(before: string | undefined, after: string | undefined): {
+  before: QuestionDiffSegment[]
+  after: QuestionDiffSegment[]
+} {
+  if (!before && !after) return { before: [], after: [] }
+  if (!before) return { before: [], after: after ? [{ text: after, changed: true }] : [] }
+  if (!after) return { before: before ? [{ text: before, changed: true }] : [], after: [] }
+  if (before === after) {
+    return {
+      before: [{ text: before, changed: false }],
+      after: [{ text: after, changed: false }],
+    }
+  }
+
+  const beforeTokens = tokenizeQuestionDiffText(before)
+  const afterTokens = tokenizeQuestionDiffText(after)
+  const lcs: number[][] = Array.from(
+    { length: beforeTokens.length + 1 },
+    () => Array<number>(afterTokens.length + 1).fill(0),
+  )
+
+  for (let beforeIndex = beforeTokens.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
+    for (let afterIndex = afterTokens.length - 1; afterIndex >= 0; afterIndex -= 1) {
+      lcs[beforeIndex][afterIndex] = beforeTokens[beforeIndex] === afterTokens[afterIndex]
+        ? lcs[beforeIndex + 1][afterIndex + 1] + 1
+        : Math.max(lcs[beforeIndex + 1][afterIndex], lcs[beforeIndex][afterIndex + 1])
+    }
+  }
+
+  const beforeSegments: QuestionDiffSegment[] = []
+  const afterSegments: QuestionDiffSegment[] = []
+  let beforeIndex = 0
+  let afterIndex = 0
+
+  while (beforeIndex < beforeTokens.length && afterIndex < afterTokens.length) {
+    if (beforeTokens[beforeIndex] === afterTokens[afterIndex]) {
+      const shared = beforeTokens[beforeIndex]
+      beforeSegments.push({ text: shared, changed: false })
+      afterSegments.push({ text: shared, changed: false })
+      beforeIndex += 1
+      afterIndex += 1
+      continue
+    }
+
+    if (lcs[beforeIndex + 1][afterIndex] >= lcs[beforeIndex][afterIndex + 1]) {
+      beforeSegments.push({ text: beforeTokens[beforeIndex], changed: true })
+      beforeIndex += 1
+      continue
+    }
+
+    afterSegments.push({ text: afterTokens[afterIndex], changed: true })
+    afterIndex += 1
+  }
+
+  while (beforeIndex < beforeTokens.length) {
+    beforeSegments.push({ text: beforeTokens[beforeIndex], changed: true })
+    beforeIndex += 1
+  }
+
+  while (afterIndex < afterTokens.length) {
+    afterSegments.push({ text: afterTokens[afterIndex], changed: true })
+    afterIndex += 1
+  }
+
+  return {
+    before: mergeQuestionDiffSegments(beforeSegments),
+    after: mergeQuestionDiffSegments(afterSegments),
+  }
+}
+
+function renderQuestionDiffSegments(segments: QuestionDiffSegment[], tone: 'added' | 'removed') {
+  const highlightClassName = tone === 'removed'
+    ? 'rounded-[0.2rem] bg-red-100/60 px-0.5 text-inherit dark:bg-red-500/10'
+    : 'rounded-[0.2rem] bg-green-100/60 px-0.5 text-inherit dark:bg-green-500/10'
+
+  return segments.map((segment, index) => (
+    segment.changed && segment.text.trim()
+      ? <mark key={`${tone}-${index}`} className={highlightClassName}>{segment.text}</mark>
+      : <span key={`${tone}-${index}`}>{segment.text}</span>
+  ))
 }
 
 function buildFinalInterviewArtifactContent(voteContent: string | null | undefined, compiledContent: string | null | undefined): string | null {
@@ -322,41 +431,49 @@ function InterviewDraftDiffView({ content }: { content: string }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {diffs.map((diff) => (
-            <CollapsibleSection
-              key={diff.key}
-              defaultOpen
-              title={(
-                <span className="flex items-center gap-2">
-                  <span>{diff.id}</span>
-                  {diff.phase ? <span className="text-muted-foreground">{diff.phase}</span> : null}
-                  <span className={diff.changeType === 'added'
-                    ? 'text-green-600 dark:text-green-400'
-                    : diff.changeType === 'removed'
-                      ? 'text-red-600 dark:text-red-400'
-                      : 'text-blue-600 dark:text-blue-400'}
-                  >
-                    {diff.changeType === 'changed' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
+          {diffs.map((diff) => {
+            const questionDiff = buildQuestionDiffSegments(diff.before, diff.after)
+
+            return (
+              <CollapsibleSection
+                key={diff.key}
+                defaultOpen
+                title={(
+                  <span className="flex items-center gap-2">
+                    <span>{diff.id}</span>
+                    {diff.phase ? <span className="text-muted-foreground">{diff.phase}</span> : null}
+                    <span className={diff.changeType === 'added'
+                      ? 'text-green-600 dark:text-green-400'
+                      : diff.changeType === 'removed'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-blue-600 dark:text-blue-400'}
+                    >
+                      {diff.changeType === 'changed' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
+                    </span>
                   </span>
-                </span>
-              )}
-            >
-              <div className="space-y-3">
-                {diff.before && (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900/60 dark:bg-red-950/20">
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
-                    <div className="text-xs text-red-950 dark:text-red-100">{diff.before}</div>
-                  </div>
                 )}
-                {diff.after && (
-                  <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900/60 dark:bg-green-950/20">
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
-                    <div className="text-xs text-green-950 dark:text-green-100">{diff.after}</div>
-                  </div>
-                )}
-              </div>
-            </CollapsibleSection>
-          ))}
+              >
+                <div className="space-y-3">
+                  {diff.before && (
+                    <div className="rounded-md border border-red-100 bg-red-50/40 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/10">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
+                      <div className="text-xs leading-5 text-red-950 dark:text-red-100">
+                        {renderQuestionDiffSegments(questionDiff.before, 'removed')}
+                      </div>
+                    </div>
+                  )}
+                  {diff.after && (
+                    <div className="rounded-md border border-green-100 bg-green-50/40 px-3 py-2 dark:border-green-900/40 dark:bg-green-950/10">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
+                      <div className="text-xs leading-5 text-green-950 dark:text-green-100">
+                        {renderQuestionDiffSegments(questionDiff.after, 'added')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CollapsibleSection>
+            )
+          })}
         </div>
       )}
     </div>

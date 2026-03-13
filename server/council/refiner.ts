@@ -2,6 +2,7 @@ import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { DraftResult } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
+import { buildStructuredRetryPrompt } from '../structuredOutput'
 
 export async function refineDraft(
   adapter: OpenCodeAdapter,
@@ -35,6 +36,8 @@ export async function refineDraft(
     phaseAttempt?: number
   },
   buildPrompt?: (winnerDraft: DraftResult, losingDrafts: DraftResult[]) => PromptPart[],
+  validateResponse?: (content: string) => { normalizedContent?: string },
+  schemaReminder?: string,
 ): Promise<string> {
   let sessionId = ''
   const refineParts = buildPrompt
@@ -52,53 +55,75 @@ export async function refineDraft(
           ].join('\n'),
         },
       ]
+  let promptParts = refineParts
+  let attemptCount = 0
+  const maxStructuredRetries = 1
 
-  const result = await runOpenCodePrompt({
-    adapter,
-    projectPath,
-    parts: refineParts,
-    signal,
-    timeoutMs,
-    model: winnerDraft.memberId,
-    ...(sessionOwnership
-      ? {
-          sessionOwnership: {
-            ticketId: sessionOwnership.ticketId,
-            phase: sessionOwnership.phase,
-            phaseAttempt: sessionOwnership.phaseAttempt ?? 1,
-            memberId: winnerDraft.memberId,
-          },
-        }
-      : {}),
-    onSessionCreated: (session) => {
-      sessionId = session.id
-    },
-    onStreamEvent: (event) => {
-      onOpenCodeStreamEvent?.({
-        stage: 'refine',
-        memberId: winnerDraft.memberId,
-        sessionId,
-        event,
+  while (true) {
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath,
+      parts: promptParts,
+      signal,
+      timeoutMs,
+      model: winnerDraft.memberId,
+      ...(sessionOwnership
+        ? {
+            sessionOwnership: {
+              ticketId: sessionOwnership.ticketId,
+              phase: sessionOwnership.phase,
+              phaseAttempt: sessionOwnership.phaseAttempt ?? 1,
+              memberId: winnerDraft.memberId,
+            },
+          }
+        : {}),
+      onSessionCreated: (session) => {
+        sessionId = session.id
+      },
+      onStreamEvent: (event) => {
+        onOpenCodeStreamEvent?.({
+          stage: 'refine',
+          memberId: winnerDraft.memberId,
+          sessionId,
+          event,
+        })
+      },
+      onPromptDispatched: (event) => {
+        onOpenCodePromptDispatched?.({
+          stage: 'refine',
+          memberId: winnerDraft.memberId,
+          event,
+        })
+      },
+    })
+    const refined = result.response || winnerDraft.content
+    const messages: Message[] = result.messages
+
+    onOpenCodeSessionLog?.({
+      stage: 'refine',
+      memberId: winnerDraft.memberId,
+      sessionId: result.session.id,
+      response: refined,
+      messages,
+    })
+
+    if (!validateResponse) {
+      return refined
+    }
+
+    try {
+      const validation = validateResponse(refined)
+      return validation.normalizedContent ?? refined
+    } catch (error) {
+      if (attemptCount >= maxStructuredRetries) {
+        throw error
+      }
+      attemptCount += 1
+      promptParts = buildStructuredRetryPrompt(refineParts, {
+        validationError: error instanceof Error ? error.message : String(error),
+        rawResponse: refined,
+        schemaReminder,
       })
-    },
-    onPromptDispatched: (event) => {
-      onOpenCodePromptDispatched?.({
-        stage: 'refine',
-        memberId: winnerDraft.memberId,
-        event,
-      })
-    },
-  })
-  const refined = result.response
-  const messages: Message[] = result.messages
-
-  onOpenCodeSessionLog?.({
-    stage: 'refine',
-    memberId: winnerDraft.memberId,
-    sessionId: result.session.id,
-    response: refined || winnerDraft.content,
-    messages,
-  })
-
-  return refined || winnerDraft.content
+    }
+  }
 }

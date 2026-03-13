@@ -1,9 +1,23 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { buildPromptFromTemplate, PROM52 } from '../../prompts/index'
-import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
+import {
+  runOpenCodePrompt,
+  runOpenCodeSessionPrompt,
+  type OpenCodePromptDispatchEvent,
+} from '../../workflow/runOpenCodePrompt'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
+import { parseFinalTestCommands } from './parser'
+import { buildStructuredRetryPrompt } from '../../structuredOutput'
+import { SessionManager } from '../../opencode/sessionManager'
+
+const FINAL_TEST_SCHEMA_REMINDER = [
+  'Return exactly one <FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS> block and nothing else.',
+  'Inside the marker, return a single JSON or YAML object with a non-empty commands field.',
+  'commands must contain executable shell commands. A single command string is acceptable only if it is the full command to run.',
+  'summary is optional.',
+].join('\n')
 
 export async function generateFinalTests(
   adapter: OpenCodeAdapter,
@@ -20,6 +34,8 @@ export async function generateFinalTests(
 ): Promise<string> {
   const promptContent = buildPromptFromTemplate(PROM52, ticketContext)
   let sessionId = ''
+  let activeSessionId: string | null = null
+  const sessionManager = callbacks?.ticketId ? new SessionManager(adapter) : null
   throwIfAborted(signal)
   let result: Awaited<ReturnType<typeof runOpenCodePrompt>>
   try {
@@ -35,6 +51,7 @@ export async function generateFinalTests(
               ticketId: callbacks.ticketId,
               phase: 'RUNNING_FINAL_TEST',
               phaseAttempt: 1,
+              keepActive: true,
               ...(callbacks.model ? { memberId: callbacks.model } : {}),
             },
           }
@@ -58,10 +75,70 @@ export async function generateFinalTests(
       },
     })
   } catch (error) {
+    if (activeSessionId && sessionManager) {
+      await sessionManager.abandonSession(activeSessionId)
+    }
     throwIfCancelled(error, signal)
     throw error
   }
   throwIfAborted(signal)
+  activeSessionId = result.session.id
 
-  return result.response
+  let response = result.response
+  const commandPlan = parseFinalTestCommands(response)
+  if (commandPlan.errors.length > 0) {
+    try {
+      const retryParts = buildStructuredRetryPrompt([], {
+        validationError: commandPlan.errors.join('; '),
+        rawResponse: response,
+        schemaReminder: FINAL_TEST_SCHEMA_REMINDER,
+      })
+      const retryResult = await runOpenCodeSessionPrompt({
+        adapter,
+        session: result.session,
+        parts: retryParts,
+        signal,
+        model: callbacks?.model,
+        ...(callbacks?.ticketId
+          ? {
+              sessionOwnership: {
+                ticketId: callbacks.ticketId,
+                phase: 'RUNNING_FINAL_TEST',
+                phaseAttempt: 1,
+                keepActive: true,
+                ...(callbacks.model ? { memberId: callbacks.model } : {}),
+              },
+            }
+          : {}),
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          callbacks?.onOpenCodeStreamEvent?.({
+            sessionId,
+            event,
+          })
+        },
+        onPromptDispatched: (event) => {
+          callbacks?.onPromptDispatched?.({
+            sessionId: event.session.id,
+            event,
+          })
+        },
+      })
+      throwIfAborted(signal)
+      response = retryResult.response
+    } catch (error) {
+      if (activeSessionId && sessionManager) {
+        await sessionManager.abandonSession(activeSessionId)
+        activeSessionId = null
+      }
+      throwIfCancelled(error, signal)
+      throw error
+    }
+  }
+
+  if (activeSessionId && sessionManager) {
+    await sessionManager.completeSession(activeSessionId)
+  }
+
+  return response
 }

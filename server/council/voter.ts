@@ -5,6 +5,7 @@ import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
+import { buildStructuredRetryPrompt, normalizeVoteScorecardOutput } from '../structuredOutput'
 
 const PHASE_DEADLINE_ERROR = 'CouncilPhaseDeadlineReached'
 
@@ -272,111 +273,116 @@ export async function conductVoting(
               ].join('\n'),
             },
           ]
+      let promptParts = votingPrompt
+      let response = ''
+      let result: Awaited<ReturnType<typeof runOpenCodePrompt>> | undefined
+      let attemptCount = 0
+      const maxStructuredRetries = 1
 
-      const result = await runOpenCodePrompt({
-        adapter,
-        projectPath,
-        parts: votingPrompt,
-        signal,
-        model: voter.modelId,
-        ...(sessionOwnership
-          ? {
-              sessionOwnership: {
-                ticketId: sessionOwnership.ticketId,
-                phase: sessionOwnership.phase,
-                phaseAttempt: sessionOwnership.phaseAttempt ?? 1,
-                memberId: voter.modelId,
-              },
+      while (true) {
+        result = await runOpenCodePrompt({
+          adapter,
+          projectPath,
+          parts: promptParts,
+          signal,
+          model: voter.modelId,
+          ...(sessionOwnership
+            ? {
+                sessionOwnership: {
+                  ticketId: sessionOwnership.ticketId,
+                  phase: sessionOwnership.phase,
+                  phaseAttempt: sessionOwnership.phaseAttempt ?? 1,
+                  memberId: voter.modelId,
+                },
+              }
+            : {}),
+          onSessionCreated: (session) => {
+            if (closed) {
+              void adapter.abortSession(session.id)
+              return
             }
-          : {}),
-        onSessionCreated: (session) => {
-          if (closed) {
-            void adapter.abortSession(session.id)
-            return
-          }
 
-          sessionId = session.id
-        },
-        onStreamEvent: (event) => {
-          if (closed) return
-          onOpenCodeStreamEvent?.({
-            stage: 'vote',
-            memberId: voter.modelId,
-            sessionId,
-            event,
-          })
-        },
-        onPromptDispatched: (event) => {
-          if (closed) return
-          onOpenCodePromptDispatched?.({
-            stage: 'vote',
-            memberId: voter.modelId,
-            event,
-          })
-        },
-      })
-
-      if (closed) {
-        return voterVotes
-      }
-
-      const response = result.response
-
-      // Parse voting response — extract real scores from AI output
-      const parseErrors: string[] = []
-      for (const draft of anonymized) {
-        const draftLabel = `Draft ${anonymized.indexOf(draft) + 1}`
-        const scores: VoteScore[] = []
-        let draftValid = true
-        for (const rubricItem of rubric) {
-          const parsedScore = parseScore(response, draftLabel, rubricItem.category)
-          if (parsedScore === null) {
-            draftValid = false
-            parseErrors.push(`Missing score for ${draftLabel} / ${rubricItem.category}`)
-            break
-          }
-          scores.push({
-            category: rubricItem.category,
-            score: parsedScore,
-            justification: 'Evaluated by council member',
-          })
-        }
-
-        if (!draftValid) {
-          continue
-        }
-
-        voterVotes.push({
-          voterId: voter.modelId,
-          draftId: draft.draftId,
-          scores,
-          totalScore: scores.reduce((sum, s) => sum + s.score, 0),
+            sessionId = session.id
+          },
+          onStreamEvent: (event) => {
+            if (closed) return
+            onOpenCodeStreamEvent?.({
+              stage: 'vote',
+              memberId: voter.modelId,
+              sessionId,
+              event,
+            })
+          },
+          onPromptDispatched: (event) => {
+            if (closed) return
+            onOpenCodePromptDispatched?.({
+              stage: 'vote',
+              memberId: voter.modelId,
+              event,
+            })
+          },
         })
-      }
 
-      if (parseErrors.length > 0 || voterVotes.length !== anonymized.length) {
-        recordOutcome(
-          voter.modelId,
-          'invalid_output',
-          [],
-          parseErrors.length > 0
-            ? parseErrors.join('; ')
-            : 'Voting response did not include a complete scorecard for every draft',
+        if (closed) {
+          return voterVotes
+        }
+
+        response = result.response
+
+        onOpenCodeSessionLog?.({
+          stage: 'vote',
+          memberId: voter.modelId,
+          sessionId: result.session.id,
+          response,
+          messages: result.messages,
+        })
+
+        const scorecardResult = normalizeVoteScorecardOutput(
+          response,
+          anonymized.map((_, index) => `Draft ${index + 1}`),
+          rubric.map((item) => item.category),
         )
-        return voterVotes
+
+        if (scorecardResult.ok) {
+          for (const [draftIndex, draft] of anonymized.entries()) {
+            const draftLabel = `Draft ${draftIndex + 1}`
+            const normalizedScores = scorecardResult.value.draftScores[draftLabel] ?? {}
+            const scores: VoteScore[] = rubric.map((rubricItem) => ({
+              category: rubricItem.category,
+              score: normalizedScores[rubricItem.category] ?? 0,
+              justification: 'Evaluated by council member',
+            }))
+            voterVotes.push({
+              voterId: voter.modelId,
+              draftId: draft.draftId,
+              scores,
+              totalScore: normalizedScores.total_score ?? scores.reduce((sum, score) => sum + score.score, 0),
+            })
+          }
+          break
+        }
+
+        if (attemptCount >= maxStructuredRetries) {
+          recordOutcome(
+            voter.modelId,
+            'invalid_output',
+            [],
+            scorecardResult.error,
+          )
+          return voterVotes
+        }
+
+        attemptCount += 1
+        promptParts = buildStructuredRetryPrompt(votingPrompt, {
+          validationError: scorecardResult.error,
+          rawResponse: response,
+          schemaReminder: buildStrictVoteSchemaReminder(rubric),
+        })
       }
 
       if (!recordOutcome(voter.modelId, 'completed', voterVotes)) {
         return voterVotes
       }
-
-      onOpenCodeSessionLog?.({
-        stage: 'vote',
-        memberId: voter.modelId,
-        sessionId: result.session.id,
-        response,
-        messages: result.messages,
-      })
 
       return voterVotes
     })()

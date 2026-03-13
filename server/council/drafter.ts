@@ -6,6 +6,9 @@ import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow
 
 interface DraftValidationResult {
   questionCount?: number
+  normalizedContent?: string
+  repairApplied?: boolean
+  repairWarnings?: string[]
 }
 
 type DraftValidator = (content: string) => DraftValidationResult
@@ -20,6 +23,8 @@ interface GenerateDraftsRuntimeOptions {
     event: OpenCodePromptDispatchEvent
   }) => void
   onDraftResult?: (draft: DraftResult) => void
+  maxStructuredRetries?: number
+  structuredRetrySchemaReminder?: string
 }
 
 const PHASE_DEADLINE_ERROR = 'CouncilPhaseDeadlineReached'
@@ -44,6 +49,30 @@ function classifyDraftFailure(error: unknown, hasResponse: boolean) {
     outcome: hasResponse ? 'invalid_output' as const : 'failed' as const,
     errorDetail: error instanceof Error ? error.message : String(error),
   }
+}
+
+function buildStructuredRetryPrompt(
+  baseParts: PromptPart[],
+  validationError: string,
+  rawResponse: string,
+  schemaReminder?: string,
+): PromptPart[] {
+  return [
+    ...baseParts,
+    {
+      type: 'text',
+      content: [
+        '## Structured Output Retry',
+        `Your previous response failed machine validation: ${validationError}`,
+        'Return only a corrected artifact in the required structured format.',
+        schemaReminder ? `Schema reminder:\n${schemaReminder}` : '',
+        'Previous invalid response:',
+        '```',
+        rawResponse.trim() || '[empty response]',
+        '```',
+      ].filter(Boolean).join('\n\n'),
+    },
+  ]
 }
 
 export async function generateDrafts(
@@ -99,6 +128,7 @@ export async function generateDrafts(
     let sessionId: string | undefined
     let content = ''
     let validation: DraftValidationResult | undefined
+    let attemptCount = 0
     let closed = false
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
@@ -113,68 +143,100 @@ export async function generateDrafts(
 
     const executeDraft = (async () => {
       if (signal?.aborted) throw new CancelledError()
+      let promptParts = contextParts
+      let result: Awaited<ReturnType<typeof runOpenCodePrompt>> | undefined
+      const maxStructuredRetries = runtimeOptions?.maxStructuredRetries ?? 1
 
-      const result = await runOpenCodePrompt({
-        adapter,
-        projectPath,
-        parts: contextParts,
-        signal,
-        model: member.modelId,
-        ...(runtimeOptions?.ticketId && runtimeOptions.phase
-          ? {
-              sessionOwnership: {
-                ticketId: runtimeOptions.ticketId,
-                phase: runtimeOptions.phase,
-                phaseAttempt: runtimeOptions.phaseAttempt ?? 1,
-                memberId: member.modelId,
-              },
+      while (true) {
+        result = await runOpenCodePrompt({
+          adapter,
+          projectPath,
+          parts: promptParts,
+          signal,
+          model: member.modelId,
+          ...(runtimeOptions?.ticketId && runtimeOptions.phase
+            ? {
+                sessionOwnership: {
+                  ticketId: runtimeOptions.ticketId,
+                  phase: runtimeOptions.phase,
+                  phaseAttempt: runtimeOptions.phaseAttempt ?? 1,
+                  memberId: member.modelId,
+                },
+              }
+            : {}),
+          onSessionCreated: (session) => {
+            if (closed) {
+              void adapter.abortSession(session.id)
+              return
             }
-          : {}),
-        onSessionCreated: (session) => {
-          if (closed) {
-            void adapter.abortSession(session.id)
-            return
+
+            sessionId = session.id
+            onDraftProgress?.({
+              memberId: member.modelId,
+              status: 'session_created',
+              sessionId,
+            })
+          },
+          onStreamEvent: (event) => {
+            if (closed || !sessionId) return
+            onOpenCodeStreamEvent?.({
+              stage: 'draft',
+              memberId: member.modelId,
+              sessionId,
+              event,
+            })
+          },
+          onPromptDispatched: (event) => {
+            if (closed) return
+            runtimeOptions?.onPromptDispatched?.({
+              stage: 'draft',
+              memberId: member.modelId,
+              event,
+            })
+          },
+        })
+
+        if (closed) {
+          return {
+            memberId: member.modelId,
+            content: '',
+            outcome: 'timed_out' as const,
+            duration: Date.now() - startTime,
+            error: `Council response timeout reached after ${timeout}ms`,
           }
-
-          sessionId = session.id
-          onDraftProgress?.({
-            memberId: member.modelId,
-            status: 'session_created',
-            sessionId,
-          })
-        },
-        onStreamEvent: (event) => {
-          if (closed || !sessionId) return
-          onOpenCodeStreamEvent?.({
-            stage: 'draft',
-            memberId: member.modelId,
-            sessionId,
-            event,
-          })
-        },
-        onPromptDispatched: (event) => {
-          if (closed) return
-          runtimeOptions?.onPromptDispatched?.({
-            stage: 'draft',
-            memberId: member.modelId,
-            event,
-          })
-        },
-      })
-
-      if (closed) {
-        return {
-          memberId: member.modelId,
-          content: '',
-          outcome: 'timed_out' as const,
-          duration: Date.now() - startTime,
-          error: `Council response timeout reached after ${timeout}ms`,
         }
-      }
 
-      content = result.response
-      if (validateDraft) {
-        validation = validateDraft(content)
+        content = result.response
+
+        onOpenCodeSessionLog?.({
+          stage: 'draft',
+          memberId: member.modelId,
+          sessionId: result.session.id,
+          response: content,
+          messages: result.messages,
+        })
+
+        if (!validateDraft) {
+          break
+        }
+
+        try {
+          validation = validateDraft(content)
+          content = validation.normalizedContent ?? content
+          break
+        } catch (error) {
+          const validationError = error instanceof Error ? error.message : String(error)
+          if (attemptCount >= maxStructuredRetries) {
+            throw error
+          }
+          attemptCount += 1
+          promptParts = buildStructuredRetryPrompt(
+            contextParts,
+            validationError,
+            content,
+            runtimeOptions?.structuredRetrySchemaReminder,
+          )
+        }
       }
 
       const draft: DraftResult = {
@@ -188,14 +250,6 @@ export async function generateDrafts(
       if (!recordResult(draft, sessionId)) {
         return draft
       }
-
-      onOpenCodeSessionLog?.({
-        stage: 'draft',
-        memberId: member.modelId,
-        sessionId: result.session.id,
-        response: content,
-        messages: result.messages,
-      })
 
       return draft
     })()

@@ -127,7 +127,7 @@ describe('PhaseArtifactsPanel', () => {
       }),
     }
 
-    renderWithProviders(
+    const { container } = renderWithProviders(
       <PhaseArtifactsPanel
         phase="COMPILING_INTERVIEW"
         isCompleted={false}
@@ -154,6 +154,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
     expect(screen.getByText('Original winner question?')).toBeInTheDocument()
     expect(screen.getByText('Refined winner question?')).toBeInTheDocument()
+    expect(Array.from(container.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(['Original', 'Refined'])
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {

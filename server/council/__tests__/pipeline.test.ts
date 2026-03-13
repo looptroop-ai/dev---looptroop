@@ -113,8 +113,9 @@ describe('Council Pipeline', () => {
     }))
   })
 
-  it('marks invalid drafts when validator fails and preserves the raw response', async () => {
+  it('marks invalid drafts when validation still fails after the automatic retry', async () => {
     adapter.mockResponses.set('mock-session-1', 'not valid yaml')
+    adapter.mockResponses.set('mock-session-2', 'still not valid yaml')
 
     const draftRun = await generateDrafts(
       adapter,
@@ -133,8 +134,37 @@ describe('Council Pipeline', () => {
 
     const drafts = draftRun.drafts
     expect(drafts[0]!.outcome).toBe('invalid_output')
-    expect(drafts[0]!.content).toBe('not valid yaml')
+    expect(drafts[0]!.content).toBe('still not valid yaml')
     expect(drafts[0]!.error).toBe('schema validation failed')
+  })
+
+  it('retries drafts once and keeps normalized content when validation succeeds on retry', async () => {
+    adapter.mockResponses.set('mock-session-1', 'bad draft')
+    adapter.mockResponses.set('mock-session-2', 'valid draft')
+
+    const validator = vi.fn((content: string) => {
+      if (content !== 'valid draft') {
+        throw new Error('invalid draft')
+      }
+      return { normalizedContent: 'normalized draft' }
+    })
+
+    const draftRun = await generateDrafts(
+      adapter,
+      [members[0]!],
+      [{ type: 'text', content: 'draft prompt' }],
+      '/tmp/test',
+      300000,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      validator,
+    )
+
+    expect(validator).toHaveBeenCalledTimes(2)
+    expect(draftRun.drafts[0]!.outcome).toBe('completed')
+    expect(draftRun.drafts[0]!.content).toBe('normalized draft')
   })
 
   it('marks provider/runtime failures as failed when no response is received', async () => {
@@ -449,6 +479,35 @@ describe('Council Pipeline', () => {
       '/tmp/test',
       5,
     )).rejects.toThrow('Timeout')
+  })
+
+  it('retries refinement once and returns normalized content when validation succeeds', async () => {
+    adapter.mockResponses.set('mock-session-1', 'invalid refine output')
+    adapter.mockResponses.set('mock-session-2', 'valid refine output')
+
+    const result = await refineDraft(
+      adapter,
+      { memberId: 'model-a', content: 'winner', outcome: 'completed', duration: 1 },
+      [],
+      [{ type: 'text', content: 'refine prompt' }],
+      '/tmp/test',
+      300000,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (content) => {
+        if (content !== 'valid refine output') {
+          throw new Error('invalid refine output')
+        }
+        return { normalizedContent: 'normalized refine output' }
+      },
+      'Return only YAML.',
+    )
+
+    expect(result).toBe('normalized refine output')
   })
 })
 

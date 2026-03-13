@@ -8,11 +8,13 @@ import {
   runOpenCodeSessionPrompt,
   type OpenCodePromptDispatchEvent,
 } from '../../workflow/runOpenCodePrompt'
-// @ts-expect-error no type declarations for js-yaml
-import jsYaml from 'js-yaml'
-import { repairYamlIndentation } from '@shared/yamlRepair'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
+import {
+  buildStructuredRetryPrompt,
+  normalizeInterviewTurnOutput,
+  type InterviewTurnOutput,
+} from '../../structuredOutput'
 
 export interface QABatch {
   questions: InterviewQuestion[]
@@ -37,6 +39,14 @@ export interface BatchResponse {
   finalYaml?: string
   batchNumber: number
 }
+
+const PROM4_SCHEMA_REMINDER = [
+  'Return exactly one structured tag block and nothing else.',
+  'If the interview should continue, return exactly one <INTERVIEW_BATCH>...</INTERVIEW_BATCH> block.',
+  'Inside <INTERVIEW_BATCH>, return YAML with: batch_number, progress.current, progress.total, is_final_free_form, ai_commentary, questions[].',
+  'Each question item must include: id, question, phase, priority, rationale.',
+  'If the interview is complete, return exactly one <INTERVIEW_COMPLETE>...</INTERVIEW_COMPLETE> block containing the full final interview YAML.',
+].join('\n')
 
 export function createBatches(questions: InterviewQuestion[], batchSize: number = 3): QABatch[] {
   const batches: QABatch[] = []
@@ -146,7 +156,16 @@ export async function startInterviewSession(
   }
 
   throwIfAborted(signal)
-  const firstBatch = parseBatchResponse(result.response)
+  const firstBatch = await parseBatchResponseWithRetry({
+    adapter,
+    sessionId: result.session.id,
+    response: result.response,
+    signal,
+    model: winnerId,
+    onOpenCodeStreamEvent,
+    onPromptDispatched,
+    ticketId,
+  })
   return { sessionId: result.session.id, firstBatch }
 }
 
@@ -215,7 +234,16 @@ export async function submitBatchToSession(
   }
 
   throwIfAborted(signal)
-  return parseBatchResponse(result.response)
+  return await parseBatchResponseWithRetry({
+    adapter,
+    sessionId,
+    response: result.response,
+    signal,
+    model,
+    onOpenCodeStreamEvent,
+    onPromptDispatched,
+    ticketId,
+  })
 }
 
 /**
@@ -223,104 +251,104 @@ export async function submitBatchToSession(
  * Supports <INTERVIEW_BATCH> for intermediate batches and <INTERVIEW_COMPLETE> for final output.
  */
 export function parseBatchResponse(response: string): BatchResponse {
-  // Check for <INTERVIEW_COMPLETE> first (final output)
-  const completeMatch = response.match(/<INTERVIEW_COMPLETE>([\s\S]*?)<\/INTERVIEW_COMPLETE>/)
-  if (completeMatch) {
+  const normalized = normalizeInterviewTurnOutput(response)
+  if (!normalized.ok) {
+    throw new Error(normalized.error)
+  }
+  return toBatchResponse(normalized.value)
+}
+
+function toBatchResponse(output: InterviewTurnOutput): BatchResponse {
+  if (output.kind === 'complete') {
     return {
       questions: [],
       progress: { current: 0, total: 0 },
       isComplete: true,
       isFinalFreeForm: false,
       aiCommentary: 'Interview complete.',
-      finalYaml: completeMatch[1]!.trim(),
+      finalYaml: output.finalYaml.trim(),
       batchNumber: -1,
     }
   }
 
-  // Check for <INTERVIEW_BATCH> tags
-  const batchMatch = response.match(/<INTERVIEW_BATCH>([\s\S]*?)<\/INTERVIEW_BATCH>/)
-  if (batchMatch) {
-    try {
-      const parsed = jsYaml.load(repairYamlIndentation(batchMatch[1]!.trim())) as Record<string, unknown>
-      return extractBatchFromParsed(parsed)
-    } catch {
-      // Fall through to YAML fallback
-    }
-  }
-
-  // Fallback: try to parse the entire response as YAML
-  try {
-    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
-    if (parsed && typeof parsed === 'object') {
-      // Check if this looks like a final interview results YAML
-      if ('schema_version' in parsed || 'questions' in parsed && 'approval' in parsed) {
-        return {
-          questions: [],
-          progress: { current: 0, total: 0 },
-          isComplete: true,
-          isFinalFreeForm: false,
-          aiCommentary: 'Interview complete.',
-          finalYaml: response.trim(),
-          batchNumber: -1,
-        }
-      }
-      // Try to extract as batch data
-      if ('questions' in parsed || 'batch_number' in parsed) {
-        return extractBatchFromParsed(parsed)
-      }
-    }
-  } catch {
-    // Not valid YAML — use heuristic below
-  }
-
-  // Last resort: extract questions heuristically from text
-  const questions: BatchQuestion[] = []
-  const lines = response.split('\n')
-  let qIndex = 1
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.endsWith('?') && trimmed.length > 10) {
-      const cleaned = trimmed.replace(/^[-*\d.)]+\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '')
-      if (cleaned.length > 5) {
-        questions.push({ id: `Q${qIndex++}`, question: cleaned })
-      }
-    }
-  }
-
   return {
-    questions,
-    progress: { current: 0, total: 0 },
-    isComplete: questions.length === 0,
-    isFinalFreeForm: false,
-    aiCommentary: questions.length === 0 ? 'Could not parse AI response.' : '',
-    finalYaml: questions.length === 0 ? response.trim() : undefined,
-    batchNumber: 1,
+    questions: output.batch.questions.map((question) => ({
+      id: question.id,
+      question: question.question,
+      phase: question.phase,
+      priority: question.priority,
+      rationale: question.rationale,
+    })),
+    progress: output.batch.progress,
+    isComplete: false,
+    isFinalFreeForm: output.batch.isFinalFreeForm,
+    aiCommentary: output.batch.aiCommentary,
+    batchNumber: output.batch.batchNumber,
   }
 }
 
-function extractBatchFromParsed(parsed: Record<string, unknown>): BatchResponse {
-  const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : []
-  const questions: BatchQuestion[] = rawQuestions.map((q: unknown, idx: number) => {
-    const qObj = (q && typeof q === 'object') ? q as Record<string, unknown> : {}
-    return {
-      id: typeof qObj.id === 'string' ? qObj.id : `Q${idx + 1}`,
-      question: typeof qObj.question === 'string' ? qObj.question : String(qObj.question ?? ''),
-      phase: typeof qObj.phase === 'string' ? qObj.phase : (typeof qObj.category === 'string' ? qObj.category : undefined),
-      priority: typeof qObj.priority === 'string' ? qObj.priority : undefined,
-      rationale: typeof qObj.rationale === 'string' ? qObj.rationale : undefined,
-    }
+async function parseBatchResponseWithRetry(input: {
+  adapter: OpenCodeAdapter
+  sessionId: string
+  response: string
+  signal?: AbortSignal
+  model?: string
+  onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
+  onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
+  ticketId?: string
+}): Promise<BatchResponse> {
+  const normalized = normalizeInterviewTurnOutput(input.response)
+  if (normalized.ok) {
+    return toBatchResponse(normalized.value)
+  }
+
+  const retryParts = buildStructuredRetryPrompt([], {
+    validationError: normalized.error,
+    rawResponse: input.response,
+    schemaReminder: PROM4_SCHEMA_REMINDER,
   })
 
-  const progressObj = (parsed.progress && typeof parsed.progress === 'object') ? parsed.progress as Record<string, unknown> : undefined
-  const current = typeof progressObj?.current === 'number' ? progressObj.current : 0
-  const total = typeof progressObj?.total === 'number' ? progressObj.total : 0
-
-  return {
-    questions,
-    progress: { current, total },
-    isComplete: false,
-    isFinalFreeForm: parsed.is_final_free_form === true,
-    aiCommentary: typeof parsed.ai_commentary === 'string' ? parsed.ai_commentary : '',
-    batchNumber: typeof parsed.batch_number === 'number' ? parsed.batch_number : 1,
+  let retryResult: Awaited<ReturnType<typeof runOpenCodeSessionPrompt>>
+  try {
+    retryResult = await runOpenCodeSessionPrompt({
+      adapter: input.adapter,
+      session: { id: input.sessionId },
+      parts: retryParts,
+      signal: input.signal,
+      model: input.model,
+      ...(input.ticketId
+        ? {
+            sessionOwnership: {
+              ticketId: input.ticketId,
+              phase: 'WAITING_INTERVIEW_ANSWERS',
+              memberId: input.model,
+              keepActive: true,
+            },
+          }
+        : {}),
+      onStreamEvent: (event) => {
+        input.onOpenCodeStreamEvent?.({
+          sessionId: input.sessionId,
+          event,
+        })
+      },
+      onPromptDispatched: (event) => {
+        input.onPromptDispatched?.({
+          sessionId: event.session.id,
+          event,
+        })
+      },
+    })
+  } catch (error) {
+    throwIfCancelled(error, input.signal)
+    throw error
   }
+
+  throwIfAborted(input.signal)
+  const retried = normalizeInterviewTurnOutput(retryResult.response)
+  if (!retried.ok) {
+    throw new Error(`PROM4 output failed validation after retry: ${retried.error}`)
+  }
+
+  return toBatchResponse(retried.value)
 }

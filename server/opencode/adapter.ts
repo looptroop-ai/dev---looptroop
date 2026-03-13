@@ -859,9 +859,30 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   private buildMockResponse(promptText: string): string {
     if (promptText.includes('Score each draft')) {
       const draftCount = Array.from(promptText.matchAll(/Draft\s+\d+:/g)).length || 3
-      return Array.from({ length: draftCount }, (_, index) => (
-        `Draft ${index + 1}:\nScore: ${18 - index}/20`
-      )).join('\n\n')
+      const rubricCategories = Array.from(promptText.matchAll(/- ([^\n(]+?) \(\d+pts\):/g))
+        .map((match) => match[1]?.trim())
+        .filter((category): category is string => Boolean(category))
+      const fallbackCategories = [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ]
+      const categories = rubricCategories.length > 0 ? rubricCategories : fallbackCategories
+      const renderDraft = (label: string, scores: number[]) => [
+        `  ${label}:`,
+        ...categories.map((category, index) => `    ${category}: ${scores[index] ?? 15}`),
+        `    total_score: ${categories.reduce((sum, _, index) => sum + (scores[index] ?? 15), 0)}`,
+      ]
+      const scoreRows = Array.from({ length: draftCount }, (_, index) => {
+        const score = Math.max(12, 18 - index)
+        return Array.from({ length: categories.length }, () => score)
+      })
+      return [
+        'draft_scores:',
+        ...scoreRows.flatMap((scores, index) => renderDraft(`Draft ${index + 1}`, scores)),
+      ].join('\n')
     }
 
     if (promptText.includes('## Winning Draft')) {

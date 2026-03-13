@@ -15,17 +15,44 @@ describe('parseFinalTestCommands', () => {
       commands: [],
       summary: null,
       errors: ['No final test command marker found'],
+      repairApplied: false,
+      repairWarnings: [],
+      validationError: 'No final test command marker found',
     })
   })
 
-  it('rejects malformed marker payloads instead of scraping prose', () => {
+  it('normalizes a single command string inside the marker instead of scraping prose', () => {
     const output = '<FINAL_TEST_COMMANDS>{"commands":"npm test"}</FINAL_TEST_COMMANDS>'
 
     expect(parseFinalTestCommands(output)).toEqual({
       markerFound: true,
-      commands: [],
+      commands: ['npm test'],
       summary: null,
-      errors: ['No executable final test commands were provided'],
+      errors: [],
+      repairApplied: true,
+      repairWarnings: [],
+    })
+  })
+
+  it('accepts fenced YAML payloads inside the marker', () => {
+    const output = [
+      '<FINAL_TEST_COMMANDS>',
+      '```yaml',
+      'command_plan:',
+      '  commands:',
+      '    - npm run test:server',
+      '  summary: verify structured output flows',
+      '```',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n')
+
+    expect(parseFinalTestCommands(output)).toEqual({
+      markerFound: true,
+      commands: ['npm run test:server'],
+      summary: 'verify structured output flows',
+      errors: [],
+      repairApplied: true,
+      repairWarnings: [],
     })
   })
 })

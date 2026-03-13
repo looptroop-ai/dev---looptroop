@@ -1,9 +1,6 @@
 import type { BeadChecks } from './completionSchema'
-import {
-  BEAD_STATUS_END,
-  BEAD_STATUS_MARKER,
-  REQUIRED_GATES,
-} from './completionSchema'
+import { REQUIRED_GATES } from './completionSchema'
+import { normalizeBeadCompletionMarkerOutput } from '../../structuredOutput'
 
 export interface CompletionResult {
   complete: boolean
@@ -12,69 +9,44 @@ export interface CompletionResult {
   beadId?: string
   checks?: BeadChecks
   errors: string[]
+  repairApplied?: boolean
+  repairWarnings?: string[]
+  validationError?: string
 }
 
 export function parseCompletionMarker(output: string): CompletionResult {
   const errors: string[] = []
-
-  // Check for completion marker
-  const markerStart = output.lastIndexOf(BEAD_STATUS_MARKER)
-  const markerEnd = output.lastIndexOf(BEAD_STATUS_END)
-
-  if (markerStart === -1 || markerEnd === -1 || markerEnd < markerStart) {
+  const normalized = normalizeBeadCompletionMarkerOutput(output)
+  if (!normalized.ok) {
     return {
       complete: false,
-      markerFound: false,
+      markerFound: normalized.error !== 'No completion marker found',
       gatesValid: false,
-      errors: ['No completion marker found'],
+      errors: [normalized.error],
+      repairApplied: normalized.repairApplied,
+      repairWarnings: normalized.repairWarnings,
+      validationError: normalized.error,
     }
   }
-
-  const markerContent = output.slice(markerStart + BEAD_STATUS_MARKER.length, markerEnd).trim()
-
-  // Parse JSON marker per spec:
-  // {"bead_id":"...","status":"completed","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(markerContent)
-  } catch {
-    errors.push(`Invalid JSON in completion marker: ${markerContent}`)
-    return { complete: false, markerFound: true, gatesValid: false, errors }
-  }
-
-  // Validate required fields
-  if (typeof parsed.bead_id !== 'string' || !parsed.bead_id) {
-    errors.push('Completion marker missing bead_id field')
-  }
-
-  if (typeof parsed.status !== 'string') {
-    errors.push('Completion marker missing status field')
-  }
-
-  const isComplete = parsed.status === 'completed'
-  const isFailed = parsed.status === 'failed'
+  const isComplete = normalized.value.status === 'completed'
+  const isFailed = normalized.value.status === 'failed'
 
   // Validate quality gates
-  const checks = parsed.checks as Record<string, string> | undefined
+  const checks = normalized.value.checks
   let gatesValid = true
 
-  if (!checks || typeof checks !== 'object') {
-    errors.push('Completion marker missing checks object')
-    gatesValid = false
-  } else {
-    for (const gate of REQUIRED_GATES) {
-      if (typeof checks[gate] !== 'string') {
-        errors.push(`Missing quality gate: ${gate}`)
-        gatesValid = false
-      } else if (checks[gate] !== 'pass') {
-        errors.push(`Quality gate failed: ${gate} = ${checks[gate]}`)
-        gatesValid = false
-      }
+  for (const gate of REQUIRED_GATES) {
+    if (typeof checks[gate] !== 'string') {
+      errors.push(`Missing quality gate: ${gate}`)
+      gatesValid = false
+    } else if (checks[gate] !== 'pass') {
+      errors.push(`Quality gate failed: ${gate} = ${checks[gate]}`)
+      gatesValid = false
     }
   }
 
   if (isFailed) {
-    errors.push(`Bead reported status: ${parsed.status}`)
+    errors.push(`Bead reported status: ${normalized.value.status}`)
   }
 
   // Marker says complete but gates fail → treat as incomplete per spec
@@ -86,13 +58,10 @@ export function parseCompletionMarker(output: string): CompletionResult {
     complete: isComplete && gatesValid,
     markerFound: true,
     gatesValid,
-    beadId: typeof parsed.bead_id === 'string' ? parsed.bead_id : undefined,
-    checks: checks ? {
-      tests: checks.tests ?? '',
-      lint: checks.lint ?? '',
-      typecheck: checks.typecheck ?? '',
-      qualitative: checks.qualitative ?? '',
-    } : undefined,
+    beadId: normalized.value.beadId,
+    checks,
     errors,
+    repairApplied: normalized.repairApplied,
+    repairWarnings: normalized.repairWarnings,
   }
 }
