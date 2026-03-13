@@ -8,6 +8,41 @@ export interface TicketMetaRecord {
   title?: string
   createdAt?: string
   baseBranch?: string
+  startedAt?: string
+  lockedMainImplementer?: string | null
+  lockedCouncilMembers?: string[]
+}
+
+interface TicketModelSelectionLock {
+  startedAt: string
+  lockedMainImplementer: string
+  lockedCouncilMembers: string[]
+}
+
+function normalizeModelId(value: string | null | undefined): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeModelList(values: Array<string | null | undefined> | null | undefined): string[] {
+  if (!values) return []
+
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const value of values) {
+    const modelId = normalizeModelId(value)
+    if (!modelId || seen.has(modelId)) continue
+    seen.add(modelId)
+    normalized.push(modelId)
+  }
+
+  return normalized
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  return left.every((value, index) => value === right[index])
 }
 
 export function getTicketMetaPath(projectRoot: string, externalId: string): string {
@@ -40,6 +75,40 @@ export function updateTicketMeta(
 ): TicketMetaRecord {
   const current = readTicketMeta(projectRoot, externalId)
   return writeTicketMeta(projectRoot, externalId, { ...current, ...patch })
+}
+
+export function lockTicketModelSelection(
+  projectRoot: string,
+  externalId: string,
+  lock: TicketModelSelectionLock,
+): TicketMetaRecord {
+  const lockedMainImplementer = normalizeModelId(lock.lockedMainImplementer)
+  const lockedCouncilMembers = normalizeModelList(lock.lockedCouncilMembers)
+
+  if (!lockedMainImplementer) {
+    throw new Error('Locked main implementer is required.')
+  }
+  if (lockedCouncilMembers.length === 0) {
+    throw new Error('Locked council members are required.')
+  }
+
+  const current = readTicketMeta(projectRoot, externalId)
+  const currentMainImplementer = normalizeModelId(current.lockedMainImplementer)
+  const currentCouncilMembers = normalizeModelList(current.lockedCouncilMembers)
+
+  if (currentMainImplementer && currentMainImplementer !== lockedMainImplementer) {
+    throw new Error(`Ticket model configuration is immutable after start: ${externalId}`)
+  }
+  if (currentCouncilMembers.length > 0 && !arraysEqual(currentCouncilMembers, lockedCouncilMembers)) {
+    throw new Error(`Ticket model configuration is immutable after start: ${externalId}`)
+  }
+
+  return writeTicketMeta(projectRoot, externalId, {
+    ...current,
+    startedAt: current.startedAt ?? lock.startedAt,
+    lockedMainImplementer: currentMainImplementer ?? lockedMainImplementer,
+    lockedCouncilMembers: currentCouncilMembers.length > 0 ? currentCouncilMembers : lockedCouncilMembers,
+  })
 }
 
 export function resolveTicketBaseBranch(projectRoot: string, externalId: string): string {

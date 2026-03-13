@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clearPersistedTicketLogs } from '@/context/LogContext'
 import { clearTicketArtifactsCache } from './useTicketArtifacts'
-import { patchTicketStatusInCache } from './ticketStatusCache'
+import { mergeTicketInCache, patchTicketStatusInCache } from './ticketStatusCache'
 import type { WorkflowAction } from '@shared/workflowMeta'
 import type { InterviewSessionSnapshot, InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
 import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
@@ -67,6 +67,7 @@ interface TicketActionResponse {
   ticketId: string
   status?: string
   state?: string
+  ticket?: Ticket
 }
 
 async function fetchTickets(projectId?: number): Promise<Ticket[]> {
@@ -221,6 +222,10 @@ export function useTicketAction() {
     mutationFn: ({ id, action }: { id: string; action: 'start' | 'approve' | 'cancel' | 'retry' | 'verify' }) =>
       ticketAction(id, action),
     onSuccess: (result, variables) => {
+      if (result.ticket) {
+        mergeTicketInCache<Ticket>(queryClient, result.ticket)
+      }
+
       const nextStatus = result.state ?? result.status
       if (nextStatus) {
         const ticketId = result.ticketId || variables.id
@@ -304,12 +309,50 @@ async function submitBatch(
   return res.json()
 }
 
+async function skipInterview(
+  ticketId: string,
+  answers: Record<string, string>,
+): Promise<TicketActionResponse> {
+  const res = await fetch(`/api/tickets/${ticketId}/skip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to skip remaining interview questions')
+  }
+  return res.json()
+}
+
 export function useSubmitBatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
       submitBatch(ticketId, answers),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
+    },
+  })
+}
+
+export function useSkipInterview() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
+      skipInterview(ticketId, answers),
+    onSuccess: (result, variables) => {
+      if (result.ticket) {
+        mergeTicketInCache<Ticket>(queryClient, result.ticket)
+      }
+
+      const nextStatus = result.state ?? result.status
+      if (nextStatus) {
+        patchTicketStatusInCache<Ticket>(queryClient, variables.ticketId, nextStatus)
+      }
+
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
       queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })

@@ -39,6 +39,7 @@ export type TicketEvent =
   | { type: 'READY' }
   | { type: 'BATCH_ANSWERED'; batchAnswers: Record<string, string> }
   | { type: 'INTERVIEW_COMPLETE' }
+  | { type: 'SKIP_ALL_TO_APPROVAL' }
   | { type: 'COVERAGE_CLEAN' }
   | { type: 'GAPS_FOUND' }
   | { type: 'APPROVE' }

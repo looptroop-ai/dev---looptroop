@@ -10,7 +10,7 @@ import { readJsonl } from '../io/jsonl'
 import { broadcaster } from '../sse/broadcaster'
 import type { ArtifactSnapshot } from '../sse/eventTypes'
 import { getAvailableWorkflowActions } from '@shared/workflowMeta'
-import { getTicketBeadsPath, resolveTicketBaseBranch } from '../ticket/metadata'
+import { getTicketBeadsPath, lockTicketModelSelection, resolveTicketBaseBranch } from '../ticket/metadata'
 
 type LocalTicketRow = typeof tickets.$inferSelect
 type LocalProjectRow = typeof projects.$inferSelect
@@ -129,6 +129,56 @@ function parseJsonArray(raw: string | null | undefined): string[] {
       : []
   } catch {
     return []
+  }
+}
+
+function normalizeModelId(value: string | null | undefined): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeModelList(values: Array<string | null | undefined>): string[] {
+  const unique = new Set<string>()
+  const normalized: string[] = []
+
+  for (const value of values) {
+    const modelId = normalizeModelId(value)
+    if (!modelId || unique.has(modelId)) continue
+    unique.add(modelId)
+    normalized.push(modelId)
+  }
+
+  return normalized
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  return left.every((value, index) => value === right[index])
+}
+
+function assertLockedModelConfigurationMutable(
+  ticket: LocalTicketRow,
+  patch: Partial<Omit<LocalTicketRow, 'id' | 'projectId' | 'externalId' | 'createdAt'>>,
+) {
+  const updatesLockedModels = 'lockedMainImplementer' in patch || 'lockedCouncilMembers' in patch
+  if (!updatesLockedModels) return
+
+  const currentMainImplementer = normalizeModelId(ticket.lockedMainImplementer)
+  const currentCouncilMembers = parseJsonArray(ticket.lockedCouncilMembers)
+  if (!currentMainImplementer && currentCouncilMembers.length === 0) return
+
+  const nextMainImplementer = 'lockedMainImplementer' in patch
+    ? normalizeModelId(patch.lockedMainImplementer)
+    : currentMainImplementer
+  const nextCouncilMembers = 'lockedCouncilMembers' in patch
+    ? parseJsonArray(patch.lockedCouncilMembers)
+    : currentCouncilMembers
+
+  if (currentMainImplementer && currentMainImplementer !== nextMainImplementer) {
+    throw new Error(`Ticket model configuration is immutable after start: ${ticket.externalId}`)
+  }
+  if (currentCouncilMembers.length > 0 && !arraysEqual(currentCouncilMembers, nextCouncilMembers)) {
+    throw new Error(`Ticket model configuration is immutable after start: ${ticket.externalId}`)
   }
 }
 
@@ -391,6 +441,7 @@ export function patchTicket(
   if (!context) return undefined
 
   const previousStatus = context.localTicket.status
+  assertLockedModelConfigurationMutable(context.localTicket, patch)
 
   context.projectDb.update(tickets)
     .set({
@@ -414,6 +465,62 @@ export function patchTicket(
       .run()
   }
 
+  return toPublicTicket(context.projectId, updated)
+}
+
+export function lockTicketStartConfiguration(
+  ticketRef: string,
+  input: {
+    branchName: string | null
+    startedAt: string
+    lockedMainImplementer: string
+    lockedCouncilMembers: string[]
+    lockedInterviewQuestions: number
+    lockedUserBackground: string | null
+    lockedDisableAnalogies: boolean
+  },
+): PublicTicket | undefined {
+  const context = getTicketContext(ticketRef)
+  if (!context) return undefined
+
+  const lockedMainImplementer = normalizeModelId(input.lockedMainImplementer)
+  const lockedCouncilMembers = normalizeModelList(input.lockedCouncilMembers)
+
+  if (!lockedMainImplementer) {
+    throw new Error('Locked main implementer is required.')
+  }
+  if (lockedCouncilMembers.length === 0) {
+    throw new Error('Locked council members are required.')
+  }
+
+  const lockedCouncilMembersRaw = JSON.stringify(lockedCouncilMembers)
+  assertLockedModelConfigurationMutable(context.localTicket, {
+    lockedMainImplementer,
+    lockedCouncilMembers: lockedCouncilMembersRaw,
+  })
+
+  const meta = lockTicketModelSelection(context.projectRoot, context.externalId, {
+    startedAt: input.startedAt,
+    lockedMainImplementer,
+    lockedCouncilMembers,
+  })
+
+  context.projectDb.update(tickets)
+    .set({
+      branchName: input.branchName,
+      lockedMainImplementer,
+      lockedCouncilMembers: lockedCouncilMembersRaw,
+      lockedInterviewQuestions: input.lockedInterviewQuestions,
+      lockedUserBackground: input.lockedUserBackground,
+      lockedDisableAnalogies: input.lockedDisableAnalogies ? 1 : 0,
+      startedAt: meta.startedAt ?? input.startedAt,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tickets.id, context.localTicketId))
+    .run()
+
+  const updated = context.projectDb.select().from(tickets).where(eq(tickets.id, context.localTicketId)).get()
+  if (!updated) return undefined
   return toPublicTicket(context.projectId, updated)
 }
 

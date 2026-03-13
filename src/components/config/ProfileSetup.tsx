@@ -12,6 +12,8 @@ import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
 import { useToast } from '@/components/shared/Toast'
 import { PROFILE_DEFAULTS } from '@server/db/defaults'
+import { useQueryClient } from '@tanstack/react-query'
+import { refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
 
@@ -37,6 +39,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const createProfile = useCreateProfile()
   const updateProfile = useUpdateProfile()
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
 
   const [formData, setFormData] = useState<CreateProfileInput>({
     username: profile?.username ?? '',
@@ -130,6 +133,13 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       })
       .catch(() => { setOpenCodeConnected(false) })
   }, [])
+
+  useEffect(() => {
+    if (openCodeConnected !== true) return
+
+    // The model query can race the OpenCode health check on mount.
+    void refetchOpenCodeModelsQuery(queryClient)
+  }, [openCodeConnected, queryClient])
 
   useEffect(() => {
     const err = createProfile.error || updateProfile.error

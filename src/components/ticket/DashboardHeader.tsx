@@ -327,9 +327,15 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               </div>
             )}
             {ticket.branchName && (
-              <div className="col-span-2">
-                <span className="text-xs font-medium text-muted-foreground">Branch</span>
-                <p className="font-mono mt-0.5">{ticket.branchName}</p>
+              <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1 flex items-start justify-between gap-6">
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-muted-foreground">Branch / Worktree</span>
+                  <p className="font-mono mt-0.5 break-all">{ticket.branchName}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span className="text-xs font-medium text-muted-foreground">Base Branch</span>
+                  <p className="font-mono mt-0.5">{ticket.runtime.baseBranch}</p>
+                </div>
               </div>
             )}
             {ticket.runtime.totalBeads > 0 && (
@@ -353,10 +359,12 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 </p>
               </div>
             )}
-            <div>
-              <span className="text-xs font-medium text-muted-foreground">Base Branch</span>
-              <p className="font-mono mt-0.5">{ticket.runtime.baseBranch}</p>
-            </div>
+            {!ticket.branchName && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Base Branch</span>
+                <p className="font-mono mt-0.5">{ticket.runtime.baseBranch}</p>
+              </div>
+            )}
             {ticket.runtime.candidateCommitSha && (
               <div>
                 <span className="text-xs font-medium text-muted-foreground">Candidate Commit</span>

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import type { Ticket } from '@/hooks/useTickets'
-import { useInterviewQuestions, useSubmitBatch } from '@/hooks/useTickets'
+import { useInterviewQuestions, useSkipInterview, useSubmitBatch } from '@/hooks/useTickets'
 import type {
   InterviewQuestionStatus,
   InterviewQuestionView,
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LoadingText } from '@/components/ui/LoadingText'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 interface InterviewQAViewProps {
   ticket: Ticket
@@ -61,8 +62,10 @@ function groupHistory(questions: InterviewQuestionView[]) {
 export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const { data: interviewData, isLoading } = useInterviewQuestions(ticket.id)
   const { mutateAsync: submitBatchMutation, isPending: isSubmitting } = useSubmitBatch()
+  const { mutateAsync: skipInterviewMutation, isPending: isSkipping } = useSkipInterview()
   const [draftAnswers, setDraftAnswers] = useState<Record<string, Record<string, string>>>({})
   const [showHistory, setShowHistory] = useState(true)
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false)
   const [sseBatch, setSseBatch] = useState<PersistedInterviewBatch | null>(null)
   const [processingError, setProcessingError] = useState<string | null>(null)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -162,6 +165,21 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     }
   }, [batchAnswers, currentBatch, currentBatchKey, submitBatchMutation, ticket.id])
 
+  const handleConfirmSkipAll = useCallback(async () => {
+    if (!currentBatch) return
+
+    try {
+      await skipInterviewMutation({
+        ticketId: ticket.id,
+        answers: batchAnswers,
+      })
+      setShowSkipConfirm(false)
+      setSseBatch(null)
+    } catch (err) {
+      console.error('Failed to skip remaining interview questions:', err)
+    }
+  }, [batchAnswers, currentBatch, skipInterviewMutation, ticket.id])
+
   if (isLoading && !currentBatch) {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
@@ -234,9 +252,30 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
 
   const questions = currentBatch.questions
   const allBatchAnswersFilled = questions.every((question) => batchAnswers[question.id]?.trim())
+  const isBusy = isSubmitting || isSkipping
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      <Dialog open={showSkipConfirm} onOpenChange={setShowSkipConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Skip Remaining Interview Questions</DialogTitle>
+            <DialogDescription>
+              This keeps the answers you already submitted, preserves anything currently typed in this batch,
+              marks every other unanswered interview question as skipped, and moves the ticket to Interview Approval.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowSkipConfirm(false)} disabled={isBusy}>
+              Keep Interview
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleConfirmSkipAll} disabled={isBusy}>
+              {isSkipping ? <LoadingText text="Skipping" /> : 'Skip to Approval'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {historyGroups.length > 0 && (
           <div className="rounded-lg border border-border/70 bg-muted/10 p-3">
@@ -346,16 +385,25 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                   placeholder="Type your answer here. Leave blank to skip this question."
                   value={batchAnswers[question.id] ?? ''}
                   onChange={(event) => handleBatchAnswer(question.id, event.target.value)}
-                  disabled={isSubmitting}
+                  disabled={isBusy}
                 />
               </div>
             ))}
 
-            <div className="flex justify-end pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSkipConfirm(true)}
+                disabled={isBusy || questions.length === 0}
+                className="h-8 text-xs"
+              >
+                Skip All Questions
+              </Button>
               <Button
                 size="sm"
                 onClick={handleSubmitBatch}
-                disabled={isSubmitting || questions.length === 0}
+                disabled={isBusy || questions.length === 0}
                 className="h-8 text-xs"
               >
                 {isSubmitting

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, type QueryClient } from '@tanstack/react-query'
 import type { OpenCodeCatalogModel } from '@shared/opencodeCatalog'
 
 export interface ModelsApiResponse {
@@ -10,6 +10,7 @@ export interface ModelsApiResponse {
 }
 
 export type OpenCodeModel = OpenCodeCatalogModel
+export const OPENCODE_MODELS_QUERY_KEY = ['opencode-models'] as const
 
 async function fetchModelsApi(): Promise<ModelsApiResponse> {
   const res = await fetch('/api/models', { signal: AbortSignal.timeout(5000) })
@@ -17,10 +18,25 @@ async function fetchModelsApi(): Promise<ModelsApiResponse> {
   return res.json()
 }
 
+export function clearOpenCodeModelsQuery(queryClient: Pick<QueryClient, 'removeQueries'>) {
+  queryClient.removeQueries({
+    queryKey: OPENCODE_MODELS_QUERY_KEY,
+    exact: true,
+  })
+}
+
+export function refetchOpenCodeModelsQuery(queryClient: Pick<QueryClient, 'refetchQueries'>) {
+  return queryClient.refetchQueries({
+    queryKey: OPENCODE_MODELS_QUERY_KEY,
+    exact: true,
+    type: 'active',
+  })
+}
+
 /** Returns only models from connected (configured) providers */
 export function useOpenCodeModels() {
   return useQuery({
-    queryKey: ['opencode-models'],
+    queryKey: OPENCODE_MODELS_QUERY_KEY,
     queryFn: fetchModelsApi,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -31,7 +47,7 @@ export function useOpenCodeModels() {
 /** Returns all models from all providers */
 export function useAllOpenCodeModels() {
   return useQuery({
-    queryKey: ['opencode-models'],
+    queryKey: OPENCODE_MODELS_QUERY_KEY,
     queryFn: fetchModelsApi,
     staleTime: 5 * 60 * 1000,
     retry: 1,

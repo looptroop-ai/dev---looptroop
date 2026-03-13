@@ -6,6 +6,7 @@ import type { InterviewSessionView, PersistedInterviewBatch } from '@shared/inte
 import { InterviewQAView } from '../InterviewQAView'
 
 let submittedBody: { answers?: Record<string, string> } | null = null
+let skippedBody: { answers?: Record<string, string> } | null = null
 let interviewData: InterviewSessionView = {
   winnerId: 'openai/gpt-5',
   raw: 'questions:\n  - id: Q01',
@@ -92,6 +93,7 @@ function makeBatch(overrides: Partial<PersistedInterviewBatch> = {}): PersistedI
 describe('InterviewQAView', () => {
   beforeEach(() => {
     submittedBody = null
+    skippedBody = null
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       writable: true,
@@ -233,6 +235,19 @@ describe('InterviewQAView', () => {
         submittedBody = init?.body ? JSON.parse(String(init.body)) as { answers?: Record<string, string> } : null
         return createJsonResponse(makeBatch())
       }
+      if (url.endsWith('/api/tickets/1:PROJ-42/skip')) {
+        skippedBody = init?.body ? JSON.parse(String(init.body)) as { answers?: Record<string, string> } : null
+        return createJsonResponse({
+          message: 'Remaining interview questions skipped',
+          ticketId: '1:PROJ-42',
+          status: 'WAITING_INTERVIEW_APPROVAL',
+          state: 'WAITING_INTERVIEW_APPROVAL',
+          ticket: {
+            ...makeTicket(),
+            status: 'WAITING_INTERVIEW_APPROVAL',
+          },
+        })
+      }
       if (url.endsWith('/api/tickets/1:PROJ-42/interview')) {
         return createJsonResponse(interviewData)
       }
@@ -245,7 +260,7 @@ describe('InterviewQAView', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders interview history, removes legacy bypass actions, and submits batch answers', async () => {
+  it('renders interview history, restores skip-all actions, and submits batch answers', async () => {
     renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
 
     await waitFor(() => {
@@ -256,8 +271,7 @@ describe('InterviewQAView', () => {
     expect(screen.getByText('What outcome matters most?')).toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
     expect(screen.getByText('PROM4 Follow-up')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /skip all/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /submit all remaining/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /skip all questions/i })).toBeInTheDocument()
 
     const textareas = screen.getAllByRole('textbox')
     fireEvent.change(textareas[0]!, { target: { value: 'Exercise retries against a flaky upstream fake.' } })
@@ -267,6 +281,32 @@ describe('InterviewQAView', () => {
     })
 
     expect(submittedBody).toEqual({
+      answers: {
+        QF01: 'Exercise retries against a flaky upstream fake.',
+      },
+    })
+  })
+
+  it('confirms and skips all remaining interview questions while preserving drafted answers', async () => {
+    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
+    })
+
+    const textareas = screen.getAllByRole('textbox')
+    fireEvent.change(textareas[0]!, { target: { value: 'Exercise retries against a flaky upstream fake.' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /skip all questions/i }))
+
+    expect(screen.getByRole('heading', { name: /skip remaining interview questions/i })).toBeInTheDocument()
+    expect(screen.getByText(/preserves anything currently typed in this batch/i)).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /skip to approval/i }))
+    })
+
+    expect(skippedBody).toEqual({
       answers: {
         QF01: 'Exercise retries against a flaky upstream fake.',
       },

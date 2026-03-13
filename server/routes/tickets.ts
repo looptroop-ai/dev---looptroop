@@ -13,7 +13,7 @@ import { abortTicketSessions } from '../opencode/sessionManager'
 import { clearContextCache } from '../opencode/contextBuilder'
 import { isMockOpenCodeMode } from '../opencode/factory'
 import { broadcaster } from '../sse/broadcaster'
-import { cancelTicket, handleInterviewQABatch, processInterviewBatchAsync } from '../workflow/runner'
+import { cancelTicket, handleInterviewQABatch, processInterviewBatchAsync, skipAllInterviewQuestionsToApproval } from '../workflow/runner'
 import { createTicket as createTicketRecord } from '../ticket/create'
 import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
 import { getProjectContextById } from '../storage/projects'
@@ -26,7 +26,7 @@ import {
   deleteTicket as deleteStoredTicket,
   listPhaseArtifacts,
   listTickets,
-  patchTicket,
+  lockTicketStartConfiguration,
   updateTicket,
   upsertLatestPhaseArtifact,
 } from '../storage/tickets'
@@ -111,7 +111,13 @@ function getProfileDefaults() {
 function respondWithState(c: Context, ticketId: string, message: string) {
   const updated = getTicketByRef(ticketId)
   const state = getTicketState(ticketId)
-  return c.json({ message, ticketId, status: state?.state ?? updated?.status, state: state?.state })
+  return c.json({
+    message,
+    ticketId,
+    status: state?.state ?? updated?.status,
+    state: state?.state,
+    ...(updated ? { ticket: updated } : {}),
+  })
 }
 
 ticketRouter.get('/tickets', (c) => {
@@ -310,16 +316,25 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
     ?? 50
   const lockedUserBackground = profile?.background?.trim() || null
   const lockedDisableAnalogies = Boolean(profile?.disableAnalogies)
+  const startedAt = new Date().toISOString()
 
-  patchTicket(ticketId, {
-    lockedMainImplementer: modelSelection.mainImplementer,
-    lockedCouncilMembers: JSON.stringify(modelSelection.councilMembers),
-    lockedInterviewQuestions,
-    lockedUserBackground,
-    lockedDisableAnalogies: lockedDisableAnalogies ? 1 : 0,
-    branchName: init.branchName,
-    startedAt: new Date().toISOString(),
-  })
+  try {
+    const lockedTicket = lockTicketStartConfiguration(ticketId, {
+      branchName: init.branchName,
+      startedAt,
+      lockedMainImplementer: modelSelection.mainImplementer,
+      lockedCouncilMembers: modelSelection.councilMembers,
+      lockedInterviewQuestions,
+      lockedUserBackground,
+      lockedDisableAnalogies,
+    })
+    if (!lockedTicket) return c.json({ error: 'Ticket not found' }, 404)
+  } catch (err) {
+    return c.json({
+      error: 'Failed to persist ticket start configuration',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
 
   try {
     ensureActorForTicket(ticketId)
@@ -398,11 +413,33 @@ ticketRouter.post('/tickets/:id/skip', async (c) => {
   const ticketId = c.req.param('id')
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  return c.json({
-    error: 'Direct interview skip is no longer supported. Submit a batch with blank answers to mark skips.',
-    ticketId,
-    status: ticket.status,
-  }, 410)
+  if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
+    return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = interviewAnswerPayloadSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid answers payload', details: parsed.error.flatten() }, 400)
+    }
+
+    ensureActorForTicket(ticketId)
+    skipAllInterviewQuestionsToApproval(ticketId, parsed.data.answers)
+
+    try {
+      await abortTicketSessions(ticketId)
+    } catch (err) {
+      console.warn(`[tickets] Failed to abort interview sessions for ${ticketId} after skip-all:`, err)
+    }
+
+    sendTicketEvent(ticketId, { type: 'SKIP_ALL_TO_APPROVAL' })
+  } catch (err) {
+    console.error(`[tickets] Failed to skip remaining interview questions for ticket ${ticketId}:`, err)
+    return c.json({ error: 'Failed to skip remaining interview questions', details: String(err) }, 500)
+  }
+
+  return respondWithState(c, ticketId, 'Remaining interview questions skipped')
 })
 
 ticketRouter.post('/tickets/:id/answer-batch', async (c) => {

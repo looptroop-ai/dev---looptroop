@@ -40,15 +40,17 @@ function emitAppSystemLog(
   content: string,
   data?: Record<string, unknown>,
 ) {
+  const timestamp = new Date().toISOString()
   broadcaster.broadcast(ticketRef, 'log', {
     ticketId: ticketRef,
     phase,
     type: 'info',
     content,
+    timestamp,
     source: 'system',
     ...(data ? { data } : {}),
   })
-  appendLogEvent(ticketRef, 'info', phase, content, data, 'system', phase)
+  appendLogEvent(ticketRef, 'info', phase, content, data ? { ...data, timestamp } : { timestamp }, 'system', phase)
 }
 
 function emitAppErrorLog(
@@ -57,15 +59,17 @@ function emitAppErrorLog(
   content: string,
   data?: Record<string, unknown>,
 ) {
+  const timestamp = new Date().toISOString()
   broadcaster.broadcast(ticketRef, 'log', {
     ticketId: ticketRef,
     phase,
     type: 'error',
     content,
+    timestamp,
     source: 'error',
     ...(data ? { data } : {}),
   })
-  appendLogEvent(ticketRef, 'error', phase, content, data, 'error', phase)
+  appendLogEvent(ticketRef, 'error', phase, content, data ? { ...data, timestamp } : { timestamp }, 'error', phase)
 }
 
 function attachPersistenceSubscription(

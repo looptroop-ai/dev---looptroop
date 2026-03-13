@@ -5,6 +5,7 @@ import {
   buildInterviewQuestionViews,
   buildPersistedBatch,
   clearInterviewSessionBatch,
+  completeInterviewBySkippingRemaining,
   createInterviewSessionSnapshot,
   extractCoverageFollowUpQuestions,
   markInterviewSessionComplete,
@@ -123,5 +124,78 @@ describe('interview session state', () => {
       status: 'current',
       source: 'coverage_follow_up',
     })
+  })
+
+  it('preserves existing answers and skips every remaining unanswered question when skipping to approval', () => {
+    const base = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: [
+        { id: 'Q01', phase: 'Foundation', question: 'What outcome matters most?' },
+        { id: 'Q02', phase: 'Structure', question: 'Which constraints are fixed?' },
+        { id: 'Q03', phase: 'Assembly', question: 'How will retries be tested?' },
+        { id: 'Q04', phase: 'Assembly', question: 'What retry budget is acceptable?' },
+      ],
+      maxInitialQuestions: 4,
+    })
+
+    const firstBatch = buildPersistedBatch({
+      questions: [
+        { id: 'Q01', phase: 'Foundation', question: 'What outcome matters most?' },
+        { id: 'Q02', phase: 'Structure', question: 'Which constraints are fixed?' },
+      ],
+      progress: { current: 2, total: 4 },
+      isComplete: false,
+      isFinalFreeForm: false,
+      aiCommentary: 'Foundation and structure first.',
+      batchNumber: 1,
+    }, 'prom4', base)
+
+    const answered = recordBatchAnswers(
+      recordPreparedBatch(base, firstBatch),
+      {
+        Q01: 'Keep imports idempotent.',
+        Q02: '',
+      },
+    )
+
+    const currentBatch = buildPersistedBatch({
+      questions: [
+        { id: 'Q03', phase: 'Assembly', question: 'How will retries be tested?' },
+      ],
+      progress: { current: 3, total: 4 },
+      isComplete: false,
+      isFinalFreeForm: false,
+      aiCommentary: 'One implementation detail remains.',
+      batchNumber: 2,
+    }, 'prom4', answered)
+
+    const activeSnapshot = recordPreparedBatch(answered, currentBatch)
+    const completed = completeInterviewBySkippingRemaining(activeSnapshot, {
+      Q03: 'Exercise retries against a flaky upstream fake.',
+    })
+    const yaml = buildCanonicalInterviewYaml('1:T-100', completed)
+
+    expect(completed.completedAt).toBe('2026-03-12T12:00:00.000Z')
+    expect(completed.currentBatch).toBeNull()
+    expect(completed.answers.Q01).toMatchObject({
+      answer: 'Keep imports idempotent.',
+      skipped: false,
+    })
+    expect(completed.answers.Q02).toMatchObject({
+      answer: '',
+      skipped: true,
+    })
+    expect(completed.answers.Q03).toMatchObject({
+      answer: 'Exercise retries against a flaky upstream fake.',
+      skipped: false,
+    })
+    expect(completed.answers.Q04).toMatchObject({
+      answer: '',
+      skipped: true,
+      batchNumber: 2,
+    })
+    expect(yaml).toContain('free_text: Exercise retries against a flaky upstream fake.')
+    expect(yaml).toContain('prompt: What retry budget is acceptable?')
+    expect(yaml).toContain('skipped: true')
   })
 })

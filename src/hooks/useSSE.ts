@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { queryClient } from '@/lib/queryClient'
 import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
 import { patchTicketStatusInCache } from './ticketStatusCache'
@@ -20,6 +20,12 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
   const reconnectRef = useRef<(() => void) | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const connectTokenRef = useRef(0)
+  // Keep the connection stable per ticket while always dispatching to the latest callback.
+  const onEventRef = useRef(onEvent)
+
+  useEffect(() => {
+    onEventRef.current = onEvent
+  }, [onEvent])
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
@@ -58,7 +64,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
           }
           queryClient.invalidateQueries({ queryKey: ['tickets'] })
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
-          onEvent?.({ type: 'state_change', data })
+          onEventRef.current?.({ type: 'state_change', data })
         } catch {
           // ignore parse errors
         }
@@ -68,7 +74,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
-          onEvent?.({ type: 'progress', data })
+          onEventRef.current?.({ type: 'progress', data })
         } catch {
           // ignore parse errors
         }
@@ -78,7 +84,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
-          onEvent?.({ type: 'log', data })
+          onEventRef.current?.({ type: 'log', data })
         } catch {
           // ignore parse errors
         }
@@ -91,7 +97,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         if (typeof me.data !== 'string') return
         try {
           const data = JSON.parse(me.data) as Record<string, unknown>
-          onEvent?.({ type: 'error', data })
+          onEventRef.current?.({ type: 'error', data })
         } catch {
           // ignore parse errors
         }
@@ -102,7 +108,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           queryClient.invalidateQueries({ queryKey: ['tickets'] })
-          onEvent?.({ type: 'bead_complete', data })
+          onEventRef.current?.({ type: 'bead_complete', data })
         } catch {
           // ignore parse errors
         }
@@ -116,7 +122,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
           if ((data.type === 'interview_batch' || data.type === 'interview_error') && ticketId) {
             queryClient.invalidateQueries({ queryKey: ['interview', ticketId] })
           }
-          onEvent?.({ type: 'needs_input', data })
+          onEventRef.current?.({ type: 'needs_input', data })
         } catch {
           // ignore parse errors
         }
@@ -144,7 +150,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
               queryClient.invalidateQueries({ queryKey: getTicketArtifactsQueryKey(ticketId) })
             }
           }
-          onEvent?.({ type: 'artifact_change', data })
+          onEventRef.current?.({ type: 'artifact_change', data })
         } catch {
           // ignore parse errors
         }
@@ -156,7 +162,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         scheduleReconnect()
       }
     })()
-  }, [ticketId, onEvent, scheduleReconnect])
+  }, [scheduleReconnect, ticketId])
 
   useEffect(() => {
     reconnectRef.current = connect

@@ -12,10 +12,13 @@ import { WelcomeDisclaimer } from '@/components/shared/WelcomeDisclaimer'
 import { useUI } from '@/context/UIContext'
 import { useTickets } from '@/hooks/useTickets'
 import { useProfile } from '@/hooks/useProfile'
+import { useQueryClient } from '@tanstack/react-query'
+import { clearOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 
 function App() {
   useProfile() // Preload profile for faster Configuration open
   const { state, dispatch } = useUI()
+  const queryClient = useQueryClient()
   const { data: tickets } = useTickets()
   const ticketsRef = useRef(tickets)
   useEffect(() => { ticketsRef.current = tickets }, [tickets])
@@ -59,6 +62,7 @@ function App() {
 
   // Modal open/close helpers that sync URL
   const openProfile = () => {
+    clearOpenCodeModelsQuery(queryClient)
     prevPathRef.current = window.location.pathname
     window.history.pushState(null, '', '/config')
     setShowProfile(true)

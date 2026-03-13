@@ -32,6 +32,7 @@ import {
   buildInterviewQuestionViews,
   buildPersistedBatch,
   clearInterviewSessionBatch,
+  completeInterviewBySkippingRemaining,
   createInterviewSessionSnapshot,
   extractCoverageFollowUpQuestions,
   INTERVIEW_BATCH_HISTORY_ARTIFACT,
@@ -80,12 +81,14 @@ import {
   type CoverageFollowUpQuestion,
   type StructuredOutputMetadata,
 } from '../structuredOutput'
+import { buildSessionStatusLogEntries } from './sessionStatusLogging'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
 const adapter = getOpenCodeAdapter()
 const ticketAbortControllers = new Map<string, AbortController>()
 const interviewQASessions = new Map<string, { sessionId: string; winnerId: string }>()
+const SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE = 'Coverage skipped by user shortcut after marking remaining questions skipped.'
 
 /** Intermediate data stored between draft→vote→refine state machine phases. */
 interface PhaseIntermediateData {
@@ -182,6 +185,84 @@ function buildInterviewAnswerSummary(snapshot: InterviewSessionSnapshot | null):
         : `Answer: ${question.answer ?? ''}`,
     ].join('\n'))
   return answered.join('\n\n')
+}
+
+export function skipAllInterviewQuestionsToApproval(
+  ticketId: string,
+  batchAnswers: Record<string, string>,
+): { snapshot: InterviewSessionSnapshot; canonicalInterview: string } {
+  const snapshot = readInterviewSessionSnapshotArtifact(ticketId)
+  if (!snapshot) {
+    throw new Error('No normalized interview session snapshot found for this ticket')
+  }
+
+  const ticket = getTicketByRef(ticketId)
+  const externalId = ticket?.externalId ?? ticketId
+  const paths = getTicketPaths(ticketId)
+  if (!paths) {
+    throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
+  }
+
+  const finalizedSnapshot = completeInterviewBySkippingRemaining(snapshot, batchAnswers)
+  const canonicalInterview = buildCanonicalInterviewYaml(externalId, finalizedSnapshot)
+  const interviewPath = resolve(paths.ticketDir, 'interview.yaml')
+
+  safeAtomicWrite(interviewPath, canonicalInterview)
+  persistInterviewSession(ticketId, finalizedSnapshot)
+  interviewQASessions.delete(ticketId)
+
+  const userAnswers = buildInterviewAnswerSummary(finalizedSnapshot)
+  upsertLatestPhaseArtifact(
+    ticketId,
+    'interview_coverage_input',
+    'VERIFYING_INTERVIEW_COVERAGE',
+    JSON.stringify({ interview: canonicalInterview, userAnswers }),
+  )
+  upsertLatestPhaseArtifact(
+    ticketId,
+    'interview_coverage',
+    'VERIFYING_INTERVIEW_COVERAGE',
+    JSON.stringify({
+      winnerId: finalizedSnapshot.winnerId,
+      response: SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE,
+      normalizedContent: [
+        'status: clean',
+        'gaps: []',
+        'follow_up_questions: []',
+      ].join('\n'),
+      hasGaps: false,
+      parsed: {
+        status: 'clean',
+        gaps: [],
+        followUpQuestions: [],
+      },
+      structuredOutput: {
+        repairApplied: false,
+        repairWarnings: [],
+        autoRetryCount: 0,
+      },
+    }),
+  )
+
+  emitPhaseLog(
+    ticketId,
+    externalId,
+    'WAITING_INTERVIEW_ANSWERS',
+    'info',
+    'User skipped all remaining interview questions. Preserving existing answers and finalizing the normalized interview state.',
+  )
+  emitPhaseLog(
+    ticketId,
+    externalId,
+    'VERIFYING_INTERVIEW_COVERAGE',
+    'info',
+    `${SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE} Canonical interview.yaml refreshed at ${interviewPath}.`,
+  )
+
+  return {
+    snapshot: finalizedSnapshot,
+    canonicalInterview,
+  }
 }
 
 function buildCoverageFollowUpCommentary(response: string): string {
@@ -392,14 +473,25 @@ function emitPhaseLog(
     ...(typeof data?.sessionId === 'string' ? { sessionId: data.sessionId } : {}),
     ...(typeof data?.streaming === 'boolean' ? { streaming: data.streaming } : {}),
   }
+  const timestamp = new Date().toISOString()
   broadcaster.broadcast(ticketId, 'log', {
     ticketId,
     phase,
     type,
     content,
     ...data,
+    timestamp,
   })
-  appendLogEvent(ticketId, type, phase, content, data, source as LogSource | undefined, phase, structuredExtra)
+  appendLogEvent(
+    ticketId,
+    type,
+    phase,
+    content,
+    data ? { ...data, timestamp } : { timestamp },
+    source as LogSource | undefined,
+    phase,
+    structuredExtra,
+  )
   if (type !== 'debug' && !suppressDebugMirror) {
     emitDebugLog(
       ticketId,
@@ -421,6 +513,7 @@ function emitDebugLog(
   const debugData = payload && typeof payload === 'object'
     ? (payload as Record<string, unknown>)
     : (payload !== undefined ? { value: payload } : undefined)
+  const timestamp = new Date().toISOString()
 
   broadcaster.broadcast(ticketId, 'log', {
     ticketId,
@@ -432,8 +525,9 @@ function emitDebugLog(
     kind: 'session',
     op: 'append',
     streaming: false,
+    timestamp,
   })
-  appendLogEvent(ticketId, 'debug', phase, content, debugData, 'debug', phase, {
+  appendLogEvent(ticketId, 'debug', phase, content, debugData ? { ...debugData, timestamp } : { timestamp }, 'debug', phase, {
     audience: 'debug',
     kind: 'session',
     op: 'append',
@@ -451,6 +545,7 @@ function emitStateChange(
     ticketId,
     from,
     to,
+    timestamp: new Date().toISOString(),
   }
   broadcaster.broadcast(ticketId, 'state_change', payload)
   appendLogEvent(
@@ -758,23 +853,26 @@ function emitOpenCodeStreamEvent(
     if (event.status === 'idle') {
       finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
     }
-    emitAiDetail(
-      ticketId,
-      ticketExternalId,
-      phase,
-      'info',
-      `Session status: ${event.status}.`,
-      {
-        entryId: `${sessionId}:status`,
-        audience: 'ai',
-        kind: 'session',
-        op: event.status === 'idle' ? 'finalize' : 'upsert',
-        source,
-        modelId: memberId || undefined,
-        sessionId,
-        streaming: event.status !== 'idle',
-      },
-    )
+
+    for (const entry of buildSessionStatusLogEntries(sessionId, event)) {
+      emitAiDetail(
+        ticketId,
+        ticketExternalId,
+        phase,
+        entry.type,
+        entry.content,
+        {
+          entryId: entry.entryId,
+          audience: 'ai',
+          kind: entry.kind,
+          op: entry.op,
+          source,
+          modelId: memberId || undefined,
+          sessionId,
+          streaming: entry.op !== 'append' && event.status !== 'idle',
+        },
+      )
+    }
     return
   }
 

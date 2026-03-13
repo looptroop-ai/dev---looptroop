@@ -34,7 +34,8 @@ class SSEBroadcaster {
 
   broadcast(ticketId: string, event: SSEEventType, data: Record<string, unknown>) {
     const id = String(++this.eventCounter)
-    const payload = JSON.stringify({ ...data, timestamp: new Date().toISOString() })
+    const timestamp = typeof data.timestamp === 'string' ? data.timestamp : new Date().toISOString()
+    const payload = JSON.stringify({ ...data, timestamp })
 
     // Buffer for replay
     const buffer = this.eventBuffer.get(ticketId) ?? []

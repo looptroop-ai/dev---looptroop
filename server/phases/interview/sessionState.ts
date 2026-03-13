@@ -276,6 +276,28 @@ export function recordBatchAnswers(
   return next
 }
 
+export function completeInterviewBySkippingRemaining(
+  snapshot: InterviewSessionSnapshot,
+  batchAnswers: Record<string, string>,
+): InterviewSessionSnapshot {
+  const currentBatchNumber = snapshot.currentBatch?.batchNumber ?? null
+  const answeredSnapshot = snapshot.currentBatch
+    ? recordBatchAnswers(snapshot, batchAnswers)
+    : cloneSnapshot(snapshot)
+
+  for (const question of answeredSnapshot.questions) {
+    if (answeredSnapshot.answers[question.id]) continue
+    answeredSnapshot.answers[question.id] = {
+      answer: '',
+      skipped: true,
+      answeredAt: null,
+      batchNumber: currentBatchNumber,
+    }
+  }
+
+  return markInterviewSessionComplete(answeredSnapshot)
+}
+
 export function markInterviewSessionComplete(
   snapshot: InterviewSessionSnapshot,
   rawFinalYaml?: string,

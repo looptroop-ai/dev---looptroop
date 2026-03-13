@@ -31,8 +31,9 @@ export function appendLogEvent(
   extra?: Partial<StructuredLogFields>,
 ) {
   const structured = pickStructuredFields(data)
+  const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
   const event: LogEvent = {
-    timestamp: new Date().toISOString(),
+    timestamp,
     type,
     ticketId,
     phase,
@@ -64,8 +65,9 @@ export function createLogEvent(
   extra?: Partial<StructuredLogFields>,
 ): LogEvent {
   const structured = pickStructuredFields(data)
+  const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
   return {
-    timestamp: new Date().toISOString(),
+    timestamp,
     type,
     ticketId,
     phase,

@@ -225,11 +225,13 @@ function compareTimestamps(a?: string, b?: string): number {
 function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
   if (entry.op === 'append') {
     const duplicate = bucket.some(existing =>
-      existing.entryId === entry.entryId
-      && existing.line === entry.line
+      existing.line === entry.line
       && existing.source === entry.source
       && existing.status === entry.status
-      && compareTimestamps(existing.timestamp, entry.timestamp) === 0)
+      && (
+        existing.entryId === entry.entryId
+        || compareTimestamps(existing.timestamp, entry.timestamp) === 0
+      ))
     if (duplicate) return bucket
     return [...bucket, entry]
   }
