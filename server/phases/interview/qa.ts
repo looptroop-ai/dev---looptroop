@@ -10,6 +10,7 @@ import {
 } from '../../workflow/runOpenCodePrompt'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
+import { repairYamlIndentation } from '@shared/yamlRepair'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 
@@ -240,7 +241,7 @@ export function parseBatchResponse(response: string): BatchResponse {
   const batchMatch = response.match(/<INTERVIEW_BATCH>([\s\S]*?)<\/INTERVIEW_BATCH>/)
   if (batchMatch) {
     try {
-      const parsed = jsYaml.load(batchMatch[1]!.trim()) as Record<string, unknown>
+      const parsed = jsYaml.load(repairYamlIndentation(batchMatch[1]!.trim())) as Record<string, unknown>
       return extractBatchFromParsed(parsed)
     } catch {
       // Fall through to YAML fallback
@@ -249,7 +250,7 @@ export function parseBatchResponse(response: string): BatchResponse {
 
   // Fallback: try to parse the entire response as YAML
   try {
-    const parsed = jsYaml.load(response) as Record<string, unknown> | null
+    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
     if (parsed && typeof parsed === 'object') {
       // Check if this looks like a final interview results YAML
       if ('schema_version' in parsed || 'questions' in parsed && 'approval' in parsed) {

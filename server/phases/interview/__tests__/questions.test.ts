@@ -145,6 +145,39 @@ describe('parseInterviewQuestions', () => {
     ])
   })
 
+  it('parses YAML with mixed 3-space/4-space indentation for properties', () => {
+    const questions = parseInterviewQuestions([
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '   phase: Structure',
+      '   question: "Which users should be supported first?"',
+      '  - id: Q03',
+      '     phase: Assembly',
+      '     question: "How will success be verified?"',
+    ].join('\n'))
+
+    expect(questions).toEqual([
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        question: 'What problem are we solving?',
+      },
+      {
+        id: 'Q02',
+        phase: 'Structure',
+        question: 'Which users should be supported first?',
+      },
+      {
+        id: 'Q03',
+        phase: 'Assembly',
+        question: 'How will success be verified?',
+      },
+    ])
+  })
+
   it('repairs malformed yaml-like question blocks instead of dropping the whole draft', () => {
     const questions = parseInterviewQuestions([
       '[MODEL] ```yaml',

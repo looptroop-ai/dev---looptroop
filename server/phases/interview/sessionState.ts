@@ -14,6 +14,7 @@ import type {
 } from '@shared/interviewSession'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
+import { repairYamlIndentation } from '@shared/yamlRepair'
 
 export const INTERVIEW_SESSION_ARTIFACT = 'interview_session'
 export const INTERVIEW_PROM4_FINAL_ARTIFACT = 'interview_prom4_final'
@@ -378,7 +379,7 @@ function normalizeCoverageQuestion(question: BatchQuestion, roundNumber: number)
 
 function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
   try {
-    const parsed = jsYaml.load(response) as Record<string, unknown> | null
+    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
     if (!parsed || typeof parsed !== 'object') return []
 
     const rawFollowUps = Array.isArray(parsed.follow_up_questions)

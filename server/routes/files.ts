@@ -117,6 +117,11 @@ filesRouter.get('/files/:ticketId/logs', (c) => {
   }
 
   const foldedEntries = foldStreamingEntries(entries)
+  foldedEntries.sort((a, b) => {
+    const at = typeof a.timestamp === 'string' ? Date.parse(a.timestamp) : 0
+    const bt = typeof b.timestamp === 'string' ? Date.parse(b.timestamp) : 0
+    return at - bt
+  })
 
   const hasCurrentStatusEntry = foldedEntries.some(entry => entry.status === ticket.status)
   if (!hasCurrentStatusEntry) {

@@ -447,7 +447,10 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     }
   }, [flushPendingLogs])
 
-  const getLogsForPhase = useCallback((phase: string) => logsByPhase[phase] ?? [], [logsByPhase])
+  const getLogsForPhase = useCallback(
+    (phase: string) => (logsByPhase[phase] ?? []).slice().sort((a, b) => compareTimestamps(a.timestamp, b.timestamp)),
+    [logsByPhase],
+  )
 
   const getAllLogs = useCallback(() => {
     return Object.values(logsByPhase)

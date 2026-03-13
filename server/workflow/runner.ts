@@ -50,6 +50,7 @@ import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
+import { repairYamlIndentation } from '@shared/yamlRepair'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { readJsonl, writeJsonl } from '../io/jsonl'
 import { getOpenCodeAdapter, isMockOpenCodeMode } from '../opencode/factory'
@@ -2969,7 +2970,7 @@ async function handleCoverageVerification(
   // Strategy: try YAML structured fields first, then explicit markers, then heuristic
   let detectedGaps = false
   try {
-    const parsed = jsYaml.load(response) as Record<string, unknown> | null
+    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
     if (parsed && typeof parsed === 'object') {
       // Structured YAML: check for gaps field or status field
       if (Array.isArray(parsed.gaps)) {

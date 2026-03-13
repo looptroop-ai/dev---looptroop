@@ -52,7 +52,7 @@ export default defineConfig({
           environment: 'node',
           sequence: { groupOrder: 1 },
           setupFiles: ['./server/test/setup.ts'],
-          include: ['server/**/*.test.ts', 'tests/**/*.test.ts'],
+          include: ['server/**/*.test.ts', 'tests/**/*.test.ts', 'shared/**/*.test.ts'],
           env: sharedEnv,
         },
       },

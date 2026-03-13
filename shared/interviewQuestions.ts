@@ -1,5 +1,6 @@
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
+import { repairYamlIndentation } from './yamlRepair'
 
 export interface InterviewQuestionPreview {
   id?: string
@@ -350,7 +351,7 @@ function cleanRecoveredQuestion(rawQuestion: string): { question: string; carryI
 
 function repairInterviewCandidate(candidate: string): string {
   const repairedLines: string[] = []
-  const rawLines = stripTranscriptPrefixes(candidate).split('\n')
+  const rawLines = stripTranscriptPrefixes(repairYamlIndentation(candidate)).split('\n')
   let carryIdForNextItem: string | undefined
 
   for (let index = 0; index < rawLines.length; index += 1) {
