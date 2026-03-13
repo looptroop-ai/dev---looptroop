@@ -88,7 +88,7 @@ export const PROM3: PromptTemplate = {
     'Your winning draft earned its position — its structure and core decisions are sound. Now approach the alternatives with genuine curiosity: they may have caught things you missed.',
     'Gap Scan: Read through the alternative drafts and note anything they cover that your draft does not: topics you skipped, edge cases you missed, or questions that are unambiguously clearer or more precise than yours. These are candidates — not automatic additions.',
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a variation of something you already cover well? If it fills a real gap, add it. If it is a strictly better phrasing of one of your existing questions, replace yours with it. Otherwise, discard it.',
-    'Restraint: Avoid appending near-duplicate questions that merely rephrase something you already cover. But if genuine gaps exist — topics missed, edge cases overlooked — fill them; `max_initial_questions` is a ceiling, not a target to stay away from.',
+    'Restraint: Avoid appending near-duplicate questions that merely rephrase something you already cover. But if genuine gaps exist — topics missed, edge cases overlooked — fill them; `max_initial_questions` is a ceiling, not a target to stay away from, but never pass it',
     'Formatting: Output the final refined draft using the exact same structural format required for this phase. Output only the final artifact.',
   ],
   outputFormat: 'YAML — same question list format as PROM1 output, matching PROM5.output_file questions schema',

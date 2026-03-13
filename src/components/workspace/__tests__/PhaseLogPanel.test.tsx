@@ -321,6 +321,25 @@ describe('PhaseLogPanel', () => {
     expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'smooth' })
   })
 
+  it('jumps straight to the latest visible entry when logs arrive after an empty initial render', () => {
+    const firstLog = makeLog('log-1', '[SYS] First visible log line')
+    const secondLog = makeLog('log-2', '[SYS] Second visible log line', {
+      timestamp: '2026-03-10T10:00:01.000Z',
+    })
+
+    const { rerender } = render(<PhaseLogPanel phase="CODING" logs={[]} />)
+
+    flushAnimationFrames()
+    scrollToMock.mockClear()
+
+    rerender(<PhaseLogPanel phase="CODING" logs={[firstLog, secondLog]} />)
+
+    flushAnimationFrames()
+
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'auto' })
+  })
+
   it('stops auto-scroll after the user scrolls away and resumes once they return to the bottom', () => {
     const firstLog = makeLog('log-1', '[SYS] First visible log line')
     const secondLog = makeLog('log-2', '[SYS] Second visible log line', {

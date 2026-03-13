@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -17,6 +17,7 @@ interface PhaseLogPanelProps {
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 
 const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
+const BOTTOM_THRESHOLD = 50
 
 function getEntryColor(entry: LogEntry): string {
   if (entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
@@ -232,12 +233,37 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
 
   // ── Smart auto-scroll ──────────────────────────────────────────────
   const viewportRef = useRef<HTMLDivElement>(null)
-  const userScrolledAway = useRef(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const autoScrollEnabledRef = useRef(true)
   const previousViewRef = useRef<string | null>(null)
   const previousVisibleTailRef = useRef<string | null>(null)
   const scrollFrameRef = useRef<number | null>(null)
 
-  const BOTTOM_THRESHOLD = 50 // px from bottom to consider "at bottom"
+  const scheduleScrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    const scroll = () => {
+      const el = viewportRef.current
+      if (!el) return
+      el.scrollTo({ top: el.scrollHeight, behavior })
+    }
+
+    if (behavior === 'auto') {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+      scroll()
+      return
+    }
+
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      scroll()
+    })
+  }, [])
 
   // Attach scroll listener directly on the viewport (scroll events don't bubble)
   useEffect(() => {
@@ -245,7 +271,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
     if (!el) return
     const onScroll = () => {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      userScrolledAway.current = distanceFromBottom > BOTTOM_THRESHOLD
+      autoScrollEnabledRef.current = distanceFromBottom <= BOTTOM_THRESHOLD
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
@@ -256,6 +282,19 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
       cancelAnimationFrame(scrollFrameRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    const contentEl = contentRef.current
+    if (!contentEl) return
+
+    const observer = new ResizeObserver(() => {
+      if (!autoScrollEnabledRef.current) return
+      scheduleScrollToBottom('auto')
+    })
+
+    observer.observe(contentEl)
+    return () => observer.disconnect()
+  }, [scheduleScrollToBottom])
 
   const configuredModelIds = useMemo(() => {
     return lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0)
@@ -323,28 +362,20 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
     const currentView = `${phase}:${effectiveTab}`
     const viewChanged = previousViewRef.current !== currentView
     const visibleTailChanged = previousVisibleTailRef.current !== visibleLogTail
+    const hadVisibleLogs = previousVisibleTailRef.current !== null
 
     if (viewChanged) {
-      userScrolledAway.current = false
+      autoScrollEnabledRef.current = true
     }
 
-    if (hasLogs && (viewChanged || (visibleTailChanged && !userScrolledAway.current))) {
-      if (scrollFrameRef.current !== null) {
-        cancelAnimationFrame(scrollFrameRef.current)
-      }
-
-      const behavior: ScrollBehavior = viewChanged ? 'auto' : 'smooth'
-      scrollFrameRef.current = requestAnimationFrame(() => {
-        const el = viewportRef.current
-        scrollFrameRef.current = null
-        if (!el) return
-        el.scrollTo({ top: el.scrollHeight, behavior })
-      })
+    if (hasLogs && (viewChanged || (visibleTailChanged && autoScrollEnabledRef.current))) {
+      const behavior: ScrollBehavior = viewChanged || !hadVisibleLogs ? 'auto' : 'smooth'
+      scheduleScrollToBottom(behavior)
     }
 
     previousViewRef.current = currentView
     previousVisibleTailRef.current = visibleLogTail
-  }, [phase, effectiveTab, hasLogs, visibleLogTail])
+  }, [phase, effectiveTab, hasLogs, visibleLogTail, scheduleScrollToBottom])
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -409,7 +440,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         <span className="ml-auto text-xs text-muted-foreground pl-2">{filteredLogs.length} entries</span>
       </div>
       <ScrollArea className="flex-1 min-h-0" viewportRef={viewportRef}>
-        <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
+        <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
           {hasLogs ? (
             filteredLogs.map((entry, i) => (
               <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName={showModelNameInLogTags} />
