@@ -76,7 +76,7 @@ import {
   normalizeBeadSubsetYamlOutput,
   normalizeBeadsJsonlOutput,
   normalizeCoverageResultOutput,
-  normalizeInterviewQuestionsOutput,
+  normalizeInterviewRefinementOutput,
   normalizePrdYamlOutput,
   type CoverageFollowUpQuestion,
   type StructuredOutputMetadata,
@@ -1202,6 +1202,25 @@ function formatDurationMs(durationMs: number): string {
   return `${durationMs}ms`
 }
 
+function formatDraftRoundSummary(
+  label: string,
+  elapsedMs: number,
+  timeoutMs: number,
+  deadlineReached: boolean,
+  summary: {
+    completed: number
+    timedOut: number
+    failed: number
+    invalidOutput: number
+  },
+) {
+  const timing = deadlineReached
+    ? `reached configured deadline (${timeoutMs}ms)`
+    : `completed in ${formatDurationMs(elapsedMs)}`
+
+  return `${label} ${timing}: completed=${summary.completed}, timed_out=${summary.timedOut}, failed=${summary.failed}, invalid_output=${summary.invalidOutput}.`
+}
+
 function summarizeDraftOutcomes(drafts: DraftResult[]) {
   return drafts.reduce(
     (summary, draft) => {
@@ -1564,7 +1583,13 @@ async function handleInterviewDeliberate(
     context.externalId,
     phase,
     'info',
-    `Interview draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, failed=${draftSummary.failed}, invalid_output=${draftSummary.invalidOutput}.`,
+    formatDraftRoundSummary(
+      'Interview draft round',
+      Date.now() - startedAt,
+      draftSettings.draftTimeoutMs,
+      Boolean(result.deadlineReached),
+      draftSummary,
+    ),
   )
   const quorum = checkQuorum(result.drafts, draftSettings.minQuorum)
   const nextStatus = quorum.passed ? 'COUNCIL_VOTING_INTERVIEW' : 'BLOCKED_ERROR'
@@ -1875,8 +1900,9 @@ async function handleInterviewCompile(
       activeLosingDrafts,
     ),
     (content) => {
-      const result = normalizeInterviewQuestionsOutput(
+      const result = normalizeInterviewRefinementOutput(
         content,
+        winnerDraft.content,
         resolveInterviewDraftSettings(context).maxInitialQuestions,
       )
       if (!result.ok) {
@@ -1903,6 +1929,7 @@ async function handleInterviewCompile(
     const compiledArtifact = buildCompiledInterviewArtifact(
       intermediate.winnerId,
       refinedContent,
+      winnerDraft.content,
       resolveInterviewDraftSettings(context).maxInitialQuestions,
     )
 
@@ -2140,7 +2167,13 @@ async function handlePrdDraft(
     context.externalId,
     phase,
     'info',
-    `PRD draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, failed=${draftSummary.failed}, invalid_output=${draftSummary.invalidOutput}.`,
+    formatDraftRoundSummary(
+      'PRD draft round',
+      Date.now() - startedAt,
+      councilSettings.draftTimeoutMs,
+      Boolean(result.deadlineReached),
+      draftSummary,
+    ),
   )
   const quorum = checkQuorum(result.drafts, councilSettings.minQuorum)
   const nextStatus = quorum.passed ? 'COUNCIL_VOTING_PRD' : 'BLOCKED_ERROR'
@@ -2594,7 +2627,13 @@ async function handleBeadsDraft(
     context.externalId,
     phase,
     'info',
-    `Beads draft round completed in ${formatDurationMs(Date.now() - startedAt)}: completed=${draftSummary.completed}, timed_out=${draftSummary.timedOut}, failed=${draftSummary.failed}, invalid_output=${draftSummary.invalidOutput}.`,
+    formatDraftRoundSummary(
+      'Beads draft round',
+      Date.now() - startedAt,
+      councilSettings.draftTimeoutMs,
+      Boolean(result.deadlineReached),
+      draftSummary,
+    ),
   )
   const quorum = checkQuorum(result.drafts, councilSettings.minQuorum)
   const nextStatus = quorum.passed ? 'COUNCIL_VOTING_BEADS' : 'BLOCKED_ERROR'
@@ -3822,6 +3861,7 @@ function buildMockInterviewCompiledContent() {
       priority,
       rationale,
     })),
+    changes: [],
   }, { lineWidth: 120, noRefs: true }) as string
 }
 
@@ -4071,6 +4111,7 @@ async function handleMockInterviewCompile(
   const compiledArtifact = buildCompiledInterviewArtifact(
     winnerId,
     refinedContent,
+    buildMockInterviewDraftContent(0),
     buildMockInterviewQuestions().length,
   )
   insertPhaseArtifact(ticketId, {

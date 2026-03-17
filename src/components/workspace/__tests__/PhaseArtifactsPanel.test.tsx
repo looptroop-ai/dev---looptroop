@@ -110,8 +110,8 @@ describe('PhaseArtifactsPanel', () => {
           {
             memberId: 'openai/gpt-5.2',
             outcome: 'completed',
-            content: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Original winner question?"\n  - id: Q02\n    phase: structure\n    question: "Unchanged question?"',
-            questionCount: 48,
+            content: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Original winner question?"\n  - id: Q02\n    phase: structure\n    question: "Replacement source question?"\n  - id: Q05\n    phase: assembly\n    question: "Removed winner question?"',
+            questionCount: 3,
           },
         ],
       }),
@@ -126,12 +126,35 @@ describe('PhaseArtifactsPanel', () => {
       createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
-        refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"\n  - id: Q02\n    phase: structure\n    question: "Unchanged question?"',
+        refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"\n  - id: Q03\n    phase: structure\n    question: "Replacement target question?"\n  - id: Q04\n    phase: assembly\n    question: "Added question?"',
         questions: [
           { id: 'Q01', phase: 'Foundation', question: 'Refined winner question?' },
-          { id: 'Q02', phase: 'Structure', question: 'Unchanged question?' },
+          { id: 'Q03', phase: 'Structure', question: 'Replacement target question?' },
+          { id: 'Q04', phase: 'Assembly', question: 'Added question?' },
         ],
-        questionCount: 48,
+        questionCount: 3,
+        changes: [
+          {
+            type: 'modified',
+            before: { id: 'Q01', phase: 'Foundation', question: 'Original winner question?' },
+            after: { id: 'Q01', phase: 'Foundation', question: 'Refined winner question?' },
+          },
+          {
+            type: 'replaced',
+            before: { id: 'Q02', phase: 'Structure', question: 'Replacement source question?' },
+            after: { id: 'Q03', phase: 'Structure', question: 'Replacement target question?' },
+          },
+          {
+            type: 'added',
+            before: null,
+            after: { id: 'Q04', phase: 'Assembly', question: 'Added question?' },
+          },
+          {
+            type: 'removed',
+            before: { id: 'Q05', phase: 'Assembly', question: 'Removed winner question?' },
+            after: null,
+          },
+        ],
       }),
     }
 
@@ -148,21 +171,26 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
     expect(screen.getByText('proposed 21 questions')).toBeInTheDocument()
-    expect(screen.getByText('proposed 48 questions')).toBeInTheDocument()
+    expect(screen.getByText('proposed 3 questions')).toBeInTheDocument()
     expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
-    expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.2 · 3 questions')).toBeInTheDocument()
     expect(screen.queryByText('Winner — refining draft')).not.toBeInTheDocument()
     expect(screen.queryByText('🔄 Refining')).not.toBeInTheDocument()
     expect(screen.queryByText('Interview Draft Diff')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
     expect(screen.getByRole('button', { name: /Final Questions/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
+    expect(screen.getByRole('button', { name: /Diff \(4\)/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Diff \(4\)/i }))
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
     expect(getByTextContent('Original winner question?')).toBeInTheDocument()
     expect(getByTextContent('Refined winner question?')).toBeInTheDocument()
-    expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(['Original', 'Refined'])
+    expect(screen.getByText('Modified 1')).toBeInTheDocument()
+    expect(screen.getByText('Replaced 1')).toBeInTheDocument()
+    expect(screen.getByText('Added 1')).toBeInTheDocument()
+    expect(screen.getByText('Removed 1')).toBeInTheDocument()
+    expect(screen.getByText('Replaced')).toBeInTheDocument()
+    expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(expect.arrayContaining(['Original', 'Refined']))
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {
@@ -244,6 +272,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
+    expect(screen.getByText('Modified 1')).toBeInTheDocument()
     expect(getByTextContent('Original winner question?')).toBeInTheDocument()
     expect(getByTextContent('Refined winner question?')).toBeInTheDocument()
   })

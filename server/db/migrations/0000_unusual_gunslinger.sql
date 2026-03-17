@@ -34,7 +34,7 @@ CREATE TABLE `profiles` (
 	`council_members` text,
 	`min_council_quorum` integer DEFAULT 2,
 	`per_iteration_timeout` integer DEFAULT 1200000,
-	`council_response_timeout` integer DEFAULT 900000,
+	`council_response_timeout` integer DEFAULT 300000,
 	`interview_questions` integer DEFAULT 50,
 	`max_iterations` integer DEFAULT 5,
 	`disable_analogies` integer DEFAULT 0,

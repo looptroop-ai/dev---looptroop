@@ -14,6 +14,14 @@ export interface ParsedInterviewQuestion {
   question: string
 }
 
+export type InterviewQuestionChangeType = 'modified' | 'replaced' | 'added' | 'removed'
+
+export interface InterviewQuestionChange {
+  type: InterviewQuestionChangeType
+  before?: ParsedInterviewQuestion | null
+  after?: ParsedInterviewQuestion | null
+}
+
 export interface ParseInterviewQuestionsOptions {
   allowTopLevelArray?: boolean
 }

@@ -12,7 +12,7 @@ export function initializeDatabase() {
       council_members TEXT,
       min_council_quorum INTEGER DEFAULT 2,
       per_iteration_timeout INTEGER DEFAULT 1200000,
-      council_response_timeout INTEGER DEFAULT 900000,
+      council_response_timeout INTEGER DEFAULT 300000,
       interview_questions INTEGER DEFAULT 50,
       max_iterations INTEGER DEFAULT 5,
       disable_analogies INTEGER DEFAULT 0,

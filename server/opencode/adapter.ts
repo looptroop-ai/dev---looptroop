@@ -112,39 +112,77 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       ...options,
       signal: promptSignal,
     }
+    const sdkPromptAbortController = new AbortController()
+    const sdkPromptSignal = promptSignal
+      ? AbortSignal.any([promptSignal, sdkPromptAbortController.signal])
+      : sdkPromptAbortController.signal
     const model = promptOptions.model ?? parseModelRef(promptOptions.modelRef)
 
     const directory = await this.resolveSessionDirectory(sessionId)
     const { systemText, promptParts } = this.partitionPromptParts(parts, promptOptions.system)
-    const streamAbortController = promptOptions.onEvent ? new AbortController() : null
-    const streamSignal = streamAbortController
-      ? (promptSignal ? AbortSignal.any([promptSignal, streamAbortController.signal]) : streamAbortController.signal)
-      : undefined
-    const streamDrain = promptOptions.onEvent
-      ? this.consumeStreamEvents(sessionId, promptOptions.onEvent, streamSignal)
-      : null
+    const streamAbortController = new AbortController()
+    const streamSignal = promptSignal
+      ? AbortSignal.any([promptSignal, streamAbortController.signal])
+      : streamAbortController.signal
+    let resolveStreamDoneResponse: ((value: string | null) => void) | null = null
+    let streamDoneObserved = false
+    const streamDoneResponse = new Promise<string | null>((resolve) => {
+      resolveStreamDoneResponse = resolve
+    })
+    const streamDrain = this.consumeStreamEvents(
+      sessionId,
+      (event) => {
+        promptOptions.onEvent?.(event)
+        if (event.type !== 'done' || streamDoneObserved) return
+        streamDoneObserved = true
+        void this.readAssistantSnapshotWithRetry(sessionId)
+          .then((snapshot) => {
+            resolveStreamDoneResponse?.(snapshot || null)
+          })
+          .catch(() => {
+            resolveStreamDoneResponse?.(null)
+          })
+      },
+      streamSignal,
+    )
 
     try {
-      const res = await this.client.session.prompt({
-        sessionID: sessionId,
-        ...(directory ? { directory } : {}),
-        ...(model ? { model } : {}),
-        ...(promptOptions.agent ? { agent: promptOptions.agent } : {}),
-        ...(promptOptions.variant ? { variant: promptOptions.variant } : {}),
-        ...(systemText ? { system: systemText } : {}),
-        ...(typeof promptOptions.noReply === 'boolean' ? { noReply: promptOptions.noReply } : {}),
-        ...(promptOptions.tools ? { tools: promptOptions.tools } : {}),
-        parts: promptParts,
-      }, this.requestOptions(promptOptions.signal))
+      const sdkPromptResponse = (async () => {
+        const res = await this.client.session.prompt({
+          sessionID: sessionId,
+          ...(directory ? { directory } : {}),
+          ...(model ? { model } : {}),
+          ...(promptOptions.agent ? { agent: promptOptions.agent } : {}),
+          ...(promptOptions.variant ? { variant: promptOptions.variant } : {}),
+          ...(systemText ? { system: systemText } : {}),
+          ...(typeof promptOptions.noReply === 'boolean' ? { noReply: promptOptions.noReply } : {}),
+          ...(promptOptions.tools ? { tools: promptOptions.tools } : {}),
+          parts: promptParts,
+        }, this.requestOptions(sdkPromptSignal))
 
-      let responseText = this.extractResponseText(res.data?.parts)
-      if (!responseText) {
-        const preferredMessageId = typeof this.getRecord(res.data?.info)?.id === 'string'
-          ? String(this.getRecord(res.data?.info)?.id)
-          : undefined
-        const messages = await this.getSessionMessages(sessionId)
-        responseText = this.extractLatestAssistantText(messages, preferredMessageId)
-      }
+        let responseText = this.extractResponseText(res.data?.parts)
+        if (!responseText) {
+          const preferredMessageId = typeof this.getRecord(res.data?.info)?.id === 'string'
+            ? String(this.getRecord(res.data?.info)?.id)
+            : undefined
+          responseText = await this.readAssistantSnapshotWithRetry(sessionId, preferredMessageId)
+        }
+        return responseText
+      })()
+
+      const streamFirstResponse = streamDoneResponse.then((snapshot) => {
+        if (snapshot) {
+          sdkPromptAbortController.abort()
+          void sdkPromptResponse.catch(() => undefined)
+          return snapshot
+        }
+        return sdkPromptResponse
+      })
+
+      const responseText = await Promise.race([
+        sdkPromptResponse,
+        streamFirstResponse,
+      ])
       if (!responseText) {
         warnIfVerbose(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
       }
@@ -155,7 +193,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         `Failed to prompt OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
       )
     } finally {
-      streamAbortController?.abort()
+      streamAbortController.abort()
       await this.waitForStreamDrain(streamDrain)
     }
   }
@@ -401,6 +439,23 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
           return String(message.info.structured)
         }
       }
+    }
+
+    return ''
+  }
+
+  private async readAssistantSnapshotWithRetry(
+    sessionId: string,
+    preferredMessageId?: string,
+    maxAttempts = 4,
+    delayMs = 75,
+  ): Promise<string> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const messages = await this.getSessionMessages(sessionId)
+      const responseText = this.extractLatestAssistantText(messages, preferredMessageId)
+      if (responseText) return responseText
+      if (attempt >= maxAttempts) break
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
     }
 
     return ''

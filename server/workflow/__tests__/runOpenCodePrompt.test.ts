@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { OpenCodeAdapter } from '../../opencode/adapter'
+import { OpenCodeSDKAdapter, type OpenCodeAdapter } from '../../opencode/adapter'
 import type {
   HealthStatus,
   Message,
@@ -14,6 +14,8 @@ import {
   runOpenCodeSessionPrompt,
   type OpenCodePromptDispatchEvent,
 } from '../runOpenCodePrompt'
+
+type OpenCodeSDKClient = NonNullable<ConstructorParameters<typeof OpenCodeSDKAdapter>[1]>
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -221,5 +223,121 @@ describe('runOpenCodePrompt', () => {
     expect(dispatchedEntries[0]!.event.promptText).toContain('## System Role')
     expect(dispatchedEntries[0]!.event.promptText).toContain('Build a ticket dashboard.')
     expect(dispatchedEntries[0]!.event.promptText).toContain('max_initial_questions: 3')
+  })
+
+  it('returns snapshot content when stream done arrives before SDK prompt resolves', async () => {
+    const deferredPrompt = createDeferred<{ data?: { parts?: Array<{ type: string; text: string }> } }>()
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: async () => deferredPrompt.promise,
+        messages: async () => ({
+          data: [
+            {
+              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+              parts: [
+                {
+                  id: 'part-1',
+                  type: 'text',
+                  text: 'stream snapshot response',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                  time: { end: Date.now() },
+                },
+              ],
+            },
+          ],
+        }),
+        abort: async () => ({ data: {} }),
+      },
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'session.idle',
+              properties: { info: { id: 'ses-1' } },
+            }
+          })(),
+        }),
+      },
+    }
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const runPromise = runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    const settled = await Promise.race([
+      runPromise.then(() => 'resolved'),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 100)),
+    ])
+    expect(settled).toBe('resolved')
+
+    const result = await runPromise
+    expect(result.response).toBe('stream snapshot response')
+
+    deferredPrompt.resolve({
+      data: {
+        parts: [
+          { type: 'text', text: 'late sdk response' },
+        ],
+      },
+    })
+  })
+
+  it('keeps timeout behavior when done would arrive after the timeout window', async () => {
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: async () => new Promise<never>(() => {}),
+        messages: async () => ({
+          data: [
+            {
+              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+              parts: [
+                {
+                  id: 'part-1',
+                  type: 'text',
+                  text: 'late stream response',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                  time: { end: Date.now() },
+                },
+              ],
+            },
+          ],
+        }),
+        abort: async () => ({ data: {} }),
+      },
+      event: {
+        subscribe: async (_options?: unknown, requestOptions?: { signal?: AbortSignal }) => ({
+          stream: (async function* () {
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(resolve, 80)
+              requestOptions?.signal?.addEventListener('abort', () => {
+                clearTimeout(timer)
+                const abortError = new Error('Aborted')
+                abortError.name = 'AbortError'
+                reject(abortError)
+              }, { once: true })
+            })
+            yield {
+              type: 'session.idle',
+              properties: { info: { id: 'ses-1' } },
+            }
+          })(),
+        }),
+      },
+    }
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    await expect(runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      timeoutMs: 20,
+    })).rejects.toThrow('Timeout')
   })
 })

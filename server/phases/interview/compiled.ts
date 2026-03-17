@@ -1,15 +1,25 @@
 import type { ParsedInterviewQuestion } from './questions'
-import { validateInterviewDraft } from './validation'
+import type { InterviewQuestionChange, InterviewQuestionChangeType } from '@shared/interviewQuestions'
+import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
 
 export interface CompiledInterviewArtifact {
   winnerId: string
   refinedContent: string
   questions: ParsedInterviewQuestion[]
   questionCount: number
+  changes: InterviewQuestionChange[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function formatArtifactPhase(phase: string): string {
+  const normalized = phase.trim().toLowerCase()
+  if (normalized === 'foundation') return 'Foundation'
+  if (normalized === 'structure') return 'Structure'
+  if (normalized === 'assembly') return 'Assembly'
+  return phase.trim()
 }
 
 function normalizeArtifactQuestion(value: unknown, index: number): ParsedInterviewQuestion {
@@ -18,7 +28,7 @@ function normalizeArtifactQuestion(value: unknown, index: number): ParsedIntervi
   }
 
   const id = typeof value.id === 'string' ? value.id.trim() : ''
-  const phase = typeof value.phase === 'string' ? value.phase.trim() : ''
+  const phase = typeof value.phase === 'string' ? formatArtifactPhase(value.phase) : ''
   const question = typeof value.question === 'string' ? value.question.trim() : ''
 
   if (!id) throw new Error(`Compiled interview question at index ${index} is missing id`)
@@ -28,9 +38,35 @@ function normalizeArtifactQuestion(value: unknown, index: number): ParsedIntervi
   return { id, phase, question }
 }
 
+function normalizeArtifactChangeType(value: unknown, index: number): InterviewQuestionChangeType {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (raw === 'modified' || raw === 'replaced' || raw === 'added' || raw === 'removed') {
+    return raw
+  }
+  throw new Error(`Compiled interview change at index ${index} has an invalid type`)
+}
+
+function normalizeArtifactChange(value: unknown, index: number): InterviewQuestionChange {
+  if (!isRecord(value)) {
+    throw new Error(`Compiled interview change at index ${index} is not an object`)
+  }
+
+  const hasBefore = Object.keys(value).some((key) => key.trim().toLowerCase() === 'before')
+  const hasAfter = Object.keys(value).some((key) => key.trim().toLowerCase() === 'after')
+  if (!hasBefore) throw new Error(`Compiled interview change at index ${index} is missing before`)
+  if (!hasAfter) throw new Error(`Compiled interview change at index ${index} is missing after`)
+
+  return {
+    type: normalizeArtifactChangeType(value.type, index),
+    before: value.before === null ? null : normalizeArtifactQuestion(value.before, index),
+    after: value.after === null ? null : normalizeArtifactQuestion(value.after, index),
+  }
+}
+
 export function buildCompiledInterviewArtifact(
   winnerId: string,
-  refinedContent: string,
+  refinementOutput: string,
+  winnerDraftContent: string,
   maxInitialQuestions: number,
 ): CompiledInterviewArtifact {
   const normalizedWinnerId = winnerId.trim()
@@ -38,16 +74,45 @@ export function buildCompiledInterviewArtifact(
     throw new Error('Compiled interview artifact is missing a winner model id')
   }
 
-  const validated = validateInterviewDraft(refinedContent, maxInitialQuestions)
-  if (validated.questionCount <= 0) {
+  const refinement = normalizeInterviewRefinementOutput(
+    refinementOutput,
+    winnerDraftContent,
+    maxInitialQuestions,
+  )
+  if (!refinement.ok) {
+    throw new Error(refinement.error)
+  }
+
+  if (refinement.value.questionCount <= 0) {
     throw new Error('PROM3 refinement produced zero questions')
   }
 
   return {
     winnerId: normalizedWinnerId,
-    refinedContent,
-    questions: validated.questions,
-    questionCount: validated.questionCount,
+    refinedContent: refinement.value.questionsYaml.trim(),
+    questions: refinement.value.questions.map((question) => ({
+      id: question.id,
+      phase: formatArtifactPhase(question.phase),
+      question: question.question,
+    })),
+    questionCount: refinement.value.questionCount,
+    changes: refinement.value.changes.map((change) => ({
+      type: change.type,
+      before: change.before
+        ? {
+            id: change.before.id,
+            phase: formatArtifactPhase(change.before.phase),
+            question: change.before.question,
+          }
+        : null,
+      after: change.after
+        ? {
+            id: change.after.id,
+            phase: formatArtifactPhase(change.after.phase),
+            question: change.after.question,
+          }
+        : null,
+    })),
   }
 }
 
@@ -67,6 +132,7 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
   const refinedContent = typeof parsed.refinedContent === 'string' ? parsed.refinedContent : ''
   const rawQuestions = parsed.questions
   const rawQuestionCount = parsed.questionCount
+  const rawChanges = parsed.changes
 
   if (!winnerId) {
     throw new Error('Compiled interview artifact is missing winnerId')
@@ -80,6 +146,11 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
 
   const questions = rawQuestions.map((question, index) => normalizeArtifactQuestion(question, index))
   const questionCount = typeof rawQuestionCount === 'number' ? rawQuestionCount : questions.length
+  const changes = rawChanges === undefined
+    ? []
+    : Array.isArray(rawChanges)
+      ? rawChanges.map((change, index) => normalizeArtifactChange(change, index))
+      : (() => { throw new Error('Compiled interview artifact changes must be an array') })()
 
   if (!Number.isInteger(questionCount) || questionCount <= 0) {
     throw new Error('Compiled interview artifact has an invalid questionCount')
@@ -96,6 +167,7 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
     refinedContent,
     questions,
     questionCount,
+    changes,
   }
 }
 

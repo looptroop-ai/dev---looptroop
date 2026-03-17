@@ -279,7 +279,7 @@ export async function generateDrafts(
           memberId: member.modelId,
           content: '',
           outcome: 'timed_out',
-          duration,
+          duration: timeout,
           error: `Council response timeout reached after ${timeout}ms`,
           questionCount: validation?.questionCount,
         }

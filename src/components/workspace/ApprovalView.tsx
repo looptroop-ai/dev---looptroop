@@ -4,6 +4,9 @@ import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel, InterviewAnswersView, PrdDraftView } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Info } from 'lucide-react'
+// @ts-expect-error no type declarations for js-yaml
+import jsYaml from 'js-yaml'
 
 import { StructuredViewer } from '@/components/editor/StructuredViewer'
 import { YamlEditor } from '@/components/editor/YamlEditor'
@@ -20,6 +23,40 @@ const LABELS: Record<string, { title: string; description: string }> = {
   interview: { title: 'Interview Results', description: 'Review the interview questions and answers.' },
   prd: { title: 'Product Requirements Document', description: 'Review the generated PRD with epics and user stories.' },
   beads: { title: 'Beads Breakdown', description: 'Review the implementation beads with tests and dependencies.' },
+}
+
+const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK — they will still be handled during PRD drafting. Each PRD council model will use the ticket context, codebase analysis, and best practices to make a best-effort decision for those gaps, and you can still edit the interview now before approving if you want to replace any skipped item with your own answer.'
+
+interface InterviewApprovalArtifactData {
+  artifact?: string
+  questions?: Array<{
+    answer?: {
+      skipped?: boolean
+    }
+  }>
+}
+
+function hasSkippedInterviewQuestions(content: string): boolean {
+  if (!content.trim()) return false
+
+  let parsed: unknown = null
+
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    try {
+      parsed = jsYaml.load(content)
+    } catch {
+      return false
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') return false
+
+  const artifact = parsed as InterviewApprovalArtifactData
+  if (artifact.artifact !== 'interview' || !Array.isArray(artifact.questions)) return false
+
+  return artifact.questions.some((question) => question?.answer?.skipped === true)
 }
 
 function beadsArrayToJsonl(beads: unknown[]): string {
@@ -97,6 +134,10 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const loading = isLoading
 
   const fileContent = fetchedContent ?? ''
+  const showSkippedQuestionsNotice = useMemo(
+    () => artifactType === 'interview' && hasSkippedInterviewQuestions(fileContent),
+    [artifactType, fileContent],
+  )
 
   const [editedContent, setEditedContent] = useState<string>('')
   const [editMode, setEditMode] = useState(false)
@@ -213,6 +254,16 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
           <span className="font-semibold">{config.title}</span>
           <span className="text-xs text-muted-foreground">— {config.description}</span>
         </div>
+
+        {showSkippedQuestionsNotice && (
+          <div
+            role="note"
+            className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100"
+          >
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" />
+            <p>{SKIPPED_QUESTIONS_NOTICE}</p>
+          </div>
+        )}
 
         <PhaseArtifactsPanel
           phase={ticket.status}

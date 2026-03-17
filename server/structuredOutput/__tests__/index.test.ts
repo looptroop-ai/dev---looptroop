@@ -5,6 +5,7 @@ import {
   normalizeBeadSubsetYamlOutput,
   normalizeCoverageResultOutput,
   normalizeFinalTestCommandsOutput,
+  normalizeInterviewRefinementOutput,
   normalizeInterviewQuestionsOutput,
   normalizeInterviewTurnOutput,
   normalizePrdYamlOutput,
@@ -30,6 +31,131 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.repairApplied).toBe(true)
     expect(result.value.questions.map((question) => question.id)).toEqual(['Q01', 'Q02', 'Q03'])
+  })
+
+  it('normalizes PROM3 refinement output with explicit changes', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What are the main workflows?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      '  - id: Q03',
+      '    phase: assembly',
+      '    question: "How should success be verified?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+      '  - type: removed',
+      '    before:',
+      '      id: Q02',
+      '      phase: structure',
+      '      question: "What are the main workflows?"',
+      '    after: null',
+      '  - type: added',
+      '    before: null',
+      '    after:',
+      '      id: Q03',
+      '      phase: assembly',
+      '      question: "How should success be verified?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questionCount).toBe(2)
+    expect(result.value.changes.map((change) => change.type)).toEqual(['modified', 'removed', 'added'])
+    expect(result.normalizedContent).toContain('changes:')
+  })
+
+  it('rejects refinement changes that reference a non-winner question', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: replaced',
+      '    before:',
+      '      id: Q09',
+      '      phase: foundation',
+      '      question: "Unknown question?"',
+      '    after:',
+      '      id: Q02',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('winning draft')
+  })
+
+  it('rejects duplicate reuse of the same question record across changes', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What are the main workflows?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q03',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      '  - id: Q04',
+      '    phase: structure',
+      '    question: "What flow matters most?"',
+      'changes:',
+      '  - type: replaced',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q03',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+      '  - type: replaced',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q04',
+      '      phase: structure',
+      '      question: "What flow matters most?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('reuses a winning-draft question')
   })
 
   it('parses wrapped vote scorecards and rejects incorrect totals', () => {

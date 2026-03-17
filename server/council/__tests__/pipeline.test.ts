@@ -209,6 +209,7 @@ describe('Council Pipeline', () => {
     const drafts = draftRun.drafts
     expect(draftRun.deadlineReached).toBe(true)
     expect(drafts[0]!.outcome).toBe('timed_out')
+    expect(drafts[0]!.duration).toBe(5)
   })
 
   it('returns partial draft results at the hard phase deadline', async () => {
@@ -244,6 +245,7 @@ describe('Council Pipeline', () => {
     expect(draftRun.deadlineReached).toBe(true)
     expect(draftRun.drafts.filter(d => d.outcome === 'completed')).toHaveLength(1)
     expect(draftRun.drafts.filter(d => d.outcome === 'timed_out')).toHaveLength(2)
+    expect(draftRun.drafts.filter(d => d.outcome === 'timed_out').every(d => d.duration === 20)).toBe(true)
   })
 
   it('deliberateInterview proceeds when validated drafts still meet quorum', async () => {

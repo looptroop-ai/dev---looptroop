@@ -5,6 +5,7 @@ import type { PromptPart } from '../opencode/types'
 import { parseInterviewQuestions, type ParsedInterviewQuestion } from '../phases/interview/questions'
 import type { Bead, BeadSubset } from '../phases/beads/types'
 import type { BeadChecks } from '../phases/execution/completionSchema'
+import type { InterviewQuestionChangeType } from '@shared/interviewQuestions'
 import { repairYamlIndentation } from '@shared/yamlRepair'
 
 export interface StructuredOutputSuccess<T> {
@@ -144,6 +145,18 @@ const PHASE_ORDER = new Map([
   ['structure', 1],
   ['assembly', 2],
 ])
+
+interface NormalizedInterviewQuestion {
+  id: string
+  phase: 'foundation' | 'structure' | 'assembly'
+  question: string
+}
+
+interface NormalizedInterviewRefinementChange {
+  type: InterviewQuestionChangeType
+  before: NormalizedInterviewQuestion | null
+  after: NormalizedInterviewQuestion | null
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -368,6 +381,172 @@ function normalizeInterviewId(rawId: string): string {
   return `Q${match[1].padStart(2, '0')}`
 }
 
+function buildInterviewQuestionKey(question: NormalizedInterviewQuestion): string {
+  return `${question.id}\u241f${question.phase}\u241f${question.question}`
+}
+
+function normalizeParsedInterviewQuestionList(
+  parsed: ParsedInterviewQuestion[],
+  maxInitialQuestions: number,
+): {
+  questions: NormalizedInterviewQuestion[]
+  reordered: boolean
+} {
+  const seenIds = new Set<string>()
+  const normalized = parsed.map((question, index) => {
+    const id = normalizeInterviewId(question.id)
+    const phase = normalizeInterviewPhase(question.phase)
+    const text = question.question.trim()
+    if (!text) throw new Error(`Empty question text at index ${index}`)
+    if (seenIds.has(id)) throw new Error(`Duplicate question id: ${id}`)
+    seenIds.add(id)
+    return { id, phase, question: text, originalIndex: index }
+  })
+
+  if (maxInitialQuestions > 0 && normalized.length > maxInitialQuestions) {
+    throw new Error(`Question count ${normalized.length} exceeds max_initial_questions=${maxInitialQuestions}`)
+  }
+
+  const sorted = [...normalized].sort((left, right) => {
+    const orderDiff = (PHASE_ORDER.get(left.phase) ?? 0) - (PHASE_ORDER.get(right.phase) ?? 0)
+    return orderDiff !== 0 ? orderDiff : left.originalIndex - right.originalIndex
+  })
+
+  return {
+    questions: sorted.map(({ originalIndex: _originalIndex, ...question }) => question),
+    reordered: sorted.some((question, index) => question !== normalized[index]),
+  }
+}
+
+function normalizeStructuredInterviewQuestionList(
+  rawQuestions: unknown[],
+  maxInitialQuestions: number,
+): {
+  questions: NormalizedInterviewQuestion[]
+  questionCount: number
+  reordered: boolean
+} {
+  const parsed = parseInterviewQuestions(buildYamlDocument({ questions: rawQuestions }))
+  const normalized = normalizeParsedInterviewQuestionList(parsed, maxInitialQuestions)
+  return {
+    questions: normalized.questions,
+    questionCount: normalized.questions.length,
+    reordered: normalized.reordered,
+  }
+}
+
+function normalizeInterviewChangeType(value: unknown, index: number): InterviewQuestionChangeType {
+  const raw = toOptionalString(value)
+  if (!raw) throw new Error(`Interview refinement change at index ${index} is missing type`)
+
+  const normalized = normalizeKey(raw)
+  if (normalized === 'modified') return 'modified'
+  if (normalized === 'replaced') return 'replaced'
+  if (normalized === 'added') return 'added'
+  if (normalized === 'removed') return 'removed'
+
+  throw new Error(`Interview refinement change at index ${index} has unknown type: ${raw}`)
+}
+
+function normalizeInterviewChangeQuestion(value: unknown, label: string): NormalizedInterviewQuestion {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object`)
+  }
+
+  const id = normalizeInterviewId(getRequiredString(value, ['id'], `${label} id`))
+  const phase = normalizeInterviewPhase(getRequiredString(value, ['phase', 'category', 'stage', 'section'], `${label} phase`))
+  const question = getRequiredString(value, ['question', 'prompt', 'text', 'content'], `${label} question`).trim()
+
+  if (!question) {
+    throw new Error(`${label} question must not be empty`)
+  }
+
+  return { id, phase, question }
+}
+
+function normalizeInterviewRefinementChangeEntry(
+  value: unknown,
+  index: number,
+  winnerKeySet: Set<string>,
+  finalKeySet: Set<string>,
+  usedBeforeKeys: Set<string>,
+  usedAfterKeys: Set<string>,
+): NormalizedInterviewRefinementChange {
+  if (!isRecord(value)) {
+    throw new Error(`Interview refinement change at index ${index} is not an object`)
+  }
+
+  const type = normalizeInterviewChangeType(getValueByAliases(value, ['type', 'change_type', 'changetype']), index)
+  const hasBefore = Object.keys(value).some((key) => normalizeKey(key) === 'before')
+  const hasAfter = Object.keys(value).some((key) => normalizeKey(key) === 'after')
+
+  if (!hasBefore) throw new Error(`Interview refinement change at index ${index} is missing before`)
+  if (!hasAfter) throw new Error(`Interview refinement change at index ${index} is missing after`)
+
+  const rawBefore = getValueByAliases(value, ['before'])
+  const rawAfter = getValueByAliases(value, ['after'])
+  const before = rawBefore === null ? null : normalizeInterviewChangeQuestion(rawBefore, `Interview refinement change.before at index ${index}`)
+  const after = rawAfter === null ? null : normalizeInterviewChangeQuestion(rawAfter, `Interview refinement change.after at index ${index}`)
+
+  if ((type === 'modified' || type === 'replaced') && (!before || !after)) {
+    throw new Error(`Interview refinement change at index ${index} requires both before and after for type ${type}`)
+  }
+  if (type === 'added' && (before !== null || !after)) {
+    throw new Error(`Interview refinement change at index ${index} with type added must use before: null and a populated after`)
+  }
+  if (type === 'removed' && (!before || rawAfter !== null)) {
+    throw new Error(`Interview refinement change at index ${index} with type removed must use after: null and a populated before`)
+  }
+  if (before && after && buildInterviewQuestionKey(before) === buildInterviewQuestionKey(after)) {
+    throw new Error(`Interview refinement change at index ${index} cannot use identical before and after question records`)
+  }
+
+  if (before) {
+    const beforeKey = buildInterviewQuestionKey(before)
+    if (!winnerKeySet.has(beforeKey)) {
+      throw new Error(`Interview refinement change.before at index ${index} does not match any question from the winning draft`)
+    }
+    if (usedBeforeKeys.has(beforeKey)) {
+      throw new Error(`Interview refinement change.before at index ${index} reuses a winning-draft question already referenced by another change`)
+    }
+    usedBeforeKeys.add(beforeKey)
+  }
+
+  if (after) {
+    const afterKey = buildInterviewQuestionKey(after)
+    if (!finalKeySet.has(afterKey)) {
+      throw new Error(`Interview refinement change.after at index ${index} does not match any question from the refined final list`)
+    }
+    if (usedAfterKeys.has(afterKey)) {
+      throw new Error(`Interview refinement change.after at index ${index} reuses a refined question already referenced by another change`)
+    }
+    usedAfterKeys.add(afterKey)
+  }
+
+  return { type, before, after }
+}
+
+function ensureQuestionChangeCoverage(
+  winnerQuestions: NormalizedInterviewQuestion[],
+  finalQuestions: NormalizedInterviewQuestion[],
+  usedBeforeKeys: Set<string>,
+  usedAfterKeys: Set<string>,
+) {
+  const winnerKeySet = new Set(winnerQuestions.map(buildInterviewQuestionKey))
+  const finalKeySet = new Set(finalQuestions.map(buildInterviewQuestionKey))
+  const expectedBeforeKeys = [...winnerKeySet].filter((key) => !finalKeySet.has(key))
+  const expectedAfterKeys = [...finalKeySet].filter((key) => !winnerKeySet.has(key))
+
+  const missingBefore = expectedBeforeKeys.filter((key) => !usedBeforeKeys.has(key))
+  const missingAfter = expectedAfterKeys.filter((key) => !usedAfterKeys.has(key))
+  const extraBefore = [...usedBeforeKeys].filter((key) => !winnerKeySet.has(key) || finalKeySet.has(key))
+  const extraAfter = [...usedAfterKeys].filter((key) => !finalKeySet.has(key) || winnerKeySet.has(key))
+
+  if (missingBefore.length > 0 || missingAfter.length > 0 || extraBefore.length > 0 || extraAfter.length > 0) {
+    throw new Error('Interview refinement changes do not fully and exactly account for the differences between the winning draft and the refined final draft')
+  }
+}
+
 function normalizeInterviewBatchPhase(value: unknown): string | undefined {
   const raw = toOptionalString(value)
   if (!raw) return undefined
@@ -577,7 +756,7 @@ export function normalizeInterviewQuestionsOutput(
   rawContent: string,
   maxInitialQuestions: number,
 ): StructuredOutputResult<{
-  questions: ParsedInterviewQuestion[]
+  questions: NormalizedInterviewQuestion[]
   questionCount: number
 }> {
   const repairWarnings: string[] = []
@@ -591,32 +770,14 @@ export function normalizeInterviewQuestionsOutput(
   for (const candidate of candidates) {
     try {
       const parsed = parseInterviewQuestions(candidate)
-      const seenIds = new Set<string>()
-      const normalized = parsed.map((question, index) => {
-        const id = normalizeInterviewId(question.id)
-        const phase = normalizeInterviewPhase(question.phase)
-        const text = question.question.trim()
-        if (!text) throw new Error(`Empty question text at index ${index}`)
-        if (seenIds.has(id)) throw new Error(`Duplicate question id: ${id}`)
-        seenIds.add(id)
-        return { id, phase, question: text, originalIndex: index }
-      })
+      const normalized = normalizeParsedInterviewQuestionList(parsed, maxInitialQuestions)
 
-      if (maxInitialQuestions > 0 && normalized.length > maxInitialQuestions) {
-        throw new Error(`Question count ${normalized.length} exceeds max_initial_questions=${maxInitialQuestions}`)
-      }
-
-      const sorted = [...normalized].sort((left, right) => {
-        const orderDiff = (PHASE_ORDER.get(left.phase) ?? 0) - (PHASE_ORDER.get(right.phase) ?? 0)
-        return orderDiff !== 0 ? orderDiff : left.originalIndex - right.originalIndex
-      })
-
-      if (sorted.some((question, index) => question !== normalized[index])) {
+      if (normalized.reordered) {
         repairApplied = true
         repairWarnings.push('Applied stable interview phase reordering (foundation -> structure -> assembly).')
       }
 
-      const questions = sorted.map(({ originalIndex: _originalIndex, ...question }) => question)
+      const questions = normalized.questions
       return {
         ok: true,
         value: {
@@ -624,6 +785,108 @@ export function normalizeInterviewQuestionsOutput(
           questionCount: questions.length,
         },
         normalizedContent: buildYamlDocument({ questions }),
+        repairApplied: repairApplied || candidate !== rawContent.trim(),
+        repairWarnings,
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  return {
+    ok: false,
+    error: lastError,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+export function normalizeInterviewRefinementOutput(
+  rawContent: string,
+  winnerDraftContent: string,
+  maxInitialQuestions: number,
+): StructuredOutputResult<{
+  questions: NormalizedInterviewQuestion[]
+  questionCount: number
+  changes: NormalizedInterviewRefinementChange[]
+  questionsYaml: string
+}> {
+  const repairWarnings: string[] = []
+  let repairApplied = false
+  const candidates = collectStructuredCandidates(rawContent, {
+    topLevelHints: ['questions', 'changes'],
+  })
+
+  let lastError = 'No interview refinement content found'
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate), [
+        'interviewrefinement',
+        'interview_refinement',
+        'refinement',
+        'output',
+        'data',
+      ])
+      if (!isRecord(parsed)) {
+        throw new Error('Interview refinement output is not a YAML/JSON object')
+      }
+
+      const rawQuestions = getValueByAliases(parsed, ['questions'])
+      const rawChanges = getValueByAliases(parsed, ['changes'])
+
+      if (!Array.isArray(rawQuestions)) {
+        throw new Error('Interview refinement output is missing questions')
+      }
+      if (!Array.isArray(rawChanges)) {
+        throw new Error('Interview refinement output is missing changes')
+      }
+
+      const normalizedQuestions = normalizeStructuredInterviewQuestionList(rawQuestions, maxInitialQuestions)
+      if (normalizedQuestions.reordered) {
+        repairApplied = true
+        repairWarnings.push('Applied stable interview phase reordering (foundation -> structure -> assembly).')
+      }
+
+      const winnerDraftQuestions = normalizeParsedInterviewQuestionList(parseInterviewQuestions(winnerDraftContent), 0).questions
+      const winnerKeySet = new Set(winnerDraftQuestions.map(buildInterviewQuestionKey))
+      const finalKeySet = new Set(normalizedQuestions.questions.map(buildInterviewQuestionKey))
+      const usedBeforeKeys = new Set<string>()
+      const usedAfterKeys = new Set<string>()
+      const changes = rawChanges.map((entry, index) => normalizeInterviewRefinementChangeEntry(
+        entry,
+        index,
+        winnerKeySet,
+        finalKeySet,
+        usedBeforeKeys,
+        usedAfterKeys,
+      ))
+
+      ensureQuestionChangeCoverage(
+        winnerDraftQuestions,
+        normalizedQuestions.questions,
+        usedBeforeKeys,
+        usedAfterKeys,
+      )
+
+      const questionsYaml = buildYamlDocument({ questions: normalizedQuestions.questions })
+
+      return {
+        ok: true,
+        value: {
+          questions: normalizedQuestions.questions,
+          questionCount: normalizedQuestions.questionCount,
+          changes,
+          questionsYaml,
+        },
+        normalizedContent: buildYamlDocument({
+          questions: normalizedQuestions.questions,
+          changes: changes.map((change) => ({
+            type: change.type,
+            before: change.before,
+            after: change.after,
+          })),
+        }),
         repairApplied: repairApplied || candidate !== rawContent.trim(),
         repairWarnings,
       }

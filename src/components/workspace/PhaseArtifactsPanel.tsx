@@ -6,7 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
 import { normalizeTicketArtifact, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
-import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
+import { extractInterviewQuestionPreviews, type InterviewQuestionChange } from '@shared/interviewQuestions'
 import {
   buildCouncilMemberArtifacts,
   getCouncilAction,
@@ -97,12 +97,13 @@ interface InterviewDiffArtifactData {
   refinedQuestionCount?: number
   questionCount?: number
   questions?: unknown[]
+  changes?: InterviewQuestionChange[]
 }
 
 interface InterviewDiffEntry {
   key: string
   id: string
-  changeType: 'changed' | 'added' | 'removed'
+  changeType: 'modified' | 'replaced' | 'added' | 'removed'
   phase?: string
   before?: string
   after?: string
@@ -157,10 +158,55 @@ function normalizeInterviewDiffQuestions(content: string | undefined): Array<{ i
     }))
 }
 
+function normalizeInterviewDiffQuestionRecord(value: unknown, fallbackIndex: number): { id: string; phase?: string; question: string } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+  const record = value as Record<string, unknown>
+  const id = typeof record.id === 'string' && record.id.trim()
+    ? record.id.trim()
+    : `Q${String(fallbackIndex + 1).padStart(2, '0')}`
+  const phase = typeof record.phase === 'string' && record.phase.trim()
+    ? record.phase.trim()
+    : undefined
+  const question = typeof record.question === 'string' ? record.question.trim() : ''
+
+  if (!question) return null
+
+  return { id, phase, question }
+}
+
 function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEntry[] {
   if (!content) return []
   try {
     const parsed = JSON.parse(content) as InterviewDiffArtifactData
+    if (Array.isArray(parsed.changes)) {
+      return parsed.changes.flatMap((change, index) => {
+        const normalizedType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
+        if (
+          normalizedType !== 'modified'
+          && normalizedType !== 'replaced'
+          && normalizedType !== 'added'
+          && normalizedType !== 'removed'
+        ) {
+          return []
+        }
+
+        const before = normalizeInterviewDiffQuestionRecord(change.before, index)
+        const after = normalizeInterviewDiffQuestionRecord(change.after, index)
+        const id = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
+        const phase = after?.phase || before?.phase
+
+        return [{
+          key: `${id}:${normalizedType}:${index}`,
+          id,
+          changeType: normalizedType,
+          phase,
+          before: before?.question,
+          after: after?.question,
+        }]
+      })
+    }
+
     const originalQuestions = normalizeInterviewDiffQuestions(parsed.originalContent)
     const refinedQuestions = normalizeInterviewDiffQuestions(parsed.refinedContent)
     const maxLength = Math.max(originalQuestions.length, refinedQuestions.length)
@@ -182,9 +228,9 @@ function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEn
       }
       if (before && after && (before.question !== after.question || before.phase !== after.phase)) {
         diffs.push({
-          key: `${id}:changed`,
+          key: `${id}:modified`,
           id,
-          changeType: 'changed',
+          changeType: 'modified',
           phase,
           before: before.question,
           after: after.question,
@@ -308,6 +354,7 @@ function buildFinalInterviewArtifactContent(voteContent: string | null | undefin
       questionCount?: number
       questions?: unknown[]
       winnerId?: string
+      changes?: unknown
     }
     const refinedContent = typeof compiled.refinedContent === 'string' ? compiled.refinedContent : ''
     if (!refinedContent) return null
@@ -336,6 +383,9 @@ function buildFinalInterviewArtifactContent(voteContent: string | null | undefin
           ? compiled.questions.length
           : normalizeInterviewDiffQuestions(refinedContent).length,
       questions: Array.isArray(compiled.questions) ? compiled.questions : undefined,
+      changes: Object.prototype.hasOwnProperty.call(compiled, 'changes') && Array.isArray(compiled.changes)
+        ? compiled.changes as InterviewQuestionChange[]
+        : undefined,
     }
     return JSON.stringify(payload)
   } catch {
@@ -410,7 +460,8 @@ function InterviewDraftDiffView({ content }: { content: string }) {
   }
 
   const diffs = buildInterviewDiffEntries(content)
-  const changedCount = diffs.filter((diff) => diff.changeType === 'changed').length
+  const modifiedCount = diffs.filter((diff) => diff.changeType === 'modified').length
+  const replacedCount = diffs.filter((diff) => diff.changeType === 'replaced').length
   const addedCount = diffs.filter((diff) => diff.changeType === 'added').length
   const removedCount = diffs.filter((diff) => diff.changeType === 'removed').length
   const winnerLabel = parsed?.winnerId ? getModelDisplayName(parsed.winnerId) : 'winning model'
@@ -421,7 +472,8 @@ function InterviewDraftDiffView({ content }: { content: string }) {
         Comparing winning draft from {winnerLabel} ({parsed?.originalQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.originalContent).length} questions) with the final refined interview ({parsed?.refinedQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.refinedContent).length} questions).
       </div>
       <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {changedCount}</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Replaced {replacedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Added {addedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Removed {removedCount}</span>
       </div>
@@ -446,9 +498,17 @@ function InterviewDraftDiffView({ content }: { content: string }) {
                       ? 'text-green-600 dark:text-green-400'
                       : diff.changeType === 'removed'
                         ? 'text-red-600 dark:text-red-400'
-                        : 'text-blue-600 dark:text-blue-400'}
+                        : diff.changeType === 'replaced'
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-blue-600 dark:text-blue-400'}
                     >
-                      {diff.changeType === 'changed' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
+                      {diff.changeType === 'modified'
+                        ? 'Modified'
+                        : diff.changeType === 'replaced'
+                          ? 'Replaced'
+                          : diff.changeType === 'added'
+                            ? 'Added'
+                            : 'Removed'}
                     </span>
                   </span>
                 )}

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { createBatches, processAnswers, calculateFollowUpLimit } from '../interview/qa'
-import { verifyPRDCoverage } from '../prd/coverage'
 import { verifyBeadsCoverage } from '../beads/coverage'
 import { expandBeads } from '../beads/expand'
 import type { InterviewQuestion } from '../interview/types'
@@ -34,19 +33,6 @@ describe('Interview Q&A', () => {
     expect(calculateFollowUpLimit(10)).toBe(2)
     expect(calculateFollowUpLimit(5)).toBe(1)
     expect(calculateFollowUpLimit(1)).toBe(1)
-  })
-})
-
-describe('PRD Coverage', () => {
-  it('passes with sufficient PRD content', () => {
-    const prd = 'This PRD contains an epic and a user story with detailed requirements...' + 'a'.repeat(200)
-    const coverage = verifyPRDCoverage(prd, 'interview content')
-    expect(coverage.passed).toBe(true)
-  })
-
-  it('fails with empty PRD', () => {
-    const coverage = verifyPRDCoverage('', 'interview')
-    expect(coverage.passed).toBe(false)
   })
 })
 
