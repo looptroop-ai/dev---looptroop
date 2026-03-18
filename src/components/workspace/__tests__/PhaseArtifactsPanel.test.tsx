@@ -276,4 +276,103 @@ describe('PhaseArtifactsPanel', () => {
     expect(getByTextContent('Original winner question?')).toBeInTheDocument()
     expect(getByTextContent('Refined winner question?')).toBeInTheDocument()
   })
+
+  it('prefers the canonical interview result in later interview phases when coverage input is available', () => {
+    const compiledArtifact: DBartifact = {
+      id: 6,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Old compiled question?"',
+        questions: [{ id: 'Q01', phase: 'Foundation', question: 'Old compiled question?' }],
+        questionCount: 1,
+      }),
+    }
+
+    const coverageInputArtifact: DBartifact = {
+      id: 7,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_INTERVIEW_COVERAGE',
+      artifactType: 'interview_coverage_input',
+      filePath: null,
+      createdAt: '2026-03-12T11:50:31.000Z',
+      content: JSON.stringify({
+        interview: [
+          'schema_version: 1',
+          'ticket_id: LOOP-1',
+          'artifact: interview',
+          'questions:',
+          '  - id: Q01',
+          '    prompt: "Canonical interview question?"',
+          '    answer:',
+          '      skipped: false',
+          '      free_text: "Canonical answer."',
+        ].join('\n'),
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_INTERVIEW_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[compiledArtifact, coverageInputArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('1 question')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
+    expect(screen.queryByRole('button', { name: /Final Questions/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Canonical interview question?')).toBeInTheDocument()
+    expect(screen.getByText('Canonical answer.')).toBeInTheDocument()
+    expect(screen.queryByText('Old compiled question?')).not.toBeInTheDocument()
+  })
+
+  it('renders parsed interview coverage gaps and follow-up questions before raw audit output', () => {
+    const coverageArtifact: DBartifact = {
+      id: 8,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_INTERVIEW_COVERAGE',
+      artifactType: 'interview_coverage',
+      filePath: null,
+      createdAt: '2026-03-12T11:51:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        response: 'status: gaps\nfollow_up_questions:\n  - id: FU01\n    question: "Which fallback should be used?"\n',
+        hasGaps: true,
+        parsed: {
+          status: 'gaps',
+          gaps: ['Missing fallback behavior for skipped answers.'],
+          followUpQuestions: [
+            {
+              id: 'FU01',
+              question: 'Which fallback should be used?',
+              phase: 'Assembly',
+              priority: 'high',
+              rationale: 'Close the final interview gap before PRD generation.',
+            },
+          ],
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="VERIFYING_INTERVIEW_COVERAGE"
+        isCompleted={false}
+        preloadedArtifacts={[coverageArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /gpt-5\.2/i }))
+    expect(screen.getByText('Coverage gaps found')).toBeInTheDocument()
+    expect(screen.getByText('Winner-only coverage verification')).toBeInTheDocument()
+    expect(screen.getByText('Missing fallback behavior for skipped answers.')).toBeInTheDocument()
+    expect(screen.getByText('Which fallback should be used?')).toBeInTheDocument()
+    expect(screen.getByText('Close the final interview gap before PRD generation.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Audit Output/i })).toBeInTheDocument()
+  })
 })

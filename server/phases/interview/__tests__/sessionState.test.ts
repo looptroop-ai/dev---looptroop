@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// @ts-expect-error no type declarations for js-yaml
+import jsYaml from 'js-yaml'
 import {
   buildCanonicalInterviewYaml,
   buildCoverageFollowUpBatch,
@@ -77,6 +79,59 @@ describe('interview session state', () => {
     expect(completed.currentBatch).toBeNull()
     expect(completed.completedAt).toBe('2026-03-12T12:00:00.000Z')
     expect(completed.rawFinalYaml).toBe('questions:\n  - id: Q01\n    question: "Raw PROM4 final output"')
+  })
+
+  it('merges validated PROM4 summary data into canonical interview yaml', () => {
+    const base = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: [{ id: 'Q01', phase: 'Foundation', question: 'What matters?' }],
+      maxInitialQuestions: 1,
+    })
+
+    const completed = markInterviewSessionComplete(
+      base,
+      [
+        'schema_version: 1',
+        'ticket_id: "1:T-100"',
+        'artifact: interview',
+        'status: draft',
+        'generated_by:',
+        '  winner_model: openai/gpt-5-mini',
+        '  generated_at: "2026-03-12T12:00:00.000Z"',
+        'questions:',
+        '  - id: Q01',
+        '    phase: Foundation',
+        '    prompt: "What matters?"',
+        'summary:',
+        '  goals:',
+        '    - Ship a reliable approval flow',
+        '  constraints:',
+        '    - Keep interview answers restart-safe',
+        '  non_goals:',
+        '    - Do not change PRD behavior',
+        '  final_free_form_answer: "Double-check skipped answers before approval."',
+        'approval:',
+        '  approved_by: ""',
+        '  approved_at: ""',
+      ].join('\n'),
+    )
+
+    const yaml = buildCanonicalInterviewYaml('1:T-100', completed)
+    const parsed = jsYaml.load(yaml) as {
+      summary?: {
+        goals?: string[]
+        constraints?: string[]
+        non_goals?: string[]
+        final_free_form_answer?: string
+      }
+    }
+
+    expect(parsed.summary).toEqual({
+      goals: ['Ship a reliable approval flow'],
+      constraints: ['Keep interview answers restart-safe'],
+      non_goals: ['Do not change PRD behavior'],
+      final_free_form_answer: 'Double-check skipped answers before approval.',
+    })
   })
 
   it('queues parsed coverage follow-up questions back into the normalized interview session', () => {

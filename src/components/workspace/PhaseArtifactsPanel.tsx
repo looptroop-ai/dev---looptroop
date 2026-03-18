@@ -54,9 +54,32 @@ interface InterviewArtifactData {
 }
 
 interface CoverageInputData {
+  interview?: string
   prd?: string
   beads?: string
   refinedContent?: string
+}
+
+interface CoverageFollowUpArtifactQuestion {
+  id?: string
+  question?: string
+  prompt?: string
+  phase?: string
+  priority?: string
+  rationale?: string
+}
+
+interface CoverageArtifactData {
+  winnerId?: string
+  response?: string
+  hasGaps?: boolean
+  normalizedContent?: string
+  parsed?: {
+    status?: string
+    gaps?: string[]
+    followUpQuestions?: CoverageFollowUpArtifactQuestion[]
+    follow_up_questions?: CoverageFollowUpArtifactQuestion[]
+  }
 }
 
 interface CouncilDraftData {
@@ -147,6 +170,37 @@ function extractCompiledInterviewDetail(content: string | null): string {
   } catch {
     return ''
   }
+}
+
+function tryParseStructuredContent(content: string | null | undefined): unknown {
+  if (!content?.trim()) return null
+
+  try {
+    return JSON.parse(content)
+  } catch {
+    try {
+      return jsYaml.load(content)
+    } catch {
+      return null
+    }
+  }
+}
+
+function extractCanonicalInterviewDetail(content: string | null): string {
+  const parsed = tryParseStructuredContent(content)
+  if (!parsed || typeof parsed !== 'object') return ''
+
+  const artifact = parsed as InterviewArtifactData
+  if (typeof artifact.interview === 'string' && artifact.interview.trim()) {
+    return extractCanonicalInterviewDetail(artifact.interview)
+  }
+
+  if (artifact.artifact !== 'interview' || !Array.isArray(artifact.questions)) {
+    return ''
+  }
+
+  const count = artifact.questions.length
+  return count > 0 ? `${count} question${count === 1 ? '' : 's'}` : ''
 }
 
 function normalizeInterviewDiffQuestions(content: string | undefined): Array<{ id: string; phase?: string; question: string }> {
@@ -393,6 +447,42 @@ function buildFinalInterviewArtifactContent(voteContent: string | null | undefin
   }
 }
 
+function normalizeCoverageFollowUpArtifacts(questions: unknown): CoverageFollowUpArtifactQuestion[] {
+  if (!Array.isArray(questions)) return []
+  return questions
+    .filter((question): question is CoverageFollowUpArtifactQuestion => Boolean(question) && typeof question === 'object')
+    .map((question) => ({
+      id: typeof question.id === 'string' ? question.id : undefined,
+      question: typeof question.question === 'string'
+        ? question.question
+        : typeof question.prompt === 'string'
+          ? question.prompt
+          : undefined,
+      phase: typeof question.phase === 'string' ? question.phase : undefined,
+      priority: typeof question.priority === 'string' ? question.priority : undefined,
+      rationale: typeof question.rationale === 'string' ? question.rationale : undefined,
+    }))
+    .filter((question) => Boolean(question.question?.trim()))
+}
+
+function parseCoverageArtifact(content: string): CoverageArtifactData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const result = parsed as CoverageArtifactData
+  if (
+    !('response' in result)
+    && !('hasGaps' in result)
+    && !('winnerId' in result)
+    && !('parsed' in result)
+    && !('normalizedContent' in result)
+  ) {
+    return null
+  }
+
+  return result
+}
+
 // Try to parse content as JSON CouncilResult
 function tryParseCouncilResult(content: string): CouncilResultData | null {
   try {
@@ -542,6 +632,17 @@ function InterviewDraftDiffView({ content }: { content: string }) {
 
 function FinalInterviewArtifactView({ content }: { content: string }) {
   const [activeTab, setActiveTab] = useState<'final' | 'diff'>('final')
+  const parsedContent = tryParseStructuredContent(content)
+  if (parsedContent && typeof parsedContent === 'object') {
+    const interviewArtifact = parsedContent as InterviewArtifactData
+    if (typeof interviewArtifact.interview === 'string' && interviewArtifact.interview.trim()) {
+      return <InterviewAnswersView content={interviewArtifact.interview} />
+    }
+    if (interviewArtifact.artifact === 'interview') {
+      return <InterviewAnswersView content={content} />
+    }
+  }
+
   let parsed: (InterviewDiffArtifactData & { questionCount?: number; questions?: unknown[] }) | null = null
   try {
     parsed = JSON.parse(content) as InterviewDiffArtifactData & { questionCount?: number; questions?: unknown[] }
@@ -581,6 +682,83 @@ function FinalInterviewArtifactView({ content }: { content: string }) {
       {currentTab === 'final'
         ? <InterviewDraftView content={refinedContent} />
         : <InterviewDraftDiffView content={content} />}
+    </div>
+  )
+}
+
+function CoverageResultView({ content }: { content: string }) {
+  const coverageResult = parseCoverageArtifact(content)
+  if (!coverageResult) {
+    return <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>
+  }
+
+  const status = coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
+  const gaps = Array.isArray(coverageResult.parsed?.gaps) ? coverageResult.parsed.gaps : []
+  const followUpQuestions = normalizeCoverageFollowUpArtifacts(
+    coverageResult.parsed?.followUpQuestions ?? coverageResult.parsed?.follow_up_questions,
+  )
+  const hasStructuredCoverage = gaps.length > 0 || followUpQuestions.length > 0 || status === 'clean'
+
+  return (
+    <div className="space-y-4">
+      {coverageResult.winnerId && (
+        <ModelBadge modelId={coverageResult.winnerId} active className="px-3 py-2 h-auto w-full justify-start">
+          <div className="text-left">
+            <div className="text-xs font-medium">{getModelDisplayName(coverageResult.winnerId)}</div>
+            <div className="text-[10px] opacity-80 mt-0.5">Winner-only coverage verification</div>
+          </div>
+        </ModelBadge>
+      )}
+
+      <div className={`rounded-md border px-3 py-2 text-xs font-medium ${
+        status === 'gaps'
+          ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
+          : 'border-green-300 bg-green-50 text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200'
+      }`}>
+        {status === 'gaps' ? 'Coverage gaps found' : 'Coverage complete'}
+      </div>
+
+      {hasStructuredCoverage && (
+        <div className="space-y-3">
+          {gaps.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Coverage Gaps</div>
+              <div className="space-y-2">
+                {gaps.map((gap, index) => (
+                  <div key={`${gap}-${index}`} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                    {gap}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {followUpQuestions.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Follow-up Questions</div>
+              <div className="space-y-2">
+                {followUpQuestions.map((question, index) => (
+                  <div key={`${question.id ?? 'follow-up'}-${index}`} className="rounded-md border border-border bg-background px-3 py-2 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {question.id && <span className="font-mono text-[10px] text-muted-foreground">{question.id}</span>}
+                      {question.phase && <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{question.phase}</span>}
+                      {question.priority && <span className="text-[10px] text-blue-500">{question.priority}</span>}
+                    </div>
+                    <div className="text-xs font-medium">{question.question}</div>
+                    {question.rationale && <div className="text-[10px] italic text-muted-foreground">{question.rationale}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(coverageResult.response || coverageResult.normalizedContent) && (
+        <CollapsibleSection title="Audit Output">
+          <RawContentView content={coverageResult.response || coverageResult.normalizedContent || ''} />
+        </CollapsibleSection>
+      )}
     </div>
   )
 }
@@ -1012,32 +1190,8 @@ function ArtifactContent({ content, artifactId, phase }: { content: string; arti
     return <InterviewAnswersView content={content} />
   }
 
-  let coverageResult: { response?: string; hasGaps?: boolean } | null = null
-  try {
-    const parsed = JSON.parse(content) as unknown
-    if (parsed && typeof parsed === 'object') {
-      const result = parsed as { response?: string; hasGaps?: boolean }
-      if ('response' in result || 'hasGaps' in result) coverageResult = result
-    }
-  } catch {
-    coverageResult = null
-  }
-
   if (artifactId?.endsWith('coverage-result')) {
-    if (!coverageResult) {
-      return <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>
-    }
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 text-xs font-medium">
-          <span>{coverageResult.hasGaps ? '⚠️' : '✅'}</span>
-          <span>{coverageResult.hasGaps ? 'Coverage gaps found' : 'Coverage complete'}</span>
-        </div>
-        {coverageResult.response
-          ? <RawContentView content={coverageResult.response} />
-          : <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>}
-      </div>
-    )
+    return <CoverageResultView content={content} />
   }
 
   let parsedCoverageInput: CoverageInputData | null = null
@@ -1243,6 +1397,9 @@ function resolveStaticArtifact(
     case 'vote-details':
       return findExactType('interview_votes')
     case 'final-interview':
+      if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
+        return findExactType('interview_coverage_input') ?? findExactType('interview_compiled')
+      }
       return findExactType('interview_compiled')
     case 'winner-prd-draft':
       return findExactType('prd_votes')
@@ -1332,6 +1489,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
 
   const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
     if (artifactDef.id === 'final-interview') {
+      const finalInterviewArtifact = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
+      if (finalInterviewArtifact?.artifactType === 'interview_coverage_input') {
+        return finalInterviewArtifact.content
+      }
       const voteArtifact = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_VOTING_INTERVIEW' && artifact.artifactType === 'interview_votes')
       const compiledArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'interview_compiled')
       return buildFinalInterviewArtifactContent(voteArtifact?.content, compiledArtifact?.content)
@@ -1366,7 +1527,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     if (artifact.id === 'final-interview') {
       return {
         outcome: 'completed',
-        detail: extractCompiledInterviewDetail(content) || undefined,
+        detail: extractCompiledInterviewDetail(content) || extractCanonicalInterviewDetail(content) || undefined,
       }
     }
 

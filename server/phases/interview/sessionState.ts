@@ -31,6 +31,14 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
 function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, source: InterviewQuestionSource, roundNumber?: number): InterviewSessionQuestion {
   const priority = 'priority' in input && typeof input.priority === 'string' && input.priority.trim()
     ? input.priority.trim()
@@ -341,6 +349,12 @@ export function clearInterviewSessionBatch(snapshot: InterviewSessionSnapshot): 
   return next
 }
 
+export function countCoverageFollowUpQuestions(snapshot: InterviewSessionSnapshot): number {
+  return snapshot.followUpRounds
+    .filter((round) => round.source === 'coverage')
+    .reduce((sum, round) => sum + round.questionIds.length, 0)
+}
+
 function emptyAnswer(): {
   skipped: boolean
   selected_option_ids: string[]
@@ -354,6 +368,37 @@ function emptyAnswer(): {
     free_text: '',
     answered_by: 'ai_skip',
     answered_at: '',
+  }
+}
+
+function extractRawFinalInterviewSummary(rawFinalYaml: string | null | undefined): {
+  goals: string[]
+  constraints: string[]
+  nonGoals: string[]
+  finalFreeFormAnswer: string | null
+} | null {
+  if (!rawFinalYaml?.trim()) return null
+
+  try {
+    const parsed = jsYaml.load(repairYamlIndentation(rawFinalYaml)) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return null
+
+    const summary = parsed.summary
+    if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null
+
+    const record = summary as Record<string, unknown>
+    const finalFreeFormAnswer = typeof record.final_free_form_answer === 'string' && record.final_free_form_answer.trim()
+      ? record.final_free_form_answer.trim()
+      : null
+
+    return {
+      goals: toStringArray(record.goals),
+      constraints: toStringArray(record.constraints),
+      nonGoals: toStringArray(record.non_goals),
+      finalFreeFormAnswer,
+    }
+  } catch {
+    return null
   }
 }
 
@@ -390,6 +435,9 @@ export function buildCanonicalInterviewYaml(
     question_ids: [...round.questionIds],
   }))
 
+  const finalFreeFormAnswerFromQuestions = questions.find((question) => question.source === 'final_free_form')?.answer.free_text ?? ''
+  const rawFinalSummary = extractRawFinalInterviewSummary(snapshot.rawFinalYaml)
+
   const interviewData = {
     schema_version: 1,
     ticket_id: ticketId,
@@ -403,10 +451,10 @@ export function buildCanonicalInterviewYaml(
     questions,
     follow_up_rounds: followUpRounds,
     summary: {
-      goals: [],
-      constraints: [],
-      non_goals: [],
-      final_free_form_answer: questions.find((question) => question.source === 'final_free_form')?.answer.free_text ?? '',
+      goals: rawFinalSummary?.goals ?? [],
+      constraints: rawFinalSummary?.constraints ?? [],
+      non_goals: rawFinalSummary?.nonGoals ?? [],
+      final_free_form_answer: rawFinalSummary?.finalFreeFormAnswer ?? finalFreeFormAnswerFromQuestions,
     },
     approval: {
       approved_by: '',

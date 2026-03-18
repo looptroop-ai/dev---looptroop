@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createInterviewSessionSnapshot } from '../../phases/interview/sessionState'
 import { normalizeCoverageResultOutput } from '../../structuredOutput'
 import {
+  INTERVIEW_COVERAGE_FOLLOW_UP_BUDGET_ERROR,
   INTERVIEW_COVERAGE_FOLLOW_UP_VALIDATION_ERROR,
   resolveInterviewCoverageFollowUpResolution,
 } from '../interviewCoverageFollowUps'
@@ -120,5 +121,66 @@ describe('resolveInterviewCoverageFollowUpResolution', () => {
     expect(resolution.shouldRetry).toBe(false)
     expect(resolution.validationError).toBe(INTERVIEW_COVERAGE_FOLLOW_UP_VALIDATION_ERROR)
     expect(resolution.followUpQuestions).toEqual([])
+  })
+
+  it('requests one retry when follow-up questions exceed the remaining coverage budget', () => {
+    const snapshot = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: Array.from({ length: 10 }, (_, index) => ({
+        id: `Q${String(index + 1).padStart(2, '0')}`,
+        phase: 'Foundation',
+        question: `Question ${index + 1}?`,
+      })),
+      maxInitialQuestions: 10,
+    })
+    snapshot.followUpRounds.push({
+      roundNumber: 1,
+      source: 'coverage',
+      questionIds: ['FU01'],
+    })
+
+    const response = [
+      'status: gaps',
+      'gaps:',
+      '  - Missing rollout details',
+      'follow_up_questions:',
+      '  - id: FU02',
+      '    question: Which workflow should consume the new context pack first?',
+      '    phase: Structure',
+      '    priority: high',
+      '    rationale: Lock rollout scope before PRD generation.',
+      '  - id: FU03',
+      '    question: Which fallback should be used if parsing fails?',
+      '    phase: Assembly',
+      '    priority: high',
+      '    rationale: Close the remaining ambiguity before PRD generation.',
+    ].join('\n')
+    const normalized = normalizeCoverageResultOutput(response)
+    expect(normalized.ok).toBe(true)
+    if (!normalized.ok) return
+
+    const first = resolveInterviewCoverageFollowUpResolution({
+      status: normalized.value.status,
+      structuredFollowUps: normalized.value.followUpQuestions,
+      rawResponse: response,
+      snapshot,
+      attempt: 0,
+    })
+
+    expect(first.shouldRetry).toBe(true)
+    expect(first.followUpQuestions).toEqual([])
+    expect(first.validationError).toContain(INTERVIEW_COVERAGE_FOLLOW_UP_BUDGET_ERROR)
+
+    const second = resolveInterviewCoverageFollowUpResolution({
+      status: normalized.value.status,
+      structuredFollowUps: normalized.value.followUpQuestions,
+      rawResponse: response,
+      snapshot,
+      attempt: 1,
+    })
+
+    expect(second.shouldRetry).toBe(false)
+    expect(second.followUpQuestions).toEqual([])
+    expect(second.validationError).toContain(INTERVIEW_COVERAGE_FOLLOW_UP_BUDGET_ERROR)
   })
 })

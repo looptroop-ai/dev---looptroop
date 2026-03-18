@@ -3301,7 +3301,8 @@ async function handleCoverageVerification(
 
       const followUpQuestions = interviewCoverageResolution?.followUpQuestions ?? []
       if (followUpQuestions.length === 0) {
-        const msg = 'Coverage found interview gaps but produced no parseable follow-up questions.'
+        const msg = interviewCoverageResolution?.validationError
+          ?? 'Coverage found interview gaps but produced no parseable follow-up questions.'
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
         sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
         return
