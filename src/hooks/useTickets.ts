@@ -309,6 +309,23 @@ async function submitBatch(
   return res.json()
 }
 
+async function editInterviewAnswer(
+  ticketId: string,
+  questionId: string,
+  answer: string,
+): Promise<{ success: boolean; questions: unknown[] }> {
+  const res = await fetch(`/api/tickets/${ticketId}/edit-answer`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questionId, answer }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to edit answer')
+  }
+  return res.json()
+}
+
 async function skipInterview(
   ticketId: string,
   answers: Record<string, string>,
@@ -333,6 +350,17 @@ export function useSubmitBatch() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })
+      queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
+    },
+  })
+}
+
+export function useEditInterviewAnswer() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId, questionId, answer }: { ticketId: string; questionId: string; answer: string }) =>
+      editInterviewAnswer(ticketId, questionId, answer),
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['interview', variables.ticketId] })
     },
   })

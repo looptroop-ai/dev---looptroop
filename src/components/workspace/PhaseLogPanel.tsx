@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, Fragment, memo } from 'react'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -81,7 +81,7 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
   return <>{entry.line}</>
 }
 
-function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: number; showModelName: boolean }) {
+const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: number; showModelName: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isTruncatable, setIsTruncatable] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -90,24 +90,13 @@ function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: 
     const el = contentRef.current
     if (!el) return
 
-    const checkTruncatable = () => {
-      if (entry.line.split('\n').length > 3) {
-        setIsTruncatable(true)
-        return
-      }
-      if (!isExpanded) {
-        setIsTruncatable(el.scrollHeight > el.clientHeight)
-      }
+    if (entry.line.split('\n').length > 3) {
+      setIsTruncatable(true)
+      return
     }
-
-    // Check on mount
-    checkTruncatable()
-
-    // Re-check when resized (e.g. window squeeze causing more wrapping)
-    const observer = new ResizeObserver(checkTruncatable)
-    observer.observe(el)
-
-    return () => observer.disconnect()
+    if (!isExpanded) {
+      setIsTruncatable(el.scrollHeight > el.clientHeight)
+    }
   }, [entry.line, isExpanded])
 
   return (
@@ -145,7 +134,7 @@ function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: 
       </div>
     </div>
   )
-}
+})
 
 const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   DRAFT: 'Ticket created and waiting to start.',
@@ -219,6 +208,7 @@ function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
 
 export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelProps) {
   const logCtx = useLogs()
+  const isLoadingLogs = logCtx?.isLoadingLogs ?? false
   const phaseLogs: LogEntry[] = useMemo(
     () => propLogs ?? logCtx?.getLogsForPhase(phase) ?? [],
     [propLogs, logCtx, phase],
@@ -445,6 +435,10 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
             filteredLogs.map((entry, i) => (
               <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName={showModelNameInLogTags} />
             ))
+          ) : isLoadingLogs ? (
+            <span className="text-muted-foreground/50 italic">
+              <LoadingText text="Loading logs" />
+            </span>
           ) : (
             <span className="text-muted-foreground/50 italic">
               {phaseLogs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}

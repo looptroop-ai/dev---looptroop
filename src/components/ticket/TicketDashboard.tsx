@@ -11,6 +11,7 @@ import { Menu, X } from 'lucide-react'
 import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
 
 function toDebugJson(data: Record<string, unknown>) {
+  if (import.meta.env.PROD) return '[debug]'
   try {
     const raw = JSON.stringify(data)
     return raw.length > 4000 ? `${raw.slice(0, 4000)}…[truncated]` : raw

@@ -7,6 +7,8 @@ import { InterviewQAView } from '../InterviewQAView'
 
 let submittedBody: { answers?: Record<string, string> } | null = null
 let skippedBody: { answers?: Record<string, string> } | null = null
+let savedUiState: { scope?: string; data?: unknown } | null = null
+let preSeededDrafts: { draftAnswers: Record<string, Record<string, string>>; skippedQuestions: Record<string, string[]> } | null = null
 let interviewData: InterviewSessionView = {
   winnerId: 'openai/gpt-5',
   raw: 'questions:\n  - id: Q01',
@@ -23,11 +25,21 @@ function createJsonResponse(payload: unknown) {
   )
 }
 
+function emptyUiState() {
+  return { scope: 'interview-drafts', exists: false, data: null, updatedAt: null }
+}
+
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
   })
   queryClient.setQueryData(['interview', '1:PROJ-42'], interviewData)
+  queryClient.setQueryData(
+    ['ticket-ui-state', '1:PROJ-42', 'interview-drafts'],
+    preSeededDrafts
+      ? { scope: 'interview-drafts', exists: true, data: preSeededDrafts, updatedAt: '2026-03-12T10:10:00.000Z' }
+      : emptyUiState(),
+  )
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -94,6 +106,8 @@ describe('InterviewQAView', () => {
   beforeEach(() => {
     submittedBody = null
     skippedBody = null
+    savedUiState = null
+    preSeededDrafts = null
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       writable: true,
@@ -251,6 +265,13 @@ describe('InterviewQAView', () => {
       if (url.endsWith('/api/tickets/1:PROJ-42/interview')) {
         return createJsonResponse(interviewData)
       }
+      if (url.includes('/api/tickets/1:PROJ-42/ui-state')) {
+        if (init?.method === 'PUT') {
+          savedUiState = init.body ? JSON.parse(String(init.body)) as { scope?: string; data?: unknown } : null
+          return createJsonResponse({ success: true, scope: 'interview-drafts', updatedAt: new Date().toISOString() })
+        }
+        return createJsonResponse(emptyUiState())
+      }
       throw new Error(`Unhandled fetch: ${url}`)
     }))
   })
@@ -333,5 +354,72 @@ describe('InterviewQAView', () => {
       expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
       expect(targetTextarea).toHaveFocus()
     })
+  })
+
+  it('restores persisted draft answers on mount', async () => {
+    const batchKey = 'prom4:0:2'
+    preSeededDrafts = {
+      draftAnswers: { [batchKey]: { QF01: 'Restored draft answer' } },
+      skippedQuestions: {},
+    }
+
+    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
+    })
+
+    const textareas = screen.getAllByRole('textbox')
+    expect((textareas[0] as HTMLTextAreaElement).value).toBe('Restored draft answer')
+  })
+
+  it('auto-saves drafts after debounce', async () => {
+    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
+    })
+
+    const textareas = screen.getAllByRole('textbox')
+    fireEvent.change(textareas[0]!, { target: { value: 'My draft answer' } })
+
+    // Should not have saved immediately
+    expect(savedUiState).toBeNull()
+
+    // Wait for debounce to fire (350ms + margin)
+    await waitFor(() => {
+      expect(savedUiState).not.toBeNull()
+    }, { timeout: 2000 })
+
+    const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
+    expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
+  })
+
+  it('clears persisted drafts after batch submission', async () => {
+    const batchKey = 'prom4:0:2'
+    preSeededDrafts = {
+      draftAnswers: { [batchKey]: { QF01: 'Pre-filled answer' } },
+      skippedQuestions: {},
+    }
+
+    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+
+    await waitFor(() => {
+      expect((screen.getAllByRole('textbox')[0] as HTMLTextAreaElement).value).toBe('Pre-filled answer')
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /submit batch/i }))
+    })
+
+    expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' } })
+
+    // Wait for debounce to fire auto-save of cleaned state
+    await waitFor(() => {
+      expect(savedUiState).not.toBeNull()
+    }, { timeout: 2000 })
+
+    const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
+    expect(data.draftAnswers[batchKey]).toBeUndefined()
   })
 })

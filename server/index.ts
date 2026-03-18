@@ -13,6 +13,7 @@ import { beadsRouter } from './routes/beads'
 import { validateJson } from './middleware/validation'
 import { getBackendPort, getFrontendOrigin } from '../shared/appConfig'
 import { workflowRouter } from './routes/workflow'
+import { startUpsertBuffer, stopUpsertBuffer } from './log/upsertBuffer'
 
 const app = new Hono()
 
@@ -37,6 +38,10 @@ app.route('/api', workflowRouter)
 
 // Startup sequence: DB init, WAL checkpoint, hydrate actors
 startupSequence()
+startUpsertBuffer()
+
+process.on('SIGTERM', () => stopUpsertBuffer())
+process.on('SIGINT', () => stopUpsertBuffer())
 
 const port = getBackendPort()
 console.log(`[server] LoopTroop backend starting on port ${port}`)

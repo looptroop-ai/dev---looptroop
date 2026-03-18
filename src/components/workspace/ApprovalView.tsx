@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import { PhaseLogPanel } from './PhaseLogPanel'
+import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { PhaseArtifactsPanel, InterviewAnswersView, PrdDraftView } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
@@ -145,6 +146,8 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
   const [logExpanded, setLogExpanded] = useState(false)
+  const [logHeight, setLogHeight] = useState(200)
+  const containerRef = useRef<HTMLDivElement>(null)
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
 
@@ -241,7 +244,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   }, [loading, editMode, editedContent, saveUiState, ticket.id, uiStateScope])
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div ref={containerRef} className="h-full flex flex-col overflow-hidden">
       <CascadeWarning
         message={cascadeWarningMessage ?? ''}
         open={showCascadeWarning}
@@ -318,7 +321,8 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
         ) : null}
       </div>
 
-      <div className="shrink-0 px-4 pb-4 flex flex-col" style={logExpanded ? { maxHeight: '30%', minHeight: 0 } : undefined}>
+      {logExpanded && <VerticalResizeHandle onResize={setLogHeight} containerRef={containerRef} />}
+      <div className="shrink-0 px-4 pb-4 flex flex-col" style={logExpanded ? { height: logHeight, minHeight: 0 } : undefined}>
         <button
           type="button"
           onClick={() => setLogExpanded(v => !v)}

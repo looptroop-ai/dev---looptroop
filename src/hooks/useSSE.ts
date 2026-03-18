@@ -62,7 +62,6 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
           if (ticketId && typeof data.to === 'string' && data.to.length > 0) {
             patchTicketStatusInCache(queryClient, ticketId, data.to)
           }
-          queryClient.invalidateQueries({ queryKey: ['tickets'] })
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
           onEventRef.current?.({ type: 'state_change', data })
         } catch {
@@ -107,7 +106,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
-          queryClient.invalidateQueries({ queryKey: ['tickets'] })
+          queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
           onEventRef.current?.({ type: 'bead_complete', data })
         } catch {
           // ignore parse errors
@@ -118,7 +117,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
-          queryClient.invalidateQueries({ queryKey: ['tickets'] })
+          queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
           if ((data.type === 'interview_batch' || data.type === 'interview_error') && ticketId) {
             queryClient.invalidateQueries({ queryKey: ['interview', ticketId] })
           }

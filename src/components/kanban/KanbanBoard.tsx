@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { KanbanColumn } from './KanbanColumn'
 import { useTickets } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
@@ -22,12 +23,12 @@ export function KanbanBoard() {
   const { data: tickets = [] } = useTickets()
   const { data: projects = [] } = useProjects()
 
-  const projectMap = new Map(projects.map(p => [p.id, p]))
+  const projectMap = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
 
-  const ticketsByPhase = columns.map(col => ({
+  const ticketsByPhase = useMemo(() => columns.map(col => ({
     ...col,
     tickets: tickets.filter(t => (STATUS_TO_PHASE[t.status] ?? 'todo') === col.id),
-  }))
+  })), [tickets])
 
   return (
     <div className="grid h-[calc(100vh-3.5rem)] grid-cols-1 gap-4 p-4 md:grid-cols-2 lg:grid-cols-[1fr_2fr_2fr_1fr]">

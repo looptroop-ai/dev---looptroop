@@ -31,6 +31,7 @@ interface PlainLogOptions {
 interface LogContextValue {
   logsByPhase: Record<string, LogEntry[]>
   activePhase: string | null
+  isLoadingLogs: boolean
   addLog: (phase: string, line: string, options?: PlainLogOptions) => void
   addLogRecord: (phase: string, data: Record<string, unknown>) => void
   getLogsForPhase: (phase: string) => LogEntry[]
@@ -282,8 +283,11 @@ export function clearPersistedTicketLogs(ticketId: string) {
 
 export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: string | null; currentStatus?: string; children: ReactNode }) {
   const [logsByPhase, setLogsByPhase] = useState<Record<string, LogEntry[]>>({})
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false)
   const [manualActivePhase, setManualActivePhase] = useState<string | null>(null)
   const activePhase = manualActivePhase ?? currentStatus ?? null
+  const currentStatusRef = useRef(currentStatus)
+  currentStatusRef.current = currentStatus
 
   const pendingLogsRef = useRef<Record<string, LogEntry[]>>({})
   const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -366,18 +370,19 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
             merged[entry.status] = mergeEntry(merged[entry.status] ?? [], entry)
           }
 
-          if (currentStatus && (merged[currentStatus] ?? []).length === 0) {
+          const status = currentStatusRef.current
+          if (status && (merged[status] ?? []).length === 0) {
             const synthetic = normalizeLogRecord({
               type: 'info',
-              phase: currentStatus,
-              status: currentStatus,
+              phase: status,
+              status: status,
               source: 'system',
               audience: 'all',
               kind: 'milestone',
-              content: `[APP] Status ${currentStatus} is active.`,
+              content: `[APP] Status ${status} is active.`,
               timestamp: new Date().toISOString(),
-            }, currentStatus)
-            merged[currentStatus] = [synthetic]
+            }, status)
+            merged[status] = [synthetic]
           }
 
           persistLogs(ticketId, merged)
@@ -387,7 +392,11 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     }
 
     const cached = serverLogCache.get(ticketId)
-    if (cached) applyServerLogs(cached)
+    if (cached) {
+      applyServerLogs(cached)
+    } else {
+      setIsLoadingLogs(true)
+    }
 
     const mergeServerLogs = () => {
       fetch(`/api/files/${ticketId}/logs`)
@@ -400,12 +409,13 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
         .catch(() => {
           // Ignore network failures; cached logs remain available.
         })
+        .finally(() => {
+          setIsLoadingLogs(false)
+        })
     }
 
     mergeServerLogs()
-    const pollId = window.setInterval(mergeServerLogs, 3000)
-    return () => window.clearInterval(pollId)
-  }, [ticketId, currentStatus])
+  }, [ticketId])
 
   const addLog = useCallback((phase: string, line: string, options?: PlainLogOptions) => {
     if (!phase) return
@@ -476,7 +486,7 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
   }, [ticketId])
 
   return (
-    <LogContext.Provider value={{ logsByPhase, activePhase, addLog, addLogRecord, getLogsForPhase, getAllLogs, setActivePhase: setManualActivePhase, clearLogs }}>
+    <LogContext.Provider value={{ logsByPhase, activePhase, isLoadingLogs, addLog, addLogRecord, getLogsForPhase, getAllLogs, setActivePhase: setManualActivePhase, clearLogs }}>
       {children}
     </LogContext.Provider>
   )

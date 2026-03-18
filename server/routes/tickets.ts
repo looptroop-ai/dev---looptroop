@@ -35,6 +35,8 @@ import {
   buildInterviewQuestionViews,
   INTERVIEW_SESSION_ARTIFACT,
   parseInterviewSessionSnapshot,
+  serializeInterviewSessionSnapshot,
+  updateInterviewAnswer,
 } from '../phases/interview/sessionState'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -518,6 +520,53 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => {
   } catch (err) {
     console.error(`[tickets] Failed to process answer-batch for ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to process batch', details: String(err) }, 500)
+  }
+})
+
+const editAnswerSchema = z.object({
+  questionId: z.string().min(1),
+  answer: z.string(),
+})
+
+ticketRouter.patch('/tickets/:id/edit-answer', async (c) => {
+  const ticketId = c.req.param('id')
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
+    return c.json({ error: 'Ticket is not waiting for interview answers' }, 409)
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = editAnswerSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
+    }
+
+    const sessionArt = getLatestPhaseArtifact(ticketId, INTERVIEW_SESSION_ARTIFACT)
+    const session = parseInterviewSessionSnapshot(sessionArt?.content)
+    if (!session) {
+      return c.json({ error: 'No interview session found' }, 404)
+    }
+
+    const { questionId, answer } = parsed.data
+    if (!session.answers[questionId]) {
+      return c.json({ error: `No existing answer for question ${questionId}` }, 404)
+    }
+
+    const updated = updateInterviewAnswer(session, questionId, answer)
+    upsertLatestPhaseArtifact(
+      ticketId,
+      INTERVIEW_SESSION_ARTIFACT,
+      'WAITING_INTERVIEW_ANSWERS',
+      serializeInterviewSessionSnapshot(updated),
+    )
+
+    const questions = buildInterviewQuestionViews(updated)
+    return c.json({ success: true, questions })
+  } catch (err) {
+    console.error(`[tickets] Failed to edit interview answer for ticket ${ticketId}:`, err)
+    return c.json({ error: 'Failed to edit answer', details: String(err) }, 500)
   }
 })
 

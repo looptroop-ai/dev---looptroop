@@ -8,12 +8,14 @@
 export function repairYamlIndentation(yaml: string): string {
   const lines = yaml.split('\n')
   const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
 
   // Track the expected indent for properties inside the current list item.
   // Set when we see `- key:` and cleared when we leave that indent context.
   let expectedPropertyIndent = -1
   let dashIndent = -1
   let activeNestedIndent = -1
+  let activeBlockScalarIndent = -1
 
   for (const line of lines) {
     // Blank lines or comment-only lines pass through unchanged
@@ -28,6 +30,7 @@ export function repairYamlIndentation(yaml: string): string {
       dashIndent = dashMatch[1]!.length
       expectedPropertyIndent = dashIndent + 2
       activeNestedIndent = -1
+      activeBlockScalarIndent = BLOCK_SCALAR_PATTERN.test(dashMatch[2]!.trimEnd()) ? dashIndent : -1
       result.push(line)
       continue
     }
@@ -35,6 +38,14 @@ export function repairYamlIndentation(yaml: string): string {
     // If we're inside a list item, check bare property lines for indent mismatch
     if (expectedPropertyIndent >= 0) {
       const actualIndent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+
+      if (activeBlockScalarIndent >= 0) {
+        if (actualIndent > activeBlockScalarIndent) {
+          result.push(line)
+          continue
+        }
+        activeBlockScalarIndent = -1
+      }
 
       if (activeNestedIndent >= 0) {
         if (actualIndent >= activeNestedIndent) {
@@ -48,6 +59,7 @@ export function repairYamlIndentation(yaml: string): string {
 
       const propMatch = line.match(/^(\s*)([a-z_]+\s*:.*)$/i)
       if (propMatch) {
+        const isBlockScalar = BLOCK_SCALAR_PATTERN.test(propMatch[2]!.trimEnd())
         if (actualIndent === expectedPropertyIndent && propMatch[2]!.trimEnd().endsWith(':')) {
           activeNestedIndent = actualIndent + 2
           result.push(line)
@@ -67,12 +79,18 @@ export function repairYamlIndentation(yaml: string): string {
           if (propMatch[2]!.trimEnd().endsWith(':')) {
             activeNestedIndent = expectedPropertyIndent + 2
           }
+          if (isBlockScalar) {
+            activeBlockScalarIndent = expectedPropertyIndent
+          }
           result.push(repaired)
           continue
         }
 
         // If indent matches expected or is deeper (nested), pass through
         if (actualIndent >= expectedPropertyIndent) {
+          if (isBlockScalar) {
+            activeBlockScalarIndent = actualIndent
+          }
           result.push(line)
           continue
         }
@@ -81,6 +99,7 @@ export function repairYamlIndentation(yaml: string): string {
         expectedPropertyIndent = -1
         dashIndent = -1
         activeNestedIndent = -1
+        activeBlockScalarIndent = -1
       }
     }
 

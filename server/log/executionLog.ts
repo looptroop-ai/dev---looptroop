@@ -1,6 +1,7 @@
 import type { LogEvent, LogEventType, LogSource } from './types'
 import { safeAtomicAppend } from '../io/atomicAppend'
 import { getTicketPaths } from '../storage/tickets'
+import { bufferUpsert, removeBuffered } from './upsertBuffer'
 
 type StructuredLogFields = Omit<LogEvent, 'timestamp' | 'type' | 'ticketId' | 'phase' | 'message' | 'source' | 'status' | 'data'>
 
@@ -51,6 +52,18 @@ export function appendLogEvent(
     throw new Error(`Ticket not found for execution log append: ${ticketId}`)
   }
   const logPath = paths.executionLogPath
+
+  // Buffer streaming upserts instead of writing every token
+  if (event.op === 'upsert' && event.streaming && event.entryId) {
+    bufferUpsert(event.entryId, event, logPath)
+    return
+  }
+
+  // Finalize supersedes any buffered upsert for this entryId
+  if (event.op === 'finalize' && event.entryId) {
+    removeBuffered(event.entryId)
+  }
+
   safeAtomicAppend(logPath, JSON.stringify(event))
 }
 

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import type { Ticket } from '@/hooks/useTickets'
-import { useInterviewQuestions, useSkipInterview, useSubmitBatch } from '@/hooks/useTickets'
+import { useInterviewQuestions, useSkipInterview, useSubmitBatch, useEditInterviewAnswer, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import type {
   InterviewQuestionStatus,
   InterviewQuestionView,
@@ -11,12 +11,37 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { PhaseLogPanel } from './PhaseLogPanel'
+import { VerticalResizeHandle } from './VerticalResizeHandle'
 
 interface InterviewQAViewProps {
   ticket: Ticket
 }
 
 const INTERVIEW_FOCUS_EVENT = 'looptroop:interview-focus'
+const INTERVIEW_DRAFTS_SCOPE = 'interview-drafts'
+const DRAFT_SAVE_DEBOUNCE_MS = 350
+
+interface PersistedInterviewDrafts {
+  draftAnswers: Record<string, Record<string, string>>
+  skippedQuestions: Record<string, string[]>
+}
+
+function serializeSkipped(map: Record<string, Set<string>>): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  for (const [key, set] of Object.entries(map)) {
+    result[key] = [...set]
+  }
+  return result
+}
+
+function deserializeSkipped(map: Record<string, string[]>): Record<string, Set<string>> {
+  const result: Record<string, Set<string>> = {}
+  for (const [key, arr] of Object.entries(map)) {
+    result[key] = new Set(arr)
+  }
+  return result
+}
 
 function getBatchKey(batch: PersistedInterviewBatch | null | undefined) {
   if (!batch) return null
@@ -63,12 +88,51 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const { data: interviewData, isLoading } = useInterviewQuestions(ticket.id)
   const { mutateAsync: submitBatchMutation, isPending: isSubmitting } = useSubmitBatch()
   const { mutateAsync: skipInterviewMutation, isPending: isSkipping } = useSkipInterview()
+  const { mutateAsync: editAnswerMutation, isPending: isEditingAnswer } = useEditInterviewAnswer()
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
+  const [logExpanded, setLogExpanded] = useState(false)
+  const [logHeight, setLogHeight] = useState(200)
+  const containerRef = useRef<HTMLDivElement>(null)
   const [draftAnswers, setDraftAnswers] = useState<Record<string, Record<string, string>>>({})
-  const [showHistory, setShowHistory] = useState(true)
+  const [showHistory, setShowHistory] = useState(false)
   const [showSkipConfirm, setShowSkipConfirm] = useState(false)
   const [sseBatch, setSseBatch] = useState<PersistedInterviewBatch | null>(null)
   const [processingError, setProcessingError] = useState<string | null>(null)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  // --- Draft persistence ---
+  const { data: persistedDrafts } = useTicketUIState<PersistedInterviewDrafts>(ticket.id, INTERVIEW_DRAFTS_SCOPE)
+  const { mutate: saveUiState } = useSaveTicketUIState()
+  const restoredDraftRef = useRef(false)
+  const lastSavedSnapshotRef = useRef('')
+
+  useEffect(() => {
+    restoredDraftRef.current = false
+    lastSavedSnapshotRef.current = ''
+  }, [ticket.id])
+
+  // Restore persisted drafts once on mount / ticket change
+  useEffect(() => {
+    if (restoredDraftRef.current || !persistedDrafts) return
+
+    const persisted = persistedDrafts.data
+    if (persisted) {
+      if (persisted.draftAnswers && Object.keys(persisted.draftAnswers).length > 0) {
+        setDraftAnswers(persisted.draftAnswers)
+      }
+      if (persisted.skippedQuestions && Object.keys(persisted.skippedQuestions).length > 0) {
+        setSkippedQuestions(deserializeSkipped(persisted.skippedQuestions))
+      }
+    }
+
+    const snapshot: PersistedInterviewDrafts = {
+      draftAnswers: persisted?.draftAnswers ?? {},
+      skippedQuestions: persisted?.skippedQuestions ?? {},
+    }
+    lastSavedSnapshotRef.current = JSON.stringify(snapshot)
+    restoredDraftRef.current = true
+  }, [persistedDrafts])
 
   const session = interviewData?.session ?? null
   const currentBatch = (() => {
@@ -134,6 +198,35 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     return () => window.removeEventListener(INTERVIEW_FOCUS_EVENT, handler as EventListener)
   }, [focusQuestion, ticket.id])
 
+  const [skippedQuestions, setSkippedQuestions] = useState<Record<string, Set<string>>>({})
+  const batchSkipped = useMemo(
+    () => (currentBatchKey ? skippedQuestions[currentBatchKey] ?? new Set<string>() : new Set<string>()),
+    [currentBatchKey, skippedQuestions],
+  )
+
+  // Auto-save drafts with debounce
+  useEffect(() => {
+    if (!restoredDraftRef.current) return
+
+    const snapshot: PersistedInterviewDrafts = {
+      draftAnswers,
+      skippedQuestions: serializeSkipped(skippedQuestions),
+    }
+    const serialized = JSON.stringify(snapshot)
+    if (serialized === lastSavedSnapshotRef.current) return
+
+    const timer = window.setTimeout(() => {
+      lastSavedSnapshotRef.current = serialized
+      saveUiState({
+        ticketId: ticket.id,
+        scope: INTERVIEW_DRAFTS_SCOPE,
+        data: snapshot,
+      })
+    }, DRAFT_SAVE_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [draftAnswers, skippedQuestions, saveUiState, ticket.id])
+
   const handleBatchAnswer = useCallback((questionId: string, value: string) => {
     if (!currentBatchKey) return
     setDraftAnswers((current) => ({
@@ -143,6 +236,43 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
         [questionId]: value,
       },
     }))
+    if (value.trim()) {
+      setSkippedQuestions((current) => {
+        const prev = current[currentBatchKey]
+        if (!prev?.has(questionId)) return current
+        const next = new Set(prev)
+        next.delete(questionId)
+        return { ...current, [currentBatchKey]: next }
+      })
+    }
+  }, [currentBatchKey])
+
+  const handleSkipQuestion = useCallback((questionId: string) => {
+    if (!currentBatchKey) return
+    setDraftAnswers((current) => ({
+      ...current,
+      [currentBatchKey]: {
+        ...(current[currentBatchKey] ?? {}),
+        [questionId]: '',
+      },
+    }))
+    setSkippedQuestions((current) => {
+      const prev = current[currentBatchKey] ?? new Set<string>()
+      const next = new Set(prev)
+      next.add(questionId)
+      return { ...current, [currentBatchKey]: next }
+    })
+  }, [currentBatchKey])
+
+  const handleUnskipQuestion = useCallback((questionId: string) => {
+    if (!currentBatchKey) return
+    setSkippedQuestions((current) => {
+      const prev = current[currentBatchKey]
+      if (!prev?.has(questionId)) return current
+      const next = new Set(prev)
+      next.delete(questionId)
+      return { ...current, [currentBatchKey]: next }
+    })
   }, [currentBatchKey])
 
   const handleSubmitBatch = useCallback(async () => {
@@ -154,6 +284,12 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
         answers: batchAnswers,
       })
       setDraftAnswers((current) => {
+        if (!(currentBatchKey in current)) return current
+        const next = { ...current }
+        delete next[currentBatchKey]
+        return next
+      })
+      setSkippedQuestions((current) => {
         if (!(currentBatchKey in current)) return current
         const next = { ...current }
         delete next[currentBatchKey]
@@ -173,12 +309,42 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
         ticketId: ticket.id,
         answers: batchAnswers,
       })
+      setDraftAnswers({})
+      setSkippedQuestions({})
+      const emptySnapshot: PersistedInterviewDrafts = { draftAnswers: {}, skippedQuestions: {} }
+      lastSavedSnapshotRef.current = JSON.stringify(emptySnapshot)
+      saveUiState({ ticketId: ticket.id, scope: INTERVIEW_DRAFTS_SCOPE, data: emptySnapshot })
       setShowSkipConfirm(false)
       setSseBatch(null)
     } catch (err) {
       console.error('Failed to skip remaining interview questions:', err)
     }
-  }, [batchAnswers, currentBatch, skipInterviewMutation, ticket.id])
+  }, [batchAnswers, currentBatch, skipInterviewMutation, saveUiState, ticket.id])
+
+  const handleStartEdit = useCallback((questionId: string, currentAnswer: string) => {
+    setEditingQuestionId(questionId)
+    setEditingText(currentAnswer)
+  }, [])
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingQuestionId(null)
+    setEditingText('')
+  }, [])
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingQuestionId) return
+    try {
+      await editAnswerMutation({
+        ticketId: ticket.id,
+        questionId: editingQuestionId,
+        answer: editingText,
+      })
+      setEditingQuestionId(null)
+      setEditingText('')
+    } catch (err) {
+      console.error('Failed to edit interview answer:', err)
+    }
+  }, [editingQuestionId, editingText, editAnswerMutation, ticket.id])
 
   if (isLoading && !currentBatch) {
     return (
@@ -255,7 +421,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const isBusy = isSubmitting || isSkipping
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div ref={containerRef} className="h-full flex flex-col overflow-hidden">
       <Dialog open={showSkipConfirm} onOpenChange={setShowSkipConfirm}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -290,32 +456,79 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
                 {historyGroups.map(([label, items]) => (
                   <div key={label} className="space-y-2">
                     <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
-                    {items.map((question) => (
-                      <div
-                        key={question.id}
-                        ref={(node) => { questionRefs.current[question.id] = node }}
-                        className="rounded-lg border border-border bg-background p-3 space-y-2"
-                      >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] text-muted-foreground font-mono">{question.id}</span>
-                          <Badge variant={statusBadgeVariant(question.status)} className="text-[10px] h-4">
-                            {question.status}
-                          </Badge>
-                          {question.priority && (
-                            <Badge variant={priorityBadgeVariant(question.priority)} className="text-[10px] h-4">
-                              {question.priority}
+                    {items.map((question) => {
+                      const isEditing = editingQuestionId === question.id
+                      return (
+                        <div
+                          key={question.id}
+                          ref={(node) => { questionRefs.current[question.id] = node }}
+                          className="rounded-lg border border-border bg-background p-3 space-y-2"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] text-muted-foreground font-mono">{question.id}</span>
+                            <Badge variant={statusBadgeVariant(question.status)} className="text-[10px] h-4">
+                              {question.status}
                             </Badge>
+                            {question.priority && (
+                              <Badge variant={priorityBadgeVariant(question.priority)} className="text-[10px] h-4">
+                                {question.priority}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs font-medium">{question.question}</p>
+                          {question.rationale && (
+                            <p className="text-[10px] text-muted-foreground italic">{question.rationale}</p>
+                          )}
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <textarea
+                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs min-h-[72px] focus:outline-none focus:ring-1 focus:ring-ring"
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                disabled={isEditingAnswer}
+                                autoFocus
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2"
+                                  onClick={handleCancelEdit}
+                                  disabled={isEditingAnswer}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2"
+                                  onClick={handleSaveEdit}
+                                  disabled={isEditingAnswer}
+                                >
+                                  {isEditingAnswer ? <LoadingText text="Saving" /> : 'Save'}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              {question.status === 'skipped'
+                                ? <p className="text-[11px] italic text-muted-foreground">Skipped</p>
+                                : <p className="text-xs whitespace-pre-wrap text-foreground/90">{question.answer}</p>}
+                              <div className="flex justify-end">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground"
+                                  onClick={() => handleStartEdit(question.id, question.answer ?? '')}
+                                  disabled={isEditingAnswer}
+                                >
+                                  Edit
+                                </Button>
+                              </div>
+                            </>
                           )}
                         </div>
-                        <p className="text-xs font-medium">{question.question}</p>
-                        {question.rationale && (
-                          <p className="text-[10px] text-muted-foreground italic">{question.rationale}</p>
-                        )}
-                        {question.status === 'skipped'
-                          ? <p className="text-[11px] italic text-muted-foreground">Skipped</p>
-                          : <p className="text-xs whitespace-pre-wrap text-foreground/90">{question.answer}</p>}
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 ))}
               </div>
@@ -350,45 +563,76 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
             <p className="text-[11px] text-muted-foreground">
               Submit the batch when ready. Blank answers are treated as skips and preserved explicitly.
             </p>
-            {questions.map((question) => (
-              <div
-                key={question.id}
-                ref={(node) => { questionRefs.current[question.id] = node }}
-                className="rounded-lg border border-border p-3 bg-accent/30 space-y-2"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] text-muted-foreground font-mono">{question.id}</span>
-                  <Badge variant={statusBadgeVariant('current')} className="text-[10px] h-4">
-                    current
-                  </Badge>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    {question.source === 'coverage_follow_up'
-                      ? 'Coverage Follow-up'
-                      : question.source === 'prompt_follow_up'
-                        ? 'PROM4 Follow-up'
-                        : question.source === 'final_free_form'
-                          ? 'Final Free-Form'
-                          : question.phase}
-                  </span>
-                  {question.priority && (
-                    <Badge variant={priorityBadgeVariant(question.priority)} className="text-[10px] h-4">
-                      {question.priority}
+            {questions.map((question) => {
+              const isSkipped = batchSkipped.has(question.id)
+              return (
+                <div
+                  key={question.id}
+                  ref={(node) => { questionRefs.current[question.id] = node }}
+                  className={`rounded-lg border p-3 space-y-2 ${isSkipped ? 'border-muted bg-muted/20 opacity-60' : 'border-border bg-accent/30'}`}
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] text-muted-foreground font-mono">{question.id}</span>
+                    <Badge variant={isSkipped ? statusBadgeVariant('skipped') : statusBadgeVariant('current')} className="text-[10px] h-4">
+                      {isSkipped ? 'skipped' : 'current'}
                     </Badge>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      {question.source === 'coverage_follow_up'
+                        ? 'Coverage Follow-up'
+                        : question.source === 'prompt_follow_up'
+                          ? 'PROM4 Follow-up'
+                          : question.source === 'final_free_form'
+                            ? 'Final Free-Form'
+                            : question.phase}
+                    </span>
+                    {question.priority && (
+                      <Badge variant={priorityBadgeVariant(question.priority)} className="text-[10px] h-4">
+                        {question.priority}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className={`text-xs font-medium ${isSkipped ? 'line-through text-muted-foreground' : ''}`}>{question.question}</p>
+                  {question.rationale && (
+                    <p className="text-[10px] text-muted-foreground italic">{question.rationale}</p>
+                  )}
+                  {isSkipped ? (
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] italic text-muted-foreground">This question will be skipped — the AI will decide the best approach.</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px] px-2"
+                        onClick={() => handleUnskipQuestion(question.id)}
+                        disabled={isBusy}
+                      >
+                        Undo Skip
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs min-h-[72px] focus:outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="Type your answer here."
+                        value={batchAnswers[question.id] ?? ''}
+                        onChange={(event) => handleBatchAnswer(question.id, event.target.value)}
+                        disabled={isBusy}
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground"
+                          onClick={() => handleSkipQuestion(question.id)}
+                          disabled={isBusy}
+                        >
+                          Skip Question
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
-                <p className="text-xs font-medium">{question.question}</p>
-                {question.rationale && (
-                  <p className="text-[10px] text-muted-foreground italic">{question.rationale}</p>
-                )}
-                <textarea
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs min-h-[72px] focus:outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="Type your answer here. Leave blank to skip this question."
-                  value={batchAnswers[question.id] ?? ''}
-                  onChange={(event) => handleBatchAnswer(question.id, event.target.value)}
-                  disabled={isBusy}
-                />
-              </div>
-            ))}
+              )
+            })}
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <Button
@@ -427,6 +671,19 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
           </div>
         </div>
       )}
+
+      {logExpanded && <VerticalResizeHandle onResize={setLogHeight} containerRef={containerRef} />}
+      <div className="shrink-0 px-4 pb-4 flex flex-col" style={logExpanded ? { height: logHeight, minHeight: 0 } : undefined}>
+        <button
+          type="button"
+          onClick={() => setLogExpanded(v => !v)}
+          className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider py-1 hover:text-foreground transition-colors"
+        >
+          <span className="inline-block transition-transform" style={{ transform: logExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+          Log
+        </button>
+        {logExpanded && <PhaseLogPanel phase={ticket.status} ticket={ticket} />}
+      </div>
     </div>
   )
 }

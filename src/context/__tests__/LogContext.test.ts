@@ -60,10 +60,9 @@ describe('LogProvider', () => {
     vi.restoreAllMocks()
   })
 
-  it('dedupes a live append log when polling returns the same entry id with a newer timestamp', async () => {
+  it('dedupes SSE-delivered logs against the initial server fetch', async () => {
     vi.useFakeTimers()
     vi.spyOn(globalThis, 'fetch')
-      .mockImplementationOnce(() => createJsonResponse([]))
       .mockImplementationOnce(() => createJsonResponse([{
         type: 'info',
         phase: 'CODING',
@@ -87,6 +86,7 @@ describe('LogProvider', () => {
       await flushMicrotasks()
       expect(globalThis.fetch).toHaveBeenCalledTimes(1)
 
+      // Simulate SSE delivering the same log entry — should be deduped
       await act(async () => {
         latestLogApi?.addLogRecord('CODING', {
           type: 'info',
@@ -102,13 +102,11 @@ describe('LogProvider', () => {
 
       expect(screen.getByTestId('log-count')).toHaveTextContent('1')
 
+      // Verify no additional fetches happen (polling removed)
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(3000)
+        await vi.advanceTimersByTimeAsync(10000)
       })
-      await flushMicrotasks()
-
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2)
-      expect(screen.getByTestId('log-count')).toHaveTextContent('1')
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1)
     } finally {
       vi.clearAllTimers()
       vi.useRealTimers()

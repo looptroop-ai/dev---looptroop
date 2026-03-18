@@ -8,6 +8,7 @@ import { refineDraft } from '../refiner'
 import type { CouncilMember, DraftResult, Vote } from '../types'
 import type { PromptPart } from '../../opencode/types'
 import { deliberateInterview } from '../../phases/interview/deliberate'
+import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
 
 describe('Council Pipeline', () => {
   let adapter: MockOpenCodeAdapter
@@ -510,6 +511,61 @@ describe('Council Pipeline', () => {
     )
 
     expect(result).toBe('normalized refine output')
+  })
+
+  it('does not retry refinement when interview semantic auto-heal succeeds on the first pass', async () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    adapter.mockResponses.set('mock-session-1', [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+    ].join('\n'))
+
+    const validator = vi.fn((content: string) => {
+      const result = normalizeInterviewRefinementOutput(content, winnerDraft, 10)
+      if (!result.ok) {
+        throw new Error(result.error)
+      }
+      return { normalizedContent: result.normalizedContent }
+    })
+
+    const result = await refineDraft(
+      adapter,
+      { memberId: 'model-a', content: winnerDraft, outcome: 'completed', duration: 1 },
+      [],
+      [{ type: 'text', content: 'refine prompt' }],
+      '/tmp/test',
+      300000,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      validator,
+      'Return only YAML.',
+    )
+
+    expect(result).toContain('changes: []')
+    expect(validator).toHaveBeenCalledTimes(1)
+    expect(adapter.sessions).toHaveLength(1)
   })
 })
 

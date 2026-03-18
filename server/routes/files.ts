@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import * as readline from 'node:readline'
 import { getTicketByRef, getTicketPaths } from '../storage/tickets'
 import { safeAtomicWrite } from '../io/atomicWrite'
 
@@ -95,7 +96,7 @@ function foldStreamingEntries(entries: Record<string, unknown>[]): Record<string
     .map(item => item.entry)
 }
 
-filesRouter.get('/files/:ticketId/logs', (c) => {
+filesRouter.get('/files/:ticketId/logs', async (c) => {
   const ticketId = c.req.param('ticketId')
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
@@ -104,9 +105,12 @@ filesRouter.get('/files/:ticketId/logs', (c) => {
   if (!paths) return c.json({ error: 'Ticket not found' }, 404)
   if (!fs.existsSync(paths.executionLogPath)) return c.json([])
 
-  const raw = fs.readFileSync(paths.executionLogPath, 'utf-8')
   const entries: Record<string, unknown>[] = []
-  for (const line of raw.split('\n')) {
+  const rl = readline.createInterface({
+    input: fs.createReadStream(paths.executionLogPath, { encoding: 'utf-8' }),
+    crlfDelay: Infinity,
+  })
+  for await (const line of rl) {
     if (!line.trim()) continue
     try {
       const normalized = normalizeLogEntry(JSON.parse(line))

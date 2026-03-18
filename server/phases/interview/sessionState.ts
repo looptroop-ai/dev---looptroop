@@ -312,6 +312,28 @@ export function markInterviewSessionComplete(
   return next
 }
 
+export function updateInterviewAnswer(
+  snapshot: InterviewSessionSnapshot,
+  questionId: string,
+  newAnswer: string,
+): InterviewSessionSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const existing = next.answers[questionId]
+  if (!existing) {
+    throw new Error(`No existing answer for question ${questionId}`)
+  }
+
+  const trimmed = newAnswer.trim()
+  next.answers[questionId] = {
+    answer: newAnswer,
+    skipped: trimmed.length === 0,
+    answeredAt: trimmed.length === 0 ? null : nowIso(),
+    batchNumber: existing.batchNumber,
+  }
+  next.updatedAt = nowIso()
+  return next
+}
+
 export function clearInterviewSessionBatch(snapshot: InterviewSessionSnapshot): InterviewSessionSnapshot {
   const next = cloneSnapshot(snapshot)
   next.currentBatch = null

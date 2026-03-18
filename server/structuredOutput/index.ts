@@ -253,7 +253,12 @@ function parseYamlOrJsonCandidate(content: string): unknown {
   try {
     return JSON.parse(trimmed)
   } catch {
-    return jsYaml.load(repairYamlIndentation(trimmed))
+    try {
+      return jsYaml.load(trimmed)
+    } catch {
+      const repaired = repairYamlIndentation(trimmed)
+      return jsYaml.load(repaired)
+    }
   }
 }
 
@@ -385,6 +390,25 @@ function buildInterviewQuestionKey(question: NormalizedInterviewQuestion): strin
   return `${question.id}\u241f${question.phase}\u241f${question.question}`
 }
 
+function buildInterviewQuestionIdentityKey(question: NormalizedInterviewQuestion): string {
+  return `${question.id}\u241f${question.phase}`
+}
+
+function buildInterviewQuestionLookup(questions: NormalizedInterviewQuestion[]) {
+  const byFullKey = new Map<string, NormalizedInterviewQuestion>()
+  const byIdentityKey = new Map<string, NormalizedInterviewQuestion[]>()
+
+  for (const question of questions) {
+    byFullKey.set(buildInterviewQuestionKey(question), question)
+    const identityKey = buildInterviewQuestionIdentityKey(question)
+    const matches = byIdentityKey.get(identityKey) ?? []
+    matches.push(question)
+    byIdentityKey.set(identityKey, matches)
+  }
+
+  return { byFullKey, byIdentityKey }
+}
+
 function normalizeParsedInterviewQuestionList(
   parsed: ParsedInterviewQuestion[],
   maxInitialQuestions: number,
@@ -464,13 +488,9 @@ function normalizeInterviewChangeQuestion(value: unknown, label: string): Normal
   return { id, phase, question }
 }
 
-function normalizeInterviewRefinementChangeEntry(
+function parseInterviewRefinementChangeEntry(
   value: unknown,
   index: number,
-  winnerKeySet: Set<string>,
-  finalKeySet: Set<string>,
-  usedBeforeKeys: Set<string>,
-  usedAfterKeys: Set<string>,
 ): NormalizedInterviewRefinementChange {
   if (!isRecord(value)) {
     throw new Error(`Interview refinement change at index ${index} is not an object`)
@@ -497,6 +517,110 @@ function normalizeInterviewRefinementChangeEntry(
   if (type === 'removed' && (!before || rawAfter !== null)) {
     throw new Error(`Interview refinement change at index ${index} with type removed must use after: null and a populated before`)
   }
+
+  return { type, before, after }
+}
+
+function resolveCanonicalInterviewQuestion(
+  question: NormalizedInterviewQuestion,
+  lookup: ReturnType<typeof buildInterviewQuestionLookup>,
+): {
+  question: NormalizedInterviewQuestion
+  repaired: boolean
+} {
+  const fullKey = buildInterviewQuestionKey(question)
+  const canonicalByFullKey = lookup.byFullKey.get(fullKey)
+  if (canonicalByFullKey) {
+    return { question: canonicalByFullKey, repaired: false }
+  }
+
+  const identityKey = buildInterviewQuestionIdentityKey(question)
+  const canonicalByIdentity = lookup.byIdentityKey.get(identityKey)
+  if (canonicalByIdentity?.length === 1) {
+    return {
+      question: canonicalByIdentity[0]!,
+      repaired: true,
+    }
+  }
+
+  return { question, repaired: false }
+}
+
+function canonicalizeInterviewRefinementChanges(
+  changes: NormalizedInterviewRefinementChange[],
+  winnerQuestions: NormalizedInterviewQuestion[],
+  finalQuestions: NormalizedInterviewQuestion[],
+): {
+  changes: NormalizedInterviewRefinementChange[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const winnerLookup = buildInterviewQuestionLookup(winnerQuestions)
+  const finalLookup = buildInterviewQuestionLookup(finalQuestions)
+  const normalizedChanges: NormalizedInterviewRefinementChange[] = []
+  const repairWarnings: string[] = []
+  let repairApplied = false
+
+  for (const [index, change] of changes.entries()) {
+    let before = change.before
+    let after = change.after
+
+    if (before) {
+      const resolved = resolveCanonicalInterviewQuestion(before, winnerLookup)
+      if (resolved.repaired) {
+        before = resolved.question
+        repairApplied = true
+        repairWarnings.push(`Canonicalized interview refinement change.before at index ${index} to the winning draft record for ${before.id}.`)
+      }
+    }
+
+    if (after) {
+      const resolved = resolveCanonicalInterviewQuestion(after, finalLookup)
+      if (resolved.repaired) {
+        after = resolved.question
+        repairApplied = true
+        repairWarnings.push(`Canonicalized interview refinement change.after at index ${index} to the refined final record for ${after.id}.`)
+      }
+    }
+
+    if (
+      (change.type === 'modified' || change.type === 'replaced')
+      && before
+      && after
+      && buildInterviewQuestionKey(before) === buildInterviewQuestionKey(after)
+      && winnerLookup.byFullKey.has(buildInterviewQuestionKey(before))
+      && finalLookup.byFullKey.has(buildInterviewQuestionKey(after))
+    ) {
+      repairApplied = true
+      repairWarnings.push(`Dropped no-op interview refinement ${change.type} at index ${index} because the question is unchanged across the winning and final drafts.`)
+      continue
+    }
+
+    normalizedChanges.push({
+      type: change.type,
+      before,
+      after,
+    })
+  }
+
+  return {
+    changes: normalizedChanges,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+function validateInterviewRefinementChangeEntry(
+  change: NormalizedInterviewRefinementChange,
+  index: number,
+  winnerKeySet: Set<string>,
+  finalKeySet: Set<string>,
+  usedBeforeKeys: Set<string>,
+  usedAfterKeys: Set<string>,
+): NormalizedInterviewRefinementChange {
+  const before = change.before
+  const after = change.after
+
   if (before && after && buildInterviewQuestionKey(before) === buildInterviewQuestionKey(after)) {
     throw new Error(`Interview refinement change at index ${index} cannot use identical before and after question records`)
   }
@@ -523,7 +647,7 @@ function normalizeInterviewRefinementChangeEntry(
     usedAfterKeys.add(afterKey)
   }
 
-  return { type, before, after }
+  return change
 }
 
 function ensureQuestionChangeCoverage(
@@ -616,12 +740,20 @@ function normalizeInterviewBatchPayload(value: unknown): InterviewBatchPayload {
     throw new Error('Interview batch output is missing a valid progress.total')
   }
 
+  const questions = rawQuestions.map((question, index) => normalizeInterviewBatchQuestion(question, index))
+
+  // Enforce architecture batch size limit (1-3 questions per batch)
+  const MAX_BATCH_SIZE = 3
+  if (questions.length > MAX_BATCH_SIZE) {
+    questions.length = MAX_BATCH_SIZE
+  }
+
   return {
     batchNumber,
     progress: { current, total },
     isFinalFreeForm: toBoolean(getValueByAliases(parsed, ['isfinalfreeform', 'is_final_free_form'])) ?? false,
     aiCommentary: toOptionalString(getValueByAliases(parsed, ['aicommentary', 'ai_commentary', 'commentary', 'notes'])) ?? '',
-    questions: rawQuestions.map((question, index) => normalizeInterviewBatchQuestion(question, index)),
+    questions,
   }
 }
 
@@ -853,8 +985,21 @@ export function normalizeInterviewRefinementOutput(
       const finalKeySet = new Set(normalizedQuestions.questions.map(buildInterviewQuestionKey))
       const usedBeforeKeys = new Set<string>()
       const usedAfterKeys = new Set<string>()
-      const changes = rawChanges.map((entry, index) => normalizeInterviewRefinementChangeEntry(
+      const parsedChanges = rawChanges.map((entry, index) => parseInterviewRefinementChangeEntry(
         entry,
+        index,
+      ))
+      const canonicalizedChanges = canonicalizeInterviewRefinementChanges(
+        parsedChanges,
+        winnerDraftQuestions,
+        normalizedQuestions.questions,
+      )
+      if (canonicalizedChanges.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...canonicalizedChanges.repairWarnings)
+      }
+      const changes = canonicalizedChanges.changes.map((change, index) => validateInterviewRefinementChangeEntry(
+        change,
         index,
         winnerKeySet,
         finalKeySet,
@@ -961,10 +1106,9 @@ export function normalizePrdYamlOutput(
 
   for (const candidate of candidates) {
     try {
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate), [
         'prd',
         'document',
-        'artifact',
         'output',
         'result',
         'data',
@@ -1156,7 +1300,7 @@ export function normalizeVoteScorecardOutput(
 
   for (const candidate of candidates) {
     try {
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate), [
         'draftscores',
         'draft_scores',
         'scores',
@@ -1171,16 +1315,30 @@ export function normalizeVoteScorecardOutput(
         : null
 
       if (!draftScoresRecord) throw new Error('Vote scorecard is not a YAML/JSON mapping')
+      const expectedDraftLabels = new Set(draftLabels)
+      const normalizedDraftEntries = new Map<string, Record<string, unknown>>()
+
+      for (const [key, value] of Object.entries(draftScoresRecord)) {
+        const normalizedLabel = normalizeVoteDraftLabel(key)
+        if (!normalizedLabel || !expectedDraftLabels.has(normalizedLabel)) {
+          throw new Error(`Unknown scorecard for ${key}`)
+        }
+        if (!isRecord(value)) {
+          throw new Error(`Scorecard for ${normalizedLabel} is not a YAML/JSON mapping`)
+        }
+        if (normalizedDraftEntries.has(normalizedLabel)) {
+          throw new Error(`Duplicate scorecard for ${normalizedLabel}`)
+        }
+        normalizedDraftEntries.set(normalizedLabel, value)
+      }
 
       const normalized: VoteScorecard['draftScores'] = {}
 
       for (const draftLabel of draftLabels) {
-        const matchingEntry = Object.entries(draftScoresRecord).find(([key]) => normalizeVoteDraftLabel(key) === draftLabel)
-        if (!matchingEntry || !isRecord(matchingEntry[1])) {
+        const draftRecord = normalizedDraftEntries.get(draftLabel)
+        if (!draftRecord) {
           throw new Error(`Missing scorecard for ${draftLabel}`)
         }
-
-        const draftRecord = matchingEntry[1]
         const scores: Record<string, number> = {}
         let total = 0
 
@@ -1194,13 +1352,14 @@ export function normalizeVoteScorecardOutput(
         }
 
         const totalScore = getValueByAliases(draftRecord, ['totalscore', 'total_score'])
-        if (typeof totalScore !== 'number' || !Number.isInteger(totalScore)) {
-          throw new Error(`Missing total_score for ${draftLabel}`)
+        if (totalScore === undefined) {
+          repairWarnings.push(`Filled missing total_score for ${draftLabel} from rubric category totals.`)
+        } else if (typeof totalScore !== 'number' || !Number.isInteger(totalScore)) {
+          throw new Error(`Invalid total_score for ${draftLabel}`)
+        } else if (totalScore !== total) {
+          repairWarnings.push(`Recomputed total_score for ${draftLabel}: expected ${total}, received ${totalScore}.`)
         }
-        if (totalScore !== total) {
-          throw new Error(`total_score mismatch for ${draftLabel}: expected ${total}, received ${totalScore}`)
-        }
-        scores.total_score = totalScore
+        scores.total_score = total
         normalized[draftLabel] = scores
       }
 

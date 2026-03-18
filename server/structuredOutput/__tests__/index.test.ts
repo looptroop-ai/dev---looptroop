@@ -83,6 +83,130 @@ describe('structured output normalization', () => {
     expect(result.normalizedContent).toContain('changes:')
   })
 
+  it('preserves folded refinement questions instead of corrupting them during YAML repair', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q22',
+      '    phase: assembly',
+      '    question: >-',
+      '      What deterministic ordering rules should govern XML output: path sort',
+      '      only, directories before files, case sensitivity rules, and any stable',
+      '      normalization required for cross-platform consistency?',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q22',
+      '    phase: assembly',
+      '    question: >-',
+      '      What deterministic ordering and normalization rules should govern XML',
+      '      output: path sort only, directories before files, case sensitivity,',
+      '      locale neutrality, symlink handling, and any stable normalization needed',
+      '      for cross-platform consistency?',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q22',
+      '      phase: assembly',
+      '      question: >-',
+      '        What deterministic ordering rules should govern XML output: path sort',
+      '        only, directories before files, case sensitivity rules, and any stable',
+      '        normalization required for cross-platform consistency?',
+      '    after:',
+      '      id: Q22',
+      '      phase: assembly',
+      '      question: >-',
+      '        What deterministic ordering and normalization rules should govern XML',
+      '        output: path sort only, directories before files, case sensitivity,',
+      '        locale neutrality, symlink handling, and any stable normalization needed',
+      '        for cross-platform consistency?',
+    ].join('\n'), winnerDraft, 50)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questionCount).toBe(1)
+    expect(result.value.changes).toHaveLength(1)
+    expect(result.value.questions[0]?.id).toBe('Q22')
+    expect(result.value.questions[0]?.question).toContain('locale neutrality')
+  })
+
+  it('drops no-op modified interview refinement changes instead of retrying or failing', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Dropped no-op interview refinement modified')
+    expect(result.value.changes).toEqual([])
+  })
+
+  it('canonicalizes slight interview refinement text drift when id and phase uniquely match', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving today?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving today?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+      },
+    ])
+  })
+
   it('rejects refinement changes that reference a non-winner question', () => {
     const winnerDraft = [
       'questions:',
@@ -158,7 +282,7 @@ describe('structured output normalization', () => {
     expect(result.error).toContain('reuses a winning-draft question')
   })
 
-  it('parses wrapped vote scorecards and rejects incorrect totals', () => {
+  it('parses wrapped vote scorecards and repairs incorrect totals', () => {
     const wrapped = [
       '```yaml',
       'draft_scores:',
@@ -195,7 +319,7 @@ describe('structured output normalization', () => {
     if (!parsed.ok) return
     expect(parsed.value.draftScores['Draft 1']?.total_score).toBe(84)
 
-    const invalid = normalizeVoteScorecardOutput(
+    const repaired = normalizeVoteScorecardOutput(
       parsed.normalizedContent.replace('total_score: 84', 'total_score: 80'),
       ['Draft 1', 'Draft 2'],
       [
@@ -207,9 +331,97 @@ describe('structured output normalization', () => {
       ],
     )
 
+    expect(repaired.ok).toBe(true)
+    if (!repaired.ok) return
+    expect(repaired.repairApplied).toBe(true)
+    expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
+    expect(repaired.repairWarnings.join('\n')).toContain('Recomputed total_score for Draft 1')
+  })
+
+  it('repairs missing vote total_score values but keeps invalid category scores strict', () => {
+    const repaired = normalizeVoteScorecardOutput(
+      [
+        'draft_scores:',
+        '  Draft 1:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 17',
+        '    Testability: 16',
+        '    Minimal complexity / good decomposition: 15',
+        '    Risks / edge cases addressed: 18',
+      ].join('\n'),
+      ['Draft 1'],
+      [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ],
+    )
+
+    expect(repaired.ok).toBe(true)
+    if (!repaired.ok) return
+    expect(repaired.repairApplied).toBe(true)
+    expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
+
+    const invalid = normalizeVoteScorecardOutput(
+      [
+        'draft_scores:',
+        '  Draft 1:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 17',
+        '    Testability: nope',
+        '    Minimal complexity / good decomposition: 15',
+        '    Risks / edge cases addressed: 18',
+        '    total_score: 84',
+      ].join('\n'),
+      ['Draft 1'],
+      [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ],
+    )
+
     expect(invalid.ok).toBe(false)
     if (invalid.ok) return
-    expect(invalid.error).toContain('total_score mismatch')
+    expect(invalid.error).toContain('Invalid score for Draft 1 / Testability')
+  })
+
+  it('keeps unknown vote scorecards strict', () => {
+    const result = normalizeVoteScorecardOutput(
+      [
+        'draft_scores:',
+        '  Draft 1:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 17',
+        '    Testability: 16',
+        '    Minimal complexity / good decomposition: 15',
+        '    Risks / edge cases addressed: 18',
+        '    total_score: 84',
+        '  Draft 3:',
+        '    Coverage of requirements: 10',
+        '    Correctness / feasibility: 10',
+        '    Testability: 10',
+        '    Minimal complexity / good decomposition: 10',
+        '    Risks / edge cases addressed: 10',
+        '    total_score: 50',
+      ].join('\n'),
+      ['Draft 1'],
+      [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ],
+    )
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('Unknown scorecard for Draft 3')
   })
 
   it('normalizes PRD YAML and fills deterministic metadata from runtime context', () => {
@@ -256,6 +468,101 @@ describe('structured output normalization', () => {
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
     expect(result.normalizedContent).toContain('schema_version: 1')
+  })
+
+  it('accepts a top-level PRD document with artifact field instead of unwrapping it', () => {
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      'ticket_id: "LOOTR-1"',
+      'artifact: "prd"',
+      'status: "draft"',
+      'source_interview:',
+      '  content_sha256: "abc123"',
+      'product:',
+      '  problem_statement: "Ship a deterministic planning pipeline."',
+      '  target_users:',
+      '    - "Maintainers"',
+      'scope:',
+      '  in_scope:',
+      '    - "Prompt hardening"',
+      '  out_of_scope:',
+      '    - "Execution changes"',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Shared validator layer"',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'epics:',
+      '  - id: EPIC-1',
+      '    title: Harden structured output',
+      '    objective: Prevent format-only model mistakes from blocking tickets.',
+      '    implementation_steps:',
+      '      - Add validators',
+      '    user_stories:',
+      '      - id: US-1',
+      '        title: Validate interview/PRD/beads artifacts',
+      '        acceptance_criteria:',
+      '          - Structured artifacts are normalized before save',
+      '        implementation_steps:',
+      '          - Reuse shared repair helpers',
+      '        verification:',
+      '          required_commands:',
+      '            - npm run test:server',
+      'risks:',
+      '  - "Retry loop could hide semantic mistakes if too permissive"',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'LOOTR-1',
+      interviewContent: 'interview',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.ticket_id).toBe('LOOTR-1')
+    expect(result.value.artifact).toBe('prd')
+    expect(result.value.epics).toHaveLength(1)
+  })
+
+  it('rejects non-object PRD payloads', () => {
+    const result = normalizePrdYamlOutput('"prd"', {
+      ticketId: 'K8S-17',
+      interviewContent: 'interview',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('YAML/JSON object')
+  })
+
+  it('keeps rejecting PRD payloads that are missing epics', () => {
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      'artifact: "prd"',
+      'product:',
+      '  problem_statement: "Ship a deterministic planning pipeline."',
+      'scope:',
+      '  in_scope:',
+      '    - "Prompt hardening"',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Shared validator layer"',
+      'risks:',
+      '  - "Incomplete plans can block delivery"',
+    ].join('\n'), {
+      ticketId: 'K8S-17',
+      interviewContent: 'interview',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('missing epics')
   })
 
   it('normalizes bead subset YAML and generates fallback ids when needed', () => {
@@ -389,6 +696,35 @@ describe('structured output normalization', () => {
       phase: 'Structure',
       priority: 'high',
     })
+  })
+
+  it('truncates interview batches with more than 3 questions to first 3', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 0',
+      '  total: 5',
+      'questions:',
+      '  - id: Q01',
+      '    question: "Question one?"',
+      '  - id: Q02',
+      '    question: "Question two?"',
+      '  - id: Q03',
+      '    question: "Question three?"',
+      '  - id: Q04',
+      '    question: "Question four?"',
+      '  - id: Q05',
+      '    question: "Question five?"',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+    expect(result.value.batch.questions).toHaveLength(3)
+    expect(result.value.batch.questions.map((q) => q.id)).toEqual(['Q01', 'Q02', 'Q03'])
   })
 
   it('normalizes PROM4 complete envelopes with transcript prefixes', () => {

@@ -105,4 +105,19 @@ describe('repairYamlIndentation', () => {
 
     expect(repairYamlIndentation(yaml)).toBe(yaml)
   })
+
+  it('preserves folded block scalar continuation lines inside list items', () => {
+    const yaml = [
+      'questions:',
+      '  - id: Q22',
+      '    phase: Assembly',
+      '    question: >-',
+      '      What deterministic ordering and normalization rules should govern XML',
+      '      output: path sort only, directories before files, case sensitivity,',
+      '      locale neutrality, symlink handling, and any stable normalization needed',
+      '      for cross-platform consistency?',
+    ].join('\n')
+
+    expect(repairYamlIndentation(yaml)).toBe(yaml)
+  })
 })
