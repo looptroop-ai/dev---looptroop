@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Ticket } from '@/hooks/useTickets'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { DraftView } from '../DraftView'
 
 function createJsonResponse(payload: unknown, status: number = 200) {
@@ -23,7 +24,9 @@ function renderWithProviders(ui: React.ReactElement) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      {ui}
+      <TooltipProvider>
+        {ui}
+      </TooltipProvider>
     </QueryClientProvider>,
   )
 }

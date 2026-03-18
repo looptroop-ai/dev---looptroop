@@ -83,21 +83,22 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
 
 const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: number; showModelName: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const [isTruncatable, setIsTruncatable] = useState(false)
+  const [isOverflowing, setIsOverflowing] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  const isMultiline = entry.line.split('\n').length > 3
 
   useEffect(() => {
     const el = contentRef.current
-    if (!el) return
+    if (!el || isExpanded || isMultiline) return
 
-    if (entry.line.split('\n').length > 3) {
-      setIsTruncatable(true)
-      return
-    }
-    if (!isExpanded) {
-      setIsTruncatable(el.scrollHeight > el.clientHeight)
-    }
-  }, [entry.line, isExpanded])
+    const observer = new ResizeObserver(() => {
+      setIsOverflowing(el.scrollHeight > el.clientHeight)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [entry.line, isExpanded, isMultiline])
+
+  const isTruncatable = isMultiline || isOverflowing
 
   return (
     <div className="py-0.5 border-b border-border/30 last:border-0 flex relative group">

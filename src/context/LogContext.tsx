@@ -287,7 +287,10 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
   const [manualActivePhase, setManualActivePhase] = useState<string | null>(null)
   const activePhase = manualActivePhase ?? currentStatus ?? null
   const currentStatusRef = useRef(currentStatus)
-  currentStatusRef.current = currentStatus
+
+  useEffect(() => {
+    currentStatusRef.current = currentStatus
+  }, [currentStatus])
 
   const pendingLogsRef = useRef<Record<string, LogEntry[]>>({})
   const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -394,11 +397,11 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     const cached = serverLogCache.get(ticketId)
     if (cached) {
       applyServerLogs(cached)
-    } else {
-      setIsLoadingLogs(true)
     }
+    const needsServerFetch = !cached
 
     const mergeServerLogs = () => {
+      if (needsServerFetch) setIsLoadingLogs(true)
       fetch(`/api/files/${ticketId}/logs`)
         .then(res => res.ok ? res.json() : [])
         .then((raw: unknown) => {

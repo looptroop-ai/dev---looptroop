@@ -3323,6 +3323,16 @@ async function handleCoverageVerification(
         artifactType: 'interview_coverage_followups',
         content: JSON.stringify(followUpBatch),
       })
+
+      // Clean up stale PROM4 session so handleInterviewQAStart can run on re-entry
+      interviewQASessions.delete(ticketId)
+
+      // Broadcast the follow-up batch so the frontend picks it up immediately
+      broadcaster.broadcast(ticketId, 'needs_input', {
+        ticketId,
+        type: 'interview_batch',
+        batch: followUpBatch,
+      })
     }
 
     emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
@@ -3599,6 +3609,8 @@ export async function handleInterviewQABatch(
     const completedSnapshot = markInterviewSessionComplete(answeredSnapshot)
     writeCanonicalInterview(externalId, paths.ticketDir, completedSnapshot)
     persistInterviewSession(ticketId, completedSnapshot)
+    // Clean up stale PROM4 session for the coverage loop re-entry
+    interviewQASessions.delete(ticketId)
     emitPhaseLog(
       ticketId,
       externalId,

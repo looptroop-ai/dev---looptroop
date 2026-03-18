@@ -284,11 +284,18 @@ describe('InterviewQAView', () => {
   it('renders interview history, restores skip-all actions, and submits batch answers', async () => {
     renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
 
+    // Wait for data to load and history toggle to appear
+    await waitFor(() => {
+      expect(screen.getByText(/Interview History/i)).toBeInTheDocument()
+    })
+
+    // History is collapsed by default — expand it
+    fireEvent.click(screen.getByText(/Interview History/i))
+
     await waitFor(() => {
       expect(screen.getByText('Keep imports idempotent.')).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/Interview History/i)).toBeInTheDocument()
     expect(screen.getByText('What outcome matters most?')).toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
     expect(screen.getByText('PROM4 Follow-up')).toBeInTheDocument()

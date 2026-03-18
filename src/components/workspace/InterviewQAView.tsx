@@ -101,6 +101,8 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const [processingError, setProcessingError] = useState<string | null>(null)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
+  const [skippedQuestions, setSkippedQuestions] = useState<Record<string, Set<string>>>({})
+
   // --- Draft persistence ---
   const { data: persistedDrafts } = useTicketUIState<PersistedInterviewDrafts>(ticket.id, INTERVIEW_DRAFTS_SCOPE)
   const { mutate: saveUiState } = useSaveTicketUIState()
@@ -117,21 +119,25 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     if (restoredDraftRef.current || !persistedDrafts) return
 
     const persisted = persistedDrafts.data
-    if (persisted) {
-      if (persisted.draftAnswers && Object.keys(persisted.draftAnswers).length > 0) {
-        setDraftAnswers(persisted.draftAnswers)
+    // Schedule hydration to avoid synchronous setState in effect body
+    const frame = requestAnimationFrame(() => {
+      if (persisted) {
+        if (persisted.draftAnswers && Object.keys(persisted.draftAnswers).length > 0) {
+          setDraftAnswers(persisted.draftAnswers)
+        }
+        if (persisted.skippedQuestions && Object.keys(persisted.skippedQuestions).length > 0) {
+          setSkippedQuestions(deserializeSkipped(persisted.skippedQuestions))
+        }
       }
-      if (persisted.skippedQuestions && Object.keys(persisted.skippedQuestions).length > 0) {
-        setSkippedQuestions(deserializeSkipped(persisted.skippedQuestions))
-      }
-    }
 
-    const snapshot: PersistedInterviewDrafts = {
-      draftAnswers: persisted?.draftAnswers ?? {},
-      skippedQuestions: persisted?.skippedQuestions ?? {},
-    }
-    lastSavedSnapshotRef.current = JSON.stringify(snapshot)
-    restoredDraftRef.current = true
+      const snapshot: PersistedInterviewDrafts = {
+        draftAnswers: persisted?.draftAnswers ?? {},
+        skippedQuestions: persisted?.skippedQuestions ?? {},
+      }
+      lastSavedSnapshotRef.current = JSON.stringify(snapshot)
+      restoredDraftRef.current = true
+    })
+    return () => cancelAnimationFrame(frame)
   }, [persistedDrafts])
 
   const session = interviewData?.session ?? null
@@ -198,7 +204,6 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     return () => window.removeEventListener(INTERVIEW_FOCUS_EVENT, handler as EventListener)
   }, [focusQuestion, ticket.id])
 
-  const [skippedQuestions, setSkippedQuestions] = useState<Record<string, Set<string>>>({})
   const batchSkipped = useMemo(
     () => (currentBatchKey ? skippedQuestions[currentBatchKey] ?? new Set<string>() : new Set<string>()),
     [currentBatchKey, skippedQuestions],

@@ -63,6 +63,9 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
             patchTicketStatusInCache(queryClient, ticketId, data.to)
           }
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
+          if (data.to === 'WAITING_INTERVIEW_ANSWERS') {
+            queryClient.invalidateQueries({ queryKey: ['interview', ticketId] })
+          }
           onEventRef.current?.({ type: 'state_change', data })
         } catch {
           // ignore parse errors

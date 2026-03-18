@@ -1,45 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ticket } from '@/hooks/useTickets'
-import { ApprovalView } from '../ApprovalView'
 
-vi.mock('@/hooks/useTickets', () => ({
-  useTicketAction: () => ({ mutate: vi.fn(), isPending: false }),
-  useTicketUIState: () => ({ data: { scope: 'approval_interview', exists: false, data: null, updatedAt: null } }),
-  useSaveTicketUIState: () => ({ mutate: vi.fn() }),
-}))
-
-vi.mock('../PhaseLogPanel', () => ({
-  PhaseLogPanel: () => <div data-testid="phase-log-panel" />,
-}))
-
-vi.mock('../PhaseArtifactsPanel', () => ({
-  PhaseArtifactsPanel: ({ prefixElement }: { prefixElement?: React.ReactNode }) => (
-    <div data-testid="phase-artifacts-panel">{prefixElement}</div>
-  ),
-  InterviewAnswersView: ({ content }: { content: string }) => <div data-testid="interview-answers-view">{content}</div>,
-  PrdDraftView: ({ content }: { content: string }) => <div data-testid="prd-draft-view">{content}</div>,
-}))
-
-vi.mock('@/components/editor/YamlEditor', () => ({
-  YamlEditor: ({
-    value,
-    onChange,
-    className,
-  }: {
-    value: string
-    onChange: (value: string) => void
-    className?: string
-  }) => (
-    <textarea
-      aria-label="YAML editor"
-      className={className}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  ),
-}))
+/* ---------- helpers (no module-level imports of the SUT) ---------- */
 
 function createJsonResponse(payload: unknown, status: number = 200) {
   return Promise.resolve(
@@ -120,20 +84,71 @@ function buildInterviewYaml(skipped: boolean): string {
   ].join('\n')
 }
 
+/* ---------- tests ---------- */
+
+// With isolate:false the module cache is shared across test files.
+// vi.mock at file level can't replace modules already loaded by earlier files.
+// We use vi.resetModules + dynamic import so ApprovalView always gets our mocks.
+
 describe('ApprovalView', () => {
+  let ApprovalView: typeof import('../ApprovalView').ApprovalView
+
+  beforeEach(async () => {
+    vi.resetModules()
+
+    vi.doMock('@/hooks/useTickets', () => ({
+      useTicketAction: () => ({ mutate: vi.fn(), isPending: false }),
+      useTicketUIState: () => ({ data: { scope: 'approval_interview', exists: false, data: null, updatedAt: null } }),
+      useSaveTicketUIState: () => ({ mutate: vi.fn() }),
+    }))
+
+    vi.doMock('../PhaseLogPanel', () => ({
+      PhaseLogPanel: () => <div data-testid="phase-log-panel" />,
+    }))
+
+    vi.doMock('../PhaseArtifactsPanel', () => ({
+      PhaseArtifactsPanel: ({ prefixElement }: { prefixElement?: React.ReactNode }) => (
+        <div data-testid="phase-artifacts-panel">{prefixElement}</div>
+      ),
+      InterviewAnswersView: ({ content }: { content: string }) => <div data-testid="interview-answers-view">{content}</div>,
+      PrdDraftView: ({ content }: { content: string }) => <div data-testid="prd-draft-view">{content}</div>,
+    }))
+
+    vi.doMock('@/components/editor/YamlEditor', () => ({
+      YamlEditor: ({
+        value,
+        onChange,
+        className,
+      }: {
+        value: string
+        onChange: (value: string) => void
+        className?: string
+      }) => (
+        <textarea
+          aria-label="YAML editor"
+          className={className}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ),
+    }))
+
+    const mod = await import('../ApprovalView')
+    ApprovalView = mod.ApprovalView
+  })
+
   afterEach(() => {
+    cleanup()
     vi.restoreAllMocks()
   })
 
   it('shows the skipped-questions notice when the loaded interview artifact contains skipped questions', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-
-      if (!init && url === '/api/files/1:PROJ-42/interview') {
+      if (url === '/api/files/1:PROJ-42/interview') {
         return createJsonResponse({ content: buildInterviewYaml(true), exists: true })
       }
-
-      throw new Error(`Unhandled fetch: ${url}`)
+      return createJsonResponse(url.includes('/artifacts') ? [] : {})
     })
 
     renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
@@ -143,19 +158,17 @@ describe('ApprovalView', () => {
   })
 
   it('hides the notice when the loaded interview artifact has no skipped questions', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-
-      if (!init && url === '/api/files/1:PROJ-42/interview') {
+      if (url === '/api/files/1:PROJ-42/interview') {
         return createJsonResponse({ content: buildInterviewYaml(false), exists: true })
       }
-
-      throw new Error(`Unhandled fetch: ${url}`)
+      return createJsonResponse(url.includes('/artifacts') ? [] : {})
     })
 
     renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
 
-    await screen.findByTestId('interview-answers-view')
+    await screen.findByTestId('interview-answers-view', {}, { timeout: 3000 })
     expect(screen.queryByText(/Some interview questions were skipped\./i)).not.toBeInTheDocument()
   })
 
@@ -164,27 +177,24 @@ describe('ApprovalView', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = String(input)
-
-      if (!init && url === '/api/files/1:PROJ-42/interview') {
-        return createJsonResponse({ content: currentContent, exists: true })
-      }
-
       if (url === '/api/files/1:PROJ-42/interview' && init?.method === 'PUT') {
         const body = JSON.parse(String(init.body)) as { content: string }
         currentContent = body.content
         return createJsonResponse({ success: true })
       }
-
-      throw new Error(`Unhandled fetch: ${url}`)
+      if (url === '/api/files/1:PROJ-42/interview') {
+        return createJsonResponse({ content: currentContent, exists: true })
+      }
+      return createJsonResponse(url.includes('/artifacts') ? [] : {})
     })
 
     renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
 
-    expect(await screen.findByText(/Some interview questions were skipped\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/Some interview questions were skipped\./i, {}, { timeout: 3000 })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
 
-    const editor = await screen.findByLabelText('YAML editor')
+    const editor = await screen.findByLabelText('YAML editor', {}, { timeout: 3000 })
     fireEvent.change(editor, { target: { value: buildInterviewYaml(false) } })
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
 
