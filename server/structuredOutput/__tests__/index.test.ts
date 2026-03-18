@@ -664,6 +664,57 @@ describe('structured output normalization', () => {
     expect(result.value.followUpQuestions[0]?.id).toBe('FU1')
   })
 
+  it('normalizes string-based coverage follow-up questions', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - Missing rollback behavior',
+      'follow_up_questions:',
+      '  - What should happen when validation fails?',
+      '  - Which fallback path should we use?',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.followUpQuestions).toEqual([
+      {
+        id: 'FU1',
+        question: 'What should happen when validation fails?',
+      },
+      {
+        id: 'FU2',
+        question: 'Which fallback path should we use?',
+      },
+    ])
+  })
+
+  it('normalizes mixed coverage follow-up question shapes', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - Missing rollback behavior',
+      'follow_up_questions:',
+      '  - id: FU9',
+      '    question: What should happen when validation fails?',
+      '    phase: Assembly',
+      '  - Which fallback path should we use?',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.followUpQuestions).toEqual([
+      {
+        id: 'FU9',
+        question: 'What should happen when validation fails?',
+        phase: 'Assembly',
+      },
+      {
+        id: 'FU2',
+        question: 'Which fallback path should we use?',
+      },
+    ])
+  })
+
   it('normalizes PROM4 batch envelopes with wrapper noise and indentation repair', () => {
     const result = normalizeInterviewTurnOutput([
       '[assistant] <INTERVIEW_BATCH>',
@@ -750,6 +801,32 @@ describe('structured output normalization', () => {
     if (result.value.kind !== 'complete') return
     expect(result.value.finalYaml).toContain('schema_version: 1')
     expect(result.value.finalYaml).toContain('artifact: interview')
+  })
+
+  it('normalizes PROM4 complete envelopes that use answer audit entries', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_COMPLETE>',
+      '---',
+      'ticket_id: "LOOTR-5"',
+      'status: "complete"',
+      'answers:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    question: "What is the goal?"',
+      '    answer: "Accuracy"',
+      '    status: "answered"',
+      'derived_findings:',
+      '  primary_consumer: "interview"',
+      '</INTERVIEW_COMPLETE>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('complete')
+    if (result.value.kind !== 'complete') return
+    expect(result.value.finalYaml).toContain('ticket_id: LOOTR-5')
+    expect(result.value.finalYaml).toContain('answers:')
+    expect(result.value.finalYaml).toContain('derived_findings:')
   })
 
   it('normalizes BEAD_STATUS markers with YAML payloads and gate aliases', () => {

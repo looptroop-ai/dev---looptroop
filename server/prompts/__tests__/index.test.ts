@@ -46,6 +46,14 @@ describe('structured prompt hardening', () => {
     expect(coveragePrompt).not.toContain('Provide the necessary additions or modifications to the PRD')
   })
 
+  it('keeps interview coverage explicit about structured follow-up question objects', () => {
+    const coveragePrompt = buildPromptFromTemplate(PROM5, [])
+    expect(coveragePrompt).toContain('return only YAML with top-level `status`, `gaps`, and `follow_up_questions`')
+    expect(coveragePrompt).toContain('`id`, `question`, `phase`, `priority`, `rationale`')
+    expect(coveragePrompt).toContain('Do not return plain strings in `follow_up_questions`')
+    expect(coveragePrompt).toContain('Do not output rewritten interview results')
+  })
+
   it('requires the bead subset schema consistently in draft and refine prompts', () => {
     expect(PROM20.outputFormat).toContain('top-level `beads` list')
     expect(PROM20.outputFormat).toContain('`id`')
@@ -58,6 +66,9 @@ describe('structured prompt hardening', () => {
 
     expect(interviewPrompt).toContain('Output Discipline')
     expect(interviewPrompt).toContain('Formatting Discipline')
+    expect(interviewPrompt).toContain('schema_version: 1')
+    expect(interviewPrompt).toContain('follow_up_rounds:')
+    expect(interviewPrompt).not.toContain('PROM5.output_file schema')
     expect(finalTestPrompt).toContain('Output Discipline')
     expect(finalTestPrompt).toContain('Final Self-Check')
   })

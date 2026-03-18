@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
+const SHOW_USER_BACKGROUND_CONFIGURATION = false
 
 const EMOJI_CATEGORIES = [
   { name: 'Smileys', emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😝', '🤗', '🤭', '🫢', '🫣', '🤫', '🤔'] },
@@ -158,9 +159,15 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       const n = Number(rawNumeric[key]);
       (validatedData as Record<string, unknown>)[key] = cfg.toStore(n)
     }
+    const { background, ...restValidatedData } = validatedData
+    const trimmedBackground = background?.trim()
     const allCouncil = [validatedData.mainImplementer, ...councilSlots].filter(Boolean)
     const uniqueCouncil = [...new Set(allCouncil)]
-    const payload = { ...validatedData, councilMembers: JSON.stringify(uniqueCouncil) }
+    const payload: CreateProfileInput = {
+      ...restValidatedData,
+      ...(trimmedBackground ? { background: trimmedBackground } : {}),
+      councilMembers: JSON.stringify(uniqueCouncil),
+    }
     const handleSuccess = () => {
       addToast('success', 'Configuration saved.')
       onClose()
@@ -350,16 +357,18 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
               <p className="text-xs text-muted-foreground mt-1">Emoji avatar for your profile</p>
             </div>
           </div>
-          <div>
-            <label className="text-sm font-medium block mb-1">Background</label>
-            <textarea
-              value={formData.background ?? ''}
-              onChange={e => updateField('background', e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[100px]"
-              placeholder="Your background, expertise, and coding preferences..."
-            />
-            <p className="text-xs text-muted-foreground mt-1">Used to personalize AI interactions</p>
-          </div>
+          {SHOW_USER_BACKGROUND_CONFIGURATION && (
+            <div>
+              <label className="text-sm font-medium block mb-1">Background</label>
+              <textarea
+                value={formData.background ?? ''}
+                onChange={e => updateField('background', e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[100px]"
+                placeholder="Your background, expertise, and coding preferences..."
+              />
+              <p className="text-xs text-muted-foreground mt-1">Used to personalize AI interactions</p>
+            </div>
+          )}
 
           <Separator />
 

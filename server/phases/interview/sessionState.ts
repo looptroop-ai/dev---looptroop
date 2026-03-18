@@ -434,6 +434,16 @@ function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
 
     if (rawFollowUps.length === 0) return []
     return rawFollowUps.map((entry, index) => {
+      if (typeof entry === 'string') {
+        return {
+          id: `FU${index + 1}`,
+          question: entry.trim(),
+          phase: 'Structure',
+          priority: 'high',
+          rationale: 'Coverage follow-up required to close interview gaps.',
+        }
+      }
+
       const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
       return {
         id: typeof record.id === 'string' ? record.id : `FU${index + 1}`,

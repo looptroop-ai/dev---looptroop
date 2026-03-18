@@ -38,6 +38,7 @@ function buildStrictVoteOutputInstruction(categories: string[]): string {
 const STRICT_VOTE_OUTPUT_FORMAT = 'YAML with top-level `draft_scores` mapping keyed by exact draft labels. Each draft: rubric integer fields plus `total_score`. No other fields.'
 const STRUCTURED_SELF_CHECK = 'Final Self-Check: before responding, verify that you are returning only the artifact, using the exact required top-level shape, with no prose, no markdown fences, no commentary, and no extra wrapper keys.'
 const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of strings. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
+const INTERVIEW_COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of strings. When `status` is `clean`, `follow_up_questions` must be `[]`. When `status` is `gaps`, `follow_up_questions` must be a YAML list of objects with exactly these fields: `id`, `question`, `phase`, `priority`, `rationale`. Do not return plain strings in `follow_up_questions`.'
 const PRD_OUTPUT_FORMAT = [
   'YAML with exactly these top-level keys (no wrappers): `schema_version`, `ticket_id`, `artifact`, `status`, `source_interview`, `product`, `scope`, `technical_requirements`, `epics`, `risks`, `approval`.',
   '`artifact` must be `prd`. `source_interview` must include `content_sha256`.',
@@ -168,6 +169,44 @@ export const PROM3: PromptTemplate = {
   contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
 }
 
+export const PROM4_FINAL_INTERVIEW_SCHEMA = [
+  'Final Interview YAML Schema:',
+  'schema_version: 1',
+  'ticket_id: "<ticket-id>"',
+  'artifact: interview',
+  'status: draft',
+  'generated_by:',
+  '  winner_model: "<winner-model-id>"',
+  '  generated_at: "<ISO-8601 timestamp>"',
+  '  canonicalization: server_normalized',
+  'questions:',
+  '  - id: "Q01"',
+  '    phase: "Foundation"',
+  '    prompt: "What problem are we solving?"',
+  '    source: compiled | prompt_follow_up | coverage_follow_up | final_free_form',
+  '    follow_up_round: null',
+  '    answer_type: free_text',
+  '    options: []',
+  '    answer:',
+  '      skipped: false',
+  '      selected_option_ids: []',
+  '      free_text: "User answer or empty string"',
+  '      answered_by: user | ai_skip',
+  '      answered_at: "<ISO-8601 timestamp or empty string>"',
+  'follow_up_rounds:',
+  '  - round_number: 1',
+  '    source: prom4 | coverage',
+  '    question_ids: ["FU1"]',
+  'summary:',
+  '  goals: []',
+  '  constraints: []',
+  '  non_goals: []',
+  '  final_free_form_answer: ""',
+  'approval:',
+  '  approved_by: ""',
+  '  approved_at: ""',
+].join('\n')
+
 export const PROM4: PromptTemplate = {
   id: 'PROM4',
   description: 'Interview Batch Question Prompt',
@@ -192,12 +231,13 @@ export const PROM4: PromptTemplate = {
       phase: (Foundation | Structure | Assembly)
       priority: (critical | high | medium | low)
       rationale: (why this question matters)`,
-    `Final Complete Output: When the interview is fully complete (after the final free-form answer), wrap the final output in <INTERVIEW_COMPLETE> tags containing the complete interview results YAML matching PROM5.output_file schema.`,
+    'Final Complete Output: When the interview is fully complete (after the final free-form answer), wrap the final output in <INTERVIEW_COMPLETE> tags containing YAML that matches this exact interview-results schema.',
+    PROM4_FINAL_INTERVIEW_SCHEMA,
     'Output Discipline: For intermediate turns, return exactly one <INTERVIEW_BATCH> block and nothing else outside it. For the final turn, return exactly one <INTERVIEW_COMPLETE> block and nothing else outside it.',
     'Formatting Discipline: Do not place markdown fences inside either tag block. Keep YAML indentation valid so every question field stays nested under its list item.',
     STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'YAML — complete interview results file matching PROM5.output_file schema',
+  outputFormat: 'YAML — complete interview results file with schema_version, ticket_id, artifact, status, generated_by, questions, follow_up_rounds, summary, approval',
   contextInputs: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
 }
 
@@ -210,10 +250,12 @@ export const PROM5: PromptTemplate = {
     'Coverage Check: Detect unresolved ambiguity, missing constraints, missing edge cases, missing non-goals, and inconsistent answers.',
     'Identify Gaps: List any specific gaps or discrepancies found between the source material and the Interview Results.',
     'Follow-up: If gaps exist, generate only the targeted follow-up questions strictly necessary to resolve them (no more than 20% of `max_initial_questions`). Do not generate follow-up questions merely because budget remains. If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation.',
-    'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. Use `status: clean` with an empty `follow_up_questions` list when coverage is complete. Use `status: gaps` only when at least one real unresolved gap remains.',
+    'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
+    'Gap Triggering: Use `status: gaps` only when at least one real unresolved gap remains. When `status: gaps`, `follow_up_questions` must be a YAML list of question objects with exactly these fields: `id`, `question`, `phase`, `priority`, `rationale`. Do not return plain strings in `follow_up_questions`.',
+    'Do not output rewritten interview results, summaries, or any extra keys.',
     STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: COVERAGE_OUTPUT_FORMAT,
+  outputFormat: INTERVIEW_COVERAGE_OUTPUT_FORMAT,
   contextInputs: ['ticket_details', 'user_answers', 'interview'],
 }
 

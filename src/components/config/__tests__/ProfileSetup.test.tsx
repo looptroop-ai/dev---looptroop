@@ -85,6 +85,8 @@ describe('ProfileSetup', () => {
     })
 
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
+    expect(screen.queryByText('Background')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Your background, expertise, and coding preferences...')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
     expect(refetchQueriesSpy).toHaveBeenCalledWith({
       queryKey: OPENCODE_MODELS_QUERY_KEY,

@@ -769,13 +769,16 @@ function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: b
   if (!isRecord(parsed)) throw new Error('Interview complete output is not a YAML/JSON object')
 
   const hasQuestions = Array.isArray(getValueByAliases(parsed, ['questions']))
+  const hasAnswers = Array.isArray(getValueByAliases(parsed, ['answers']))
   const hasFinalSchemaKeys = ['schemaversion', 'schema_version', 'artifact', 'generatedby', 'generated_by', 'approval', 'summary', 'followuprounds', 'follow_up_rounds']
     .some((alias) => getValueByAliases(parsed, [alias]) !== undefined)
+  const hasAuditSummaryKeys = ['ticketid', 'ticket_id', 'status', 'derivedfindings', 'derived_findings', 'skippedquestionids', 'skipped_question_ids', 'assumptionsforprdgeneration', 'assumptions_for_prd_generation', 'confidence']
+    .some((alias) => getValueByAliases(parsed, [alias]) !== undefined)
 
-  if (!hasQuestions) {
-    throw new Error('Interview complete output is missing questions')
+  if (!hasQuestions && !hasAnswers) {
+    throw new Error('Interview complete output is missing questions or answers')
   }
-  if (!allowQuestionsOnly && !hasFinalSchemaKeys) {
+  if (!allowQuestionsOnly && !hasFinalSchemaKeys && !hasAuditSummaryKeys) {
     throw new Error('Interview complete output is missing final interview schema fields')
   }
 
@@ -832,7 +835,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
   }
 
   const fallbackCandidates = collectStructuredCandidates(rawContent, {
-    topLevelHints: ['batch_number', 'batchnumber', 'progress', 'schema_version', 'approval', 'generated_by', 'generatedby'],
+    topLevelHints: ['batch_number', 'batchnumber', 'progress', 'schema_version', 'approval', 'generated_by', 'generatedby', 'ticket_id', 'ticketid', 'answers', 'status'],
   })
 
   for (const candidate of fallbackCandidates) {
@@ -1386,6 +1389,13 @@ export function normalizeVoteScorecardOutput(
 function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQuestion[] {
   if (!Array.isArray(value)) return []
   return value.map((entry, index) => {
+    if (typeof entry === 'string') {
+      return {
+        id: `FU${index + 1}`,
+        question: entry.trim(),
+      }
+    }
+
     const record = isRecord(entry) ? entry : {}
     const question = typeof record.question === 'string'
       ? record.question

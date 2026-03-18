@@ -34,7 +34,6 @@ import {
   clearInterviewSessionBatch,
   completeInterviewBySkippingRemaining,
   createInterviewSessionSnapshot,
-  extractCoverageFollowUpQuestions,
   INTERVIEW_BATCH_HISTORY_ARTIFACT,
   INTERVIEW_CURRENT_BATCH_ARTIFACT,
   INTERVIEW_PROM4_FINAL_ARTIFACT,
@@ -78,10 +77,12 @@ import {
   normalizeCoverageResultOutput,
   normalizeInterviewRefinementOutput,
   normalizePrdYamlOutput,
-  type CoverageFollowUpQuestion,
   type StructuredOutputMetadata,
 } from '../structuredOutput'
 import { buildSessionStatusLogEntries } from './sessionStatusLogging'
+import {
+  resolveInterviewCoverageFollowUpResolution,
+} from './interviewCoverageFollowUps'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -289,12 +290,6 @@ function buildStructuredMetadata(
         ? { validationError: base.validationError }
         : {}),
   }
-}
-
-function normalizeCoverageQuestionsToYaml(questions: CoverageFollowUpQuestion[]): string {
-  return questions.length > 0
-    ? JSON.stringify({ follow_up_questions: questions })
-    : ''
 }
 
 async function restoreInterviewQASession(ticketId: string) {
@@ -3130,6 +3125,7 @@ async function handleCoverageVerification(
   let coverageEnvelope: ReturnType<typeof normalizeCoverageResultOutput> | null = null
   let promptParts: PromptPart[] = [{ type: 'text', content: promptContent }]
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+  let interviewCoverageResolution: ReturnType<typeof resolveInterviewCoverageFollowUpResolution> | null = null
 
   for (let attempt = 0; attempt <= 1; attempt += 1) {
     try {
@@ -3207,6 +3203,34 @@ async function handleCoverageVerification(
         repairApplied: coverageEnvelope.repairApplied,
         repairWarnings: coverageEnvelope.repairWarnings,
       })
+      interviewCoverageResolution = phase === 'interview' && interviewSnapshot
+        ? resolveInterviewCoverageFollowUpResolution({
+            status: coverageEnvelope.value.status,
+            structuredFollowUps: coverageEnvelope.value.followUpQuestions,
+            rawResponse: response,
+            snapshot: interviewSnapshot,
+            attempt,
+          })
+        : null
+
+      if (interviewCoverageResolution?.shouldRetry && interviewCoverageResolution.validationError) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError: interviewCoverageResolution.validationError,
+        })
+        promptParts = buildStructuredRetryPrompt([{ type: 'text', content: promptContent }], {
+          validationError: interviewCoverageResolution.validationError,
+          rawResponse: response,
+          schemaReminder: promptTemplate.outputFormat,
+        })
+        continue
+      }
+
+      if (interviewCoverageResolution?.validationError) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          validationError: interviewCoverageResolution.validationError,
+        })
+      }
       break
     }
 
@@ -3275,15 +3299,7 @@ async function handleCoverageVerification(
         return
       }
 
-      const structuredFollowUps = coverageEnvelope.value.followUpQuestions.length > 0
-        ? extractCoverageFollowUpQuestions(
-            normalizeCoverageQuestionsToYaml(coverageEnvelope.value.followUpQuestions),
-            interviewSnapshot,
-          )
-        : []
-      const followUpQuestions = structuredFollowUps.length > 0
-        ? structuredFollowUps
-        : extractCoverageFollowUpQuestions(response, interviewSnapshot)
+      const followUpQuestions = interviewCoverageResolution?.followUpQuestions ?? []
       if (followUpQuestions.length === 0) {
         const msg = 'Coverage found interview gaps but produced no parseable follow-up questions.'
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)

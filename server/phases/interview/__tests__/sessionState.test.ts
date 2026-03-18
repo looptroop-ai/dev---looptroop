@@ -126,6 +126,31 @@ describe('interview session state', () => {
     })
   })
 
+  it('accepts string-based coverage follow-up questions with default metadata', () => {
+    const snapshot = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: [{ id: 'Q01', phase: 'Foundation', question: 'What problem are we solving?' }],
+      maxInitialQuestions: 1,
+    })
+
+    const followUpQuestions = extractCoverageFollowUpQuestions([
+      'status: gaps',
+      'follow_up_questions:',
+      '  - Which workflow should consume the new context pack first?',
+    ].join('\n'), snapshot)
+
+    expect(followUpQuestions).toHaveLength(1)
+    expect(followUpQuestions[0]).toMatchObject({
+      id: 'FU1',
+      question: 'Which workflow should consume the new context pack first?',
+      phase: 'Structure',
+      priority: 'high',
+      rationale: 'Coverage follow-up required to close interview gaps.',
+      source: 'coverage_follow_up',
+      roundNumber: 1,
+    })
+  })
+
   it('preserves existing answers and skips every remaining unanswered question when skipping to approval', () => {
     const base = createInterviewSessionSnapshot({
       winnerId: 'openai/gpt-5-mini',
