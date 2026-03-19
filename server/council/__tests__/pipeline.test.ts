@@ -269,7 +269,7 @@ describe('Council Pipeline', () => {
       members,
       [
         { type: 'text', source: 'ticket_details', content: '# Ticket: Test\nNeed a change' },
-        { type: 'text', source: 'codebase_map', content: 'files:\n  - "src/main.ts"' },
+        { type: 'text', source: 'relevant_files', content: 'files:\n  - path: "src/main.ts"' },
       ],
       '/tmp/test',
       { draftTimeoutMs: 300000, minQuorum: 2, maxInitialQuestions: 10 },

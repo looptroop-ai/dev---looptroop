@@ -81,7 +81,7 @@ export const ticketMachine = setup({
       ],
       on: {
         START: {
-          target: 'COUNCIL_DELIBERATING',
+          target: 'SCANNING_RELEVANT_FILES',
           actions: assign({
             lockedMainImplementer: ({ event }) => event.lockedMainImplementer ?? null,
             lockedCouncilMembers: ({ event }) => event.lockedCouncilMembers ?? null,
@@ -93,6 +93,16 @@ export const ticketMachine = setup({
           }),
         },
         INIT_FAILED: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        CANCEL: { target: 'CANCELED' },
+      },
+    },
+    SCANNING_RELEVANT_FILES: {
+      entry: [
+        { type: 'updateStatus', params: { status: 'SCANNING_RELEVANT_FILES' } },
+      ],
+      on: {
+        RELEVANT_FILES_READY: { target: 'COUNCIL_DELIBERATING' },
+        ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
     },
@@ -360,6 +370,7 @@ export const ticketMachine = setup({
       on: {
         RETRY: [
           { guard: ({ context }) => context.previousStatus === 'DRAFT', target: 'DRAFT' as const, actions: ['clearError'] },
+          { guard: ({ context }) => context.previousStatus === 'SCANNING_RELEVANT_FILES', target: 'SCANNING_RELEVANT_FILES' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'COUNCIL_DELIBERATING', target: 'COUNCIL_DELIBERATING' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'COUNCIL_VOTING_INTERVIEW', target: 'COUNCIL_VOTING_INTERVIEW' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'COMPILING_INTERVIEW', target: 'COMPILING_INTERVIEW' as const, actions: ['clearError'] },

@@ -301,8 +301,32 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
         clearTimeout(flushTimeoutRef.current)
         flushTimeoutRef.current = null
       }
+      // Flush any pending logs to localStorage before unmounting so they
+      // survive navigation away and back (e.g. during SCANNING_RELEVANT_FILES).
+      const pending = pendingLogsRef.current
+      if (Object.keys(pending).length > 0) {
+        pendingLogsRef.current = {}
+        // We can't rely on setState after unmount, but we can persist directly
+        // to localStorage by reading the latest logsByPhase from a ref-snapshot.
+        try {
+          const snapshot: Record<string, LogEntry[]> = {}
+          for (const [status, entries] of Object.entries(pending)) {
+            const storageKey = `${LOG_STORAGE_PREFIX}${ticketId}-${status}`
+            let bucket: LogEntry[] = []
+            try {
+              const stored = localStorage.getItem(storageKey)
+              if (stored) bucket = JSON.parse(stored) as LogEntry[]
+            } catch { /* use empty */ }
+            for (const entry of entries) {
+              bucket = mergeEntry(bucket, entry)
+            }
+            snapshot[status] = bucket
+          }
+          persistLogs(ticketId, snapshot)
+        } catch { /* best-effort */ }
+      }
     }
-  }, [])
+  }, [ticketId])
 
   const flushPendingLogs = useCallback(() => {
     if (flushTimeoutRef.current) {
@@ -398,10 +422,9 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     if (cached) {
       applyServerLogs(cached)
     }
-    const needsServerFetch = !cached
 
     const mergeServerLogs = () => {
-      if (needsServerFetch) setIsLoadingLogs(true)
+      if (!cached) setIsLoadingLogs(true)
       fetch(`/api/files/${ticketId}/logs`)
         .then(res => res.ok ? res.json() : [])
         .then((raw: unknown) => {

@@ -124,6 +124,46 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const streamSignal = promptSignal
       ? AbortSignal.any([promptSignal, streamAbortController.signal])
       : streamAbortController.signal
+    const streamedTextByMessage = new Map<string, Map<string, string>>()
+    const streamedTextMessageOrder: string[] = []
+    const streamedTextPartIndex = new Map<string, string>()
+    let latestTextMessageId: string | undefined
+    const rememberStreamText = (event: StreamEvent) => {
+      if (event.type === 'text') {
+        const messageId = event.messageId ?? '__stream__'
+        const partId = event.partId ?? `${messageId}:text`
+        let messageParts = streamedTextByMessage.get(messageId)
+        if (!messageParts) {
+          messageParts = new Map<string, string>()
+          streamedTextByMessage.set(messageId, messageParts)
+          streamedTextMessageOrder.push(messageId)
+        }
+        messageParts.set(partId, event.text)
+        streamedTextPartIndex.set(partId, messageId)
+        latestTextMessageId = messageId
+        return
+      }
+
+      if (event.type === 'part_removed' && event.partId) {
+        const messageId = streamedTextPartIndex.get(event.partId)
+        if (!messageId) return
+        const messageParts = streamedTextByMessage.get(messageId)
+        if (!messageParts) return
+        messageParts.delete(event.partId)
+        streamedTextPartIndex.delete(event.partId)
+        if (messageParts.size > 0) return
+        streamedTextByMessage.delete(messageId)
+        const orderIndex = streamedTextMessageOrder.lastIndexOf(messageId)
+        if (orderIndex >= 0) streamedTextMessageOrder.splice(orderIndex, 1)
+        latestTextMessageId = streamedTextMessageOrder[streamedTextMessageOrder.length - 1]
+      }
+    }
+    const buildStreamedTextResponse = (): string => {
+      if (!latestTextMessageId) return ''
+      const messageParts = streamedTextByMessage.get(latestTextMessageId)
+      if (!messageParts || messageParts.size === 0) return ''
+      return Array.from(messageParts.values()).join('').trim()
+    }
     let resolveStreamDoneResponse: ((value: string | null) => void) | null = null
     let streamDoneObserved = false
     const streamDoneResponse = new Promise<string | null>((resolve) => {
@@ -132,15 +172,16 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const streamDrain = this.consumeStreamEvents(
       sessionId,
       (event) => {
+        rememberStreamText(event)
         promptOptions.onEvent?.(event)
         if (event.type !== 'done' || streamDoneObserved) return
         streamDoneObserved = true
         void this.readAssistantSnapshotWithRetry(sessionId)
           .then((snapshot) => {
-            resolveStreamDoneResponse?.(snapshot || null)
+            resolveStreamDoneResponse?.(snapshot || buildStreamedTextResponse() || null)
           })
           .catch(() => {
-            resolveStreamDoneResponse?.(null)
+            resolveStreamDoneResponse?.(buildStreamedTextResponse() || null)
           })
       },
       streamSignal,
@@ -167,6 +208,9 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
             : undefined
           responseText = await this.readAssistantSnapshotWithRetry(sessionId, preferredMessageId)
         }
+        if (!responseText) {
+          responseText = buildStreamedTextResponse()
+        }
         return responseText
       })()
 
@@ -179,10 +223,13 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         return sdkPromptResponse
       })
 
-      const responseText = await Promise.race([
+      let responseText = await Promise.race([
         sdkPromptResponse,
         streamFirstResponse,
       ])
+      if (!responseText) {
+        responseText = buildStreamedTextResponse()
+      }
       if (!responseText) {
         warnIfVerbose(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
       }
@@ -286,7 +333,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   async assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]> {
     const { buildMinimalContext } = await import('./contextBuilder')
     const ticketState = await this.loadTicketState(ticketId)
-    logIfVerbose(`[adapter] assembleCouncilContext ticket=${ticketId} phase=${phase} hasDescription=${!!ticketState.description} hasCodebaseMap=${!!ticketState.codebaseMap}`)
+    logIfVerbose(`[adapter] assembleCouncilContext ticket=${ticketId} phase=${phase} hasDescription=${!!ticketState.description} hasRelevantFiles=${!!ticketState.relevantFiles}`)
     return buildMinimalContext(phase, ticketState)
   }
 
@@ -309,7 +356,6 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const ticketDir = paths.ticketDir
 
     const artifactLoaders: { file: string; field: keyof TicketState }[] = [
-      { file: 'codebase-map.yaml', field: 'codebaseMap' },
       { file: 'interview.yaml', field: 'interview' },
       { file: 'prd.yaml', field: 'prd' },
     ]

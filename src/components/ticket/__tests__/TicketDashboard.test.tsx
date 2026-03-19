@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryClient } from '@/lib/queryClient'
+import { patchTicketStatusInCache } from '@/hooks/ticketStatusCache'
 import type { Ticket } from '@/hooks/useTickets'
 
 const selectedTicketId = '1:T-42'
@@ -122,6 +123,15 @@ function makeTicket(status: string): Ticket {
     createdAt: '2026-03-11T10:00:00.000Z',
     updatedAt: '2026-03-11T10:00:00.000Z',
   }
+}
+
+/** Simulate a realistic SSE state_change: patch the cache first (as useSSE does), then fire onEvent. */
+function simulateSSE(from: string, to: string) {
+  patchTicketStatusInCache(queryClient, selectedTicketId, to)
+  latestSSEOptions?.onEvent?.({
+    type: 'state_change',
+    data: { ticketId: selectedTicketId, from, to },
+  })
 }
 
 function createJsonResponse(payload: unknown) {
@@ -363,14 +373,7 @@ describe('TicketDashboard', () => {
     })
 
     await act(async () => {
-      latestSSEOptions?.onEvent?.({
-        type: 'state_change',
-        data: {
-          ticketId: selectedTicketId,
-          from: 'COUNCIL_VOTING_PRD',
-          to: 'DRAFTING_PRD',
-        },
-      })
+      simulateSSE('COUNCIL_VOTING_PRD', 'DRAFTING_PRD')
     })
 
     await waitFor(() => {
@@ -381,14 +384,7 @@ describe('TicketDashboard', () => {
     })
 
     await act(async () => {
-      latestSSEOptions?.onEvent?.({
-        type: 'state_change',
-        data: {
-          ticketId: selectedTicketId,
-          from: 'DRAFTING_PRD',
-          to: 'REFINING_PRD',
-        },
-      })
+      simulateSSE('DRAFTING_PRD', 'REFINING_PRD')
     })
 
     await waitFor(() => {
@@ -397,6 +393,62 @@ describe('TicketDashboard', () => {
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('REFINING_PRD')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('REFINING_PRD')
       expect(screen.getByTestId('dashboard-header')).toHaveTextContent('REFINING_PRD')
+    })
+  })
+
+  it('advances past stale livePhase when refetch returns a newer status (fast transition race)', async () => {
+    const initialTicket = makeTicket('SCANNING_RELEVANT_FILES')
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        // Simulate the refetch returning a NEWER status than the SSE event
+        // (the server already transitioned past SCANNING_RELEVANT_FILES).
+        return createJsonResponse(makeTicket('COUNCIL_DELIBERATING'))
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText('AI Council — Relevant Files Scanning')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(latestSSEOptions?.ticketId).toBe(selectedTicketId)
+    })
+
+    // SSE delivers DRAFT → SCANNING_RELEVANT_FILES (livePhase set).
+    await act(async () => {
+      latestSSEOptions?.onEvent?.({
+        type: 'state_change',
+        data: {
+          ticketId: selectedTicketId,
+          from: 'DRAFT',
+          to: 'SCANNING_RELEVANT_FILES',
+        },
+      })
+    })
+
+    // Now simulate the race: a React Query refetch resolves with a NEWER
+    // status (COUNCIL_DELIBERATING), leapfrogging the stale livePhase.
+    await act(async () => {
+      queryClient.setQueryData(['ticket', selectedTicketId], makeTicket('COUNCIL_DELIBERATING'))
+    })
+
+    // The useEffect should advance livePhase to match the DB status.
+    await waitFor(() => {
+      expect(screen.getByTestId('navigator-current')).toHaveTextContent('COUNCIL_DELIBERATING')
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_DELIBERATING')
     })
   })
 })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { WORKFLOW_PHASES } from '@shared/workflowMeta'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 
 describe('getCascadeEditWarningMessage', () => {
@@ -30,5 +31,13 @@ describe('getCascadeEditWarningMessage', () => {
 
   it('never warns when editing beads', () => {
     expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'beads')).toBeNull()
+  })
+})
+
+describe('workflow metadata', () => {
+  it('shows only ticket details as allowed context while scanning relevant files', () => {
+    const scanningPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'SCANNING_RELEVANT_FILES')
+
+    expect(scanningPhase?.contextSummary).toEqual(['ticket_details'])
   })
 })

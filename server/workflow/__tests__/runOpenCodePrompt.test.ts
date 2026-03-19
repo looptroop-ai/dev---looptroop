@@ -287,6 +287,72 @@ describe('runOpenCodePrompt', () => {
     })
   })
 
+  it('falls back to streamed text when the final snapshot text is empty', async () => {
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: async () => ({
+          data: {
+            info: { id: 'msg-1' },
+            parts: [
+              { type: 'text', text: '' },
+            ],
+          },
+        }),
+        messages: async () => ({
+          data: [
+            {
+              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+              parts: [
+                {
+                  id: 'part-1',
+                  type: 'text',
+                  text: '',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                  time: { end: Date.now() },
+                },
+              ],
+            },
+          ],
+        }),
+        abort: async () => ({ data: {} }),
+      },
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'part-1',
+                  type: 'text',
+                  text: '<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                  time: { end: Date.now() },
+                },
+              },
+            }
+            yield {
+              type: 'session.idle',
+              properties: { info: { id: 'ses-1' } },
+            }
+          })(),
+        }),
+      },
+    }
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.response).toBe('<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>')
+  })
+
   it('keeps timeout behavior when done would arrive after the timeout window', async () => {
     const fakeClient = {
       session: {

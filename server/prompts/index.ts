@@ -100,6 +100,28 @@ const INTERVIEW_PHASE_ORDER_RULE = 'Phase Order Is Mandatory: all `foundation` q
 const BEAD_SUBSET_OUTPUT_FORMAT = 'YAML with top-level `beads` list. Each bead item must include exactly: `id`, `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, `testCommands`.'
 const BEADS_JSONL_OUTPUT_FORMAT = 'JSONL only. One JSON object per line. No markdown fences, no surrounding array, no prose, and no wrapper object.'
 
+// Relevant Files Context Extraction Prompt
+export const PROM0: PromptTemplate = {
+  id: 'PROM0',
+  description: 'Relevant Files Context Extraction Prompt',
+  systemRole: 'You are an expert software architect performing codebase analysis for implementation planning.',
+  task: 'Given the ticket description, identify and read the source files most relevant to this ticket. Use your file-reading and directory-listing tools to explore the project structure, examine the actual code, then return a structured summary of the relevant file contents.',
+  instructions: [
+    'Analysis Strategy: Study the ticket description to understand what needs to be implemented. Use your file-reading and directory-listing tools to explore the project structure and identify files that would need to be read, modified, or depended upon when implementing this ticket.',
+    'Content Selection: For each relevant file, extract the meaningful code sections — key functions, type definitions, interfaces, class structures, configuration blocks, and route definitions. Skip boilerplate imports, comments, and code unrelated to the ticket.',
+    'Relevance Ordering: Present files in descending order of relevance. Core implementation files first, then type definitions, then supporting utilities, then tests/configs.',
+    'Scope Discipline: Read only files genuinely relevant to the ticket. Do not read entire directories. Aim for precision: 5-25 files depending on ticket scope. Never exceed 30 files.',
+    'Content Limits: For each file, include at most the 300 most relevant lines. If a file is large, extract only the relevant functions or sections with a brief note about what was omitted.',
+    'Annotations: For each file, include a one-line rationale explaining why it is relevant to the ticket and whether it would likely be read-only context or needs modification.',
+    'Output Envelope: Return exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block and nothing else before or after it.',
+    'YAML Discipline: Inside the block, output only strict YAML with valid indentation. Do not use markdown fences anywhere inside the block.',
+    'Count Consistency: `file_count` must exactly equal the final number of entries in `files`.',
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: 'YAML inside <RELEVANT_FILES_RESULT> tags with top-level keys: `file_count` (integer), `files` (list). Each file item: `path` (string), `rationale` (string), `relevance` (high|medium|low), `likely_action` (read|modify|create), `content` (string, the extracted code). No other top-level keys.',
+  contextInputs: ['ticket_details'],
+}
+
 // Interview Phase Prompts
 export const PROM1: PromptTemplate = {
   id: 'PROM1',
@@ -126,7 +148,7 @@ export const PROM1: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML with top-level `questions` list. Each item: {id, phase, question}. No other fields.',
-  contextInputs: ['codebase_map', 'ticket_details'],
+  contextInputs: ['relevant_files', 'ticket_details'],
 }
 
 export const PROM2: PromptTemplate = {
@@ -142,7 +164,7 @@ export const PROM2: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
+  contextInputs: ['relevant_files', 'ticket_details', 'drafts'],
 }
 
 export const PROM3: PromptTemplate = {
@@ -161,12 +183,14 @@ export const PROM3: PromptTemplate = {
     'Change Tracking: Output a required top-level `changes` list alongside the final `questions` list. Each `changes` item MUST include exactly three fields: `type`, `before`, and `after`.',
     'Change Semantics: Use `type: modified` when the same underlying question was kept but its wording or scope was improved. Use `type: replaced` when a previous question was discarded and a different question took its place. Use `type: added` when a new question has no predecessor. Use `type: removed` when a winning-draft question was dropped with no replacement.',
     'Change Records: `before` and `after` must each be either `null` or an object with exactly `id`, `phase`, and `question`. For `modified` and `replaced`, both `before` and `after` are required. For `added`, use `before: null`. For `removed`, use `after: null`. If there are no differences, output `changes: []`.',
+    'ID Stability: Preserve the winning draft\'s existing `id` for every question that still exists in the final draft, even if its wording improves or its position moves. Do not renumber surviving questions for neatness. Assign fresh IDs only to genuinely new questions, using new numeric IDs above the current maximum winner-draft ID.',
+    'Diff Coverage: The `changes` list must fully account for the exact record-level diff between the winning `questions` list and the final `questions` list. Compare by exact `{id, phase, question}` records. Unchanged records must not appear in `changes`. Every winning-draft record missing from the final list must appear exactly once in `before`, and every final record not present in the winning draft must appear exactly once in `after`.',
     INTERVIEW_PHASE_ORDER_RULE,
     'Formatting: Output the final refined draft using the exact same structural format required for this phase. Output only the final artifact.',
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML with exactly two top-level keys: `questions` and `changes`. `questions` must match the PROM1 question list schema. `changes` must be a list of `{type, before, after}` where `type` is one of `modified`, `replaced`, `added`, `removed`, and `before`/`after` are either null or `{id, phase, question}`.',
-  contextInputs: ['codebase_map', 'ticket_details', 'drafts'],
+  contextInputs: ['relevant_files', 'ticket_details', 'drafts'],
 }
 
 export const PROM4_FINAL_INTERVIEW_SCHEMA = [
@@ -238,7 +262,7 @@ export const PROM4: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — complete interview results file with schema_version, ticket_id, artifact, status, generated_by, questions, follow_up_rounds, summary, approval',
-  contextInputs: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
+  contextInputs: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
 }
 
 export const PROM5: PromptTemplate = {
@@ -278,7 +302,7 @@ export const PROM10: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PRD_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'interview'],
+  contextInputs: ['relevant_files', 'ticket_details', 'interview'],
 }
 
 export const PROM11: PromptTemplate = {
@@ -294,7 +318,7 @@ export const PROM11: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
+  contextInputs: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
 }
 
 export const PROM12: PromptTemplate = {
@@ -313,7 +337,7 @@ export const PROM12: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PRD_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'interview', 'drafts', 'votes'],
+  contextInputs: ['relevant_files', 'ticket_details', 'interview', 'drafts', 'votes'],
 }
 
 export const PROM13: PromptTemplate = {
@@ -349,7 +373,7 @@ export const PROM20: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: BEAD_SUBSET_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'prd'],
+  contextInputs: ['relevant_files', 'ticket_details', 'prd'],
 }
 
 export const PROM21: PromptTemplate = {
@@ -365,7 +389,7 @@ export const PROM21: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
+  contextInputs: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
 }
 
 export const PROM22: PromptTemplate = {
@@ -383,7 +407,7 @@ export const PROM22: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: BEAD_SUBSET_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'prd', 'drafts', 'votes'],
+  contextInputs: ['relevant_files', 'ticket_details', 'prd', 'drafts', 'votes'],
 }
 
 export const PROM23: PromptTemplate = {
@@ -399,7 +423,7 @@ export const PROM23: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: BEADS_JSONL_OUTPUT_FORMAT,
-  contextInputs: ['codebase_map', 'ticket_details', 'prd', 'beads_draft'],
+  contextInputs: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
 }
 
 export const PROM24: PromptTemplate = {
@@ -509,6 +533,7 @@ export function buildConversationalPrompt(
 }
 
 export const ALL_PROMPTS = {
+  PROM0,
   PROM1,
   PROM2,
   PROM3,

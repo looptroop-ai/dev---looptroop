@@ -1870,6 +1870,128 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
   }
 }
 
+export interface RelevantFilesOutputEntry {
+  path: string
+  rationale: string
+  relevance: string
+  likely_action: string
+  content: string
+}
+
+export interface RelevantFilesOutputPayload {
+  file_count: number
+  files: RelevantFilesOutputEntry[]
+}
+
+const RELEVANT_FILES_PROMPT_ECHO_MARKERS = [
+  'CRITICAL OUTPUT RULE:',
+  'CONTEXT REFRESH:',
+  '## System Role',
+  '## Task',
+  '## Instructions',
+  '## Expected Output Format',
+  '## Context',
+]
+
+function looksLikeRelevantFilesPromptEcho(content: string): boolean {
+  const normalized = stripTranscriptPrefixes(content).trim()
+  if (!normalized) return false
+
+  let markerHits = 0
+  for (const marker of RELEVANT_FILES_PROMPT_ECHO_MARKERS) {
+    if (normalized.includes(marker)) markerHits += 1
+  }
+
+  return markerHits >= 2
+}
+
+export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutputResult<RelevantFilesOutputPayload> {
+  const repairWarnings: string[] = []
+  const candidates = collectTaggedCandidates(rawContent, 'RELEVANT_FILES_RESULT')
+
+  // Also try structured candidates as fallback
+  const fallbackCandidates = collectStructuredCandidates(rawContent, {
+    topLevelHints: ['file_count', 'files'],
+  })
+  const allCandidates = [...candidates, ...fallbackCandidates]
+  const seen = new Set<string>()
+  const uniqueCandidates = allCandidates.filter((c) => {
+    if (seen.has(c)) return false
+    seen.add(c)
+    return true
+  })
+
+  let lastError = 'No relevant files content found'
+
+  for (const candidate of uniqueCandidates) {
+    try {
+      if (looksLikeRelevantFilesPromptEcho(candidate)) {
+        throw new Error('Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact')
+      }
+
+      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+        'relevantfilesresult',
+        'relevant_files_result',
+        'relevantfiles',
+        'relevant_files',
+        'payload',
+        'result',
+        'output',
+        'data',
+        'artifact',
+      ])
+      if (!isRecord(parsed)) throw new Error('Relevant files output is not a YAML/JSON object')
+
+      const rawFiles = getValueByAliases(parsed, ['files'])
+      if (!Array.isArray(rawFiles) || rawFiles.length === 0) {
+        throw new Error('Relevant files output is missing files list')
+      }
+
+      const files: RelevantFilesOutputEntry[] = rawFiles.map((entry: unknown, index: number) => {
+        if (!isRecord(entry)) throw new Error(`Relevant file at index ${index} is not an object`)
+
+        const path = getRequiredString(entry, ['path', 'filepath', 'file_path', 'file'], `file path at index ${index}`)
+        const rationale = typeof getValueByAliases(entry, ['rationale', 'reason', 'why']) === 'string'
+          ? String(getValueByAliases(entry, ['rationale', 'reason', 'why'])).trim()
+          : ''
+        const relevance = typeof getValueByAliases(entry, ['relevance']) === 'string'
+          ? String(getValueByAliases(entry, ['relevance'])).trim().toLowerCase()
+          : 'medium'
+        const likelyAction = typeof getValueByAliases(entry, ['likelyaction', 'likely_action', 'action']) === 'string'
+          ? String(getValueByAliases(entry, ['likelyaction', 'likely_action', 'action'])).trim().toLowerCase()
+          : 'read'
+        const content = typeof getValueByAliases(entry, ['content', 'contents', 'code', 'source', 'snippet', 'excerpt']) === 'string'
+          ? String(getValueByAliases(entry, ['content', 'contents', 'code', 'source', 'snippet', 'excerpt']))
+          : ''
+
+        return { path, rationale, relevance, likely_action: likelyAction, content }
+      })
+
+      const payload: RelevantFilesOutputPayload = {
+        file_count: files.length,
+        files,
+      }
+
+      return {
+        ok: true,
+        value: payload,
+        normalizedContent: buildYamlDocument(payload),
+        repairApplied: candidate !== rawContent.trim(),
+        repairWarnings,
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  return {
+    ok: false,
+    error: lastError,
+    repairApplied: false,
+    repairWarnings: [],
+  }
+}
+
 export function buildStructuredRetryPrompt(
   baseParts: PromptPart[],
   options: {

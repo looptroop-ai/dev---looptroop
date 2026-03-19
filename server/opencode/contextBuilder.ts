@@ -4,32 +4,32 @@ import { logIfVerbose, warnIfVerbose } from '../runtime'
 // Phase allowlists — only specified sources are included
 // Phase allowlists derived from cl-prompt.md PROM context_input specs
 const PHASE_ALLOWLISTS: Record<string, string[]> = {
-  // PROM1: "Project codebase map + ticket details"
-  interview_draft: ['codebase_map', 'ticket_details'],
-  // PROM2: "Codebase map + ticket details + all interview drafts"
-  interview_vote: ['codebase_map', 'ticket_details', 'drafts'],
-  // PROM3: "Codebase map + ticket details + all interview drafts"
-  interview_refine: ['codebase_map', 'ticket_details', 'drafts'],
-  // PROM4: "Codebase map + ticket details + final question set + user answers so far"
-  interview_qa: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
+  // PROM1: "Relevant files + ticket details"
+  interview_draft: ['relevant_files', 'ticket_details'],
+  // PROM2: "Relevant files + ticket details + all interview drafts"
+  interview_vote: ['relevant_files', 'ticket_details', 'drafts'],
+  // PROM3: "Relevant files + ticket details + all interview drafts"
+  interview_refine: ['relevant_files', 'ticket_details', 'drafts'],
+  // PROM4: "Relevant files + ticket details + final question set + user answers so far"
+  interview_qa: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
   // PROM5: "Ticket description + collected answers + current Interview Results"
   interview_coverage: ['ticket_details', 'user_answers', 'interview'],
-  // PROM10: "Codebase map + ticket details + final Interview Results"
-  prd_draft: ['codebase_map', 'ticket_details', 'interview'],
-  // PROM11: "Codebase map + ticket details + final Interview Results + all PRD drafts"
-  prd_vote: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
-  // PROM12: "Codebase map + ticket details + final Interview Results + all PRD drafts"
-  prd_refine: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
+  // PROM10: "Relevant files + ticket details + final Interview Results"
+  prd_draft: ['relevant_files', 'ticket_details', 'interview'],
+  // PROM11: "Relevant files + ticket details + final Interview Results + all PRD drafts"
+  prd_vote: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
+  // PROM12: "Relevant files + ticket details + final Interview Results + all PRD drafts"
+  prd_refine: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
   // PROM13: "Final Interview Results + final PRD"
   prd_coverage: ['interview', 'prd'],
-  // PROM20: "Codebase map + ticket details + final PRD"
-  beads_draft: ['codebase_map', 'ticket_details', 'prd'],
-  // PROM21: "Codebase map + ticket details + final PRD + all bead drafts"
-  beads_vote: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
-  // PROM22: "Codebase map + ticket details + final PRD + all bead drafts"
-  beads_refine: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
-  // PROM23: "Codebase map + ticket details + final PRD + refined beads draft"
-  beads_expand: ['codebase_map', 'ticket_details', 'prd', 'beads_draft'],
+  // PROM20: "Relevant files + ticket details + final PRD"
+  beads_draft: ['relevant_files', 'ticket_details', 'prd'],
+  // PROM21: "Relevant files + ticket details + final PRD + all bead drafts"
+  beads_vote: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
+  // PROM22: "Relevant files + ticket details + final PRD + all bead drafts"
+  beads_refine: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
+  // PROM23: "Relevant files + ticket details + final PRD + refined beads draft"
+  beads_expand: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
   // PROM24: "Final PRD + Beads graph + tests"
   beads_coverage: ['prd', 'beads', 'tests'],
   // Execution: bead data + notes from previous iterations
@@ -38,8 +38,8 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   context_wipe: ['bead_data', 'error_context'],
   // PROM52: "Ticket details + Interview Results + PRD + Beads list"
   final_test: ['ticket_details', 'interview', 'prd', 'beads'],
-  // Pre-flight check
-  preflight: ['codebase_map', 'ticket_details'],
+  // Pre-flight check (used by SCANNING_RELEVANT_FILES which generates relevant_files)
+  preflight: ['ticket_details'],
 }
 
 // Token budget per call (approximate)
@@ -57,7 +57,7 @@ const TRIM_PRIORITY: { key: string; sources: string[] }[] = [
   { key: 'beads', sources: ['beads'] },
   { key: 'interview', sources: ['interview'] },
   { key: 'prd', sources: ['prd'] },
-  { key: 'codebase_map', sources: ['codebase_map'] },
+  { key: 'relevant_files', sources: ['relevant_files'] },
   { key: 'ticket_details', sources: ['ticket_details'] },
 ]
 
@@ -119,7 +119,7 @@ export interface TicketState {
   description?: string
   userBackground?: string | null
   disableAnalogies?: boolean
-  codebaseMap?: string
+  relevantFiles?: string
   interview?: string
   prd?: string
   beads?: string
@@ -178,16 +178,14 @@ export function buildMinimalContext(
         parts.push({ source, content, order: order++ })
         break
       }
-      case 'codebase_map': {
+      case 'relevant_files': {
         const cached = getCachedContext(cacheKey)
-        const content = cached ?? ticketState.codebaseMap ?? '# Codebase map not yet generated'
-        if (!cached && ticketState.codebaseMap) setCachedContext(cacheKey, content)
-        if (!ticketState.codebaseMap && !cached) {
-          warnIfVerbose(`[contextBuilder] codebase_map: not available for ticket=${ticketState.ticketId}, using placeholder`)
-        } else {
-          logIfVerbose(`[contextBuilder] codebase_map: loaded (${content.length} chars, cached=${!!cached})`)
+        const content = cached ?? ticketState.relevantFiles ?? ''
+        if (!cached && ticketState.relevantFiles) setCachedContext(cacheKey, content)
+        if (content) {
+          logIfVerbose(`[contextBuilder] relevant_files: loaded (${content.length} chars, cached=${!!cached})`)
+          parts.push({ source, content, order: order++ })
         }
-        parts.push({ source, content, order: order++ })
         break
       }
       case 'interview': {

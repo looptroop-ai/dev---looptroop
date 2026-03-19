@@ -22,7 +22,7 @@ import { appendLogEvent } from '../log/executionLog'
 import type { LogEventType, LogSource } from '../log/types'
 import { buildMinimalContext, type TicketState } from '../opencode/contextBuilder'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
-import { buildPromptFromTemplate, PROM2, PROM3, PROM5, PROM12, PROM13, PROM22, PROM24 } from '../prompts/index'
+import { buildPromptFromTemplate, PROM0, PROM2, PROM3, PROM5, PROM12, PROM13, PROM22, PROM24 } from '../prompts/index'
 import { startInterviewSession, submitBatchToSession, type BatchResponse } from '../phases/interview/qa'
 import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../phases/interview/questions'
 import { buildCompiledInterviewArtifact, requireCompiledInterviewArtifact } from '../phases/interview/compiled'
@@ -65,7 +65,7 @@ import {
 } from '../storage/tickets'
 import { runPreFlightChecks } from '../phases/preflight/doctor'
 import { cleanupTicketResources } from '../phases/cleanup/cleaner'
-import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from './runOpenCodePrompt'
+import { runOpenCodePrompt, runOpenCodeSessionPrompt, type OpenCodePromptDispatchEvent } from './runOpenCodePrompt'
 import { generateFinalTests } from '../phases/finalTest/generator'
 import { parseFinalTestCommands } from '../phases/finalTest/parser'
 import { executeFinalTestCommands } from '../phases/finalTest/runner'
@@ -79,8 +79,12 @@ import {
   normalizeCoverageResultOutput,
   normalizeInterviewRefinementOutput,
   normalizePrdYamlOutput,
+  normalizeRelevantFilesOutput,
+  type RelevantFilesOutputPayload,
   type StructuredOutputMetadata,
+  type StructuredOutputResult,
 } from '../structuredOutput'
+import { buildRelevantFilesArtifact, type RelevantFilesData } from '../ticket/relevantFiles'
 import { buildSessionStatusLogEntries } from './sessionStatusLogging'
 import {
   resolveInterviewCoverageFollowUpResolution,
@@ -346,7 +350,7 @@ function tryRecoverPhaseIntermediate(
     const result = JSON.parse(artifact.content) as DraftPhaseResult
     if (result.isFinal !== true || !result.drafts || result.drafts.length === 0) return false
 
-    const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+    const { worktreePath, ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
 
     let contextBuilder: PhaseIntermediateData['contextBuilder']
     let baseTicketState: TicketState | undefined
@@ -355,7 +359,7 @@ function tryRecoverPhaseIntermediate(
         ticketId: context.externalId,
         title: context.title,
         description: ticket?.description ?? '',
-        codebaseMap,
+        relevantFiles,
       }
       baseTicketState = ticketState
     } else if (pipeline === 'prd') {
@@ -368,7 +372,7 @@ function tryRecoverPhaseIntermediate(
         ticketId: context.externalId,
         title: context.title,
         description: ticket?.description ?? '',
-        codebaseMap,
+        relevantFiles,
         interview,
       }
       contextBuilder = buildPrdContextBuilder(buildMinimalContext('prd_draft', ticketState))
@@ -382,7 +386,7 @@ function tryRecoverPhaseIntermediate(
         ticketId: context.externalId,
         title: context.title,
         description: ticket?.description ?? '',
-        codebaseMap,
+        relevantFiles,
         prd,
       }
       contextBuilder = buildBeadsContextBuilder(buildMinimalContext('beads_draft', ticketState))
@@ -1027,7 +1031,7 @@ function emitOpenCodeSessionLogs(
   phase: string,
   memberId: string,
   sessionId: string,
-  stage: 'draft' | 'vote' | 'refine' | 'coverage',
+  stage: 'draft' | 'vote' | 'refine' | 'coverage' | 'relevant_files_scan',
   response: string,
   messages: Message[],
 ) {
@@ -1504,6 +1508,239 @@ function emitCouncilDecisionLogs(
   )
 }
 
+function validateRelevantFilesScanResponse(response: string): StructuredOutputResult<RelevantFilesOutputPayload> {
+  const trimmed = response.trim()
+  if (!trimmed) {
+    return {
+      ok: false,
+      error: 'Relevant files output was empty.',
+      repairApplied: false,
+      repairWarnings: [],
+    }
+  }
+
+  const normalized = normalizeRelevantFilesOutput(trimmed)
+  const openTagCount = [...trimmed.matchAll(/<RELEVANT_FILES_RESULT>/gi)].length
+  const closeTagCount = [...trimmed.matchAll(/<\/RELEVANT_FILES_RESULT>/gi)].length
+
+  if (openTagCount !== 1 || closeTagCount !== 1) {
+    if (!normalized.ok && normalized.error.includes('echoed the prompt')) {
+      return normalized
+    }
+    return {
+      ok: false,
+      error: 'Relevant files output must contain exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block.',
+      repairApplied: false,
+      repairWarnings: normalized.repairWarnings,
+    }
+  }
+
+  return normalized
+}
+
+export async function handleRelevantFilesScan(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
+) {
+  const phase = 'SCANNING_RELEVANT_FILES' as const
+  const { worktreePath, ticket, ticketDir } = loadTicketDirContext(context)
+
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', 'Starting relevant files scan.')
+
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+  }
+
+  const contextParts = buildMinimalContext('preflight', ticketState)
+  const prompt = buildPromptFromTemplate(PROM0, contextParts)
+
+  const codingModelId = context.lockedMainImplementer
+  if (!codingModelId) {
+    const msg = 'No main implementer configured for relevant files scan.'
+    emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['RELEVANT_FILES_SCAN_FAILED', 'MAIN_IMPLEMENTER_MISSING'] })
+    return
+  }
+
+  try {
+    const { draftTimeoutMs } = resolveCouncilRuntimeSettings(context)
+    const streamState = createOpenCodeStreamState()
+    let sessionId = ''
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: worktreePath,
+      parts: [{ type: 'text' as const, content: prompt }],
+      signal,
+      timeoutMs: draftTimeoutMs,
+      model: codingModelId,
+      variant: 'relevant_files_scan',
+      onSessionCreated: (session) => {
+        sessionId = session.id
+        emitAiMilestone(
+          ticketId,
+          context.externalId,
+          phase,
+          `Scanning relevant files with ${codingModelId} (session=${session.id}).`,
+          `${phase}:${session.id}:scan-created`,
+          {
+            modelId: codingModelId,
+            sessionId: session.id,
+            source: `model:${codingModelId}`,
+          },
+        )
+      },
+      onStreamEvent: (event) => {
+        if (!sessionId) return
+        emitOpenCodeStreamEvent(
+          ticketId,
+          context.externalId,
+          phase,
+          codingModelId,
+          sessionId,
+          event,
+          streamState,
+        )
+      },
+      onPromptDispatched: (event) => {
+        emitOpenCodePromptLog(
+          ticketId,
+          context.externalId,
+          phase,
+          codingModelId,
+          event,
+        )
+      },
+    })
+
+    throwIfAborted(signal, ticketId)
+
+    emitOpenCodeSessionLogs(
+      ticketId,
+      context.externalId,
+      phase,
+      codingModelId,
+      result.session.id,
+      'relevant_files_scan',
+      result.response,
+      result.messages,
+    )
+
+    let normalized = validateRelevantFilesScanResponse(result.response)
+    let finalResponse = result.response
+
+    if (!normalized.ok) {
+      emitPhaseLog(
+        ticketId,
+        context.externalId,
+        phase,
+        'info',
+        `Relevant files scan response failed validation; retrying once in the same session: ${normalized.error}`,
+      )
+
+      const retryParts = buildStructuredRetryPrompt([{ type: 'text', content: prompt }], {
+        validationError: normalized.error,
+        rawResponse: result.response,
+        schemaReminder: PROM0.outputFormat,
+      })
+
+      const retryResult = await runOpenCodeSessionPrompt({
+        adapter,
+        session: result.session,
+        parts: retryParts,
+        signal,
+        model: codingModelId,
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          emitOpenCodeStreamEvent(
+            ticketId,
+            context.externalId,
+            phase,
+            codingModelId,
+            sessionId,
+            event,
+            streamState,
+          )
+        },
+        onPromptDispatched: (event) => {
+          emitOpenCodePromptLog(
+            ticketId,
+            context.externalId,
+            phase,
+            codingModelId,
+            event,
+          )
+        },
+      })
+
+      throwIfAborted(signal, ticketId)
+
+      emitOpenCodeSessionLogs(
+        ticketId,
+        context.externalId,
+        phase,
+        codingModelId,
+        retryResult.session.id,
+        'relevant_files_scan',
+        retryResult.response,
+        retryResult.messages,
+      )
+
+      finalResponse = retryResult.response
+      normalized = validateRelevantFilesScanResponse(finalResponse)
+      if (!normalized.ok) {
+        const msg = `Relevant files scan failed validation after retry: ${normalized.error}`
+        emitPhaseLog(ticketId, context.externalId, phase, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['RELEVANT_FILES_SCAN_FAILED'] })
+        return
+      }
+    }
+
+    const parsed: RelevantFilesData = {
+      file_count: normalized.value.file_count,
+      files: normalized.value.files.map((f) => ({
+        path: f.path,
+        rationale: f.rationale,
+        relevance: (['high', 'medium', 'low'].includes(f.relevance) ? f.relevance : 'medium') as 'high' | 'medium' | 'low',
+        likely_action: (['read', 'modify', 'create'].includes(f.likely_action) ? f.likely_action : 'read') as 'read' | 'modify' | 'create',
+        content: f.content,
+      })),
+    }
+    const artifactContent = buildRelevantFilesArtifact(context.externalId, parsed)
+    const artifactPath = resolve(ticketDir, 'relevant-files.yaml')
+    safeAtomicWrite(artifactPath, artifactContent)
+
+    insertPhaseArtifact(ticketId, {
+      phase,
+      artifactType: 'relevant_files_scan',
+      content: JSON.stringify({
+        fileCount: parsed.file_count,
+        files: parsed.files.map(f => ({
+          path: f.path,
+          rationale: f.rationale,
+          relevance: f.relevance,
+          likely_action: f.likely_action,
+          contentLength: f.content.length,
+          contentPreview: f.content.slice(0, 200),
+        })),
+        modelId: codingModelId,
+      }),
+    })
+
+    emitPhaseLog(ticketId, context.externalId, phase, 'info', `Relevant files scan completed: ${parsed.file_count} files extracted.`)
+    sendEvent({ type: 'RELEVANT_FILES_READY' })
+  } catch (err) {
+    throwIfCancelled(err, signal, ticketId)
+    const errMsg = err instanceof Error ? err.message : String(err)
+    emitPhaseLog(ticketId, context.externalId, phase, 'error', `Relevant files scan failed: ${errMsg}`)
+    sendEvent({ type: 'ERROR', message: `Relevant files scan failed: ${errMsg}`, codes: ['RELEVANT_FILES_SCAN_FAILED'] })
+  }
+}
+
 async function handleInterviewDeliberate(
   ticketId: string,
   context: TicketContext,
@@ -1511,7 +1748,7 @@ async function handleInterviewDeliberate(
   signal: AbortSignal,
 ) {
   const phase = 'COUNCIL_DELIBERATING' as const
-  const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, relevantFiles } = loadTicketDirContext(context)
 
   emitPhaseLog(
     ticketId,
@@ -1559,7 +1796,7 @@ async function handleInterviewDeliberate(
   )
 
   const ticketDescription = ticket?.description ?? ''
-  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Loaded codebase map artifact (${codebaseMap.length} chars).`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Loaded relevant files artifact (${relevantFiles?.length ?? 0} chars).`)
   const draftSettings = resolveInterviewDraftSettings(context)
 
   // Build context via buildMinimalContext with full ticket state
@@ -1567,11 +1804,11 @@ async function handleInterviewDeliberate(
     ticketId: context.externalId,
     title: context.title,
     description: ticketDescription,
-    codebaseMap,
+    relevantFiles,
   }
   const ticketContext = buildMinimalContext('interview_draft', ticketState)
 
-  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, codebaseMap=${codebaseMap ? 'loaded' : 'missing'}.`)
+  emitPhaseLog(ticketId, context.externalId, phase, 'info', `Interview council drafting started. Context: ${ticketContext.length} parts, description=${ticketDescription.length > 0 ? 'present' : 'missing'}, relevantFiles=${relevantFiles ? 'loaded' : 'missing'}.`)
   emitPhaseLog(
     ticketId,
     context.externalId,
@@ -1775,12 +2012,12 @@ async function handleInterviewVote(
   const { members } = resolveCouncilMembers(context)
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const interviewTicketState = intermediate.ticketState ?? (() => {
-    const { ticket, codebaseMap } = loadTicketDirContext(context)
+    const { ticket, relevantFiles } = loadTicketDirContext(context)
     return {
       ticketId: context.externalId,
       title: context.title,
       description: ticket?.description ?? '',
-      codebaseMap,
+      relevantFiles,
     } satisfies TicketState
   })()
   const streamStates = new Map<string, OpenCodeStreamState>()
@@ -1932,12 +2169,12 @@ async function handleInterviewCompile(
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const interviewTicketState = intermediate.ticketState ?? (() => {
-    const { ticket, codebaseMap } = loadTicketDirContext(context)
+    const { ticket, relevantFiles } = loadTicketDirContext(context)
     return {
       ticketId: context.externalId,
       title: context.title,
       description: ticket?.description ?? '',
-      codebaseMap,
+      relevantFiles,
     } satisfies TicketState
   })()
   const streamStates = new Map<string, OpenCodeStreamState>()
@@ -2123,7 +2360,7 @@ function resolveCouncilMembers(context: TicketContext): {
   return { members, source }
 }
 
-// --- Helper: load ticket dir paths and codebase map ---
+// --- Helper: load ticket dir paths and relevant files ---
 function loadTicketDirContext(context: TicketContext) {
   const ticket = getStoredTicketContext(context.ticketId)
   const paths = getTicketPaths(context.ticketId)
@@ -2139,14 +2376,13 @@ function loadTicketDirContext(context: TicketContext) {
     throw new Error(`Ticket workspace not initialized: missing ticket directory for ${context.externalId}`)
   }
 
-  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
-  if (!existsSync(codebaseMapPath)) {
-    throw new Error(`Ticket workspace not initialized: missing codebase-map.yaml for ${context.externalId}`)
+  const relevantFilesPath = resolve(ticketDir, 'relevant-files.yaml')
+  let relevantFiles: string | undefined
+  if (existsSync(relevantFilesPath)) {
+    try { relevantFiles = readFileSync(relevantFilesPath, 'utf-8') } catch { /* ignore */ }
   }
 
-  const codebaseMap = readFileSync(codebaseMapPath, 'utf-8')
-
-  return { worktreePath, ticket: ticket.localTicket, ticketDir, codebaseMap }
+  return { worktreePath, ticket: ticket.localTicket, ticketDir, relevantFiles }
 }
 
 // ─── PRD Phase Handlers ───
@@ -2157,7 +2393,7 @@ async function handlePrdDraft(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
   const phase = 'DRAFTING_PRD' as const
   const council = resolveCouncilMembers(context)
   const members = council.members
@@ -2173,7 +2409,7 @@ async function handlePrdDraft(
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
-    codebaseMap,
+    relevantFiles,
     interview,
   }
   const ticketContext = buildMinimalContext('prd_draft', ticketState)
@@ -2617,7 +2853,7 @@ async function handleBeadsDraft(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
   const phase = 'DRAFTING_BEADS' as const
   const council = resolveCouncilMembers(context)
   const members = council.members
@@ -2633,7 +2869,7 @@ async function handleBeadsDraft(
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
-    codebaseMap,
+    relevantFiles,
     prd,
   }
   const ticketContext = buildMinimalContext('beads_draft', ticketState)
@@ -3081,7 +3317,7 @@ async function handleCoverageVerification(
   phase: 'interview' | 'prd' | 'beads',
   signal: AbortSignal,
 ) {
-  const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
   const paths = getTicketPaths(ticketId)
   const stateLabel = getCoverageStateLabel(phase)
   const contextPhase = getCoverageContextPhase(phase)
@@ -3199,7 +3435,7 @@ async function handleCoverageVerification(
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
-    codebaseMap,
+    relevantFiles,
     interview: phase === 'interview' ? canonicalInterview : refinedContent,
     ...(phase === 'interview'
       ? { userAnswers: buildInterviewAnswerSummary(interviewSnapshot) }
@@ -3599,7 +3835,7 @@ async function handleInterviewQAStart(
     return
   }
 
-  const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, relevantFiles } = loadTicketDirContext(context)
   const interviewSettings = resolveInterviewDraftSettings(context)
 
   // Resolve winnerId from persisted artifact
@@ -3641,7 +3877,7 @@ async function handleInterviewQAStart(
     description: ticket?.description ?? '',
     userBackground: interviewSettings.userBackground,
     disableAnalogies: interviewSettings.disableAnalogies,
-    codebaseMap,
+    relevantFiles,
     interview: compiledInterview.refinedContent,
   }
 
@@ -4734,14 +4970,14 @@ async function handleFinalTest(
     return
   }
 
-  const { worktreePath, ticket, codebaseMap } = loadTicketDirContext(context)
+  const { worktreePath, ticket, relevantFiles } = loadTicketDirContext(context)
   const paths = getTicketPaths(ticketId)
   const ticketDir = paths?.ticketDir
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
-    codebaseMap,
+    relevantFiles,
   }
 
   if (ticketDir) {
@@ -4951,6 +5187,9 @@ async function handleMockLifecycleState(
   sendEvent: (event: TicketEvent) => void,
 ) {
   switch (state) {
+    case 'SCANNING_RELEVANT_FILES':
+      sendEvent({ type: 'RELEVANT_FILES_READY' })
+      return
     case 'COUNCIL_DELIBERATING':
       await handleMockCouncilDeliberate(ticketId, context, sendEvent)
       return
@@ -5033,6 +5272,7 @@ export function attachWorkflowRunner(
 
     if (isMockOpenCodeMode()) {
       const mockHandledStates = new Set([
+        'SCANNING_RELEVANT_FILES',
         'COUNCIL_DELIBERATING',
         'COUNCIL_VOTING_INTERVIEW',
         'COMPILING_INTERVIEW',
@@ -5070,7 +5310,20 @@ export function attachWorkflowRunner(
       }
     }
 
-    if (state === 'COUNCIL_DELIBERATING') {
+    if (state === 'SCANNING_RELEVANT_FILES') {
+      runningPhases.add(key)
+        handleRelevantFilesScan(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error(`[runner] SCANNING_RELEVANT_FILES failed for ticket ${context.externalId}: ${errMsg}`)
+          emitPhaseLog(ticketId, context.externalId, 'SCANNING_RELEVANT_FILES', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['RELEVANT_FILES_SCAN_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'COUNCIL_DELIBERATING') {
       runningPhases.add(key)
       handleInterviewDeliberate(ticketId, context, sendEvent, signal)
         .catch(err => {

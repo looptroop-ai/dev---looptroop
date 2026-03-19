@@ -202,7 +202,7 @@ export async function generateDrafts(
             content: '',
             outcome: 'timed_out' as const,
             duration: Date.now() - startTime,
-            error: `Council response timeout reached after ${timeout}ms`,
+            error: `AI response timeout reached after ${timeout}ms`,
           }
         }
 
@@ -280,7 +280,7 @@ export async function generateDrafts(
           content: '',
           outcome: 'timed_out',
           duration: timeout,
-          error: `Council response timeout reached after ${timeout}ms`,
+          error: `AI response timeout reached after ${timeout}ms`,
           questionCount: validation?.questionCount,
         }
         recordResult(draft, sessionId)
@@ -321,7 +321,7 @@ export async function generateDrafts(
     content: '',
     outcome: 'timed_out' as const,
     duration: timeout,
-    error: `Council response timeout reached after ${timeout}ms`,
+    error: `AI response timeout reached after ${timeout}ms`,
   })
 
   return {

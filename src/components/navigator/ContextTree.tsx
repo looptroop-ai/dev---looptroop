@@ -24,11 +24,11 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     icon: '📋',
     description: 'Title, description, and ticket metadata.',
   },
-  codebase_map: {
-    id: 'codebase_map',
-    label: 'Codebase Map',
-    icon: '🗺️',
-    description: 'Generated codebase map and structural context.',
+  relevant_files: {
+    id: 'relevant_files',
+    label: 'Relevant Files',
+    icon: '📂',
+    description: 'Source file contents identified as relevant to this ticket by AI analysis.',
   },
   drafts: {
     id: 'drafts',

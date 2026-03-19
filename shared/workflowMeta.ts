@@ -4,7 +4,7 @@ export type WorkflowUIView = 'draft' | 'council' | 'interview_qa' | 'approval' |
 export type EditableArtifactType = 'interview' | 'prd' | 'beads'
 export type WorkflowContextKey =
   | 'ticket_details'
-  | 'codebase_map'
+  | 'relevant_files'
   | 'drafts'
   | 'interview'
   | 'user_answers'
@@ -58,6 +58,17 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     contextSummary: ['ticket_details'],
   },
   {
+    id: 'SCANNING_RELEVANT_FILES',
+    label: 'Scanning Relevant Files',
+    description: 'AI reads and extracts relevant source file contents for context.',
+    kanbanPhase: 'in_progress',
+    groupId: 'interview',
+    uiView: 'council',
+    editable: true,
+    multiModelLogs: false,
+    contextSummary: ['ticket_details'],
+  },
+  {
     id: 'COUNCIL_DELIBERATING',
     label: 'AI Council Thinking',
     description: 'Models generate initial interview questions and debate approach.',
@@ -66,7 +77,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['codebase_map', 'ticket_details'],
+    contextSummary: ['relevant_files', 'ticket_details'],
   },
   {
     id: 'COUNCIL_VOTING_INTERVIEW',
@@ -77,7 +88,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['codebase_map', 'ticket_details', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'drafts'],
   },
   {
     id: 'COMPILING_INTERVIEW',
@@ -88,7 +99,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['codebase_map', 'ticket_details', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'drafts'],
   },
   {
     id: 'WAITING_INTERVIEW_ANSWERS',
@@ -100,7 +111,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     editable: true,
     multiModelLogs: false,
     progressKind: 'questions',
-    contextSummary: ['codebase_map', 'ticket_details', 'interview', 'user_answers'],
+    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
   },
   {
     id: 'VERIFYING_INTERVIEW_COVERAGE',
@@ -134,7 +145,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['codebase_map', 'ticket_details', 'interview'],
+    contextSummary: ['relevant_files', 'ticket_details', 'interview'],
   },
   {
     id: 'COUNCIL_VOTING_PRD',
@@ -145,7 +156,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
   },
   {
     id: 'REFINING_PRD',
@@ -156,7 +167,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['codebase_map', 'ticket_details', 'interview', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
   },
   {
     id: 'VERIFYING_PRD_COVERAGE',
@@ -190,7 +201,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['codebase_map', 'ticket_details', 'prd'],
+    contextSummary: ['relevant_files', 'ticket_details', 'prd'],
   },
   {
     id: 'COUNCIL_VOTING_BEADS',
@@ -201,7 +212,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
   },
   {
     id: 'REFINING_BEADS',
@@ -212,7 +223,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['codebase_map', 'ticket_details', 'prd', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
   },
   {
     id: 'VERIFYING_BEADS_COVERAGE',
@@ -246,7 +257,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'coding',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['codebase_map', 'ticket_details'],
+    contextSummary: ['relevant_files', 'ticket_details'],
   },
   {
     id: 'CODING',
@@ -374,4 +385,3 @@ export function getAvailableWorkflowActions(status: string): WorkflowAction[] {
       return ['cancel']
   }
 }
-

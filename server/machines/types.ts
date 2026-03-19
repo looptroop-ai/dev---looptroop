@@ -61,6 +61,7 @@ export type TicketEvent =
   | { type: 'INTEGRATION_DONE' }
   | { type: 'VERIFY_COMPLETE' }
   | { type: 'CLEANUP_DONE' }
+  | { type: 'RELEVANT_FILES_READY' }
   | { type: 'CANCEL' }
   | { type: 'RETRY' }
   | { type: 'ERROR'; message: string; codes?: string[] }
@@ -70,6 +71,7 @@ export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
 
 export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
   DRAFT: 'todo',
+  SCANNING_RELEVANT_FILES: 'in_progress',
   COUNCIL_DELIBERATING: 'in_progress',
   COUNCIL_VOTING_INTERVIEW: 'in_progress',
   COMPILING_INTERVIEW: 'in_progress',

@@ -10,7 +10,6 @@ import {
 import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
-import { safeAtomicWrite } from '../io/atomicWrite'
 import { resolveBaseBranchRef } from '../git/repository'
 import {
   detectGitBaseBranch,
@@ -18,8 +17,8 @@ import {
   getTicketRuntimeDir,
   getTicketWorktreePath as resolveTicketWorktreePath,
 } from '../storage/paths'
-import { generateCodebaseMapYaml } from './codebaseMap'
 import { getTicketBeadsDir, updateTicketMeta } from './metadata'
+import { safeAtomicWrite } from '../io/atomicWrite'
 
 interface InitializeOptions {
   externalId: string
@@ -31,7 +30,6 @@ export interface InitializeTicketResult {
   ticketDir: string
   branchName: string
   baseBranch: string
-  codebaseMapPath: string
   reused: boolean
 }
 
@@ -230,13 +228,6 @@ function writeRuntimeGitignore(ticketDir: string) {
   safeAtomicWrite(resolve(ticketDir, '.gitignore'), RUNTIME_GITIGNORE)
 }
 
-function writeCodebaseMap(worktreePath: string, ticketDir: string, externalId: string): string {
-  const codebaseMapPath = resolve(ticketDir, 'codebase-map.yaml')
-  const yaml = generateCodebaseMapYaml(worktreePath, externalId)
-  safeAtomicWrite(codebaseMapPath, yaml)
-  return codebaseMapPath
-}
-
 function materializeWorktree(
   projectFolder: string,
   worktreePath: string,
@@ -301,23 +292,11 @@ export function initializeTicket(options: InitializeOptions): InitializeTicketRe
   writeRuntimeGitignore(ticketDir)
   updateTicketMeta(options.projectFolder, options.externalId, { baseBranch })
 
-  let codebaseMapPath: string
-  try {
-    codebaseMapPath = writeCodebaseMap(worktreePath, ticketDir, options.externalId)
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err)
-    throw new TicketInitializationError(
-      'INIT_CODEBASE_MAP_FAILED',
-      `Failed to generate codebase map: ${detail}`,
-    )
-  }
-
   return {
     worktreePath,
     ticketDir,
     branchName,
     baseBranch,
-    codebaseMapPath,
     reused,
   }
 }

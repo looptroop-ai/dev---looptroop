@@ -139,6 +139,7 @@ const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: {
 
 const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   DRAFT: 'Ticket created and waiting to start.',
+  SCANNING_RELEVANT_FILES: 'AI reads and extracts relevant source file contents for use as context in subsequent phases.',
   COUNCIL_DELIBERATING: 'Each council model generates an independent interview draft with questions in logical order.',
   COUNCIL_VOTING_INTERVIEW: 'Council members vote on all interview drafts using weighted scoring rubric.',
   COMPILING_INTERVIEW: 'Winning model incorporates best ideas from other drafts into a final normalized question set.',

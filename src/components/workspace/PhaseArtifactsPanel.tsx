@@ -694,6 +694,70 @@ function FinalInterviewArtifactView({ content }: { content: string }) {
   )
 }
 
+interface RelevantFileScanEntry {
+  path: string
+  rationale: string
+  relevance: string
+  likely_action: string
+  contentLength: number
+  contentPreview: string
+}
+
+interface RelevantFilesScanData {
+  fileCount: number
+  files: RelevantFileScanEntry[]
+  modelId?: string
+}
+
+function RelevantFilesScanView({ content }: { content: string }) {
+  const parsed = tryParseStructuredContent(content) as RelevantFilesScanData | null
+  if (!parsed?.files) return <RawContentView content={content} />
+
+  const relevanceColor = (r: string) =>
+    r === 'high' ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
+    : r === 'medium' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'
+    : 'text-muted-foreground bg-muted border-border'
+
+  return (
+    <div className="space-y-3">
+      {parsed.modelId && (
+        <ModelBadge modelId={parsed.modelId} active className="px-3 py-2 h-auto w-full justify-start">
+          <div className="text-left">
+            <div className="text-xs font-medium">{getModelDisplayName(parsed.modelId)}</div>
+            <div className="text-[10px] opacity-80 mt-0.5">Relevant files scan</div>
+          </div>
+        </ModelBadge>
+      )}
+      <div className="text-xs text-muted-foreground">{parsed.fileCount} files identified</div>
+      {parsed.files.map((file, i) => (
+        <CollapsibleSection
+          key={file.path}
+          title={
+            <span className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-[11px]">{file.path}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${relevanceColor(file.relevance)}`}>
+                {file.relevance}
+              </span>
+              <span className="text-[10px] text-muted-foreground">{file.likely_action}</span>
+            </span>
+          }
+          defaultOpen={i === 0}
+        >
+          <div className="space-y-2">
+            <div className="text-xs italic text-muted-foreground">{file.rationale}</div>
+            {file.contentPreview && (
+              <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap">
+                {file.contentPreview}{file.contentLength > 200 ? '\n…' : ''}
+              </pre>
+            )}
+            <div className="text-[10px] text-muted-foreground">{file.contentLength.toLocaleString()} chars extracted</div>
+          </div>
+        </CollapsibleSection>
+      ))}
+    </div>
+  )
+}
+
 function CoverageResultView({ content }: { content: string }) {
   const coverageResult = parseCoverageArtifact(content)
   if (!coverageResult) {
@@ -1198,6 +1262,9 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
   if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
     return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
+  if (phase === 'SCANNING_RELEVANT_FILES') {
+    return [{ id: 'relevant-files-scan', label: 'Relevant Files', description: 'Source files identified as relevant by AI analysis', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
   if (phase === 'PRE_FLIGHT_CHECK') {
     return [{ id: 'diagnostics', label: 'Doctor Diagnostics', description: 'Pre-flight validation report', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
   }
@@ -1217,6 +1284,9 @@ function getSupplementalArtifacts(phase: string): ArtifactDef[] {
 }
 
 function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
+  if (artifactId === 'relevant-files-scan') {
+    return <RelevantFilesScanView content={content} />
+  }
   if (artifactId === 'final-interview') {
     return <FinalInterviewArtifactView content={content} />
   }
@@ -1448,6 +1518,8 @@ function resolveStaticArtifact(
       return findExactType('prd_coverage_input')
     case 'refined-beads':
       return findExactType('beads_coverage_input')
+    case 'relevant-files-scan':
+      return findExactType('relevant_files_scan')
     case 'diagnostics':
       return findExactType('preflight_report')
     case 'bead-commits':

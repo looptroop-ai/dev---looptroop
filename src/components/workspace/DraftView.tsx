@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useTicketAction } from '@/hooks/useTickets'
+import { useTicketAction, useUpdateTicket } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
 import { useProfile } from '@/hooks/useProfile'
@@ -77,9 +77,15 @@ function formatStartErrorMessage(message: string) {
 
 export function DraftView({ ticket }: DraftViewProps) {
   const { mutate: performAction, isPending } = useTicketAction()
+  const { mutateAsync: updateTicket, isPending: isSavingDescription } = useUpdateTicket()
   const { data: projects = [] } = useProjects()
   const { data: profile, isLoading: isProfileLoading } = useProfile()
   const [startError, setStartError] = useState<string | null>(null)
+  const [descriptionDraft, setDescriptionDraft] = useState(ticket.description ?? '')
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [descriptionError, setDescriptionError] = useState<string | null>(null)
+  const [lastSyncedDescription, setLastSyncedDescription] = useState(ticket.description ?? '')
+  const [skipNextSync, setSkipNextSync] = useState(false)
   const project = projects.find(p => p.id === ticket.projectId)
   const mainImplementer = typeof profile?.mainImplementer === 'string'
     ? profile.mainImplementer.trim()
@@ -90,6 +96,21 @@ export function DraftView({ ticket }: DraftViewProps) {
   )
   const highlightedMainImplementer = mainImplementer || currentCouncilMembers[0] || ''
   const shouldShowCouncilMembers = currentCouncilMembers.length > 0 || !isProfileLoading
+  const savedDescription = ticket.description ?? ''
+  const hasDescription = descriptionDraft.length > 0
+  const hasDescriptionChanges = descriptionDraft !== savedDescription
+
+  // Sync draft from prop during render (React-recommended pattern for derived state)
+  if (savedDescription !== lastSyncedDescription) {
+    setLastSyncedDescription(savedDescription)
+    if (!isEditingDescription) {
+      if (skipNextSync) {
+        setSkipNextSync(false)
+      } else {
+        setDescriptionDraft(savedDescription)
+      }
+    }
+  }
 
   const handleStart = () => {
     setStartError(null)
@@ -105,6 +126,38 @@ export function DraftView({ ticket }: DraftViewProps) {
     )
   }
 
+  const handleEditDescription = () => {
+    setDescriptionDraft(savedDescription)
+    setDescriptionError(null)
+    setIsEditingDescription(true)
+  }
+
+  const handleCancelDescriptionEdit = () => {
+    setDescriptionDraft(savedDescription)
+    setDescriptionError(null)
+    setIsEditingDescription(false)
+  }
+
+  const handleSaveDescription = async () => {
+    if (!hasDescriptionChanges) {
+      setIsEditingDescription(false)
+      return
+    }
+
+    setDescriptionError(null)
+    try {
+      const updated = await updateTicket({
+        id: ticket.id,
+        description: descriptionDraft,
+      })
+      setDescriptionDraft(updated.description ?? descriptionDraft)
+      setSkipNextSync(true)
+      setIsEditingDescription(false)
+    } catch (error) {
+      setDescriptionError(error instanceof Error ? error.message : 'Failed to save description.')
+    }
+  }
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="p-4 shrink-0">
@@ -112,7 +165,7 @@ export function DraftView({ ticket }: DraftViewProps) {
           <div className="text-center">
             <h3 className="text-lg font-semibold">Ready to Start</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Click Start to begin the AI-driven interview process. This may take hours — LoopTroop optimizes for correctness.
+              Click Start to begin the AI-driven interview process. This may take hours — LoopTroop optimizes for correctness, not speed.
             </p>
           </div>
 
@@ -181,12 +234,66 @@ export function DraftView({ ticket }: DraftViewProps) {
             </div>
           )}
 
-          {ticket.description && (
-            <div className="w-full rounded-md border border-border p-3 max-h-96 overflow-y-auto overflow-x-hidden">
-              <h4 className="text-xs font-medium mb-1">Description</h4>
-              <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{ticket.description}</p>
+          <div className="w-full rounded-md border border-border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs font-medium">Description</h4>
+              {!isEditingDescription && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleEditDescription}
+                  className="h-6 px-1.5 text-[11px]"
+                >
+                  {hasDescription ? 'Edit Description' : 'Add Description'}
+                </Button>
+              )}
             </div>
-          )}
+
+            {isEditingDescription ? (
+              <>
+                <textarea
+                  aria-label="Ticket description"
+                  value={descriptionDraft}
+                  onChange={(event) => setDescriptionDraft(event.target.value)}
+                  className="mt-2 min-h-[140px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="Describe what you want to build..."
+                />
+                <div className="mt-2 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelDescriptionEdit}
+                    disabled={isSavingDescription}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSaveDescription}
+                    disabled={isSavingDescription || !hasDescriptionChanges}
+                  >
+                    {isSavingDescription ? <LoadingText text="Saving" /> : 'Save'}
+                  </Button>
+                </div>
+                {descriptionError && (
+                  <p role="alert" aria-live="polite" className="mt-2 text-xs text-destructive">
+                    {descriptionError}
+                  </p>
+                )}
+              </>
+            ) : hasDescription ? (
+              <div className="mt-2 max-h-96 overflow-y-auto overflow-x-hidden">
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{descriptionDraft}</p>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                No description yet. Add more context before starting the ticket.
+              </p>
+            )}
+          </div>
 
           <Button
             size="lg"

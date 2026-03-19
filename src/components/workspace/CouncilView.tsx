@@ -13,6 +13,7 @@ interface CouncilViewProps {
 }
 
 function getCouncilStepLabel(phase: string): string {
+  if (phase === 'SCANNING_RELEVANT_FILES') return 'Scanning'
   if (phase.includes('DELIBERATING') || phase.includes('DRAFTING')) return 'Drafting'
   if (phase.includes('VOTING')) return 'Voting'
   if (phase.includes('COMPILING') || phase.includes('REFINING')) return 'Refining'
@@ -21,6 +22,7 @@ function getCouncilStepLabel(phase: string): string {
 }
 
 function getCouncilDomain(phase: string): string {
+  if (phase === 'SCANNING_RELEVANT_FILES') return 'Relevant Files'
   if (phase.includes('INTERVIEW') || phase === 'COUNCIL_DELIBERATING' || phase === 'COMPILING_INTERVIEW' || phase === 'VERIFYING_INTERVIEW_COVERAGE') return 'Interview'
   if (phase.includes('PRD')) return 'PRD'
   if (phase.includes('BEADS')) return 'Beads'
@@ -63,7 +65,8 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
           </CardHeader>
           <CardContent className="space-y-3 pb-3">
             <p className="text-xs text-muted-foreground">
-              {isDrafting && `Each council model is independently generating a ${domain.toLowerCase()} draft.`}
+              {phase === 'SCANNING_RELEVANT_FILES' && 'AI is reading relevant source files to build richer context for council deliberation.'}
+              {isDrafting && phase !== 'SCANNING_RELEVANT_FILES' && `Each council model is independently generating a ${domain.toLowerCase()} draft.`}
               {isVoting && `Council members are scoring all ${domain.toLowerCase()} drafts.`}
               {step === 'Refining' && `Winning model incorporates best ideas from other drafts.`}
               {isVerifying && `Winning model verifies ${domain.toLowerCase()} covers all requirements.`}

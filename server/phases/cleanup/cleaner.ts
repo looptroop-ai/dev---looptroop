@@ -57,7 +57,7 @@ export function cleanupTicketResources(ticketId: string): CleanupReport {
     'meta/ticket.meta.json',
     'interview.yaml',
     'prd.yaml',
-    'codebase-map.yaml',
+    'relevant-files.yaml',
     'runtime/execution-log.jsonl',
   ]
   for (const artifact of preservedArtifacts) {

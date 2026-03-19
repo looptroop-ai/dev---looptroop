@@ -9,6 +9,7 @@ import {
   normalizeInterviewQuestionsOutput,
   normalizeInterviewTurnOutput,
   normalizePrdYamlOutput,
+  normalizeRelevantFilesOutput,
   normalizeVoteScorecardOutput,
 } from '../index'
 
@@ -940,5 +941,81 @@ describe('structured output normalization', () => {
       commands: ['npm run test:server'],
       summary: 'verify the whole workflow',
     })
+  })
+
+  it('normalizes tagged relevant-files payloads', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 1',
+      'files:',
+      '  - path: src/app.ts',
+      '    rationale: Entry point for the app.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      export const app = true',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.file_count).toBe(1)
+    expect(result.value.files[0]).toMatchObject({
+      path: 'src/app.ts',
+      rationale: 'Entry point for the app.',
+      relevance: 'high',
+      likely_action: 'modify',
+    })
+  })
+
+  it('repairs relevant-files payloads with transcript noise, fenced YAML, wrapper keys, aliases, and indentation drift', () => {
+    const result = normalizeRelevantFilesOutput([
+      '[assistant] <RELEVANT_FILES_RESULT>',
+      '```yaml',
+      'payload:',
+      '  file_count: 1',
+      '  files:',
+      '    - filepath: src/routes.ts',
+      '     reason: Central routing surface for the ticket.',
+      '      relevance: HIGH',
+      '     action: MODIFY',
+      '     source: |',
+      '       export const routes = []',
+      '```',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value.file_count).toBe(1)
+    expect(result.value.files).toHaveLength(1)
+    expect(result.value.files[0]).toMatchObject({
+      path: 'src/routes.ts',
+      rationale: 'Central routing surface for the ticket.',
+      relevance: 'high',
+      likely_action: 'modify',
+    })
+    expect(result.value.files[0]?.content).toContain('export const routes = []')
+  })
+
+  it('rejects relevant-files prompt echoes with a clear validation error', () => {
+    const result = normalizeRelevantFilesOutput([
+      'CRITICAL OUTPUT RULE:',
+      'Return strict machine-readable output.',
+      '',
+      'CONTEXT REFRESH:',
+      'Use the latest ticket context.',
+      '',
+      '## System Role',
+      'You are an expert software architect.',
+      '',
+      '## Instructions',
+      '1. Read the relevant files.',
+    ].join('\n'))
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('echoed the prompt')
   })
 })

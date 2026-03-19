@@ -411,7 +411,7 @@ export async function conductVoting(
         ? 'timed_out'
         : 'failed'
       recordOutcome(voter.modelId, outcome, [], outcome === 'timed_out'
-        ? `Council response timeout reached after ${timeoutMs}ms`
+        ? `AI response timeout reached after ${timeoutMs}ms`
         : errorDetail)
       return []
     } finally {

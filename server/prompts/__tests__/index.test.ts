@@ -7,6 +7,8 @@ describe('structured prompt hardening', () => {
     expect(prompt).toContain('Phase Order Is Mandatory')
     expect(prompt).toContain('Final Self-Check')
     expect(prompt).toContain('top-level `changes` list')
+    expect(prompt).toContain('Preserve the winning draft\'s existing `id`')
+    expect(prompt).toContain('exact record-level diff')
   })
 
   it('treats interview question limits as a ceiling rather than a target', () => {

@@ -54,7 +54,7 @@ describe('PROM4 interview session parsing', () => {
         ticketId: 'T-1',
         title: 'Retry PROM4 parsing',
         description: 'Ensure malformed batch output is corrected before blocking.',
-        codebaseMap: '',
+        relevantFiles: '',
       },
       5,
       20,

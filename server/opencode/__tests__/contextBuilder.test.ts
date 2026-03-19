@@ -9,7 +9,7 @@ describe('contextBuilder interview_qa context', () => {
       description: 'The sync webhook needs a clear retry and failure-handling strategy.',
       userBackground: 'SRE',
       disableAnalogies: true,
-      codebaseMap: '# Codebase Map',
+      relevantFiles: '# Relevant Files',
       interview: 'questions:\n  - id: Q01',
       userAnswers: 'Q01: Existing retries are inconsistent.',
     })

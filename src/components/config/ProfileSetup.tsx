@@ -59,7 +59,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   // Raw string state for numeric fields so users can freely type
   const numericFields = {
     perIterationTimeout: { min: 0, max: 3600, label: 'Per-Iteration Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
-    councilResponseTimeout: { min: 10, max: 3600, label: 'Council Response Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
+    councilResponseTimeout: { min: 10, max: 3600, label: 'AI Response Timeout', fromStore: (v: number) => String(Math.round(v / 1000)), toStore: (v: number) => v * 1000 },
     maxIterations: { min: 0, max: 20, label: 'Max Iterations', fromStore: (v: number) => String(v), toStore: (v: number) => v },
     minCouncilQuorum: { min: 1, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
     interviewQuestions: { min: 0, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
@@ -460,7 +460,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">AI Thinking</div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium block mb-1">Council Response Timeout (s)</label>
+              <label className="text-sm font-medium block mb-1">AI Response Timeout (s)</label>
               <input
                 type="number"
                 value={rawNumeric.councilResponseTimeout}

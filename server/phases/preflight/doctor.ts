@@ -45,13 +45,13 @@ export async function runPreFlightChecks(
     message: ticketDir && existsSync(ticketDir) ? 'Ticket directory exists' : 'Ticket directory not found',
   })
 
-  // 3. Codebase map exists
-  const codebaseMap = ticketDir ? `${ticketDir}/codebase-map.yaml` : null
+  // 3. Relevant files artifact exists
+  const relevantFiles = ticketDir ? `${ticketDir}/relevant-files.yaml` : null
   checks.push({
-    name: 'Codebase Map',
+    name: 'Relevant Files',
     category: 'artifacts',
-    result: codebaseMap && existsSync(codebaseMap) ? 'pass' : 'warning',
-    message: codebaseMap && existsSync(codebaseMap) ? 'Codebase map exists' : 'Codebase map not found',
+    result: relevantFiles && existsSync(relevantFiles) ? 'pass' : 'warning',
+    message: relevantFiles && existsSync(relevantFiles) ? 'Relevant files artifact exists' : 'Relevant files artifact not found',
   })
 
   // 4. Beads validation

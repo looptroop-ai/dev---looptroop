@@ -9,6 +9,7 @@ import { ActiveWorkspace } from './ActiveWorkspace'
 import { ResizeHandle } from './ResizeHandle'
 import { Menu, X } from 'lucide-react'
 import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
+import { WORKFLOW_PHASE_IDS } from '@shared/workflowMeta'
 
 function toDebugJson(data: Record<string, unknown>) {
   if (import.meta.env.PROD) return '[debug]'
@@ -163,13 +164,27 @@ export function TicketDashboard() {
   const errorSignature = ticket ? getErrorTicketSignature(ticket) : null
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
-  const selectedPhase = phaseSelection.ticketId === ticketId && phaseSelection.phase !== (livePhase.ticketId === ticketId ? (livePhase.phase ?? ticket?.status ?? '') : ticket?.status ?? '')
-    ? phaseSelection.phase
-    : null
-  const liveStatus = livePhase.ticketId === ticketId && livePhase.phase !== ticket?.status
+  // When a React Query refetch returns a status that is further along in the
+  // workflow than the SSE-delivered livePhase, advance livePhase so the UI
+  // doesn't stay pinned to a stale earlier status.  This fixes a race where
+  // fast phase transitions (e.g. SCANNING_RELEVANT_FILES completing quickly)
+  // cause the refetch to leapfrog the SSE event delivery.
+  const dbStatus = ticket?.status
+  if (dbStatus && livePhase.ticketId === ticketId && livePhase.phase && livePhase.phase !== dbStatus) {
+    const liveIdx = WORKFLOW_PHASE_IDS.indexOf(livePhase.phase)
+    const dbIdx = WORKFLOW_PHASE_IDS.indexOf(dbStatus)
+    if (liveIdx >= 0 && dbIdx >= 0 && dbIdx > liveIdx) {
+      setLivePhase({ ticketId, phase: dbStatus })
+    }
+  }
+
+  const liveStatus = livePhase.ticketId === ticketId && livePhase.phase && livePhase.phase !== ticket?.status
     ? livePhase.phase
     : null
   const currentStatus = liveStatus ?? ticket?.status ?? ''
+  const selectedPhase = phaseSelection.ticketId === ticketId && phaseSelection.phase !== currentStatus
+    ? phaseSelection.phase
+    : null
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
   }, [ticketId])
