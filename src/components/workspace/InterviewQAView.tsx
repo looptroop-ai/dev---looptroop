@@ -99,6 +99,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const [showSkipConfirm, setShowSkipConfirm] = useState(false)
   const [sseBatch, setSseBatch] = useState<PersistedInterviewBatch | null>(null)
   const [processingError, setProcessingError] = useState<string | null>(null)
+  const [submittedBatchKey, setSubmittedBatchKey] = useState<string | null>(null)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const [skippedQuestions, setSkippedQuestions] = useState<Record<string, Set<string>>>({})
@@ -143,7 +144,12 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const session = interviewData?.session ?? null
   const currentBatch = (() => {
     if (session?.completedAt && !session.currentBatch) return null
-    if (!sseBatch) return session?.currentBatch ?? null
+    if (!sseBatch) {
+      const apiBatch = session?.currentBatch ?? null
+      // After submitting, suppress the stale cached batch until a new one arrives
+      if (apiBatch && getBatchKey(apiBatch) === submittedBatchKey) return null
+      return apiBatch
+    }
     if (!session?.currentBatch) return sseBatch
 
     return getBatchKey(sseBatch) === getBatchKey(session.currentBatch)
@@ -168,6 +174,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
         if (String(data.ticketId) !== String(ticket.id)) return
         if (data.type === 'interview_batch' && data.batch) {
           setSseBatch(data.batch)
+          setSubmittedBatchKey(null)
           setProcessingError(null)
         }
         if (data.type === 'interview_error') {
@@ -300,6 +307,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
         delete next[currentBatchKey]
         return next
       })
+      setSubmittedBatchKey(currentBatchKey)
       setSseBatch(null)
     } catch (err) {
       console.error('Failed to submit interview batch:', err)
