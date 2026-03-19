@@ -11,6 +11,8 @@ interface Profile {
   perIterationTimeout: number
   councilResponseTimeout: number
   interviewQuestions: number
+  coverageFollowUpBudgetPercent: number
+  maxCoveragePasses: number
   maxIterations: number
   disableAnalogies: number
   createdAt: string
@@ -27,6 +29,8 @@ interface CreateProfileInput {
   perIterationTimeout?: number
   councilResponseTimeout?: number
   interviewQuestions?: number
+  coverageFollowUpBudgetPercent?: number
+  maxCoveragePasses?: number
   maxIterations?: number
   disableAnalogies?: number
 }

@@ -74,6 +74,14 @@ interface CoverageArtifactData {
   response?: string
   hasGaps?: boolean
   normalizedContent?: string
+  coverageRunNumber?: number
+  maxCoveragePasses?: number
+  limitReached?: boolean
+  terminationReason?: string
+  followUpBudgetPercent?: number
+  followUpBudgetTotal?: number
+  followUpBudgetUsed?: number
+  followUpBudgetRemaining?: number
   parsed?: {
     status?: string
     gaps?: string[]
@@ -698,6 +706,13 @@ function CoverageResultView({ content }: { content: string }) {
     coverageResult.parsed?.followUpQuestions ?? coverageResult.parsed?.follow_up_questions,
   )
   const hasStructuredCoverage = gaps.length > 0 || followUpQuestions.length > 0 || status === 'clean'
+  const terminationSummary = coverageResult.terminationReason === 'coverage_pass_limit_reached'
+    ? 'Retry cap reached; moving to approval with unresolved gaps.'
+    : coverageResult.terminationReason === 'follow_up_budget_exhausted'
+      ? 'Follow-up budget exhausted; moving to approval with unresolved gaps.'
+      : coverageResult.terminationReason === 'follow_up_generation_failed'
+        ? 'Follow-up questions could not be recovered; moving to approval with unresolved gaps.'
+        : null
 
   return (
     <div className="space-y-4">
@@ -705,7 +720,12 @@ function CoverageResultView({ content }: { content: string }) {
         <ModelBadge modelId={coverageResult.winnerId} active className="px-3 py-2 h-auto w-full justify-start">
           <div className="text-left">
             <div className="text-xs font-medium">{getModelDisplayName(coverageResult.winnerId)}</div>
-            <div className="text-[10px] opacity-80 mt-0.5">Winner-only coverage verification</div>
+            <div className="text-[10px] opacity-80 mt-0.5">
+              Winner-only coverage verification
+              {(coverageResult.coverageRunNumber && coverageResult.maxCoveragePasses)
+                ? ` · pass ${coverageResult.coverageRunNumber}/${coverageResult.maxCoveragePasses}`
+                : ''}
+            </div>
           </div>
         </ModelBadge>
       )}
@@ -717,6 +737,20 @@ function CoverageResultView({ content }: { content: string }) {
       }`}>
         {status === 'gaps' ? 'Coverage gaps found' : 'Coverage complete'}
       </div>
+
+      {terminationSummary && (
+        <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+          {terminationSummary}
+        </div>
+      )}
+
+      {typeof coverageResult.followUpBudgetTotal === 'number' && (
+        <div className="rounded-md border border-border bg-background px-3 py-2 text-[11px] text-muted-foreground">
+          Follow-up budget: {coverageResult.followUpBudgetUsed ?? 0}/{coverageResult.followUpBudgetTotal} used
+          {typeof coverageResult.followUpBudgetPercent === 'number' ? ` (${coverageResult.followUpBudgetPercent}%)` : ''}
+          {typeof coverageResult.followUpBudgetRemaining === 'number' ? ` · ${coverageResult.followUpBudgetRemaining} remaining` : ''}
+        </div>
+      )}
 
       {hasStructuredCoverage && (
         <div className="space-y-3">

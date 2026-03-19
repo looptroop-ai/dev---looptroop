@@ -57,6 +57,7 @@ describe('PROM4 interview session parsing', () => {
         codebaseMap: '',
       },
       5,
+      20,
     )
 
     expect(result.sessionId).toBe('mock-session-1')

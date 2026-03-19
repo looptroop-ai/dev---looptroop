@@ -370,16 +370,6 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     )
   }
 
-  if (isSubmitting && !currentBatch) {
-    return (
-      <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-        <div className="text-center space-y-2">
-          <LoadingText text="AI is analyzing your answers" className="text-sm font-medium animate-pulse" />
-          <p className="text-[10px]">Preparing the next interview step.</p>
-        </div>
-      </div>
-    )
-  }
 
   if (session?.completedAt && !currentBatch) {
     return (
@@ -418,19 +408,8 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     )
   }
 
-  if (!currentBatch) {
-    return (
-      <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-        <div className="text-center space-y-2">
-          <LoadingText text="Preparing interview batch" className="text-sm font-medium animate-pulse" />
-          <p className="text-[10px]">Waiting for the next interview questions.</p>
-        </div>
-      </div>
-    )
-  }
-
-  const questions = currentBatch.questions
-  const allBatchAnswersFilled = questions.every((question) => batchAnswers[question.id]?.trim())
+  const questions = currentBatch?.questions ?? []
+  const allBatchAnswersFilled = currentBatch ? questions.every((question) => batchAnswers[question.id]?.trim()) : false
   const isBusy = isSubmitting || isSkipping
 
   return (
@@ -549,12 +528,20 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
           </div>
         )}
 
-        {currentBatch.aiCommentary && (
+        {currentBatch?.aiCommentary && (
           <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/30 p-3">
             <p className="text-xs text-blue-700 dark:text-blue-300">{currentBatch.aiCommentary}</p>
           </div>
         )}
 
+        {!currentBatch ? (
+          <div className="flex items-center justify-center py-12 text-xs text-muted-foreground">
+            <div className="text-center space-y-2">
+              <LoadingText text={isSubmitting ? "AI is analyzing your answers" : "Preparing interview batch"} className="text-sm font-medium animate-pulse" />
+              <p className="text-[10px]">{isSubmitting ? "Preparing the next interview step." : "Waiting for the next interview questions."}</p>
+            </div>
+          </div>
+        ) : (
         <Card>
           <CardHeader className="py-3">
             <div className="flex items-center justify-between gap-3">
@@ -672,9 +659,10 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
-      {currentBatch.progress.total > 0 && (
+      {currentBatch && currentBatch.progress.total > 0 && (
         <div className="shrink-0 px-4 pb-1">
           <div className="h-1 bg-muted rounded-full overflow-hidden">
             <div

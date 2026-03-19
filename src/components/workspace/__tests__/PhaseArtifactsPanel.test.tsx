@@ -343,6 +343,14 @@ describe('PhaseArtifactsPanel', () => {
         winnerId: 'openai/gpt-5.2',
         response: 'status: gaps\nfollow_up_questions:\n  - id: FU01\n    question: "Which fallback should be used?"\n',
         hasGaps: true,
+        coverageRunNumber: 2,
+        maxCoveragePasses: 2,
+        limitReached: true,
+        terminationReason: 'coverage_pass_limit_reached',
+        followUpBudgetPercent: 20,
+        followUpBudgetTotal: 10,
+        followUpBudgetUsed: 10,
+        followUpBudgetRemaining: 0,
         parsed: {
           status: 'gaps',
           gaps: ['Missing fallback behavior for skipped answers.'],
@@ -369,7 +377,9 @@ describe('PhaseArtifactsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /gpt-5\.2/i }))
     expect(screen.getByText('Coverage gaps found')).toBeInTheDocument()
-    expect(screen.getByText('Winner-only coverage verification')).toBeInTheDocument()
+    expect(screen.getByText(/Winner-only coverage verification/i)).toBeInTheDocument()
+    expect(screen.getByText('Retry cap reached; moving to approval with unresolved gaps.')).toBeInTheDocument()
+    expect(screen.getByText('Follow-up budget: 10/10 used (20%) · 0 remaining')).toBeInTheDocument()
     expect(screen.getByText('Missing fallback behavior for skipped answers.')).toBeInTheDocument()
     expect(screen.getByText('Which fallback should be used?')).toBeInTheDocument()
     expect(screen.getByText('Close the final interview gap before PRD generation.')).toBeInTheDocument()

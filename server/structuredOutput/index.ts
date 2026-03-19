@@ -262,6 +262,64 @@ function parseYamlOrJsonCandidate(content: string): unknown {
   }
 }
 
+function quoteYamlDoubleQuotedScalar(value: string): string {
+  return JSON.stringify(value)
+}
+
+function repairCoverageGapStringList(content: string): {
+  content: string
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const lines = content.split('\n')
+  const repairedLines: string[] = []
+  const topLevelKeyPattern = /^[A-Za-z_][A-Za-z0-9_-]*\s*:/
+  let activeGapIndent = -1
+  let directItemIndent = -1
+  let repairApplied = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+
+    if (activeGapIndent >= 0) {
+      if (trimmed && !trimmed.startsWith('#') && indent <= activeGapIndent && topLevelKeyPattern.test(trimmed)) {
+        activeGapIndent = -1
+        directItemIndent = -1
+      } else {
+        if (indent === directItemIndent && trimmed.startsWith('- ')) {
+          const itemValue = trimmed.slice(2).trim()
+          if (itemValue && !/^(["']|[>|])/.test(itemValue)) {
+            const repairedLine = `${' '.repeat(directItemIndent)}- ${quoteYamlDoubleQuotedScalar(itemValue)}`
+            repairedLines.push(repairedLine)
+            repairApplied = repairApplied || repairedLine !== line
+            continue
+          }
+        }
+
+        repairedLines.push(line)
+        continue
+      }
+    }
+
+    const gapBlockMatch = line.match(/^(\s*)(gaps|issues)\s*:\s*$/)
+    if (gapBlockMatch) {
+      activeGapIndent = gapBlockMatch[1]?.length ?? 0
+      directItemIndent = activeGapIndent + 2
+    }
+
+    repairedLines.push(line)
+  }
+
+  return {
+    content: repairedLines.join('\n'),
+    repairApplied,
+    repairWarnings: repairApplied
+      ? ['Quoted coverage gap strings to recover malformed YAML scalars.']
+      : [],
+  }
+}
+
 function maybeUnwrapRecord(
   value: unknown,
   preferredKeys: string[],
@@ -883,7 +941,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
     ok: false,
     error: lastError,
     repairApplied: false,
-    repairWarnings,
+    repairWarnings: [],
   }
 }
 
@@ -1197,7 +1255,7 @@ export function normalizePrdYamlOutput(
     ok: false,
     error: lastError,
     repairApplied: false,
-    repairWarnings,
+    repairWarnings: [],
   }
 }
 
@@ -1414,50 +1472,56 @@ function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQue
   }).filter((entry) => entry.question.length > 0)
 }
 
+function parseCoverageResultCandidate(candidate: string): CoverageResultEnvelope {
+  const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+    'coverage',
+    'result',
+    'output',
+    'data',
+  ])
+  if (!isRecord(parsed)) throw new Error('Coverage output is not a YAML/JSON object')
+
+  const rawStatus = typeof getValueByAliases(parsed, ['status']) === 'string'
+    ? String(getValueByAliases(parsed, ['status'])).trim().toLowerCase()
+    : ''
+  const gaps = toStringArray(getValueByAliases(parsed, ['gaps', 'issues']))
+  const followUpQuestions = normalizeCoverageFollowUpQuestions(
+    getValueByAliases(parsed, ['followupquestions', 'follow_up_questions']),
+  )
+
+  const status: CoverageResultEnvelope['status'] = rawStatus === 'clean'
+    || rawStatus === 'pass'
+    || rawStatus === 'coverage_complete'
+    || rawStatus === 'coverage_pass'
+    ? 'clean'
+    : rawStatus === 'gaps'
+      || rawStatus === 'fail'
+      || rawStatus === 'coverage_gaps'
+      || rawStatus === 'coverage_fail'
+      ? 'gaps'
+      : followUpQuestions.length > 0 || gaps.length > 0
+        ? 'gaps'
+        : (() => { throw new Error('Coverage output missing valid status') })()
+
+  return {
+    status,
+    gaps,
+    followUpQuestions,
+  }
+}
+
 export function normalizeCoverageResultOutput(rawContent: string): StructuredOutputResult<CoverageResultEnvelope> {
-  const repairWarnings: string[] = []
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['status', 'gaps', 'follow_up_questions', 'followUpQuestions'],
   })
   let lastError = 'No coverage result content found'
 
   for (const candidate of candidates) {
+    let repairWarnings: string[] = []
+    let repairApplied = false
+
     try {
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
-        'coverage',
-        'result',
-        'output',
-        'data',
-      ])
-      if (!isRecord(parsed)) throw new Error('Coverage output is not a YAML/JSON object')
-
-      const rawStatus = typeof getValueByAliases(parsed, ['status']) === 'string'
-        ? String(getValueByAliases(parsed, ['status'])).trim().toLowerCase()
-        : ''
-      const gaps = toStringArray(getValueByAliases(parsed, ['gaps', 'issues']))
-      const followUpQuestions = normalizeCoverageFollowUpQuestions(
-        getValueByAliases(parsed, ['followupquestions', 'follow_up_questions']),
-      )
-
-      const status: CoverageResultEnvelope['status'] = rawStatus === 'clean'
-        || rawStatus === 'pass'
-        || rawStatus === 'coverage_complete'
-        || rawStatus === 'coverage_pass'
-        ? 'clean'
-        : rawStatus === 'gaps'
-          || rawStatus === 'fail'
-          || rawStatus === 'coverage_gaps'
-          || rawStatus === 'coverage_fail'
-          ? 'gaps'
-          : followUpQuestions.length > 0 || gaps.length > 0
-            ? 'gaps'
-            : (() => { throw new Error('Coverage output missing valid status') })()
-
-      const value: CoverageResultEnvelope = {
-        status,
-        gaps,
-        followUpQuestions,
-      }
+      const value = parseCoverageResultCandidate(candidate)
 
       return {
         ok: true,
@@ -1467,11 +1531,36 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
           gaps: value.gaps,
           follow_up_questions: value.followUpQuestions,
         }),
-        repairApplied: candidate !== rawContent.trim() || repairWarnings.length > 0,
+        repairApplied: candidate !== rawContent.trim(),
         repairWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+
+      const repairedCandidate = repairCoverageGapStringList(candidate)
+      if (!repairedCandidate.repairApplied) {
+        continue
+      }
+
+      try {
+        const value = parseCoverageResultCandidate(repairedCandidate.content)
+        repairApplied = true
+        repairWarnings = [...repairedCandidate.repairWarnings]
+
+        return {
+          ok: true,
+          value,
+          normalizedContent: buildYamlDocument({
+            status: value.status,
+            gaps: value.gaps,
+            follow_up_questions: value.followUpQuestions,
+          }),
+          repairApplied: candidate !== rawContent.trim() || repairApplied,
+          repairWarnings,
+        }
+      } catch (repairError) {
+        lastError = repairError instanceof Error ? repairError.message : String(repairError)
+      }
     }
   }
 
@@ -1479,7 +1568,7 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
     ok: false,
     error: lastError,
     repairApplied: false,
-    repairWarnings,
+    repairWarnings: [],
   }
 }
 

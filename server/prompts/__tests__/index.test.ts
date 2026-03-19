@@ -23,6 +23,7 @@ describe('structured prompt hardening', () => {
       expect(prompt.outputFormat).toContain('status')
       expect(prompt.outputFormat).toContain('gaps')
       expect(prompt.outputFormat).toContain('follow_up_questions')
+      expect(prompt.outputFormat).toContain('double-quoted strings')
     }
   })
 
@@ -42,6 +43,8 @@ describe('structured prompt hardening', () => {
   it('keeps PRD coverage output envelope-only without PRD rewrite instructions', () => {
     const coveragePrompt = buildPromptFromTemplate(PROM13, [])
     expect(coveragePrompt).toContain('return only YAML with top-level `status`, `gaps`, and `follow_up_questions`')
+    expect(coveragePrompt).toContain('max_coverage_passes')
+    expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
     expect(coveragePrompt).toContain('Do not output a rewritten PRD')
     expect(coveragePrompt).not.toContain('Provide the necessary additions or modifications to the PRD')
   })
@@ -49,9 +52,18 @@ describe('structured prompt hardening', () => {
   it('keeps interview coverage explicit about structured follow-up question objects', () => {
     const coveragePrompt = buildPromptFromTemplate(PROM5, [])
     expect(coveragePrompt).toContain('return only YAML with top-level `status`, `gaps`, and `follow_up_questions`')
+    expect(coveragePrompt).toContain('follow_up_budget_remaining')
+    expect(coveragePrompt).toContain('max_coverage_passes')
+    expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
     expect(coveragePrompt).toContain('`id`, `question`, `phase`, `priority`, `rationale`')
     expect(coveragePrompt).toContain('Do not return plain strings in `follow_up_questions`')
     expect(coveragePrompt).toContain('Do not output rewritten interview results')
+  })
+
+  it('keeps beads coverage explicit about quoted gap strings', () => {
+    const coveragePrompt = buildPromptFromTemplate(PROM24, [])
+    expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
+    expect(coveragePrompt).toContain('backticks, or punctuation')
   })
 
   it('requires the bead subset schema consistently in draft and refine prompts', () => {

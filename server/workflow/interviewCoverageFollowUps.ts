@@ -9,18 +9,18 @@ export interface InterviewCoverageFollowUpResolution {
   followUpQuestions: InterviewSessionQuestion[]
   shouldRetry: boolean
   validationError: string | null
+  repairWarnings: string[]
+  budget: {
+    total: number
+    used: number
+    remaining: number
+  }
 }
 
 function normalizeCoverageQuestionsToYaml(questions: CoverageFollowUpQuestion[]): string {
   return questions.length > 0
     ? JSON.stringify({ follow_up_questions: questions })
     : ''
-}
-
-function buildCoverageBudgetValidationError(snapshot: InterviewSessionSnapshot, requestedFollowUps: number): string {
-  const usedFollowUps = countCoverageFollowUpQuestions(snapshot)
-  const remainingBudget = Math.max(0, snapshot.maxFollowUps - usedFollowUps)
-  return `${INTERVIEW_COVERAGE_FOLLOW_UP_BUDGET_ERROR} Remaining budget=${remainingBudget}, requested=${requestedFollowUps}, already_used=${usedFollowUps}, max_follow_ups=${snapshot.maxFollowUps}.`
 }
 
 export function resolveInterviewCoverageFollowUpResolution(input: {
@@ -30,12 +30,24 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
   snapshot: InterviewSessionSnapshot
   attempt: number
   maxRetries?: number
+  maxFollowUps?: number
 }): InterviewCoverageFollowUpResolution {
+  const maxFollowUps = input.maxFollowUps ?? input.snapshot.maxFollowUps
+  const usedFollowUps = countCoverageFollowUpQuestions(input.snapshot)
+  const remainingBudget = Math.max(0, maxFollowUps - usedFollowUps)
+  const budget = {
+    total: maxFollowUps,
+    used: usedFollowUps,
+    remaining: remainingBudget,
+  }
+
   if (input.status !== 'gaps') {
     return {
       followUpQuestions: [],
       shouldRetry: false,
       validationError: null,
+      repairWarnings: [],
+      budget,
     }
   }
 
@@ -49,13 +61,25 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
     ? structuredFollowUps
     : extractCoverageFollowUpQuestions(input.rawResponse, input.snapshot)
 
-  const remainingBudget = Math.max(0, input.snapshot.maxFollowUps - countCoverageFollowUpQuestions(input.snapshot))
-  if (followUpQuestions.length > remainingBudget) {
-    const maxRetries = input.maxRetries ?? 1
+  if (remainingBudget === 0) {
     return {
       followUpQuestions: [],
-      shouldRetry: input.attempt < maxRetries,
-      validationError: buildCoverageBudgetValidationError(input.snapshot, followUpQuestions.length),
+      shouldRetry: false,
+      validationError: null,
+      repairWarnings: [],
+      budget,
+    }
+  }
+
+  if (followUpQuestions.length > remainingBudget) {
+    return {
+      followUpQuestions: followUpQuestions.slice(0, remainingBudget),
+      shouldRetry: false,
+      validationError: `${INTERVIEW_COVERAGE_FOLLOW_UP_BUDGET_ERROR} Remaining budget=${remainingBudget}, requested=${followUpQuestions.length}, already_used=${usedFollowUps}, max_follow_ups=${maxFollowUps}.`,
+      repairWarnings: [
+        `Coverage follow-up questions exceeded the remaining budget and were truncated to ${remainingBudget}.`,
+      ],
+      budget,
     }
   }
 
@@ -64,6 +88,8 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
       followUpQuestions,
       shouldRetry: false,
       validationError: null,
+      repairWarnings: [],
+      budget,
     }
   }
 
@@ -72,5 +98,7 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
     followUpQuestions: [],
     shouldRetry: input.attempt < maxRetries,
     validationError: INTERVIEW_COVERAGE_FOLLOW_UP_VALIDATION_ERROR,
+    repairWarnings: [],
+    budget,
   }
 }

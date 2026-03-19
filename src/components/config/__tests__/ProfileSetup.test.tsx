@@ -20,6 +20,8 @@ const existingProfile = {
   perIterationTimeout: 1_200_000,
   councilResponseTimeout: 300_000,
   interviewQuestions: 50,
+  coverageFollowUpBudgetPercent: 20,
+  maxCoveragePasses: 2,
   maxIterations: 5,
   disableAnalogies: 0,
   createdAt: '2026-03-08T14:28:53.309Z',
@@ -85,6 +87,8 @@ describe('ProfileSetup', () => {
     })
 
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
+    expect(screen.getByText('Coverage Follow-Up Budget (%)')).toBeInTheDocument()
+    expect(screen.getByText('Max Coverage Passes')).toBeInTheDocument()
     expect(screen.queryByText('Background')).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText('Your background, expertise, and coding preferences...')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()

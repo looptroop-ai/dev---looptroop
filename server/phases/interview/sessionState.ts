@@ -15,6 +15,7 @@ import type {
 // @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { repairYamlIndentation } from '@shared/yamlRepair'
+import { calculateFollowUpLimit } from './followUpBudget'
 
 export const INTERVIEW_SESSION_ARTIFACT = 'interview_session'
 export const INTERVIEW_PROM4_FINAL_ARTIFACT = 'interview_prom4_final'
@@ -22,10 +23,6 @@ export const INTERVIEW_QA_SESSION_ARTIFACT = 'interview_qa_session'
 export const INTERVIEW_CURRENT_BATCH_ARTIFACT = 'interview_current_batch'
 export const INTERVIEW_BATCH_HISTORY_ARTIFACT = 'interview_batch_history'
 export const INTERVIEW_COVERAGE_FOLLOWUPS_ARTIFACT = 'interview_coverage_followups'
-
-function calculateFollowUpLimit(totalQuestions: number): number {
-  return Math.max(1, Math.floor(totalQuestions * 0.2))
-}
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -143,6 +140,7 @@ export function createInterviewSessionSnapshot(input: {
   winnerId: string
   compiledQuestions: ParsedInterviewQuestion[]
   maxInitialQuestions: number
+  followUpBudgetPercent?: number
   userBackground?: string | null
   disableAnalogies?: boolean
 }): InterviewSessionSnapshot {
@@ -152,7 +150,7 @@ export function createInterviewSessionSnapshot(input: {
     schemaVersion: 1,
     winnerId: input.winnerId,
     maxInitialQuestions: input.maxInitialQuestions,
-    maxFollowUps: calculateFollowUpLimit(input.maxInitialQuestions),
+    maxFollowUps: calculateFollowUpLimit(input.maxInitialQuestions, input.followUpBudgetPercent),
     userBackground: input.userBackground?.trim() || null,
     disableAnalogies: Boolean(input.disableAnalogies),
     questions: input.compiledQuestions.map((question) => normalizeQuestion(question, 'compiled')),

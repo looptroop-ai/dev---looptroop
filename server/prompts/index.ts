@@ -37,8 +37,8 @@ function buildStrictVoteOutputInstruction(categories: string[]): string {
 
 const STRICT_VOTE_OUTPUT_FORMAT = 'YAML with top-level `draft_scores` mapping keyed by exact draft labels. Each draft: rubric integer fields plus `total_score`. No other fields.'
 const STRUCTURED_SELF_CHECK = 'Final Self-Check: before responding, verify that you are returning only the artifact, using the exact required top-level shape, with no prose, no markdown fences, no commentary, and no extra wrapper keys.'
-const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of strings. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
-const INTERVIEW_COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of strings. When `status` is `clean`, `follow_up_questions` must be `[]`. When `status` is `gaps`, `follow_up_questions` must be a YAML list of objects with exactly these fields: `id`, `question`, `phase`, `priority`, `rationale`. Do not return plain strings in `follow_up_questions`.'
+const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
+const INTERVIEW_COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. When `status` is `clean`, `follow_up_questions` must be `[]`. When `status` is `gaps`, `follow_up_questions` must be a YAML list of objects with exactly these fields: `id`, `question`, `phase`, `priority`, `rationale`. Do not return plain strings in `follow_up_questions`.'
 const PRD_OUTPUT_FORMAT = [
   'YAML with exactly these top-level keys (no wrappers): `schema_version`, `ticket_id`, `artifact`, `status`, `source_interview`, `product`, `scope`, `technical_requirements`, `epics`, `risks`, `approval`.',
   '`artifact` must be `prd`. `source_interview` must include `content_sha256`.',
@@ -214,7 +214,7 @@ export const PROM4: PromptTemplate = {
   task: "Review the user's answers to questions and adjust the upcoming ones to improve coherence and extract missing details.",
   instructions: [
     'Batching and Progress: Present the first batch of 1-3 questions (you choose batch size based on complexity/relatedness), show progress (e.g., question 12 of the current planned set, where the total may change), and wait for the user to answer all questions in that batch.',
-    'Adaptive Iteration: After each batch, analyze answers and adjust only upcoming questions when needed. Add follow-up questions only when they are necessary to resolve meaningful ambiguities (max follow-ups in total: 20% of `max_initial_questions`), update/delete now-redundant questions, and accept skipped answers without re-asking unless the missing answer is critical. Do not use the follow-up budget unless it materially improves coverage.',
+    'Adaptive Iteration: After each batch, analyze answers and adjust only upcoming questions when needed. Treat `max_follow_ups` as a hard cap derived from the configured coverage follow-up budget percent. Add follow-up questions only when they are necessary to resolve meaningful ambiguities, update/delete now-redundant questions, and accept skipped answers without re-asking unless the missing answer is critical. Do not use the follow-up budget unless it materially improves coverage.',
     "User Adaptation: Adapt question phrasing to the user's background and expertise level. Use plain language and real-world analogies for non-technical users; use precise technical terminology for experts.",
     "Final Free-Form Question: After all questions are answered or skipped and no major ambiguity remains, present one final free-form question: 'Anything else to add before PRD generation?'",
     'Final Output: After the final free-form question is answered or skipped, output the final interview results file in a strict machine-readable format.',
@@ -249,8 +249,11 @@ export const PROM5: PromptTemplate = {
   instructions: [
     'Coverage Check: Detect unresolved ambiguity, missing constraints, missing edge cases, missing non-goals, and inconsistent answers.',
     'Identify Gaps: List any specific gaps or discrepancies found between the source material and the Interview Results.',
-    'Follow-up: If gaps exist, generate only the targeted follow-up questions strictly necessary to resolve them (no more than 20% of `max_initial_questions`). Do not generate follow-up questions merely because budget remains. If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation.',
+    'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report any unresolved gaps clearly without assuming another retry exists.',
+    'Follow-up Budget: Treat `coverage_follow_up_budget_percent`, `follow_up_budget_total`, `follow_up_budget_used`, and `follow_up_budget_remaining` from the context as hard limits. If gaps exist, generate only the targeted follow-up questions strictly necessary to resolve them and never exceed `follow_up_budget_remaining`. If `follow_up_budget_remaining` is `0`, you must return `follow_up_questions: []`.',
+    'If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation.',
     'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
+    'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     'Gap Triggering: Use `status: gaps` only when at least one real unresolved gap remains. When `status: gaps`, `follow_up_questions` must be a YAML list of question objects with exactly these fields: `id`, `question`, `phase`, `priority`, `rationale`. Do not return plain strings in `follow_up_questions`.',
     'Do not output rewritten interview results, summaries, or any extra keys.',
     STRUCTURED_SELF_CHECK,
@@ -321,7 +324,9 @@ export const PROM13: PromptTemplate = {
   instructions: [
     'Coverage Check: Detect missing requirements, edge cases, constraints, and acceptance criteria.',
     'Identify Gaps: List any specific gaps or discrepancies found between the Interview Results and the PRD.',
+    'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
     'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
+    'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     'Gap Triggering: For PRD coverage, `follow_up_questions` should normally be an empty list. Use `status: gaps` plus concrete `gaps` entries to trigger another refinement pass.',
     'Do not output a rewritten PRD, PRD patch, or any extra keys.',
     STRUCTURED_SELF_CHECK,
@@ -405,8 +410,10 @@ export const PROM24: PromptTemplate = {
   instructions: [
     'Coverage Check: Detect uncovered PRD requirements, missing dependency edges, oversized beads, and missing verification steps.',
     'Identify Gaps: List any specific gaps or discrepancies found between the PRD and the Beads breakdown.',
-    'Resolution: Provide necessary additions or modifications. Ensure each in-scope PRD requirement maps to at least one bead with explicit verification. If no gaps exist, confirm ready for Execution.',
+    'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
+    'Resolution: Use concrete gap strings to describe the additions or modifications still needed. Ensure each in-scope PRD requirement maps to at least one bead with explicit verification. If no gaps exist, confirm ready for Execution.',
     'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. For beads coverage, `follow_up_questions` should usually be an empty list; use `status: gaps` plus concrete gap strings to trigger another refinement pass.',
+    'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: COVERAGE_OUTPUT_FORMAT,

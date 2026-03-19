@@ -18,6 +18,8 @@ const profileSchema = z.object({
   perIterationTimeout: z.number().int().nonnegative().optional(), // 0 = no timeout
   councilResponseTimeout: z.number().int().positive().optional(),
   interviewQuestions: z.number().int().nonnegative().optional(), // 0 = infinite questions
+  coverageFollowUpBudgetPercent: z.number().int().min(0).max(100).optional(),
+  maxCoveragePasses: z.number().int().min(1).max(10).optional(),
   maxIterations: z.number().int().nonnegative().optional(), // 0 = infinite retries
   disableAnalogies: z.number().int().min(0).max(1).optional(),
 })

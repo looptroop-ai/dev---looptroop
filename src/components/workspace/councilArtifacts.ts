@@ -48,6 +48,8 @@ interface CoverageResultLike {
   winnerId?: string
   response?: string
   hasGaps?: boolean
+  limitReached?: boolean
+  terminationReason?: string
 }
 
 type Domain = 'interview' | 'prd' | 'beads'
@@ -277,7 +279,12 @@ function getVotingDetail(outcome: CouncilOutcome, voteCount: number): string {
 
 function getCoverageDetail(result: CoverageResultLike | null): string {
   if (!result) return 'waiting for coverage result'
-  if (result.hasGaps === true) return 'coverage gaps found'
+  if (result.hasGaps === true) {
+    if (result.terminationReason === 'coverage_pass_limit_reached') return 'coverage gaps found; retry cap reached'
+    if (result.terminationReason === 'follow_up_budget_exhausted') return 'coverage gaps found; follow-up budget exhausted'
+    if (result.terminationReason === 'follow_up_generation_failed') return 'coverage gaps found; manual review required'
+    return 'coverage gaps found'
+  }
   if (result.hasGaps === false) return 'coverage complete'
   return 'coverage result available'
 }

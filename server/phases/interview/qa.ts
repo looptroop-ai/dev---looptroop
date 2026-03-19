@@ -15,6 +15,9 @@ import {
   normalizeInterviewTurnOutput,
   type InterviewTurnOutput,
 } from '../../structuredOutput'
+import { calculateFollowUpLimit } from './followUpBudget'
+
+export { calculateFollowUpLimit } from './followUpBudget'
 
 export interface QABatch {
   questions: InterviewQuestion[]
@@ -81,10 +84,6 @@ export function processAnswers(
   })
 }
 
-export function calculateFollowUpLimit(totalQuestions: number): number {
-  return Math.max(1, Math.floor(totalQuestions * 0.2))
-}
-
 /**
  * Start a new PROM4 interview session with the winning AI model.
  * Creates an OpenCode session, sends the initial prompt with compiled questions,
@@ -97,6 +96,7 @@ export async function startInterviewSession(
   compiledQuestions: string,
   ticketState: TicketState,
   maxQuestions: number,
+  followUpBudgetPercent: number,
   signal?: AbortSignal,
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
   onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void,
@@ -110,7 +110,8 @@ export async function startInterviewSession(
     '',
     `## Configuration`,
     `max_initial_questions: ${maxQuestions}`,
-    `max_follow_ups: ${calculateFollowUpLimit(maxQuestions)}`,
+    `coverage_follow_up_budget_percent: ${followUpBudgetPercent}`,
+    `max_follow_ups: ${calculateFollowUpLimit(maxQuestions, followUpBudgetPercent)}`,
     '',
     `## Compiled Questions (from council)`,
     compiledQuestions,

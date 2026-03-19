@@ -51,6 +51,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     perIterationTimeout: profile?.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
     councilResponseTimeout: profile?.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
     interviewQuestions: profile?.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
+    coverageFollowUpBudgetPercent: profile?.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
+    maxCoveragePasses: profile?.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses,
     maxIterations: profile?.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
   })
 
@@ -61,6 +63,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     maxIterations: { min: 0, max: 20, label: 'Max Iterations', fromStore: (v: number) => String(v), toStore: (v: number) => v },
     minCouncilQuorum: { min: 1, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
     interviewQuestions: { min: 0, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    coverageFollowUpBudgetPercent: { min: 0, max: 100, label: 'Coverage Follow-Up Budget', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+    maxCoveragePasses: { min: 1, max: 10, label: 'Max Coverage Passes', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   } as const
 
   const [rawNumeric, setRawNumeric] = useState<Record<string, string>>(() => ({
@@ -69,6 +73,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     maxIterations: String(formData.maxIterations ?? PROFILE_DEFAULTS.maxIterations),
     minCouncilQuorum: String(formData.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum),
     interviewQuestions: String(formData.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions),
+    coverageFollowUpBudgetPercent: String(formData.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
+    maxCoveragePasses: String(formData.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses),
   }))
 
   const getFieldError = (key: keyof typeof numericFields): string | null => {
@@ -102,6 +108,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       perIterationTimeout: profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
       councilResponseTimeout: profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
       interviewQuestions: profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
+      coverageFollowUpBudgetPercent: profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
+      maxCoveragePasses: profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses,
       maxIterations: profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
     })
     setRawNumeric({
@@ -110,6 +118,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       maxIterations: String(profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations),
       minCouncilQuorum: String(profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum),
       interviewQuestions: String(profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions),
+      coverageFollowUpBudgetPercent: String(profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
+      maxCoveragePasses: String(profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses),
     })
     try {
       const council: string[] = profile.councilMembers ? JSON.parse(profile.councilMembers) : []
@@ -491,6 +501,36 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
             ) : (
               <p className="text-xs text-muted-foreground mt-1">Maximum clarifying questions (5–50)</p>
             )}
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div>
+              <label className="text-sm font-medium block mb-1">Coverage Follow-Up Budget (%)</label>
+              <input
+                type="number"
+                value={rawNumeric.coverageFollowUpBudgetPercent}
+                onChange={e => setRawNumeric(prev => ({ ...prev, coverageFollowUpBudgetPercent: e.target.value }))}
+                className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('coverageFollowUpBudgetPercent') ? 'border-red-500' : 'border-input')}
+              />
+              {getFieldError('coverageFollowUpBudgetPercent') ? (
+                <p className="text-xs text-red-500 mt-1">{getFieldError('coverageFollowUpBudgetPercent')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">Maximum interview follow-up budget for coverage passes (0–100%)</p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Max Coverage Passes</label>
+              <input
+                type="number"
+                value={rawNumeric.maxCoveragePasses}
+                onChange={e => setRawNumeric(prev => ({ ...prev, maxCoveragePasses: e.target.value }))}
+                className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", getFieldError('maxCoveragePasses') ? 'border-red-500' : 'border-input')}
+              />
+              {getFieldError('maxCoveragePasses') ? (
+                <p className="text-xs text-red-500 mt-1">{getFieldError('maxCoveragePasses')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">Total coverage executions allowed per phase (1–10)</p>
+              )}
+            </div>
           </div>
 
           <Separator />

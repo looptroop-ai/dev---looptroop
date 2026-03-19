@@ -33,6 +33,7 @@ import {
   buildPersistedBatch,
   clearInterviewSessionBatch,
   completeInterviewBySkippingRemaining,
+  countCoverageFollowUpQuestions,
   createInterviewSessionSnapshot,
   INTERVIEW_BATCH_HISTORY_ARTIFACT,
   INTERVIEW_CURRENT_BATCH_ARTIFACT,
@@ -53,6 +54,7 @@ import { safeAtomicWrite } from '../io/atomicWrite'
 import { readJsonl, writeJsonl } from '../io/jsonl'
 import { getOpenCodeAdapter, isMockOpenCodeMode } from '../opencode/factory'
 import {
+  countPhaseArtifacts,
   getLatestPhaseArtifact,
   getTicketByRef,
   getTicketContext as getStoredTicketContext,
@@ -83,6 +85,8 @@ import { buildSessionStatusLogEntries } from './sessionStatusLogging'
 import {
   resolveInterviewCoverageFollowUpResolution,
 } from './interviewCoverageFollowUps'
+import { calculateFollowUpLimit } from '../phases/interview/followUpBudget'
+import { resolveCoverageGapDisposition, resolveCoverageRunState } from './coverageControl'
 
 const runningPhases = new Set<string>()
 const phaseResults = new Map<string, CouncilResult>()
@@ -199,6 +203,10 @@ export function skipAllInterviewQuestionsToApproval(
 
   const ticket = getTicketByRef(ticketId)
   const externalId = ticket?.externalId ?? ticketId
+  const coverageFollowUpBudgetPercent = ticket?.lockedCoverageFollowUpBudgetPercent
+    ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent
+  const maxCoveragePasses = ticket?.lockedMaxCoveragePasses
+    ?? PROFILE_DEFAULTS.maxCoveragePasses
   const paths = getTicketPaths(ticketId)
   if (!paths) {
     throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
@@ -213,6 +221,9 @@ export function skipAllInterviewQuestionsToApproval(
   interviewQASessions.delete(ticketId)
 
   const userAnswers = buildInterviewAnswerSummary(finalizedSnapshot)
+  const coverageRunNumber = Math.max(1, countPhaseArtifacts(ticketId, 'interview_coverage', 'VERIFYING_INTERVIEW_COVERAGE') || 1)
+  const followUpBudgetTotal = calculateFollowUpLimit(finalizedSnapshot.maxInitialQuestions, coverageFollowUpBudgetPercent)
+  const followUpBudgetUsed = countCoverageFollowUpQuestions(finalizedSnapshot)
   upsertLatestPhaseArtifact(
     ticketId,
     'interview_coverage_input',
@@ -237,6 +248,14 @@ export function skipAllInterviewQuestionsToApproval(
         gaps: [],
         followUpQuestions: [],
       },
+      coverageRunNumber,
+      maxCoveragePasses,
+      limitReached: false,
+      terminationReason: 'clean',
+      followUpBudgetPercent: coverageFollowUpBudgetPercent,
+      followUpBudgetTotal,
+      followUpBudgetUsed,
+      followUpBudgetRemaining: Math.max(0, followUpBudgetTotal - followUpBudgetUsed),
       structuredOutput: {
         repairApplied: false,
         repairWarnings: [],
@@ -1088,6 +1107,7 @@ function formatCouncilResolutionLog(
 
 function resolveInterviewDraftSettings(context: TicketContext): {
   maxInitialQuestions: number
+  coverageFollowUpBudgetPercent: number
   draftTimeoutMs: number
   minQuorum: number
   userBackground: string | null
@@ -1103,10 +1123,94 @@ function resolveInterviewDraftSettings(context: TicketContext): {
 
   return {
     maxInitialQuestions,
+    coverageFollowUpBudgetPercent: resolveCoverageRuntimeSettings(context).coverageFollowUpBudgetPercent,
     draftTimeoutMs: councilSettings.draftTimeoutMs,
     minQuorum: councilSettings.minQuorum,
     userBackground: context.lockedUserBackground ?? profile?.background ?? null,
     disableAnalogies: context.lockedDisableAnalogies ?? Boolean(profile?.disableAnalogies),
+  }
+}
+
+function resolveCoverageRuntimeSettings(context: TicketContext): {
+  coverageFollowUpBudgetPercent: number
+  maxCoveragePasses: number
+} {
+  const profile = appDb.select().from(profiles).get()
+
+  return {
+    coverageFollowUpBudgetPercent: context.lockedCoverageFollowUpBudgetPercent
+      ?? profile?.coverageFollowUpBudgetPercent
+      ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
+    maxCoveragePasses: context.lockedMaxCoveragePasses
+      ?? profile?.maxCoveragePasses
+      ?? PROFILE_DEFAULTS.maxCoveragePasses,
+  }
+}
+
+function getCoverageStateLabel(phase: 'interview' | 'prd' | 'beads'): string {
+  return phase === 'interview'
+    ? 'VERIFYING_INTERVIEW_COVERAGE'
+    : phase === 'prd'
+      ? 'VERIFYING_PRD_COVERAGE'
+      : 'VERIFYING_BEADS_COVERAGE'
+}
+
+function getCoverageContextPhase(phase: 'interview' | 'prd' | 'beads'): 'interview_coverage' | 'prd_coverage' | 'beads_coverage' {
+  return phase === 'interview'
+    ? 'interview_coverage'
+    : phase === 'prd'
+      ? 'prd_coverage'
+      : 'beads_coverage'
+}
+
+function getCoveragePromptTemplate(phase: 'interview' | 'prd' | 'beads') {
+  return phase === 'interview' ? PROM5 : phase === 'prd' ? PROM13 : PROM24
+}
+
+function describeCoverageTerminationReason(reason: string): string {
+  if (reason === 'coverage_pass_limit_reached') return 'retry cap reached'
+  if (reason === 'follow_up_budget_exhausted') return 'follow-up budget exhausted'
+  if (reason === 'follow_up_generation_failed') return 'follow-up generation failed'
+  return 'manual review required'
+}
+
+function buildCoveragePromptConfiguration(input: {
+  phase: 'interview' | 'prd' | 'beads'
+  coverageRunNumber: number
+  maxCoveragePasses: number
+  isFinalAllowedRun: boolean
+  coverageFollowUpBudgetPercent?: number
+  followUpBudgetTotal?: number
+  followUpBudgetUsed?: number
+  followUpBudgetRemaining?: number
+}): PromptPart {
+  const lines = [
+    '## Coverage Configuration',
+    `coverage_domain: ${input.phase}`,
+    `coverage_run_number: ${input.coverageRunNumber}`,
+    `max_coverage_passes: ${input.maxCoveragePasses}`,
+    `is_final_coverage_run: ${input.isFinalAllowedRun ? 'true' : 'false'}`,
+    input.isFinalAllowedRun
+      ? 'This is the final allowed coverage run. If gaps remain, report them clearly and do not assume another retry or refinement loop exists.'
+      : 'At most one more coverage run may occur after this one if real gaps remain.',
+  ]
+
+  if (input.phase === 'interview') {
+    lines.push(
+      `coverage_follow_up_budget_percent: ${input.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent}`,
+      `follow_up_budget_total: ${input.followUpBudgetTotal ?? 0}`,
+      `follow_up_budget_used: ${input.followUpBudgetUsed ?? 0}`,
+      `follow_up_budget_remaining: ${input.followUpBudgetRemaining ?? 0}`,
+      (input.followUpBudgetRemaining ?? 0) === 0
+        ? 'If gaps remain and follow_up_budget_remaining is 0, you MUST return `status: gaps`, concrete `gaps`, and `follow_up_questions: []`.'
+        : 'If gaps remain, generate only the targeted follow-up questions that fit within follow_up_budget_remaining.',
+    )
+  }
+
+  return {
+    type: 'text',
+    source: 'coverage_settings',
+    content: lines.join('\n'),
   }
 }
 
@@ -2979,13 +3083,27 @@ async function handleCoverageVerification(
 ) {
   const { worktreePath, ticket, ticketDir, codebaseMap } = loadTicketDirContext(context)
   const paths = getTicketPaths(ticketId)
-
-  const stateLabel = phase === 'interview'
-    ? 'VERIFYING_INTERVIEW_COVERAGE'
-    : phase === 'prd'
-      ? 'VERIFYING_PRD_COVERAGE'
-      : 'VERIFYING_BEADS_COVERAGE'
+  const stateLabel = getCoverageStateLabel(phase)
+  const contextPhase = getCoverageContextPhase(phase)
+  const promptTemplate = getCoveragePromptTemplate(phase)
   const councilSettings = resolveCouncilRuntimeSettings(context)
+  const coverageSettings = resolveCoverageRuntimeSettings(context)
+  const completedCoveragePasses = countPhaseArtifacts(ticketId, `${phase}_coverage`, stateLabel)
+  const coverageRunState = resolveCoverageRunState(completedCoveragePasses, coverageSettings.maxCoveragePasses)
+
+  if (coverageRunState.limitAlreadyReached) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      stateLabel,
+      'info',
+      `Coverage retry cap already reached for ${phase} (${completedCoveragePasses}/${coverageSettings.maxCoveragePasses}). Routing to approval without another coverage execution.`,
+    )
+    sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
+    return
+  }
+
+  const { coverageRunNumber, isFinalAllowedRun } = coverageRunState
 
   // Resolve the council result to find the winning model
   const councilResult = phaseResults.get(`${ticketId}:${phase}`)
@@ -3031,16 +3149,8 @@ async function handleCoverageVerification(
     context.externalId,
     stateLabel,
     'info',
-    `Coverage verification started using winning model: ${winnerId}`,
+    `Coverage verification started using winning model: ${winnerId} (run ${coverageRunNumber}/${coverageSettings.maxCoveragePasses}).`,
   )
-
-  // Select the appropriate prompt template and context phase
-  const promptTemplate = phase === 'interview' ? PROM5 : phase === 'prd' ? PROM13 : PROM24
-  const contextPhase = phase === 'interview'
-    ? 'interview_coverage'
-    : phase === 'prd'
-      ? 'prd_coverage'
-      : 'beads_coverage'
 
   // Resolve refinedContent: prefer in-memory, fall back to persisted artifact
   let refinedContent: string | undefined = councilResult?.refinedContent
@@ -3096,6 +3206,21 @@ async function handleCoverageVerification(
       : {}),
   }
 
+  const interviewCoverageBudget = phase === 'interview'
+    ? (() => {
+        const maxInitialQuestions = context.lockedInterviewQuestions
+          ?? interviewSnapshot?.maxInitialQuestions
+          ?? resolveInterviewDraftSettings(context).maxInitialQuestions
+        const total = calculateFollowUpLimit(maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent)
+        const used = interviewSnapshot ? countCoverageFollowUpQuestions(interviewSnapshot) : 0
+        return {
+          total,
+          used,
+          remaining: Math.max(0, total - used),
+        }
+      })()
+    : null
+
   // Load additional artifacts from disk for PRD/beads coverage phases
   if (phase === 'prd' || phase === 'beads') {
     const prdPath = resolve(ticketDir, 'prd.yaml')
@@ -3111,9 +3236,23 @@ async function handleCoverageVerification(
   }
 
   const coverageContext = buildMinimalContext(contextPhase, ticketState)
+  const coveragePromptConfiguration = buildCoveragePromptConfiguration({
+    phase,
+    coverageRunNumber,
+    maxCoveragePasses: coverageSettings.maxCoveragePasses,
+    isFinalAllowedRun,
+    ...(phase === 'interview' && interviewCoverageBudget
+      ? {
+          coverageFollowUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
+          followUpBudgetTotal: interviewCoverageBudget.total,
+          followUpBudgetUsed: interviewCoverageBudget.used,
+          followUpBudgetRemaining: interviewCoverageBudget.remaining,
+        }
+      : {}),
+  })
   const promptContent = buildPromptFromTemplate(
     promptTemplate,
-    coverageContext,
+    [...coverageContext, coveragePromptConfiguration],
   )
 
   // Use a single session for the winning model only (not all council members)
@@ -3210,8 +3349,15 @@ async function handleCoverageVerification(
             rawResponse: response,
             snapshot: interviewSnapshot,
             attempt,
+            maxFollowUps: interviewCoverageBudget?.total,
           })
         : null
+
+      if (interviewCoverageResolution?.repairWarnings.length) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          repairWarnings: interviewCoverageResolution.repairWarnings,
+        })
+      }
 
       if (interviewCoverageResolution?.shouldRetry && interviewCoverageResolution.validationError) {
         structuredMeta = buildStructuredMetadata(structuredMeta, {
@@ -3275,6 +3421,15 @@ async function handleCoverageVerification(
     content: coverageInputContent,
   })
   const detectedGaps = coverageEnvelope.value.status === 'gaps'
+  const followUpQuestions = interviewCoverageResolution?.followUpQuestions ?? []
+  const gapDisposition = resolveCoverageGapDisposition({
+    phase,
+    hasGaps: detectedGaps,
+    isFinalAllowedRun,
+    hasFollowUpQuestions: followUpQuestions.length > 0,
+    remainingInterviewBudget: interviewCoverageResolution?.budget.remaining ?? interviewCoverageBudget?.remaining,
+  })
+  const shouldQueueInterviewFollowUps = gapDisposition.shouldLoopBack && phase === 'interview'
 
   // Store the coverage result artifact
   insertPhaseArtifact(ticketId, {
@@ -3287,6 +3442,25 @@ async function handleCoverageVerification(
       hasGaps: detectedGaps,
       parsed: coverageEnvelope.value,
       structuredOutput: structuredMeta,
+      coverageRunNumber,
+      maxCoveragePasses: coverageSettings.maxCoveragePasses,
+      limitReached: gapDisposition.limitReached,
+      terminationReason: gapDisposition.terminationReason,
+      ...(phase === 'interview' && interviewCoverageResolution
+        ? {
+            followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
+            followUpBudgetTotal: interviewCoverageResolution.budget.total,
+            followUpBudgetUsed: interviewCoverageResolution.budget.used,
+            followUpBudgetRemaining: interviewCoverageResolution.budget.remaining,
+          }
+        : phase === 'interview' && interviewCoverageBudget
+          ? {
+              followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
+              followUpBudgetTotal: interviewCoverageBudget.total,
+              followUpBudgetUsed: interviewCoverageBudget.used,
+              followUpBudgetRemaining: interviewCoverageBudget.remaining,
+            }
+          : {}),
     }),
   })
 
@@ -3299,45 +3473,55 @@ async function handleCoverageVerification(
         return
       }
 
-      const followUpQuestions = interviewCoverageResolution?.followUpQuestions ?? []
-      if (followUpQuestions.length === 0) {
-        const msg = interviewCoverageResolution?.validationError
-          ?? 'Coverage found interview gaps but produced no parseable follow-up questions.'
-        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-        return
+      if (shouldQueueInterviewFollowUps) {
+        const followUpBatch = buildCoverageFollowUpBatch(
+          interviewSnapshot,
+          followUpQuestions,
+          buildCoverageFollowUpCommentary(response),
+        )
+        const updatedSnapshot = recordPreparedBatch(
+          clearInterviewSessionBatch(interviewSnapshot),
+          followUpBatch,
+        )
+        persistInterviewSession(ticketId, updatedSnapshot)
+        insertPhaseArtifact(ticketId, {
+          phase: stateLabel,
+          artifactType: 'interview_coverage_followups',
+          content: JSON.stringify(followUpBatch),
+        })
+
+        // Clean up stale PROM4 session so handleInterviewQAStart can run on re-entry
+        interviewQASessions.delete(ticketId)
+
+        // Broadcast the follow-up batch so the frontend picks it up immediately
+        broadcaster.broadcast(ticketId, 'needs_input', {
+          ticketId,
+          type: 'interview_batch',
+          batch: followUpBatch,
+        })
       }
-
-      const followUpBatch = buildCoverageFollowUpBatch(
-        interviewSnapshot,
-        followUpQuestions,
-        buildCoverageFollowUpCommentary(response),
-      )
-      const updatedSnapshot = recordPreparedBatch(
-        clearInterviewSessionBatch(interviewSnapshot),
-        followUpBatch,
-      )
-      persistInterviewSession(ticketId, updatedSnapshot)
-      insertPhaseArtifact(ticketId, {
-        phase: stateLabel,
-        artifactType: 'interview_coverage_followups',
-        content: JSON.stringify(followUpBatch),
-      })
-
-      // Clean up stale PROM4 session so handleInterviewQAStart can run on re-entry
-      interviewQASessions.delete(ticketId)
-
-      // Broadcast the follow-up batch so the frontend picks it up immediately
-      broadcaster.broadcast(ticketId, 'needs_input', {
-        ticketId,
-        type: 'interview_batch',
-        batch: followUpBatch,
-      })
     }
 
-    emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
-      `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
-    sendEvent({ type: 'GAPS_FOUND' })
+    if (phase === 'interview' && shouldQueueInterviewFollowUps) {
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
+        `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
+      sendEvent({ type: 'GAPS_FOUND' })
+      return
+    }
+
+    if (phase !== 'interview' && gapDisposition.shouldLoopBack) {
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
+        `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
+      sendEvent({ type: 'GAPS_FOUND' })
+      return
+    }
+
+    const reviewReason = phase === 'interview' && gapDisposition.terminationReason === 'follow_up_generation_failed'
+      ? interviewCoverageResolution?.validationError
+        ?? 'Coverage found interview gaps but produced no parseable follow-up questions.'
+      : `Coverage gaps detected by winning model ${winnerId}, but ${describeCoverageTerminationReason(gapDisposition.terminationReason)}. Routing to approval with unresolved gaps for manual review.`
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', reviewReason)
+    sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
   } else {
     if (phase === 'interview') {
       try {
@@ -3465,6 +3649,7 @@ async function handleInterviewQAStart(
     winnerId,
     compiledQuestions: compiledInterview.questions,
     maxInitialQuestions: interviewSettings.maxInitialQuestions,
+    followUpBudgetPercent: interviewSettings.coverageFollowUpBudgetPercent,
     userBackground: interviewSettings.userBackground,
     disableAnalogies: interviewSettings.disableAnalogies,
   })
@@ -3482,6 +3667,7 @@ async function handleInterviewQAStart(
     compiledInterview.refinedContent,
     ticketState,
     interviewSettings.maxInitialQuestions,
+    interviewSettings.coverageFollowUpBudgetPercent,
     signal,
     (entry) => {
       emitOpenCodeStreamEvent(
@@ -4183,6 +4369,7 @@ async function handleMockInterviewQAStart(
     winnerId,
     compiledQuestions: buildMockInterviewQuestions().map(({ id, phase, question }) => ({ id, phase, question })),
     maxInitialQuestions: interviewSettings.maxInitialQuestions,
+    followUpBudgetPercent: interviewSettings.coverageFollowUpBudgetPercent,
     userBackground: interviewSettings.userBackground,
     disableAnalogies: interviewSettings.disableAnalogies,
   })
@@ -4212,23 +4399,43 @@ async function handleMockCoverage(
 ) {
   const { members } = resolveCouncilMembers(context)
   const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
-  const stateLabel = phase === 'interview'
-    ? 'VERIFYING_INTERVIEW_COVERAGE'
-    : phase === 'prd'
-      ? 'VERIFYING_PRD_COVERAGE'
-      : 'VERIFYING_BEADS_COVERAGE'
+  const stateLabel = getCoverageStateLabel(phase)
+  const coverageSettings = resolveCoverageRuntimeSettings(context)
+  const coverageRunNumber = countPhaseArtifacts(ticketId, `${phase}_coverage`, stateLabel) + 1
+  const interviewSnapshot = phase === 'interview'
+    ? readInterviewSessionSnapshotArtifact(ticketId)
+    : null
 
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,
     artifactType: `${phase}_coverage`,
-    content: JSON.stringify({ winnerId, response: 'mock coverage clean', hasGaps: false }),
+    content: JSON.stringify({
+      winnerId,
+      response: 'mock coverage clean',
+      hasGaps: false,
+      coverageRunNumber,
+      maxCoveragePasses: coverageSettings.maxCoveragePasses,
+      limitReached: false,
+      terminationReason: 'clean',
+      ...(phase === 'interview' && interviewSnapshot
+        ? {
+            followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
+            followUpBudgetTotal: calculateFollowUpLimit(interviewSnapshot.maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent),
+            followUpBudgetUsed: countCoverageFollowUpQuestions(interviewSnapshot),
+            followUpBudgetRemaining: Math.max(
+              0,
+              calculateFollowUpLimit(interviewSnapshot.maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent)
+                - countCoverageFollowUpQuestions(interviewSnapshot),
+            ),
+          }
+        : {}),
+    }),
   })
 
   if (phase === 'interview') {
     const paths = getTicketPaths(ticketId)
-    const snapshot = readInterviewSessionSnapshotArtifact(ticketId)
-    if (paths && snapshot) {
-      writeCanonicalInterview(context.externalId, paths.ticketDir, snapshot)
+    if (paths && interviewSnapshot) {
+      writeCanonicalInterview(context.externalId, paths.ticketDir, interviewSnapshot)
     }
   }
 

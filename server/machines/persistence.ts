@@ -125,6 +125,8 @@ export function ensureActorForTicket(ticketRef: string | number) {
     lockedMainImplementer: ticket.localTicket.lockedMainImplementer ?? null,
     lockedCouncilMembers: ticket.localTicket.lockedCouncilMembers ? JSON.parse(ticket.localTicket.lockedCouncilMembers) as string[] : null,
     lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
+    lockedCoverageFollowUpBudgetPercent: ticket.localTicket.lockedCoverageFollowUpBudgetPercent ?? null,
+    lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
     lockedUserBackground: ticket.localTicket.lockedUserBackground ?? null,
     lockedDisableAnalogies: parseLockedDisableAnalogies(ticket.localTicket.lockedDisableAnalogies),
   }
@@ -203,6 +205,8 @@ export function createTicketActor(
     lockedMainImplementer?: string | null
     lockedCouncilMembers?: string[] | null
     lockedInterviewQuestions?: number | null
+    lockedCoverageFollowUpBudgetPercent?: number | null
+    lockedMaxCoveragePasses?: number | null
     lockedUserBackground?: string | null
     lockedDisableAnalogies?: boolean | null
   },
@@ -218,6 +222,8 @@ export function createTicketActor(
       lockedMainImplementer: input.lockedMainImplementer ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
+      lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
+      lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
       lockedUserBackground: input.lockedUserBackground ?? null,
       lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     },
@@ -243,6 +249,8 @@ export function hydrateTicketActor(
     lockedMainImplementer?: string | null
     lockedCouncilMembers?: string[] | null
     lockedInterviewQuestions?: number | null
+    lockedCoverageFollowUpBudgetPercent?: number | null
+    lockedMaxCoveragePasses?: number | null
     lockedUserBackground?: string | null
     lockedDisableAnalogies?: boolean | null
   },
@@ -259,6 +267,8 @@ export function hydrateTicketActor(
       lockedMainImplementer: input.lockedMainImplementer ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
+      lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
+      lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
       lockedUserBackground: input.lockedUserBackground ?? null,
       lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     },
@@ -288,6 +298,8 @@ export function hydrateAllTickets() {
         lockedMainImplementer: ticket.lockedMainImplementer ?? null,
         lockedCouncilMembers: ticket.lockedCouncilMembers.length > 0 ? ticket.lockedCouncilMembers : null,
         lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
+        lockedCoverageFollowUpBudgetPercent: ticket.lockedCoverageFollowUpBudgetPercent ?? null,
+        lockedMaxCoveragePasses: ticket.lockedMaxCoveragePasses ?? null,
         lockedUserBackground: ticket.lockedUserBackground ?? null,
         lockedDisableAnalogies: parseLockedDisableAnalogies(ticket.lockedDisableAnalogies),
       })

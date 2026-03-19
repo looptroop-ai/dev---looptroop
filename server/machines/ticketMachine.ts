@@ -60,6 +60,8 @@ export const ticketMachine = setup({
     lockedMainImplementer: input.lockedMainImplementer ?? null,
     lockedCouncilMembers: input.lockedCouncilMembers ?? null,
     lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
+    lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
+    lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
     lockedUserBackground: input.lockedUserBackground ?? null,
     lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     previousStatus: null,
@@ -84,6 +86,8 @@ export const ticketMachine = setup({
             lockedMainImplementer: ({ event }) => event.lockedMainImplementer ?? null,
             lockedCouncilMembers: ({ event }) => event.lockedCouncilMembers ?? null,
             lockedInterviewQuestions: ({ event }) => event.lockedInterviewQuestions ?? null,
+            lockedCoverageFollowUpBudgetPercent: ({ event }) => event.lockedCoverageFollowUpBudgetPercent ?? null,
+            lockedMaxCoveragePasses: ({ event }) => event.lockedMaxCoveragePasses ?? null,
             lockedUserBackground: ({ event }) => event.lockedUserBackground ?? null,
             lockedDisableAnalogies: ({ event }) => event.lockedDisableAnalogies ?? null,
           }),
@@ -150,6 +154,7 @@ export const ticketMachine = setup({
       on: {
         COVERAGE_CLEAN: { target: 'WAITING_INTERVIEW_APPROVAL' },
         GAPS_FOUND: { target: 'WAITING_INTERVIEW_ANSWERS' },
+        COVERAGE_LIMIT_REACHED: { target: 'WAITING_INTERVIEW_APPROVAL' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -205,6 +210,7 @@ export const ticketMachine = setup({
       on: {
         COVERAGE_CLEAN: { target: 'WAITING_PRD_APPROVAL' },
         GAPS_FOUND: { target: 'REFINING_PRD' },
+        COVERAGE_LIMIT_REACHED: { target: 'WAITING_PRD_APPROVAL' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -260,6 +266,7 @@ export const ticketMachine = setup({
       on: {
         COVERAGE_CLEAN: { target: 'WAITING_BEADS_APPROVAL' },
         GAPS_FOUND: { target: 'REFINING_BEADS' },
+        COVERAGE_LIMIT_REACHED: { target: 'WAITING_BEADS_APPROVAL' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },

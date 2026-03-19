@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
+import { PROFILE_DEFAULTS } from '../db/defaults'
 import {
   createTicketActor,
   ensureActorForTicket,
@@ -315,7 +316,11 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
 
   const lockedInterviewQuestions = ticketContext.localProject.interviewQuestions
     ?? profile?.interviewQuestions
-    ?? 50
+    ?? PROFILE_DEFAULTS.interviewQuestions
+  const lockedCoverageFollowUpBudgetPercent = profile?.coverageFollowUpBudgetPercent
+    ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent
+  const lockedMaxCoveragePasses = profile?.maxCoveragePasses
+    ?? PROFILE_DEFAULTS.maxCoveragePasses
   const lockedUserBackground = profile?.background?.trim() || null
   const lockedDisableAnalogies = Boolean(profile?.disableAnalogies)
   const startedAt = new Date().toISOString()
@@ -327,6 +332,8 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
       lockedMainImplementer: modelSelection.mainImplementer,
       lockedCouncilMembers: modelSelection.councilMembers,
       lockedInterviewQuestions,
+      lockedCoverageFollowUpBudgetPercent,
+      lockedMaxCoveragePasses,
       lockedUserBackground,
       lockedDisableAnalogies,
     })
@@ -345,6 +352,8 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
       lockedMainImplementer: modelSelection.mainImplementer,
       lockedCouncilMembers: modelSelection.councilMembers,
       lockedInterviewQuestions,
+      lockedCoverageFollowUpBudgetPercent,
+      lockedMaxCoveragePasses,
       lockedUserBackground,
       lockedDisableAnalogies,
     })

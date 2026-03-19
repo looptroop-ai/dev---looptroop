@@ -715,6 +715,69 @@ describe('structured output normalization', () => {
     ])
   })
 
+  it('repairs malformed coverage gap scalars that begin with backticks', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - Missing rollback behavior',
+      '  - `repo_git_mutex` behavior is undefined, including exact serialized operations, timeout thresholds, retry policy, workspace preservation on timeout, and required manual recovery surface.',
+      'follow_up_questions: []',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toEqual([
+      'Quoted coverage gap strings to recover malformed YAML scalars.',
+    ])
+    expect(result.value.gaps).toEqual([
+      'Missing rollback behavior',
+      '`repo_git_mutex` behavior is undefined, including exact serialized operations, timeout thresholds, retry policy, workspace preservation on timeout, and required manual recovery surface.',
+    ])
+    expect(result.value.followUpQuestions).toEqual([])
+  })
+
+  it('repairs malformed coverage gap scalars without changing structured follow-up question objects', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - `repo_git_mutex` behavior is undefined and must be clarified.',
+      'follow_up_questions:',
+      '  - id: FU1',
+      '    question: Which operations must the mutex serialize?',
+      '    phase: Assembly',
+      '    priority: high',
+      '    rationale: Lock the mutex scope before PRD generation.',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value.gaps).toEqual([
+      '`repo_git_mutex` behavior is undefined and must be clarified.',
+    ])
+    expect(result.value.followUpQuestions).toEqual([
+      {
+        id: 'FU1',
+        question: 'Which operations must the mutex serialize?',
+        phase: 'Assembly',
+        priority: 'high',
+        rationale: 'Lock the mutex scope before PRD generation.',
+      },
+    ])
+  })
+
+  it('keeps the malformed backtick scalar repair scoped to coverage parsing', () => {
+    const result = normalizeInterviewQuestionsOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: `repo_git_mutex` behavior?',
+    ].join('\n'), 5)
+
+    expect(result.ok).toBe(false)
+  })
+
   it('normalizes PROM4 batch envelopes with wrapper noise and indentation repair', () => {
     const result = normalizeInterviewTurnOutput([
       '[assistant] <INTERVIEW_BATCH>',

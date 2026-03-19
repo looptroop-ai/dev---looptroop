@@ -43,6 +43,8 @@ export interface Ticket {
   errorSeenSignature?: string | null
   lockedMainImplementer: string | null
   lockedInterviewQuestions?: number | null
+  lockedCoverageFollowUpBudgetPercent?: number | null
+  lockedMaxCoveragePasses?: number | null
   lockedUserBackground?: string | null
   lockedDisableAnalogies?: number | null
   lockedCouncilMembers: string[]

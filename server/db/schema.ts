@@ -12,6 +12,8 @@ export const profiles = sqliteTable('profiles', {
   perIterationTimeout: integer('per_iteration_timeout').default(PROFILE_DEFAULTS.perIterationTimeout),
   councilResponseTimeout: integer('council_response_timeout').default(PROFILE_DEFAULTS.councilResponseTimeout),
   interviewQuestions: integer('interview_questions').default(PROFILE_DEFAULTS.interviewQuestions),
+  coverageFollowUpBudgetPercent: integer('coverage_follow_up_budget_percent').default(PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
+  maxCoveragePasses: integer('max_coverage_passes').default(PROFILE_DEFAULTS.maxCoveragePasses),
   maxIterations: integer('max_iterations').default(PROFILE_DEFAULTS.maxIterations),
   disableAnalogies: integer('disable_analogies').default(0),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -61,6 +63,8 @@ export const tickets = sqliteTable('tickets', {
   lockedMainImplementer: text('locked_main_implementer'),
   lockedCouncilMembers: text('locked_council_members'), // JSON array of model IDs, frozen at start
   lockedInterviewQuestions: integer('locked_interview_questions'),
+  lockedCoverageFollowUpBudgetPercent: integer('locked_coverage_follow_up_budget_percent'),
+  lockedMaxCoveragePasses: integer('locked_max_coverage_passes'),
   lockedUserBackground: text('locked_user_background'),
   lockedDisableAnalogies: integer('locked_disable_analogies'),
   startedAt: text('started_at'),

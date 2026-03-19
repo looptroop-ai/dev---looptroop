@@ -476,6 +476,8 @@ export function lockTicketStartConfiguration(
     lockedMainImplementer: string
     lockedCouncilMembers: string[]
     lockedInterviewQuestions: number
+    lockedCoverageFollowUpBudgetPercent: number
+    lockedMaxCoveragePasses: number
     lockedUserBackground: string | null
     lockedDisableAnalogies: boolean
   },
@@ -511,6 +513,8 @@ export function lockTicketStartConfiguration(
       lockedMainImplementer,
       lockedCouncilMembers: lockedCouncilMembersRaw,
       lockedInterviewQuestions: input.lockedInterviewQuestions,
+      lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent,
+      lockedMaxCoveragePasses: input.lockedMaxCoveragePasses,
       lockedUserBackground: input.lockedUserBackground,
       lockedDisableAnalogies: input.lockedDisableAnalogies ? 1 : 0,
       startedAt: meta.startedAt ?? input.startedAt,
@@ -568,6 +572,25 @@ export function getLatestPhaseArtifact(ticketRef: string, artifactType: string, 
     conditions.push(eq(phaseArtifacts.phase, phase))
   }
   return context.projectDb.select().from(phaseArtifacts).where(and(...conditions)).orderBy(desc(phaseArtifacts.id)).get()
+}
+
+export function countPhaseArtifacts(ticketRef: string, artifactType: string, phase?: string): number {
+  const context = getTicketContext(ticketRef)
+  if (!context) return 0
+
+  const conditions = [
+    eq(phaseArtifacts.ticketId, context.localTicketId),
+    eq(phaseArtifacts.artifactType, artifactType),
+  ]
+  if (phase) {
+    conditions.push(eq(phaseArtifacts.phase, phase))
+  }
+
+  const rows = context.projectDb.select({ id: phaseArtifacts.id })
+    .from(phaseArtifacts)
+    .where(and(...conditions))
+    .all()
+  return rows.length
 }
 
 export function insertPhaseArtifact(ticketRef: string, artifact: Omit<typeof phaseArtifacts.$inferInsert, 'ticketId'>): void {

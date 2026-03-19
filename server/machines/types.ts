@@ -7,6 +7,8 @@ export interface TicketContext {
   lockedMainImplementer: string | null
   lockedCouncilMembers: string[] | null
   lockedInterviewQuestions: number | null
+  lockedCoverageFollowUpBudgetPercent: number | null
+  lockedMaxCoveragePasses: number | null
   lockedUserBackground: string | null
   lockedDisableAnalogies: boolean | null
   previousStatus: string | null
@@ -30,6 +32,8 @@ export type TicketEvent =
       lockedMainImplementer?: string | null
       lockedCouncilMembers?: string[] | null
       lockedInterviewQuestions?: number | null
+      lockedCoverageFollowUpBudgetPercent?: number | null
+      lockedMaxCoveragePasses?: number | null
       lockedUserBackground?: string | null
       lockedDisableAnalogies?: boolean | null
     }
@@ -42,6 +46,7 @@ export type TicketEvent =
   | { type: 'SKIP_ALL_TO_APPROVAL' }
   | { type: 'COVERAGE_CLEAN' }
   | { type: 'GAPS_FOUND' }
+  | { type: 'COVERAGE_LIMIT_REACHED' }
   | { type: 'APPROVE' }
   | { type: 'REJECT' }
   | { type: 'DRAFTS_READY' }
