@@ -8,6 +8,7 @@ import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
 import { useProfile } from '@/hooks/useProfile'
 import { CalendarDays } from 'lucide-react'
+import { EffortBadge } from '@/components/shared/EffortBadge'
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'Very High', 2: 'High', 3: 'Normal', 4: 'Low', 5: 'Very Low' }
 const PRIORITY_COLORS: Record<number, string> = {
@@ -94,6 +95,10 @@ export function DraftView({ ticket }: DraftViewProps) {
     mainImplementer,
     project?.councilMembers ?? profile?.councilMembers ?? null,
   )
+  const councilMemberVariants: Record<string, string> = profile?.councilMemberVariants
+    ? (() => { try { return JSON.parse(profile.councilMemberVariants) as Record<string, string> } catch { return {} } })()
+    : {}
+  const mainImplementerVariant = profile?.mainImplementerVariant ?? null
   const highlightedMainImplementer = mainImplementer || currentCouncilMembers[0] || ''
   const shouldShowCouncilMembers = currentCouncilMembers.length > 0 || !isProfileLoading
   const savedDescription = ticket.description ?? ''
@@ -210,20 +215,26 @@ export function DraftView({ ticket }: DraftViewProps) {
                 </div>
                 {currentCouncilMembers.length > 0 ? (
                   <div className="flex flex-wrap justify-center gap-1">
-                    {currentCouncilMembers.map((memberId) => (
-                      <Badge
-                        key={memberId}
-                        variant={memberId === highlightedMainImplementer ? 'default' : 'secondary'}
-                        className="h-auto max-w-full gap-1 px-1.5 py-0.5 text-[9px] leading-tight whitespace-normal"
-                      >
-                        {memberId === highlightedMainImplementer && (
-                          <span className="rounded-sm bg-background/20 px-1 py-px text-[8px] font-semibold uppercase tracking-[0.14em]">
-                            Main Implementer
-                          </span>
-                        )}
-                        <span className="font-mono break-all">{memberId}</span>
-                      </Badge>
-                    ))}
+                    {currentCouncilMembers.map((memberId) => {
+                      const variant = memberId === highlightedMainImplementer
+                        ? mainImplementerVariant
+                        : (councilMemberVariants[memberId] ?? null)
+                      return (
+                        <Badge
+                          key={memberId}
+                          variant={memberId === highlightedMainImplementer ? 'default' : 'secondary'}
+                          className="h-auto max-w-full gap-1 px-1.5 py-0.5 text-[9px] leading-tight whitespace-normal"
+                        >
+                          {memberId === highlightedMainImplementer && (
+                            <span className="rounded-sm bg-background/20 px-1 py-px text-[8px] font-semibold uppercase tracking-[0.14em]">
+                              Main Implementer
+                            </span>
+                          )}
+                          <span className="font-mono break-all">{memberId}</span>
+                          {variant && <EffortBadge variant={variant} className="text-[8px]" />}
+                        </Badge>
+                      )
+                    })}
                   </div>
                 ) : (
                   <p className="text-[10px] text-muted-foreground">
