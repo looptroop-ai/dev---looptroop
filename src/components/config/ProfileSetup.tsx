@@ -11,7 +11,8 @@ import { useToast } from '@/components/shared/useToast'
 import { PROFILE_DEFAULTS } from '@server/db/defaults'
 import { useQueryClient } from '@tanstack/react-query'
 import { refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
-import { numericFields, hasNumericErrors, buildInitialRawNumeric, NumericField } from './profileNumericUtils'
+import { numericFields, hasNumericErrors, buildInitialRawNumeric } from './numericFieldConfig'
+import { NumericField } from './profileNumericUtils'
 
 interface ProfileSetupProps {
   onClose: () => void
@@ -75,7 +76,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const [openCodeConnected, setOpenCodeConnected] = useState<boolean | null>(null)
 
   useEffect(() => {
-    fetch('/api/health/opencode')
+    const controller = new AbortController()
+    fetch('/api/health/opencode', { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) {
           setOpenCodeConnected(false)
@@ -85,7 +87,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
         const payload = await res.json().catch(() => null) as { status?: string } | null
         setOpenCodeConnected(payload?.status === 'ok')
       })
-      .catch(() => { setOpenCodeConnected(false) })
+      .catch((err) => { if (err.name !== 'AbortError') setOpenCodeConnected(false) })
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {

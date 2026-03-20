@@ -53,7 +53,6 @@ import {
   createOpenCodeStreamState,
   resolveInterviewDraftSettings,
   resolveCouncilRuntimeSettings,
-  resolveCoverageRuntimeSettings,
   resolveCouncilMembers,
   loadTicketDirContext,
   formatCouncilResolutionLog,

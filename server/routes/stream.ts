@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { broadcaster } from '../sse/broadcaster'
+import { warnIfVerbose } from '../runtime'
 
 const streamRouter = new Hono()
 
@@ -20,7 +21,8 @@ streamRouter.get('/stream', (c) => {
       id: clientId,
       ticketId,
       send: (event: string, data: string, id: string) => {
-        stream.writeSSE({ event, data, id }).catch(() => {
+        stream.writeSSE({ event, data, id }).catch((err) => {
+          warnIfVerbose(`[stream] SSE write failed for client ${clientId}:`, err)
           broadcaster.removeClient(ticketId, clientId)
         })
       },

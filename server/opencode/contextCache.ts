@@ -1,4 +1,11 @@
-// Reusable context slice cache — shared across phases within a ticket
+// Reusable context slice cache — shared across phases within a ticket.
+//
+// NOTE: This module is currently UNUSED. contextBuilder.ts maintains its own
+// internal Map-based cache with identical TTL logic (see getCachedContext /
+// setCachedContext in contextBuilder.ts). This class exists as a richer
+// replacement (tracks tokenCount, exposes invalidate/clear helpers) and should
+// eventually replace the ad-hoc cache in contextBuilder.ts.
+// See also: server/opencode/contextBuilder.ts lines 70-84.
 
 interface CacheEntry {
   content: string

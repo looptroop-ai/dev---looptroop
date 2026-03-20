@@ -43,6 +43,12 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
     const [gitMessage, setGitMessage] = useState('')
     const gitCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+    useEffect(() => {
+        return () => {
+            if (gitCheckRef.current) clearTimeout(gitCheckRef.current)
+        }
+    }, [])
+
     const checkGit = useCallback((path: string) => {
         if (gitCheckRef.current) clearTimeout(gitCheckRef.current)
         if (!path) { setGitStatus('none'); setGitMessage(''); return }

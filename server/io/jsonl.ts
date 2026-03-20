@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { safeAtomicWrite } from './atomicWrite'
 import { safeAtomicAppend } from './atomicAppend'
+import { warnIfVerbose } from '../runtime'
 
 export function readJsonl<T = Record<string, unknown>>(filePath: string): T[] {
   if (!existsSync(filePath)) return []
@@ -8,11 +9,12 @@ export function readJsonl<T = Record<string, unknown>>(filePath: string): T[] {
   const lines = content.split('\n').filter(line => line.trim() !== '')
   const items: T[] = []
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
     try {
-      items.push(JSON.parse(line) as T)
+      items.push(JSON.parse(lines[i]!) as T)
     } catch {
-      console.warn(`[jsonl] Skipping malformed line in ${filePath}`)
+      const preview = lines[i]!.length > 80 ? lines[i]!.slice(0, 80) + '…' : lines[i]
+      warnIfVerbose(`[jsonl] Skipping malformed line ${i + 1} in ${filePath}: ${preview}`)
     }
   }
 

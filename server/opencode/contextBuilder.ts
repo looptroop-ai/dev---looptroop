@@ -66,7 +66,11 @@ function estimateTokens(text: string): number {
   return encode(text).length
 }
 
-// Context slice cache per ticket
+// Context slice cache per ticket.
+// NOTE: This is a lightweight inline cache duplicating the richer ContextCache
+// class in server/opencode/contextCache.ts (which also tracks tokenCount and
+// provides invalidate/clear helpers). The two should be consolidated in a
+// future cleanup — see contextCache.ts for the canonical replacement.
 const contextCache = new Map<string, { content: string; timestamp: number }>()
 const CACHE_TTL = 300000 // 5 minutes
 

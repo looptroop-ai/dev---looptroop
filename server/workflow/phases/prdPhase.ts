@@ -1,5 +1,5 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
-import type { DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
+import type { MemberOutcome, Vote } from '../../council/types'
 import { CancelledError } from '../../council/types'
 import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'

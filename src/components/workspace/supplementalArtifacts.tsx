@@ -1,0 +1,51 @@
+import { FileText, CheckCircle2, Trophy } from 'lucide-react'
+import type { ArtifactDef } from './phaseArtifactTypes'
+
+export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
+  if (phase === 'COUNCIL_VOTING_INTERVIEW') {
+    return [
+      { id: 'vote-details', label: 'Voting Details', description: 'Weighted scoring across all council votes', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'winner-draft', label: 'Winning Draft', description: 'Highest-scored interview draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
+  }
+  if (phase === 'COMPILING_INTERVIEW') {
+    return [{ id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
+    return [
+      { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> },
+    ]
+  }
+  if (phase === 'COUNCIL_VOTING_PRD') {
+    return [{ id: 'winner-prd-draft', label: 'Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
+    return [{ id: 'refined-prd', label: 'Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'COUNCIL_VOTING_BEADS') {
+    return [{ id: 'winner-beads-draft', label: 'Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
+    return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'SCANNING_RELEVANT_FILES') {
+    return [{ id: 'relevant-files-scan', label: 'Relevant Files', description: 'Source files identified as relevant by AI analysis', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'PRE_FLIGHT_CHECK') {
+    return [{ id: 'diagnostics', label: 'Doctor Diagnostics', description: 'Pre-flight validation report', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'CODING') {
+    return [{ id: 'bead-commits', label: 'Bead Commits', description: 'Per-bead git commits', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'RUNNING_FINAL_TEST') {
+    return [{ id: 'test-results', label: 'Test Results', description: 'Full test suite results', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'INTEGRATING_CHANGES') {
+    return [{ id: 'commit-summary', label: 'Commit Summary', description: 'Squashed commit history', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  if (phase === 'CLEANING_ENV') {
+    return [{ id: 'cleanup-report', label: 'Cleanup Report', description: 'Resource cleanup', icon: <FileText className="h-3.5 w-3.5" /> }]
+  }
+  return []
+}

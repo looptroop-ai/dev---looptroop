@@ -187,7 +187,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
           .then((snapshot) => {
             resolveStreamDoneResponse?.(snapshot || buildStreamedTextResponse() || null)
           })
-          .catch(() => {
+          .catch((err) => {
+            warnIfVerbose('[adapter] Snapshot retry failed after stream done, falling back to streamed text', err)
             resolveStreamDoneResponse?.(buildStreamedTextResponse() || null)
           })
       },
@@ -224,6 +225,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       const streamFirstResponse = streamDoneResponse.then((snapshot) => {
         if (snapshot) {
           sdkPromptAbortController.abort()
+          // Suppress the rejection from the now-aborted SDK prompt — the stream
+          // already provided the response so this rejection is expected.
           void sdkPromptResponse.catch(() => undefined)
           return snapshot
         }

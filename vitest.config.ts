@@ -27,7 +27,6 @@ export default defineConfig({
     __LOOPTROOP_DEV_BACKEND_ORIGIN__: JSON.stringify(getBackendOrigin()),
   },
   test: {
-    maxWorkers: 1,
     globals: true,
     projects: [
       {
@@ -50,6 +49,8 @@ export default defineConfig({
         test: {
           name: 'server-unit',
           environment: 'node',
+          fileParallelism: true,
+          isolate: false,
           sequence: { groupOrder: 1 },
           setupFiles: ['./server/test/setup.ts'],
           include: ['server/**/*.test.ts', 'tests/**/*.test.ts', 'shared/**/*.test.ts'],

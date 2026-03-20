@@ -21,7 +21,8 @@ import {
 } from './phaseArtifactTypes'
 import { ArtifactContent, RawContentView, InterviewAnswersView, PrdDraftView } from './ArtifactContentViewer'
 import { ArtifactList } from './ArtifactList'
-import { ArtifactTypeFilter, getSupplementalArtifacts } from './ArtifactTypeFilter'
+import { ArtifactTypeFilter } from './ArtifactTypeFilter'
+import { getSupplementalArtifacts } from './supplementalArtifacts'
 
 // Re-export viewer components so existing imports from this module continue to work
 export { RawContentView, InterviewAnswersView, PrdDraftView }

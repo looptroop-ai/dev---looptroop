@@ -183,7 +183,7 @@ export function EmojiPickerSection({ icon, onIconChange, iconOpen, onIconOpenCha
   )
 }
 
-export const PROJECT_COLORS = [
+const PROJECT_COLORS = [
   { name: 'Ocean Blue', value: '#0ea5e9' },
   { name: 'Royal Blue', value: '#3b82f6' },
   { name: 'Sapphire', value: '#2563eb' },

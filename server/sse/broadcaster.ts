@@ -14,6 +14,23 @@ class SSEBroadcaster {
   private eventBuffer = new Map<string, { id: string; event: string; data: string; timestamp: number }[]>()
   private readonly MAX_BUFFER_SIZE = MAX_SSE_BUFFER_SIZE
   private readonly BUFFER_TTL = 300000 // 5 minutes
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null
+
+  startAutoCleanup() {
+    if (this.cleanupInterval) return
+    this.cleanupInterval = setInterval(() => this.cleanup(), 60_000)
+    // Allow the Node process to exit even if the interval is still active
+    if (this.cleanupInterval && typeof this.cleanupInterval === 'object' && 'unref' in this.cleanupInterval) {
+      this.cleanupInterval.unref()
+    }
+  }
+
+  stopAutoCleanup() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval)
+      this.cleanupInterval = null
+    }
+  }
 
   addClient(ticketId: string, client: SSEClient) {
     const existing = this.clients.get(ticketId) ?? []
@@ -99,4 +116,5 @@ class SSEBroadcaster {
 }
 
 export const broadcaster = new SSEBroadcaster()
+broadcaster.startAutoCleanup()
 export { SSEBroadcaster }
