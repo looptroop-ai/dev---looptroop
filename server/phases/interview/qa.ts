@@ -32,6 +32,8 @@ export interface BatchQuestion {
   phase?: string
   priority?: string
   rationale?: string
+  answerType?: 'free_text' | 'single_choice' | 'multiple_choice'
+  options?: Array<{ id: string; label: string }>
 }
 
 export interface BatchResponse {
@@ -49,6 +51,7 @@ const PROM4_SCHEMA_REMINDER = [
   'If the interview should continue, return exactly one <INTERVIEW_BATCH>...</INTERVIEW_BATCH> block.',
   'Inside <INTERVIEW_BATCH>, return YAML with: batch_number, progress.current, progress.total, is_final_free_form, ai_commentary, questions[].',
   'Each question item must include: id, question, phase, priority, rationale.',
+  'Each question item MAY optionally include: answer_type (free_text|single_choice|multiple_choice) and options[] with id and label fields.',
   'If the interview is complete, return exactly one <INTERVIEW_COMPLETE>...</INTERVIEW_COMPLETE> block.',
   'Inside <INTERVIEW_COMPLETE>, return YAML with these exact top-level keys: schema_version, ticket_id, artifact, status, generated_by, questions, follow_up_rounds, summary, approval.',
   'Each `questions` item must include: id, phase, prompt, source, follow_up_round, answer_type, options, answer.',
@@ -280,6 +283,8 @@ function toBatchResponse(output: InterviewTurnOutput): BatchResponse {
       phase: question.phase,
       priority: question.priority,
       rationale: question.rationale,
+      ...(question.answerType ? { answerType: question.answerType } : {}),
+      ...(question.options && question.options.length > 0 ? { options: question.options } : {}),
     })),
     progress: output.batch.progress,
     isComplete: false,

@@ -151,6 +151,29 @@ export function buildInterviewAnswerSummary(snapshot: InterviewSessionSnapshot |
   return answered.join('\n\n')
 }
 
+export function buildFormattedBatchAnswers(
+  questions: Array<{ id: string; answerType?: string; options?: Array<{ id: string; label: string }> }>,
+  batchAnswers: Record<string, string>,
+  selectedOptions: Record<string, string[]> = {},
+): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const question of questions) {
+    const freeText = batchAnswers[question.id] ?? ''
+    const selectedIds = selectedOptions[question.id] ?? []
+    const isChoiceQ = question.answerType === 'single_choice' || question.answerType === 'multiple_choice'
+    if (isChoiceQ && selectedIds.length > 0) {
+      const labelMap = new Map((question.options ?? []).map((opt) => [opt.id, opt.label]))
+      const selectedLabels = selectedIds.map((id) => labelMap.get(id) ?? id).map((label) => `"${label}"`).join(', ')
+      result[question.id] = freeText.trim()
+        ? `Selected: ${selectedLabels}. Notes: ${freeText}`
+        : `Selected: ${selectedLabels}`
+    } else {
+      result[question.id] = freeText
+    }
+  }
+  return result
+}
+
 export function skipAllInterviewQuestionsToApproval(
   ticketId: string,
   batchAnswers: Record<string, string>,
@@ -1089,6 +1112,7 @@ export async function handleInterviewQAStart(
 export async function handleInterviewQABatch(
   ticketId: string,
   batchAnswers: Record<string, string>,
+  selectedOptions: Record<string, string[]> = {},
 ): Promise<BatchResponse> {
   const snapshot = readInterviewSessionSnapshotArtifact(ticketId)
   if (!snapshot?.currentBatch) {
@@ -1098,7 +1122,7 @@ export async function handleInterviewQABatch(
   const ticket = getTicketByRef(ticketId)
   const externalId = ticket?.externalId ?? ticketId
   const currentBatch = snapshot.currentBatch
-  const answeredSnapshot = recordBatchAnswers(snapshot, batchAnswers)
+  const answeredSnapshot = recordBatchAnswers(snapshot, batchAnswers, selectedOptions)
 
   if (isMockOpenCodeMode()) {
     if (currentBatch.source === 'prom4' && currentBatch.batchNumber === 1) {
@@ -1233,10 +1257,11 @@ export async function handleInterviewQABatch(
 
   const signal = getOrCreateAbortSignal(ticketId)
   const streamState = createOpenCodeStreamState()
+  const formattedAnswers = buildFormattedBatchAnswers(currentBatch.questions, batchAnswers, selectedOptions)
   const result = await submitBatchToSession(
     adapter,
     sessionInfo.sessionId,
-    batchAnswers,
+    formattedAnswers,
     signal,
     sessionInfo.winnerId,
     (entry) => {
@@ -1317,8 +1342,9 @@ export function processInterviewBatchAsync(
   ticketId: string,
   batchAnswers: Record<string, string>,
   originalSnapshot: InterviewSessionSnapshot,
+  selectedOptions: Record<string, string[]> = {},
 ): Promise<BatchResponse> {
-  return handleInterviewQABatch(ticketId, batchAnswers)
+  return handleInterviewQABatch(ticketId, batchAnswers, selectedOptions)
     .catch((err) => {
       // Revert to original snapshot so the user can retry the submission
       try {

@@ -66,6 +66,7 @@ const upsertUiStateSchema = z.object({
 
 export const interviewAnswerPayloadSchema = z.object({
   answers: z.record(z.string(), z.string()).default({}),
+  selectedOptions: z.record(z.string(), z.array(z.string())).optional().default({}),
 })
 
 export const editAnswerSchema = z.object({
@@ -511,9 +512,9 @@ export async function handleAnswerBatch(c: Context) {
       // currentBatch cleared) synchronously before its first await, so the
       // snapshot is consistent by the time we return.
       ensureActorForTicket(ticketId)
-      sendTicketEvent(ticketId, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers })
+      sendTicketEvent(ticketId, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers, selectedOptions: parsed.data.selectedOptions })
 
-      processInterviewBatchAsync(ticketId, parsed.data.answers, session!)
+      processInterviewBatchAsync(ticketId, parsed.data.answers, session!, parsed.data.selectedOptions)
         .then(result => {
           ensureActorForTicket(ticketId)
           if (result.isComplete) {
@@ -539,12 +540,12 @@ export async function handleAnswerBatch(c: Context) {
     }
 
     // SYNC path: mock mode or coverage batches (fast, no AI call)
-    const result = await handleInterviewQABatch(ticketId, parsed.data.answers)
+    const result = await handleInterviewQABatch(ticketId, parsed.data.answers, parsed.data.selectedOptions)
     ensureActorForTicket(ticketId)
     if (result.isComplete) {
       sendTicketEvent(ticketId, { type: 'INTERVIEW_COMPLETE' })
     } else {
-      sendTicketEvent(ticketId, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers })
+      sendTicketEvent(ticketId, { type: 'BATCH_ANSWERED', batchAnswers: parsed.data.answers, selectedOptions: parsed.data.selectedOptions })
     }
 
     return c.json({

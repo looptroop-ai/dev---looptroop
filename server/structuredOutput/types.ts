@@ -38,12 +38,19 @@ export interface CoverageResultEnvelope {
   followUpQuestions: CoverageFollowUpQuestion[]
 }
 
+export interface InterviewQuestionOption {
+  id: string
+  label: string
+}
+
 export interface InterviewBatchPayloadQuestion {
   id: string
   question: string
   phase?: string
   priority?: string
   rationale?: string
+  answerType?: 'free_text' | 'single_choice' | 'multiple_choice'
+  options?: InterviewQuestionOption[]
 }
 
 export interface InterviewBatchPayload {

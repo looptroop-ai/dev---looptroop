@@ -6,10 +6,10 @@ import type { Ticket } from '@/hooks/useTickets'
 import type { InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
 import { InterviewQAView } from '../InterviewQAView'
 
-let submittedBody: { answers?: Record<string, string> } | null = null
+let submittedBody: { answers?: Record<string, string>; selectedOptions?: Record<string, string[]> } | null = null
 let skippedBody: { answers?: Record<string, string> } | null = null
 let savedUiState: { scope?: string; data?: unknown } | null = null
-let preSeededDrafts: { draftAnswers: Record<string, Record<string, string>>; skippedQuestions: Record<string, string[]> } | null = null
+let preSeededDrafts: { draftAnswers: Record<string, Record<string, string>>; skippedQuestions: Record<string, string[]>; selectedOptions?: Record<string, Record<string, string[]>> } | null = null
 let interviewData: InterviewSessionView = {
   winnerId: 'openai/gpt-5',
   raw: 'questions:\n  - id: Q01',
@@ -313,6 +313,7 @@ describe('InterviewQAView', () => {
       answers: {
         QF01: 'Exercise retries against a flaky upstream fake.',
       },
+      selectedOptions: {},
     })
   })
 
@@ -420,7 +421,7 @@ describe('InterviewQAView', () => {
       fireEvent.click(screen.getByRole('button', { name: /submit batch/i }))
     })
 
-    expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' } })
+    expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' }, selectedOptions: {} })
 
     // Wait for debounce to fire auto-save of cleaned state
     await waitFor(() => {

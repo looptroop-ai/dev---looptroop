@@ -365,6 +365,28 @@ function normalizeInterviewBatchPriority(value: unknown): string | undefined {
   return raw
 }
 
+function normalizeInterviewBatchAnswerType(value: unknown): 'free_text' | 'single_choice' | 'multiple_choice' | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = normalizeKey(value)
+  if (normalized === 'singlechoice' || normalized === 'singlechoice' || normalized === 'radio' || normalized === 'single') return 'single_choice'
+  if (normalized === 'multiplechoice' || normalized === 'multchoice' || normalized === 'multi' || normalized === 'checkbox' || normalized === 'multichoice') return 'multiple_choice'
+  if (normalized === 'freetext' || normalized === 'free' || normalized === 'text' || normalized === 'open') return 'free_text'
+  return undefined
+}
+
+function normalizeInterviewBatchOption(value: unknown, index: number): { id: string; label: string } | null {
+  if (typeof value === 'string') {
+    const label = value.trim()
+    if (!label) return null
+    return { id: `opt${index + 1}`, label }
+  }
+  if (!isRecord(value)) return null
+  const id = toOptionalString(getValueByAliases(value, ['id', 'key', 'value'])) ?? `opt${index + 1}`
+  const label = toOptionalString(getValueByAliases(value, ['label', 'text', 'name', 'option', 'description']))
+  if (!label) return null
+  return { id: id.trim(), label: label.trim() }
+}
+
 function normalizeInterviewBatchQuestion(value: unknown, index: number): InterviewBatchPayloadQuestion {
   if (!isRecord(value)) throw new Error(`Interview batch question at index ${index} is not an object`)
 
@@ -373,6 +395,12 @@ function normalizeInterviewBatchQuestion(value: unknown, index: number): Intervi
   const phase = normalizeInterviewBatchPhase(getValueByAliases(value, ['phase', 'category', 'stage', 'section']))
   const priority = normalizeInterviewBatchPriority(getValueByAliases(value, ['priority']))
   const rationale = toOptionalString(getValueByAliases(value, ['rationale', 'reason']))
+  const rawAnswerType = getValueByAliases(value, ['answertype', 'answer_type', 'type', 'inputtype', 'input_type'])
+  const answerType = normalizeInterviewBatchAnswerType(rawAnswerType)
+  const rawOptions = getValueByAliases(value, ['options', 'choices', 'answers'])
+  const options = Array.isArray(rawOptions)
+    ? rawOptions.map((opt, i) => normalizeInterviewBatchOption(opt, i)).filter((opt): opt is { id: string; label: string } => opt !== null)
+    : undefined
 
   return {
     id: id.trim(),
@@ -380,6 +408,8 @@ function normalizeInterviewBatchQuestion(value: unknown, index: number): Intervi
     ...(phase ? { phase } : {}),
     ...(priority ? { priority } : {}),
     ...(rationale ? { rationale } : {}),
+    ...(answerType && answerType !== 'free_text' ? { answerType } : {}),
+    ...(options && options.length > 0 ? { options } : {}),
   }
 }
 

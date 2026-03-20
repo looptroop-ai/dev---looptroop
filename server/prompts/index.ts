@@ -208,8 +208,10 @@ export const PROM4_FINAL_INTERVIEW_SCHEMA = [
   '    prompt: "What problem are we solving?"',
   '    source: compiled | prompt_follow_up | coverage_follow_up | final_free_form',
   '    follow_up_round: null',
-  '    answer_type: free_text',
-  '    options: []',
+  '    answer_type: free_text | single_choice | multiple_choice',
+  '    options:',
+  '      - id: opt1',
+  '        label: "Option label"',
   '    answer:',
   '      skipped: false',
   '      selected_option_ids: []',
@@ -252,7 +254,13 @@ export const PROM4: PromptTemplate = {
       question: (the question text)
       phase: (Foundation | Structure | Assembly)
       priority: (critical | high | medium | low)
-      rationale: (why this question matters)`,
+      rationale: (why this question matters)
+      answer_type: (OPTIONAL — omit for open-ended questions; use "single_choice" only for mutually-exclusive enumerable options like "which database?"; use "multiple_choice" for "select all that apply" like "which platforms?"; default is free_text — do NOT force-fit open-ended questions into choice types)
+      options: (OPTIONAL — only if answer_type is single_choice or multiple_choice — list of choices with id and label, e.g.:)
+        - id: opt1
+          label: "PostgreSQL"
+        - id: opt2
+          label: "MySQL"`,
     'Final Complete Output: When the interview is fully complete (after the final free-form answer), wrap the final output in <INTERVIEW_COMPLETE> tags containing YAML that matches this exact interview-results schema.',
     PROM4_FINAL_INTERVIEW_SCHEMA,
     'Output Discipline: For intermediate turns, return exactly one <INTERVIEW_BATCH> block and nothing else outside it. For the final turn, return exactly one <INTERVIEW_COMPLETE> block and nothing else outside it.',

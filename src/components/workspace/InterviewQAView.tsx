@@ -53,6 +53,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   const {
     draftAnswers,
     skippedQuestions,
+    batchSelectedOptions,
     sseBatch,
     processingError,
     submittedBatchKey,
@@ -60,6 +61,7 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     isSkipping,
     setProcessingError,
     handleBatchAnswer,
+    handleOptionToggle,
     handleSkipQuestion,
     handleUnskipQuestion,
     handleSubmitBatch,
@@ -118,9 +120,20 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
     [currentBatchKey, skippedQuestions],
   )
 
+  const batchCurrentSelectedOptions = useMemo(
+    () => (currentBatchKey ? batchSelectedOptions[currentBatchKey] ?? {} : {}),
+    [currentBatchKey, batchSelectedOptions],
+  )
+
   const onBatchAnswer = useCallback((questionId: string, value: string) => {
     handleBatchAnswer(currentBatchKey, questionId, value)
   }, [currentBatchKey, handleBatchAnswer])
+
+  const onOptionToggle = useCallback((questionId: string, optionId: string) => {
+    const question = currentBatch?.questions.find((q) => q.id === questionId)
+    const isSingleChoice = question?.answerType === 'single_choice'
+    handleOptionToggle(currentBatchKey, questionId, optionId, isSingleChoice)
+  }, [currentBatchKey, currentBatch, handleOptionToggle])
 
   const onSkipQuestion = useCallback((questionId: string) => {
     handleSkipQuestion(currentBatchKey, questionId)
@@ -214,7 +227,12 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
   }
 
   const questions = currentBatch?.questions ?? []
-  const allBatchAnswersFilled = currentBatch ? questions.every((question) => batchAnswers[question.id]?.trim()) : false
+  const allBatchAnswersFilled = currentBatch ? questions.every((question) => {
+    const isChoiceQ = question.answerType === 'single_choice' || question.answerType === 'multiple_choice'
+    const hasText = Boolean(batchAnswers[question.id]?.trim())
+    const hasSelection = (batchCurrentSelectedOptions[question.id] ?? []).length > 0
+    return isChoiceQ ? (hasSelection || hasText) : hasText
+  }) : false
   const isBusy = isSubmitting || isSkipping
 
   return (
@@ -266,10 +284,12 @@ export function InterviewQAView({ ticket }: InterviewQAViewProps) {
             questions={questions}
             batchAnswers={batchAnswers}
             batchSkipped={batchSkipped}
+            batchSelectedOptions={batchCurrentSelectedOptions}
             isBusy={isBusy}
             isSubmitting={isSubmitting}
             allBatchAnswersFilled={allBatchAnswersFilled}
             onBatchAnswer={onBatchAnswer}
+            onOptionToggle={onOptionToggle}
             onSkipQuestion={onSkipQuestion}
             onUnskipQuestion={onUnskipQuestion}
             onSubmitBatch={onSubmitBatch}

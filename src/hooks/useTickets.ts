@@ -298,11 +298,12 @@ export function useSaveTicketUIState() {
 async function submitBatch(
   ticketId: string,
   answers: Record<string, string>,
+  selectedOptions: Record<string, string[]> = {},
 ): Promise<PersistedInterviewBatch | { accepted: boolean }> {
   const res = await fetch(`/api/tickets/${ticketId}/answer-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answers }),
+    body: JSON.stringify({ answers, selectedOptions }),
   })
   if (!res.ok) {
     const err = await res.json()
@@ -347,8 +348,8 @@ async function skipInterview(
 export function useSubmitBatch() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ ticketId, answers }: { ticketId: string; answers: Record<string, string> }) =>
-      submitBatch(ticketId, answers),
+    mutationFn: ({ ticketId, answers, selectedOptions }: { ticketId: string; answers: Record<string, string>; selectedOptions?: Record<string, string[]> }) =>
+      submitBatch(ticketId, answers, selectedOptions ?? {}),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', variables.ticketId] })

@@ -8,6 +8,7 @@ const DRAFT_SAVE_DEBOUNCE_MS = 350
 export interface PersistedInterviewDrafts {
   draftAnswers: Record<string, Record<string, string>>
   skippedQuestions: Record<string, string[]>
+  selectedOptions: Record<string, Record<string, string[]>>
 }
 
 function serializeSkipped(map: Record<string, Set<string>>): Record<string, string[]> {
@@ -39,6 +40,7 @@ export function useBatchSubmit(ticketId: string) {
 
   const [draftAnswers, setDraftAnswers] = useState<Record<string, Record<string, string>>>({})
   const [skippedQuestions, setSkippedQuestions] = useState<Record<string, Set<string>>>({})
+  const [batchSelectedOptions, setBatchSelectedOptions] = useState<Record<string, Record<string, string[]>>>({})
   const [submittedBatchKey, setSubmittedBatchKey] = useState<string | null>(null)
   const [sseBatch, setSseBatch] = useState<PersistedInterviewBatch | null>(null)
   const [processingError, setProcessingError] = useState<string | null>(null)
@@ -64,11 +66,15 @@ export function useBatchSubmit(ticketId: string) {
         if (persisted.skippedQuestions && Object.keys(persisted.skippedQuestions).length > 0) {
           setSkippedQuestions(deserializeSkipped(persisted.skippedQuestions))
         }
+        if (persisted.selectedOptions && Object.keys(persisted.selectedOptions).length > 0) {
+          setBatchSelectedOptions(persisted.selectedOptions)
+        }
       }
 
       const snapshot: PersistedInterviewDrafts = {
         draftAnswers: persisted?.draftAnswers ?? {},
         skippedQuestions: persisted?.skippedQuestions ?? {},
+        selectedOptions: persisted?.selectedOptions ?? {},
       }
       lastSavedSnapshotRef.current = JSON.stringify(snapshot)
       restoredDraftRef.current = true
@@ -106,6 +112,7 @@ export function useBatchSubmit(ticketId: string) {
     const snapshot: PersistedInterviewDrafts = {
       draftAnswers,
       skippedQuestions: serializeSkipped(skippedQuestions),
+      selectedOptions: batchSelectedOptions,
     }
     const serialized = JSON.stringify(snapshot)
     if (serialized === lastSavedSnapshotRef.current) return
@@ -120,7 +127,7 @@ export function useBatchSubmit(ticketId: string) {
     }, DRAFT_SAVE_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
-  }, [draftAnswers, skippedQuestions, saveUiState, ticketId])
+  }, [draftAnswers, skippedQuestions, batchSelectedOptions, saveUiState, ticketId])
 
   const handleBatchAnswer = useCallback((currentBatchKey: string | null, questionId: string, value: string) => {
     if (!currentBatchKey) return
@@ -170,6 +177,36 @@ export function useBatchSubmit(ticketId: string) {
     })
   }, [])
 
+  const handleOptionToggle = useCallback((currentBatchKey: string | null, questionId: string, optionId: string, isSingleChoice: boolean) => {
+    if (!currentBatchKey) return
+    setBatchSelectedOptions((current) => {
+      const batchOpts = current[currentBatchKey] ?? {}
+      const currentSelected = batchOpts[questionId] ?? []
+      let nextSelected: string[]
+      if (isSingleChoice) {
+        nextSelected = currentSelected.includes(optionId) ? [] : [optionId]
+      } else {
+        nextSelected = currentSelected.includes(optionId)
+          ? currentSelected.filter((id) => id !== optionId)
+          : [...currentSelected, optionId]
+      }
+      return {
+        ...current,
+        [currentBatchKey]: {
+          ...batchOpts,
+          [questionId]: nextSelected,
+        },
+      }
+    })
+    setSkippedQuestions((current) => {
+      const prev = current[currentBatchKey]
+      if (!prev?.has(questionId)) return current
+      const next = new Set(prev)
+      next.delete(questionId)
+      return { ...current, [currentBatchKey]: next }
+    })
+  }, [])
+
   const handleSubmitBatch = useCallback(async (
     currentBatch: PersistedInterviewBatch | null,
     currentBatchKey: string | null,
@@ -178,9 +215,11 @@ export function useBatchSubmit(ticketId: string) {
     if (!currentBatch || !currentBatchKey) return
 
     try {
+      const selectedOptions = batchSelectedOptions[currentBatchKey] ?? {}
       await submitBatchMutation({
         ticketId,
         answers: batchAnswers,
+        selectedOptions,
       })
       setDraftAnswers((current) => {
         if (!(currentBatchKey in current)) return current
@@ -194,12 +233,18 @@ export function useBatchSubmit(ticketId: string) {
         delete next[currentBatchKey]
         return next
       })
+      setBatchSelectedOptions((current) => {
+        if (!(currentBatchKey in current)) return current
+        const next = { ...current }
+        delete next[currentBatchKey]
+        return next
+      })
       setSubmittedBatchKey(currentBatchKey)
       setSseBatch(null)
     } catch (err) {
       console.error('Failed to submit interview batch:', err)
     }
-  }, [submitBatchMutation, ticketId])
+  }, [submitBatchMutation, batchSelectedOptions, ticketId])
 
   const handleConfirmSkipAll = useCallback(async (
     currentBatch: PersistedInterviewBatch | null,
@@ -214,7 +259,8 @@ export function useBatchSubmit(ticketId: string) {
       })
       setDraftAnswers({})
       setSkippedQuestions({})
-      const emptySnapshot: PersistedInterviewDrafts = { draftAnswers: {}, skippedQuestions: {} }
+      setBatchSelectedOptions({})
+      const emptySnapshot: PersistedInterviewDrafts = { draftAnswers: {}, skippedQuestions: {}, selectedOptions: {} }
       lastSavedSnapshotRef.current = JSON.stringify(emptySnapshot)
       saveUiState({ ticketId, scope: INTERVIEW_DRAFTS_SCOPE, data: emptySnapshot })
       setSseBatch(null)
@@ -226,6 +272,7 @@ export function useBatchSubmit(ticketId: string) {
   return {
     draftAnswers,
     skippedQuestions,
+    batchSelectedOptions,
     sseBatch,
     processingError,
     submittedBatchKey,
@@ -233,6 +280,7 @@ export function useBatchSubmit(ticketId: string) {
     isSkipping,
     setProcessingError,
     handleBatchAnswer,
+    handleOptionToggle,
     handleSkipQuestion,
     handleUnskipQuestion,
     handleSubmitBatch,

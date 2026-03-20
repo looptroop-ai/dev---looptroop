@@ -33,6 +33,12 @@ function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, sourc
   const rationale = 'rationale' in input && typeof input.rationale === 'string' && input.rationale.trim()
     ? input.rationale.trim()
     : undefined
+  const answerType = 'answerType' in input && (input.answerType === 'single_choice' || input.answerType === 'multiple_choice')
+    ? input.answerType
+    : undefined
+  const options = 'options' in input && Array.isArray(input.options) && input.options.length > 0
+    ? input.options
+    : undefined
 
   return {
     id: input.id.trim(),
@@ -42,6 +48,8 @@ function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, sourc
     ...(rationale ? { rationale } : {}),
     source,
     ...(roundNumber !== undefined ? { roundNumber } : {}),
+    ...(answerType ? { answerType } : {}),
+    ...(options ? { options } : {}),
   }
 }
 
@@ -158,18 +166,20 @@ export function buildCanonicalInterviewYaml(
   const generatedAt = snapshot.updatedAt || nowIso()
   const questions = snapshot.questions.map((question) => {
     const answer = snapshot.answers[question.id]
+    const answerType = question.answerType ?? 'free_text'
+    const options = question.options ?? []
     return {
       id: question.id,
       phase: question.phase,
       prompt: question.question,
       source: question.source,
       follow_up_round: question.roundNumber ?? null,
-      answer_type: 'free_text',
-      options: [],
+      answer_type: answerType,
+      options,
       answer: answer
         ? {
             skipped: answer.skipped,
-            selected_option_ids: [],
+            selected_option_ids: answer.selectedOptionIds ?? [],
             free_text: answer.answer,
             answered_by: answer.skipped ? 'ai_skip' : 'user',
             answered_at: answer.skipped ? '' : answer.answeredAt ?? '',
@@ -298,6 +308,7 @@ export function buildInterviewQuestionViews(
       ...question,
       status,
       answer: answer ? answer.answer : null,
+      ...(answer?.selectedOptionIds && answer.selectedOptionIds.length > 0 ? { selectedOptionIds: answer.selectedOptionIds } : {}),
     }
   })
 }

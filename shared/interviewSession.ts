@@ -6,6 +6,13 @@ export type InterviewQuestionSource =
   | 'coverage_follow_up'
   | 'final_free_form'
 
+export type InterviewQuestionAnswerType = 'free_text' | 'single_choice' | 'multiple_choice'
+
+export interface InterviewQuestionOption {
+  id: string
+  label: string
+}
+
 export interface InterviewSessionQuestion {
   id: string
   question: string
@@ -14,6 +21,8 @@ export interface InterviewSessionQuestion {
   rationale?: string
   source: InterviewQuestionSource
   roundNumber?: number
+  answerType?: InterviewQuestionAnswerType
+  options?: InterviewQuestionOption[]
 }
 
 export interface InterviewSessionAnswer {
@@ -21,6 +30,7 @@ export interface InterviewSessionAnswer {
   skipped: boolean
   answeredAt: string | null
   batchNumber: number | null
+  selectedOptionIds?: string[]
 }
 
 export interface PersistedInterviewBatch {
@@ -70,6 +80,7 @@ export type InterviewQuestionStatus = 'answered' | 'skipped' | 'current' | 'pend
 export interface InterviewQuestionView extends InterviewSessionQuestion {
   status: InterviewQuestionStatus
   answer: string | null
+  selectedOptionIds?: string[]
 }
 
 export interface InterviewSessionView {

@@ -22,6 +22,12 @@ function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, sourc
   const rationale = 'rationale' in input && typeof input.rationale === 'string' && input.rationale.trim()
     ? input.rationale.trim()
     : undefined
+  const answerType = 'answerType' in input && (input.answerType === 'single_choice' || input.answerType === 'multiple_choice')
+    ? input.answerType
+    : undefined
+  const options = 'options' in input && Array.isArray(input.options) && input.options.length > 0
+    ? input.options
+    : undefined
 
   return {
     id: input.id.trim(),
@@ -31,6 +37,8 @@ function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, sourc
     ...(rationale ? { rationale } : {}),
     source,
     ...(roundNumber !== undefined ? { roundNumber } : {}),
+    ...(answerType ? { answerType } : {}),
+    ...(options ? { options } : {}),
   }
 }
 
@@ -190,6 +198,7 @@ export function recordPreparedBatch(
 export function recordBatchAnswers(
   snapshot: InterviewSessionSnapshot,
   batchAnswers: Record<string, string>,
+  selectedOptions: Record<string, string[]> = {},
 ): InterviewSessionSnapshot {
   const next = cloneSnapshot(snapshot)
   const currentBatch = next.currentBatch
@@ -198,11 +207,17 @@ export function recordBatchAnswers(
   const submittedAt = nowIso()
   for (const question of currentBatch.questions) {
     const rawAnswer = batchAnswers[question.id] ?? ''
+    const selectedIds = selectedOptions[question.id] ?? []
+    const isChoiceQuestion = question.answerType === 'single_choice' || question.answerType === 'multiple_choice'
+    const hasSelection = selectedIds.length > 0
+    const hasText = rawAnswer.trim().length > 0
+    const skipped = isChoiceQuestion ? (!hasSelection && !hasText) : !hasText
     next.answers[question.id] = {
       answer: rawAnswer,
-      skipped: rawAnswer.trim().length === 0,
-      answeredAt: rawAnswer.trim().length === 0 ? null : submittedAt,
+      skipped,
+      answeredAt: skipped ? null : submittedAt,
       batchNumber: currentBatch.batchNumber,
+      ...(selectedIds.length > 0 ? { selectedOptionIds: selectedIds } : {}),
     }
   }
 

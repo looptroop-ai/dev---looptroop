@@ -119,7 +119,23 @@ export function QuestionList({
                       <>
                         {question.status === 'skipped'
                           ? <p className="text-[11px] italic text-muted-foreground">Skipped</p>
-                          : <p className="text-xs whitespace-pre-wrap text-foreground/90">{question.answer}</p>}
+                          : (
+                            <div className="space-y-1">
+                              {question.selectedOptionIds && question.selectedOptionIds.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {question.selectedOptionIds.map((id) => {
+                                    const label = question.options?.find((opt) => opt.id === id)?.label ?? id
+                                    return (
+                                      <span key={id} className="inline-flex items-center px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">
+                                        {label}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {question.answer && <p className="text-xs whitespace-pre-wrap text-foreground/90">{question.answer}</p>}
+                            </div>
+                          )}
                         <div className="flex justify-end">
                           <Button
                             variant="ghost"

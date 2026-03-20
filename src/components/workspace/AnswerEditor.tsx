@@ -1,9 +1,10 @@
-import type { InterviewQuestionStatus } from '@shared/interviewSession'
+import type { InterviewQuestionStatus, InterviewQuestionAnswerType, InterviewQuestionOption } from '@shared/interviewSession'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { ChoiceAnswerInput } from './ChoiceAnswerInput'
 
 function priorityBadgeVariant(priority: string): 'destructive' | 'default' | 'secondary' | 'outline' {
   switch (priority) {
@@ -30,16 +31,20 @@ export interface BatchQuestion {
   priority?: string | null
   source: string
   phase: string
+  answerType?: InterviewQuestionAnswerType
+  options?: InterviewQuestionOption[]
 }
 
 export interface AnswerEditorProps {
   questions: BatchQuestion[]
   batchAnswers: Record<string, string>
   batchSkipped: Set<string>
+  batchSelectedOptions: Record<string, string[]>
   isBusy: boolean
   isSubmitting: boolean
   allBatchAnswersFilled: boolean
   onBatchAnswer: (questionId: string, value: string) => void
+  onOptionToggle: (questionId: string, optionId: string) => void
   onSkipQuestion: (questionId: string) => void
   onUnskipQuestion: (questionId: string) => void
   onSubmitBatch: () => void
@@ -59,10 +64,12 @@ export function AnswerEditor({
   questions,
   batchAnswers,
   batchSkipped,
+  batchSelectedOptions,
   isBusy,
   isSubmitting,
   allBatchAnswersFilled,
   onBatchAnswer,
+  onOptionToggle,
   onSkipQuestion,
   onUnskipQuestion,
   onSubmitBatch,
@@ -108,6 +115,8 @@ export function AnswerEditor({
           </p>
           {questions.map((question) => {
             const isSkipped = batchSkipped.has(question.id)
+            const isChoiceQ = question.answerType === 'single_choice' || question.answerType === 'multiple_choice'
+            const selectedIds = batchSelectedOptions[question.id] ?? []
             return (
               <div
                 key={question.id}
@@ -133,6 +142,11 @@ export function AnswerEditor({
                       {question.priority}
                     </Badge>
                   )}
+                  {isChoiceQ && (
+                    <Badge variant="outline" className="text-[10px] h-4 font-normal">
+                      {question.answerType === 'single_choice' ? 'single choice' : 'multi select'}
+                    </Badge>
+                  )}
                 </div>
                 <p className={`text-xs font-medium ${isSkipped ? 'line-through text-muted-foreground' : ''}`}>{question.question}</p>
                 {question.rationale && (
@@ -151,6 +165,30 @@ export function AnswerEditor({
                       Undo Skip
                     </Button>
                   </div>
+                ) : isChoiceQ && question.options && question.options.length > 0 ? (
+                  <>
+                    <ChoiceAnswerInput
+                      questionId={question.id}
+                      answerType={question.answerType!}
+                      options={question.options}
+                      selectedIds={selectedIds}
+                      freeText={batchAnswers[question.id] ?? ''}
+                      isBusy={isBusy}
+                      onToggle={(optionId) => onOptionToggle(question.id, optionId)}
+                      onTextChange={(value) => onBatchAnswer(question.id, value)}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => onSkipQuestion(question.id)}
+                        disabled={isBusy}
+                      >
+                        Skip Question
+                      </Button>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <textarea
