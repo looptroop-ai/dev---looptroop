@@ -61,23 +61,24 @@ async function ensurePortFree(port: number) {
   })
 }
 
-function describePortOccupants(port: number) {
+function getPortOccupantOutput(port: number): string | null {
   try {
     return execFileSync('ss', ['-ltnp', `( sport = :${port} )`], { encoding: 'utf8' }).trim()
   } catch {
-    return `Port ${port} is in use by another process.`
+    return null
   }
 }
 
+function describePortOccupants(port: number) {
+  return getPortOccupantOutput(port) ?? `Port ${port} is in use by another process.`
+}
+
 function listPortOccupantPids(port: number): number[] {
-  try {
-    const output = execFileSync('ss', ['-ltnp', `( sport = :${port} )`], { encoding: 'utf8' })
-    const matches = output.matchAll(/pid=(\d+)/g)
-    return Array.from(new Set(Array.from(matches, (match) => Number(match[1]))))
-      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
-  } catch {
-    return []
-  }
+  const output = getPortOccupantOutput(port)
+  if (!output) return []
+  const matches = output.matchAll(/pid=(\d+)/g)
+  return Array.from(new Set(Array.from(matches, (match) => Number(match[1]))))
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
 }
 
 const processes = listProcesses()

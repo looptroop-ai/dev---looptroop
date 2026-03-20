@@ -13,6 +13,7 @@ import { throwIfCancelled } from '../../lib/abort'
 import { buildCompletionInstructions } from './completionSchema'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
+import { BEAD_EXECUTION_TIMEOUT_MS } from '../../lib/constants'
 
 const COMPLETION_INSTRUCTIONS = buildCompletionInstructions()
 const BEAD_STATUS_SCHEMA_REMINDER = [
@@ -37,7 +38,7 @@ export async function executeBead(
   contextParts: PromptPart[],
   projectPath: string,
   maxIterations: number = PROFILE_DEFAULTS.maxIterations,
-  timeout: number = 600000,
+  timeout: number = BEAD_EXECUTION_TIMEOUT_MS,
   signal?: AbortSignal,
   callbacks?: {
     ticketId?: string

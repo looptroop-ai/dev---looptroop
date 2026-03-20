@@ -16,6 +16,7 @@ import {
   type InterviewTurnOutput,
 } from '../../structuredOutput'
 import { calculateFollowUpLimit } from './followUpBudget'
+import { MAX_INTERVIEW_BATCH_SIZE } from '../../lib/constants'
 
 export { calculateFollowUpLimit } from './followUpBudget'
 
@@ -55,7 +56,7 @@ const PROM4_SCHEMA_REMINDER = [
   PROM4_FINAL_INTERVIEW_SCHEMA,
 ].join('\n')
 
-export function createBatches(questions: InterviewQuestion[], batchSize: number = 3): QABatch[] {
+export function createBatches(questions: InterviewQuestion[], batchSize: number = MAX_INTERVIEW_BATCH_SIZE): QABatch[] {
   const batches: QABatch[] = []
   const totalBatches = Math.ceil(questions.length / batchSize)
 

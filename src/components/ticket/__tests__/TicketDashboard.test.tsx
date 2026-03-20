@@ -31,7 +31,7 @@ vi.mock('@/components/ui/scroll-area', () => ({
   ),
 }))
 
-vi.mock('@/context/UIContext', () => ({
+vi.mock('@/context/useUI', () => ({
   useUI: () => ({
     state: { selectedTicketId },
     dispatch: dispatchMock,

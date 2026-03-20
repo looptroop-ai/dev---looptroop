@@ -1,7 +1,9 @@
 import { createElement, useEffect } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatLogLine, LogProvider, useLogs } from '@/context/LogContext'
+import { formatLogLine } from '@/context/logUtils'
+import { LogProvider } from '@/context/LogContext'
+import { useLogs } from '@/context/useLogContext'
 
 let latestLogApi: ReturnType<typeof useLogs> = null
 

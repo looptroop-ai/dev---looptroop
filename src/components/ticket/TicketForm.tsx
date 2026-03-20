@@ -78,7 +78,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
                     <div className="px-3 py-2 text-sm text-muted-foreground">No projects available</div>
                   )}
                   {projects.map((p, idx) => {
-                    const selected = effectiveProjectId === p.id
+                    const isSelected = effectiveProjectId === p.id
                     return (
                       <button
                         key={p.id}
@@ -86,7 +86,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
                         className={cn(
                           'w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors',
                           idx !== projects.length - 1 && 'border-b border-input',
-                          selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+                          isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
                         )}
                         onClick={() => {
                           setProjectId(p.id)
@@ -100,7 +100,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
                             : <span>{p.icon}</span>}
                         </span>
                         <span className="truncate flex-1">{p.name} ({p.shortname})</span>
-                        {selected && <Check className="h-4 w-4 text-primary" />}
+                        {isSelected && <Check className="h-4 w-4 text-primary" />}
                       </button>
                     )
                   })}

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { useUI } from '@/context/UIContext'
+import { useUI } from '@/context/useUI'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 

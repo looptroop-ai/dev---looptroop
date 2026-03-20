@@ -1,83 +1,18 @@
 import { useCallback, useRef, useState } from 'react'
-import { X, Ban, Info, FolderOpen, Copy, Check as CheckIcon } from 'lucide-react'
+import { FolderOpen, Copy, Check as CheckIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { useUI } from '@/context/UIContext'
+import { useUI } from '@/context/useUI'
 import { useTicketAction } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
-import { TerminalTicketDelete } from '@/components/workspace/TerminalTicketDelete'
-import { getStatusUserLabel, STATUS_ORDER, STATUS_TO_PHASE } from '@/lib/workflowMeta'
-
-function getStatusProgress(status: string): number | null {
-  if (status === 'BLOCKED_ERROR') return null
-  if (STATUS_TO_PHASE[status] === 'todo' || STATUS_TO_PHASE[status] === 'done') return null
-  const idx = STATUS_ORDER.indexOf(status)
-  if (idx === -1) return null
-  return Math.round(((idx + 1) / STATUS_ORDER.length) * 100)
-}
-
-function getStatusRingColor(status: string): string {
-  switch (status) {
-    case 'COUNCIL_DELIBERATING':
-    case 'COUNCIL_VOTING_INTERVIEW':
-    case 'COMPILING_INTERVIEW':
-    case 'VERIFYING_INTERVIEW_COVERAGE':
-    case 'CODING':
-      return 'text-blue-500'
-    case 'WAITING_INTERVIEW_ANSWERS':
-    case 'WAITING_INTERVIEW_APPROVAL':
-    case 'WAITING_PRD_APPROVAL':
-    case 'WAITING_BEADS_APPROVAL':
-    case 'WAITING_MANUAL_VERIFICATION':
-      return 'text-yellow-500'
-    case 'DRAFTING_PRD':
-    case 'COUNCIL_VOTING_PRD':
-    case 'REFINING_PRD':
-    case 'VERIFYING_PRD_COVERAGE':
-      return 'text-indigo-500'
-    case 'DRAFTING_BEADS':
-    case 'COUNCIL_VOTING_BEADS':
-    case 'REFINING_BEADS':
-    case 'VERIFYING_BEADS_COVERAGE':
-      return 'text-purple-500'
-    case 'PRE_FLIGHT_CHECK':
-      return 'text-cyan-500'
-    case 'RUNNING_FINAL_TEST':
-      return 'text-teal-500'
-    case 'INTEGRATING_CHANGES':
-      return 'text-emerald-500'
-    case 'CLEANING_ENV':
-      return 'text-slate-500'
-    default:
-      return 'text-blue-500'
-  }
-}
-
-function ProgressRing({ percent, size = 20, stroke = 2.5, colorClass = 'text-blue-500' }: { percent: number; size?: number; stroke?: number; colorClass?: string }) {
-  const radius = (size - stroke) / 2
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (percent / 100) * circumference
-  return (
-    <svg width={size} height={size} className="shrink-0">
-      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-muted-foreground/20" />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={stroke}
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-        className={colorClass}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-      />
-    </svg>
-  )
-}
+import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { getStatusProgress, getStatusRingColor } from '@/components/kanban/ticketCardUtils'
+import { ProgressRing } from '@/components/kanban/ProgressRing'
+import { TicketActions } from './TicketActions'
+import { ErrorBanner } from './ErrorBanner'
+import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
 
 interface DashboardHeaderProps {
   ticket: Ticket
@@ -102,7 +37,7 @@ function CopyablePathRow({ label, path }: { label: string; path: string }) {
   const handleCopy = () => {
     navigator.clipboard.writeText(path).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
     })
   }
   return (
@@ -166,53 +101,15 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             {statusLabel}
           </Badge>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {ticket.status !== 'DRAFT' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowDetails(true)}
-              className="gap-1 text-muted-foreground h-8 px-2"
-              title="Ticket details"
-            >
-              <Info className="h-4 w-4" />
-              <span className="text-xs">Details</span>
-            </Button>
-          )}
-          {canDelete && (
-            <TerminalTicketDelete
-              ticket={ticket}
-              statusLabel={ticket.status === 'COMPLETED' ? 'completed' : 'canceled'}
-              buttonLabel="Delete"
-              buttonTitle="Delete this ticket permanently"
-              buttonVariant="ghost"
-              buttonSize="sm"
-              buttonClassName="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 h-8 px-2"
-            />
-          )}
-          {canCancel && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowCancelConfirm(true)}
-              disabled={isPending}
-              className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 h-8 px-2"
-              title="Cancel this ticket"
-            >
-              <Ban className="h-3.5 w-3.5" />
-              <span className="text-xs">Cancel</span>
-            </Button>
-          )}
-          <button
-            type="button"
-            onClick={() => dispatch({ type: 'CLOSE_TICKET' })}
-            aria-label="Close dashboard"
-            title="Close ticket view (Esc)"
-            className="flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted text-foreground hover:bg-destructive hover:text-white hover:border-destructive transition-colors"
-          >
-            <X className="h-4 w-4" strokeWidth={2.5} />
-          </button>
-        </div>
+        <TicketActions
+          ticket={ticket}
+          canCancel={canCancel}
+          canDelete={canDelete}
+          isPending={isPending}
+          onShowDetails={() => setShowDetails(true)}
+          onCancelConfirm={() => setShowCancelConfirm(true)}
+          onClose={() => dispatch({ type: 'CLOSE_TICKET' })}
+        />
       </div>
 
       <Dialog open={showDetails} onOpenChange={(open) => { setShowDetails(open); if (open) detailsScrollInit() }}>
@@ -372,12 +269,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               </div>
             )}
             {ticket.errorMessage && (
-              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
-                <span className="text-xs font-medium text-muted-foreground">Error</span>
-                <div className="mt-1 max-h-32 overflow-y-auto rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2">
-                  <p className="text-xs text-red-700 dark:text-red-400 whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono">{ticket.errorMessage}</p>
-                </div>
-              </div>
+              <ErrorBanner errorMessage={ticket.errorMessage} />
             )}
             {project && ticket.status !== 'DRAFT' && (
               <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">

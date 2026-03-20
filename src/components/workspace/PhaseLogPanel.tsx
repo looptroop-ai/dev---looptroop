@@ -1,12 +1,15 @@
-import { useState, useMemo, useRef, useEffect, useCallback, Fragment, memo } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { useLogs, type LogEntry } from '@/context/LogContext'
+import { useLogs } from '@/context/useLogContext'
+import type { LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
-import { getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
+import { ModelBadge } from '@/components/shared/ModelBadge'
 import { LoadingText } from '@/components/ui/LoadingText'
 import type { Ticket } from '@/hooks/useTickets'
+import { filterEntries, PHASE_LOG_DESCRIPTIONS, MULTI_MODEL_PHASES } from './logFormat'
+import { LogEntryRow } from './LogLine'
 
 interface PhaseLogPanelProps {
   phase: string
@@ -18,195 +21,6 @@ type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 
 const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 const BOTTOM_THRESHOLD = 50
-
-function getEntryColor(entry: LogEntry): string {
-  if (entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
-  if (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
-  if (entry.kind === 'reasoning') return 'text-purple-400'
-  if (entry.audience === 'ai' || entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
-  return 'text-foreground'
-}
-
-function formatTimestamp(timestamp?: string): string {
-  if (!timestamp) return '--:--:--'
-  const parsed = new Date(timestamp)
-  if (Number.isNaN(parsed.getTime())) return '--:--:--'
-  return parsed.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-}
-
-function getEntryModelDisplayName(entry: LogEntry): string | null {
-  const rawModelId = entry.modelId || (entry.source.startsWith('model:') ? entry.source : '')
-  const displayName = rawModelId ? getModelDisplayName(rawModelId) : ''
-  return displayName || null
-}
-
-function formatVisibleTag(tag: string, entry: LogEntry, showModelName: boolean): string {
-  if (!showModelName) return tag
-
-  const bareTag = tag.slice(1, -1)
-  if (bareTag !== 'MODEL' && bareTag !== 'THINKING') return tag
-
-  const modelDisplayName = getEntryModelDisplayName(entry)
-  return modelDisplayName ? `[${bareTag}-${modelDisplayName}]` : tag
-}
-
-function renderLogLine(entry: LogEntry, showModelName: boolean) {
-  const tagMatch = entry.line.match(/^(\[[^\]]+\])([\s\S]*)$/)
-  if (tagMatch) {
-    const [, rawTag = '', rest = ''] = tagMatch
-    const tag = formatVisibleTag(rawTag, entry, showModelName)
-    const color = getEntryColor(entry)
-    return (
-      <>
-        <span className={cn('font-semibold', color)}>{tag}</span>
-        {rest}
-      </>
-    )
-  }
-  if (entry.kind === 'reasoning' && !tagMatch) {
-    const color = getEntryColor(entry)
-    const tag = formatVisibleTag('[THINKING]', entry, showModelName)
-    return (
-      <>
-        <span className={cn('font-semibold', color)}>{tag}</span>
-        {' '}{entry.line}
-      </>
-    )
-  }
-  return <>{entry.line}</>
-}
-
-const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: { entry: LogEntry; index: number; showModelName: boolean }) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [isOverflowing, setIsOverflowing] = useState(false)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const isMultiline = entry.line.split('\n').length > 3
-
-  useEffect(() => {
-    const el = contentRef.current
-    if (!el || isExpanded || isMultiline) return
-
-    const observer = new ResizeObserver(() => {
-      setIsOverflowing(el.scrollHeight > el.clientHeight)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [entry.line, isExpanded, isMultiline])
-
-  const isTruncatable = isMultiline || isOverflowing
-
-  return (
-    <div className="py-0.5 border-b border-border/30 last:border-0 flex relative group">
-      <div className="flex flex-col shrink-0 w-16 mr-2 pt-0.5 items-start">
-        <span className="text-muted-foreground/40 select-none pb-1">{formatTimestamp(entry.timestamp)}</span>
-        {isTruncatable && (
-          <div className="sticky top-1">
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="text-[10px] bg-background/90 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded border border-border/50 shadow-sm transition-colors cursor-pointer opacity-80 hover:opacity-100"
-            >
-              {isExpanded ? 'Less' : 'More'}
-            </button>
-          </div>
-        )}
-      </div>
-      <span className="text-muted-foreground/60 mr-2 select-none shrink-0 pt-0.5">{String(index + 1).padStart(3, ' ')}</span>
-      <div className="flex-1 min-w-0 pr-2">
-        <div className="relative">
-          <div
-            ref={contentRef}
-            className={cn(
-              getEntryColor(entry),
-              'whitespace-pre-wrap break-words max-w-full',
-              !isExpanded && 'line-clamp-3'
-            )}
-          >
-            {renderLogLine(entry, showModelName)}
-          </div>
-          {isTruncatable && !isExpanded && (
-            <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-muted to-transparent pointer-events-none" />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-})
-
-const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
-  DRAFT: 'Ticket created and waiting to start.',
-  SCANNING_RELEVANT_FILES: 'AI reads and extracts relevant source file contents for use as context in subsequent phases.',
-  COUNCIL_DELIBERATING: 'Each council model generates an independent interview draft with questions in logical order.',
-  COUNCIL_VOTING_INTERVIEW: 'Council members vote on all interview drafts using weighted scoring rubric.',
-  COMPILING_INTERVIEW: 'Winning model incorporates best ideas from other drafts into a final normalized question set.',
-  WAITING_INTERVIEW_ANSWERS: 'Interview questions presented to user for answers.',
-  VERIFYING_INTERVIEW_COVERAGE: 'AI analyzes answers for coverage gaps and completeness.',
-  WAITING_INTERVIEW_APPROVAL: 'Interview results ready for user review and approval.',
-  DRAFTING_PRD: 'Each council model generates an independent PRD draft with epics and user stories.',
-  COUNCIL_VOTING_PRD: 'Council members vote on all PRD drafts using weighted scoring rubric.',
-  REFINING_PRD: 'Winning model incorporates relevant ideas from other PRD proposals.',
-  VERIFYING_PRD_COVERAGE: 'AI verifies PRD covers all interview requirements.',
-  WAITING_PRD_APPROVAL: 'PRD ready for user review and approval.',
-  DRAFTING_BEADS: 'Each council model creates an independent beads breakdown from the PRD.',
-  COUNCIL_VOTING_BEADS: 'Council members vote on all beads drafts for best architecture.',
-  REFINING_BEADS: 'Winning model incorporates relevant ideas from other beads proposals.',
-  VERIFYING_BEADS_COVERAGE: 'AI verifies beads cover all PRD requirements.',
-  WAITING_BEADS_APPROVAL: 'Beads breakdown ready for user review and approval.',
-  PRE_FLIGHT_CHECK: 'Validating OpenCode connectivity, git safety, tool availability, artifact paths, beads graph integrity.',
-  CODING: 'AI coding agent executes beads with retry loop (Ralph Wiggum loop) until all tasks + tests pass.',
-  RUNNING_FINAL_TEST: 'Running full test suite on unsquashed bead-commit branch state.',
-  INTEGRATING_CHANGES: 'Squashing commits, finalizing commit history, running pre-merge checks.',
-  WAITING_MANUAL_VERIFICATION: 'Candidate branch ready for manual verification.',
-  CLEANING_ENV: 'Removing temporary files, worktrees, and processes created during execution.',
-  COMPLETED: 'All phases completed successfully. Candidate branch was verified and cleanup finished.',
-  CANCELED: 'Ticket was canceled.',
-  BLOCKED_ERROR: 'An error occurred during processing.',
-}
-
-const MULTI_MODEL_PHASES = new Set([
-  'COUNCIL_DELIBERATING',
-  'COUNCIL_VOTING_INTERVIEW',
-  'DRAFTING_PRD',
-  'COUNCIL_VOTING_PRD',
-  'DRAFTING_BEADS',
-  'COUNCIL_VOTING_BEADS',
-])
-
-function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
-  const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
-  const isError = (entry: LogEntry) => entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')
-  const isPrompt = (entry: LogEntry) => entry.kind === 'prompt'
-  const isFromOpenCode = (entry: LogEntry) =>
-    entry.audience === 'ai' ||
-    entry.source === 'opencode' ||
-    entry.source.startsWith('model:') ||
-    Boolean(entry.modelId) ||
-    Boolean(entry.sessionId)
-  const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
-  const isImportantAiSummary = (entry: LogEntry) =>
-    entry.entryId?.endsWith(':transcript-summary') ||
-    entry.line.includes('Questions received from') ||
-    entry.line.includes('Compiled interview questions from')
-
-  switch (tab) {
-    case 'ALL':
-      return entries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isImportantAiSummary(entry)) && !isDebug(entry))
-    case 'SYS':
-      return entries.filter(e => isSystem(e) && !isDebug(e))
-    case 'AI':
-      return entries.filter(isFromOpenCode)
-    case 'ERROR':
-      return entries.filter(isError)
-    case 'DEBUG':
-      return entries.filter(isDebug)
-    default:
-      return entries.filter(entry => entry.modelId === tab)
-  }
-}
 
 export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelProps) {
   const logCtx = useLogs()

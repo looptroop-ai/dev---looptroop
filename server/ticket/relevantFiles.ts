@@ -1,4 +1,5 @@
 import jsYaml from 'js-yaml'
+import { MAX_RELEVANT_FILES_CHARS } from '../lib/constants'
 
 export interface RelevantFileEntry {
   path: string
@@ -13,7 +14,7 @@ export interface RelevantFilesData {
   files: RelevantFileEntry[]
 }
 
-export const MAX_TOTAL_CHARS = 160_000
+export const MAX_TOTAL_CHARS = MAX_RELEVANT_FILES_CHARS
 
 const RELEVANCE_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
 

@@ -20,6 +20,13 @@ import { resolve } from 'path'
 import { logIfVerbose, warnIfVerbose } from '../runtime'
 import { getOpenCodeBaseUrl } from './runtimeConfig'
 import type { Bead } from '../phases/beads/types'
+import {
+  ADAPTER_RETRY_DELAY_MS,
+  SDK_OPERATION_TIMEOUT_MS,
+  SESSION_LIST_LIMIT,
+  MESSAGE_LIST_LIMIT,
+  MAX_CATALOG_MODEL_IDS,
+} from '../lib/constants'
 
 interface RawEvent {
   type: string
@@ -247,7 +254,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
   async listSessions(): Promise<Session[]> {
     try {
-      const res = await this.client.session.list({ limit: 1000 })
+      const res = await this.client.session.list({ limit: SESSION_LIST_LIMIT })
       return Array.isArray(res.data)
         ? res.data.map(session => this.mapSession(session as Record<string, unknown>))
         : []
@@ -263,7 +270,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       const res = await this.client.session.messages({
         sessionID: sessionId,
         ...(directory ? { directory } : {}),
-        limit: 10000,
+        limit: MESSAGE_LIST_LIMIT,
       })
       return Array.isArray(res.data)
         ? res.data.map((entry) => this.mapMessageRecord(entry))
@@ -279,7 +286,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       await this.client.session.abort({
         sessionID: sessionId,
         ...(directory ? { directory } : {}),
-      }, this.requestOptions(AbortSignal.timeout(5000)))
+      }, this.requestOptions(AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS)))
       return true
     } catch {
       return false
@@ -399,7 +406,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
   async checkHealth(): Promise<HealthStatus> {
     try {
-      const health = await this.client.global.health(this.requestOptions(AbortSignal.timeout(5000)))
+      const health = await this.client.global.health(this.requestOptions(AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS)))
       const version = health.data?.version ? String(health.data.version) : 'unknown'
       const providers = await this.client.config.providers()
       return {
@@ -411,7 +418,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       // fall through to session fallback
     }
     try {
-      await this.client.session.status(undefined, this.requestOptions(AbortSignal.timeout(5000)))
+      await this.client.session.status(undefined, this.requestOptions(AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS)))
       return { available: true, version: 'unknown', models: [] }
     } catch (err) {
       return {
@@ -569,7 +576,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     if (!streamDrain) return
     await Promise.race([
       streamDrain,
-      new Promise<void>(resolve => setTimeout(resolve, 2000)),
+      new Promise<void>(resolve => setTimeout(resolve, ADAPTER_RETRY_DELAY_MS)),
     ])
   }
 
@@ -895,7 +902,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
     }
 
-    return modelIds.slice(0, 50)
+    return modelIds.slice(0, MAX_CATALOG_MODEL_IDS)
   }
 
   private getRecord(value: unknown): Record<string, unknown> | null {
@@ -903,130 +910,4 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   }
 }
 
-// Mock adapter for testing
-export class MockOpenCodeAdapter implements OpenCodeAdapter {
-  public sessions: Session[] = []
-  public messages: Map<string, Message[]> = new Map()
-  public mockResponses: Map<string, string> = new Map()
-  private sessionCounter = 0
-
-  async createSession(projectPath: string, _signal?: AbortSignal): Promise<Session> {
-    const session: Session = {
-      id: `mock-session-${++this.sessionCounter}`,
-      projectPath,
-      createdAt: new Date().toISOString(),
-    }
-    this.sessions.push(session)
-    return session
-  }
-
-  async promptSession(
-    sessionId: string,
-    parts: PromptPart[],
-    _signal?: AbortSignal,
-    options?: PromptSessionOptions,
-  ): Promise<string> {
-    const promptText = parts.map(part => part.content).join('\n')
-    const response = this.mockResponses.get(sessionId) ?? this.buildMockResponse(promptText)
-
-    const messages = this.messages.get(sessionId) ?? []
-    for (const part of parts) {
-      messages.push({
-        id: `msg-${Date.now()}`,
-        role: 'user',
-        content: part.content,
-        timestamp: new Date().toISOString(),
-      })
-    }
-
-    const assistantMessage: Message = {
-      id: `msg-${Date.now()}-resp`,
-      role: 'assistant',
-      content: response,
-      timestamp: new Date().toISOString(),
-    }
-    messages.push(assistantMessage)
-    this.messages.set(sessionId, messages)
-
-    options?.onEvent?.({
-      type: 'text',
-      sessionId,
-      messageId: assistantMessage.id,
-      partId: `part-${assistantMessage.id}`,
-      text: response,
-      streaming: false,
-      complete: true,
-    })
-    options?.onEvent?.({ type: 'done', sessionId })
-
-    return response
-  }
-
-  private buildMockResponse(promptText: string): string {
-    if (promptText.includes('Score each draft')) {
-      const draftCount = Array.from(promptText.matchAll(/Draft\s+\d+:/g)).length || 3
-      const rubricCategories = Array.from(promptText.matchAll(/- ([^\n(]+?) \(\d+pts\):/g))
-        .map((match) => match[1]?.trim())
-        .filter((category): category is string => Boolean(category))
-      const fallbackCategories = [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ]
-      const categories = rubricCategories.length > 0 ? rubricCategories : fallbackCategories
-      const renderDraft = (label: string, scores: number[]) => [
-        `  ${label}:`,
-        ...categories.map((category, index) => `    ${category}: ${scores[index] ?? 15}`),
-        `    total_score: ${categories.reduce((sum, _, index) => sum + (scores[index] ?? 15), 0)}`,
-      ]
-      const scoreRows = Array.from({ length: draftCount }, (_, index) => {
-        const score = Math.max(12, 18 - index)
-        return Array.from({ length: categories.length }, () => score)
-      })
-      return [
-        'draft_scores:',
-        ...scoreRows.flatMap((scores, index) => renderDraft(`Draft ${index + 1}`, scores)),
-      ].join('\n')
-    }
-
-    if (promptText.includes('## Winning Draft')) {
-      return 'Mock refined response'
-    }
-
-    if (promptText.includes('<FINAL_TEST_COMMANDS>') || promptText.includes('FINAL_TEST_COMMANDS')) {
-      return '<FINAL_TEST_COMMANDS>{"commands":["echo mock-final-test"],"summary":"mock final test plan"}</FINAL_TEST_COMMANDS>'
-    }
-
-    return 'Mock response'
-  }
-
-  async listSessions(): Promise<Session[]> {
-    return this.sessions
-  }
-
-  async getSessionMessages(sessionId: string): Promise<Message[]> {
-    return this.messages.get(sessionId) ?? []
-  }
-
-  async abortSession(_sessionId: string): Promise<boolean> {
-    return true
-  }
-
-  async *subscribeToEvents(sessionId: string, _signal?: AbortSignal): AsyncGenerator<StreamEvent> {
-    yield { type: 'done', sessionId }
-  }
-
-  async assembleBeadContext(_ticketId: string, _beadId: string): Promise<PromptPart[]> {
-    return [{ type: 'text', content: 'Mock bead context' }]
-  }
-
-  async assembleCouncilContext(_ticketId: string, _phase: string): Promise<PromptPart[]> {
-    return [{ type: 'text', content: 'Mock council context' }]
-  }
-
-  async checkHealth(): Promise<HealthStatus> {
-    return { available: true, version: 'mock-1.0.0', models: ['mock-model-1', 'mock-model-2'] }
-  }
-}
+export { MockOpenCodeAdapter } from './mockAdapter'

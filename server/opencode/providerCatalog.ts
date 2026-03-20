@@ -1,6 +1,7 @@
 import { getOpenCodeBaseUrl } from './runtimeConfig'
 import type { OpenCodeCatalogModel, OpenCodeCatalogResponse } from '../../shared/opencodeCatalog'
 import { isMockOpenCodeMode } from './factory'
+import { SDK_OPERATION_TIMEOUT_MS, DEFAULT_CONTEXT_WINDOW_LIMIT } from '../lib/constants'
 
 function buildMockCatalog(): OpenCodeCatalogResponse {
   return {
@@ -20,7 +21,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             name: 'Codex Mini Latest',
             status: 'active',
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
-            limit: { context: 200000 },
+            limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
           },
           'gpt-5.3-codex': {
@@ -28,7 +29,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             name: 'GPT-5.3 Codex',
             status: 'active',
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
-            limit: { context: 200000 },
+            limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
           },
         },
@@ -44,7 +45,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             name: 'Claude Sonnet 4',
             status: 'active',
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
-            limit: { context: 200000 },
+            limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
           },
         },
@@ -60,7 +61,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             name: 'Gemini 2.5 Pro',
             status: 'active',
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
-            limit: { context: 200000 },
+            limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
           },
         },
@@ -75,7 +76,7 @@ export async function fetchProviderCatalog(): Promise<OpenCodeCatalogResponse> {
   }
 
   const response = await fetch(`${getOpenCodeBaseUrl()}/provider`, {
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS),
   })
   if (!response.ok) {
     throw new Error(`OpenCode provider catalog request failed with ${response.status}`)

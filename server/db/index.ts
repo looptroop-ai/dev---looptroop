@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'os'
 import { mkdirSync } from 'fs'
 import { isMainThread, threadId } from 'worker_threads'
 import * as schema from './schema'
+import { SQLITE_BUSY_TIMEOUT_MS } from '../lib/constants'
 
 const isTestRuntime = process.env.NODE_ENV === 'test'
   || process.env.VITEST === 'true'
@@ -41,7 +42,7 @@ const sqlite = new Database(DB_PATH)
 sqlite.pragma('journal_mode=WAL')
 sqlite.pragma('locking_mode=NORMAL')
 sqlite.pragma('synchronous=NORMAL')
-sqlite.pragma('busy_timeout=5000')
+sqlite.pragma(`busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`)
 sqlite.pragma('wal_autocheckpoint=1000')
 
 export const db = drizzle(sqlite, { schema })

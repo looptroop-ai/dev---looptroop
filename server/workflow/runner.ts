@@ -6,6 +6,7 @@ import { profiles } from '../db/schema'
 import { PROFILE_DEFAULTS } from '../db/defaults'
 import { broadcaster } from '../sse/broadcaster'
 import { deliberateInterview } from '../phases/interview/deliberate'
+import { MAX_OUTPUT_PREVIEW_LENGTH, MAX_FILE_CONTENT_PREVIEW_LENGTH } from '../lib/constants'
 import { draftPRD, buildPrdContextBuilder } from '../phases/prd/draft'
 import { draftBeads, buildBeadsContextBuilder } from '../phases/beads/draft'
 import { expandBeads } from '../phases/beads/expand'
@@ -630,7 +631,7 @@ function formatToolState(event: Extract<StreamEvent, { type: 'tool' }>): string 
     return `${tool} failed${error ? `: ${error}` : '.'}`
   }
   if (status === 'completed') {
-    return `${tool} completed${title ? `: ${title}` : output ? `: ${output.slice(0, 160)}` : '.'}`
+    return `${tool} completed${title ? `: ${title}` : output ? `: ${output.slice(0, MAX_OUTPUT_PREVIEW_LENGTH)}` : '.'}`
   }
   if (status === 'running') {
     return `${tool} running${title ? `: ${title}` : '.'}`
@@ -1723,7 +1724,7 @@ export async function handleRelevantFilesScan(
           relevance: f.relevance,
           likely_action: f.likely_action,
           contentLength: f.content.length,
-          contentPreview: f.content.slice(0, 200),
+          contentPreview: f.content.slice(0, MAX_FILE_CONTENT_PREVIEW_LENGTH),
         })),
         modelId: codingModelId,
       }),

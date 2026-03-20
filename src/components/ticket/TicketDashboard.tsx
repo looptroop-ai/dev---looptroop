@@ -1,21 +1,23 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSaveTicketUIState, useTicket } from '@/hooks/useTickets'
 import { useSSE } from '@/hooks/useSSE'
-import { useUI } from '@/context/UIContext'
-import { LogProvider, useLogs } from '@/context/LogContext'
+import { useUI } from '@/context/useUI'
+import { LogProvider } from '@/context/LogContext'
+import { useLogs } from '@/context/useLogContext'
 import { DashboardHeader } from './DashboardHeader'
 import { NavigatorPanel } from './NavigatorPanel'
 import { ActiveWorkspace } from './ActiveWorkspace'
 import { ResizeHandle } from './ResizeHandle'
 import { Menu, X } from 'lucide-react'
 import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
+import { MAX_RAW_OUTPUT_LENGTH } from '@/lib/constants'
 import { WORKFLOW_PHASE_IDS } from '@shared/workflowMeta'
 
 function toDebugJson(data: Record<string, unknown>) {
   if (import.meta.env.PROD) return '[debug]'
   try {
     const raw = JSON.stringify(data)
-    return raw.length > 4000 ? `${raw.slice(0, 4000)}…[truncated]` : raw
+    return raw.length > MAX_RAW_OUTPUT_LENGTH ? `${raw.slice(0, MAX_RAW_OUTPUT_LENGTH)}…[truncated]` : raw
   } catch {
     return '[unserializable]'
   }
@@ -222,7 +224,7 @@ export function TicketDashboard() {
         data: { seenSignature: null },
       })
     }
-  }, [ticket?.id, errorSignature, ticket?.errorSeenSignature, saveTicketUiState])
+  }, [ticket, errorSignature, saveTicketUiState])
 
   // Escape key closes dashboard
   useEffect(() => {

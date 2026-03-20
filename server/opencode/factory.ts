@@ -1,4 +1,5 @@
-import { MockOpenCodeAdapter, OpenCodeSDKAdapter, type OpenCodeAdapter } from './adapter'
+import { OpenCodeSDKAdapter, type OpenCodeAdapter } from './adapter'
+import { MockOpenCodeAdapter } from './mockAdapter'
 import { getOpenCodeBaseUrl } from './runtimeConfig'
 
 let singleton: OpenCodeAdapter | null = null

@@ -4,6 +4,7 @@ import { ChevronDown, Search, Zap, Eye, Wrench, Brain, AlertCircle, Loader2 } fr
 import { cn } from '@/lib/utils'
 import { useOpenCodeModels, useAllOpenCodeModels } from '@/hooks/useOpenCodeModels'
 import type { OpenCodeModel } from '@/hooks/useOpenCodeModels'
+import { MAX_UNFILTERED_MODELS } from '@/lib/constants'
 
 interface ModelPickerProps {
   value: string
@@ -160,7 +161,7 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
   const filtered = useMemo(() => {
     if (!models) return []
     const q = query.trim().toLowerCase()
-    if (!q) return models.slice(0, 200) // show top 200 unfiltered
+    if (!q) return models.slice(0, MAX_UNFILTERED_MODELS) // show top unfiltered
     return models.filter(m =>
       m.name.toLowerCase().includes(q) ||
       m.providerName.toLowerCase().includes(q) ||
@@ -306,9 +307,9 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
               </div>
             ))}
 
-            {!query && filtered.length >= 200 && (
+            {!query && filtered.length >= MAX_UNFILTERED_MODELS && (
               <div className="text-center text-xs text-muted-foreground py-3 border-t border-border/40">
-                Showing first 200 of {models?.length ?? 0} — type to search all
+                Showing first {MAX_UNFILTERED_MODELS} of {models?.length ?? 0} — type to search all
               </div>
             )}
           </div>

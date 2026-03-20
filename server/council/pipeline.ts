@@ -6,6 +6,7 @@ import { generateDrafts } from './drafter'
 import { conductVoting, selectWinner } from './voter'
 import { refineDraft } from './refiner'
 import { checkMemberResponseQuorum, checkQuorum } from './quorum'
+import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
 
 export interface OpenCodeSessionLog {
   stage: 'draft' | 'vote' | 'refine'
@@ -39,7 +40,7 @@ export async function runCouncilPipeline(
     contextParts,
     projectPath,
     minQuorum = 2,
-    draftTimeout = 300000,
+    draftTimeout = COUNCIL_RESPONSE_TIMEOUT_MS,
     signal,
     contextBuilder,
     onOpenCodeSessionLog,

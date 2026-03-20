@@ -1,4 +1,5 @@
 import type { SSEEventType } from './eventTypes'
+import { MAX_SSE_BUFFER_SIZE } from '../lib/constants'
 
 interface SSEClient {
   id: string
@@ -11,7 +12,7 @@ class SSEBroadcaster {
   private clients = new Map<string, SSEClient[]>()
   private eventCounter = 0
   private eventBuffer = new Map<string, { id: string; event: string; data: string; timestamp: number }[]>()
-  private readonly MAX_BUFFER_SIZE = 1000
+  private readonly MAX_BUFFER_SIZE = MAX_SSE_BUFFER_SIZE
   private readonly BUFFER_TTL = 300000 // 5 minutes
 
   addClient(ticketId: string, client: SSEClient) {

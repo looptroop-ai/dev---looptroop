@@ -3,6 +3,7 @@ import type { DraftResult } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt } from '../structuredOutput'
+import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
 
 export async function refineDraft(
   adapter: OpenCodeAdapter,
@@ -10,7 +11,7 @@ export async function refineDraft(
   losingDrafts: DraftResult[],
   contextParts: PromptPart[],
   projectPath: string,
-  timeoutMs: number = 300000,
+  timeoutMs: number = COUNCIL_RESPONSE_TIMEOUT_MS,
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
     stage: 'draft' | 'vote' | 'refine'

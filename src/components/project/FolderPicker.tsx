@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Folder, ArrowUp, CheckCircle2, XCircle, CircleDot } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FullScreenModal } from '@/components/shared/FullScreenModal'
@@ -43,7 +43,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
     const [gitMessage, setGitMessage] = useState('')
     const gitCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    const checkGit = (path: string) => {
+    const checkGit = useCallback((path: string) => {
         if (gitCheckRef.current) clearTimeout(gitCheckRef.current)
         if (!path) { setGitStatus('none'); setGitMessage(''); return }
         setGitStatus('checking')
@@ -59,9 +59,9 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
                 setGitMessage('Git check failed.')
             }
         }, 300)
-    }
+    }, [])
 
-    const fetchLs = async (pathStr: string) => {
+    const fetchLs = useCallback(async (pathStr: string) => {
         setLoading(true)
         setError(null)
         try {
@@ -79,7 +79,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
         } finally {
             setLoading(false)
         }
-    }
+    }, [checkGit])
 
     useEffect(() => {
         if (open) {
@@ -87,7 +87,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
             setGitMessage('')
             fetchLs(initialPath || '')
         }
-    }, [open, initialPath])
+    }, [open, initialPath, fetchLs])
 
     const gitIcon = gitStatus === 'valid'
         ? <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />

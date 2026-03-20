@@ -3,6 +3,8 @@ import type { CouncilMember, DraftGenerationResult, DraftProgressEvent, DraftRes
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
+import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
+import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError, classifyDraftFailure } from './draftUtils'
 
 interface DraftValidationResult {
   questionCount?: number
@@ -27,28 +29,11 @@ interface GenerateDraftsRuntimeOptions {
   structuredRetrySchemaReminder?: string
 }
 
-const PHASE_DEADLINE_ERROR = 'CouncilPhaseDeadlineReached'
-
-function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-function isPhaseDeadlineError(error: unknown) {
-  return error instanceof Error && error.message === PHASE_DEADLINE_ERROR
-}
-
 function buildMemberOutcomeMap(drafts: DraftResult[]) {
   return drafts.reduce<Record<string, MemberOutcome>>((outcomes, draft) => {
     outcomes[draft.memberId] = draft.outcome
     return outcomes
   }, {})
-}
-
-function classifyDraftFailure(error: unknown, hasResponse: boolean) {
-  return {
-    outcome: hasResponse ? 'invalid_output' as const : 'failed' as const,
-    errorDetail: error instanceof Error ? error.message : String(error),
-  }
 }
 
 function buildStructuredRetryPrompt(
@@ -80,7 +65,7 @@ export async function generateDrafts(
   members: CouncilMember[],
   contextParts: PromptPart[],
   projectPath: string,
-  timeout: number = 300000,
+  timeout: number = COUNCIL_RESPONSE_TIMEOUT_MS,
   signal?: AbortSignal,
   onOpenCodeSessionLog?: (entry: {
     stage: 'draft' | 'vote' | 'refine'

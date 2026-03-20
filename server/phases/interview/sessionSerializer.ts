@@ -1,0 +1,303 @@
+import type { ParsedInterviewQuestion } from './questions'
+import { parseInterviewQuestions } from './questions'
+import type { BatchQuestion } from './qa'
+import type {
+  InterviewBatchHistoryEntry,
+  InterviewFollowUpRound,
+  InterviewQuestionSource,
+  InterviewQuestionView,
+  InterviewSessionAnswer,
+  InterviewSessionQuestion,
+  InterviewSessionSnapshot,
+} from '@shared/interviewSession'
+import jsYaml from 'js-yaml'
+import { repairYamlIndentation } from '@shared/yamlRepair'
+import { calculateFollowUpLimit } from './followUpBudget'
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
+function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, source: InterviewQuestionSource, roundNumber?: number): InterviewSessionQuestion {
+  const priority = 'priority' in input && typeof input.priority === 'string' && input.priority.trim()
+    ? input.priority.trim()
+    : undefined
+  const rationale = 'rationale' in input && typeof input.rationale === 'string' && input.rationale.trim()
+    ? input.rationale.trim()
+    : undefined
+
+  return {
+    id: input.id.trim(),
+    question: input.question.trim(),
+    phase: input.phase?.trim() || 'Structure',
+    ...(priority ? { priority } : {}),
+    ...(rationale ? { rationale } : {}),
+    source,
+    ...(roundNumber !== undefined ? { roundNumber } : {}),
+  }
+}
+
+function cloneSnapshot(snapshot: InterviewSessionSnapshot): InterviewSessionSnapshot {
+  return {
+    ...snapshot,
+    questions: snapshot.questions.map((question) => ({ ...question })),
+    answers: Object.fromEntries(
+      Object.entries(snapshot.answers).map(([id, answer]) => [id, { ...answer } satisfies InterviewSessionAnswer]),
+    ),
+    currentBatch: snapshot.currentBatch
+      ? {
+          ...snapshot.currentBatch,
+          questions: snapshot.currentBatch.questions.map((question) => ({ ...question })),
+        }
+      : null,
+    batchHistory: snapshot.batchHistory.map((entry) => ({ ...entry } satisfies InterviewBatchHistoryEntry)),
+    followUpRounds: snapshot.followUpRounds.map((round) => ({ ...round } satisfies InterviewFollowUpRound)),
+  }
+}
+
+export function createInterviewSessionSnapshot(input: {
+  winnerId: string
+  compiledQuestions: ParsedInterviewQuestion[]
+  maxInitialQuestions: number
+  followUpBudgetPercent?: number
+}): InterviewSessionSnapshot {
+  const updatedAt = nowIso()
+
+  return {
+    schemaVersion: 1,
+    winnerId: input.winnerId,
+    maxInitialQuestions: input.maxInitialQuestions,
+    maxFollowUps: calculateFollowUpLimit(input.maxInitialQuestions, input.followUpBudgetPercent),
+    questions: input.compiledQuestions.map((question) => normalizeQuestion(question, 'compiled')),
+    answers: {},
+    currentBatch: null,
+    batchHistory: [],
+    followUpRounds: [],
+    rawFinalYaml: null,
+    completedAt: null,
+    updatedAt,
+  }
+}
+
+export function parseInterviewSessionSnapshot(content: string | null | undefined): InterviewSessionSnapshot | null {
+  if (!content?.trim()) return null
+
+  try {
+    const parsed = JSON.parse(content) as InterviewSessionSnapshot
+    if (parsed.schemaVersion !== 1 || typeof parsed.winnerId !== 'string') return null
+    if (!Array.isArray(parsed.questions) || !parsed.answers || typeof parsed.answers !== 'object') return null
+    return cloneSnapshot(parsed)
+  } catch {
+    return null
+  }
+}
+
+export function serializeInterviewSessionSnapshot(snapshot: InterviewSessionSnapshot): string {
+  return JSON.stringify(snapshot)
+}
+
+function emptyAnswer(): {
+  skipped: boolean
+  selected_option_ids: string[]
+  free_text: string
+  answered_by: string
+  answered_at: string
+} {
+  return {
+    skipped: true,
+    selected_option_ids: [],
+    free_text: '',
+    answered_by: 'ai_skip',
+    answered_at: '',
+  }
+}
+
+function extractRawFinalInterviewSummary(rawFinalYaml: string | null | undefined): {
+  goals: string[]
+  constraints: string[]
+  nonGoals: string[]
+  finalFreeFormAnswer: string | null
+} | null {
+  if (!rawFinalYaml?.trim()) return null
+
+  try {
+    const parsed = jsYaml.load(repairYamlIndentation(rawFinalYaml)) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return null
+
+    const summary = parsed.summary
+    if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null
+
+    const record = summary as Record<string, unknown>
+    const finalFreeFormAnswer = typeof record.final_free_form_answer === 'string' && record.final_free_form_answer.trim()
+      ? record.final_free_form_answer.trim()
+      : null
+
+    return {
+      goals: toStringArray(record.goals),
+      constraints: toStringArray(record.constraints),
+      nonGoals: toStringArray(record.non_goals),
+      finalFreeFormAnswer,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function buildCanonicalInterviewYaml(
+  ticketId: string,
+  snapshot: InterviewSessionSnapshot,
+): string {
+  const generatedAt = snapshot.updatedAt || nowIso()
+  const questions = snapshot.questions.map((question) => {
+    const answer = snapshot.answers[question.id]
+    return {
+      id: question.id,
+      phase: question.phase,
+      prompt: question.question,
+      source: question.source,
+      follow_up_round: question.roundNumber ?? null,
+      answer_type: 'free_text',
+      options: [],
+      answer: answer
+        ? {
+            skipped: answer.skipped,
+            selected_option_ids: [],
+            free_text: answer.answer,
+            answered_by: answer.skipped ? 'ai_skip' : 'user',
+            answered_at: answer.skipped ? '' : answer.answeredAt ?? '',
+          }
+        : emptyAnswer(),
+    }
+  })
+
+  const followUpRounds = snapshot.followUpRounds.map((round) => ({
+    round_number: round.roundNumber,
+    source: round.source,
+    question_ids: [...round.questionIds],
+  }))
+
+  const finalFreeFormAnswerFromQuestions = questions.find((question) => question.source === 'final_free_form')?.answer.free_text ?? ''
+  const rawFinalSummary = extractRawFinalInterviewSummary(snapshot.rawFinalYaml)
+
+  const interviewData = {
+    schema_version: 1,
+    ticket_id: ticketId,
+    artifact: 'interview',
+    status: 'draft',
+    generated_by: {
+      winner_model: snapshot.winnerId,
+      generated_at: generatedAt,
+      canonicalization: 'server_normalized',
+    },
+    questions,
+    follow_up_rounds: followUpRounds,
+    summary: {
+      goals: rawFinalSummary?.goals ?? [],
+      constraints: rawFinalSummary?.constraints ?? [],
+      non_goals: rawFinalSummary?.nonGoals ?? [],
+      final_free_form_answer: rawFinalSummary?.finalFreeFormAnswer ?? finalFreeFormAnswerFromQuestions,
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+
+  return jsYaml.dump(interviewData, { lineWidth: 120, noRefs: true }) as string
+}
+
+function normalizeCoverageQuestion(question: BatchQuestion, roundNumber: number): InterviewSessionQuestion {
+  return normalizeQuestion(question, 'coverage_follow_up', roundNumber)
+}
+
+function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
+  try {
+    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return []
+
+    const rawFollowUps = Array.isArray(parsed.follow_up_questions)
+      ? parsed.follow_up_questions
+      : Array.isArray(parsed.followUpQuestions)
+        ? parsed.followUpQuestions
+        : []
+
+    if (rawFollowUps.length === 0) return []
+    return rawFollowUps.map((entry, index) => {
+      if (typeof entry === 'string') {
+        return {
+          id: `FU${index + 1}`,
+          question: entry.trim(),
+          phase: 'Structure',
+          priority: 'high',
+          rationale: 'Coverage follow-up required to close interview gaps.',
+        }
+      }
+
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      return {
+        id: typeof record.id === 'string' ? record.id : `FU${index + 1}`,
+        question: typeof record.question === 'string'
+          ? record.question
+          : typeof record.prompt === 'string'
+            ? record.prompt
+            : String(record.text ?? ''),
+        phase: typeof record.phase === 'string' ? record.phase : 'Structure',
+        priority: typeof record.priority === 'string' ? record.priority : 'high',
+        rationale: typeof record.rationale === 'string' ? record.rationale : 'Coverage follow-up required to close interview gaps.',
+      }
+    }).filter((question) => question.question.trim().length > 0)
+  } catch {
+    return []
+  }
+}
+
+export function extractCoverageFollowUpQuestions(
+  response: string,
+  snapshot: InterviewSessionSnapshot,
+): InterviewSessionQuestion[] {
+  const parsedYamlQuestions = parseCoverageYamlQuestions(response)
+  if (parsedYamlQuestions.length > 0) {
+    const roundNumber = snapshot.followUpRounds
+      .filter((round) => round.source === 'coverage')
+      .reduce((max, round) => Math.max(max, round.roundNumber), 0) + 1
+    return parsedYamlQuestions.map((question) => normalizeCoverageQuestion(question, roundNumber))
+  }
+
+  try {
+    const parsedQuestions = parseInterviewQuestions(response, { allowTopLevelArray: true })
+    const roundNumber = snapshot.followUpRounds
+      .filter((round) => round.source === 'coverage')
+      .reduce((max, round) => Math.max(max, round.roundNumber), 0) + 1
+    return parsedQuestions.map((question) => normalizeQuestion(question, 'coverage_follow_up', roundNumber))
+  } catch {
+    return []
+  }
+}
+
+export function buildInterviewQuestionViews(
+  snapshot: InterviewSessionSnapshot,
+): InterviewQuestionView[] {
+  const currentIds = new Set(snapshot.currentBatch?.questions.map((question) => question.id) ?? [])
+
+  return snapshot.questions.map((question) => {
+    const answer = snapshot.answers[question.id]
+    let status: InterviewQuestionView['status'] = 'pending'
+    if (currentIds.has(question.id)) status = 'current'
+    else if (answer?.skipped) status = 'skipped'
+    else if (answer && !answer.skipped) status = 'answered'
+
+    return {
+      ...question,
+      status,
+      answer: answer ? answer.answer : null,
+    }
+  })
+}

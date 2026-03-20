@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useUI } from '@/context/UIContext'
+import { useUI } from '@/context/useUI'
 import { useDeleteTicket, type Ticket } from '@/hooks/useTickets'
 
 interface TerminalTicketDeleteProps {

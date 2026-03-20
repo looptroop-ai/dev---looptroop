@@ -1,4 +1,4 @@
-import { getModelDisplayName } from '@/components/shared/ModelBadge'
+import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 

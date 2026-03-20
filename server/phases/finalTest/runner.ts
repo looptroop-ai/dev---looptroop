@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { FORCE_KILL_DELAY_MS } from '../../lib/constants'
 
 export interface FinalTestCommandResult {
   command: string
@@ -73,7 +74,7 @@ async function runCommand(
       timeoutHandle = setTimeout(() => {
         timedOut = true
         child.kill('SIGTERM')
-        setTimeout(() => child.kill('SIGKILL'), 5000).unref()
+        setTimeout(() => child.kill('SIGKILL'), FORCE_KILL_DELAY_MS).unref()
       }, timeoutMs)
     }
   })

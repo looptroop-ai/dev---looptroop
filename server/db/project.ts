@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from './schema'
 import { ensureProjectStorageDirs, getProjectDbPath } from '../storage/paths'
+import { SQLITE_BUSY_TIMEOUT_MS } from '../lib/constants'
 
 interface ProjectDatabase {
   sqlite: Database.Database
@@ -122,7 +123,7 @@ export function getProjectDatabase(projectRoot: string): ProjectDatabase {
   sqlite.pragma('journal_mode=WAL')
   sqlite.pragma('locking_mode=NORMAL')
   sqlite.pragma('synchronous=NORMAL')
-  sqlite.pragma('busy_timeout=5000')
+  sqlite.pragma(`busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`)
   initializeProjectSqlite(sqlite)
 
   const projectDb: ProjectDatabase = {

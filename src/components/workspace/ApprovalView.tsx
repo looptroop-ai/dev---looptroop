@@ -130,9 +130,6 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
     staleTime: 5 * 60 * 1000, // 5 minutes cache to prevent flashes
   })
 
-  // Show loading only on true initial load (no cached data), not on background refetch
-  const loading = isLoading
-
   const fileContent = fetchedContent ?? ''
   const showSkippedQuestionsNotice = useMemo(
     () => artifactType === 'interview' && hasSkippedInterviewQuestions(fileContent),
@@ -156,7 +153,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   }, [ticket.id, artifactType])
 
   useEffect(() => {
-    if (loading || restoredDraftRef.current || fetchedContent === undefined) return
+    if (isLoading || restoredDraftRef.current || fetchedContent === undefined) return
 
     const persisted = persistedUiState?.data
     const nextEditMode = Boolean(persisted?.editMode)
@@ -171,7 +168,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
       editedContent: nextEditedContent,
     })
     restoredDraftRef.current = true
-  }, [loading, fetchedContent, persistedUiState, fileContent])
+  }, [isLoading, fetchedContent, persistedUiState, fileContent])
 
   const handleToggleEdit = useCallback(() => {
     if (editMode) {
@@ -224,7 +221,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   const hasChanges = editedContent !== fileContent
 
   useEffect(() => {
-    if (loading || !restoredDraftRef.current) return
+    if (isLoading || !restoredDraftRef.current) return
 
     const snapshot = { editMode, editedContent }
     const serialized = JSON.stringify(snapshot)
@@ -240,7 +237,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [loading, editMode, editedContent, saveUiState, ticket.id, uiStateScope])
+  }, [isLoading, editMode, editedContent, saveUiState, ticket.id, uiStateScope])
 
   return (
     <div ref={containerRef} className="h-full flex flex-col overflow-hidden">
@@ -308,7 +305,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
 
       {/* Artifact content */}
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
-        {loading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading artifacts…</div>
         ) : editMode ? (
           <YamlEditor value={editedContent} onChange={setEditedContent} className="border rounded-md" />

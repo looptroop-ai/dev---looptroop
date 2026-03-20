@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { queryClient } from '@/lib/queryClient'
 import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
+import { SSE_RECONNECT_DELAY_MS } from '@/lib/constants'
 import { patchTicketStatusInCache } from './ticketStatusCache'
 import {
   getTicketArtifactsQueryKey,
@@ -29,7 +30,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
-    reconnectTimerRef.current = setTimeout(() => reconnectRef.current?.(), 3000)
+    reconnectTimerRef.current = setTimeout(() => reconnectRef.current?.(), SSE_RECONNECT_DELAY_MS)
   }, [])
 
   const connect = useCallback(() => {

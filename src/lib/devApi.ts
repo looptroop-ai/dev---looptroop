@@ -1,3 +1,5 @@
+import { API_TIMEOUT_MS } from '@/lib/constants'
+
 const DEV_BACKEND_HEALTH_PATH = '/api/health'
 const DEV_BACKEND_POLL_MS = 250
 const DEV_BACKEND_TIMEOUT_MS = 30_000
@@ -56,7 +58,7 @@ function getDirectDevApiUrl(path: string) {
 
 async function pingDevBackend() {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), 1000)
+  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS)
 
   try {
     const response = await nativeFetch(getDirectDevApiUrl(DEV_BACKEND_HEALTH_PATH), {
