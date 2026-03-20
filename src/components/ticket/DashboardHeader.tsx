@@ -10,6 +10,7 @@ import { useProjects } from '@/hooks/useProjects'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { getStatusProgress, getStatusRingColor } from '@/components/kanban/ticketCardUtils'
 import { ProgressRing } from '@/components/kanban/ProgressRing'
+import { EffortBadge } from '@/components/shared/EffortBadge'
 import { TicketActions } from './TicketActions'
 import { ErrorBanner } from './ErrorBanner'
 import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
@@ -248,6 +249,8 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <div className="mt-1 space-y-1 text-xs text-muted-foreground">
                   {(() => {
                     const mainModel = ticket.lockedMainImplementer
+                    const mainVariant = ticket.lockedMainImplementerVariant
+                    const councilVariants = ticket.lockedCouncilMemberVariants ?? {}
                     const members: string[] = ticket.lockedCouncilMembers
                     const otherMembers = (members.length > 0 && members[0] === mainModel) ? members.slice(1) : members
 
@@ -259,7 +262,10 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                               <span>Main Implementer</span>
                               <span>Council Member A</span>
                             </div>
-                            <span className="font-mono text-right">{mainModel}</span>
+                            <div className="flex items-center gap-2">
+                              {mainVariant && <EffortBadge variant={mainVariant} />}
+                              <span className="font-mono text-right">{mainModel}</span>
+                            </div>
                           </div>
                         )}
                         {otherMembers.length > 0 && (
@@ -268,7 +274,10 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                             {otherMembers.map((member, index) => (
                               <div key={member} className="flex justify-between">
                                 <span>Council Member {String.fromCharCode(66 + index)}</span>
-                                <span className="font-mono">{member}</span>
+                                <div className="flex items-center gap-2">
+                                  {councilVariants[member] && <EffortBadge variant={councilVariants[member]} />}
+                                  <span className="font-mono">{member}</span>
+                                </div>
                               </div>
                             ))}
                           </>

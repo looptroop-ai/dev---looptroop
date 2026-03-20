@@ -14,6 +14,8 @@ import {
 } from '@/lib/errorTicketSeen'
 import { getStatusColor, getRelativeTime, getStatusProgress, getStatusRingColor } from './ticketCardUtils'
 import { ProgressRing } from './ProgressRing'
+import { EffortBadge } from '@/components/shared/EffortBadge'
+import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 
 interface TicketCardProps {
   ticket: {
@@ -28,6 +30,8 @@ interface TicketCardProps {
     totalBeads?: number | null
     errorMessage?: string | null
     errorSeenSignature?: string | null
+    lockedMainImplementer?: string | null
+    lockedMainImplementerVariant?: string | null
   }
   projectColor?: string
   projectIcon?: string
@@ -131,6 +135,14 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
         </div>
       </div>
       <p className="mt-1 text-sm font-medium leading-tight">{ticket.title}</p>
+      {ticket.status !== 'DRAFT' && ticket.lockedMainImplementer && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground truncate">
+          <span className="font-mono truncate">{getModelDisplayName(ticket.lockedMainImplementer)}</span>
+          {ticket.lockedMainImplementerVariant && (
+            <EffortBadge variant={ticket.lockedMainImplementerVariant} className="text-[10px]" />
+          )}
+        </div>
+      )}
       <div className="mt-2 flex items-center gap-1.5">
         {projectIcon && (projectIcon.startsWith('data:') ? <img src={projectIcon} className="h-4 w-4 rounded" alt="" /> : <span className="text-xs">{projectIcon}</span>)}
         {projectName && <span className="text-xs text-muted-foreground">{projectName}</span>}

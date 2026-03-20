@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { EFFORT_META } from '@/lib/effortMeta'
 import { Zap } from 'lucide-react'
 
 interface EffortPickerProps {
@@ -10,16 +11,6 @@ interface EffortPickerProps {
 }
 
 const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-
-const EFFORT_META: Record<string, { label: string; shortLabel: string; icon: string; description: string; intensity: number }> = {
-  none:    { label: 'None',    shortLabel: 'None', icon: '○',  description: 'No reasoning — fastest and cheapest',                  intensity: 0 },
-  minimal: { label: 'Minimal', shortLabel: 'Min',  icon: '◔',  description: 'Minimal reasoning — very fast, low cost',              intensity: 1 },
-  low:     { label: 'Low',     shortLabel: 'Low',  icon: '◑',  description: 'Light reasoning — fast with basic analysis',            intensity: 2 },
-  medium:  { label: 'Medium',  shortLabel: 'Med',  icon: '◕',  description: 'Balanced reasoning — good quality and speed trade-off', intensity: 3 },
-  high:    { label: 'High',    shortLabel: 'High', icon: '●',  description: 'Deep reasoning — thorough analysis, slower',            intensity: 4 },
-  xhigh:   { label: 'XHigh',   shortLabel: 'XH',   icon: '⬤',  description: 'Extra high reasoning — maximum effort, most costly',    intensity: 5 },
-  max:     { label: 'Max',     shortLabel: 'Max',  icon: '★',  description: 'Maximum thinking budget — deepest analysis possible',   intensity: 5 },
-}
 
 function intensityColor(intensity: number, selected: boolean): string {
   if (!selected) return 'bg-muted/40 text-muted-foreground/60 hover:bg-muted hover:text-muted-foreground'

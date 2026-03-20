@@ -23,7 +23,10 @@ function assertLockedModelConfigurationMutable(
   ticket: LocalTicketRow,
   patch: Partial<Omit<LocalTicketRow, 'id' | 'projectId' | 'externalId' | 'createdAt'>>,
 ) {
-  const updatesLockedModels = 'lockedMainImplementer' in patch || 'lockedCouncilMembers' in patch
+  const updatesLockedModels = 'lockedMainImplementer' in patch
+    || 'lockedCouncilMembers' in patch
+    || 'lockedMainImplementerVariant' in patch
+    || 'lockedCouncilMemberVariants' in patch
   if (!updatesLockedModels) return
 
   const currentMainImplementer = normalizeModelId(ticket.lockedMainImplementer)

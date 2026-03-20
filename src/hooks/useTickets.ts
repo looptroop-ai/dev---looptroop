@@ -42,10 +42,12 @@ export interface Ticket {
   errorMessage: string | null
   errorSeenSignature?: string | null
   lockedMainImplementer: string | null
+  lockedMainImplementerVariant?: string | null
   lockedInterviewQuestions?: number | null
   lockedCoverageFollowUpBudgetPercent?: number | null
   lockedMaxCoveragePasses?: number | null
   lockedCouncilMembers: string[]
+  lockedCouncilMemberVariants?: Record<string, string> | null
   availableActions: WorkflowAction[]
   previousStatus?: string | null
   runtime: TicketRuntime
