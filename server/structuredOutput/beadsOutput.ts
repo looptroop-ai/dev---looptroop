@@ -334,8 +334,11 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
         const content = typeof getValueByAliases(entry, ['content', 'contents', 'code', 'source', 'snippet', 'excerpt']) === 'string'
           ? String(getValueByAliases(entry, ['content', 'contents', 'code', 'source', 'snippet', 'excerpt']))
           : ''
+        const contentPreview = typeof getValueByAliases(entry, ['content_preview', 'contentpreview', 'preview', 'signatures']) === 'string'
+          ? String(getValueByAliases(entry, ['content_preview', 'contentpreview', 'preview', 'signatures']))
+          : ''
 
-        return { path, rationale, relevance, likely_action: likelyAction, content }
+        return { path, rationale, relevance, likely_action: likelyAction, content, content_preview: contentPreview || content }
       })
 
       const payload: RelevantFilesOutputPayload = {

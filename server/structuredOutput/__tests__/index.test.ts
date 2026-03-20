@@ -1156,4 +1156,60 @@ describe('structured output normalization', () => {
     expect(result.value.files[0]?.path).toBe('src/app.ts')
     expect(result.value.files[1]?.path).toBe('src/utils.ts')
   })
+
+  it('repairs plain scalar rationale containing colon-space (LOO-1 regression)', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 2',
+      'files:',
+      '  - path: server/sse/broadcaster.ts',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    rationale: This is the live-stream backbone.',
+      '    content_preview: |',
+      '      class SSEBroadcaster {}',
+      '  - path: server/machines/ticketMachine.ts',
+      '    relevance: high',
+      '    likely_action: modify',
+      "    rationale: Many of the ticket's correctness rules are state-machine rules: completion truth gates, non-completion for idle/paused/interrupted, stop reasons, and authoritative transition sources.",
+      '    content_preview: |',
+      '      export const ticketMachine = setup({})',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value.files).toHaveLength(2)
+    expect(result.value.files[0]?.path).toBe('server/sse/broadcaster.ts')
+    expect(result.value.files[1]?.path).toBe('server/machines/ticketMachine.ts')
+    expect(result.value.files[1]?.rationale).toContain('state-machine rules: completion truth gates')
+  })
+
+  it('repairs multiple entries with colons in rationale values', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 3',
+      'files:',
+      '  - path: a.ts',
+      '    rationale: Simple rationale.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '  - path: b.ts',
+      '    rationale: Has colons: in the middle and again: here.',
+      '    relevance: medium',
+      '    likely_action: read',
+      '  - path: c.ts',
+      '    rationale: Also has key: value patterns and more: stuff here.',
+      '    relevance: low',
+      '    likely_action: read',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.files).toHaveLength(3)
+    expect(result.value.files[1]?.rationale).toContain('Has colons: in the middle')
+    expect(result.value.files[2]?.rationale).toContain('Also has key: value patterns')
+  })
 })

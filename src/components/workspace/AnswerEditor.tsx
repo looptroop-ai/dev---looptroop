@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoadingText } from '@/components/ui/LoadingText'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 
 function priorityBadgeVariant(priority: string): 'destructive' | 'default' | 'secondary' | 'outline' {
   switch (priority) {
@@ -88,9 +89,16 @@ export function AnswerEditor({
                   : `Interview Q&A — Batch ${currentBatch.batchNumber}`}
             </CardTitle>
             {currentBatch.progress.total > 0 && (
-              <Badge variant="outline" className="text-xs whitespace-nowrap">
-                Q {currentBatch.progress.current}/{currentBatch.progress.total}
-              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-xs whitespace-nowrap cursor-default">
+                    {currentBatch.progress.current}/{currentBatch.progress.total}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Interview batch {currentBatch.progress.current} of {currentBatch.progress.total} estimated
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         </CardHeader>

@@ -16,7 +16,7 @@ import {
   type InterviewTurnOutput,
 } from '../../structuredOutput'
 import { calculateFollowUpLimit } from './followUpBudget'
-import { MAX_INTERVIEW_BATCH_SIZE } from '../../lib/constants'
+import { MAX_INTERVIEW_BATCH_SIZE, COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 
 export { calculateFollowUpLimit } from './followUpBudget'
 
@@ -102,6 +102,7 @@ export async function startInterviewSession(
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
   onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void,
   ticketId?: string,
+  timeoutMs: number = COUNCIL_RESPONSE_TIMEOUT_MS,
 ): Promise<{ sessionId: string; firstBatch: BatchResponse }> {
   const contextParts = buildMinimalContext('interview_qa', ticketState)
   const prompt = buildConversationalPrompt(PROM4, contextParts)
@@ -129,6 +130,7 @@ export async function startInterviewSession(
       projectPath,
       parts: [{ type: 'text', content: fullPrompt }] as PromptPart[],
       signal,
+      timeoutMs,
       model: winnerId,
       ...(ticketId
         ? {
@@ -167,6 +169,7 @@ export async function startInterviewSession(
     sessionId: result.session.id,
     response: result.response,
     signal,
+    timeoutMs,
     model: winnerId,
     onOpenCodeStreamEvent,
     onPromptDispatched,
@@ -188,6 +191,7 @@ export async function submitBatchToSession(
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void,
   onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void,
   ticketId?: string,
+  timeoutMs: number = COUNCIL_RESPONSE_TIMEOUT_MS,
 ): Promise<BatchResponse> {
   const answerLines = Object.entries(batchAnswers).map(([id, answer]) => {
     const text = answer.trim() || '[SKIPPED]'
@@ -210,6 +214,7 @@ export async function submitBatchToSession(
       session: { id: sessionId },
       parts: [{ type: 'text', content: message }] as PromptPart[],
       signal,
+      timeoutMs,
       model,
       onStreamEvent: (event) => {
         onOpenCodeStreamEvent?.({
@@ -235,6 +240,7 @@ export async function submitBatchToSession(
     sessionId,
     response: result.response,
     signal,
+    timeoutMs,
     model,
     onOpenCodeStreamEvent,
     onPromptDispatched,
@@ -288,6 +294,7 @@ async function parseBatchResponseWithRetry(input: {
   sessionId: string
   response: string
   signal?: AbortSignal
+  timeoutMs?: number
   model?: string
   onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
   onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
@@ -311,6 +318,7 @@ async function parseBatchResponseWithRetry(input: {
       session: { id: input.sessionId },
       parts: retryParts,
       signal: input.signal,
+      timeoutMs: input.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
       model: input.model,
       onStreamEvent: (event) => {
         input.onOpenCodeStreamEvent?.({

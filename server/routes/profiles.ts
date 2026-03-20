@@ -10,7 +10,9 @@ const profileRouter = new Hono()
 
 const profileSchema = z.object({
   mainImplementer: z.string().optional(),
+  mainImplementerVariant: z.string().optional(),
   councilMembers: z.string().optional(),
+  councilMemberVariants: z.string().optional(),
   minCouncilQuorum: z.number().int().min(1).max(4).optional(),
   perIterationTimeout: z.number().int().nonnegative().optional(), // 0 = no timeout
   councilResponseTimeout: z.number().int().positive().optional(),

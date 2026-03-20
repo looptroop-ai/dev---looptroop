@@ -1,10 +1,10 @@
-import { useCallback, useRef, useState } from 'react'
-import { FolderOpen, Copy, Check as CheckIcon } from 'lucide-react'
+import { useCallback, useRef, useState, useEffect } from 'react'
+import { FolderOpen, Copy, Check as CheckIcon, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useUI } from '@/context/useUI'
-import { useTicketAction } from '@/hooks/useTickets'
+import { useTicketAction, useUpdateTicket } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProjects } from '@/hooks/useProjects'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
@@ -62,9 +62,45 @@ function CopyablePathRow({ label, path }: { label: string; path: string }) {
 export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const { dispatch } = useUI()
   const { mutate: performAction, isPending } = useTicketAction()
+  const { mutateAsync: updateTicket } = useUpdateTicket()
   const [showDetails, setShowDetails] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [showBottomFade, setShowBottomFade] = useState(false)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(ticket.title)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setTitleDraft(ticket.title)
+  }, [ticket.title])
+
+  useEffect(() => {
+    if (isEditingTitle && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [isEditingTitle])
+
+  const handleSaveTitle = async () => {
+    if (titleDraft.trim() && titleDraft !== ticket.title) {
+      try {
+        await updateTicket({ id: ticket.id, title: titleDraft.trim() })
+      } catch {
+        setTitleDraft(ticket.title)
+      }
+    } else {
+      setTitleDraft(ticket.title)
+    }
+    setIsEditingTitle(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleSaveTitle()
+    if (e.key === 'Escape') {
+      setTitleDraft(ticket.title)
+      setIsEditingTitle(false)
+    }
+  }
+
   const scrollRef = useRef<HTMLDivElement>(null)
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
@@ -96,7 +132,31 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             {project?.icon && (project.icon.startsWith('data:') ? <img src={project.icon} className="h-4 w-4 rounded" alt="" /> : <span className="text-sm">{project.icon}</span>)}
             <span className="font-mono text-sm font-semibold" style={{ color: project?.color ?? undefined }}>{ticket.externalId}</span>
           </div>
-          <h2 className="text-base font-semibold truncate max-w-[400px]">{ticket.title}</h2>
+          {isEditingTitle ? (
+            <input
+              ref={inputRef}
+              className="text-base font-semibold truncate w-full max-w-[400px] bg-transparent border-b border-primary outline-none focus:ring-0 px-0.5 py-0"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={handleSaveTitle}
+            />
+          ) : (
+            <div className="flex items-center gap-1.5 group min-w-0">
+              <h2 className="text-base font-semibold truncate max-w-[400px]">{ticket.title}</h2>
+              {ticket.status === 'DRAFT' && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingTitle(true)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded shrink-0"
+                  aria-label="Edit title"
+                  title="Edit Title"
+                >
+                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+          )}
           <Badge variant="outline" className={`text-xs shrink-0 ${getStatusBadgeClasses(ticket.status)}`} title="Current workflow phase">
             {statusLabel}
           </Badge>
@@ -123,6 +183,10 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             onScroll={handleScroll}
             className="grid grid-cols-2 gap-3 text-sm overflow-y-auto pr-1 max-h-[calc(80vh-6rem)] [scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:var(--border)_transparent]"
           >
+            <div className="col-span-2">
+              <span className="text-xs font-medium text-muted-foreground">Title</span>
+              <p className="mt-0.5 font-medium">{ticket.title}</p>
+            </div>
             <div>
               <span className="text-xs font-medium text-muted-foreground">External ID</span>
               <p className="font-mono mt-0.5">{ticket.externalId}</p>
@@ -178,14 +242,6 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 )}
               </div>
             </div>
-            {ticket.description && (
-              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
-                <span className="text-xs font-medium text-muted-foreground">Description</span>
-                <div className="mt-1 max-h-48 overflow-y-auto overflow-x-hidden rounded-md border border-border/50 bg-muted/30 p-3">
-                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-muted-foreground">{ticket.description}</p>
-                </div>
-              </div>
-            )}
             {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers.length > 0) && (
               <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1">
                 <span className="text-xs font-medium text-muted-foreground">Models Selected</span>
@@ -274,6 +330,14 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             {project && ticket.status !== 'DRAFT' && (
               <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
                 <CopyablePathRow label="Artifacts Location" path={ticket.runtime.artifactRoot || `${project.folderPath}/.looptroop/worktrees/${ticket.externalId}`} />
+              </div>
+            )}
+            {ticket.description && (
+              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
+                <span className="text-xs font-medium text-muted-foreground">Description</span>
+                <div className="mt-1 rounded-md border border-border/50 bg-muted/30 p-3">
+                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-muted-foreground">{ticket.description}</p>
+                </div>
               </div>
             )}
           </div>

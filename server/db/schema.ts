@@ -4,7 +4,9 @@ import { PROFILE_DEFAULTS } from './defaults'
 export const profiles = sqliteTable('profiles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   mainImplementer: text('main_implementer'),
+  mainImplementerVariant: text('main_implementer_variant'),
   councilMembers: text('council_members'), // JSON array of model IDs
+  councilMemberVariants: text('council_member_variants'), // JSON map: { "provider/model": "variant" }
   minCouncilQuorum: integer('min_council_quorum').default(PROFILE_DEFAULTS.minCouncilQuorum),
   perIterationTimeout: integer('per_iteration_timeout').default(PROFILE_DEFAULTS.perIterationTimeout),
   councilResponseTimeout: integer('council_response_timeout').default(PROFILE_DEFAULTS.councilResponseTimeout),
@@ -57,7 +59,9 @@ export const tickets = sqliteTable('tickets', {
   percentComplete: real('percent_complete'),
   errorMessage: text('error_message'),
   lockedMainImplementer: text('locked_main_implementer'),
+  lockedMainImplementerVariant: text('locked_main_implementer_variant'),
   lockedCouncilMembers: text('locked_council_members'), // JSON array of model IDs, frozen at start
+  lockedCouncilMemberVariants: text('locked_council_member_variants'), // JSON map frozen at start
   lockedInterviewQuestions: integer('locked_interview_questions'),
   lockedCoverageFollowUpBudgetPercent: integer('locked_coverage_follow_up_budget_percent'),
   lockedMaxCoveragePasses: integer('locked_max_coverage_passes'),

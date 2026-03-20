@@ -12,6 +12,7 @@ export interface OpenCodeCatalogModel {
   canUseTools: boolean
   canSeeImages: boolean
   status: string
+  variants?: Record<string, Record<string, unknown>>
 }
 
 export interface OpenCodeCatalogResponse {
@@ -32,6 +33,7 @@ export interface OpenCodeCatalogResponse {
         toolcall?: boolean
         input?: { image?: boolean }
       }
+      variants?: Record<string, Record<string, unknown>>
     }>
   }>
   connected: string[]

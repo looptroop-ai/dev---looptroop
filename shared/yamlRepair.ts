@@ -108,3 +108,84 @@ export function repairYamlIndentation(yaml: string): string {
 
   return result.join('\n')
 }
+
+/**
+ * Repair YAML plain scalars that contain `: ` (colon-space).
+ *
+ * In YAML, a plain scalar value must not contain `: ` because parsers
+ * interpret it as a nested mapping entry. Models frequently produce
+ * unquoted values like `rationale: some rules: here` which breaks parsing.
+ * This function wraps such values in double quotes.
+ */
+export function repairYamlPlainScalarColons(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+  // Skip values that are already safe: quoted, block scalar, flow, anchor, tag, or comment
+  const SAFE_VALUE_START = /^["'[{>|&*!#]/
+
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Blank / comment lines pass through
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    // Track block-scalar continuation: any line indented deeper than the key
+    if (insideBlockScalar) {
+      const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+      if (indent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      // Left the block scalar
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    // Match `key: value` — capture indent+key vs value
+    // Works for both top-level and nested keys, including list item first keys
+    const mappingMatch = line.match(/^(\s*(?:-\s+)?)([A-Za-z_][\w_-]*\s*:\s+)(.+)$/)
+    if (mappingMatch) {
+      const prefix = mappingMatch[1]! + mappingMatch[2]!
+      const value = mappingMatch[3]!
+
+      // Detect block scalar indicator on this line
+      if (BLOCK_SCALAR_PATTERN.test(line.trimEnd())) {
+        insideBlockScalar = true
+        blockScalarBaseIndent = (line.match(/^(\s*)/)?.[1]?.length ?? 0)
+        result.push(line)
+        continue
+      }
+
+      // Skip already-safe values
+      if (SAFE_VALUE_START.test(value)) {
+        result.push(line)
+        continue
+      }
+
+      // Check if the value contains a problematic `: ` or ends with `:`
+      if (/:\s/.test(value) || value.endsWith(':')) {
+        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        result.push(`${prefix}"${escaped}"`)
+        continue
+      }
+    }
+
+    // Bare `key:` with block scalar on next line
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      insideBlockScalar = true
+      blockScalarBaseIndent = (line.match(/^(\s*)/)?.[1]?.length ?? 0)
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}

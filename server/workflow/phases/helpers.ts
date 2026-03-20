@@ -992,22 +992,33 @@ export function emitCouncilDecisionLogs(
 }
 
 export function resolveCouncilMembers(context: TicketContext): {
-  members: Array<{ modelId: string; name: string }>
+  members: Array<{ modelId: string; name: string; variant?: string }>
   source: 'locked_ticket' | 'profile'
 } {
-  let members: Array<{ modelId: string; name: string }> = []
+  let members: Array<{ modelId: string; name: string; variant?: string }> = []
   let source: 'locked_ticket' | 'profile' = 'profile'
+
+  const variantMap: Record<string, string> = context.lockedCouncilMemberVariants
+    ? (typeof context.lockedCouncilMemberVariants === 'string'
+      ? JSON.parse(context.lockedCouncilMemberVariants as string)
+      : context.lockedCouncilMemberVariants as Record<string, string>)
+    : {}
 
   if (context.lockedCouncilMembers && context.lockedCouncilMembers.length > 0) {
     members = context.lockedCouncilMembers
-      .map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+      .map(id => ({ modelId: id, name: id.split('/').pop() ?? id, variant: variantMap[id] }))
     source = 'locked_ticket'
   } else {
     const profile = appDb.select().from(profiles).get()
     const configuredMembers = parseCouncilMembers(profile?.councilMembers)
+    const profileVariants: Record<string, string> = profile?.councilMemberVariants
+      ? (typeof profile.councilMemberVariants === 'string'
+        ? JSON.parse(profile.councilMemberVariants)
+        : profile.councilMemberVariants as Record<string, string>)
+      : {}
     if (configuredMembers.length > 0) {
       members = configuredMembers
-        .map(id => ({ modelId: id, name: id.split('/').pop() ?? id }))
+        .map(id => ({ modelId: id, name: id.split('/').pop() ?? id, variant: profileVariants[id] }))
       source = 'profile'
     }
   }

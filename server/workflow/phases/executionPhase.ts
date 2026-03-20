@@ -79,6 +79,7 @@ export async function handleCoding(
     {
       ticketId,
       model: codingModelId,
+      variant: context.lockedMainImplementerVariant ?? undefined,
       onSessionCreated: (sessionId, iteration) => {
         emitAiMilestone(
           ticketId,

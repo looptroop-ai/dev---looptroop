@@ -10,10 +10,11 @@ import type { ArtifactSnapshot } from '../sse/eventTypes'
 type LocalTicketRow = typeof tickets.$inferSelect
 type LocalProjectRow = typeof projects.$inferSelect
 
-export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncilMembers'> {
+export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncilMembers' | 'lockedCouncilMemberVariants'> {
   id: string
   projectId: number
   lockedCouncilMembers: string[]
+  lockedCouncilMemberVariants: Record<string, string> | null
   availableActions: string[]
   previousStatus: string | null
   errorSeenSignature: string | null
@@ -130,6 +131,9 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
   const projectContext = getProjectContextById(projectId)
   const baseBranch = project ? resolveTicketBaseBranch(project.folderPath, ticket.externalId) : 'unknown'
   const lockedCouncilMembers = parseJsonArray(ticket.lockedCouncilMembers)
+  const lockedCouncilMemberVariants = ticket.lockedCouncilMemberVariants
+    ? parseJsonObject<Record<string, string>>(ticket.lockedCouncilMemberVariants)
+    : null
   const snapshot = parseJsonObject<{ context?: { previousStatus?: unknown } }>(ticket.xstateSnapshot)
   const errorSeenSignature = projectContext ? readErrorSeenSignature(projectContext, ticket.id) : null
   const runtime = project ? buildRuntime(projectId, project.folderPath, ticket, baseBranch) : {
@@ -152,6 +156,7 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     id: buildTicketRef(projectId, ticket.externalId),
     projectId,
     lockedCouncilMembers,
+    lockedCouncilMemberVariants,
     availableActions: getAvailableWorkflowActions(ticket.status),
     previousStatus: typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null,
     errorSeenSignature,

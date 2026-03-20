@@ -348,6 +348,12 @@ export async function handleStartTicket(c: Context) {
     ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent
   const lockedMaxCoveragePasses = profile?.maxCoveragePasses
     ?? PROFILE_DEFAULTS.maxCoveragePasses
+  const lockedMainImplementerVariant = profile?.mainImplementerVariant ?? null
+  const lockedCouncilMemberVariants: Record<string, string> | null = profile?.councilMemberVariants
+    ? (typeof profile.councilMemberVariants === 'string'
+      ? JSON.parse(profile.councilMemberVariants)
+      : profile.councilMemberVariants)
+    : null
   const startedAt = new Date().toISOString()
 
   try {
@@ -355,7 +361,9 @@ export async function handleStartTicket(c: Context) {
       branchName: init.branchName,
       startedAt,
       lockedMainImplementer: modelSelection.mainImplementer,
+      lockedMainImplementerVariant: lockedMainImplementerVariant,
       lockedCouncilMembers: modelSelection.councilMembers,
+      lockedCouncilMemberVariants: lockedCouncilMemberVariants,
       lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,
@@ -373,7 +381,9 @@ export async function handleStartTicket(c: Context) {
     sendTicketEvent(ticketId, {
       type: 'START',
       lockedMainImplementer: modelSelection.mainImplementer,
+      lockedMainImplementerVariant: lockedMainImplementerVariant,
       lockedCouncilMembers: modelSelection.councilMembers,
+      lockedCouncilMemberVariants: lockedCouncilMemberVariants,
       lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,

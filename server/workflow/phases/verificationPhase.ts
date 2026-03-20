@@ -33,8 +33,6 @@ import {
   recordPreparedBatch,
   clearInterviewSessionBatch,
 } from '../../phases/interview/sessionState'
-import { MAX_FILE_CONTENT_PREVIEW_LENGTH } from '../../lib/constants'
-
 import { adapter, phaseResults, interviewQASessions } from './state'
 import {
   emitPhaseLog,
@@ -222,6 +220,7 @@ export async function handleRelevantFilesScan(
         session: result.session,
         parts: retryParts,
         signal,
+        timeoutMs: draftTimeoutMs,
         model: codingModelId,
         onStreamEvent: (event) => {
           if (!sessionId) return
@@ -277,6 +276,7 @@ export async function handleRelevantFilesScan(
         relevance: (['high', 'medium', 'low'].includes(f.relevance) ? f.relevance : 'medium') as 'high' | 'medium' | 'low',
         likely_action: (['read', 'modify', 'create'].includes(f.likely_action) ? f.likely_action : 'read') as 'read' | 'modify' | 'create',
         content: f.content,
+        content_preview: f.content_preview,
       })),
     }
     const artifactContent = buildRelevantFilesArtifact(context.externalId, parsed)
@@ -293,8 +293,8 @@ export async function handleRelevantFilesScan(
           rationale: f.rationale,
           relevance: f.relevance,
           likely_action: f.likely_action,
-          contentLength: f.content.length,
-          contentPreview: f.content.slice(0, MAX_FILE_CONTENT_PREVIEW_LENGTH),
+          contentPreview: f.content_preview ?? '',
+          contentLength: (f.content_preview ?? f.content ?? '').length,
         })),
         modelId: codingModelId,
       }),
@@ -849,6 +849,7 @@ export async function handleFinalTest(
   if (!finalTestModelId) {
     throw new Error('No locked main implementer is configured for final tests')
   }
+  const councilSettings = resolveCouncilRuntimeSettings(context)
   const streamStates = new Map<string, OpenCodeStreamState>()
   const output = await generateFinalTests(
     adapter,
@@ -858,6 +859,8 @@ export async function handleFinalTest(
     {
       ticketId,
       model: finalTestModelId,
+      variant: context.lockedMainImplementerVariant ?? undefined,
+      timeoutMs: councilSettings.draftTimeoutMs,
       onSessionCreated: (sessionId) => {
         emitAiMilestone(
           ticketId,

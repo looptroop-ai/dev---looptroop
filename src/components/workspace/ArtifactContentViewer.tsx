@@ -11,6 +11,7 @@ import type {
   CouncilResultData,
   CouncilOutcome,
   QuestionDiffSegment,
+  RelevantFileScanEntry,
   RelevantFilesScanData,
 } from './phaseArtifactTypes'
 import {
@@ -64,6 +65,56 @@ export function CopyButton({ content, className = '' }: { content: string; class
   )
 }
 
+export function WithRawTab({ content, structuredLabel, children, header }: { content: string; structuredLabel: string; children: React.ReactNode; header?: React.ReactNode }) {
+  const [activeTab, setActiveTab] = useState<'structured' | 'raw'>('structured')
+  const lineCount = content.split('\n').length
+  const charCount = content.length
+  const tokenCount = encode(content).length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        {header && <div className="flex-1 min-w-0">{header}</div>}
+        <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${!header ? 'ml-auto' : ''}`}>
+          <button
+            onClick={() => setActiveTab('structured')}
+            className={activeTab === 'structured'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            {structuredLabel}
+          </button>
+          <button
+            onClick={() => setActiveTab('raw')}
+            className={activeTab === 'raw'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Raw
+          </button>
+          {activeTab === 'raw' && <CopyButton content={content} />}
+        </div>
+      </div>
+
+      {activeTab === 'raw' && (
+        <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+        </div>
+      )}
+
+      {activeTab === 'structured' ? children : (
+        <div className="min-w-0 w-full overflow-hidden">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+            {content}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RawContentView({ content }: { content: string }) {
   const lines = content.split('\n')
   return (
@@ -82,6 +133,26 @@ export function RawContentView({ content }: { content: string }) {
         if (line.trim() === '') return <div key={i} className="h-2" />
         return <div key={i}>{line}</div>
       })}
+    </div>
+  )
+}
+
+function RawContentWithCopy({ content }: { content: string }) {
+  const lineCount = content.split('\n').length
+  const charCount = content.length
+  const tokenCount = encode(content).length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <CopyButton content={content} />
+        <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+        </div>
+      </div>
+      <RawContentView content={content} />
     </div>
   )
 }
@@ -210,16 +281,16 @@ function InterviewDraftDiffView({ content }: { content: string }) {
   )
 }
 
-function FinalInterviewArtifactView({ content }: { content: string }) {
-  const [activeTab, setActiveTab] = useState<'final' | 'diff'>('final')
+function FinalInterviewArtifactView({ content, header }: { content: string; header?: React.ReactNode }) {
+  const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
   const parsedContent = tryParseStructuredContent(content)
   if (parsedContent && typeof parsedContent === 'object') {
     const interviewArtifact = parsedContent as InterviewArtifactData
     if (typeof interviewArtifact.interview === 'string' && interviewArtifact.interview.trim()) {
-      return <InterviewAnswersView content={interviewArtifact.interview} />
+      return <WithRawTab content={interviewArtifact.interview} structuredLabel="Q&A" header={header}><InterviewAnswersView content={interviewArtifact.interview} /></WithRawTab>
     }
     if (interviewArtifact.artifact === 'interview') {
-      return <InterviewAnswersView content={content} />
+      return <WithRawTab content={content} structuredLabel="Q&A" header={header}><InterviewAnswersView content={content} /></WithRawTab>
     }
   }
 
@@ -227,39 +298,47 @@ function FinalInterviewArtifactView({ content }: { content: string }) {
   try {
     parsed = JSON.parse(content) as InterviewDiffArtifactData & { questionCount?: number; questions?: unknown[] }
   } catch {
-    return <RawContentView content={content} />
+    return <RawContentWithCopy content={content} />
   }
 
   const refinedContent = parsed?.refinedContent ?? ''
-  if (!refinedContent) return <RawContentView content={content} />
+  if (!refinedContent) return <RawContentWithCopy content={content} />
 
   const diffEntries = buildInterviewDiffEntries(content)
   const hasDiffTab = Boolean(parsed?.originalContent)
-  const currentTab = hasDiffTab ? activeTab : 'final'
+  const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
+
+  const tabButtonClass = (tab: string) =>
+    currentTab === tab
+      ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+      : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'
 
   return (
     <div className="space-y-3">
-      {hasDiffTab && (
-        <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
-          <button
-            onClick={() => setActiveTab('final')}
-            className={currentTab === 'final'
-              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
-          >
+      <div className="flex items-center gap-2">
+        {header && <div className="flex-1 min-w-0">{header}</div>}
+        <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${header ? 'ml-auto' : ''}`}>
+          <button onClick={() => setActiveTab('final')} className={tabButtonClass('final')}>
             Final Questions
           </button>
-          <button
-            onClick={() => setActiveTab('diff')}
-            className={currentTab === 'diff'
-              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
-          >
-            Diff{diffEntries.length > 0 ? ` (${diffEntries.length})` : ''}
+          {hasDiffTab && (
+            <button onClick={() => setActiveTab('diff')} className={tabButtonClass('diff')}>
+              Diff{diffEntries.length > 0 ? ` (${diffEntries.length})` : ''}
+            </button>
+          )}
+          <button onClick={() => setActiveTab('raw')} className={tabButtonClass('raw')}>
+            Raw
           </button>
+          {currentTab === 'raw' && <CopyButton content={content} />}
         </div>
-      )}
-      {currentTab === 'final'
+      </div>
+      {currentTab === 'raw' ? (
+        <div className="min-w-0 w-full overflow-hidden">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+            {content}
+          </pre>
+        </div>
+      ) : currentTab === 'final'
         ? <InterviewDraftView content={refinedContent} />
         : <InterviewDraftDiffView content={content} />}
     </div>
@@ -427,7 +506,7 @@ function BeadsDraftView({ content }: { content: string }) {
   )
 }
 
-function VotingResultsView({ data }: { data: CouncilResultData }) {
+function VotingResultsView({ data, showHeader = true }: { data: CouncilResultData; showHeader?: boolean }) {
   const votes = Array.isArray(data.votes)
     ? data.votes
     : []
@@ -468,9 +547,11 @@ function VotingResultsView({ data }: { data: CouncilResultData }) {
     <div className="space-y-3">
       {hasLiveOutcomes && (
         <div className="space-y-2">
-          <div className="text-xs font-semibold">
-            Voter Status <span className="text-muted-foreground font-normal">({completedCount}/{voterIds.length} complete)</span>
-          </div>
+          {showHeader && (
+            <div className="text-xs font-semibold">
+              Voter Status <span className="text-muted-foreground font-normal">({completedCount}/{voterIds.length} complete)</span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {voterIds.map(voterId => {
               const outcome = getVoterOutcome(voterId)
@@ -607,10 +688,15 @@ function VotingResultsView({ data }: { data: CouncilResultData }) {
   )
 }
 
-function CoverageResultView({ content }: { content: string }) {
+function CoverageResultView({ content, header }: { content: string; header?: React.ReactNode }) {
   const coverageResult = parseCoverageArtifact(content)
   if (!coverageResult) {
-    return <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>
+    return (
+      <div className="space-y-3">
+        {header && <div className="flex items-center gap-2">{header}</div>}
+        <div className="text-xs text-muted-foreground italic">Coverage result is still being generated.</div>
+      </div>
+    )
   }
 
   const status = coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
@@ -629,19 +715,7 @@ function CoverageResultView({ content }: { content: string }) {
 
   return (
     <div className="space-y-4">
-      {coverageResult.winnerId && (
-        <ModelBadge modelId={coverageResult.winnerId} active className="px-3 py-2 h-auto w-full justify-start">
-          <div className="text-left">
-            <div className="text-xs font-medium">{getModelDisplayName(coverageResult.winnerId)}</div>
-            <div className="text-[10px] opacity-80 mt-0.5">
-              Winner-only coverage verification
-              {(coverageResult.coverageRunNumber && coverageResult.maxCoveragePasses)
-                ? ` · pass ${coverageResult.coverageRunNumber}/${coverageResult.maxCoveragePasses}`
-                : ''}
-            </div>
-          </div>
-        </ModelBadge>
-      )}
+      {header && <div className="flex items-center gap-2">{header}</div>}
 
       <div className={`rounded-md border px-3 py-2 text-xs font-medium ${
         status === 'gaps'
@@ -712,8 +786,18 @@ function CoverageResultView({ content }: { content: string }) {
 
 function RelevantFilesScanView({ content }: { content: string }) {
   const [activeTab, setActiveTab] = useState<'files' | 'raw'>('files')
-  const parsed = tryParseStructuredContent(content) as RelevantFilesScanData | null
-  if (!parsed?.files) return <RawContentView content={content} />
+  const raw = tryParseStructuredContent(content) as (RelevantFilesScanData & { files: Array<RelevantFileScanEntry & { content_preview?: string }> }) | null
+  if (!raw?.files) return <RawContentView content={content} />
+
+  // Normalize: accept both camelCase (new) and snake_case (legacy DB rows)
+  const parsed: RelevantFilesScanData = {
+    ...raw,
+    files: raw.files.map(f => ({
+      ...f,
+      contentPreview: f.contentPreview ?? (f as { content_preview?: string }).content_preview ?? '',
+      contentLength: f.contentLength ?? (f.contentPreview ?? (f as { content_preview?: string }).content_preview ?? '').length,
+    })),
+  }
 
   const relevanceColor = (r: string) =>
     r === 'high' ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
@@ -742,7 +826,7 @@ function RelevantFilesScanView({ content }: { content: string }) {
             </div>
           </ModelBadge>
         )}
-        <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0">
+        <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${parsed.modelId ? 'ml-auto' : ''}`}>
           <button
             onClick={() => setActiveTab('files')}
             className={activeTab === 'files'
@@ -763,25 +847,36 @@ function RelevantFilesScanView({ content }: { content: string }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
-        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
-        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
-      </div>
-
-      {activeTab === 'files' ? (
+      {activeTab === 'raw' ? (
+        <>
+          <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+          </div>
+          <div className="min-w-0 w-full overflow-hidden">
+            <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+              {content}
+            </pre>
+          </div>
+        </>
+      ) : (
         <>
           <div className="text-xs text-muted-foreground">{parsed.fileCount} files identified</div>
           {parsed.files.map((file, i) => (
             <CollapsibleSection
               key={file.path}
               title={
-                <span className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-[11px]">{file.path}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${relevanceColor(file.relevance)}`}>
-                    {file.relevance}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">{file.likely_action}</span>
+                <span className="flex items-center gap-2 flex-wrap min-w-0 w-full">
+                  <span className="font-mono text-[11px] truncate flex-1 min-w-0">{file.path}</span>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border leading-none ${relevanceColor(file.relevance)}`}>
+                      Relevance: {file.relevance}
+                    </span>
+                    <span className="text-[9px] uppercase font-bold text-muted-foreground px-1.5 py-0.5 rounded border border-border bg-muted/30 leading-none">
+                      Action: {file.likely_action}
+                    </span>
+                  </div>
                 </span>
               }
               defaultOpen={i === 0}
@@ -790,20 +885,16 @@ function RelevantFilesScanView({ content }: { content: string }) {
                 <div className="text-xs italic text-muted-foreground">{file.rationale}</div>
                 {file.contentPreview && (
                   <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap">
-                    {file.contentPreview}{file.contentLength > 200 ? '\n…' : ''}
+                    {file.contentPreview}{(file.contentLength ?? 0) > 200 ? '\n…' : ''}
                   </pre>
                 )}
-                <div className="text-[10px] text-muted-foreground">{file.contentLength.toLocaleString()} chars extracted</div>
+                {file.contentLength != null && (
+                  <div className="text-[10px] text-muted-foreground">{file.contentLength.toLocaleString()} chars extracted</div>
+                )}
               </div>
             </CollapsibleSection>
           ))}
         </>
-      ) : (
-        <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
-            {content}
-          </pre>
-        </div>
       )}
     </div>
   )
@@ -814,14 +905,39 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     return <RelevantFilesScanView content={content} />
   }
   if (artifactId === 'final-interview') {
-    return <FinalInterviewArtifactView content={content} />
+    const header = <div className="text-xs font-semibold px-1">Final Interview</div>
+    return <FinalInterviewArtifactView content={content} header={header} />
   }
   if (artifactId === 'interview-answers') {
-    return <InterviewAnswersView content={content} />
+    const header = <div className="text-xs font-semibold px-1">Interview Answers</div>
+    return (
+      <WithRawTab content={content} structuredLabel="Q&A" header={header}>
+        <InterviewAnswersView content={content} />
+      </WithRawTab>
+    )
   }
 
   if (artifactId?.endsWith('coverage-result')) {
-    return <CoverageResultView content={content} />
+    const coverageResult = parseCoverageArtifact(content)
+    const header = coverageResult?.winnerId ? (
+      <ModelBadge modelId={coverageResult.winnerId} active className="px-3 py-2 h-auto flex-1 justify-start">
+        <div className="text-left">
+          <div className="text-xs font-medium">{getModelDisplayName(coverageResult.winnerId)}</div>
+          <div className="text-[10px] opacity-80 mt-0.5">
+            Winner-only coverage verification
+            {(coverageResult.coverageRunNumber && coverageResult.maxCoveragePasses)
+              ? ` · pass ${coverageResult.coverageRunNumber}/${coverageResult.maxCoveragePasses}`
+              : ''}
+          </div>
+        </div>
+      </ModelBadge>
+    ) : <div className="text-xs font-semibold px-1">Coverage Audit</div>
+
+    return (
+      <WithRawTab content={content} structuredLabel="Coverage" header={header}>
+        <CoverageResultView content={content} />
+      </WithRawTab>
+    )
   }
 
   let parsedCoverageInput: CoverageInputData | null = null
@@ -835,33 +951,60 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   if (parsedCoverageInput && (artifactId === 'refined-prd' || artifactId === 'refined-beads')) {
     const isPrd = artifactId === 'refined-prd'
     return (
-      <div className="space-y-6">
-        {parsedCoverageInput.prd && (
-          <div>
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (PRD)</div>
-            <div className="opacity-80"><PrdDraftView content={parsedCoverageInput.prd} /></div>
-          </div>
-        )}
-        {parsedCoverageInput.beads && (
-          <div>
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (Beads)</div>
-            <div className="opacity-80"><BeadsDraftView content={parsedCoverageInput.beads} /></div>
-          </div>
-        )}
-        {parsedCoverageInput.refinedContent && (
-          <div className="border-t border-border pt-4">
-            <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification ({isPrd ? 'PRD' : 'Beads'})</div>
-            {isPrd ? <PrdDraftView content={parsedCoverageInput.refinedContent} /> : <BeadsDraftView content={parsedCoverageInput.refinedContent} />}
-          </div>
-        )}
-      </div>
+      <WithRawTab content={content} structuredLabel="Sections">
+        <div className="space-y-6">
+          {parsedCoverageInput.prd && (
+            <div>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (PRD)</div>
+              <div className="opacity-80"><PrdDraftView content={parsedCoverageInput.prd} /></div>
+            </div>
+          )}
+          {parsedCoverageInput.beads && (
+            <div>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (Beads)</div>
+              <div className="opacity-80"><BeadsDraftView content={parsedCoverageInput.beads} /></div>
+            </div>
+          )}
+          {parsedCoverageInput.refinedContent && (
+            <div className="border-t border-border pt-4">
+              <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification ({isPrd ? 'PRD' : 'Beads'})</div>
+              {isPrd ? <PrdDraftView content={parsedCoverageInput.refinedContent} /> : <BeadsDraftView content={parsedCoverageInput.refinedContent} />}
+            </div>
+          )}
+        </div>
+      </WithRawTab>
     )
   }
 
   const councilResult = tryParseCouncilResult(content)
   if (councilResult) {
     const isVotes = artifactId?.includes('vote')
-    if (isVotes) return <VotingResultsView data={councilResult} />
+    if (isVotes) {
+      const votes = Array.isArray(councilResult.votes) ? councilResult.votes : []
+      const voterOutcomes = (councilResult.voterOutcomes ?? {}) as Record<string, CouncilOutcome>
+      const voterIds = Object.keys(voterOutcomes).length > 0
+        ? Object.keys(voterOutcomes)
+        : [...new Set(votes.map(v => v.voterId))]
+      const completedCount = voterIds.filter(voterId => {
+        const outcome = voterOutcomes[voterId]
+        if (outcome === 'completed' || outcome === 'failed' || outcome === 'timed_out' || outcome === 'invalid_output' || outcome === 'pending') {
+          return outcome === 'completed'
+        }
+        return votes.some(v => v.voterId === voterId)
+      }).length
+
+      const header = (
+        <div className="text-xs font-semibold px-1">
+          Voter Status <span className="text-muted-foreground font-normal">({completedCount}/{voterIds.length} complete)</span>
+        </div>
+      )
+
+      return (
+        <WithRawTab content={content} structuredLabel="Votes" header={header}>
+          <VotingResultsView data={councilResult} showHeader={false} />
+        </WithRawTab>
+      )
+    }
 
     const isWinnerArtifact = artifactId?.startsWith('winner')
     if (isWinnerArtifact) {
@@ -869,25 +1012,27 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
       const winnerContent = winnerDraft?.content ?? councilResult.winnerContent ?? ''
       if (!winnerContent) return <div className="text-xs text-muted-foreground italic">Voting still in progress — winner not yet determined.</div>
       const header = winnerDraft ? (
-        <div className="flex items-center gap-2 mb-4 pb-0">
-          <ModelBadge
-            modelId={winnerDraft.memberId}
-            active={true}
-            className="flex-1 px-3 py-2 h-auto"
-          >
-            <div className="min-w-0 text-left flex-1">
-              <div className="text-xs font-medium truncate">{getModelDisplayName(winnerDraft.memberId)}</div>
-              <div className="text-[10px] text-primary-foreground/90 font-bold mt-0.5 normal-case">🏆 Winner{winnerDraft.duration ? ` · ${(winnerDraft.duration / 1000).toFixed(1)}s` : ''}</div>
-            </div>
-          </ModelBadge>
-        </div>
+        <ModelBadge
+          modelId={winnerDraft.memberId}
+          active={true}
+          className="px-3 py-2 h-auto flex-1 justify-start"
+        >
+          <div className="min-w-0 text-left">
+            <div className="text-xs font-medium truncate">{getModelDisplayName(winnerDraft.memberId)}</div>
+            <div className="text-[10px] text-primary-foreground/90 font-bold mt-0.5 normal-case">🏆 Winner{winnerDraft.duration ? ` · ${(winnerDraft.duration / 1000).toFixed(1)}s` : ''}</div>
+          </div>
+        </ModelBadge>
       ) : null
       const isPrd = artifactId?.includes('prd')
       const isBeads = artifactId?.includes('beads')
       const structured = isPrd ? <PrdDraftView content={winnerContent} />
         : isBeads ? <BeadsDraftView content={winnerContent} />
           : <InterviewDraftView content={winnerContent} />
-      return <>{header}{structured || <RawContentView content={winnerContent} />}</>
+      return (
+        <WithRawTab content={content} structuredLabel="Winner" header={header}>
+          {structured || <RawContentView content={winnerContent} />}
+        </WithRawTab>
+      )
     }
 
     const memberMatch = artifactId?.match(/member-(.+)$/)
@@ -902,34 +1047,32 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     const draftContent = draft?.content ?? councilResult.refinedContent ?? councilResult.winnerContent ?? ''
 
     const header = draft ? (
-      <div className="flex items-center gap-2 mb-4 pb-0">
-        <ModelBadge
-          modelId={draft.memberId}
-          active={draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING')}
-          className="flex-1 px-3 py-2 h-auto"
-        >
-          <div className="min-w-0 text-left flex-1">
-            <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
-            <div className="text-[10px] mt-0.5 opacity-80 flex items-center gap-1 flex-wrap normal-case">
-              <span>
-                {draft.outcome === 'completed'
-                  ? '✅ Completed'
-                  : draft.outcome === 'timed_out'
-                    ? '⏰ Timed out'
-                    : draft.outcome === 'failed'
-                      ? '💥 Failed'
-                      : draft.outcome === 'pending'
-                        ? '⏳ In progress'
-                        : '❌ Invalid output'}
-              </span>
-              {draft.duration ? <span>· {(draft.duration / 1000).toFixed(1)}s</span> : null}
-              {draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING') && (
-                <span className="font-bold text-primary-foreground/90 ml-1">🏆 Winner</span>
-              )}
-            </div>
+      <ModelBadge
+        modelId={draft.memberId}
+        active={draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING')}
+        className="px-3 py-2 h-auto flex-1 justify-start"
+      >
+        <div className="min-w-0 text-left">
+          <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
+          <div className="text-[10px] mt-0.5 opacity-80 flex items-center gap-1 flex-wrap normal-case">
+            <span>
+              {draft.outcome === 'completed'
+                ? '✅ Completed'
+                : draft.outcome === 'timed_out'
+                  ? '⏰ Timed out'
+                  : draft.outcome === 'failed'
+                    ? '💥 Failed'
+                    : draft.outcome === 'pending'
+                      ? '⏳ In progress'
+                      : '❌ Invalid output'}
+            </span>
+            {draft.duration ? <span>· {(draft.duration / 1000).toFixed(1)}s</span> : null}
+            {draft.memberId === councilResult.winnerId && !phase?.includes('DELIBERATING') && !phase?.includes('DRAFTING') && (
+              <span className="font-bold text-primary-foreground/90 ml-1">🏆 Winner</span>
+            )}
           </div>
-        </ModelBadge>
-      </div>
+        </div>
+      </ModelBadge>
     ) : null
 
     if (draftContent) {
@@ -942,8 +1085,14 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
           : isBeads ? <BeadsDraftView content={draftContent} />
             : null
 
-      if (structured) return <>{header}{structured}</>
-      return <>{header}<RawContentView content={draftContent} /></>
+      if (structured) {
+        return (
+          <WithRawTab content={content} structuredLabel="Draft" header={header}>
+            {structured}
+          </WithRawTab>
+        )
+      }
+      return <RawContentWithCopy content={draftContent} />
     }
 
     if (draft) {
@@ -956,13 +1105,15 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
             : isBeads ? <BeadsDraftView content={draft.content} />
               : null
         return (
-          <>
+          <div className="space-y-2">
             {header}
-            <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2 py-1 mb-2">
+            <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2 py-1">
               ⚠️ Output did not pass strict validation{draft.error ? `: ${draft.error}` : ''} — content shown below may have formatting issues.
             </div>
-            {structured || <RawContentView content={draft.content} />}
-          </>
+            {structured
+              ? <WithRawTab content={content} structuredLabel="Draft">{structured}</WithRawTab>
+              : <RawContentWithCopy content={draft.content} />}
+          </div>
         )
       }
 
@@ -976,13 +1127,13 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
               ? (draft.error || 'This member returned malformed output.')
               : 'No content available yet.'
       return (
-        <>
+        <div className="space-y-3">
           {header}
           <div className="text-xs text-muted-foreground italic">{waitingMessage}</div>
-        </>
+        </div>
       )
     }
   }
 
-  return <RawContentView content={content} />
+  return <RawContentWithCopy content={content} />
 }

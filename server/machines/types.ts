@@ -5,7 +5,9 @@ export interface TicketContext {
   title: string
   status: string
   lockedMainImplementer: string | null
+  lockedMainImplementerVariant: string | null
   lockedCouncilMembers: string[] | null
+  lockedCouncilMemberVariants: Record<string, string> | null
   lockedInterviewQuestions: number | null
   lockedCoverageFollowUpBudgetPercent: number | null
   lockedMaxCoveragePasses: number | null
@@ -28,7 +30,9 @@ export type TicketEvent =
   | {
       type: 'START'
       lockedMainImplementer?: string | null
+      lockedMainImplementerVariant?: string | null
       lockedCouncilMembers?: string[] | null
+      lockedCouncilMemberVariants?: Record<string, string> | null
       lockedInterviewQuestions?: number | null
       lockedCoverageFollowUpBudgetPercent?: number | null
       lockedMaxCoveragePasses?: number | null

@@ -184,7 +184,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
   }, [phase, effectiveTab, hasLogs, visibleLogTail, scheduleScrollToBottom])
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col">
       <div className="px-1 py-1.5 flex items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Log — {getStatusUserLabel(phase)}
@@ -246,7 +246,7 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
         <span className="ml-auto text-xs text-muted-foreground pl-2">{filteredLogs.length} entries</span>
       </div>
       <ScrollArea className="flex-1 min-h-0" viewportRef={viewportRef}>
-        <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
+        <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
           {hasLogs ? (
             filteredLogs.map((entry, i) => (
               <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName={showModelNameInLogTags} />

@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 interface Profile {
   id: number
   mainImplementer: string | null
+  mainImplementerVariant: string | null
   councilMembers: string | null
+  councilMemberVariants: string | null
   minCouncilQuorum: number
   perIterationTimeout: number
   councilResponseTimeout: number
@@ -17,7 +19,9 @@ interface Profile {
 
 interface CreateProfileInput {
   mainImplementer?: string
+  mainImplementerVariant?: string
   councilMembers?: string
+  councilMemberVariants?: string
   minCouncilQuorum?: number
   perIterationTimeout?: number
   councilResponseTimeout?: number

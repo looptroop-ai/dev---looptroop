@@ -16,6 +16,7 @@ export type MemberOutcome = 'pending' | 'completed' | 'timed_out' | 'invalid_out
 export interface CouncilMember {
   modelId: string
   name: string
+  variant?: string
 }
 
 export interface DraftResult {

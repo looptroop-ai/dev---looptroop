@@ -199,6 +199,7 @@ export async function conductVoting(
           parts: promptParts,
           signal,
           model: voter.modelId,
+          variant: voter.variant,
           ...(sessionOwnership
             ? {
                 sessionOwnership: {

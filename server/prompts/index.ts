@@ -105,20 +105,19 @@ export const PROM0: PromptTemplate = {
   id: 'PROM0',
   description: 'Relevant Files Context Extraction Prompt',
   systemRole: 'You are an expert software architect performing codebase analysis for implementation planning.',
-  task: 'Given the ticket description, identify and read the source files most relevant to this ticket. Use your file-reading and directory-listing tools to explore the project structure, examine the actual code, then return a structured summary of the relevant file contents.',
+  task: 'Given the ticket description, identify and read the source files most relevant to this ticket. Use your file-reading and directory-listing tools to explore the project structure, examine the actual code, then return a structured identification of the relevant files with detailed rationales.',
   instructions: [
     'Analysis Strategy: Study the ticket description to understand what needs to be implemented. Use your file-reading and directory-listing tools to explore the project structure and identify files that would need to be read, modified, or depended upon when implementing this ticket.',
-    'Content Selection: For each relevant file, extract the meaningful code sections — key functions, type definitions, interfaces, class structures, configuration blocks, and route definitions. Skip boilerplate imports, comments, and code unrelated to the ticket.',
+    'Rationale Depth: For each file, write a detailed multi-sentence rationale (3-6 sentences) that explains: (a) WHY this file is relevant to the ticket, (b) WHICH specific symbols (functions, classes, types, exports) inside the file matter and why, (c) what role this file plays in the implementation (dependency, modification target, type source, test target, etc.), and (d) how it connects to other relevant files. The rationale is the primary value of your output — be thorough and specific.',
+    'Content Preview: For each file, include a `content_preview` field containing ONLY the key symbol signatures relevant to the ticket — function/method signatures, type/interface definitions, class declarations, and export statements. Do NOT include function bodies, implementations, or full code blocks. Aim for 5-20 lines of signatures per file. Think of this as a table-of-contents for the file, not a code excerpt.',
     'Relevance Ordering: Present files in descending order of relevance. Core implementation files first, then type definitions, then supporting utilities, then tests/configs.',
     'Scope Discipline: Read only files genuinely relevant to the ticket. Do not read entire directories. Aim for precision: 5-25 files depending on ticket scope. Never exceed 30 files.',
-    'Content Limits: For each file, include at most the 300 most relevant lines. If a file is large, extract only the relevant functions or sections with a brief note about what was omitted.',
-    'Annotations: For each file, include a one-line rationale explaining why it is relevant to the ticket and whether it would likely be read-only context or needs modification.',
     'Output Envelope: Return exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block and nothing else before or after it.',
     'YAML Discipline: Inside the block, output only strict YAML with valid indentation. Do not use markdown fences anywhere inside the block.',
     'Count Consistency: `file_count` must exactly equal the final number of entries in `files`.',
     STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: 'YAML inside <RELEVANT_FILES_RESULT> tags with top-level keys: `file_count` (integer), `files` (list). Each file item: `path` (string), `rationale` (string), `relevance` (high|medium|low), `likely_action` (read|modify|create), `content` (string, the extracted code). No other top-level keys.',
+  outputFormat: 'YAML inside <RELEVANT_FILES_RESULT> tags with top-level keys: `file_count` (integer), `files` (list). Each file item: `path` (string), `rationale` (string, detailed 3-6 sentences), `relevance` (high|medium|low), `likely_action` (read|modify|create), `content_preview` (string, key symbol signatures only — no implementations). No other top-level keys.',
   contextInputs: ['ticket_details'],
 }
 
@@ -244,8 +243,8 @@ export const PROM4: PromptTemplate = {
     `Structured Batch Output: Wrap each intermediate batch response in <INTERVIEW_BATCH> tags containing YAML with these fields:
   batch_number: (integer, starting at 1)
   progress:
-    current: (number of questions presented so far including this batch)
-    total: (estimated total remaining, may change as you adapt)
+    current: (same as batch_number — the sequential batch index, starting at 1)
+    total: (estimated total number of batches planned, may change as you adapt)
   is_final_free_form: (boolean, true only for the final free-form question)
   ai_commentary: (brief text explaining why you chose these questions or how you adapted)
   questions:

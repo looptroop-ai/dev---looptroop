@@ -110,7 +110,9 @@ export function ensureActorForTicket(ticketRef: string | number) {
     externalId: ticket.externalId,
     title: ticket.localTicket.title,
     lockedMainImplementer: ticket.localTicket.lockedMainImplementer ?? null,
+    lockedMainImplementerVariant: ticket.localTicket.lockedMainImplementerVariant ?? null,
     lockedCouncilMembers: ticket.localTicket.lockedCouncilMembers ? JSON.parse(ticket.localTicket.lockedCouncilMembers) as string[] : null,
+    lockedCouncilMemberVariants: ticket.localTicket.lockedCouncilMemberVariants ? JSON.parse(ticket.localTicket.lockedCouncilMemberVariants) as Record<string, string> : null,
     lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
     lockedCoverageFollowUpBudgetPercent: ticket.localTicket.lockedCoverageFollowUpBudgetPercent ?? null,
     lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
@@ -188,7 +190,9 @@ export function createTicketActor(
     title: string
     maxIterations?: number
     lockedMainImplementer?: string | null
+    lockedMainImplementerVariant?: string | null
     lockedCouncilMembers?: string[] | null
+    lockedCouncilMemberVariants?: Record<string, string> | null
     lockedInterviewQuestions?: number | null
     lockedCoverageFollowUpBudgetPercent?: number | null
     lockedMaxCoveragePasses?: number | null
@@ -203,7 +207,9 @@ export function createTicketActor(
       title: input.title,
       maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
       lockedMainImplementer: input.lockedMainImplementer ?? null,
+      lockedMainImplementerVariant: input.lockedMainImplementerVariant ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
+      lockedCouncilMemberVariants: input.lockedCouncilMemberVariants ?? null,
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
@@ -228,7 +234,9 @@ function hydrateTicketActor(
     title: string
     maxIterations?: number
     lockedMainImplementer?: string | null
+    lockedMainImplementerVariant?: string | null
     lockedCouncilMembers?: string[] | null
+    lockedCouncilMemberVariants?: Record<string, string> | null
     lockedInterviewQuestions?: number | null
     lockedCoverageFollowUpBudgetPercent?: number | null
     lockedMaxCoveragePasses?: number | null
@@ -244,7 +252,9 @@ function hydrateTicketActor(
       title: input.title,
       maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
       lockedMainImplementer: input.lockedMainImplementer ?? null,
+      lockedMainImplementerVariant: input.lockedMainImplementerVariant ?? null,
       lockedCouncilMembers: input.lockedCouncilMembers ?? null,
+      lockedCouncilMemberVariants: input.lockedCouncilMemberVariants ?? null,
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
@@ -273,7 +283,9 @@ export function hydrateAllTickets() {
         externalId: ticket.externalId,
         title: ticket.title,
         lockedMainImplementer: ticket.lockedMainImplementer ?? null,
+        lockedMainImplementerVariant: ticket.lockedMainImplementerVariant ?? null,
         lockedCouncilMembers: ticket.lockedCouncilMembers.length > 0 ? ticket.lockedCouncilMembers : null,
+        lockedCouncilMemberVariants: ticket.lockedCouncilMemberVariants ?? null,
         lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
         lockedCoverageFollowUpBudgetPercent: ticket.lockedCoverageFollowUpBudgetPercent ?? null,
         lockedMaxCoveragePasses: ticket.lockedMaxCoveragePasses ?? null,

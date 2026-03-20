@@ -159,9 +159,9 @@ export function DraftView({ ticket }: DraftViewProps) {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <div className="p-4 shrink-0">
-        <div className="flex flex-col items-center gap-4 max-w-lg mx-auto">
+    <div className="h-full flex flex-col overflow-hidden relative">
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex flex-col items-center gap-4 max-w-3xl mx-auto w-full">
           <div className="text-center">
             <h3 className="text-lg font-semibold">Ready to Start</h3>
             <p className="text-xs text-muted-foreground mt-1">
@@ -285,7 +285,7 @@ export function DraftView({ ticket }: DraftViewProps) {
                 )}
               </>
             ) : hasDescription ? (
-              <div className="mt-2 max-h-96 overflow-y-auto overflow-x-hidden">
+              <div className="mt-2">
                 <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{descriptionDraft}</p>
               </div>
             ) : (
@@ -294,21 +294,24 @@ export function DraftView({ ticket }: DraftViewProps) {
               </p>
             )}
           </div>
-
-          <Button
-            size="lg"
-            onClick={handleStart}
-            disabled={isPending}
-          >
-            {isPending ? <LoadingText text="Starting" /> : '🚀 Start Ticket'}
-          </Button>
-
-          {startError && (
-            <p role="alert" aria-live="polite" className="max-w-md text-center text-xs text-destructive">
-              {startError}
-            </p>
-          )}
         </div>
+      </div>
+
+      <div className="shrink-0 border-t border-border bg-background p-4 flex flex-col items-center justify-center gap-2">
+        <Button
+          size="lg"
+          onClick={handleStart}
+          disabled={isPending}
+          className="w-auto"
+        >
+          {isPending ? <LoadingText text="Starting" /> : '🚀 Start Ticket'}
+        </Button>
+
+        {startError && (
+          <p role="alert" aria-live="polite" className="max-w-md text-center text-xs text-destructive">
+            {startError}
+          </p>
+        )}
       </div>
     </div>
   )

@@ -59,7 +59,9 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       percent_complete REAL,
       error_message TEXT,
       locked_main_implementer TEXT,
+      locked_main_implementer_variant TEXT,
       locked_council_members TEXT,
+      locked_council_member_variants TEXT,
       locked_interview_questions INTEGER,
       locked_coverage_follow_up_budget_percent INTEGER,
       locked_max_coverage_passes INTEGER,
@@ -112,6 +114,8 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   ensureColumn(sqlite, 'tickets', 'locked_interview_questions', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_coverage_follow_up_budget_percent', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_max_coverage_passes', 'INTEGER')
+  ensureColumn(sqlite, 'tickets', 'locked_main_implementer_variant', 'TEXT')
+  ensureColumn(sqlite, 'tickets', 'locked_council_member_variants', 'TEXT')
 }
 
 export function getProjectDatabase(projectRoot: string): ProjectDatabase {

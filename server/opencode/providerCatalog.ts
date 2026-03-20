@@ -23,6 +23,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
             limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
+            variants: { low: { reasoningEffort: 'low' }, medium: { reasoningEffort: 'medium' }, high: { reasoningEffort: 'high' } },
           },
           'gpt-5.3-codex': {
             id: 'gpt-5.3-codex',
@@ -31,6 +32,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
             limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
+            variants: { low: { reasoningEffort: 'low' }, medium: { reasoningEffort: 'medium' }, high: { reasoningEffort: 'high' }, xhigh: { reasoningEffort: 'xhigh' } },
           },
         },
       },
@@ -47,6 +49,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
             limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
+            variants: { high: { thinking: { type: 'enabled', budgetTokens: 16000 } }, max: { thinking: { type: 'enabled', budgetTokens: 31999 } } },
           },
         },
       },
@@ -63,6 +66,7 @@ function buildMockCatalog(): OpenCodeCatalogResponse {
             capabilities: { reasoning: true, toolcall: true, input: { image: false } },
             limit: { context: DEFAULT_CONTEXT_WINDOW_LIMIT },
             cost: { input: 0, output: 0 },
+            variants: { high: { thinkingConfig: { includeThoughts: true, thinkingLevel: 'high' } }, max: { thinkingConfig: { includeThoughts: true, thinkingLevel: 'max' } } },
           },
         },
       },
@@ -120,6 +124,7 @@ export function flattenCatalogModels(
         canUseTools: model.capabilities?.toolcall ?? false,
         canSeeImages: model.capabilities?.input?.image ?? false,
         status: model.status ?? 'active',
+        ...(model.variants && Object.keys(model.variants).length > 0 ? { variants: model.variants } : {}),
       })
     }
   }

@@ -1,16 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelPicker } from './ModelPicker'
+import { EffortPicker } from './EffortPicker'
 import { useProfile, useCreateProfile, useUpdateProfile } from '@/hooks/useProfile'
 import type { CreateProfileInput } from '@/hooks/useProfile'
 import { Plus, X } from 'lucide-react'
 import { useToast } from '@/components/shared/useToast'
 import { PROFILE_DEFAULTS } from '@server/db/defaults'
 import { useQueryClient } from '@tanstack/react-query'
-import { refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
+import { useOpenCodeModels, refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 import { numericFields, hasNumericErrors, buildInitialRawNumeric } from './numericFieldConfig'
 import { NumericField } from './profileNumericUtils'
 
@@ -42,6 +43,23 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
 
   const [councilSlots, setCouncilSlots] = useState<string[]>([])
 
+  // Variant state: per-model variant selections
+  const [mainVariant, setMainVariant] = useState<string | undefined>(undefined)
+  const [councilVariants, setCouncilVariants] = useState<Record<string, string>>({})
+
+  // Models data for variant info
+  const { data: models } = useOpenCodeModels()
+  const modelVariantMap = useMemo(() => {
+    const map = new Map<string, Record<string, Record<string, unknown>>>()
+    if (models) {
+      for (const m of models) {
+        if (m.variants && Object.keys(m.variants).length > 0) {
+          map.set(m.fullId, m.variants)
+        }
+      }
+    }
+    return map
+  }, [models])
   // Sync form state when profile data loads
   useEffect(() => {
     if (!profile) return
@@ -65,6 +83,14 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       coverageFollowUpBudgetPercent: String(profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
       maxCoveragePasses: String(profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses),
     })
+    // Restore variant state
+    setMainVariant(profile.mainImplementerVariant ?? undefined)
+    try {
+      const parsed = profile.councilMemberVariants ? JSON.parse(profile.councilMemberVariants) : {}
+      setCouncilVariants(typeof parsed === 'object' && parsed !== null ? parsed : {})
+    } catch {
+      setCouncilVariants({})
+    }
     try {
       const council: string[] = profile.councilMembers ? JSON.parse(profile.councilMembers) : []
       setCouncilSlots(council.filter(id => id !== profile.mainImplementer))
@@ -115,11 +141,20 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       const n = Number(rawNumeric[key]);
       (validatedData as Record<string, unknown>)[key] = cfg.toStore(n)
     }
-    const allCouncil = [validatedData.mainImplementer, ...councilSlots].filter(Boolean)
+    const allCouncil = [validatedData.mainImplementer, ...councilSlots].filter((x): x is string => Boolean(x))
     const uniqueCouncil = [...new Set(allCouncil)]
+    // Build council member variants map (only for members with a variant set)
+    const variantsMap: Record<string, string> = {}
+    for (const modelId of uniqueCouncil) {
+      if (modelId === validatedData.mainImplementer) continue
+      const v = councilVariants[modelId]
+      if (v) variantsMap[modelId] = v
+    }
     const payload: CreateProfileInput = {
       ...validatedData,
       councilMembers: JSON.stringify(uniqueCouncil),
+      mainImplementerVariant: mainVariant ?? '',
+      councilMemberVariants: Object.keys(variantsMap).length > 0 ? JSON.stringify(variantsMap) : '',
     }
     const handleSuccess = () => {
       addToast('success', 'Configuration saved.')
@@ -149,9 +184,25 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
             </label>
             <ModelPicker
               value={formData.mainImplementer ?? ''}
-              onChange={v => updateField('mainImplementer', v)}
+              onChange={v => {
+                updateField('mainImplementer', v)
+                // Reset variant if new model doesn't support current variant
+                const newVariants = modelVariantMap.get(v)
+                if (!newVariants || (mainVariant && !(mainVariant in newVariants))) {
+                  setMainVariant(undefined)
+                }
+              }}
               disabledValues={councilSlots.filter(Boolean)}
             />
+            {formData.mainImplementer && (
+              <div className="mt-1.5">
+                <EffortPicker
+                  variants={modelVariantMap.get(formData.mainImplementer)}
+                  value={mainVariant}
+                  onChange={setMainVariant}
+                />
+              </div>
+            )}
             <p className="text-xs text-muted-foreground mt-1">Primary model used for code generation and implementation</p>
             {openCodeConnected === false && (
               <div className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -173,19 +224,54 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
               </div>
               {councilSlots.map((slot, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <div className="flex-1">
+                  <div className="flex-1 space-y-1.5">
                     <ModelPicker
                       value={slot}
                       onChange={v => {
                         setCouncilSlots(prev => prev.map((s, j) => j === i ? v : s))
+                        // Reset variant if new model doesn't support current variant
+                        const newVariants = modelVariantMap.get(v)
+                        const oldVariant = councilVariants[slot]
+                        if (slot && slot !== v) {
+                          setCouncilVariants(prev => {
+                            const next = { ...prev }
+                            delete next[slot]
+                            if (oldVariant && newVariants && oldVariant in newVariants) {
+                              next[v] = oldVariant
+                            }
+                            return next
+                          })
+                        }
                       }}
                       placeholder={`Council member ${i + 2}…`}
                       disabledValues={[formData.mainImplementer, ...councilSlots.filter((_, j) => j !== i)].filter(Boolean) as string[]}
                     />
+                    {slot && (
+                      <EffortPicker
+                        variants={modelVariantMap.get(slot)}
+                        value={councilVariants[slot]}
+                        onChange={v => setCouncilVariants(prev => {
+                          const next = { ...prev }
+                          if (v) next[slot] = v
+                          else delete next[slot]
+                          return next
+                        })}
+                      />
+                    )}
                   </div>
                   <button
                     type="button"
-                    onClick={() => setCouncilSlots(prev => prev.filter((_, j) => j !== i))}
+                    onClick={() => {
+                      const removedSlot = councilSlots[i]
+                      setCouncilSlots(prev => prev.filter((_, j) => j !== i))
+                      if (removedSlot) {
+                        setCouncilVariants(prev => {
+                          const next = { ...prev }
+                          delete next[removedSlot]
+                          return next
+                        })
+                      }
+                    }}
                     className="p-2 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                     aria-label={`Remove council member ${i + 2}`}
                   >

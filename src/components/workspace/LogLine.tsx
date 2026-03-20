@@ -76,7 +76,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             ref={contentRef}
             className={cn(
               getEntryColor(entry),
-              'whitespace-pre-wrap break-words max-w-full',
+              'whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] max-w-full',
               !isExpanded && 'line-clamp-3'
             )}
           >

@@ -3,6 +3,7 @@ import { encode } from 'gpt-tokenizer'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Loader2 } from 'lucide-react'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { normalizeTicketArtifact, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
 import {
@@ -227,13 +228,15 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <ArtifactContent
-                  artifactId={viewingArtifact?.id}
-                  content={viewingArtifact
-                    ? (viewingArtifact.content || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`)
-                    : ''}
-                  phase={phase}
-                />
+                <ErrorBoundary>
+                  <ArtifactContent
+                    artifactId={viewingArtifact?.id}
+                    content={viewingArtifact
+                      ? (viewingArtifact.content || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`)
+                      : ''}
+                    phase={phase}
+                  />
+                </ErrorBoundary>
               )}
             </div>
           </ScrollArea>

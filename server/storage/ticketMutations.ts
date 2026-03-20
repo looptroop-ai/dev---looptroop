@@ -172,7 +172,9 @@ export function lockTicketStartConfiguration(
     branchName: string | null
     startedAt: string
     lockedMainImplementer: string
+    lockedMainImplementerVariant?: string | null
     lockedCouncilMembers: string[]
+    lockedCouncilMemberVariants?: Record<string, string> | null
     lockedInterviewQuestions: number
     lockedCoverageFollowUpBudgetPercent: number
     lockedMaxCoveragePasses: number
@@ -207,7 +209,9 @@ export function lockTicketStartConfiguration(
     .set({
       branchName: input.branchName,
       lockedMainImplementer,
+      lockedMainImplementerVariant: input.lockedMainImplementerVariant ?? null,
       lockedCouncilMembers: lockedCouncilMembersRaw,
+      lockedCouncilMemberVariants: input.lockedCouncilMemberVariants ? JSON.stringify(input.lockedCouncilMemberVariants) : null,
       lockedInterviewQuestions: input.lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses,

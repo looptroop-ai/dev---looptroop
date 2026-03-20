@@ -137,6 +137,7 @@ export interface RelevantFilesOutputEntry {
   relevance: string
   likely_action: string
   content: string
+  content_preview: string
 }
 
 export interface RelevantFilesOutputPayload {

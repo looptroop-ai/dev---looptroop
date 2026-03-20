@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { TooltipProvider } from '@radix-ui/react-tooltip'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ticket } from '@/hooks/useTickets'
 import type { InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
@@ -43,7 +44,9 @@ function renderWithProviders(ui: React.ReactElement) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      {ui}
+      <TooltipProvider>
+        {ui}
+      </TooltipProvider>
     </QueryClientProvider>,
   )
 }

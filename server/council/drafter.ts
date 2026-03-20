@@ -139,6 +139,7 @@ export async function generateDrafts(
           parts: promptParts,
           signal,
           model: member.modelId,
+          variant: member.variant,
           ...(runtimeOptions?.ticketId && runtimeOptions.phase
             ? {
                 sessionOwnership: {

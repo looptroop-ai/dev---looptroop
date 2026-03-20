@@ -11,6 +11,7 @@ import { throwIfCancelled } from '../../lib/abort'
 import { parseFinalTestCommands } from './parser'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
+import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 
 const FINAL_TEST_SCHEMA_REMINDER = [
   'Return exactly one <FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS> block and nothing else.',
@@ -27,6 +28,8 @@ export async function generateFinalTests(
   callbacks?: {
     ticketId?: string
     model?: string
+    variant?: string
+    timeoutMs?: number
     onSessionCreated?: (sessionId: string) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
     onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
@@ -44,7 +47,9 @@ export async function generateFinalTests(
       projectPath,
       parts: [{ type: 'text', content: promptContent }],
       signal,
+      timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
       model: callbacks?.model,
+      variant: callbacks?.variant,
       ...(callbacks?.ticketId
         ? {
             sessionOwnership: {
@@ -98,6 +103,7 @@ export async function generateFinalTests(
         session: result.session,
         parts: retryParts,
         signal,
+        timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
         model: callbacks?.model,
         ...(callbacks?.ticketId
           ? {

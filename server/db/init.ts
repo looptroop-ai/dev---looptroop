@@ -102,6 +102,8 @@ export function initializeDatabase() {
   migrateLegacyProfilesTable()
   ensureColumn('profiles', 'coverage_follow_up_budget_percent', `INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent}`)
   ensureColumn('profiles', 'max_coverage_passes', `INTEGER DEFAULT ${PROFILE_DEFAULTS.maxCoveragePasses}`)
+  ensureColumn('profiles', 'main_implementer_variant', 'TEXT')
+  ensureColumn('profiles', 'council_member_variants', 'TEXT')
 
   logIfVerbose('[db] App database initialized')
 }

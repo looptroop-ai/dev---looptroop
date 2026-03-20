@@ -7,6 +7,7 @@ export interface RelevantFileEntry {
   relevance: 'high' | 'medium' | 'low'
   likely_action: 'read' | 'modify' | 'create'
   content: string
+  content_preview: string
 }
 
 export interface RelevantFilesData {
@@ -26,13 +27,14 @@ export function buildRelevantFilesArtifact(ticketId: string, parsed: RelevantFil
   const files = [...parsed.files]
 
   // Truncate if over budget by removing lowest-relevance files
-  let totalChars = files.reduce((sum, f) => sum + f.content.length, 0)
+  // Budget is computed from rationale + content_preview (the lightweight fields)
+  let totalChars = files.reduce((sum, f) => sum + f.rationale.length + f.content_preview.length, 0)
   if (totalChars > MAX_TOTAL_CHARS) {
     // Sort by relevance (low first) so we trim the least relevant
     files.sort((a, b) => (RELEVANCE_ORDER[b.relevance] ?? 2) - (RELEVANCE_ORDER[a.relevance] ?? 2))
     while (totalChars > MAX_TOTAL_CHARS && files.length > 0) {
       const removed = files.pop()!
-      totalChars -= removed.content.length
+      totalChars -= removed.rationale.length + removed.content_preview.length
     }
     // Re-sort by relevance (high first) for the final artifact
     files.sort((a, b) => (RELEVANCE_ORDER[a.relevance] ?? 2) - (RELEVANCE_ORDER[b.relevance] ?? 2))
@@ -47,7 +49,7 @@ export function buildRelevantFilesArtifact(ticketId: string, parsed: RelevantFil
       rationale: f.rationale,
       relevance: f.relevance,
       likely_action: f.likely_action,
-      content: f.content,
+      content_preview: f.content_preview,
     })),
   }
 

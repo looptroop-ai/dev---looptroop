@@ -43,6 +43,7 @@ export async function executeBead(
   callbacks?: {
     ticketId?: string
     model?: string
+    variant?: string
     onSessionCreated?: (sessionId: string, iteration: number) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; iteration: number; event: StreamEvent }) => void
     onPromptDispatched?: (entry: { sessionId: string; iteration: number; event: OpenCodePromptDispatchEvent }) => void
@@ -83,6 +84,7 @@ export async function executeBead(
         signal,
         timeoutMs: timeout,
         model: callbacks?.model,
+        variant: callbacks?.variant,
         ...(callbacks?.ticketId
           ? {
               sessionOwnership: {

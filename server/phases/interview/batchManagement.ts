@@ -131,7 +131,10 @@ export function buildPersistedBatch(
 
   return {
     questions: batchQuestions,
-    progress: batch.progress,
+    progress: {
+      current: batch.batchNumber,
+      total: Math.max(batch.progress.total, batch.batchNumber),
+    },
     isComplete: batch.isComplete,
     isFinalFreeForm: batch.isFinalFreeForm,
     aiCommentary: batch.aiCommentary,

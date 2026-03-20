@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlIndentation } from '@shared/yamlRepair'
+import { repairYamlIndentation, repairYamlPlainScalarColons } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -130,15 +130,22 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
     } catch {
       // Try stripping spurious XML tags before indentation repair
       const xmlStripped = stripSpuriousXmlTags(trimmed)
-      if (xmlStripped !== trimmed) {
+      const base = xmlStripped !== trimmed ? xmlStripped : trimmed
+
+      // Try colon-in-scalar repair (most targeted fix)
+      const colonRepaired = repairYamlPlainScalarColons(base)
+      if (colonRepaired !== base) {
         try {
-          return jsYaml.load(xmlStripped)
+          return jsYaml.load(colonRepaired)
         } catch {
-          const repaired = repairYamlIndentation(xmlStripped)
-          return jsYaml.load(repaired)
+          // Try combined: colon repair + indentation repair
+          try {
+            return jsYaml.load(repairYamlIndentation(colonRepaired))
+          } catch { /* fall through */ }
         }
       }
-      const repaired = repairYamlIndentation(trimmed)
+
+      const repaired = repairYamlIndentation(base)
       return jsYaml.load(repaired)
     }
   }
