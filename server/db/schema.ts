@@ -3,9 +3,6 @@ import { PROFILE_DEFAULTS } from './defaults'
 
 export const profiles = sqliteTable('profiles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  username: text('username').notNull(),
-  icon: text('icon').default('👤'),
-  background: text('background'),
   mainImplementer: text('main_implementer'),
   councilMembers: text('council_members'), // JSON array of model IDs
   minCouncilQuorum: integer('min_council_quorum').default(PROFILE_DEFAULTS.minCouncilQuorum),
@@ -15,7 +12,6 @@ export const profiles = sqliteTable('profiles', {
   coverageFollowUpBudgetPercent: integer('coverage_follow_up_budget_percent').default(PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
   maxCoveragePasses: integer('max_coverage_passes').default(PROFILE_DEFAULTS.maxCoveragePasses),
   maxIterations: integer('max_iterations').default(PROFILE_DEFAULTS.maxIterations),
-  disableAnalogies: integer('disable_analogies').default(0),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
@@ -65,8 +61,6 @@ export const tickets = sqliteTable('tickets', {
   lockedInterviewQuestions: integer('locked_interview_questions'),
   lockedCoverageFollowUpBudgetPercent: integer('locked_coverage_follow_up_budget_percent'),
   lockedMaxCoveragePasses: integer('locked_max_coverage_passes'),
-  lockedUserBackground: text('locked_user_background'),
-  lockedDisableAnalogies: integer('locked_disable_analogies'),
   startedAt: text('started_at'),
   plannedDate: text('planned_date'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),

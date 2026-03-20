@@ -45,8 +45,6 @@ export interface Ticket {
   lockedInterviewQuestions?: number | null
   lockedCoverageFollowUpBudgetPercent?: number | null
   lockedMaxCoveragePasses?: number | null
-  lockedUserBackground?: string | null
-  lockedDisableAnalogies?: number | null
   lockedCouncilMembers: string[]
   availableActions: WorkflowAction[]
   previousStatus?: string | null

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
 import { parseInterviewQuestions, type ParsedInterviewQuestion } from '../phases/interview/questions'
@@ -243,7 +242,33 @@ function collectTaggedCandidates(rawContent: string, tag: string): string[] {
     }
   }
 
+  // Fallback: if there's an opening tag but no closing tag (truncated output),
+  // extract everything after the last opening tag as a candidate
+  if (candidates.length === 0) {
+    const openPattern = new RegExp(`<${tag}>`, 'gi')
+    for (const source of [raw, stripped]) {
+      const openMatches = [...source.matchAll(openPattern)]
+      if (openMatches.length > 0) {
+        const lastOpen = openMatches[openMatches.length - 1]!
+        const afterTag = source.slice(lastOpen.index! + lastOpen[0].length)
+        addCandidate(candidates, seen, afterTag)
+        addCandidate(candidates, seen, stripTranscriptPrefixes(afterTag))
+        for (const nested of collectStructuredCandidates(afterTag)) {
+          addCandidate(candidates, seen, nested)
+        }
+      }
+    }
+  }
+
   return candidates
+}
+
+/** Remove lines that are purely an XML tag — safe because real YAML string values won't be on a line alone as a bare tag */
+function stripSpuriousXmlTags(content: string): string {
+  return content
+    .split('\n')
+    .filter((line) => !/^\s*<\/?[a-zA-Z_][a-zA-Z0-9_-]*\s*\/?\s*>\s*$/.test(line))
+    .join('\n')
 }
 
 function parseYamlOrJsonCandidate(content: string): unknown {
@@ -256,6 +281,16 @@ function parseYamlOrJsonCandidate(content: string): unknown {
     try {
       return jsYaml.load(trimmed)
     } catch {
+      // Try stripping spurious XML tags before indentation repair
+      const xmlStripped = stripSpuriousXmlTags(trimmed)
+      if (xmlStripped !== trimmed) {
+        try {
+          return jsYaml.load(xmlStripped)
+        } catch {
+          const repaired = repairYamlIndentation(xmlStripped)
+          return jsYaml.load(repaired)
+        }
+      }
       const repaired = repairYamlIndentation(trimmed)
       return jsYaml.load(repaired)
     }
@@ -426,7 +461,7 @@ function buildYamlDocument(value: unknown): string {
   return jsYaml.dump(value, { lineWidth: 120, noRefs: true }) as string
 }
 
-function buildJsonlDocument(records: Record<string, unknown>[]): string {
+function buildJsonlDocument(records: object[]): string {
   return records.map((record) => JSON.stringify(record)).join('\n')
 }
 
@@ -1853,7 +1888,7 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
       return {
         ok: true,
         value: beads,
-        normalizedContent: buildJsonlDocument(beads as unknown as Record<string, unknown>[]),
+        normalizedContent: buildJsonlDocument(beads),
         repairApplied: candidate !== rawContent.trim() || repairWarnings.length > 0,
         repairWarnings,
       }
@@ -1905,6 +1940,24 @@ function looksLikeRelevantFilesPromptEcho(content: string): boolean {
   return markerHits >= 2
 }
 
+/** Truncate YAML content to only complete file entries when the last entry is incomplete (truncated output) */
+function truncateToCompleteFileEntries(content: string): string | null {
+  const lines = content.split('\n')
+  // Find all `  - path:` item boundaries (list items under files:)
+  const itemStarts: number[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s+-\s+(path|filepath|file_path|file)\s*:/.test(lines[i]!)) {
+      itemStarts.push(i)
+    }
+  }
+  // Need at least 2 items to truncate the last one
+  if (itemStarts.length < 2) return null
+  // Keep everything up to (but not including) the last item
+  const cutoff = itemStarts[itemStarts.length - 1]!
+  const truncated = lines.slice(0, cutoff).join('\n').trimEnd()
+  return truncated || null
+}
+
 export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutputResult<RelevantFilesOutputPayload> {
   const repairWarnings: string[] = []
   const candidates = collectTaggedCandidates(rawContent, 'RELEVANT_FILES_RESULT')
@@ -1929,7 +1982,25 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
         throw new Error('Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact')
       }
 
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+      let yamlParsed: unknown
+      try {
+        yamlParsed = parseYamlOrJsonCandidate(candidate)
+      } catch (parseErr) {
+        // Truncation recovery: trim the last incomplete file entry and retry
+        const truncated = truncateToCompleteFileEntries(candidate)
+        if (truncated) {
+          try {
+            yamlParsed = parseYamlOrJsonCandidate(truncated)
+            repairWarnings.push('Truncated incomplete last file entry to recover from malformed YAML.')
+          } catch {
+            throw parseErr
+          }
+        } else {
+          throw parseErr
+        }
+      }
+
+      const parsed = maybeUnwrapRecord(yamlParsed, [
         'relevantfilesresult',
         'relevant_files_result',
         'relevantfiles',

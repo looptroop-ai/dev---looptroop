@@ -18,8 +18,8 @@ export interface OpenCodeCatalogResponse {
   all: Array<{
     id: string
     name: string
-    env?: unknown[]
-    npm?: unknown[]
+    env?: string[]
+    npm?: string[]
     models: Record<string, {
       id: string
       name: string

@@ -9,8 +9,6 @@ export interface TicketContext {
   lockedInterviewQuestions: number | null
   lockedCoverageFollowUpBudgetPercent: number | null
   lockedMaxCoveragePasses: number | null
-  lockedUserBackground: string | null
-  lockedDisableAnalogies: boolean | null
   previousStatus: string | null
   error: string | null
   errorCodes: string[]
@@ -34,8 +32,6 @@ export type TicketEvent =
       lockedInterviewQuestions?: number | null
       lockedCoverageFollowUpBudgetPercent?: number | null
       lockedMaxCoveragePasses?: number | null
-      lockedUserBackground?: string | null
-      lockedDisableAnalogies?: boolean | null
     }
   | { type: 'INIT_FAILED'; message: string; codes?: string[] }
   | { type: 'QUESTIONS_READY'; result: Record<string, unknown> }

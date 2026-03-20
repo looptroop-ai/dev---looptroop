@@ -12,7 +12,6 @@ import type {
   InterviewSessionSnapshot,
   PersistedInterviewBatch,
 } from '@shared/interviewSession'
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { repairYamlIndentation } from '@shared/yamlRepair'
 import { calculateFollowUpLimit } from './followUpBudget'
@@ -141,8 +140,6 @@ export function createInterviewSessionSnapshot(input: {
   compiledQuestions: ParsedInterviewQuestion[]
   maxInitialQuestions: number
   followUpBudgetPercent?: number
-  userBackground?: string | null
-  disableAnalogies?: boolean
 }): InterviewSessionSnapshot {
   const updatedAt = nowIso()
 
@@ -151,8 +148,6 @@ export function createInterviewSessionSnapshot(input: {
     winnerId: input.winnerId,
     maxInitialQuestions: input.maxInitialQuestions,
     maxFollowUps: calculateFollowUpLimit(input.maxInitialQuestions, input.followUpBudgetPercent),
-    userBackground: input.userBackground?.trim() || null,
-    disableAnalogies: Boolean(input.disableAnalogies),
     questions: input.compiledQuestions.map((question) => normalizeQuestion(question, 'compiled')),
     answers: {},
     currentBatch: null,

@@ -114,6 +114,7 @@ export function TicketForm({ onClose }: TicketFormProps) {
               Title
             </label>
             <input
+              autoFocus
               type="text"
               value={title}
               onChange={e => setTitle(e.target.value)}

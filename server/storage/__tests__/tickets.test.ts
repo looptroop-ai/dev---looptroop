@@ -51,8 +51,6 @@ describe('ticket start configuration locking', () => {
       lockedInterviewQuestions: 50,
       lockedCoverageFollowUpBudgetPercent: 20,
       lockedMaxCoveragePasses: 2,
-      lockedUserBackground: 'Senior engineer',
-      lockedDisableAnalogies: false,
     })
 
     expect(lockedTicket?.lockedMainImplementer).toBe(lockedMainImplementer)
@@ -74,8 +72,6 @@ describe('ticket start configuration locking', () => {
       lockedInterviewQuestions: 50,
       lockedCoverageFollowUpBudgetPercent: 20,
       lockedMaxCoveragePasses: 2,
-      lockedUserBackground: 'Senior engineer',
-      lockedDisableAnalogies: false,
     })
 
     expect(repeatedLock?.startedAt).toBe(startedAt)

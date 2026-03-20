@@ -6,7 +6,6 @@ import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { PhaseArtifactsPanel, InterviewAnswersView, PrdDraftView } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 
 import { StructuredViewer } from '@/components/editor/StructuredViewer'

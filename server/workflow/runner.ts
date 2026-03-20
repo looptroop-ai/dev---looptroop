@@ -48,7 +48,6 @@ import {
 } from '../phases/interview/sessionState'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { readJsonl, writeJsonl } from '../io/jsonl'
@@ -975,19 +974,16 @@ function extractOpenCodeMessageLines(messages: Message[]): string[] {
   const lines: string[] = []
 
   for (const message of messages) {
-    const record = message as unknown as Record<string, unknown>
-    const directRole = typeof record.role === 'string' ? record.role : undefined
-    const directContent = typeof record.content === 'string' ? record.content : undefined
-    const directTimestamp = typeof record.timestamp === 'string' ? record.timestamp : undefined
+    const directRole = message.role
+    const directContent = message.content
+    const directTimestamp = message.timestamp
 
     if (directContent) {
       lines.push(`[${directRole ?? 'message'}]${directTimestamp ? ` [${directTimestamp}]` : ''} ${directContent}`)
       continue
     }
 
-    const info = (record.info && typeof record.info === 'object')
-      ? (record.info as Record<string, unknown>)
-      : null
+    const info = message.info ?? null
     const role = info && typeof info.sender === 'string'
       ? info.sender
       : info && typeof info.role === 'string'
@@ -997,26 +993,23 @@ function extractOpenCodeMessageLines(messages: Message[]): string[] {
           : 'message'
     const timestamp = info && typeof info.timestamp === 'string' ? info.timestamp : undefined
 
-    const parts = Array.isArray(record.parts) ? record.parts : []
+    const parts = message.parts ?? []
     if (parts.length === 0) {
-      lines.push(`[${role}]${timestamp ? ` [${timestamp}]` : ''} ${stringifyForLog(record)}`)
+      lines.push(`[${role}]${timestamp ? ` [${timestamp}]` : ''} ${stringifyForLog(message)}`)
       continue
     }
 
     for (const part of parts) {
-      const partRecord = (part && typeof part === 'object') ? (part as Record<string, unknown>) : null
-      if (!partRecord) continue
-
-      const partType = typeof partRecord.type === 'string' ? partRecord.type : 'part'
-      const text = typeof partRecord.text === 'string'
-        ? partRecord.text
-        : typeof partRecord.content === 'string'
-          ? partRecord.content
-          : typeof partRecord.output === 'string'
-            ? partRecord.output
-            : typeof partRecord.value === 'string'
-              ? partRecord.value
-              : stringifyForLog(partRecord)
+      const partType = part.type ?? 'part'
+      const text = 'text' in part && typeof part.text === 'string'
+        ? part.text
+        : 'content' in part && typeof part.content === 'string'
+          ? part.content
+          : 'output' in part && typeof part.output === 'string'
+            ? part.output
+            : 'value' in part && typeof part.value === 'string'
+              ? part.value
+              : stringifyForLog(part)
 
       lines.push(`[${role}/${partType}]${timestamp ? ` [${timestamp}]` : ''} ${text}`)
     }
@@ -1114,8 +1107,6 @@ function resolveInterviewDraftSettings(context: TicketContext): {
   coverageFollowUpBudgetPercent: number
   draftTimeoutMs: number
   minQuorum: number
-  userBackground: string | null
-  disableAnalogies: boolean
 } {
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const storedContext = getStoredTicketContext(context.ticketId)
@@ -1130,8 +1121,6 @@ function resolveInterviewDraftSettings(context: TicketContext): {
     coverageFollowUpBudgetPercent: resolveCoverageRuntimeSettings(context).coverageFollowUpBudgetPercent,
     draftTimeoutMs: councilSettings.draftTimeoutMs,
     minQuorum: councilSettings.minQuorum,
-    userBackground: context.lockedUserBackground ?? profile?.background ?? null,
-    disableAnalogies: context.lockedDisableAnalogies ?? Boolean(profile?.disableAnalogies),
   }
 }
 
@@ -1520,16 +1509,25 @@ function validateRelevantFilesScanResponse(response: string): StructuredOutputRe
   }
 
   const normalized = normalizeRelevantFilesOutput(trimmed)
+
+  // Trust the normalizer: if it successfully parsed files, return immediately
+  // regardless of tag counts (handles truncated/malformed output)
+  if (normalized.ok) {
+    return normalized
+  }
+
+  // Normalizer failed — enrich with tag-count diagnostics
   const openTagCount = [...trimmed.matchAll(/<RELEVANT_FILES_RESULT>/gi)].length
   const closeTagCount = [...trimmed.matchAll(/<\/RELEVANT_FILES_RESULT>/gi)].length
 
+  if (normalized.error.includes('echoed the prompt')) {
+    return normalized
+  }
+
   if (openTagCount !== 1 || closeTagCount !== 1) {
-    if (!normalized.ok && normalized.error.includes('echoed the prompt')) {
-      return normalized
-    }
     return {
       ok: false,
-      error: 'Relevant files output must contain exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block.',
+      error: `Relevant files output must contain exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block (found open=${openTagCount}, close=${closeTagCount}). Parse error: ${normalized.error}`,
       repairApplied: false,
       repairWarnings: normalized.repairWarnings,
     }
@@ -1993,7 +1991,8 @@ async function handleInterviewDeliberate(
     ticketState,
   })
 
-  sendEvent({ type: 'QUESTIONS_READY', result: result as unknown as Record<string, unknown> })
+  // DraftPhaseResult → Record<string, unknown>: structurally compatible but lacks index signature
+  sendEvent({ type: 'QUESTIONS_READY', result: { ...result } })
 
   emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_INTERVIEW')
 }
@@ -3875,8 +3874,6 @@ async function handleInterviewQAStart(
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
-    userBackground: interviewSettings.userBackground,
-    disableAnalogies: interviewSettings.disableAnalogies,
     relevantFiles,
     interview: compiledInterview.refinedContent,
   }
@@ -3886,8 +3883,6 @@ async function handleInterviewQAStart(
     compiledQuestions: compiledInterview.questions,
     maxInitialQuestions: interviewSettings.maxInitialQuestions,
     followUpBudgetPercent: interviewSettings.coverageFollowUpBudgetPercent,
-    userBackground: interviewSettings.userBackground,
-    disableAnalogies: interviewSettings.disableAnalogies,
   })
 
   emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
@@ -4606,8 +4601,6 @@ async function handleMockInterviewQAStart(
     compiledQuestions: buildMockInterviewQuestions().map(({ id, phase, question }) => ({ id, phase, question })),
     maxInitialQuestions: interviewSettings.maxInitialQuestions,
     followUpBudgetPercent: interviewSettings.coverageFollowUpBudgetPercent,
-    userBackground: interviewSettings.userBackground,
-    disableAnalogies: interviewSettings.disableAnalogies,
   })
   const persistedBatch = buildPersistedBatch(batch, 'prom4', snapshot)
   const updatedSnapshot = recordPreparedBatch(snapshot, persistedBatch)

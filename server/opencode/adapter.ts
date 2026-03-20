@@ -355,7 +355,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     if (!paths) return state
     const ticketDir = paths.ticketDir
 
-    const artifactLoaders: { file: string; field: keyof TicketState }[] = [
+    const artifactLoaders: { file: string; field: 'interview' | 'prd' }[] = [
       { file: 'interview.yaml', field: 'interview' },
       { file: 'prd.yaml', field: 'prd' },
     ]
@@ -364,7 +364,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       const filePath = resolve(ticketDir, file)
       if (!existsSync(filePath)) continue
       try {
-        ;(state as unknown as Record<string, unknown>)[field] = readFileSync(filePath, 'utf-8')
+        state[field] = readFileSync(filePath, 'utf-8')
       } catch (err) {
         warnIfVerbose(`[adapter] Failed to read ${file}:`, err)
       }
@@ -688,6 +688,14 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
+  private isToolPart(part: GenericMessagePart): part is GenericMessagePart & ToolMessagePart {
+    return part.type === 'tool'
+  }
+
+  private isStepFinishPart(part: GenericMessagePart): part is GenericMessagePart & StepFinishMessagePart {
+    return part.type === 'step-finish'
+  }
+
   private mapPartUpdate(part: GenericMessagePart): StreamEvent | null {
     const sessionId = String(part.sessionID)
     const messageId = String(part.messageID)
@@ -721,21 +729,20 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
     }
 
-    if (part.type === 'tool') {
-      const toolPart = part as unknown as ToolMessagePart
+    if (this.isToolPart(part)) {
       return {
         type: 'tool',
         sessionId,
         messageId,
         partId,
-        tool: toolPart.tool,
-        callId: toolPart.callID,
-        status: toolPart.state.status,
-        title: toolPart.state.title,
-        output: typeof toolPart.state.output === 'string' ? toolPart.state.output : undefined,
-        error: typeof toolPart.state.error === 'string' ? toolPart.state.error : undefined,
-        metadata: toolPart.metadata,
-        complete: toolPart.state.status === 'completed' || toolPart.state.status === 'error',
+        tool: part.tool,
+        callId: part.callID,
+        status: part.state.status,
+        title: part.state.title,
+        output: typeof part.state.output === 'string' ? part.state.output : undefined,
+        error: typeof part.state.error === 'string' ? part.state.error : undefined,
+        metadata: part.metadata,
+        complete: part.state.status === 'completed' || part.state.status === 'error',
       }
     }
 
@@ -751,18 +758,17 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
     }
 
-    if (part.type === 'step-finish') {
-      const finishPart = part as unknown as StepFinishMessagePart
+    if (this.isStepFinishPart(part)) {
       return {
         type: 'step',
         sessionId,
         messageId,
         partId,
         step: 'finish',
-        reason: finishPart.reason,
-        snapshot: typeof finishPart.snapshot === 'string' ? finishPart.snapshot : undefined,
-        cost: typeof finishPart.cost === 'number' ? finishPart.cost : undefined,
-        tokens: finishPart.tokens,
+        reason: part.reason,
+        snapshot: typeof part.snapshot === 'string' ? part.snapshot : undefined,
+        cost: typeof part.cost === 'number' ? part.cost : undefined,
+        tokens: part.tokens,
         complete: true,
       }
     }
@@ -825,16 +831,15 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       })
     }
 
-    if (part.type === 'tool') {
-      const toolPart = part as unknown as ToolMessagePart
+    if (this.isToolPart(part)) {
       return JSON.stringify({
-        type: toolPart.type,
-        callId: toolPart.callID,
-        tool: toolPart.tool,
-        status: toolPart.state?.status ?? null,
-        title: toolPart.state?.title ?? null,
-        output: toolPart.state?.output ?? null,
-        error: toolPart.state?.error ?? null,
+        type: part.type,
+        callId: part.callID,
+        tool: part.tool,
+        status: part.state?.status ?? null,
+        title: part.state?.title ?? null,
+        output: part.state?.output ?? null,
+        error: part.state?.error ?? null,
       })
     }
 
@@ -845,14 +850,13 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       })
     }
 
-    if (part.type === 'step-finish') {
-      const finishPart = part as unknown as StepFinishMessagePart
+    if (this.isStepFinishPart(part)) {
       return JSON.stringify({
-        type: finishPart.type,
-        reason: finishPart.reason,
-        snapshot: typeof finishPart.snapshot === 'string' ? finishPart.snapshot : null,
-        cost: typeof finishPart.cost === 'number' ? finishPart.cost : null,
-        tokens: finishPart.tokens ?? null,
+        type: part.type,
+        reason: part.reason,
+        snapshot: typeof part.snapshot === 'string' ? part.snapshot : null,
+        cost: typeof part.cost === 'number' ? part.cost : null,
+        tokens: part.tokens ?? null,
       })
     }
 

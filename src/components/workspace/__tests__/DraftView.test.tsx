@@ -113,9 +113,6 @@ describe('DraftView', () => {
       if (url === '/api/profile') {
         return createJsonResponse({
           id: 1,
-          username: 'Liviu',
-          icon: '🧑‍💻',
-          background: null,
           mainImplementer: 'openai/codex-mini-latest',
           councilMembers: JSON.stringify([
             'openai/codex-mini-latest',
@@ -127,7 +124,6 @@ describe('DraftView', () => {
           councilResponseTimeout: 300000,
           interviewQuestions: 50,
           maxIterations: 5,
-          disableAnalogies: 0,
           createdAt: '2026-03-13T15:47:26.973Z',
           updatedAt: '2026-03-13T15:47:26.973Z',
         })
@@ -188,9 +184,6 @@ describe('DraftView', () => {
       if (url === '/api/profile') {
         return createJsonResponse({
           id: 1,
-          username: 'Liviu',
-          icon: '🧑‍💻',
-          background: null,
           mainImplementer: 'openai/codex-mini-latest',
           councilMembers: JSON.stringify([
             'openai/codex-mini-latest',
@@ -202,7 +195,6 @@ describe('DraftView', () => {
           councilResponseTimeout: 300000,
           interviewQuestions: 50,
           maxIterations: 5,
-          disableAnalogies: 0,
           createdAt: '2026-03-13T15:47:26.973Z',
           updatedAt: '2026-03-13T15:47:26.973Z',
         })

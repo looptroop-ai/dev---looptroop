@@ -14,11 +14,6 @@ import {
 
 const activeActors = new Map<string, ReturnType<typeof createActor<typeof ticketMachine>>>()
 
-export function parseLockedDisableAnalogies(value: number | boolean | null | undefined): boolean | null {
-  if (value === null || value === undefined) return null
-  return Boolean(value)
-}
-
 function resolveTicketRef(ticketRef: string | number): string {
   if (typeof ticketRef === 'string' && ticketRef.includes(':')) return ticketRef
   const numericId = typeof ticketRef === 'number' ? ticketRef : Number(ticketRef)
@@ -127,8 +122,6 @@ export function ensureActorForTicket(ticketRef: string | number) {
     lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
     lockedCoverageFollowUpBudgetPercent: ticket.localTicket.lockedCoverageFollowUpBudgetPercent ?? null,
     lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
-    lockedUserBackground: ticket.localTicket.lockedUserBackground ?? null,
-    lockedDisableAnalogies: parseLockedDisableAnalogies(ticket.localTicket.lockedDisableAnalogies),
   }
 
   if (ticket.localTicket.xstateSnapshot) {
@@ -207,8 +200,6 @@ export function createTicketActor(
     lockedInterviewQuestions?: number | null
     lockedCoverageFollowUpBudgetPercent?: number | null
     lockedMaxCoveragePasses?: number | null
-    lockedUserBackground?: string | null
-    lockedDisableAnalogies?: boolean | null
   },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
@@ -224,8 +215,6 @@ export function createTicketActor(
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
-      lockedUserBackground: input.lockedUserBackground ?? null,
-      lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     },
   })
 
@@ -251,8 +240,6 @@ export function hydrateTicketActor(
     lockedInterviewQuestions?: number | null
     lockedCoverageFollowUpBudgetPercent?: number | null
     lockedMaxCoveragePasses?: number | null
-    lockedUserBackground?: string | null
-    lockedDisableAnalogies?: boolean | null
   },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
@@ -269,8 +256,6 @@ export function hydrateTicketActor(
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
-      lockedUserBackground: input.lockedUserBackground ?? null,
-      lockedDisableAnalogies: input.lockedDisableAnalogies ?? null,
     },
   })
 
@@ -300,8 +285,6 @@ export function hydrateAllTickets() {
         lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
         lockedCoverageFollowUpBudgetPercent: ticket.lockedCoverageFollowUpBudgetPercent ?? null,
         lockedMaxCoveragePasses: ticket.lockedMaxCoveragePasses ?? null,
-        lockedUserBackground: ticket.lockedUserBackground ?? null,
-        lockedDisableAnalogies: parseLockedDisableAnalogies(ticket.lockedDisableAnalogies),
       })
       hydrated++
     } catch (err) {

@@ -78,8 +78,6 @@ describe('InterviewNavigator', () => {
         winnerId: 'openai/gpt-5',
         maxInitialQuestions: 10,
         maxFollowUps: 2,
-        userBackground: 'SRE',
-        disableAnalogies: false,
         questions: [
           {
             id: 'Q01',

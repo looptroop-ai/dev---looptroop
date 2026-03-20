@@ -1,4 +1,3 @@
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import { repairYamlIndentation } from './yamlRepair'
 

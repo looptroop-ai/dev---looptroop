@@ -1,5 +1,6 @@
 import type { PromptPart } from './types'
 import { logIfVerbose, warnIfVerbose } from '../runtime'
+import { encode } from 'gpt-tokenizer'
 
 // Phase allowlists — only specified sources are included
 // Phase allowlists derived from cl-prompt.md PROM context_input specs
@@ -61,9 +62,8 @@ const TRIM_PRIORITY: { key: string; sources: string[] }[] = [
   { key: 'ticket_details', sources: ['ticket_details'] },
 ]
 
-// Simple token estimator (1 token ≈ 4 characters)
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
+  return encode(text).length
 }
 
 // Context slice cache per ticket
@@ -117,8 +117,6 @@ export interface TicketState {
   ticketId: string
   title?: string
   description?: string
-  userBackground?: string | null
-  disableAnalogies?: boolean
   relevantFiles?: string
   interview?: string
   prd?: string
@@ -158,19 +156,7 @@ export function buildMinimalContext(
       case 'ticket_details': {
         const title = ticketState.title ?? 'Untitled'
         const desc = ticketState.description ?? ''
-        const contentSections = [formatTicketDetails(title, desc)]
-        if (phase === 'interview_qa' && ticketState.userBackground?.trim()) {
-          contentSections.push(
-            [
-              '## User Interview Profile',
-              `Background / expertise: ${ticketState.userBackground.trim()}`,
-              ticketState.disableAnalogies
-                ? 'Adapt phrasing to the user background, but avoid analogies unless they are essential for clarity.'
-                : 'Adapt phrasing to the user background and use analogies only when they improve clarity.',
-            ].join('\n'),
-          )
-        }
-        const content = contentSections.join('\n\n')
+        const content = formatTicketDetails(title, desc)
         if (!desc) {
           warnIfVerbose(`[contextBuilder] ticket_details: description is empty for ticket=${ticketState.ticketId}`)
         }

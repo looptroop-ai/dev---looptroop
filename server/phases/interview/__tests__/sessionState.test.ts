@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
 import {
   buildCanonicalInterviewYaml,
@@ -33,8 +32,6 @@ describe('interview session state', () => {
         { id: 'Q02', phase: 'Structure', question: 'What constraints matter most?' },
       ],
       maxInitialQuestions: 2,
-      userBackground: 'Senior SRE',
-      disableAnalogies: true,
     })
 
     const firstBatch = buildPersistedBatch({

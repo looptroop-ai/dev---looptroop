@@ -1018,4 +1018,142 @@ describe('structured output normalization', () => {
     if (result.ok) return
     expect(result.error).toContain('echoed the prompt')
   })
+
+  it('recovers complete file entries from a truncated response with no close tag', () => {
+    // The last entry is cut off mid-key (no colon), causing YAML parse failure.
+    // Truncation recovery removes the incomplete entry.
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 3',
+      'files:',
+      '  - path: src/app.ts',
+      '    rationale: Entry point.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      export const app = true',
+      '  - path: src/utils.ts',
+      '    rationale: Helper utilities.',
+      '    relevance: medium',
+      '    likely_action: read',
+      '    content: |',
+      '      export function help() {}',
+      '  - path: src/broken.ts',
+      '    rationale: This entry gets cut off.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      import { foo } from "./foo"',
+      '      export function broken() {',
+      '    relev',
+      // No closing tag — truncated mid-key, breaking YAML parsing
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.files).toHaveLength(2)
+    expect(result.value.file_count).toBe(2)
+    expect(result.value.files[0]?.path).toBe('src/app.ts')
+    expect(result.value.files[1]?.path).toBe('src/utils.ts')
+  })
+
+  it('strips spurious </files> XML tag inside YAML and parses successfully', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 1',
+      'files:',
+      '  - path: src/app.ts',
+      '    rationale: Entry point.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      export const app = true',
+      '</files>',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.files).toHaveLength(1)
+    expect(result.value.files[0]?.path).toBe('src/app.ts')
+  })
+
+  it('strips both <files> and </files> wrappers inside YAML', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 1',
+      '<files>',
+      'files:',
+      '  - path: src/app.ts',
+      '    rationale: Entry point.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      export const app = true',
+      '</files>',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.files).toHaveLength(1)
+    expect(result.value.files[0]?.path).toBe('src/app.ts')
+  })
+
+  it('preserves angle brackets in YAML string values and block scalars', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 1',
+      'files:',
+      '  - path: src/component.tsx',
+      '    rationale: "Contains <div>Hello</div> JSX"',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      export default function App() {',
+      '        return <div>Hello</div>',
+      '      }',
+      '</RELEVANT_FILES_RESULT>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.files[0]?.rationale).toContain('<div>Hello</div>')
+    expect(result.value.files[0]?.content).toContain('<div>Hello</div>')
+  })
+
+  it('handles combined truncated output with spurious XML tags', () => {
+    const result = normalizeRelevantFilesOutput([
+      '<RELEVANT_FILES_RESULT>',
+      'file_count: 3',
+      '<files>',
+      'files:',
+      '  - path: src/app.ts',
+      '    rationale: Entry point.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      export const app = true',
+      '  - path: src/utils.ts',
+      '    rationale: Helpers.',
+      '    relevance: medium',
+      '    likely_action: read',
+      '    content: |',
+      '      export function help() {}',
+      '  - path: src/broken.ts',
+      '    rationale: Truncated entry.',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content: |',
+      '      import { x } from "./x"',
+      '    relev',
+      // No closing tags — truncated mid-key with spurious <files> tag
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.files).toHaveLength(2)
+    expect(result.value.files[0]?.path).toBe('src/app.ts')
+    expect(result.value.files[1]?.path).toBe('src/utils.ts')
+  })
 })

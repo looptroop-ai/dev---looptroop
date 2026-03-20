@@ -161,8 +161,6 @@ describe('InterviewQAView', () => {
         winnerId: 'openai/gpt-5',
         maxInitialQuestions: 12,
         maxFollowUps: 2,
-        userBackground: 'Platform engineer',
-        disableAnalogies: true,
         questions: [
           {
             id: 'Q01',

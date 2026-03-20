@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -6,30 +6,12 @@ import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelPicker } from './ModelPicker'
 import { useProfile, useCreateProfile, useUpdateProfile } from '@/hooks/useProfile'
 import type { CreateProfileInput } from '@/hooks/useProfile'
-import { Plus, X, Search, Upload } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { emojiMatchesSearch } from '@/lib/emojiNames'
-import { DropdownPicker } from '@/components/shared/DropdownPicker'
 import { useToast } from '@/components/shared/Toast'
 import { PROFILE_DEFAULTS } from '@server/db/defaults'
 import { useQueryClient } from '@tanstack/react-query'
 import { refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
-
-const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
-const SHOW_USER_BACKGROUND_CONFIGURATION = false
-
-const EMOJI_CATEGORIES = [
-  { name: 'Smileys', emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😝', '🤗', '🤭', '🫢', '🫣', '🤫', '🤔'] },
-  { name: 'Animals', emojis: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🦄', '🐝', '🐕', '🐈', '🐙', '🦋', '🐳'] },
-  { name: 'Food & Drink', emojis: ['🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥝', '🍅', '🥑', '🍆', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🌶️', '🥒', '🥬', '🥦', '🧈', '🍕', '☕', '🍔', '🎂', '🍿', '🥤', '🍩', '🧁', '🌮'] },
-  { name: 'Nature', emojis: ['🌸', '🌺', '🌻', '🌹', '🌷', '🌼', '🌵', '🌲', '🌳', '🌴', '🍀', '🍁', '🍂', '🍃', '🌾', '🌱', '🪴', '🎍', '🪸', '🍄', '🪨', '🌍', '🌎', '🌏', '🌕', '🌙', '⭐', '🌟', '💫', '✨', '🌊', '🔥', '🌿', '🌈', '☀️'] },
-  { name: 'Objects', emojis: ['📦', '💻', '🖥️', '⌨️', '🖱️', '⚙️', '🔧', '🛠️', '🔌', '📡', '🔬', '🧪', '🔭', '📱', '💾', '💿', '📀', '🎥', '📷', '📸', '🔑', '🔒', '🗝️', '🧰', '📐', '📎', '🖊️', '✏️', '🔗', '📌', '📁', '📂', '📋', '📝', '📄', '📑', '🗂️', '💼', '🎒'] },
-  { name: 'Tech & Science', emojis: ['🔩', '🔨', '📊', '📈', '📉', '🧮', '🧬', '🔎', '🔍', '💡', '⚡', '📧', '✉️', '📮', '📯', '💬', '💭', '📢', '📣', '🛰️'] },
-  { name: 'Transport', emojis: ['🚀', '✈️', '🚁', '🚂', '🚗', '🛸', '⛵', '🏎️', '🚧'] },
-  { name: 'Symbols', emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '💯', '✅', '❌', '⭕', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫', '⬜', '🔶', '🔷', '🔺', '🔻', '💠', '🏁', '💎', '🏆', '🎖️', '🏅', '👑', '💰', '💳'] },
-  { name: 'Activities', emojis: ['⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏉', '🎱', '🏓', '🏸', '🥅', '🏒', '🏑', '🥊', '🎮', '🎯', '🎳', '🎸', '🎹', '🎺', '🎻', '🪘', '🎨', '🎬', '🎤', '🎧', '📚', '🎭', '🃏', '♟️', '🏋️', '🧗', '🏄', '🎲', '🎵'] },
-  { name: 'Health', emojis: ['🏥', '💊', '🩺', '🩹', '❤️‍🩹', '🧠', '👁️', '💉', '🦷', '🫀'] },
-]
 
 interface ProfileSetupProps {
   onClose: () => void
@@ -43,9 +25,6 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const queryClient = useQueryClient()
 
   const [formData, setFormData] = useState<CreateProfileInput>({
-    username: profile?.username ?? '',
-    icon: profile?.icon ?? '🧑‍💻',
-    background: profile?.background ?? '',
     mainImplementer: profile?.mainImplementer ?? '',
     minCouncilQuorum: profile?.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
     perIterationTimeout: profile?.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
@@ -91,18 +70,12 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const hasNumericErrors = (Object.keys(numericFields) as (keyof typeof numericFields)[]).some(k => getFieldError(k) !== null)
 
   const [councilSlots, setCouncilSlots] = useState<string[]>([])
-  const [iconOpen, setIconOpen] = useState(false)
-  const [emojiSearch, setEmojiSearch] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Sync form state when profile data loads
   useEffect(() => {
     if (!profile) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormData({
-      username: profile.username ?? '',
-      icon: profile.icon ?? '🧑‍💻',
-      background: profile.background ?? '',
       mainImplementer: profile.mainImplementer ?? '',
       minCouncilQuorum: profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
       perIterationTimeout: profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
@@ -169,13 +142,10 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       const n = Number(rawNumeric[key]);
       (validatedData as Record<string, unknown>)[key] = cfg.toStore(n)
     }
-    const { background, ...restValidatedData } = validatedData
-    const trimmedBackground = background?.trim()
     const allCouncil = [validatedData.mainImplementer, ...councilSlots].filter(Boolean)
     const uniqueCouncil = [...new Set(allCouncil)]
     const payload: CreateProfileInput = {
-      ...restValidatedData,
-      ...(trimmedBackground ? { background: trimmedBackground } : {}),
+      ...validatedData,
       councilMembers: JSON.stringify(uniqueCouncil),
     }
     const handleSuccess = () => {
@@ -198,190 +168,6 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       <Card>
         <CardHeader><CardTitle className="text-sm">Configuration</CardTitle></CardHeader>
         <CardContent className="space-y-5">
-
-          {/* ── Profile ── */}
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Profile</div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium block mb-1">Username</label>
-              <input
-                type="text"
-                value={formData.username}
-                onChange={e => updateField('username', e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                required
-              />
-              <p className="text-xs text-muted-foreground mt-1">Your display name across the app</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium block mb-1">Icon</label>
-              <DropdownPicker
-                open={iconOpen}
-                onOpenChange={setIconOpen}
-                trigger={
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm transition hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <span className="text-2xl leading-none">{formData.icon?.startsWith('data:') ? <img src={formData.icon} className="h-6 w-6 rounded" alt="icon" /> : (formData.icon ?? '🧑‍💻')}</span>
-                    <span className="text-muted-foreground text-xs">Change</span>
-                    <svg className="h-3.5 w-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                }
-              >
-                <div className="w-80">
-                  <div className="mb-2 rounded-md border border-input bg-muted/30 p-2">
-                    <div className="text-xs text-muted-foreground mb-1">
-                      Upload your own image or select one below.
-                    </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        const reader = new FileReader()
-                        reader.onload = () => {
-                          const img = new Image()
-                          img.onload = () => {
-                            const maxSize = 128
-                            let w = img.width
-                            let h = img.height
-                            if (w > maxSize || h > maxSize) {
-                              const ratio = Math.min(maxSize / w, maxSize / h)
-                              w = Math.round(w * ratio)
-                              h = Math.round(h * ratio)
-                            }
-                            const canvas = document.createElement('canvas')
-                            canvas.width = w
-                            canvas.height = h
-                            const ctx = canvas.getContext('2d')!
-                            ctx.drawImage(img, 0, 0, w, h)
-                            updateField('icon', canvas.toDataURL('image/png'))
-                            setIconOpen(false)
-                          }
-                          img.src = reader.result as string
-                        }
-                        reader.readAsDataURL(file)
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 border border-input rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
-                      onClick={() => fileInputRef.current?.click()}
-                      title="Upload custom icon image"
-                    >
-                      <Upload className="h-4 w-4" />
-                      Upload image
-                    </button>
-                  </div>
-
-                  {/* Search bar */}
-                  <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1.5 mb-2">
-                    <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <input
-                      type="text"
-                      value={emojiSearch}
-                      onChange={e => setEmojiSearch(e.target.value)}
-                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                      placeholder="Search or type emoji..."
-                      autoComplete="off"
-                    />
-                    {emojiSearch && (
-                      <button type="button" onClick={() => setEmojiSearch('')} className="text-muted-foreground hover:text-foreground">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="max-h-[320px] overflow-y-auto pr-1">
-                    {emojiSearch ? (
-                      <div className="grid grid-cols-8 gap-1">
-                        {EMOJI_CATEGORIES.flatMap(c => c.emojis)
-                          .filter(e => emojiMatchesSearch(e, emojiSearch))
-                          .map(emoji => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              className={cn(
-                                'rounded-md p-1.5 text-xl transition hover:scale-110 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                                formData.icon === emoji && 'ring-2 ring-primary bg-muted/70',
-                              )}
-                              onClick={() => { updateField('icon', emoji); setIconOpen(false); setEmojiSearch('') }}
-                              aria-label={`Select ${emoji}`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                      </div>
-                    ) : (
-                      <>
-                        {/* Favorites row */}
-                        <div className="grid grid-cols-8 gap-1 mb-2">
-                          {FAVORITE_EMOJIS.map(emoji => (
-                            <button
-                              key={`fav-${emoji}`}
-                              type="button"
-                              className={cn(
-                                'rounded-md p-1.5 text-xl transition hover:scale-110 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                                formData.icon === emoji && 'ring-2 ring-primary bg-muted/70',
-                              )}
-                              onClick={() => { updateField('icon', emoji); setIconOpen(false) }}
-                              aria-label={`Select ${emoji}`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Categories */}
-                        {EMOJI_CATEGORIES.map(cat => (
-                          <div key={cat.name} className="mb-2">
-                            <div className="text-xs font-semibold text-muted-foreground uppercase mb-1">{cat.name}</div>
-                            <div className="grid grid-cols-8 gap-1">
-                              {cat.emojis.map(emoji => (
-                                <button
-                                  key={emoji}
-                                  type="button"
-                                  className={cn(
-                                    'rounded-md p-1.5 text-xl transition hover:scale-110 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                                    formData.icon === emoji && 'ring-2 ring-primary bg-muted/70',
-                                  )}
-                                  onClick={() => { updateField('icon', emoji); setIconOpen(false) }}
-                                  aria-label={`Select ${emoji}`}
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-
-                </div>
-              </DropdownPicker>
-              <p className="text-xs text-muted-foreground mt-1">Emoji avatar for your profile</p>
-            </div>
-          </div>
-          {SHOW_USER_BACKGROUND_CONFIGURATION && (
-            <div>
-              <label className="text-sm font-medium block mb-1">Background</label>
-              <textarea
-                value={formData.background ?? ''}
-                onChange={e => updateField('background', e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[100px]"
-                placeholder="Your background, expertise, and coding preferences..."
-              />
-              <p className="text-xs text-muted-foreground mt-1">Used to personalize AI interactions</p>
-            </div>
-          )}
-
-          <Separator />
-
           {/* ── AI Models ── */}
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">AI Models</div>
           <div>

@@ -11,9 +11,6 @@ const createProfileMutate = vi.fn()
 
 const existingProfile = {
   id: 1,
-  username: 'Liv',
-  icon: '😀',
-  background: 'SRE',
   mainImplementer: 'opencode/big-pickle',
   councilMembers: JSON.stringify(['opencode/big-pickle', 'openai/gpt-5.1-codex']),
   minCouncilQuorum: 1,
@@ -23,7 +20,6 @@ const existingProfile = {
   coverageFollowUpBudgetPercent: 20,
   maxCoveragePasses: 2,
   maxIterations: 5,
-  disableAnalogies: 0,
   createdAt: '2026-03-08T14:28:53.309Z',
   updatedAt: '2026-03-11T10:49:38.623Z',
 }
@@ -89,8 +85,10 @@ describe('ProfileSetup', () => {
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
     expect(screen.getByText('Coverage Follow-Up Budget (%)')).toBeInTheDocument()
     expect(screen.getByText('Max Coverage Passes')).toBeInTheDocument()
+    expect(screen.queryByText('Profile')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
+    expect(screen.queryByText('Icon')).not.toBeInTheDocument()
     expect(screen.queryByText('Background')).not.toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('Your background, expertise, and coding preferences...')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
     expect(refetchQueriesSpy).toHaveBeenCalledWith({
       queryKey: OPENCODE_MODELS_QUERY_KEY,

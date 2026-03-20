@@ -49,8 +49,6 @@ function buildTicketContext(ticket: ReturnType<typeof createTicket>, overrides: 
     lockedInterviewQuestions: null,
     lockedCoverageFollowUpBudgetPercent: null,
     lockedMaxCoveragePasses: null,
-    lockedUserBackground: null,
-    lockedDisableAnalogies: null,
     previousStatus: null,
     error: null,
     errorCodes: [],
@@ -228,6 +226,55 @@ describe('handleRelevantFilesScan', () => {
       message: 'No main implementer configured for relevant files scan.',
       codes: ['RELEVANT_FILES_SCAN_FAILED', 'MAIN_IMPLEMENTER_MISSING'],
     })
+  })
+
+  it('succeeds without retry when model output is truncated but normalizer recovers', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+
+    runOpenCodePromptMock.mockResolvedValueOnce({
+      session: { id: 'ses-trunc', projectPath: paths.worktreePath },
+      response: [
+        '<RELEVANT_FILES_RESULT>',
+        'file_count: 3',
+        'files:',
+        '  - path: src/main.ts',
+        '    rationale: Entry point.',
+        '    relevance: high',
+        '    likely_action: modify',
+        '    content: |',
+        '      export const main = true',
+        '  - path: src/routes.ts',
+        '    rationale: Routing surface.',
+        '    relevance: medium',
+        '    likely_action: read',
+        '    content: |',
+        '      export const routes = []',
+        '  - path: src/broken.ts',
+        '    rationale: This file entry gets cut off.',
+        '    relevance: high',
+        '    likely_action: modify',
+        '    content: |',
+        '      import { something } from "./something"',
+        '    relev',
+        // No closing tag — truncated mid-key at token limit
+      ].join('\n'),
+      messages: [],
+    })
+
+    await handleRelevantFilesScan(ticket.id, context, sendEvent, new AbortController().signal)
+
+    // Should NOT have retried — normalizer recovered directly
+    expect(runOpenCodeSessionPromptMock).not.toHaveBeenCalled()
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'RELEVANT_FILES_READY' })
+
+    const relevantFilesPath = `${paths.ticketDir}/relevant-files.yaml`
+    expect(existsSync(relevantFilesPath)).toBe(true)
+    const artifactYaml = readFileSync(relevantFilesPath, 'utf-8')
+    expect(artifactYaml).toContain('path: src/main.ts')
+    expect(artifactYaml).toContain('path: src/routes.ts')
+    // Truncated entry should NOT be in the artifact
+    expect(artifactYaml).not.toContain('src/broken.ts')
   })
 
   it('transitions scan errors to BLOCKED_ERROR in the ticket machine', () => {

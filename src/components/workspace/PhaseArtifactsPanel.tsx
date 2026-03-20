@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-// @ts-expect-error no type declarations for js-yaml
 import jsYaml from 'js-yaml'
+import { encode } from 'gpt-tokenizer'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { FileText, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2 } from 'lucide-react'
+import { FileText, CheckCircle2, ChevronDown, ChevronRight, Trophy, Loader2, Copy, Check } from 'lucide-react'
 import { getModelIcon, getModelDisplayName, ModelBadge } from '@/components/shared/ModelBadge'
 import { normalizeTicketArtifact, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
 import { extractInterviewQuestionPreviews, type InterviewQuestionChange } from '@shared/interviewQuestions'
@@ -507,12 +507,12 @@ function tryParseCouncilResult(content: string): CouncilResultData | null {
 function CollapsibleSection({ title, defaultOpen = false, children }: { title: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border border-border rounded-md overflow-hidden">
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 w-full px-3 py-2 text-xs font-medium hover:bg-accent/50 transition-colors text-left">
+    <div className="border border-border rounded-md overflow-hidden flex flex-col min-w-0 w-full">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 w-full px-3 py-2 text-xs font-medium hover:bg-accent/50 transition-colors text-left min-w-0">
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-        {title}
+        <span className="min-w-0 flex-1 flex items-center">{title}</span>
       </button>
-      {open && <div className="px-3 pb-3 text-xs">{children}</div>}
+      {open && <div className="px-3 pb-3 text-xs overflow-x-auto w-full">{children}</div>}
     </div>
   )
 }
@@ -710,6 +710,7 @@ interface RelevantFilesScanData {
 }
 
 function RelevantFilesScanView({ content }: { content: string }) {
+  const [activeTab, setActiveTab] = useState<'files' | 'raw'>('files')
   const parsed = tryParseStructuredContent(content) as RelevantFilesScanData | null
   if (!parsed?.files) return <RawContentView content={content} />
 
@@ -718,43 +719,115 @@ function RelevantFilesScanView({ content }: { content: string }) {
     : r === 'medium' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'
     : 'text-muted-foreground bg-muted border-border'
 
+  let formattedContent = content
+  try {
+    formattedContent = JSON.stringify(parsed, null, 2)
+  } catch {
+    // Ignore JSON formatting errors
+  }
+
+  const lineCount = formattedContent.split('\n').length
+  const charCount = content.length
+  const tokenCount = encode(content).length
+
   return (
     <div className="space-y-3">
-      {parsed.modelId && (
-        <ModelBadge modelId={parsed.modelId} active className="px-3 py-2 h-auto w-full justify-start">
-          <div className="text-left">
-            <div className="text-xs font-medium">{getModelDisplayName(parsed.modelId)}</div>
-            <div className="text-[10px] opacity-80 mt-0.5">Relevant files scan</div>
-          </div>
-        </ModelBadge>
+      <div className="flex items-center gap-2">
+        {parsed.modelId && (
+          <ModelBadge modelId={parsed.modelId} active className="px-3 py-2 h-auto flex-1 justify-start">
+            <div className="text-left">
+              <div className="text-xs font-medium">{getModelDisplayName(parsed.modelId)}</div>
+              <div className="text-[10px] opacity-80 mt-0.5">Relevant files scan</div>
+            </div>
+          </ModelBadge>
+        )}
+        <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0">
+          <button
+            onClick={() => setActiveTab('files')}
+            className={activeTab === 'files'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Files
+          </button>
+          <button
+            onClick={() => setActiveTab('raw')}
+            className={activeTab === 'raw'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Raw
+          </button>
+          {activeTab === 'raw' && <CopyButton content={content} />}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+      </div>
+
+      {activeTab === 'files' ? (
+        <>
+          <div className="text-xs text-muted-foreground">{parsed.fileCount} files identified</div>
+          {parsed.files.map((file, i) => (
+            <CollapsibleSection
+              key={file.path}
+              title={
+                <span className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-[11px]">{file.path}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${relevanceColor(file.relevance)}`}>
+                    {file.relevance}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{file.likely_action}</span>
+                </span>
+              }
+              defaultOpen={i === 0}
+            >
+              <div className="space-y-2">
+                <div className="text-xs italic text-muted-foreground">{file.rationale}</div>
+                {file.contentPreview && (
+                  <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap">
+                    {file.contentPreview}{file.contentLength > 200 ? '\n…' : ''}
+                  </pre>
+                )}
+                <div className="text-[10px] text-muted-foreground">{file.contentLength.toLocaleString()} chars extracted</div>
+              </div>
+            </CollapsibleSection>
+          ))}
+        </>
+      ) : (
+        <div className="min-w-0 w-full overflow-hidden">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+            {content}
+          </pre>
+        </div>
       )}
-      <div className="text-xs text-muted-foreground">{parsed.fileCount} files identified</div>
-      {parsed.files.map((file, i) => (
-        <CollapsibleSection
-          key={file.path}
-          title={
-            <span className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-[11px]">{file.path}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${relevanceColor(file.relevance)}`}>
-                {file.relevance}
-              </span>
-              <span className="text-[10px] text-muted-foreground">{file.likely_action}</span>
-            </span>
-          }
-          defaultOpen={i === 0}
-        >
-          <div className="space-y-2">
-            <div className="text-xs italic text-muted-foreground">{file.rationale}</div>
-            {file.contentPreview && (
-              <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap">
-                {file.contentPreview}{file.contentLength > 200 ? '\n…' : ''}
-              </pre>
-            )}
-            <div className="text-[10px] text-muted-foreground">{file.contentLength.toLocaleString()} chars extracted</div>
-          </div>
-        </CollapsibleSection>
-      ))}
     </div>
+  )
+}
+
+function CopyButton({ content, className = '' }: { content: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`inline-flex items-center justify-center p-1 rounded hover:bg-muted transition-colors ${className}`}
+      title="Copy raw output"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+    </button>
   )
 }
 
@@ -1611,6 +1684,11 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     const content = findDbContent(artifact)
     if (!content) return {}
     const council = tryParseCouncilResult(content)
+
+    if (artifact.id === 'relevant-files-scan') {
+      const tokenCount = encode(content).length
+      return { outcome: isCompleted ? 'completed' : 'pending', detail: `${tokenCount.toLocaleString()} tokens` }
+    }
 
     if (artifact.id.includes('winner')) {
       const winnerId = council?.winnerId

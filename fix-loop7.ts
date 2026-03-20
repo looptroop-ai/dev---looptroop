@@ -2,23 +2,33 @@ import fs from 'fs'
 import Database from 'better-sqlite3'
 import jsYaml from 'js-yaml'
 
+interface TicketRow { id: string }
+interface ArtifactRow { content: string }
+interface ParsedQuestion {
+  id?: string
+  prompt?: string
+  question?: string
+  answer_type?: string
+  options?: string[]
+}
+
 const db = new Database('.looptroop/db.sqlite')
-const ticket = db.prepare("SELECT id FROM tickets WHERE external_id='LOOP-7'").get() as any
+const ticket = db.prepare("SELECT id FROM tickets WHERE external_id='LOOP-7'").get() as TicketRow | undefined
 if (!ticket) process.exit(1)
 
-const artifact = db.prepare("SELECT content FROM phase_artifacts WHERE ticket_id=? AND artifact_type='interview_coverage_input' ORDER BY id DESC LIMIT 1").get(ticket.id) as any
+const artifact = db.prepare("SELECT content FROM phase_artifacts WHERE ticket_id=? AND artifact_type='interview_coverage_input' ORDER BY id DESC LIMIT 1").get(ticket.id) as ArtifactRow | undefined
 if (!artifact) process.exit(1)
 
-const parsed = JSON.parse(artifact.content)
+const parsed = JSON.parse(artifact.content) as { refinedContent: string }
 const qsContent = parsed.refinedContent
-let parsedQuestions: any[] = []
+let parsedQuestions: ParsedQuestion[] = []
 
 try {
-    const yamlParsed = jsYaml.load(qsContent) as any
+    const yamlParsed = jsYaml.load(qsContent) as unknown
     if (Array.isArray(yamlParsed)) {
-        parsedQuestions = yamlParsed
-    } else if (yamlParsed && typeof yamlParsed === 'object' && Array.isArray(yamlParsed.questions)) {
-        parsedQuestions = yamlParsed.questions
+        parsedQuestions = yamlParsed as ParsedQuestion[]
+    } else if (yamlParsed && typeof yamlParsed === 'object' && 'questions' in yamlParsed && Array.isArray((yamlParsed as Record<string, unknown>).questions)) {
+        parsedQuestions = (yamlParsed as Record<string, unknown>).questions as ParsedQuestion[]
     }
 } catch { /* ignore */ }
 

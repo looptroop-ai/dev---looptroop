@@ -18,13 +18,9 @@ export function recoverFromCrash(): RecoveryReport {
 
     for (const ticket of activeTickets) {
       try {
-        // Ticket with snapshot can be hydrated
-        if (ticket.xstateSnapshot) {
-          report.ticketsRecovered++
-        } else {
-          // No snapshot — ticket is in DRAFT, safe to leave as-is
-          report.ticketsRecovered++
-        }
+        // Ticket with snapshot can be hydrated; without snapshot it's
+        // in DRAFT and safe to leave as-is. Either way, it's recovered.
+        report.ticketsRecovered++
       } catch (err) {
         report.ticketsFailed++
         report.errors.push(

@@ -321,8 +321,6 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
     ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent
   const lockedMaxCoveragePasses = profile?.maxCoveragePasses
     ?? PROFILE_DEFAULTS.maxCoveragePasses
-  const lockedUserBackground = profile?.background?.trim() || null
-  const lockedDisableAnalogies = Boolean(profile?.disableAnalogies)
   const startedAt = new Date().toISOString()
 
   try {
@@ -334,8 +332,6 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
       lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,
-      lockedUserBackground,
-      lockedDisableAnalogies,
     })
     if (!lockedTicket) return c.json({ error: 'Ticket not found' }, 404)
   } catch (err) {
@@ -354,8 +350,6 @@ ticketRouter.post('/tickets/:id/start', async (c) => {
       lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,
-      lockedUserBackground,
-      lockedDisableAnalogies,
     })
   } catch (err) {
     console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)

@@ -9,9 +9,6 @@ import { parseCouncilMembers } from '../council/members'
 const profileRouter = new Hono()
 
 const profileSchema = z.object({
-  username: z.string().min(1).max(50),
-  icon: z.string().optional(),
-  background: z.string().optional(),
   mainImplementer: z.string().optional(),
   councilMembers: z.string().optional(),
   minCouncilQuorum: z.number().int().min(1).max(4).optional(),
@@ -21,7 +18,6 @@ const profileSchema = z.object({
   coverageFollowUpBudgetPercent: z.number().int().min(0).max(100).optional(),
   maxCoveragePasses: z.number().int().min(1).max(10).optional(),
   maxIterations: z.number().int().nonnegative().optional(), // 0 = infinite retries
-  disableAnalogies: z.number().int().min(0).max(1).optional(),
 })
 
 function normalizeModelSelection(

@@ -2,9 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 interface Profile {
   id: number
-  username: string
-  icon: string
-  background: string | null
   mainImplementer: string | null
   councilMembers: string | null
   minCouncilQuorum: number
@@ -14,15 +11,11 @@ interface Profile {
   coverageFollowUpBudgetPercent: number
   maxCoveragePasses: number
   maxIterations: number
-  disableAnalogies: number
   createdAt: string
   updatedAt: string
 }
 
 interface CreateProfileInput {
-  username: string
-  icon?: string
-  background?: string
   mainImplementer?: string
   councilMembers?: string
   minCouncilQuorum?: number
@@ -32,7 +25,6 @@ interface CreateProfileInput {
   coverageFollowUpBudgetPercent?: number
   maxCoveragePasses?: number
   maxIterations?: number
-  disableAnalogies?: number
 }
 
 async function fetchProfile(): Promise<Profile | null> {

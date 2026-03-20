@@ -55,8 +55,6 @@ export interface InterviewSessionSnapshot {
   winnerId: string
   maxInitialQuestions: number
   maxFollowUps: number
-  userBackground: string | null
-  disableAnalogies: boolean
   questions: InterviewSessionQuestion[]
   answers: Record<string, InterviewSessionAnswer>
   currentBatch: PersistedInterviewBatch | null
