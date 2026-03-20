@@ -1,5 +1,4 @@
 // Token estimation and budget management
-import { encode } from 'gpt-tokenizer'
 
 export const TOKEN_BUDGETS: Record<string, number> = {
   interview_draft: 80000,
@@ -18,10 +17,6 @@ export const TOKEN_BUDGETS: Record<string, number> = {
   coding: 60000,
   final_test: 80000,
   preflight: 40000,
-}
-
-export function estimateTokenCount(text: string): number {
-  return encode(text).length
 }
 
 export function getTokenBudget(phase: string): number {

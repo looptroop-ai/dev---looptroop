@@ -13,6 +13,4 @@ export function getOpenCodeAdapter(): OpenCodeAdapter {
   return singleton
 }
 
-export function resetOpenCodeAdapter() {
-  singleton = null
-}
+

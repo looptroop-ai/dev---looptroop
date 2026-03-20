@@ -41,7 +41,6 @@ const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model
 const PHASE_HEADING_PATTERN = /^(?:#{1,6}\s*|\*{1,2})\s*(foundation|structure|assembly)\s*(?:\*{1,2})?\s*:?\s*$/i
 const INLINE_PHASE_PATTERN = /^\[([^\]]+)\]\s*/
 const INLINE_ID_PATTERN = /^(?:question\s*)?(q?\d+)\s*[:.)-]\s*/i
-const ORDERED_PHASES = ['foundation', 'structure', 'assembly'] as const
 
 function normalizeKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z]/g, '')
@@ -616,6 +615,4 @@ export function formatInterviewQuestionPreview(
   ].join('\n')
 }
 
-export function getInterviewPhaseOrder(phase: string): number {
-  return ORDERED_PHASES.indexOf(normalizeKey(phase) as typeof ORDERED_PHASES[number])
-}
+

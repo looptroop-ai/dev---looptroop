@@ -95,5 +95,4 @@ export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
   BLOCKED_ERROR: 'needs_input',
 }
 
-export const ALL_STATES = Object.keys(STATUS_TO_PHASE)
 export const TERMINAL_STATES = ['COMPLETED', 'CANCELED'] as const

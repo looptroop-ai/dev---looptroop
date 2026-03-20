@@ -58,6 +58,4 @@ export function clearErrorTicketSeen(ticketId: string): void {
   }
 }
 
-export function resetErrorTicketSeenForTests(): void {
-  seenErrorTickets.clear()
-}
+

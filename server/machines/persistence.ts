@@ -93,14 +93,6 @@ function attachPersistenceSubscription(
   })
 }
 
-export function getActor(ticketRef: string | number) {
-  return activeActors.get(resolveTicketRef(ticketRef))
-}
-
-export function getAllActors() {
-  return activeActors as Map<string | number, ReturnType<typeof createActor<typeof ticketMachine>>>
-}
-
 export function ensureActorForTicket(ticketRef: string | number) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
   const existing = activeActors.get(resolvedTicketRef)
@@ -136,7 +128,7 @@ export function ensureActorForTicket(ticketRef: string | number) {
   return createTicketActor(resolvedTicketRef, input)
 }
 
-export function persistSnapshot(
+function persistSnapshot(
   ticketRef: string | number,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
 ) {
@@ -226,7 +218,7 @@ export function createTicketActor(
   return actor
 }
 
-export function hydrateTicketActor(
+function hydrateTicketActor(
   ticketRef: string | number,
   snapshot: unknown,
   input: {
@@ -334,13 +326,4 @@ export function stopActor(ticketRef: string | number) {
   return true
 }
 
-export function stopAllActors() {
-  for (const [id, actor] of activeActors) {
-    try {
-      actor.stop()
-    } catch {
-      // ignore stop errors
-    }
-    activeActors.delete(id)
-  }
-}
+

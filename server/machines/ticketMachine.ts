@@ -2,7 +2,7 @@ import { assign, setup } from 'xstate'
 import type { TicketContext, TicketEvent } from './types'
 import { PROFILE_DEFAULTS } from '../db/defaults'
 
-export type TicketInput = Partial<TicketContext>
+type TicketInput = Partial<TicketContext>
 
 export const ticketMachine = setup({
   types: {
@@ -409,4 +409,4 @@ export const ticketMachine = setup({
   },
 })
 
-export type TicketMachine = typeof ticketMachine
+

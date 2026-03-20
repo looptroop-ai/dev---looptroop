@@ -1,6 +1,6 @@
 export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
-export type WorkflowGroupId = 'todo' | 'interview' | 'prd' | 'beads' | 'execution' | 'done'
-export type WorkflowUIView = 'draft' | 'council' | 'interview_qa' | 'approval' | 'coding' | 'error' | 'done' | 'canceled'
+type WorkflowGroupId = 'todo' | 'interview' | 'prd' | 'beads' | 'execution' | 'done'
+type WorkflowUIView = 'draft' | 'council' | 'interview_qa' | 'approval' | 'coding' | 'error' | 'done' | 'canceled'
 export type EditableArtifactType = 'interview' | 'prd' | 'beads'
 export type WorkflowContextKey =
   | 'ticket_details'
@@ -358,10 +358,6 @@ export const WORKFLOW_PHASE_MAP = Object.fromEntries(
 
 export function getWorkflowPhaseMeta(status: string): WorkflowPhaseMeta | undefined {
   return WORKFLOW_PHASE_MAP[status]
-}
-
-export function getWorkflowGroup(groupId: WorkflowGroupId): WorkflowGroupMeta | undefined {
-  return WORKFLOW_GROUPS.find((group) => group.id === groupId)
 }
 
 export type WorkflowAction = 'start' | 'approve' | 'cancel' | 'retry' | 'verify'

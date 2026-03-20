@@ -43,12 +43,6 @@ async function fetchProjects(): Promise<Project[]> {
   return res.json()
 }
 
-async function fetchProject(id: number): Promise<Project> {
-  const res = await fetch(`/api/projects/${id}`)
-  if (!res.ok) throw new Error('Failed to fetch project')
-  return res.json()
-}
-
 async function createProject(input: CreateProjectInput): Promise<Project> {
   const res = await fetch('/api/projects', {
     method: 'POST',
@@ -81,14 +75,6 @@ export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
-  })
-}
-
-export function useProject(id: number | null) {
-  return useQuery({
-    queryKey: ['project', id],
-    queryFn: () => fetchProject(id!),
-    enabled: id !== null,
   })
 }
 

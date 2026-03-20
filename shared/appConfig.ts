@@ -1,5 +1,5 @@
-export const DEFAULT_FRONTEND_PORT = 5173
-export const DEFAULT_BACKEND_PORT = 3000
+const DEFAULT_FRONTEND_PORT = 5173
+const DEFAULT_BACKEND_PORT = 3000
 export const DEFAULT_OPENCODE_BASE_URL = 'http://127.0.0.1:4096'
 
 function parsePort(value: string | undefined, fallback: number): number {

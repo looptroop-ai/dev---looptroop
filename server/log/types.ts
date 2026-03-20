@@ -1,8 +1,8 @@
 export type LogEventType = 'state_change' | 'model_output' | 'test_result' | 'error' | 'bead_complete' | 'info' | 'debug'
 
 export type LogSource = 'system' | 'opencode' | 'error' | 'debug' | `model:${string}`
-export type LogAudience = 'all' | 'ai' | 'debug'
-export type LogEntryOperation = 'append' | 'upsert' | 'finalize'
+type LogAudience = 'all' | 'ai' | 'debug'
+type LogEntryOperation = 'append' | 'upsert' | 'finalize'
 export type LogKind = 'milestone' | 'reasoning' | 'text' | 'tool' | 'step' | 'session' | 'prompt' | 'error' | 'test'
 
 export interface LogEvent {

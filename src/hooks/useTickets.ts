@@ -1,12 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { clearPersistedTicketLogs } from '@/context/LogContext'
+import { clearPersistedTicketLogs } from '@/context/logUtils'
 import { clearTicketArtifactsCache } from './useTicketArtifacts'
 import { mergeTicketInCache, patchTicketStatusInCache } from './ticketStatusCache'
 import type { WorkflowAction } from '@shared/workflowMeta'
 import type { InterviewSessionSnapshot, InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
 import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
 
-export interface TicketRuntime {
+interface TicketRuntime {
   baseBranch: string
   currentBead: number
   completedBeads: number
