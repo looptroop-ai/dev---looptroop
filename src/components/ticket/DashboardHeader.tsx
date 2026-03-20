@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useUI } from '@/context/useUI'
 import { useTicketAction, useUpdateTicket } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
+import { useProfile } from '@/hooks/useProfile'
 import { useProjects } from '@/hooks/useProjects'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { getStatusProgress, getStatusRingColor } from '@/components/kanban/ticketCardUtils'
@@ -64,6 +65,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const { dispatch } = useUI()
   const { mutate: performAction, isPending } = useTicketAction()
   const { mutateAsync: updateTicket } = useUpdateTicket()
+  const { data: profile } = useProfile()
   const [showDetails, setShowDetails] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [showBottomFade, setShowBottomFade] = useState(false)
@@ -243,51 +245,54 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 )}
               </div>
             </div>
-            {ticket.status !== 'DRAFT' && (ticket.lockedMainImplementer || ticket.lockedCouncilMembers.length > 0) && (
-              <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1">
-                <span className="text-xs font-medium text-muted-foreground">Models Selected</span>
-                <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-                  {(() => {
-                    const mainModel = ticket.lockedMainImplementer
-                    const mainVariant = ticket.lockedMainImplementerVariant
-                    const councilVariants = ticket.lockedCouncilMemberVariants ?? {}
-                    const members: string[] = ticket.lockedCouncilMembers
-                    const otherMembers = (members.length > 0 && members[0] === mainModel) ? members.slice(1) : members
-
-                    return (
+            {(() => {
+              const isDraft = ticket.status === 'DRAFT'
+              const mainModel = isDraft ? profile?.mainImplementer ?? null : ticket.lockedMainImplementer
+              const mainVariant = isDraft ? (profile?.mainImplementerVariant ?? null) : ticket.lockedMainImplementerVariant
+              const rawCouncilVariants = isDraft
+                ? (profile?.councilMemberVariants ? JSON.parse(profile.councilMemberVariants) as Record<string, string> : {})
+                : (ticket.lockedCouncilMemberVariants ?? {})
+              const rawMembers: string[] = isDraft
+                ? (profile?.councilMembers ? JSON.parse(profile.councilMembers) as string[] : [])
+                : ticket.lockedCouncilMembers
+              const otherMembers = (rawMembers.length > 0 && rawMembers[0] === mainModel) ? rawMembers.slice(1) : rawMembers
+              if (!mainModel && otherMembers.length === 0) return null
+              return (
+                <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {isDraft ? 'Current Council' : 'Models Selected'}
+                  </span>
+                  <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+                    {mainModel && (
+                      <div className="flex justify-between items-center">
+                        <div className="flex flex-col space-y-1">
+                          <span>Main Implementer</span>
+                          <span>Council Member A</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {mainVariant && <EffortBadge variant={mainVariant} />}
+                          <span className="font-mono text-right">{mainModel}</span>
+                        </div>
+                      </div>
+                    )}
+                    {otherMembers.length > 0 && (
                       <>
-                        {mainModel && (
-                          <div className="flex justify-between items-center">
-                            <div className="flex flex-col space-y-1">
-                              <span>Main Implementer</span>
-                              <span>Council Member A</span>
-                            </div>
+                        <div className="my-2 border-t-[2px] border-border/70" />
+                        {otherMembers.map((member, index) => (
+                          <div key={member} className="flex justify-between">
+                            <span>Council Member {String.fromCharCode(66 + index)}</span>
                             <div className="flex items-center gap-2">
-                              {mainVariant && <EffortBadge variant={mainVariant} />}
-                              <span className="font-mono text-right">{mainModel}</span>
+                              {rawCouncilVariants[member] && <EffortBadge variant={rawCouncilVariants[member]} />}
+                              <span className="font-mono">{member}</span>
                             </div>
                           </div>
-                        )}
-                        {otherMembers.length > 0 && (
-                          <>
-                            <div className="my-2 border-t-[2px] border-border/70" />
-                            {otherMembers.map((member, index) => (
-                              <div key={member} className="flex justify-between">
-                                <span>Council Member {String.fromCharCode(66 + index)}</span>
-                                <div className="flex items-center gap-2">
-                                  {councilVariants[member] && <EffortBadge variant={councilVariants[member]} />}
-                                  <span className="font-mono">{member}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </>
-                        )}
+                        ))}
                       </>
-                    )
-                  })()}
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
             {ticket.branchName && (
               <div className="col-span-2 border-t-[4px] border-border pt-2 mt-1 flex items-start justify-between gap-6">
                 <div className="min-w-0">
