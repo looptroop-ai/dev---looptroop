@@ -1,0 +1,119 @@
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
+import { useInterviewQuestions } from '@/hooks/useTickets'
+import {
+  getInterviewApprovalAnchorId,
+  getInterviewFollowUpsAnchorId,
+  getInterviewQuestionAnchorId,
+  getInterviewSummaryAnchorId,
+  groupInterviewDocumentQuestions,
+  INTERVIEW_APPROVAL_FOCUS_EVENT,
+  normalizeInterviewDocumentLike,
+  parseInterviewDocument,
+} from '@/lib/interviewDocument'
+
+function focusApprovalAnchor(ticketId: string, anchorId: string) {
+  window.dispatchEvent(new CustomEvent(INTERVIEW_APPROVAL_FOCUS_EVENT, {
+    detail: { ticketId, anchorId },
+  }))
+}
+
+export function InterviewApprovalNavigator({ ticketId }: { ticketId: string }) {
+  const { data, isLoading } = useInterviewQuestions(ticketId)
+  const document = normalizeInterviewDocumentLike(data?.document) ?? parseInterviewDocument(data?.raw)
+  const groups = document ? groupInterviewDocumentQuestions(document) : []
+
+  return (
+    <div className="p-2">
+      <div className="px-2 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        Interview Results
+      </div>
+      <ScrollArea className="max-h-[280px]">
+        <div className="space-y-3 pr-2">
+          {isLoading ? (
+            <div className="px-2 py-1 text-xs text-muted-foreground">Loading interview results…</div>
+          ) : !document ? (
+            <div className="px-2 py-1 text-xs text-muted-foreground">Interview results will appear once the canonical artifact is ready.</div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => focusApprovalAnchor(ticketId, getInterviewSummaryAnchorId())}
+                className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">Summary</span>
+                  <Badge variant="outline" className="h-4 text-[10px]">{document.status}</Badge>
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Goals, constraints, non-goals, and the final free-form answer.
+                </div>
+              </button>
+
+              {groups.map((group) => (
+                <div key={group.id} className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => focusApprovalAnchor(ticketId, group.anchorId)}
+                    className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">{group.label}</span>
+                      <Badge variant="outline" className="h-4 text-[10px]">
+                        {group.questions.length}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">{group.description}</div>
+                  </button>
+
+                  <div className="space-y-1 pl-2">
+                    {group.questions.map((question) => (
+                      <button
+                        key={question.id}
+                        type="button"
+                        onClick={() => focusApprovalAnchor(ticketId, getInterviewQuestionAnchorId(question.id))}
+                        className="w-full rounded-md border border-border/60 bg-muted/20 px-2 py-2 text-left hover:bg-accent/30 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] text-muted-foreground">{question.id}</span>
+                          <Badge variant={question.answer.skipped ? 'secondary' : 'outline'} className="h-4 text-[10px]">
+                            {question.answer.skipped ? 'skip' : 'answer'}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 text-xs leading-snug text-foreground/90">{question.prompt}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {document.follow_up_rounds.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => focusApprovalAnchor(ticketId, getInterviewFollowUpsAnchorId())}
+                  className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
+                >
+                  <div className="text-xs font-medium">Follow-up Rounds</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {document.follow_up_rounds.length} round{document.follow_up_rounds.length === 1 ? '' : 's'} of PROM4 or coverage follow-ups.
+                  </div>
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => focusApprovalAnchor(ticketId, getInterviewApprovalAnchorId())}
+                className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
+              >
+                <div className="text-xs font-medium">Approval</div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Approval status and final approval metadata.
+                </div>
+              </button>
+            </>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}

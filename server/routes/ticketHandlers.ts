@@ -39,6 +39,13 @@ import {
   serializeInterviewSessionSnapshot,
   updateInterviewAnswer,
 } from '../phases/interview/sessionState'
+import type { InterviewDocument } from '@shared/interviewArtifact'
+import {
+  approveInterviewDocument,
+  readInterviewDocument,
+  saveInterviewAnswerUpdates,
+  saveInterviewRawContent,
+} from '../phases/interview/finalDocument'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -72,6 +79,21 @@ export const interviewAnswerPayloadSchema = z.object({
 export const editAnswerSchema = z.object({
   questionId: z.string().min(1),
   answer: z.string(),
+})
+
+const interviewApprovalAnswerSchema = z.object({
+  questions: z.array(z.object({
+    id: z.string().min(1),
+    answer: z.object({
+      skipped: z.boolean(),
+      selected_option_ids: z.array(z.string()).default([]),
+      free_text: z.string(),
+    }),
+  })).min(1),
+})
+
+const rawInterviewSaveSchema = z.object({
+  content: z.string(),
 })
 
 import { MAX_UI_STATE_BYTES } from '../lib/constants'
@@ -128,6 +150,74 @@ function respondWithState(c: Context, ticketId: string, message: string) {
   })
 }
 
+function getTicketParam(c: Context): string {
+  return c.req.param('id') || c.req.param('ticketId')
+}
+
+function buildInterviewPayload(ticketId: string): {
+  winnerId: string | null
+  raw: string | null
+  document: InterviewDocument | null
+  session: ReturnType<typeof parseInterviewSessionSnapshot>
+  questions: ReturnType<typeof buildInterviewQuestionViews>
+} {
+  const sessionArtifact = getLatestPhaseArtifact(ticketId, INTERVIEW_SESSION_ARTIFACT)
+  const session = parseInterviewSessionSnapshot(sessionArtifact?.content)
+  const questions = session ? buildInterviewQuestionViews(session) : []
+
+  let document: InterviewDocument | null = null
+  let raw: string | null = null
+  try {
+    const parsed = readInterviewDocument(ticketId)
+    document = parsed.document
+    raw = parsed.raw
+  } catch {
+    raw = null
+  }
+
+  if (!raw) {
+    const ticketPaths = getTicketPaths(ticketId)
+    const canonicalInterviewPath = ticketPaths ? resolve(ticketPaths.ticketDir, 'interview.yaml') : null
+    if (canonicalInterviewPath && existsSync(canonicalInterviewPath)) {
+      try {
+        raw = readFileSync(canonicalInterviewPath, 'utf-8')
+      } catch {
+        raw = null
+      }
+    }
+  }
+
+  const artifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
+  if (!artifact) {
+    return {
+      winnerId: session?.winnerId ?? null,
+      raw,
+      document,
+      session,
+      questions,
+    }
+  }
+
+  try {
+    const parsed = parseCompiledInterviewArtifact(artifact.content)
+    return {
+      raw: raw ?? parsed.refinedContent,
+      document,
+      winnerId: session?.winnerId ?? parsed.winnerId,
+      session,
+      questions,
+    }
+  } catch {
+    return {
+      raw: raw ?? artifact.content,
+      document,
+      winnerId: session?.winnerId ?? null,
+      session,
+      questions,
+    }
+  }
+}
+
 function approveSpecific(
   ticketId: string,
   expectedStatus: string,
@@ -167,7 +257,7 @@ export function handleGetTicket(c: Context) {
 }
 
 export function handleGetUiState(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const parsed = uiStateScopeSchema.safeParse({ scope: c.req.query('scope') ?? '' })
   if (!parsed.success) {
     return c.json({ error: 'Invalid scope', details: parsed.error.flatten() }, 400)
@@ -194,7 +284,7 @@ export function handleGetUiState(c: Context) {
 }
 
 export async function handlePutUiState(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const body = await c.req.json().catch(() => ({}))
   const parsed = upsertUiStateSchema.safeParse(body)
   if (!parsed.success) {
@@ -246,7 +336,7 @@ export async function handleCreateTicket(c: Context) {
 }
 
 export async function handlePatchTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const body = await c.req.json()
 
   if ('status' in body) {
@@ -266,7 +356,7 @@ export async function handlePatchTicket(c: Context) {
 }
 
 export async function handleDeleteTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (!['COMPLETED', 'CANCELED'].includes(ticket.status)) {
@@ -291,7 +381,7 @@ export async function handleDeleteTicket(c: Context) {
 }
 
 export async function handleStartTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticketContext = getTicketContext(ticketId)
   if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
   if (ticketContext.localTicket.status !== 'DRAFT') {
@@ -398,13 +488,17 @@ export async function handleStartTicket(c: Context) {
 }
 
 export function handleApproveTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
 
   const approvalStates = ['WAITING_INTERVIEW_APPROVAL', 'WAITING_PRD_APPROVAL', 'WAITING_BEADS_APPROVAL', 'WAITING_MANUAL_VERIFICATION']
   if (!approvalStates.includes(ticket.status)) {
     return c.json({ error: 'Ticket is not in an approval state' }, 409)
+  }
+
+  if (ticket.status === 'WAITING_INTERVIEW_APPROVAL') {
+    return handleApproveInterview(c)
   }
 
   try {
@@ -419,7 +513,7 @@ export function handleApproveTicket(c: Context) {
 }
 
 export function handleCancelTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (['COMPLETED', 'CANCELED'].includes(ticket.status)) {
@@ -442,7 +536,7 @@ export function handleCancelTicket(c: Context) {
 }
 
 export async function handleAnswerTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   return c.json({
@@ -453,7 +547,7 @@ export async function handleAnswerTicket(c: Context) {
 }
 
 export async function handleSkipTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
@@ -486,7 +580,7 @@ export async function handleSkipTicket(c: Context) {
 }
 
 export async function handleAnswerBatch(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
@@ -565,7 +659,7 @@ export async function handleAnswerBatch(c: Context) {
 }
 
 export async function handleEditAnswer(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_INTERVIEW_ANSWERS') {
@@ -606,41 +700,111 @@ export async function handleEditAnswer(c: Context) {
   }
 }
 
+export async function handlePutInterviewAnswers(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for interview approval' }, 409)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = interviewApprovalAnswerSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid interview answer payload', details: parsed.error.flatten() }, 400)
+  }
+
+  try {
+    saveInterviewAnswerUpdates(ticketId, parsed.data.questions)
+    return c.json({
+      success: true,
+      ...buildInterviewPayload(ticketId),
+    })
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save interview answers',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+}
+
+export async function handlePutInterview(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for interview approval' }, 409)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = rawInterviewSaveSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid interview document payload', details: parsed.error.flatten() }, 400)
+  }
+
+  try {
+    saveInterviewRawContent(ticketId, parsed.data.content)
+    return c.json({
+      success: true,
+      ...buildInterviewPayload(ticketId),
+    })
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save interview document',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+}
+
 export function handleApproveInterview(c: Context) {
-  const result = approveSpecific(
-    c.req.param('id'),
-    'WAITING_INTERVIEW_APPROVAL',
-    'Ticket is not waiting for interview approval',
-    'Interview approved',
-  )
-  if (result.type === 'response') return c.json(result.body, result.status)
-  return respondWithState(c, c.req.param('id'), result.message)
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for interview approval' }, 409)
+  }
+
+  try {
+    approveInterviewDocument(ticketId)
+    ensureActorForTicket(ticketId)
+    sendTicketEvent(ticketId, { type: 'APPROVE' })
+  } catch (err) {
+    console.error(`[tickets] Failed to approve interview for ${ticketId}:`, err)
+    return c.json({
+      error: 'Failed to approve interview',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
+
+  return respondWithState(c, ticketId, 'Interview approved')
 }
 
 export function handleApprovePrd(c: Context) {
   const result = approveSpecific(
-    c.req.param('id'),
+    getTicketParam(c),
     'WAITING_PRD_APPROVAL',
     'Ticket is not waiting for PRD approval',
     'PRD approved',
   )
+  const ticketId = getTicketParam(c)
   if (result.type === 'response') return c.json(result.body, result.status)
-  return respondWithState(c, c.req.param('id'), result.message)
+  return respondWithState(c, ticketId, result.message)
 }
 
 export function handleApproveBeads(c: Context) {
   const result = approveSpecific(
-    c.req.param('id'),
+    getTicketParam(c),
     'WAITING_BEADS_APPROVAL',
     'Ticket is not waiting for beads approval',
     'Beads approved',
   )
+  const ticketId = getTicketParam(c)
   if (result.type === 'response') return c.json(result.body, result.status)
-  return respondWithState(c, c.req.param('id'), result.message)
+  return respondWithState(c, ticketId, result.message)
 }
 
 export function handleVerifyTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'WAITING_MANUAL_VERIFICATION') {
@@ -659,7 +823,7 @@ export function handleVerifyTicket(c: Context) {
 }
 
 export function handleRetryTicket(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'BLOCKED_ERROR') {
@@ -678,7 +842,7 @@ export function handleRetryTicket(c: Context) {
 }
 
 export async function handleDevEvent(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
   try {
@@ -695,54 +859,13 @@ export async function handleDevEvent(c: Context) {
 }
 
 export function handleGetInterview(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
-
-  const sessionArtifact = getLatestPhaseArtifact(ticketId, INTERVIEW_SESSION_ARTIFACT)
-  const session = parseInterviewSessionSnapshot(sessionArtifact?.content)
-  const questions = session ? buildInterviewQuestionViews(session) : []
-
-  const ticketPaths = getTicketPaths(ticketId)
-  const canonicalInterviewPath = ticketPaths ? resolve(ticketPaths.ticketDir, 'interview.yaml') : null
-  let canonicalInterview: string | null = null
-  if (canonicalInterviewPath && existsSync(canonicalInterviewPath)) {
-    try {
-      canonicalInterview = readFileSync(canonicalInterviewPath, 'utf-8')
-    } catch {
-      canonicalInterview = null
-    }
-  }
-
-  const artifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
-  if (!artifact) {
-    return c.json({
-      winnerId: session?.winnerId ?? null,
-      raw: canonicalInterview,
-      session,
-      questions,
-    })
-  }
-
-  try {
-    const parsed = parseCompiledInterviewArtifact(artifact.content)
-    return c.json({
-      raw: canonicalInterview ?? parsed.refinedContent,
-      winnerId: session?.winnerId ?? parsed.winnerId,
-      session,
-      questions,
-    })
-  } catch {
-    return c.json({
-      raw: canonicalInterview ?? artifact.content,
-      winnerId: session?.winnerId ?? null,
-      session,
-      questions,
-    })
-  }
+  return c.json(buildInterviewPayload(ticketId))
 }
 
 export function handleGetArtifacts(c: Context) {
-  const ticketId = c.req.param('id')
+  const ticketId = getTicketParam(c)
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
   return c.json(listPhaseArtifacts(ticketId))
 }

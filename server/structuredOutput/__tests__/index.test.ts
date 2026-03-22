@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildApprovedInterviewDocument,
   normalizeBeadCompletionMarkerOutput,
   normalizeBeadsJsonlOutput,
   normalizeBeadSubsetYamlOutput,
   normalizeCoverageResultOutput,
   normalizeFinalTestCommandsOutput,
+  normalizeInterviewDocumentOutput,
   normalizeInterviewRefinementOutput,
   normalizeInterviewQuestionsOutput,
   normalizeInterviewTurnOutput,
   normalizePrdYamlOutput,
   normalizeRelevantFilesOutput,
   normalizeVoteScorecardOutput,
+  updateInterviewDocumentAnswers,
 } from '../index'
 
 describe('structured output normalization', () => {
@@ -1584,6 +1587,128 @@ describe('structured output normalization', () => {
         { id: 'ios', label: 'iOS' },
         { id: 'android', label: 'Android' },
       ],
+    })
+  })
+
+  it('normalizes interview documents, repairs yes/no answers, and syncs the final free-form summary', () => {
+    const result = normalizeInterviewDocumentOutput([
+      'schema_version: 1',
+      'artifact: interview_results',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-20T10:00:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    prompt: Should retries be visible?',
+      '    source: compiled',
+      '    answer_type: yes_no',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: [yes]',
+      '      free_text: ""',
+      '  - id: FINAL',
+      '    phase: assembly',
+      '    prompt: Anything else the team should know?',
+      '    source: final_free_form',
+      '    answer_type: free_text',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Keep retries reviewable.',
+      'summary:',
+      '  goals: [Protect imports]',
+      '  constraints: [No duplicate records]',
+      '  non_goals: [Bulk reprocessing]',
+      '  final_free_form_answer: stale summary text',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-42',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.ticket_id).toBe('PROJ-42')
+    expect(result.value.artifact).toBe('interview')
+    expect(result.value.questions[0]?.answer_type).toBe('single_choice')
+    expect(result.value.questions[0]?.options).toEqual([
+      { id: 'yes', label: 'Yes' },
+      { id: 'no', label: 'No' },
+    ])
+    expect(result.value.summary.final_free_form_answer).toBe('Keep retries reviewable.')
+    expect(result.repairApplied).toBe(true)
+  })
+
+  it('updates interview answers as draft edits and stamps approval separately', () => {
+    const normalized = normalizeInterviewDocumentOutput([
+      'schema_version: 1',
+      'ticket_id: PROJ-42',
+      'artifact: interview',
+      'status: approved',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-20T10:00:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which constraints are fixed?',
+      '    source: compiled',
+      '    answer_type: free_text',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Keep imports stable.',
+      '      answered_at: 2026-03-20T10:05:00.000Z',
+      '  - id: FINAL',
+      '    phase: Assembly',
+      '    prompt: Anything else the team should know?',
+      '    source: final_free_form',
+      '    answer_type: free_text',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Watch retries closely.',
+      '      answered_at: 2026-03-20T10:06:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Protect imports]',
+      '  constraints: [No duplicate records]',
+      '  non_goals: [Bulk reprocessing]',
+      '  final_free_form_answer: Watch retries closely.',
+      'approval:',
+      '  approved_by: user',
+      '  approved_at: 2026-03-20T10:10:00.000Z',
+    ].join('\n'))
+
+    expect(normalized.ok).toBe(true)
+    if (!normalized.ok) return
+
+    const drafted = updateInterviewDocumentAnswers(normalized.value, [
+      {
+        id: 'FINAL',
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: 'Review retries and alerts together.',
+        },
+      },
+    ], '2026-03-20T10:20:00.000Z')
+
+    expect(drafted.status).toBe('draft')
+    expect(drafted.approval).toEqual({
+      approved_by: '',
+      approved_at: '',
+    })
+    expect(drafted.summary.final_free_form_answer).toBe('Review retries and alerts together.')
+
+    const approved = buildApprovedInterviewDocument(drafted, '2026-03-20T10:25:00.000Z')
+    expect(approved.status).toBe('approved')
+    expect(approved.approval).toEqual({
+      approved_by: 'user',
+      approved_at: '2026-03-20T10:25:00.000Z',
     })
   })
 })

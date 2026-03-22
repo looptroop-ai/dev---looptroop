@@ -25,6 +25,8 @@ import {
   parseCoverageArtifact,
   parseInterviewQuestions,
 } from './phaseArtifactTypes'
+import { parseInterviewDocument } from '@/lib/interviewDocument'
+import { InterviewDocumentView } from './InterviewDocumentView'
 import {
   getCouncilStatusEmoji,
   getCouncilStatusLabel,
@@ -373,6 +375,11 @@ function FinalInterviewArtifactView({ content, header }: { content: string; head
 }
 
 export function InterviewAnswersView({ content }: { content: string }) {
+  const interviewDocument = parseInterviewDocument(content)
+  if (interviewDocument) {
+    return <InterviewDocumentView document={interviewDocument} />
+  }
+
   let parsedContent: unknown = null
   try {
     parsedContent = JSON.parse(content)

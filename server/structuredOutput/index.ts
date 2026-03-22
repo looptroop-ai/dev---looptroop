@@ -23,6 +23,14 @@ export {
   normalizeCoverageResultOutput,
 } from './interviewOutput'
 
+export {
+  normalizeInterviewDocumentOutput,
+  buildInterviewDocumentYaml,
+  toDraftInterviewDocument,
+  updateInterviewDocumentAnswers,
+  buildApprovedInterviewDocument,
+} from './interviewDocument'
+
 export { normalizePrdYamlOutput } from './prdOutput'
 
 export {

@@ -1,6 +1,7 @@
 import { Separator } from '@/components/ui/separator'
 import { PhaseTimeline } from '@/components/navigator/PhaseTimeline'
 import { ContextTree } from '@/components/navigator/ContextTree'
+import { InterviewApprovalNavigator } from '@/components/navigator/InterviewApprovalNavigator'
 
 interface NavigatorPanelProps {
   ticketId: string
@@ -12,6 +13,8 @@ interface NavigatorPanelProps {
 }
 
 export function NavigatorPanel({ ticketId, currentStatus, selectedPhase, canceledFromStatus, previousStatus, onSelectPhase }: NavigatorPanelProps) {
+  const showInterviewApprovalNavigator = selectedPhase === 'WAITING_INTERVIEW_APPROVAL'
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -38,10 +41,14 @@ export function NavigatorPanel({ ticketId, currentStatus, selectedPhase, cancele
       {selectedPhase !== 'DRAFT' && currentStatus !== 'DRAFT' && (
         <>
           <Separator />
-          <ContextTree
-            selectedPhase={selectedPhase}
-            ticketId={ticketId}
-          />
+          {showInterviewApprovalNavigator ? (
+            <InterviewApprovalNavigator ticketId={ticketId} />
+          ) : (
+            <ContextTree
+              selectedPhase={selectedPhase}
+              ticketId={ticketId}
+            />
+          )}
         </>
       )}
     </div>

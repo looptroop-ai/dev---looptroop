@@ -114,6 +114,6 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('Do we need an admin panel?')).toBeInTheDocument()
-    expect(screen.getByText('Skipped')).toBeInTheDocument()
+    expect(screen.getByText(/This question was skipped/i)).toBeInTheDocument()
   })
 })

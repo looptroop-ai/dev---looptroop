@@ -86,6 +86,7 @@ export interface InterviewQuestionView extends InterviewSessionQuestion {
 export interface InterviewSessionView {
   winnerId: string | null
   raw: string | null
+  document?: import('./interviewArtifact').InterviewDocument | null
   session: InterviewSessionSnapshot | null
   questions: InterviewQuestionView[]
 }

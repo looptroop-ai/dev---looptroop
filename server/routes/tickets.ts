@@ -21,6 +21,8 @@ import {
   handleRetryTicket,
   handleDevEvent,
   handleGetInterview,
+  handlePutInterview,
+  handlePutInterviewAnswers,
   handleGetArtifacts,
 } from './ticketHandlers'
 
@@ -40,6 +42,8 @@ ticketRouter.post('/tickets/:id/answer', async (c) => handleAnswerTicket(c))
 ticketRouter.post('/tickets/:id/skip', async (c) => handleSkipTicket(c))
 ticketRouter.post('/tickets/:id/answer-batch', async (c) => handleAnswerBatch(c))
 ticketRouter.patch('/tickets/:id/edit-answer', async (c) => handleEditAnswer(c))
+ticketRouter.put('/tickets/:id/interview', async (c) => handlePutInterview(c))
+ticketRouter.put('/tickets/:id/interview-answers', async (c) => handlePutInterviewAnswers(c))
 ticketRouter.post('/tickets/:id/approve-interview', (c) => handleApproveInterview(c))
 ticketRouter.post('/tickets/:id/approve-prd', (c) => handleApprovePrd(c))
 ticketRouter.post('/tickets/:id/approve-beads', (c) => handleApproveBeads(c))

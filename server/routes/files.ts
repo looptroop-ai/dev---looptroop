@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { getTicketByRef, getTicketPaths } from '../storage/tickets'
 import { safeAtomicWrite } from '../io/atomicWrite'
+import { handlePutInterview } from './ticketHandlers'
 
 const filesRouter = new Hono()
 
@@ -187,6 +188,10 @@ filesRouter.put('/files/:ticketId/:file', async (c) => {
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
   const filePath = resolveTicketFilePath(ticketId, file)
   if (!filePath) return c.json({ error: 'Ticket not found' }, 404)
+
+  if (file === 'interview') {
+    return handlePutInterview(c)
+  }
 
   const body = await c.req.json()
   if (typeof body.content !== 'string') {

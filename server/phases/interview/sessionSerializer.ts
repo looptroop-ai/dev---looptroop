@@ -10,9 +10,11 @@ import type {
   InterviewSessionQuestion,
   InterviewSessionSnapshot,
 } from '@shared/interviewSession'
+import type { InterviewDocument, InterviewDocumentQuestion } from '@shared/interviewArtifact'
 import jsYaml from 'js-yaml'
 import { repairYamlIndentation } from '@shared/yamlRepair'
 import { calculateFollowUpLimit } from './followUpBudget'
+import { buildInterviewDocumentYaml } from '../../structuredOutput'
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -116,7 +118,7 @@ function emptyAnswer(): {
   skipped: boolean
   selected_option_ids: string[]
   free_text: string
-  answered_by: string
+  answered_by: 'user' | 'ai_skip'
   answered_at: string
 } {
   return {
@@ -164,7 +166,7 @@ export function buildCanonicalInterviewYaml(
   snapshot: InterviewSessionSnapshot,
 ): string {
   const generatedAt = snapshot.updatedAt || nowIso()
-  const questions = snapshot.questions.map((question) => {
+  const questions: InterviewDocumentQuestion[] = snapshot.questions.map((question) => {
     const answer = snapshot.answers[question.id]
     const answerType = question.answerType ?? 'free_text'
     const options = question.options ?? []
@@ -181,7 +183,7 @@ export function buildCanonicalInterviewYaml(
             skipped: answer.skipped,
             selected_option_ids: answer.selectedOptionIds ?? [],
             free_text: answer.answer,
-            answered_by: answer.skipped ? 'ai_skip' : 'user',
+            answered_by: answer.skipped ? 'ai_skip' as const : 'user' as const,
             answered_at: answer.skipped ? '' : answer.answeredAt ?? '',
           }
         : emptyAnswer(),
@@ -197,7 +199,7 @@ export function buildCanonicalInterviewYaml(
   const finalFreeFormAnswerFromQuestions = questions.find((question) => question.source === 'final_free_form')?.answer.free_text ?? ''
   const rawFinalSummary = extractRawFinalInterviewSummary(snapshot.rawFinalYaml)
 
-  const interviewData = {
+  const interviewData: InterviewDocument = {
     schema_version: 1,
     ticket_id: ticketId,
     artifact: 'interview',
@@ -221,7 +223,7 @@ export function buildCanonicalInterviewYaml(
     },
   }
 
-  return jsYaml.dump(interviewData, { lineWidth: 120, noRefs: true }) as string
+  return buildInterviewDocumentYaml(interviewData)
 }
 
 function normalizeCoverageQuestion(question: BatchQuestion, roundNumber: number): InterviewSessionQuestion {

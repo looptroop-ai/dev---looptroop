@@ -1,9 +1,62 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApprovalView } from '../ApprovalView'
 import type { Ticket } from '@/hooks/useTickets'
+import type { InterviewDocument } from '@shared/interviewArtifact'
 
-/* ---------- helpers (no module-level imports of the SUT) ---------- */
+const mockUseInterviewQuestions = vi.fn()
+const mockUseTicketUIState = vi.fn()
+const mockSaveUiState = vi.fn()
+const mockClearTicketArtifactsCache = vi.fn()
+
+vi.mock('@/hooks/useTickets', async () => {
+  const actual = await vi.importActual<typeof import('@/hooks/useTickets')>('@/hooks/useTickets')
+  return {
+    ...actual,
+    useInterviewQuestions: (...args: unknown[]) => mockUseInterviewQuestions(...args),
+    useTicketUIState: (...args: unknown[]) => mockUseTicketUIState(...args),
+    useSaveTicketUIState: () => ({ mutate: mockSaveUiState }),
+  }
+})
+
+vi.mock('@/hooks/useTicketArtifacts', () => ({
+  clearTicketArtifactsCache: (...args: unknown[]) => mockClearTicketArtifactsCache(...args),
+}))
+
+vi.mock('../PhaseArtifactsPanel', () => ({
+  PhaseArtifactsPanel: ({ prefixElement }: { prefixElement?: React.ReactNode }) => (
+    <div data-testid="phase-artifacts-panel">{prefixElement}</div>
+  ),
+  PrdDraftView: ({ content }: { content: string }) => <div data-testid="prd-draft-view">{content}</div>,
+}))
+
+vi.mock('../PhaseLogPanel', () => ({
+  PhaseLogPanel: () => <div data-testid="phase-log-panel" />,
+}))
+
+vi.mock('../VerticalResizeHandle', () => ({
+  VerticalResizeHandle: () => <div data-testid="resize-handle" />,
+}))
+
+vi.mock('@/components/editor/YamlEditor', () => ({
+  YamlEditor: ({
+    value,
+    onChange,
+    className,
+  }: {
+    value: string
+    onChange: (value: string) => void
+    className?: string
+  }) => (
+    <textarea
+      aria-label="YAML editor"
+      className={className}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}))
 
 function createJsonResponse(payload: unknown, status: number = 200) {
   return Promise.resolve(
@@ -29,7 +82,7 @@ function renderWithProviders(ui: React.ReactElement) {
   )
 }
 
-function makeTicket(artifactType: 'interview' | 'prd' = 'interview'): Ticket {
+function makeTicket(): Ticket {
   return {
     id: '1:PROJ-42',
     externalId: 'PROJ-42',
@@ -37,7 +90,7 @@ function makeTicket(artifactType: 'interview' | 'prd' = 'interview'): Ticket {
     title: 'Retry strategy',
     description: 'Clarify webhook retry behavior.',
     priority: 3,
-    status: artifactType === 'interview' ? 'WAITING_INTERVIEW_APPROVAL' : 'WAITING_PRD_APPROVAL',
+    status: 'WAITING_INTERVIEW_APPROVAL',
     xstateSnapshot: null,
     branchName: null,
     currentBead: null,
@@ -70,71 +123,108 @@ function makeTicket(artifactType: 'interview' | 'prd' = 'interview'): Ticket {
   }
 }
 
-function buildInterviewYaml(skipped: boolean): string {
+function buildInterviewDocument(answer: string): InterviewDocument {
+  return {
+    schema_version: 1,
+    ticket_id: 'PROJ-42',
+    artifact: 'interview',
+    status: 'draft',
+    generated_by: {
+      winner_model: 'openai/gpt-5',
+      generated_at: '2026-03-17T10:00:00.000Z',
+      canonicalization: 'server_normalized',
+    },
+    questions: [
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        prompt: 'What outcome matters most?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: answer,
+          answered_by: 'user',
+          answered_at: '2026-03-17T10:05:00.000Z',
+        },
+      },
+    ],
+    follow_up_rounds: [],
+    summary: {
+      goals: ['Protect imports'],
+      constraints: ['No duplicate records'],
+      non_goals: ['Bulk reprocessing'],
+      final_free_form_answer: '',
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+}
+
+function buildInterviewYaml(answer: string): string {
   return [
     'schema_version: 1',
     'ticket_id: PROJ-42',
     'artifact: interview',
+    'status: draft',
+    'generated_by:',
+    '  winner_model: openai/gpt-5',
+    '  generated_at: 2026-03-17T10:00:00.000Z',
     'questions:',
     '  - id: Q01',
-    '    prompt: Which constraints are fixed?',
+    '    phase: Foundation',
+    '    prompt: What outcome matters most?',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: free_text',
+    '    options: []',
     '    answer:',
-    `      skipped: ${skipped ? 'true' : 'false'}`,
-    skipped ? "      free_text: ''" : '      free_text: Keep imports idempotent.',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    `      free_text: ${JSON.stringify(answer)}`,
+    '      answered_by: user',
+    '      answered_at: 2026-03-17T10:05:00.000Z',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: [Protect imports]',
+    '  constraints: [No duplicate records]',
+    '  non_goals: [Bulk reprocessing]',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
   ].join('\n')
 }
 
-/* ---------- tests ---------- */
+function buildInterviewPayload(answer: string) {
+  return {
+    winnerId: 'openai/gpt-5',
+    raw: buildInterviewYaml(answer),
+    document: buildInterviewDocument(answer),
+    session: null,
+    questions: [],
+  }
+}
 
-// With isolate:false the module cache is shared across test files.
-// vi.mock at file level can't replace modules already loaded by earlier files.
-// We use vi.resetModules + dynamic import so ApprovalView always gets our mocks.
+describe('Interview approval UI', () => {
+  let interviewPayload = buildInterviewPayload('Protect the import pipeline.')
 
-describe('ApprovalView', () => {
-  let ApprovalView: typeof import('../ApprovalView').ApprovalView
-
-  beforeEach(async () => {
-    vi.resetModules()
-
-    vi.doMock('@/hooks/useTickets', () => ({
-      useTicketAction: () => ({ mutate: vi.fn(), isPending: false }),
-      useTicketUIState: () => ({ data: { scope: 'approval_interview', exists: false, data: null, updatedAt: null } }),
-      useSaveTicketUIState: () => ({ mutate: vi.fn() }),
+  beforeEach(() => {
+    interviewPayload = buildInterviewPayload('Protect the import pipeline.')
+    mockUseInterviewQuestions.mockImplementation(() => ({
+      data: interviewPayload,
+      isLoading: false,
     }))
-
-    vi.doMock('../PhaseLogPanel', () => ({
-      PhaseLogPanel: () => <div data-testid="phase-log-panel" />,
-    }))
-
-    vi.doMock('../PhaseArtifactsPanel', () => ({
-      PhaseArtifactsPanel: ({ prefixElement }: { prefixElement?: React.ReactNode }) => (
-        <div data-testid="phase-artifacts-panel">{prefixElement}</div>
-      ),
-      InterviewAnswersView: ({ content }: { content: string }) => <div data-testid="interview-answers-view">{content}</div>,
-      PrdDraftView: ({ content }: { content: string }) => <div data-testid="prd-draft-view">{content}</div>,
-    }))
-
-    vi.doMock('@/components/editor/YamlEditor', () => ({
-      YamlEditor: ({
-        value,
-        onChange,
-        className,
-      }: {
-        value: string
-        onChange: (value: string) => void
-        className?: string
-      }) => (
-        <textarea
-          aria-label="YAML editor"
-          className={className}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      ),
-    }))
-
-    const mod = await import('../ApprovalView')
-    ApprovalView = mod.ApprovalView
+    mockUseTicketUIState.mockReturnValue({
+      data: { scope: 'approval_interview', exists: false, data: null, updatedAt: null },
+    })
+    mockSaveUiState.mockReset()
+    mockClearTicketArtifactsCache.mockReset()
   })
 
   afterEach(() => {
@@ -142,64 +232,103 @@ describe('ApprovalView', () => {
     vi.restoreAllMocks()
   })
 
-  it('shows the skipped-questions notice when the loaded interview artifact contains skipped questions', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input)
-      if (url === '/api/files/1:PROJ-42/interview') {
-        return createJsonResponse({ content: buildInterviewYaml(true), exists: true })
-      }
-      return createJsonResponse(url.includes('/artifacts') ? [] : {})
-    })
-
-    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
-
-    expect(await screen.findByText(/Some interview questions were skipped\./i)).toBeInTheDocument()
-    expect(screen.getByText(/Each PRD council model will use the ticket context, codebase analysis, and best practices/i)).toBeInTheDocument()
-  })
-
-  it('hides the notice when the loaded interview artifact has no skipped questions', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input)
-      if (url === '/api/files/1:PROJ-42/interview') {
-        return createJsonResponse({ content: buildInterviewYaml(false), exists: true })
-      }
-      return createJsonResponse(url.includes('/artifacts') ? [] : {})
-    })
-
-    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
-
-    await screen.findByTestId('interview-answers-view', {}, { timeout: 3000 })
-    expect(screen.queryByText(/Some interview questions were skipped\./i)).not.toBeInTheDocument()
-  })
-
-  it('updates the notice after saving interview edits that remove skipped questions', async () => {
-    let currentContent = buildInterviewYaml(true)
-
+  it('opens edit mode on the friendly Answers tab and saves answer-only edits', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = String(input)
-      if (url === '/api/files/1:PROJ-42/interview' && init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { content: string }
-        currentContent = body.content
-        return createJsonResponse({ success: true })
+      if (url === '/api/tickets/1:PROJ-42/artifacts') {
+        return createJsonResponse([])
       }
-      if (url === '/api/files/1:PROJ-42/interview') {
-        return createJsonResponse({ content: currentContent, exists: true })
+      if (url === '/api/tickets/1:PROJ-42/interview-answers' && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as {
+          questions: Array<{ id: string; answer: { free_text: string } }>
+        }
+        const nextAnswer = body.questions.find((question) => question.id === 'Q01')?.answer.free_text ?? ''
+        interviewPayload = buildInterviewPayload(nextAnswer)
+        return createJsonResponse({ success: true, ...interviewPayload })
       }
-      return createJsonResponse(url.includes('/artifacts') ? [] : {})
+      throw new Error(`Unexpected fetch: ${url}`)
     })
 
     renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
 
-    expect(await screen.findByText(/Some interview questions were skipped\./i, {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText('Protect the import pipeline.')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /edit/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 
-    const editor = await screen.findByLabelText('YAML editor', {}, { timeout: 3000 })
-    fireEvent.change(editor, { target: { value: buildInterviewYaml(false) } })
-    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    expect(screen.getByText('Answer-only editor')).toBeInTheDocument()
+    expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('Update the recorded answer.'), {
+      target: { value: 'Protect the import pipeline and keep logs reversible.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
-      expect(screen.queryByText(/Some interview questions were skipped\./i)).not.toBeInTheDocument()
+      expect(screen.getByText('Protect the import pipeline and keep logs reversible.')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Answer-only editor')).not.toBeInTheDocument()
+  })
+
+  it('confirms before switching from dirty answer edits to the YAML tab and resets to the last saved artifact', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url === '/api/tickets/1:PROJ-42/artifacts') {
+        return createJsonResponse([])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByPlaceholderText('Update the recorded answer.'), {
+      target: { value: 'Unsaved answer draft.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'YAML' }))
+
+    expect(screen.getByText('Discard unsaved interview edits?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }))
+
+    const editor = await screen.findByLabelText('YAML editor')
+    expect(editor).toHaveValue(buildInterviewYaml('Protect the import pipeline.'))
+    expect(screen.queryByDisplayValue('Unsaved answer draft.')).not.toBeInTheDocument()
+  })
+
+  it('shows local YAML validation feedback and saves valid YAML edits', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url === '/api/tickets/1:PROJ-42/artifacts') {
+        return createJsonResponse([])
+      }
+      if (url === '/api/tickets/1:PROJ-42/interview' && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as { content: string }
+        interviewPayload = body.content.includes('Updated from YAML.')
+          ? buildInterviewPayload('Updated from YAML.')
+          : interviewPayload
+        return createJsonResponse({ success: true, ...interviewPayload })
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'YAML' }))
+
+    const editor = await screen.findByLabelText('YAML editor')
+    fireEvent.change(editor, { target: { value: 'artifact: interview\nquestions: [' } })
+
+    expect(screen.getByText(/unexpected end of the stream|could not be parsed/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(fetchSpy).not.toHaveBeenCalled()
+
+    fireEvent.change(editor, { target: { value: buildInterviewYaml('Updated from YAML.') } })
+    expect(screen.getByText(/YAML looks structurally valid/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Updated from YAML.')).toBeInTheDocument()
     })
   })
 })

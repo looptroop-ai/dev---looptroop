@@ -287,8 +287,13 @@ export function toStringArray(value: unknown): string[] {
 }
 
 export function toOptionalString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
+  const normalized = value instanceof Date
+    ? value.toISOString()
+    : typeof value === 'string'
+      ? value
+      : undefined
+  if (typeof normalized !== 'string') return undefined
+  const trimmed = normalized.trim()
   return trimmed || undefined
 }
 
@@ -327,10 +332,15 @@ export function getNestedRecord(record: Record<string, unknown>, aliases: string
 
 export function getRequiredString(record: Record<string, unknown>, aliases: string[], label: string): string {
   const value = getValueByAliases(record, aliases)
-  if (typeof value !== 'string' || !value.trim()) {
+  const normalized = value instanceof Date
+    ? value.toISOString()
+    : typeof value === 'string'
+      ? value
+      : null
+  if (!normalized || !normalized.trim()) {
     throw new Error(`Missing required ${label}`)
   }
-  return value.trim()
+  return normalized.trim()
 }
 
 export function buildYamlDocument(value: unknown): string {
