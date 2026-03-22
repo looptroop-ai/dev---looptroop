@@ -56,8 +56,8 @@ describe('validateInterviewDraft', () => {
     expect(() => validateInterviewDraft('questions: [', 10)).toThrow('Invalid YAML')
   })
 
-  it('rejects duplicate ids', () => {
-    expect(() => validateInterviewDraft([
+  it('auto-repairs duplicate ids by renumbering', () => {
+    const result = validateInterviewDraft([
       'questions:',
       '  - id: Q01',
       '    phase: foundation',
@@ -65,7 +65,13 @@ describe('validateInterviewDraft', () => {
       '  - id: Q01',
       '    phase: structure',
       '    question: "Two?"',
-    ].join('\n'), 10)).toThrow('Duplicate question id')
+    ].join('\n'), 10)
+
+    expect(result.questionCount).toBe(2)
+    expect(result.questions[0]!.id).toBe('Q01')
+    expect(result.questions[1]!.id).toBe('Q02')
+    expect(result.repairWarnings).toHaveLength(1)
+    expect(result.repairWarnings[0]).toContain('Renumbered duplicate question id')
   })
 
   it('rejects phase-order regressions', () => {

@@ -9,6 +9,7 @@ import {
   getInterviewSummaryAnchorId,
   groupInterviewDocumentQuestions,
 } from '@/lib/interviewDocument'
+import { CollapsibleSection } from './ArtifactContentViewer'
 
 function MetaPill({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -113,55 +114,67 @@ function QuestionCard({ question }: { question: InterviewDocumentQuestion }) {
 export function InterviewDocumentView({
   document,
   className,
+  hideSummary = false,
+  defaultGroupsOpen = false,
 }: {
   document: InterviewDocument
   className?: string
+  hideSummary?: boolean
+  defaultGroupsOpen?: boolean
 }) {
   const groups = groupInterviewDocumentQuestions(document)
 
   return (
     <div className={cn('space-y-5', className)}>
-      <section
-        id={getInterviewSummaryAnchorId()}
-        className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 p-4 shadow-sm scroll-mt-6"
-      >
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">Interview Summary</div>
-            <MetaPill>Status: {document.status}</MetaPill>
-            {document.generated_by.winner_model ? <MetaPill>{document.generated_by.winner_model}</MetaPill> : null}
-            {document.generated_by.generated_at ? <MetaPill>{document.generated_by.generated_at}</MetaPill> : null}
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <SummaryList title="Goals" items={document.summary.goals} />
-            <SummaryList title="Constraints" items={document.summary.constraints} />
-            <SummaryList title="Non-goals" items={document.summary.non_goals} />
-          </div>
-          <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Final Free-Form Answer</div>
-            <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
-              {document.summary.final_free_form_answer || 'No final free-form answer recorded.'}
+      {!hideSummary && (
+        <section
+          id={getInterviewSummaryAnchorId()}
+          className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 p-4 shadow-sm scroll-mt-6"
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-foreground">Interview Summary</div>
+              <MetaPill>Status: {document.status}</MetaPill>
+              {document.generated_by.winner_model ? <MetaPill>{document.generated_by.winner_model}</MetaPill> : null}
+              {document.generated_by.generated_at ? <MetaPill>{document.generated_by.generated_at}</MetaPill> : null}
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <SummaryList title="Goals" items={document.summary.goals} />
+              <SummaryList title="Constraints" items={document.summary.constraints} />
+              <SummaryList title="Non-goals" items={document.summary.non_goals} />
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Final Free-Form Answer</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
+                {document.summary.final_free_form_answer || 'No final free-form answer recorded.'}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {groups.map((group) => (
         <section
           key={group.id}
           id={group.anchorId}
-          className="rounded-2xl border border-border bg-muted/20 p-4 scroll-mt-6"
+          className="scroll-mt-6"
         >
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">{group.label}</div>
-            <MetaPill>{group.questions.length} question{group.questions.length === 1 ? '' : 's'}</MetaPill>
-            <div className="text-xs text-muted-foreground">{group.description}</div>
-          </div>
-          <div className="space-y-3">
-            {group.questions.map((question) => (
-              <QuestionCard key={question.id} question={question} />
-            ))}
-          </div>
+          <CollapsibleSection
+            title={
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">{group.label}</span>
+                <MetaPill>{group.questions.length} question{group.questions.length === 1 ? '' : 's'}</MetaPill>
+                <span className="text-xs text-muted-foreground">{group.description}</span>
+              </div>
+            }
+            defaultOpen={defaultGroupsOpen}
+          >
+            <div className="space-y-3">
+              {group.questions.map((question) => (
+                <QuestionCard key={question.id} question={question} />
+              ))}
+            </div>
+          </CollapsibleSection>
         </section>
       ))}
 
@@ -189,18 +202,20 @@ export function InterviewDocumentView({
         </section>
       ) : null}
 
-      <section
-        id={getInterviewApprovalAnchorId()}
-        className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
-      >
-        <div className="space-y-2">
-          <div className="text-sm font-semibold text-foreground">Approval</div>
-          <div className="flex flex-wrap gap-2">
-            <MetaPill>Approved by: {document.approval.approved_by || 'Not yet approved'}</MetaPill>
-            <MetaPill>Approved at: {document.approval.approved_at || 'Pending'}</MetaPill>
+      {!hideSummary && (
+        <section
+          id={getInterviewApprovalAnchorId()}
+          className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
+        >
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-foreground">Approval</div>
+            <div className="flex flex-wrap gap-2">
+              <MetaPill>Approved by: {document.approval.approved_by || 'Not yet approved'}</MetaPill>
+              <MetaPill>Approved at: {document.approval.approved_at || 'Pending'}</MetaPill>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   )
 }

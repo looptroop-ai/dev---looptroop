@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -163,6 +163,19 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
           // Try combined: colon repair + indentation repair
           try {
             return jsYaml.load(repairYamlIndentation(colonRepaired))
+          } catch { /* fall through */ }
+        }
+      }
+
+      // Try sequence-entry indent repair (fixes dashes drifted after block scalars)
+      const seqRepaired = repairYamlSequenceEntryIndent(base)
+      if (seqRepaired !== base) {
+        try {
+          return jsYaml.load(seqRepaired)
+        } catch {
+          // Try combined: sequence entry + property indentation repair
+          try {
+            return jsYaml.load(repairYamlIndentation(seqRepaired))
           } catch { /* fall through */ }
         }
       }

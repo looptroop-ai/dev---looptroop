@@ -1,5 +1,5 @@
 import jsYaml from 'js-yaml'
-import { repairYamlIndentation, repairYamlListDashSpace } from './yamlRepair'
+import { repairYamlIndentation, repairYamlListDashSpace, repairYamlSequenceEntryIndent } from './yamlRepair'
 
 export interface InterviewQuestionPreview {
   id?: string
@@ -357,7 +357,7 @@ function cleanRecoveredQuestion(rawQuestion: string): { question: string; carryI
 
 function repairInterviewCandidate(candidate: string): string {
   const repairedLines: string[] = []
-  const rawLines = stripTranscriptPrefixes(repairYamlIndentation(repairYamlListDashSpace(candidate))).split('\n')
+  const rawLines = stripTranscriptPrefixes(repairYamlIndentation(repairYamlSequenceEntryIndent(repairYamlListDashSpace(candidate)))).split('\n')
   let carryIdForNextItem: string | undefined
 
   for (let index = 0; index < rawLines.length; index += 1) {

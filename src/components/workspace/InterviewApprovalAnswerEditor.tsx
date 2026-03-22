@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ChoiceAnswerInput } from './ChoiceAnswerInput'
+import { CollapsibleSection } from './ArtifactContentViewer'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import type { InterviewAnswerUpdate } from '@shared/interviewArtifact'
 import { groupInterviewDocumentQuestions } from '@/lib/interviewDocument'
@@ -9,6 +10,7 @@ interface InterviewApprovalAnswerEditorProps {
   document: InterviewDocument
   drafts: Record<string, InterviewAnswerUpdate['answer']>
   disabled?: boolean
+  hideSummary?: boolean
   onAnswerChange: (questionId: string, answer: InterviewAnswerUpdate['answer']) => void
 }
 
@@ -39,6 +41,7 @@ export function InterviewApprovalAnswerEditor({
   document,
   drafts,
   disabled = false,
+  hideSummary = false,
   onAnswerChange,
 }: InterviewApprovalAnswerEditorProps) {
   const groups = groupInterviewDocumentQuestions(document)
@@ -53,22 +56,28 @@ export function InterviewApprovalAnswerEditor({
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <ReadOnlySummary title="Goals" items={document.summary.goals} />
-        <ReadOnlySummary title="Constraints" items={document.summary.constraints} />
-        <ReadOnlySummary title="Non-goals" items={document.summary.non_goals} />
-      </div>
+      {!hideSummary && (
+        <div className="grid gap-3 md:grid-cols-3">
+          <ReadOnlySummary title="Goals" items={document.summary.goals} />
+          <ReadOnlySummary title="Constraints" items={document.summary.constraints} />
+          <ReadOnlySummary title="Non-goals" items={document.summary.non_goals} />
+        </div>
+      )}
 
       {groups.map((group) => (
-        <section key={group.id} className="rounded-2xl border border-border bg-muted/20 p-4">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">{group.label}</div>
-            <Badge variant="outline" className="text-[10px]">
-              {group.questions.length} question{group.questions.length === 1 ? '' : 's'}
-            </Badge>
-            <div className="text-xs text-muted-foreground">{group.description}</div>
-          </div>
-
+        <CollapsibleSection
+          key={group.id}
+          title={
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">{group.label}</span>
+              <Badge variant="outline" className="text-[10px]">
+                {group.questions.length} question{group.questions.length === 1 ? '' : 's'}
+              </Badge>
+              <span className="text-xs text-muted-foreground">{group.description}</span>
+            </div>
+          }
+          defaultOpen={false}
+        >
           <div className="space-y-3">
             {group.questions.map((question) => {
               const draft = drafts[question.id] ?? {
@@ -192,7 +201,7 @@ export function InterviewApprovalAnswerEditor({
               )
             })}
           </div>
-        </section>
+        </CollapsibleSection>
       ))}
     </div>
   )

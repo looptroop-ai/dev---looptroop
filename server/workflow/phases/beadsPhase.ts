@@ -18,7 +18,6 @@ import { resolve } from 'path'
 import { adapter, phaseIntermediate } from './state'
 import {
   emitPhaseLog,
-  emitStateChange,
   emitAiDetail,
   emitOpenCodeSessionLogs,
   emitOpenCodeStreamEvent,
@@ -221,8 +220,6 @@ export async function handleBeadsDraft(
   })
 
   sendEvent({ type: 'DRAFTS_READY' })
-
-  emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_BEADS')
 }
 
 export async function handleBeadsVote(
@@ -362,7 +359,6 @@ export async function handleBeadsVote(
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
     `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
-  emitStateChange(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'REFINING_BEADS')
 }
 
 export async function handleBeadsRefine(
@@ -495,8 +491,6 @@ export async function handleBeadsRefine(
     `Refined and expanded ${expandedBeads.length} beads from winner ${intermediate.winnerId}. Saved to ${beadsPath}.`)
 
   sendEvent({ type: 'REFINED' })
-
-  emitStateChange(ticketId, context.externalId, 'REFINING_BEADS', 'VERIFYING_BEADS_COVERAGE')
 }
 
 export function getBeadsPath(ticketId: string): string {

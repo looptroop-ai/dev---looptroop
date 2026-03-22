@@ -110,37 +110,6 @@ export function emitDebugLog(
   })
 }
 
-export function emitStateChange(
-  ticketId: string,
-  _ticketExternalId: string,
-  from: string,
-  to: string,
-) {
-  const payload = {
-    ticketId,
-    from,
-    to,
-    timestamp: new Date().toISOString(),
-  }
-  broadcaster.broadcast(ticketId, 'state_change', payload)
-  appendLogEvent(
-    ticketId,
-    'state_change',
-    to,
-    `Transition: ${from} -> ${to}`,
-    payload,
-    'system',
-    to,
-    {
-      audience: 'all',
-      kind: 'milestone',
-      op: 'append',
-      streaming: false,
-    },
-  )
-  emitDebugLog(ticketId, to, 'app.state_change', payload)
-}
-
 export function stringifyForLog(value: unknown): string {
   if (typeof value === 'string') return value
   if (value == null) return ''

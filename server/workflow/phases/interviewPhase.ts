@@ -43,7 +43,6 @@ import { PROFILE_DEFAULTS } from '../../db/defaults'
 import { adapter, interviewQASessions, phaseIntermediate, SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE, getOrCreateAbortSignal } from './state'
 import {
   emitPhaseLog,
-  emitStateChange,
   emitAiMilestone,
   emitAiDetail,
   emitOpenCodeSessionLogs,
@@ -588,8 +587,6 @@ export async function handleInterviewDeliberate(
 
   // DraftPhaseResult → Record<string, unknown>: structurally compatible but lacks index signature
   sendEvent({ type: 'QUESTIONS_READY', result: { ...result } })
-
-  emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_INTERVIEW')
 }
 
 export async function handleInterviewVote(
@@ -745,7 +742,6 @@ export async function handleInterviewVote(
     `Interview voting selected winner: ${winnerId} (score: ${totalScore}).`,
   )
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
-  emitStateChange(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'COMPILING_INTERVIEW')
 }
 
 export async function handleInterviewCompile(

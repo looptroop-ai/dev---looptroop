@@ -134,7 +134,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     editable: true,
     multiModelLogs: false,
     reviewArtifactType: 'interview',
-    contextSummary: ['interview', 'user_answers'],
+    contextSummary: [],
   },
   {
     id: 'DRAFTING_PRD',

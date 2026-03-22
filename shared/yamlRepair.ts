@@ -128,6 +128,104 @@ export function repairYamlIndentation(yaml: string): string {
 }
 
 /**
+ * Repair inconsistent sequence entry indentation.
+ *
+ * Models sometimes emit the first `- ` in a sequence at one indent level,
+ * then drift subsequent entries by 1-3 spaces (typically after a block
+ * scalar like `>-`). This function normalizes all sibling dashes to match
+ * the indent of the first entry in each sequence.
+ */
+export function repairYamlSequenceEntryIndent(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+  const DASH_LINE = /^(\s*)-(\s+.*)$/
+  const BARE_KEY = /^[a-z_][\w_-]*\s*:\s*$/i
+  const MAX_SIBLING_DELTA = 3
+
+  // Sorted array of anchor indents for known sequence levels.
+  const anchors: number[] = []
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const actualIndent = (line.match(/^(\s*)/) ?? [''])[0].length
+
+    // Block scalar continuation — skip
+    if (blockScalarBaseIndent >= 0) {
+      if (actualIndent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      blockScalarBaseIndent = -1
+    }
+
+    // Bare mapping key (e.g. "questions:") — reset deeper anchors
+    if (BARE_KEY.test(trimmed) && !DASH_LINE.test(line)) {
+      while (anchors.length > 0 && anchors[anchors.length - 1]! > actualIndent) {
+        anchors.pop()
+      }
+      result.push(line)
+      continue
+    }
+
+    const dashMatch = line.match(DASH_LINE)
+    if (dashMatch) {
+      const dashIndent = dashMatch[1]!.length
+      const rest = dashMatch[2]!
+
+      // Find closest anchor within MAX_SIBLING_DELTA
+      let bestAnchor: number | null = null
+      let bestDelta = MAX_SIBLING_DELTA + 1
+      for (const anchor of anchors) {
+        const delta = Math.abs(dashIndent - anchor)
+        if (delta <= MAX_SIBLING_DELTA && delta < bestDelta) {
+          bestAnchor = anchor
+          bestDelta = delta
+        }
+      }
+
+      if (bestAnchor !== null) {
+        // Sibling — normalize to anchor and pop any deeper anchors
+        while (anchors.length > 0 && anchors[anchors.length - 1]! > bestAnchor) {
+          anchors.pop()
+        }
+        if (dashIndent !== bestAnchor) {
+          result.push(' '.repeat(bestAnchor) + '-' + rest)
+        } else {
+          result.push(line)
+        }
+      } else {
+        // New sequence level
+        anchors.push(dashIndent)
+        result.push(line)
+      }
+
+      // Track block scalar on dash line
+      if (BLOCK_SCALAR_PATTERN.test(rest.trimEnd())) {
+        blockScalarBaseIndent = bestAnchor ?? dashIndent
+      }
+      continue
+    }
+
+    // Non-dash line — track block scalars
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      blockScalarBaseIndent = actualIndent
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}
+
+/**
  * Remove exact-duplicate mapping keys from YAML.
  *
  * Models sometimes emit the same key-value pair twice within a mapping.

@@ -141,7 +141,7 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
               source: 'system',
               audience: 'all',
               kind: 'milestone',
-              content: `[APP] Status ${status} is active.`,
+              content: `[SYS] Status ${status} is active.`,
               timestamp: new Date().toISOString(),
             }, status)
             merged[status] = [synthetic]

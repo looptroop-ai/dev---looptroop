@@ -291,9 +291,21 @@ export function normalizeInterviewDocumentOutput(
       const generatedBy = normalizeGeneratedBy(getNestedRecord(parsed, ['generatedby', 'generated_by']))
       const seenQuestionIds = new Set<string>()
       const questions = rawQuestions.map((question, index) => normalizeQuestion(question, index, warnings))
+
+      // Find max numeric ID for duplicate renumbering.
+      let maxNumericId = 0
+      for (const question of questions) {
+        const match = question.id.match(/q?(\d+)/i)
+        if (match?.[1]) maxNumericId = Math.max(maxNumericId, Number(match[1]))
+      }
+      let nextAvailableId = maxNumericId + 1
+
       for (const question of questions) {
         if (seenQuestionIds.has(question.id)) {
-          throw new Error(`Duplicate question id "${question.id}"`)
+          const newId = `Q${String(nextAvailableId).padStart(2, '0')}`
+          warnings.push(`Renumbered duplicate question id "${question.id}" to "${newId}".`)
+          question.id = newId
+          nextAvailableId += 1
         }
         seenQuestionIds.add(question.id)
       }

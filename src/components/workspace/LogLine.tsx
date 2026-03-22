@@ -68,6 +68,16 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             </button>
           </div>
         )}
+        {entry.streaming && (
+          <div className="mt-0.5">
+            <span
+              title="Receiving continuous text from AI model"
+              className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/30 shadow-sm opacity-80 select-none cursor-default animate-pulse"
+            >
+              Stream
+            </span>
+          </div>
+        )}
       </div>
       <span className="text-muted-foreground/60 mr-2 select-none shrink-0 pt-0.5">{String(index + 1).padStart(3, ' ')}</span>
       <div className="flex-1 min-w-0 pr-2">

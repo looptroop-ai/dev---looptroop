@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
@@ -80,11 +79,6 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   )
   const rawContent = interviewData?.raw ?? ''
   const showSkippedQuestionsNotice = hasSkippedInterviewAnswers(interviewDocument)
-  const councilMemberNames = useMemo(
-    () => ticket.lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0),
-    [ticket.lockedCouncilMembers],
-  )
-  const councilMemberCount = councilMemberNames.length || 3
 
   const [editMode, setEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('answers')
@@ -355,7 +349,18 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-semibold">Interview Results</span>
-          <span className="text-xs text-muted-foreground">Review the final interview artifact, edit recorded answers if needed, then approve it.</span>
+          <span className="flex-1 text-xs text-muted-foreground">Review the final interview artifact, edit recorded answers if needed, then approve it.</span>
+          <Button variant="outline" size="sm" onClick={handleToggleEdit} className="text-xs shrink-0">
+            {editMode ? 'View' : 'Edit'}
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleApprove}
+            disabled={approving || saving || (editMode && hasUnsavedChanges) || !interviewDocument}
+            className="text-xs shrink-0"
+          >
+            {approving ? 'Approving…' : 'Approve'}
+          </Button>
         </div>
 
         {showSkippedQuestionsNotice && (
@@ -368,69 +373,55 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
           </div>
         )}
 
-        <PhaseArtifactsPanel
-          phase={ticket.status}
-          isCompleted={false}
-          ticketId={ticket.id}
-          councilMemberCount={councilMemberCount}
-          councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined}
-          prefixElement={
+        {editMode ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
+              <button
+                type="button"
+                onClick={() => requestTabChange('answers')}
+                className={editTab === 'answers'
+                  ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+                  : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+              >
+                Answers
+              </button>
+              <button
+                type="button"
+                onClick={() => requestTabChange('yaml')}
+                className={editTab === 'yaml'
+                  ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+                  : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+              >
+                YAML
+              </button>
+            </div>
+
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleToggleEdit} className="text-xs shrink-0">
-                {editMode ? 'View' : 'Edit'}
-              </Button>
               <Button
                 size="sm"
-                onClick={handleApprove}
-                disabled={approving || saving || (editMode && hasUnsavedChanges) || !interviewDocument}
-                className="text-xs shrink-0"
+                variant="secondary"
+                onClick={handleSave}
+                disabled={saving || !hasUnsavedChanges}
               >
-                {approving ? 'Approving…' : 'Approve'}
+                {saving ? 'Saving…' : 'Save'}
               </Button>
             </div>
-          }
-        />
+          </div>
+        ) : null}
 
-        {editMode ? (
+        {saveError ? <p className="text-xs text-red-500">{saveError}</p> : null}
+        {approveError ? <p className="text-xs text-red-500">{approveError}</p> : null}
+      </div>
+
+      <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading interview results…</div>
+        ) : editMode ? (
           <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
-                <button
-                  type="button"
-                  onClick={() => requestTabChange('answers')}
-                  className={editTab === 'answers'
-                    ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-                    : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
-                >
-                  Answers
-                </button>
-                <button
-                  type="button"
-                  onClick={() => requestTabChange('yaml')}
-                  className={editTab === 'yaml'
-                    ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-                    : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
-                >
-                  YAML
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={handleSave}
-                  disabled={saving || !hasUnsavedChanges}
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </Button>
-              </div>
-            </div>
-
             {editTab === 'yaml' ? (
               <div className="space-y-3">
                 <div className="rounded-xl border border-border bg-background/80 p-3 text-xs text-muted-foreground">
-                  YAML mode gives full control over the canonical interview artifact. Saving rewrites it into the server’s canonical form and clears interview approval metadata.
+                  YAML mode gives full control over the canonical interview artifact. Saving rewrites it into the server's canonical form and clears interview approval metadata.
                 </div>
                 <YamlEditor value={yamlDraft} onChange={setYamlDraft} className="min-h-[520px] rounded-xl border border-border bg-background" />
                 {yamlValidation?.error ? (
@@ -461,16 +452,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
               </div>
             )}
           </div>
-        ) : null}
-
-        {saveError ? <p className="text-xs text-red-500">{saveError}</p> : null}
-        {approveError ? <p className="text-xs text-red-500">{approveError}</p> : null}
-      </div>
-
-      <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading interview results…</div>
-        ) : editMode ? null : interviewDocument ? (
+        ) : interviewDocument ? (
           <InterviewDocumentView document={interviewDocument} />
         ) : rawContent ? (
           <div className="rounded-xl border border-border bg-background p-4">

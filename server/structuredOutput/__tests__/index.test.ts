@@ -37,6 +37,31 @@ describe('structured output normalization', () => {
     expect(result.value.questions.map((question) => question.id)).toEqual(['Q01', 'Q02', 'Q03'])
   })
 
+  it('repairs interview questions with inconsistent sequence entry indentation (LOO-19)', () => {
+    const result = normalizeInterviewQuestionsOutput([
+      'questions:',
+      '- id: Q01',
+      '    phase: foundation',
+      '    question: >-',
+      '        Who are the primary users or stakeholders',
+      '        of this feature?',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: >-',
+      '        What is the core problem this feature solves?',
+      '  - id: Q03',
+      '    phase: structure',
+      '    question: "What are the main user flows?"',
+    ].join('\n'), 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questions).toHaveLength(3)
+    expect(result.value.questions[0]!.id).toBe('Q01')
+    expect(result.value.questions[1]!.id).toBe('Q02')
+    expect(result.value.questions[2]!.id).toBe('Q03')
+  })
+
   it('normalizes refinement output wrapped in ```yaml code fences', () => {
     const winnerDraft = [
       'questions:',
@@ -950,6 +975,53 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value.questions).toHaveLength(1)
     expect(result.value.questions[0]!.question).toContain('repo_git_mutex')
+  })
+
+  it('auto-repairs duplicate question ids by renumbering above the max', () => {
+    const result = normalizeInterviewQuestionsOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem?"',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: "Who is the user?"',
+      '  - id: Q01',
+      '    phase: structure',
+      '    question: "What features?"',
+      '  - id: Q02',
+      '    phase: assembly',
+      '    question: "Edge cases?"',
+    ].join('\n'), 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.some(w => w.includes('Renumbered duplicate question id'))).toBe(true)
+    // First occurrences keep their IDs, duplicates get Q03 and Q04
+    const ids = result.value.questions.map(q => q.id)
+    expect(ids).toContain('Q01')
+    expect(ids).toContain('Q02')
+    expect(ids).toContain('Q03')
+    expect(ids).toContain('Q04')
+    expect(result.value.questionCount).toBe(4)
+  })
+
+  it('keeps original ids when no duplicates exist', () => {
+    const result = normalizeInterviewQuestionsOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What features?"',
+    ].join('\n'), 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairWarnings.filter(w => w.includes('Renumbered'))).toHaveLength(0)
+    expect(result.value.questions.map(q => q.id)).toEqual(['Q01', 'Q02'])
   })
 
   it('normalizes PROM4 batch envelopes with wrapper noise and indentation repair', () => {

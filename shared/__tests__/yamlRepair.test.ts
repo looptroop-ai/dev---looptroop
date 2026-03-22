@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, stripCodeFences } from '../yamlRepair'
 
 describe('repairYamlListDashSpace', () => {
   it('passes through correctly formatted list items unchanged', () => {
@@ -434,5 +434,154 @@ describe('repairYamlPlainScalarColons', () => {
     expect(parsed.files[0]!.rationale).toBe('Simple rationale without colons.')
     expect(parsed.files[1]!.rationale).toBe('Complex rules: this has colons inside.')
     expect(parsed.files[2]!.rationale).toBe('Already quoted: safe.')
+  })
+})
+
+describe('repairYamlSequenceEntryIndent', () => {
+  it('passes through correctly indented YAML unchanged', () => {
+    const yaml = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    question: "Which users should we support?"',
+    ].join('\n')
+
+    expect(repairYamlSequenceEntryIndent(yaml)).toBe(yaml)
+  })
+
+  it('fixes dash indent drift after block scalar (LOO-19 pattern)', () => {
+    const input = [
+      'questions:',
+      '- id: Q01',
+      '    phase: foundation',
+      '    question: >-',
+      '        Who are the primary users or stakeholders',
+      '        of this feature?',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: >-',
+      '        What is the core problem?',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '- id: Q01',
+      '    phase: foundation',
+      '    question: >-',
+      '        Who are the primary users or stakeholders',
+      '        of this feature?',
+      '- id: Q02',
+      '    phase: foundation',
+      '    question: >-',
+      '        What is the core problem?',
+    ].join('\n')
+
+    expect(repairYamlSequenceEntryIndent(input)).toBe(expected)
+  })
+
+  it('fixes drift in indented sequences', () => {
+    const input = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "First?"',
+      '    - id: Q02',
+      '    phase: Structure',
+      '    question: "Second?"',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "First?"',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    question: "Second?"',
+    ].join('\n')
+
+    expect(repairYamlSequenceEntryIndent(input)).toBe(expected)
+  })
+
+  it('preserves nested sequences', () => {
+    const yaml = [
+      'items:',
+      '  - id: Q01',
+      '    options:',
+      '      - label: Yes',
+      '      - label: No',
+      '  - id: Q02',
+      '    options:',
+      '      - label: Alpha',
+      '      - label: Beta',
+    ].join('\n')
+
+    expect(repairYamlSequenceEntryIndent(yaml)).toBe(yaml)
+  })
+
+  it('does not misread block scalar content as sequence entries', () => {
+    const yaml = [
+      'items:',
+      '  - id: Q01',
+      '    question: |',
+      '      - This is not a list entry',
+      '      - Neither is this',
+      '  - id: Q02',
+      '    question: "Short"',
+    ].join('\n')
+
+    expect(repairYamlSequenceEntryIndent(yaml)).toBe(yaml)
+  })
+
+  it('handles multiple top-level keys with separate sequences', () => {
+    const input = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '   - id: Q02',
+      '    phase: Structure',
+      'changes:',
+      '  - type: modified',
+      '    before: Q01',
+      '   - type: added',
+      '    before: null',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '  - id: Q02',
+      '    phase: Structure',
+      'changes:',
+      '  - type: modified',
+      '    before: Q01',
+      '  - type: added',
+      '    before: null',
+    ].join('\n')
+
+    expect(repairYamlSequenceEntryIndent(input)).toBe(expected)
+  })
+
+  it('produces valid YAML after repairing LOO-19 pattern', () => {
+    const input = [
+      'questions:',
+      '- id: Q01',
+      '  phase: foundation',
+      '  question: >-',
+      '    Who are the primary users?',
+      '  - id: Q02',
+      '  phase: structure',
+      '  question: "What are the main flows?"',
+    ].join('\n')
+
+    const repaired = repairYamlSequenceEntryIndent(input)
+    const parsed = jsYaml.load(repaired) as { questions: { id: string; phase: string }[] }
+    expect(parsed.questions).toHaveLength(2)
+    expect(parsed.questions[0]!.id).toBe('Q01')
+    expect(parsed.questions[1]!.id).toBe('Q02')
   })
 })

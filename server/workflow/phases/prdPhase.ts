@@ -17,7 +17,6 @@ import { PROM12 } from '../../prompts/index'
 import { adapter, phaseIntermediate } from './state'
 import {
   emitPhaseLog,
-  emitStateChange,
   emitAiDetail,
   emitOpenCodeSessionLogs,
   emitOpenCodeStreamEvent,
@@ -220,8 +219,6 @@ export async function handlePrdDraft(
   })
 
   sendEvent({ type: 'DRAFTS_READY' })
-
-  emitStateChange(ticketId, context.externalId, phase, 'COUNCIL_VOTING_PRD')
 }
 
 export async function handlePrdVote(
@@ -361,7 +358,6 @@ export async function handlePrdVote(
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting selected winner: ${winnerId} (score: ${totalScore}).`)
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
-  emitStateChange(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'REFINING_PRD')
 }
 
 export async function handlePrdRefine(
@@ -493,8 +489,6 @@ export async function handlePrdRefine(
     `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
 
   sendEvent({ type: 'REFINED' })
-
-  emitStateChange(ticketId, context.externalId, 'REFINING_PRD', 'VERIFYING_PRD_COVERAGE')
 }
 
 export function buildMockPrdContent(context: TicketContext) {

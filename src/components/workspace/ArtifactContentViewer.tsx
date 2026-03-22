@@ -377,7 +377,7 @@ function FinalInterviewArtifactView({ content, header }: { content: string; head
 export function InterviewAnswersView({ content }: { content: string }) {
   const interviewDocument = parseInterviewDocument(content)
   if (interviewDocument) {
-    return <InterviewDocumentView document={interviewDocument} />
+    return <InterviewDocumentView document={interviewDocument} defaultGroupsOpen={false} hideSummary />
   }
 
   let parsedContent: unknown = null

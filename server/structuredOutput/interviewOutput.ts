@@ -90,14 +90,37 @@ function normalizeParsedInterviewQuestionList(
 ): {
   questions: NormalizedInterviewQuestion[]
   reordered: boolean
+  repairApplied: boolean
+  repairWarnings: string[]
 } {
+  const repairWarnings: string[] = []
+  let repairApplied = false
+
+  // Find the maximum numeric ID across all questions so duplicates can be
+  // renumbered above the current ceiling instead of throwing.
+  let maxNumericId = 0
+  for (const question of parsed) {
+    const match = question.id.trim().match(/q?(\d+)/i)
+    if (match?.[1]) {
+      maxNumericId = Math.max(maxNumericId, Number(match[1]))
+    }
+  }
+  let nextAvailableId = maxNumericId + 1
+
   const seenIds = new Set<string>()
   const normalized = parsed.map((question, index) => {
-    const id = normalizeInterviewId(question.id)
+    let id = normalizeInterviewId(question.id)
     const phase = normalizeInterviewPhase(question.phase)
     const text = question.question.trim()
     if (!text) throw new Error(`Empty question text at index ${index}`)
-    if (seenIds.has(id)) throw new Error(`Duplicate question id: ${id}`)
+
+    if (seenIds.has(id)) {
+      const newId = `Q${String(nextAvailableId).padStart(2, '0')}`
+      repairWarnings.push(`Renumbered duplicate question id ${id} at index ${index} to ${newId}.`)
+      id = newId
+      nextAvailableId += 1
+      repairApplied = true
+    }
     seenIds.add(id)
     return { id, phase, question: text, originalIndex: index }
   })
@@ -114,6 +137,8 @@ function normalizeParsedInterviewQuestionList(
   return {
     questions: sorted.map(({ originalIndex: _originalIndex, ...question }) => question),
     reordered: sorted.some((question, index) => question !== normalized[index]),
+    repairApplied,
+    repairWarnings,
   }
 }
 
@@ -124,6 +149,8 @@ function normalizeStructuredInterviewQuestionList(
   questions: NormalizedInterviewQuestion[]
   questionCount: number
   reordered: boolean
+  repairApplied: boolean
+  repairWarnings: string[]
 } {
   const parsed = parseInterviewQuestions(buildYamlDocument({ questions: rawQuestions }))
   const normalized = normalizeParsedInterviewQuestionList(parsed, maxInitialQuestions)
@@ -131,6 +158,8 @@ function normalizeStructuredInterviewQuestionList(
     questions: normalized.questions,
     questionCount: normalized.questions.length,
     reordered: normalized.reordered,
+    repairApplied: normalized.repairApplied,
+    repairWarnings: normalized.repairWarnings,
   }
 }
 
@@ -659,6 +688,10 @@ export function normalizeInterviewQuestionsOutput(
       const parsed = parseInterviewQuestions(candidate)
       const normalized = normalizeParsedInterviewQuestionList(parsed, maxInitialQuestions)
 
+      if (normalized.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...normalized.repairWarnings)
+      }
       if (normalized.reordered) {
         repairApplied = true
         repairWarnings.push('Applied stable interview phase reordering (foundation -> structure -> assembly).')
@@ -730,12 +763,21 @@ export function normalizeInterviewRefinementOutput(
       }
 
       const normalizedQuestions = normalizeStructuredInterviewQuestionList(rawQuestions, maxInitialQuestions)
+      if (normalizedQuestions.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...normalizedQuestions.repairWarnings)
+      }
       if (normalizedQuestions.reordered) {
         repairApplied = true
         repairWarnings.push('Applied stable interview phase reordering (foundation -> structure -> assembly).')
       }
 
-      const winnerDraftQuestions = normalizeParsedInterviewQuestionList(parseInterviewQuestions(winnerDraftContent), 0).questions
+      const winnerDraftNormalized = normalizeParsedInterviewQuestionList(parseInterviewQuestions(winnerDraftContent), 0)
+      if (winnerDraftNormalized.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...winnerDraftNormalized.repairWarnings)
+      }
+      const winnerDraftQuestions = winnerDraftNormalized.questions
       const winnerKeySet = new Set(winnerDraftQuestions.map(buildInterviewQuestionKey))
       const finalKeySet = new Set(normalizedQuestions.questions.map(buildInterviewQuestionKey))
       const usedBeforeKeys = new Set<string>()

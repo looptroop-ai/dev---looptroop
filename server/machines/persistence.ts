@@ -82,7 +82,7 @@ function attachPersistenceSubscription(
       emitAppSystemLog(
         ticketRef,
         currentState,
-        `[APP] Actor active in ${currentState}.`,
+        `[SYS] Actor active in ${currentState}.`,
         { state: currentState },
       )
     }
@@ -159,18 +159,22 @@ function persistSnapshot(
       to: stateValue,
     }
     broadcaster.broadcast(resolvedTicketRef, 'state_change', payload)
-    emitAppSystemLog(
+    appendLogEvent(
       resolvedTicketRef,
+      'state_change',
       stateValue,
-      `[APP] Status transition: ${payload.from} -> ${payload.to}`,
-      payload,
+      `[SYS] Transition: ${payload.from} -> ${payload.to}`,
+      { ...payload, timestamp: new Date().toISOString() },
+      'system',
+      stateValue,
+      { audience: 'all', kind: 'milestone', op: 'append', streaming: false },
     )
 
     if (stateValue === 'BLOCKED_ERROR' && errorMessage) {
       emitAppErrorLog(
         resolvedTicketRef,
         stateValue,
-        `[APP] Blocked in ${payload.from}: ${errorMessage}`,
+        `[SYS] Blocked in ${payload.from}: ${errorMessage}`,
         {
           message: errorMessage,
           blockedFrom: payload.from,
