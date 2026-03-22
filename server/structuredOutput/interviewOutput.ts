@@ -1,5 +1,6 @@
 import { parseInterviewQuestions, type ParsedInterviewQuestion } from '../phases/interview/questions'
 import type { InterviewQuestionChangeType } from '@shared/interviewQuestions'
+import { MAX_SINGLE_CHOICE_OPTIONS, MAX_MULTIPLE_CHOICE_OPTIONS } from '../lib/constants'
 import type {
   InterviewBatchPayload,
   InterviewBatchPayloadQuestion,
@@ -277,6 +278,30 @@ function canonicalizeInterviewRefinementChanges(
     })
   }
 
+  // Repair added → replaced where the model reused a winner-draft question ID
+  // but declared the change as "added" instead of "replaced"
+  const accountedWinnerIds = new Set(
+    normalizedChanges.filter(c => c.before).map(c => c.before!.id),
+  )
+  const winnerById = new Map(
+    winnerQuestions
+      .filter(q => !accountedWinnerIds.has(q.id))
+      .map(q => [q.id, q] as const),
+  )
+  for (const [i, change] of normalizedChanges.entries()) {
+    if (change.type === 'added' && change.before === null && change.after) {
+      const orphanedWinner = winnerById.get(change.after.id)
+      if (orphanedWinner && buildInterviewQuestionKey(orphanedWinner) !== buildInterviewQuestionKey(change.after)) {
+        normalizedChanges[i] = { type: 'replaced', before: orphanedWinner, after: change.after }
+        winnerById.delete(change.after.id)
+        repairApplied = true
+        repairWarnings.push(
+          `Converted interview refinement change at index ${i} from "added" to "replaced" because ${change.after.id} already existed in the winning draft with different content.`,
+        )
+      }
+    }
+  }
+
   return {
     changes: normalizedChanges,
     repairApplied,
@@ -365,9 +390,10 @@ function normalizeInterviewBatchPriority(value: unknown): string | undefined {
   return raw
 }
 
-function normalizeInterviewBatchAnswerType(value: unknown): 'free_text' | 'single_choice' | 'multiple_choice' | undefined {
+function normalizeInterviewBatchAnswerType(value: unknown): 'free_text' | 'single_choice' | 'multiple_choice' | 'yes_no' | undefined {
   if (typeof value !== 'string') return undefined
   const normalized = normalizeKey(value)
+  if (normalized === 'yesno' || normalized === 'yes_no' || normalized === 'boolean' || normalized === 'bool') return 'yes_no'
   if (normalized === 'singlechoice' || normalized === 'singlechoice' || normalized === 'radio' || normalized === 'single') return 'single_choice'
   if (normalized === 'multiplechoice' || normalized === 'multchoice' || normalized === 'multi' || normalized === 'checkbox' || normalized === 'multichoice') return 'multiple_choice'
   if (normalized === 'freetext' || normalized === 'free' || normalized === 'text' || normalized === 'open') return 'free_text'
@@ -396,11 +422,34 @@ function normalizeInterviewBatchQuestion(value: unknown, index: number): Intervi
   const priority = normalizeInterviewBatchPriority(getValueByAliases(value, ['priority']))
   const rationale = toOptionalString(getValueByAliases(value, ['rationale', 'reason']))
   const rawAnswerType = getValueByAliases(value, ['answertype', 'answer_type', 'type', 'inputtype', 'input_type'])
-  const answerType = normalizeInterviewBatchAnswerType(rawAnswerType)
+  const rawNormAnswerType = normalizeInterviewBatchAnswerType(rawAnswerType)
   const rawOptions = getValueByAliases(value, ['options', 'choices', 'answers'])
-  const options = Array.isArray(rawOptions)
+  const parsedOptions = Array.isArray(rawOptions)
     ? rawOptions.map((opt, i) => normalizeInterviewBatchOption(opt, i)).filter((opt): opt is { id: string; label: string } => opt !== null)
     : undefined
+
+  // Handle yes_no → single_choice expansion
+  let finalAnswerType: 'free_text' | 'single_choice' | 'multiple_choice' | undefined = rawNormAnswerType === 'yes_no' ? 'single_choice' : rawNormAnswerType
+  let finalOptions = rawNormAnswerType === 'yes_no'
+    ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]
+    : parsedOptions
+
+  // Enforce option limits and downgrade empty-option choice types
+  if (finalAnswerType === 'single_choice') {
+    if (!finalOptions || finalOptions.length === 0) {
+      finalAnswerType = undefined
+      finalOptions = undefined
+    } else if (finalOptions.length > MAX_SINGLE_CHOICE_OPTIONS) {
+      finalOptions = finalOptions.slice(0, MAX_SINGLE_CHOICE_OPTIONS)
+    }
+  } else if (finalAnswerType === 'multiple_choice') {
+    if (!finalOptions || finalOptions.length === 0) {
+      finalAnswerType = undefined
+      finalOptions = undefined
+    } else if (finalOptions.length > MAX_MULTIPLE_CHOICE_OPTIONS) {
+      finalOptions = finalOptions.slice(0, MAX_MULTIPLE_CHOICE_OPTIONS)
+    }
+  }
 
   return {
     id: id.trim(),
@@ -408,8 +457,8 @@ function normalizeInterviewBatchQuestion(value: unknown, index: number): Intervi
     ...(phase ? { phase } : {}),
     ...(priority ? { priority } : {}),
     ...(rationale ? { rationale } : {}),
-    ...(answerType && answerType !== 'free_text' ? { answerType } : {}),
-    ...(options && options.length > 0 ? { options } : {}),
+    ...(finalAnswerType && finalAnswerType !== 'free_text' ? { answerType: finalAnswerType } : {}),
+    ...(finalOptions && finalOptions.length > 0 ? { options: finalOptions } : {}),
   }
 }
 
@@ -772,12 +821,46 @@ function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQue
         : typeof record.text === 'string'
           ? record.text
           : ''
+
+    // Normalize answer type and options for coverage follow-ups
+    const rawAnswerType = getValueByAliases(record, ['answertype', 'answer_type', 'type', 'inputtype', 'input_type'])
+    const rawNormAnswerType = normalizeInterviewBatchAnswerType(rawAnswerType)
+    const rawOptions = getValueByAliases(record, ['options', 'choices', 'answers'])
+    const parsedOptions = Array.isArray(rawOptions)
+      ? rawOptions.map((opt, i) => normalizeInterviewBatchOption(opt, i)).filter((opt): opt is { id: string; label: string } => opt !== null)
+      : undefined
+
+    // Handle yes_no → single_choice expansion
+    let finalAnswerType: 'free_text' | 'single_choice' | 'multiple_choice' | undefined = rawNormAnswerType === 'yes_no' ? 'single_choice' : rawNormAnswerType
+    let finalOptions = rawNormAnswerType === 'yes_no'
+      ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]
+      : parsedOptions
+
+    // Enforce option limits and downgrade empty-option choice types
+    if (finalAnswerType === 'single_choice') {
+      if (!finalOptions || finalOptions.length === 0) {
+        finalAnswerType = undefined
+        finalOptions = undefined
+      } else if (finalOptions.length > MAX_SINGLE_CHOICE_OPTIONS) {
+        finalOptions = finalOptions.slice(0, MAX_SINGLE_CHOICE_OPTIONS)
+      }
+    } else if (finalAnswerType === 'multiple_choice') {
+      if (!finalOptions || finalOptions.length === 0) {
+        finalAnswerType = undefined
+        finalOptions = undefined
+      } else if (finalOptions.length > MAX_MULTIPLE_CHOICE_OPTIONS) {
+        finalOptions = finalOptions.slice(0, MAX_MULTIPLE_CHOICE_OPTIONS)
+      }
+    }
+
     return {
       id: typeof record.id === 'string' ? record.id : `FU${index + 1}`,
       question: question.trim(),
       phase: typeof record.phase === 'string' ? record.phase : undefined,
       priority: typeof record.priority === 'string' ? record.priority : undefined,
       rationale: typeof record.rationale === 'string' ? record.rationale : undefined,
+      ...(finalAnswerType && finalAnswerType !== 'free_text' ? { answerType: finalAnswerType } : {}),
+      ...(finalOptions && finalOptions.length > 0 ? { options: finalOptions } : {}),
     }
   }).filter((entry) => entry.question.length > 0)
 }

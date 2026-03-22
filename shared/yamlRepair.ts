@@ -1,4 +1,22 @@
 /**
+ * Repair YAML list items where the dash is not followed by a space.
+ *
+ * Models sometimes emit `-key: value` instead of `- key: value`.
+ * YAML requires a space after the dash for a block sequence entry.
+ * This function inserts the missing space.
+ */
+export function repairYamlListDashSpace(yaml: string): string {
+  return yaml
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^(\s*)-([a-zA-Z_]\w*\s*:.*)$/)
+      if (!match) return line
+      return `${match[1]}- ${match[2]}`
+    })
+    .join('\n')
+}
+
+/**
  * Repair YAML indentation for list items produced by model output.
  *
  * Models sometimes emit properties within list items at the wrong indent
@@ -110,6 +128,103 @@ export function repairYamlIndentation(yaml: string): string {
 }
 
 /**
+ * Remove exact-duplicate mapping keys from YAML.
+ *
+ * Models sometimes emit the same key-value pair twice within a mapping.
+ * This function removes exact duplicates (same key + same full line text)
+ * while preserving entries with different values (those are ambiguous and
+ * should be left for js-yaml to error on).
+ */
+export function repairYamlDuplicateKeys(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+
+  // Map from effective indent level → Map<key_name, full_line_text>
+  const seenByIndent = new Map<number, Map<string, string>>()
+
+  // When >= 0, we are skipping continuation lines of a removed block-scalar duplicate
+  let skipBlockScalarIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Blank / comment lines pass through
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const lineIndent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+
+    // If we're skipping block-scalar continuation of a removed duplicate
+    if (skipBlockScalarIndent >= 0) {
+      if (lineIndent > skipBlockScalarIndent) {
+        continue // skip continuation line
+      }
+      skipBlockScalarIndent = -1
+    }
+
+    // When indentation decreases, deeper mapping contexts are closed
+    for (const level of [...seenByIndent.keys()]) {
+      if (level > lineIndent) {
+        seenByIndent.delete(level)
+      }
+    }
+
+    // List item with key: `  - key: value`
+    // Each list item starts a fresh mapping at effectiveIndent = dashIndent + 2
+    const listItemKeyMatch = line.match(/^(\s*)-\s+([A-Za-z_][\w_-]*)\s*:(.*)$/)
+    if (listItemKeyMatch) {
+      const dashIndent = listItemKeyMatch[1]!.length
+      const effectiveIndent = dashIndent + 2
+      const key = listItemKeyMatch[2]!
+
+      // New list item → fresh mapping context
+      seenByIndent.delete(effectiveIndent)
+      for (const level of [...seenByIndent.keys()]) {
+        if (level > effectiveIndent) {
+          seenByIndent.delete(level)
+        }
+      }
+
+      const map = new Map<string, string>()
+      map.set(key, line)
+      seenByIndent.set(effectiveIndent, map)
+
+      result.push(line)
+      continue
+    }
+
+    // Bare mapping key: `key: value` or `  key: value`
+    const keyMatch = line.match(/^(\s*)([A-Za-z_][\w_-]*)\s*:(.*)$/)
+    if (keyMatch) {
+      const key = keyMatch[2]!
+
+      if (!seenByIndent.has(lineIndent)) {
+        seenByIndent.set(lineIndent, new Map())
+      }
+      const seenAtLevel = seenByIndent.get(lineIndent)!
+
+      const previousLine = seenAtLevel.get(key)
+      if (previousLine !== undefined && previousLine === line) {
+        // Exact duplicate — skip this line
+        if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+          skipBlockScalarIndent = lineIndent
+        }
+        continue
+      }
+
+      seenAtLevel.set(key, line)
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}
+
+/**
  * Repair YAML plain scalars that contain `: ` (colon-space).
  *
  * In YAML, a plain scalar value must not contain `: ` because parsers
@@ -117,6 +232,22 @@ export function repairYamlIndentation(yaml: string): string {
  * unquoted values like `rationale: some rules: here` which breaks parsing.
  * This function wraps such values in double quotes.
  */
+/**
+ * Strip markdown code fences wrapping YAML/JSON content.
+ *
+ * Models sometimes wrap their entire structured output in ```yaml ... ```
+ * or similar fences. Returns the inner content if wrapped, or the input
+ * unchanged if not wrapped.
+ */
+export function stripCodeFences(content: string): string {
+  const trimmed = content.trim()
+  const openMatch = trimmed.match(/^```(?:yaml|yml|json|jsonl)?\s*\n/)
+  if (!openMatch) return content
+  const closeMatch = trimmed.match(/\n\s*```\s*$/)
+  if (!closeMatch) return content
+  return trimmed.slice(openMatch[0].length, closeMatch.index!)
+}
+
 export function repairYamlPlainScalarColons(yaml: string): string {
   const lines = yaml.split('\n')
   const result: string[] = []

@@ -144,7 +144,11 @@ export function AnswerEditor({
                   )}
                   {isChoiceQ && (
                     <Badge variant="outline" className="text-[10px] h-4 font-normal">
-                      {question.answerType === 'single_choice' ? 'single choice' : 'multi select'}
+                      {question.answerType === 'single_choice'
+                        ? (question.options?.length === 2 && question.options[0]?.id === 'yes' && question.options[1]?.id === 'no'
+                          ? 'yes / no'
+                          : 'single choice')
+                        : 'multi select'}
                     </Badge>
                   )}
                 </div>

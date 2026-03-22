@@ -34,6 +34,46 @@ describe('structured output normalization', () => {
     expect(result.value.questions.map((question) => question.id)).toEqual(['Q01', 'Q02', 'Q03'])
   })
 
+  it('normalizes refinement output wrapped in ```yaml code fences', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What are the main workflows?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      '```yaml',
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What are the main workflows?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+      '```',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questionCount).toBe(2)
+    expect(result.value.changes).toHaveLength(1)
+    expect(result.value.changes[0]!.type).toBe('modified')
+  })
+
   it('normalizes PROM3 refinement output with explicit changes', () => {
     const winnerDraft = [
       'questions:',
@@ -283,6 +323,81 @@ describe('structured output normalization', () => {
     expect(result.error).toContain('reuses a winning-draft question')
   })
 
+  it('repairs added → replaced when the model reuses a winner-draft question ID with different content', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: "Who is the target user?"',
+      '  - id: Q03',
+      '    phase: structure',
+      '    question: "What are the main workflows?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What components need to interact?"',
+      '  - id: Q03',
+      '    phase: structure',
+      '    question: "How should data flow between modules?"',
+      'changes:',
+      '  - type: added',
+      '    before: null',
+      '    after:',
+      '      id: Q02',
+      '      phase: structure',
+      '      question: "What components need to interact?"',
+      '  - type: added',
+      '    before: null',
+      '    after:',
+      '      id: Q03',
+      '      phase: structure',
+      '      question: "How should data flow between modules?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Converted interview refinement change at index 0 from "added" to "replaced"')
+    expect(result.repairWarnings.join('\n')).toContain('Converted interview refinement change at index 1 from "added" to "replaced"')
+    expect(result.value.changes).toEqual([
+      {
+        type: 'replaced',
+        before: {
+          id: 'Q02',
+          phase: 'foundation',
+          question: 'Who is the target user?',
+        },
+        after: {
+          id: 'Q02',
+          phase: 'structure',
+          question: 'What components need to interact?',
+        },
+      },
+      {
+        type: 'replaced',
+        before: {
+          id: 'Q03',
+          phase: 'structure',
+          question: 'What are the main workflows?',
+        },
+        after: {
+          id: 'Q03',
+          phase: 'structure',
+          question: 'How should data flow between modules?',
+        },
+      },
+    ])
+  })
+
   it('parses wrapped vote scorecards and repairs incorrect totals', () => {
     const wrapped = [
       '```yaml',
@@ -389,6 +504,57 @@ describe('structured output normalization', () => {
     expect(invalid.ok).toBe(false)
     if (invalid.ok) return
     expect(invalid.error).toContain('Invalid score for Draft 1 / Testability')
+  })
+
+  it('repairs malformed wrapped vote indentation from council retries', () => {
+    const repaired = normalizeVoteScorecardOutput(
+      [
+        'draft_scores:',
+        'Draft 1:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 18',
+        '    Testability: 18',
+        '    Minimal complexity / good decomposition: 16',
+        '    Risks / edge cases addressed: 19',
+        '    total_score: 89',
+        '  Draft 2:',
+        '    Coverage of requirements: 20',
+        '    Correctness / feasibility: 19',
+        '    Testability: 20',
+        '    Minimal complexity / good decomposition: 10',
+        '    Risks / edge cases addressed: 19',
+        '    total_score: 88',
+        '  Draft 3:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 19',
+        '    Testability: 18',
+        '    Minimal complexity / good decomposition: 18',
+        '    Risks / edge cases addressed: 18',
+        '    total_score: 91',
+        '  Draft 4:',
+        '    Coverage of requirements: 12',
+        '    Correctness / feasibility: 17',
+        '    Testability: 11',
+        '    Minimal complexity / good decomposition: 9',
+        '    Risks / edge cases addressed: 12',
+        '    total_score: 61',
+      ].join('\n'),
+      ['Draft 1', 'Draft 2', 'Draft 3', 'Draft 4'],
+      [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ],
+    )
+
+    expect(repaired.ok).toBe(true)
+    if (!repaired.ok) return
+    expect(repaired.repairApplied).toBe(true)
+    expect(repaired.repairWarnings.join('\n')).toContain('Normalized vote scorecard indentation')
+    expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(89)
+    expect(repaired.value.draftScores['Draft 4']?.total_score).toBe(61)
   })
 
   it('keeps unknown vote scorecards strict', () => {
@@ -768,7 +934,7 @@ describe('structured output normalization', () => {
     ])
   })
 
-  it('keeps the malformed backtick scalar repair scoped to coverage parsing', () => {
+  it('recovers interview questions with backtick scalars via loose parser fallback', () => {
     const result = normalizeInterviewQuestionsOutput([
       'questions:',
       '  - id: Q01',
@@ -776,7 +942,11 @@ describe('structured output normalization', () => {
       '    question: `repo_git_mutex` behavior?',
     ].join('\n'), 5)
 
-    expect(result.ok).toBe(false)
+    // YAML rejects backtick scalars, but the loose parser recovers the question
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questions).toHaveLength(1)
+    expect(result.value.questions[0]!.question).toContain('repo_git_mutex')
   })
 
   it('normalizes PROM4 batch envelopes with wrapper noise and indentation repair', () => {
@@ -1157,7 +1327,7 @@ describe('structured output normalization', () => {
     expect(result.value.files[1]?.path).toBe('src/utils.ts')
   })
 
-  it('repairs plain scalar rationale containing colon-space (LOO-1 regression)', () => {
+  it('repairs plain scalar rationale containing colon-space', () => {
     const result = normalizeRelevantFilesOutput([
       '<RELEVANT_FILES_RESULT>',
       'file_count: 2',
@@ -1211,5 +1381,209 @@ describe('structured output normalization', () => {
     expect(result.value.files).toHaveLength(3)
     expect(result.value.files[1]?.rationale).toContain('Has colons: in the middle')
     expect(result.value.files[2]?.rationale).toContain('Also has key: value patterns')
+  })
+
+  it('repairs interview questions with missing space after list dash', () => {
+    const result = normalizeInterviewQuestionsOutput([
+      'questions:',
+      '  -id: Q1',
+      '    phase: foundation',
+      '    question: "What is the primary business goal?"',
+      '  - id: Q2',
+      '    phase: foundation',
+      '    question: "Who are the primary users?"',
+      '  -id: Q3',
+      '    phase: structure',
+      '    question: "What features are required?"',
+    ].join('\n'), 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questions).toHaveLength(3)
+    expect(result.value.questions[0]!.id).toBe('Q01')
+    expect(result.value.questions[1]!.id).toBe('Q02')
+    expect(result.value.questions[2]!.id).toBe('Q03')
+  })
+
+  it('repairs interview questions where all items have missing dash space', () => {
+    const result = normalizeInterviewQuestionsOutput([
+      'questions:',
+      '  -id: Q1',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  -id: Q2',
+      '    phase: structure',
+      '    question: "What features are needed?"',
+    ].join('\n'), 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.questions).toHaveLength(2)
+    expect(result.value.questions[0]!.question).toBe('What problem are we solving?')
+    expect(result.value.questions[1]!.question).toBe('What features are needed?')
+  })
+
+  it('normalizes yes_no answer_type to single_choice with Yes/No options in batch questions', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 1',
+      '  total: 3',
+      'is_final_free_form: false',
+      'ai_commentary: "Testing yes_no type"',
+      'questions:',
+      '  - id: Q01',
+      '    question: "Do you need authentication?"',
+      '    phase: Foundation',
+      '    priority: high',
+      '    rationale: "Determines auth requirements"',
+      '    answer_type: yes_no',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+    const q = result.value.batch.questions[0]!
+    expect(q.answerType).toBe('single_choice')
+    expect(q.options).toEqual([
+      { id: 'yes', label: 'Yes' },
+      { id: 'no', label: 'No' },
+    ])
+  })
+
+  it('truncates single_choice options exceeding the maximum of 10', () => {
+    const options = Array.from({ length: 12 }, (_, i) => `    - id: opt${i + 1}\n      label: "Option ${i + 1}"`)
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 1',
+      '  total: 3',
+      'is_final_free_form: false',
+      'ai_commentary: "Testing option limits"',
+      'questions:',
+      '  - id: Q01',
+      '    question: "Which database?"',
+      '    phase: Foundation',
+      '    priority: high',
+      '    rationale: "DB choice"',
+      '    answer_type: single_choice',
+      '    options:',
+      ...options,
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+    expect(result.value.batch.questions[0]!.options).toHaveLength(10)
+  })
+
+  it('truncates multiple_choice options exceeding the maximum of 15', () => {
+    const options = Array.from({ length: 18 }, (_, i) => `    - id: opt${i + 1}\n      label: "Option ${i + 1}"`)
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 1',
+      '  total: 3',
+      'is_final_free_form: false',
+      'ai_commentary: "Testing option limits"',
+      'questions:',
+      '  - id: Q01',
+      '    question: "Which platforms?"',
+      '    phase: Foundation',
+      '    priority: high',
+      '    rationale: "Platform choice"',
+      '    answer_type: multiple_choice',
+      '    options:',
+      ...options,
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+    expect(result.value.batch.questions[0]!.options).toHaveLength(15)
+  })
+
+  it('downgrades single_choice to free_text when no options are provided', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 1',
+      '  total: 3',
+      'is_final_free_form: false',
+      'ai_commentary: "Testing downgrade"',
+      'questions:',
+      '  - id: Q01',
+      '    question: "Which database?"',
+      '    phase: Foundation',
+      '    priority: high',
+      '    rationale: "DB choice"',
+      '    answer_type: single_choice',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+    expect(result.value.batch.questions[0]!.answerType).toBeUndefined()
+    expect(result.value.batch.questions[0]!.options).toBeUndefined()
+  })
+
+  it('normalizes coverage follow-up questions with answer types', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - "Missing auth details"',
+      'follow_up_questions:',
+      '  - id: FU1',
+      '    question: "Do you need OAuth?"',
+      '    phase: Foundation',
+      '    priority: high',
+      '    rationale: "Auth gap"',
+      '    answer_type: yes_no',
+      '  - id: FU2',
+      '    question: "Which platforms to support?"',
+      '    phase: Structure',
+      '    priority: medium',
+      '    rationale: "Platform gap"',
+      '    answer_type: multiple_choice',
+      '    options:',
+      '      - id: web',
+      '        label: "Web"',
+      '      - id: ios',
+      '        label: "iOS"',
+      '      - id: android',
+      '        label: "Android"',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.followUpQuestions).toHaveLength(2)
+    expect(result.value.followUpQuestions[0]).toMatchObject({
+      id: 'FU1',
+      question: 'Do you need OAuth?',
+      answerType: 'single_choice',
+      options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }],
+    })
+    expect(result.value.followUpQuestions[1]).toMatchObject({
+      id: 'FU2',
+      question: 'Which platforms to support?',
+      answerType: 'multiple_choice',
+      options: [
+        { id: 'web', label: 'Web' },
+        { id: 'ios', label: 'iOS' },
+        { id: 'android', label: 'Android' },
+      ],
+    })
   })
 })

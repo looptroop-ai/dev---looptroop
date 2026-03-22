@@ -1,7 +1,7 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
 import { handleMockExecutionUnsupported } from './executionPhase'
 import type { PromptPart } from '../../opencode/types'
-import { throwIfAborted } from '../../council/types'
+import { CancelledError, throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { buildPromptFromTemplate, PROM0 } from '../../prompts/index'
@@ -113,8 +113,6 @@ export async function handleRelevantFilesScan(
 ) {
   const phase = 'SCANNING_RELEVANT_FILES' as const
   const { worktreePath, ticket, ticketDir } = loadTicketDirContext(context)
-
-  emitPhaseLog(ticketId, context.externalId, phase, 'info', 'Starting relevant files scan.')
 
   const ticketState: TicketState = {
     ticketId: context.externalId,
@@ -303,6 +301,12 @@ export async function handleRelevantFilesScan(
     emitPhaseLog(ticketId, context.externalId, phase, 'info', `Relevant files scan completed: ${parsed.file_count} files extracted.`)
     sendEvent({ type: 'RELEVANT_FILES_READY' })
   } catch (err) {
+    if (err instanceof CancelledError) throw err
+    if (err instanceof Error && err.message === 'Timeout') {
+      emitPhaseLog(ticketId, context.externalId, phase, 'error', `Relevant files scan failed: Timeout`)
+      sendEvent({ type: 'ERROR', message: `Relevant files scan failed: Timeout`, codes: ['RELEVANT_FILES_SCAN_FAILED'] })
+      return
+    }
     throwIfCancelled(err, signal, ticketId)
     const errMsg = err instanceof Error ? err.message : String(err)
     emitPhaseLog(ticketId, context.externalId, phase, 'error', `Relevant files scan failed: ${errMsg}`)
@@ -554,6 +558,12 @@ export async function handleCoverageVerification(
         },
       })
     } catch (error) {
+      if (error instanceof CancelledError) throw error
+      if (error instanceof Error && error.message === 'Timeout') {
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', `Coverage verification failed: Timeout`)
+        sendEvent({ type: 'ERROR', message: `Coverage verification failed: Timeout`, codes: ['COVERAGE_FAILED'] })
+        return
+      }
       throwIfCancelled(error, signal, ticketId)
       throw error
     }

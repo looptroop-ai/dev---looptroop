@@ -252,6 +252,47 @@ function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
       }
 
       const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+
+      // Extract answer type
+      const rawAnswerType = record.answer_type ?? record.answerType ?? record.type
+      let answerType: 'single_choice' | 'multiple_choice' | undefined
+      if (typeof rawAnswerType === 'string') {
+        const at = rawAnswerType.toLowerCase().replace(/[\s_-]/g, '')
+        if (at === 'yesno' || at === 'boolean' || at === 'bool') {
+          answerType = 'single_choice'
+        } else if (at === 'singlechoice' || at === 'radio' || at === 'single') {
+          answerType = 'single_choice'
+        } else if (at === 'multiplechoice' || at === 'multi' || at === 'checkbox' || at === 'multichoice') {
+          answerType = 'multiple_choice'
+        }
+      }
+
+      // Extract options (auto-generate for yes_no)
+      const isYesNo = typeof rawAnswerType === 'string' && ['yes_no', 'yesno', 'boolean', 'bool'].includes(rawAnswerType.toLowerCase().replace(/[\s_-]/g, ''))
+      let options: Array<{ id: string; label: string }> | undefined
+      if (isYesNo) {
+        options = [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]
+      } else if (answerType && Array.isArray(record.options)) {
+        options = record.options
+          .map((opt: unknown, i: number) => {
+            if (typeof opt === 'string') return { id: `opt${i + 1}`, label: opt.trim() }
+            if (opt && typeof opt === 'object') {
+              const o = opt as Record<string, unknown>
+              const label = typeof o.label === 'string' ? o.label : typeof o.text === 'string' ? o.text : undefined
+              if (!label) return null
+              return { id: typeof o.id === 'string' ? o.id : `opt${i + 1}`, label: label.trim() }
+            }
+            return null
+          })
+          .filter((opt: { id: string; label: string } | null): opt is { id: string; label: string } => opt !== null)
+      }
+
+      // Downgrade if choice type but no options
+      if (answerType && (!options || options.length === 0) && !isYesNo) {
+        answerType = undefined
+        options = undefined
+      }
+
       return {
         id: typeof record.id === 'string' ? record.id : `FU${index + 1}`,
         question: typeof record.question === 'string'
@@ -262,6 +303,8 @@ function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
         phase: typeof record.phase === 'string' ? record.phase : 'Structure',
         priority: typeof record.priority === 'string' ? record.priority : 'high',
         rationale: typeof record.rationale === 'string' ? record.rationale : 'Coverage follow-up required to close interview gaps.',
+        ...(answerType ? { answerType } : {}),
+        ...(options && options.length > 0 ? { options } : {}),
       }
     }).filter((question) => question.question.trim().length > 0)
   } catch {

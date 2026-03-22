@@ -18,6 +18,10 @@ export const MAX_SSE_BUFFER_SIZE = 1000
 export const MAX_UI_STATE_BYTES = 2_097_152
 /** Max interview questions per batch */
 export const MAX_INTERVIEW_BATCH_SIZE = 3
+/** Max options for single_choice interview questions */
+export const MAX_SINGLE_CHOICE_OPTIONS = 10
+/** Max options for multiple_choice interview questions */
+export const MAX_MULTIPLE_CHOICE_OPTIONS = 15
 /** Max total chars for relevant file content */
 export const MAX_RELEVANT_FILES_CHARS = 160_000
 /** Max session list limit */

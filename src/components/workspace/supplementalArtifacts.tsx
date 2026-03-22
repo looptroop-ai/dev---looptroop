@@ -11,11 +11,14 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
   if (phase === 'COMPILING_INTERVIEW') {
     return [{ id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
-  if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL' || phase === 'WAITING_INTERVIEW_ANSWERS') {
+  if (phase === 'WAITING_INTERVIEW_ANSWERS') {
     return [
       { id: 'final-interview', label: 'Final Interview Results', description: 'Interview refined by the winning model', icon: <FileText className="h-3.5 w-3.5" /> },
       { id: 'interview-answers', label: 'Interview Answers', description: 'User responses', icon: <FileText className="h-3.5 w-3.5" /> },
     ]
+  }
+  if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
+    return [{ id: 'final-interview', label: 'Interview Results', description: 'Canonical interview questions and answers', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
     return [{ id: 'winner-prd-draft', label: 'Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> }]

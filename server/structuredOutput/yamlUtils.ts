@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlIndentation, repairYamlPlainScalarColons } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -128,9 +128,31 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
     try {
       return jsYaml.load(trimmed)
     } catch {
-      // Try stripping spurious XML tags before indentation repair
-      const xmlStripped = stripSpuriousXmlTags(trimmed)
-      const base = xmlStripped !== trimmed ? xmlStripped : trimmed
+      // First repair: strip markdown code fences if present
+      const defenced = stripCodeFences(trimmed)
+      const effectiveBase = defenced !== trimmed ? defenced.trim() : trimmed
+
+      if (effectiveBase !== trimmed) {
+        try {
+          return JSON.parse(effectiveBase)
+        } catch {
+          try {
+            return jsYaml.load(effectiveBase)
+          } catch { /* fall through to further repairs */ }
+        }
+      }
+
+      // Pre-processing: strip XML tags, remove duplicate keys, fix missing list-dash space
+      const xmlStripped = stripSpuriousXmlTags(effectiveBase)
+      const dashFixed = repairYamlListDashSpace(xmlStripped !== effectiveBase ? xmlStripped : effectiveBase)
+      const base = repairYamlDuplicateKeys(dashFixed)
+
+      // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)
+      if (base !== effectiveBase) {
+        try {
+          return jsYaml.load(base)
+        } catch { /* fall through to targeted repairs */ }
+      }
 
       // Try colon-in-scalar repair (most targeted fix)
       const colonRepaired = repairYamlPlainScalarColons(base)

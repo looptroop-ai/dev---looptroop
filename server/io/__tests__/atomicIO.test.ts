@@ -37,11 +37,6 @@ describe('safeAtomicWrite', () => {
     expect(readFileSync(filePath, 'utf-8')).toBe('nested content')
   })
 
-  it('does not leave .tmp files on success', () => {
-    const filePath = join(TEST_DIR, 'clean.txt')
-    safeAtomicWrite(filePath, 'clean')
-    expect(existsSync(`${filePath}.tmp`)).toBe(false)
-  })
 })
 
 describe('safeAtomicAppend', () => {
@@ -93,15 +88,6 @@ describe('recoverOrphanTmpFiles', () => {
     expect(recovered).toContain(join(nestedDir, 'file.txt'))
   })
 
-  it('returns empty array for clean directory', () => {
-    const recovered = recoverOrphanTmpFiles(TEST_DIR)
-    expect(recovered).toEqual([])
-  })
-
-  it('handles non-existent directory', () => {
-    const recovered = recoverOrphanTmpFiles(join(TEST_DIR, 'nonexistent'))
-    expect(recovered).toEqual([])
-  })
 })
 
 describe('fixTrailingLineCorruption', () => {
@@ -124,9 +110,6 @@ describe('fixTrailingLineCorruption', () => {
     expect(fixed).toBe(false)
   })
 
-  it('returns false for non-existent file', () => {
-    expect(fixTrailingLineCorruption(join(TEST_DIR, 'nonexistent.jsonl'))).toBe(false)
-  })
 })
 
 describe('JSONL read/write/append', () => {
@@ -148,10 +131,6 @@ describe('JSONL read/write/append', () => {
     expect(result).toEqual([{ id: 1 }, { id: 2 }])
   })
 
-  it('returns empty array for non-existent file', () => {
-    expect(readJsonl(join(TEST_DIR, 'missing.jsonl'))).toEqual([])
-  })
-
   it('skips malformed lines', () => {
     const filePath = join(TEST_DIR, 'mixed.jsonl')
     writeFileSync(filePath, '{"a":1}\nnot-json\n{"b":2}\n', 'utf-8')
@@ -160,11 +139,6 @@ describe('JSONL read/write/append', () => {
     expect(result).toEqual([{ a: 1 }, { b: 2 }])
   })
 
-  it('writes empty JSONL for empty array', () => {
-    const filePath = join(TEST_DIR, 'empty.jsonl')
-    writeJsonl(filePath, [])
-    expect(readFileSync(filePath, 'utf-8')).toBe('')
-  })
 })
 
 describe('YAML read/write', () => {

@@ -1,5 +1,5 @@
 import jsYaml from 'js-yaml'
-import { repairYamlIndentation } from './yamlRepair'
+import { repairYamlIndentation, repairYamlListDashSpace } from './yamlRepair'
 
 export interface InterviewQuestionPreview {
   id?: string
@@ -331,7 +331,7 @@ function hasUnclosedQuote(value: string): boolean {
 function looksLikeYamlBoundary(line: string): boolean {
   const trimmed = line.trim()
   if (!trimmed || trimmed.startsWith('```')) return true
-  if (/^questions?\s*:/i.test(trimmed)) return true
+  if (/^questions\s*:/i.test(trimmed)) return true
   if (/^-\s*(foundation|structure|assembly)\s*$/i.test(trimmed)) return true
   return /^(?:-\s*)?(?:id|phase|category|section|stage|question|prompt|text|content)\s*:/i.test(trimmed)
 }
@@ -357,7 +357,7 @@ function cleanRecoveredQuestion(rawQuestion: string): { question: string; carryI
 
 function repairInterviewCandidate(candidate: string): string {
   const repairedLines: string[] = []
-  const rawLines = stripTranscriptPrefixes(repairYamlIndentation(candidate)).split('\n')
+  const rawLines = stripTranscriptPrefixes(repairYamlIndentation(repairYamlListDashSpace(candidate))).split('\n')
   let carryIdForNextItem: string | undefined
 
   for (let index = 0; index < rawLines.length; index += 1) {
@@ -446,7 +446,7 @@ function parseLooseQuestionLines(content: string): InterviewQuestionPreview[] {
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index] ?? ''
     const trimmed = lines[index]?.trim() ?? ''
-    if (!trimmed || trimmed.startsWith('```') || /^questions?\s*:/i.test(trimmed)) continue
+    if (!trimmed || trimmed.startsWith('```') || /^questions\s*:/i.test(trimmed)) continue
 
     const headingMatch = trimmed.match(PHASE_HEADING_PATTERN)
     if (headingMatch?.[1]) {

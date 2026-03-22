@@ -151,14 +151,24 @@ export async function runOpenCodeSessionPrompt({
   }
 
   let response = ''
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const deadlineController = timeoutMs ? new AbortController() : undefined
+  const combinedSignal = deadlineController
+    ? signal
+      ? AbortSignal.any([signal, deadlineController.signal])
+      : deadlineController.signal
+    : signal
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
   const parsedModel = model ? parseModelRef(model) : undefined
+  const stepFinishSafetyMs = timeoutMs
+    ? Math.min(Math.max(timeoutMs / 10, 10_000), 30_000)
+    : undefined
   const promptOptions: PromptSessionOptions = {
-    ...(signal ? { signal } : {}),
+    ...(combinedSignal ? { signal: combinedSignal } : {}),
     ...(parsedModel ? { model: parsedModel } : {}),
     ...(agent ? { agent } : {}),
     ...(variant ? { variant } : {}),
     ...(onStreamEvent ? { onEvent: onStreamEvent } : {}),
+    ...(stepFinishSafetyMs !== undefined ? { stepFinishSafetyMs } : {}),
   }
 
   try {
@@ -174,25 +184,27 @@ export async function runOpenCodeSessionPrompt({
       ...(variant ? { variant } : {}),
     })
 
-    if (timeoutMs) {
-      response = await Promise.race([
-        adapter.promptSession(resolvedSession.id, parts, signal, promptOptions),
-        new Promise<string>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error('Timeout')), timeoutMs)
-        }),
-      ])
-    } else {
-      response = await adapter.promptSession(resolvedSession.id, parts, signal, promptOptions)
+    if (deadlineController) {
+      deadlineTimer = setTimeout(() => deadlineController.abort(), timeoutMs)
+    }
+    response = await adapter.promptSession(resolvedSession.id, parts, signal, promptOptions)
+    // Adapter completed but deadline may have fired during execution;
+    // enforce the timeout even if the adapter didn't respect the signal.
+    if (deadlineController?.signal.aborted) {
+      throw new Error('Timeout')
     }
   } catch (error) {
-    if (error instanceof Error && error.message === 'Timeout') {
+    if (deadlineController?.signal.aborted) {
       await adapter.abortSession(resolvedSession.id)
+      const timeoutError = error instanceof Error && error.message === 'Timeout' ? error : new Error('Timeout')
+      onStreamError?.(timeoutError)
+      throw timeoutError
     }
     onStreamError?.(error)
     throw error
   } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle)
+    if (deadlineTimer) {
+      clearTimeout(deadlineTimer)
     }
   }
 

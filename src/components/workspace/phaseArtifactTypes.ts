@@ -13,11 +13,19 @@ export interface ArtifactDef {
 export interface InterviewAnswerField {
   skipped?: boolean
   free_text?: string
+  selected_option_ids?: string[]
+}
+
+export interface InterviewArtifactOption {
+  id?: string
+  label?: string
 }
 
 export interface InterviewArtifactQuestion {
   id?: string
   prompt?: string
+  answer_type?: string
+  options?: InterviewArtifactOption[]
   answer?: InterviewAnswerField
 }
 

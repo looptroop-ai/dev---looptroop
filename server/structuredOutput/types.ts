@@ -30,6 +30,8 @@ export interface CoverageFollowUpQuestion {
   phase?: string
   priority?: string
   rationale?: string
+  answerType?: 'free_text' | 'single_choice' | 'multiple_choice'
+  options?: Array<{ id: string; label: string }>
 }
 
 export interface CoverageResultEnvelope {

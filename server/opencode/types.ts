@@ -30,6 +30,7 @@ export interface PromptSessionOptions {
   noReply?: boolean
   tools?: Record<string, boolean>
   onEvent?: (event: StreamEvent) => void
+  stepFinishSafetyMs?: number
 }
 
 interface MessagePartBase {

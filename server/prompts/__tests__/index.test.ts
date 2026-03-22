@@ -78,6 +78,12 @@ describe('structured prompt hardening', () => {
     const interviewPrompt = buildPromptFromTemplate(PROM4, [])
     const finalTestPrompt = buildPromptFromTemplate(PROM52, [])
 
+    expect(interviewPrompt).toContain('primary interview checklist')
+    expect(interviewPrompt).toContain('work through the compiled question set faithfully')
+    expect(interviewPrompt).toContain('fully resolves one or more future compiled questions')
+    expect(interviewPrompt).toContain('preserve its original compiled question ID whenever possible')
+    expect(interviewPrompt).toContain('when a prior answer fully resolves that question')
+    expect(interviewPrompt).toContain('Do not move to the final free-form question just because coverage feels good enough')
     expect(interviewPrompt).toContain('Output Discipline')
     expect(interviewPrompt).toContain('Formatting Discipline')
     expect(interviewPrompt).toContain('schema_version: 1')

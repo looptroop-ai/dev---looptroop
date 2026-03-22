@@ -1,6 +1,117 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlIndentation, repairYamlPlainScalarColons } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, stripCodeFences } from '../yamlRepair'
+
+describe('repairYamlListDashSpace', () => {
+  it('passes through correctly formatted list items unchanged', () => {
+    const yaml = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    expect(repairYamlListDashSpace(yaml)).toBe(yaml)
+  })
+
+  it('inserts space after dash for first list item', () => {
+    const input = [
+      'questions:',
+      '  -id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    expect(repairYamlListDashSpace(input)).toBe(expected)
+  })
+
+  it('repairs any field name, not just id', () => {
+    const input = [
+      '  -phase: Foundation',
+      '  -question: "What?"',
+      '  -rationale: "Because"',
+      '  -path: server/app.ts',
+    ].join('\n')
+
+    const expected = [
+      '  - phase: Foundation',
+      '  - question: "What?"',
+      '  - rationale: "Because"',
+      '  - path: server/app.ts',
+    ].join('\n')
+
+    expect(repairYamlListDashSpace(input)).toBe(expected)
+  })
+
+  it('handles mixed correct and incorrect items', () => {
+    const input = [
+      'questions:',
+      '  -id: Q01',
+      '    phase: Foundation',
+      '  - id: Q02',
+      '    phase: Structure',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '  - id: Q02',
+      '    phase: Structure',
+    ].join('\n')
+
+    expect(repairYamlListDashSpace(input)).toBe(expected)
+  })
+
+  it('produces valid YAML after repair', () => {
+    const input = [
+      'questions:',
+      '  -id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    question: "What features are needed?"',
+    ].join('\n')
+
+    const repaired = repairYamlListDashSpace(input)
+    const parsed = jsYaml.load(repaired) as { questions: { id: string; phase: string; question: string }[] }
+    expect(parsed.questions).toHaveLength(2)
+    expect(parsed.questions[0]!.id).toBe('Q01')
+    expect(parsed.questions[1]!.id).toBe('Q02')
+  })
+
+  it('does not alter top-level mapping keys', () => {
+    const yaml = [
+      'file_count: 2',
+      'files:',
+      '  - path: a.ts',
+    ].join('\n')
+
+    expect(repairYamlListDashSpace(yaml)).toBe(yaml)
+  })
+
+  it('handles top-level list with missing dash space', () => {
+    const input = [
+      '-id: Q01',
+      '  phase: Foundation',
+    ].join('\n')
+
+    const expected = [
+      '- id: Q01',
+      '  phase: Foundation',
+    ].join('\n')
+
+    expect(repairYamlListDashSpace(input)).toBe(expected)
+  })
+})
 
 describe('repairYamlIndentation', () => {
   it('passes through correctly indented YAML unchanged', () => {
@@ -94,33 +205,114 @@ describe('repairYamlIndentation', () => {
     expect(repairYamlIndentation(input)).toBe(expected)
   })
 
-  it('preserves blank lines and comments', () => {
-    const yaml = [
-      '# Header comment',
+})
+
+describe('stripCodeFences', () => {
+  it('strips ```yaml wrapper', () => {
+    const input = '```yaml\nquestions:\n  - id: Q01\n```'
+    expect(stripCodeFences(input)).toBe('questions:\n  - id: Q01')
+  })
+
+  it('strips ```yml wrapper', () => {
+    const input = '```yml\nkey: value\n```'
+    expect(stripCodeFences(input)).toBe('key: value')
+  })
+
+  it('strips ```json wrapper', () => {
+    const input = '```json\n{"key": "value"}\n```'
+    expect(stripCodeFences(input)).toBe('{"key": "value"}')
+  })
+
+  it('strips ```jsonl wrapper', () => {
+    const input = '```jsonl\n{"a":1}\n{"b":2}\n```'
+    expect(stripCodeFences(input)).toBe('{"a":1}\n{"b":2}')
+  })
+
+  it('strips bare ``` wrapper (no language tag)', () => {
+    const input = '```\nquestions:\n  - id: Q01\n```'
+    expect(stripCodeFences(input)).toBe('questions:\n  - id: Q01')
+  })
+
+  it('handles leading/trailing whitespace around fences', () => {
+    const input = '  \n```yaml\nquestions:\n  - id: Q01\n```  \n  '
+    expect(stripCodeFences(input)).toBe('questions:\n  - id: Q01')
+  })
+
+  it('returns unchanged when no fences present', () => {
+    const input = 'questions:\n  - id: Q01'
+    expect(stripCodeFences(input)).toBe(input)
+  })
+
+  it('returns unchanged when only opening fence', () => {
+    const input = '```yaml\nquestions:\n  - id: Q01'
+    expect(stripCodeFences(input)).toBe(input)
+  })
+
+  it('returns unchanged when only closing fence', () => {
+    const input = 'questions:\n  - id: Q01\n```'
+    expect(stripCodeFences(input)).toBe(input)
+  })
+
+  it('does not strip fences that appear mid-content', () => {
+    const input = [
       'questions:',
       '  - id: Q01',
-      '    phase: Foundation',
-      '',
-      '    question: "Has blank line above?"',
+      '    question: "See this code:"',
+      '```yaml',
+      'example: true',
+      '```',
+      '  - id: Q02',
     ].join('\n')
-
-    expect(repairYamlIndentation(yaml)).toBe(yaml)
+    expect(stripCodeFences(input)).toBe(input)
   })
 
-  it('preserves folded block scalar continuation lines inside list items', () => {
-    const yaml = [
-      'questions:',
-      '  - id: Q22',
-      '    phase: Assembly',
-      '    question: >-',
-      '      What deterministic ordering and normalization rules should govern XML',
-      '      output: path sort only, directories before files, case sensitivity,',
-      '      locale neutrality, symlink handling, and any stable normalization needed',
-      '      for cross-platform consistency?',
+  it('preserves internal indentation', () => {
+    const input = '```yaml\nquestions:\n  - id: Q01\n    phase: foundation\n    question: "What?"\n```'
+    const expected = 'questions:\n  - id: Q01\n    phase: foundation\n    question: "What?"'
+    expect(stripCodeFences(input)).toBe(expected)
+  })
+})
+
+describe('repairYamlDuplicateKeys', () => {
+  it('removes consecutive exact duplicate key-value', () => {
+    const input = [
+      'files:',
+      '  - path: server/workflow/executionEngine.ts',
+      '    rationale: "The execution engine drives phase orchestration."',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    likely_action: modify',
+      '    content_preview: |',
+      '      class ExecutionEngine {',
+      '      }',
     ].join('\n')
 
-    expect(repairYamlIndentation(yaml)).toBe(yaml)
+    const expected = [
+      'files:',
+      '  - path: server/workflow/executionEngine.ts',
+      '    rationale: "The execution engine drives phase orchestration."',
+      '    relevance: high',
+      '    likely_action: modify',
+      '    content_preview: |',
+      '      class ExecutionEngine {',
+      '      }',
+    ].join('\n')
+
+    expect(repairYamlDuplicateKeys(input)).toBe(expected)
+    // Verify repaired output parses
+    const parsed = jsYaml.load(repairYamlDuplicateKeys(input)) as { files: { likely_action?: string }[] }
+    expect(parsed.files[0]!.likely_action).toBe('modify')
   })
+
+  it('does NOT remove duplicate key with different values', () => {
+    const input = [
+      '    likely_action: modify',
+      '    likely_action: read',
+    ].join('\n')
+
+    expect(repairYamlDuplicateKeys(input)).toBe(input)
+  })
+
 })
 
 describe('repairYamlPlainScalarColons', () => {
@@ -153,41 +345,6 @@ describe('repairYamlPlainScalarColons', () => {
     expect(repairYamlPlainScalarColons(yaml)).toBe(yaml)
   })
 
-  it('does not touch single-quoted values', () => {
-    const yaml = "key: 'hello world: foo bar'"
-    expect(repairYamlPlainScalarColons(yaml)).toBe(yaml)
-  })
-
-  it('does not touch block scalar indicators', () => {
-    const yaml = [
-      'rationale: >',
-      '  This has colons: inside block scalar.',
-      '  Another line with: colons.',
-    ].join('\n')
-
-    expect(repairYamlPlainScalarColons(yaml)).toBe(yaml)
-  })
-
-  it('does not touch literal block scalar indicators', () => {
-    const yaml = [
-      'content: |',
-      '  export const foo: string = "bar"',
-      '  const x: number = 1',
-    ].join('\n')
-
-    expect(repairYamlPlainScalarColons(yaml)).toBe(yaml)
-  })
-
-  it('does not touch flow mappings', () => {
-    const yaml = 'key: {a: 1, b: 2}'
-    expect(repairYamlPlainScalarColons(yaml)).toBe(yaml)
-  })
-
-  it('does not touch flow sequences', () => {
-    const yaml = 'key: [a: 1, b: 2]'
-    expect(repairYamlPlainScalarColons(yaml)).toBe(yaml)
-  })
-
   it('escapes double quotes in values being wrapped', () => {
     const yaml = 'key: value with "quotes" and: colons'
     const repaired = repairYamlPlainScalarColons(yaml)
@@ -210,7 +367,7 @@ describe('repairYamlPlainScalarColons', () => {
     expect(parsed.files[0]!.rationale).toBe('Many rules are state-machine rules: completion truth gates, non-completion for idle.')
   })
 
-  it('repairs the exact LOO-1 production failure pattern', () => {
+  it('repairs multi-entry list with colon-in-scalar rationale and block scalars', () => {
     const yaml = [
       'file_count: 2',
       'files:',

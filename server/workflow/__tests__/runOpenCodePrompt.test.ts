@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildFormattedBatchAnswers } from '../phases/interviewPhase'
 import { OpenCodeSDKAdapter, type OpenCodeAdapter } from '../../opencode/adapter'
 import type {
   HealthStatus,
@@ -57,7 +58,18 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     options?: PromptSessionOptions,
   ): Promise<string> {
     const queued = this.queuedResponses.shift() ?? 'assistant response'
-    const response = typeof queued === 'string' ? queued : await queued.promise
+    const signal = options?.signal ?? _signal
+    const response = typeof queued === 'string'
+      ? queued
+      : signal
+        ? await Promise.race([
+            queued.promise,
+            new Promise<string>((_, reject) => {
+              if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
+              signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+            }),
+          ])
+        : await queued.promise
 
     const assistantMessage: Message = {
       id: `msg-${sessionId}-${this.sessionMessages.size + 1}`,
@@ -406,4 +418,95 @@ describe('runOpenCodePrompt', () => {
       timeoutMs: 20,
     })).rejects.toThrow('Timeout')
   })
+
+  it('subscribeToEvents emits synthetic done after step-finish safety timeout', async () => {
+    // Test the safety timeout directly on the adapter level with a small value
+    const fakeClient = {
+      session: {
+        get: async () => ({ data: { directory: '/tmp/project' } }),
+      },
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'part-step-1',
+                  type: 'step-finish',
+                  reason: 'stop',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                },
+              },
+            }
+            // Hang indefinitely — simulating missing session.idle
+            await new Promise<void>(() => {})
+          })(),
+        }),
+      },
+    }
+    const sdkAdapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const events: StreamEvent[] = []
+    for await (const event of sdkAdapter.subscribeToEvents('ses-1', undefined, 50)) {
+      events.push(event)
+    }
+
+    // Should have: step-finish event + synthetic done from safety timeout
+    expect(events.some(e => e.type === 'step' && e.step === 'finish')).toBe(true)
+    expect(events[events.length - 1]?.type).toBe('done')
+  })
+
+  it('reports Timeout as an ERROR event, not as a CancelledError', async () => {
+    const deferredResponse = createDeferred<string>()
+    const testAdapter = new TestOpenCodeAdapter([deferredResponse])
+    const errors: unknown[] = []
+
+    const runPromise = runOpenCodeSessionPrompt({
+      adapter: testAdapter,
+      session: { id: 'ses-timeout-test' },
+      parts: [{ type: 'text', content: 'test prompt' }],
+      timeoutMs: 50,
+      onStreamError: (err) => {
+        errors.push(err)
+      },
+    })
+
+    await expect(runPromise).rejects.toThrow('Timeout')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(Error)
+    expect((errors[0] as Error).message).toBe('Timeout')
+    // Verify it's NOT a CancelledError
+    expect((errors[0] as Error).name).not.toBe('CancelledError')
+  })
+})
+
+describe('buildFormattedBatchAnswers', () => {
+  it('formats free_text answers unchanged', () => {
+    const result = buildFormattedBatchAnswers(
+      [{ id: 'Q01' }],
+      { Q01: 'My answer' },
+    )
+    expect(result.Q01).toBe('My answer')
+  })
+
+  it('formats single_choice with selected option labels', () => {
+    const result = buildFormattedBatchAnswers(
+      [{ id: 'Q01', answerType: 'single_choice', options: [{ id: 'opt1', label: 'PostgreSQL' }, { id: 'opt2', label: 'MySQL' }] }],
+      { Q01: '' },
+      { Q01: ['opt1'] },
+    )
+    expect(result.Q01).toBe('Selected: "PostgreSQL"')
+  })
+
+  it('formats multiple_choice with notes', () => {
+    const result = buildFormattedBatchAnswers(
+      [{ id: 'Q01', answerType: 'multiple_choice', options: [{ id: 'a', label: 'Web' }, { id: 'b', label: 'iOS' }] }],
+      { Q01: 'Also need desktop' },
+      { Q01: ['a', 'b'] },
+    )
+    expect(result.Q01).toBe('Selected: "Web", "iOS". Notes: Also need desktop')
+  })
+
 })

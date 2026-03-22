@@ -43,7 +43,7 @@ export interface OpenCodeAdapter {
   ): Promise<string>
   listSessions(): Promise<Session[]>
   getSessionMessages(sessionId: string): Promise<Message[]>
-  subscribeToEvents(sessionId: string, signal?: AbortSignal): AsyncGenerator<StreamEvent>
+  subscribeToEvents(sessionId: string, signal?: AbortSignal, stepFinishSafetyMs?: number): AsyncGenerator<StreamEvent>
   abortSession(sessionId: string): Promise<boolean>
   assembleBeadContext(ticketId: string, beadId: string): Promise<PromptPart[]>
   assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]>
@@ -193,6 +193,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
           })
       },
       streamSignal,
+      promptOptions.stepFinishSafetyMs,
     )
 
     try {
@@ -233,9 +234,24 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         return sdkPromptResponse
       })
 
+      // If the caller's signal fires (e.g. deadline timeout), break the race
+      // so promptSession doesn't hang when the SDK client ignores the signal.
+      const signalAbort = promptSignal
+        ? new Promise<string>((_, reject) => {
+            if (promptSignal.aborted) {
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+              return
+            }
+            promptSignal.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            }, { once: true })
+          })
+        : null
+
       let responseText = await Promise.race([
         sdkPromptResponse,
         streamFirstResponse,
+        ...(signalAbort ? [signalAbort] : []),
       ])
       if (!responseText) {
         responseText = buildStreamedTextResponse()
@@ -296,7 +312,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
-  async *subscribeToEvents(sessionId: string, signal?: AbortSignal): AsyncGenerator<StreamEvent> {
+  async *subscribeToEvents(sessionId: string, signal?: AbortSignal, stepFinishSafetyMs?: number): AsyncGenerator<StreamEvent> {
     const directory = await this.resolveSessionDirectory(sessionId)
     const eventStream = await this.client.event.subscribe(
       directory ? { directory } : undefined,
@@ -307,9 +323,38 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const finalizedPartIds = new Set<string>()
     let emittedDone = false
     let lastStatus: string | undefined
+    let safetyActive = false
 
-    for await (const rawEvent of eventStream.stream as AsyncIterable<RawEvent>) {
+    const rawIterator = (eventStream.stream as AsyncIterable<RawEvent>)[Symbol.asyncIterator]()
+
+    while (true) {
       if (signal?.aborted) break
+
+      let result: IteratorResult<RawEvent>
+
+      if (safetyActive && stepFinishSafetyMs) {
+        const nextPromise = rawIterator.next()
+        const expired = Symbol('expired')
+        const winner = await Promise.race([
+          nextPromise,
+          new Promise<typeof expired>((resolve) =>
+            setTimeout(() => resolve(expired), stepFinishSafetyMs),
+          ),
+        ])
+        if (winner === expired) {
+          // Stream hung after step-finish — suppress pending iterator rejection
+          void nextPromise.catch(() => undefined)
+          break
+        }
+        result = winner
+      } else {
+        result = await rawIterator.next()
+      }
+
+      if (result.done) break
+
+      const rawEvent = result.value
+
       if (!this.eventBelongsToSession(rawEvent, sessionId)) continue
 
       const normalized = this.normalizeStreamEvent(rawEvent, sessionId, partCache, finalizedPartIds)
@@ -325,6 +370,15 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       if (normalized.type === 'done') {
         emittedDone = true
         break
+      }
+
+      // Activate safety deadline after step-finish with terminal reason
+      if (
+        normalized.type === 'step' &&
+        normalized.step === 'finish' &&
+        (normalized.reason === 'stop' || normalized.reason === 'end_turn')
+      ) {
+        safetyActive = true
       }
     }
 
@@ -556,9 +610,10 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     sessionId: string,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal,
+    stepFinishSafetyMs?: number,
   ) {
     try {
-      for await (const event of this.subscribeToEvents(sessionId, signal)) {
+      for await (const event of this.subscribeToEvents(sessionId, signal, stepFinishSafetyMs)) {
         onEvent(event)
         if (event.type === 'done') break
       }

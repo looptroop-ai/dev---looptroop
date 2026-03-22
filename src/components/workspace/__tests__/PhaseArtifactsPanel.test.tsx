@@ -267,7 +267,10 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
+    expect(screen.getByText('Interview Results')).toBeInTheDocument()
+    expect(screen.queryByText('Interview Answers')).not.toBeInTheDocument()
+    expect(screen.queryByText('Final Interview Results')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
     expect(screen.getByRole('button', { name: /Final Questions/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Diff \(1\)/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
@@ -324,11 +327,54 @@ describe('PhaseArtifactsPanel', () => {
     )
 
     expect(screen.getByText('1 question')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
+    expect(screen.getByText('Interview Results')).toBeInTheDocument()
+    expect(screen.queryByText('Interview Answers')).not.toBeInTheDocument()
+    expect(screen.queryByText('Final Interview Results')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
     expect(screen.queryByRole('button', { name: /Final Questions/i })).not.toBeInTheDocument()
     expect(screen.getByText('Canonical interview question?')).toBeInTheDocument()
     expect(screen.getByText('Canonical answer.')).toBeInTheDocument()
     expect(screen.queryByText('Old compiled question?')).not.toBeInTheDocument()
+  })
+
+  it('shows a single interview results artifact during coverage verification', () => {
+    const coverageInputArtifact: DBartifact = {
+      id: 9,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_INTERVIEW_COVERAGE',
+      artifactType: 'interview_coverage_input',
+      filePath: null,
+      createdAt: '2026-03-12T11:50:31.000Z',
+      content: JSON.stringify({
+        interview: [
+          'schema_version: 1',
+          'ticket_id: LOOP-1',
+          'artifact: interview',
+          'questions:',
+          '  - id: Q01',
+          '    prompt: "Coverage interview question?"',
+          '    answer:',
+          '      skipped: false',
+          '      free_text: "Coverage answer."',
+        ].join('\n'),
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="VERIFYING_INTERVIEW_COVERAGE"
+        isCompleted={false}
+        preloadedArtifacts={[coverageInputArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('Interview Results')).toBeInTheDocument()
+    expect(screen.queryByText('Interview Answers')).not.toBeInTheDocument()
+    expect(screen.queryByText('Final Interview Results')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
+    expect(screen.getByText('Coverage interview question?')).toBeInTheDocument()
+    expect(screen.getByText('Coverage answer.')).toBeInTheDocument()
   })
 
   it('renders parsed interview coverage gaps and follow-up questions before raw audit output', () => {

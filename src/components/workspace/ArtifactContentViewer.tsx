@@ -6,6 +6,7 @@ import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadg
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import type {
   InterviewArtifactData,
+  InterviewArtifactQuestion,
   InterviewDiffArtifactData,
   CoverageInputData,
   CouncilResultData,
@@ -167,6 +168,32 @@ function renderQuestionDiffSegments(segments: QuestionDiffSegment[], tone: 'adde
       ? <mark key={`${tone}-${index}`} className={highlightClassName}>{segment.text}</mark>
       : <span key={`${tone}-${index}`}>{segment.text}</span>
   ))
+}
+
+interface InterviewAnswerViewItem {
+  id: string | number
+  q: string
+  answer: string | null
+  selectedOptions: string[]
+  isSkipped: boolean
+}
+
+function getSelectedOptionLabels(question: InterviewArtifactQuestion): string[] {
+  const selectedOptionIds = Array.isArray(question.answer?.selected_option_ids)
+    ? question.answer.selected_option_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    : []
+  if (selectedOptionIds.length === 0) return []
+
+  const labelMap = new Map(
+    (Array.isArray(question.options) ? question.options : []).flatMap((option) => {
+      if (!option || typeof option !== 'object') return []
+      const id = typeof option.id === 'string' && option.id.trim().length > 0 ? option.id : null
+      const label = typeof option.label === 'string' && option.label.trim().length > 0 ? option.label : null
+      return id && label ? [[id, label] as const] : []
+    }),
+  )
+
+  return selectedOptionIds.map((id) => labelMap.get(id) ?? id)
 }
 
 function InterviewDraftView({ content }: { content: string }) {
@@ -357,7 +384,7 @@ export function InterviewAnswersView({ content }: { content: string }) {
     }
   }
 
-  const viewData: { id: string | number; q: string; answer: string | null; isSkipped: boolean }[] = []
+  const viewData: InterviewAnswerViewItem[] = []
   const orphanAnswers: Record<string, string> = {}
 
   if (parsedContent && typeof parsedContent === 'object' && (parsedContent as InterviewArtifactData).artifact === 'interview') {
@@ -366,15 +393,16 @@ export function InterviewAnswersView({ content }: { content: string }) {
     for (const [i, q] of qs.entries()) {
       const qId = q.id || `Q${i + 1}`
       const prompt = q.prompt || ''
-      let answer = null
-      let isSkipped = true
-      if (q.answer) {
-        if (!q.answer.skipped && q.answer.free_text) {
-          answer = q.answer.free_text
-          isSkipped = false
-        }
-      }
-      viewData.push({ id: qId, q: prompt, answer, isSkipped })
+      const answer = typeof q.answer?.free_text === 'string' && q.answer.free_text.trim().length > 0
+        ? q.answer.free_text
+        : null
+      viewData.push({
+        id: qId,
+        q: prompt,
+        answer,
+        selectedOptions: getSelectedOptionLabels(q),
+        isSkipped: q.answer?.skipped === true,
+      })
     }
   } else {
     const artifact = parsedContent && typeof parsedContent === 'object'
@@ -400,7 +428,7 @@ export function InterviewAnswersView({ content }: { content: string }) {
     questions.forEach((q, i) => {
       const qId = `Q${i + 1}`
       const answer = answers[qId] || answers[q.q] || null
-      viewData.push({ id: qId, q: q.q, answer, isSkipped: !answer })
+      viewData.push({ id: qId, q: q.q, answer, selectedOptions: [], isSkipped: !answer })
     })
 
     Object.entries(answers).forEach(([k, v]) => {
@@ -416,7 +444,7 @@ export function InterviewAnswersView({ content }: { content: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-muted-foreground mb-2">User responses to the interview questions.</div>
+      <div className="text-xs text-muted-foreground mb-2">Interview questions and recorded responses.</div>
       {viewData.map((item, i) => (
         <div key={i} className="border border-border rounded-md overflow-hidden bg-background">
           <div className="bg-muted px-3 py-2 text-xs font-medium border-b border-border text-foreground flex gap-2">
@@ -427,7 +455,22 @@ export function InterviewAnswersView({ content }: { content: string }) {
             {item.isSkipped ? (
               <span className="text-muted-foreground italic text-[10px] bg-accent px-1.5 py-0.5 rounded">Skipped</span>
             ) : (
-              <div className="whitespace-pre-wrap text-blue-700 dark:text-blue-300">{item.answer}</div>
+              <div className="space-y-1.5">
+                {item.selectedOptions.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {item.selectedOptions.map((label) => (
+                      <span key={label} className="inline-flex items-center px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {item.answer ? (
+                  <div className="whitespace-pre-wrap text-blue-700 dark:text-blue-300">{item.answer}</div>
+                ) : item.selectedOptions.length === 0 ? (
+                  <span className="text-muted-foreground italic text-[10px]">No response recorded.</span>
+                ) : null}
+              </div>
             )}
           </div>
         </div>
@@ -862,7 +905,14 @@ function RelevantFilesScanView({ content }: { content: string }) {
         </>
       ) : (
         <>
-          <div className="text-xs text-muted-foreground">{parsed.fileCount} files identified</div>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <div className="text-xs text-muted-foreground font-medium">{parsed.fileCount} files identified</div>
+            <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+              <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+              <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+              <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+            </div>
+          </div>
           {parsed.files.map((file, i) => (
             <CollapsibleSection
               key={file.path}
@@ -905,7 +955,8 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     return <RelevantFilesScanView content={content} />
   }
   if (artifactId === 'final-interview') {
-    const header = <div className="text-xs font-semibold px-1">Final Interview</div>
+    const isCanonicalInterviewPhase = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
+    const header = <div className="text-xs font-semibold px-1">{isCanonicalInterviewPhase ? 'Interview Results' : 'Final Interview'}</div>
     return <FinalInterviewArtifactView content={content} header={header} />
   }
   if (artifactId === 'interview-answers') {
