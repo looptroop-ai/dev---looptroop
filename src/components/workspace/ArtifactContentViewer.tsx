@@ -497,6 +497,107 @@ export function InterviewAnswersView({ content }: { content: string }) {
 }
 
 export function PrdDraftView({ content }: { content: string }) {
+  try {
+    const parsed = jsYaml.load(content) as any
+    if (parsed && typeof parsed === 'object' && parsed.epics) {
+      return (
+        <div className="space-y-4">
+          {parsed.product && (
+            <CollapsibleSection title="Product" defaultOpen>
+              <div className="space-y-2 p-2">
+                {parsed.product.problem_statement && <div><strong className="text-xs">Problem Statement:</strong> <span className="text-xs">{parsed.product.problem_statement}</span></div>}
+                {parsed.product.target_audience && <div><strong className="text-xs">Target Audience:</strong> <span className="text-xs">{parsed.product.target_audience}</span></div>}
+                {parsed.product.value_proposition && <div><strong className="text-xs">Value Proposition:</strong> <span className="text-xs">{parsed.product.value_proposition}</span></div>}
+              </div>
+            </CollapsibleSection>
+          )}
+          {parsed.scope && (
+            <CollapsibleSection title="Scope">
+              <div className="space-y-2 p-2 flex flex-col md:flex-row gap-4">
+                <div className="flex-1">
+                  <strong className="text-xs">In Scope:</strong>
+                  <ul className="list-disc list-inside text-xs mt-1 pl-2">
+                    {(parsed.scope.in_scope || []).map((s: string, i: number) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+                <div className="flex-1">
+                  <strong className="text-xs">Out of Scope:</strong>
+                  <ul className="list-disc list-inside text-xs mt-1 pl-2 text-muted-foreground">
+                    {(parsed.scope.out_of_scope || []).map((s: string, i: number) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </CollapsibleSection>
+          )}
+          {parsed.technical_requirements && (
+            <CollapsibleSection title="Technical Requirements">
+               <div className="space-y-3 p-2">
+                 {parsed.technical_requirements.non_functional_requirements && parsed.technical_requirements.non_functional_requirements.length > 0 && (
+                   <div>
+                     <strong className="text-xs">Non-Functional Requirements:</strong>
+                     <ul className="list-disc list-inside text-xs mt-1 pl-2">
+                       {parsed.technical_requirements.non_functional_requirements.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                     </ul>
+                   </div>
+                 )}
+                 {parsed.technical_requirements.tooling_assumptions && parsed.technical_requirements.tooling_assumptions.length > 0 && (
+                   <div>
+                     <strong className="text-xs">Tooling Assumptions:</strong>
+                     <ul className="list-disc list-inside text-xs mt-1 pl-2">
+                       {parsed.technical_requirements.tooling_assumptions.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                     </ul>
+                   </div>
+                 )}
+               </div>
+            </CollapsibleSection>
+          )}
+          {parsed.interview_gap_resolutions && parsed.interview_gap_resolutions.length > 0 && (
+            <CollapsibleSection title={`Interview Gap Resolutions (${parsed.interview_gap_resolutions.length})`}>
+              <div className="space-y-2 p-2">
+                {parsed.interview_gap_resolutions.map((res: any, i: number) => (
+                  <div key={i} className="text-xs p-2 bg-muted/50 rounded border border-border">
+                    <div className="font-medium text-amber-700 dark:text-amber-500 mb-1">Gap: {res.prompt || res.gap}</div>
+                    <div className="text-muted-foreground">Resolution: {res.resolution}</div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+          )}
+          {parsed.epics && parsed.epics.length > 0 && (
+            <div className="space-y-2 mt-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Epics ({parsed.epics.length})</div>
+              {parsed.epics.map((epic: any, i: number) => (
+                <CollapsibleSection key={i} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{epic.id || `EPIC-${i+1}`}</span> {epic.title}</span>} defaultOpen={i === 0}>
+                  <div className="space-y-2 p-2">
+                    {(epic.user_stories || []).map((story: any, j: number) => (
+                      <div key={j} className="border border-border/50 rounded p-2 bg-background">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{story.id || `US-${j+1}`}</span>
+                          <span className="text-xs font-medium">{story.title}</span>
+                        </div>
+                        {story.acceptance_criteria && story.acceptance_criteria.length > 0 && (
+                          <div className="pl-6 mt-1">
+                            <ul className="list-disc text-[11px] text-muted-foreground space-y-0.5">
+                              {story.acceptance_criteria.map((ac: string, k: number) => (
+                                <li key={k}>{ac}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleSection>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
+  } catch {
+    // Fall back to text parsing if not valid YAML
+  }
+
   const lines = content.split('\n')
   const sections: { title: string; items: string[] }[] = []
   let current: { title: string; items: string[] } | null = null
@@ -527,6 +628,43 @@ export function PrdDraftView({ content }: { content: string }) {
 }
 
 function BeadsDraftView({ content }: { content: string }) {
+  try {
+    let parsed = jsYaml.load(content) as any
+    // Try to parse JSONL if jsYaml.load returns a string or fails
+    if (typeof parsed === 'string' && content.trim().startsWith('{')) {
+      parsed = content.trim().split('\n').map(line => JSON.parse(line))
+    }
+    
+    const beadsArray = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? parsed.beads : null)
+    
+    if (Array.isArray(beadsArray)) {
+      return (
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground mb-2">{beadsArray.length} beads</div>
+          {beadsArray.map((b: any, i: number) => (
+            <CollapsibleSection key={i} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{b.id || `Bead ${i+1}`}</span> {b.title}</span>}>
+              <div className="space-y-2 p-2">
+                {b.prdRefs && b.prdRefs.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {b.prdRefs.map((ref: string, j: number) => <span key={j} className="px-1.5 py-0.5 bg-muted rounded border border-border text-[10px] text-muted-foreground">{ref}</span>)}
+                  </div>
+                )}
+                {b.description && (
+                  <div className="text-xs"><strong className="text-muted-foreground font-medium">Description:</strong> <span className="whitespace-pre-wrap">{b.description}</span></div>
+                )}
+                {b.contextGuidance && (
+                  <div className="text-xs"><strong className="text-muted-foreground font-medium">Guidance:</strong> <span className="whitespace-pre-wrap">{b.contextGuidance}</span></div>
+                )}
+              </div>
+            </CollapsibleSection>
+          ))}
+        </div>
+      )
+    }
+  } catch {
+    // Fall back to text parsing if not valid YAML/JSONL
+  }
+
   const lines = content.split('\n')
   const beads: { title: string; details: string[] }[] = []
   let current: { title: string; details: string[] } | null = null
@@ -920,7 +1058,7 @@ function RelevantFilesScanView({ content }: { content: string }) {
               <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
             </div>
           </div>
-          {parsed.files.map((file, i) => (
+          {parsed.files.map((file) => (
             <CollapsibleSection
               key={file.path}
               title={
@@ -936,7 +1074,7 @@ function RelevantFilesScanView({ content }: { content: string }) {
                   </div>
                 </span>
               }
-              defaultOpen={i === 0}
+              defaultOpen={false}
             >
               <div className="space-y-2">
                 <div className="text-xs italic text-muted-foreground">{file.rationale}</div>

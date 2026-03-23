@@ -442,10 +442,50 @@ function normalizeInterviewBatchOption(value: unknown, index: number): { id: str
   return { id: id.trim(), label: label.trim() }
 }
 
-function normalizeInterviewBatchQuestion(value: unknown, index: number): InterviewBatchPayloadQuestion {
+function dedupeQuestionOptions<T extends { id: string; label: string }>(
+  options: T[] | undefined,
+  contextLabel: string,
+): {
+  options: T[] | undefined
+  repairWarnings: string[]
+} {
+  if (!options || options.length === 0) {
+    return { options, repairWarnings: [] }
+  }
+
+  const deduped: T[] = []
+  const seenIds = new Set<string>()
+  const duplicateIds = new Set<string>()
+
+  for (const option of options) {
+    if (seenIds.has(option.id)) {
+      duplicateIds.add(option.id)
+      continue
+    }
+    seenIds.add(option.id)
+    deduped.push(option)
+  }
+
+  if (duplicateIds.size === 0) {
+    return { options, repairWarnings: [] }
+  }
+
+  return {
+    options: deduped,
+    repairWarnings: [
+      `${contextLabel}: removed duplicate option ids ${Array.from(duplicateIds).join(', ')} and kept the first occurrence.`,
+    ],
+  }
+}
+
+function normalizeInterviewBatchQuestion(value: unknown, index: number): {
+  question: InterviewBatchPayloadQuestion
+  repairWarnings: string[]
+} {
   if (!isRecord(value)) throw new Error(`Interview batch question at index ${index} is not an object`)
 
-  const id = getRequiredString(value, ['id', 'questionid', 'question_id'], `question id at index ${index}`)
+  const repairWarnings: string[] = []
+  const id = getRequiredString(value, ['id', 'questionid', 'question_id'], `question id at index ${index}`).trim()
   const question = getRequiredString(value, ['question', 'prompt', 'text'], `question text at index ${index}`)
   const phase = normalizeInterviewBatchPhase(getValueByAliases(value, ['phase', 'category', 'stage', 'section']))
   const priority = normalizeInterviewBatchPriority(getValueByAliases(value, ['priority']))
@@ -462,6 +502,10 @@ function normalizeInterviewBatchQuestion(value: unknown, index: number): Intervi
   let finalOptions = rawNormAnswerType === 'yes_no'
     ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]
     : parsedOptions
+
+  const dedupedOptions = dedupeQuestionOptions(finalOptions, `Interview batch question ${id}`)
+  finalOptions = dedupedOptions.options
+  repairWarnings.push(...dedupedOptions.repairWarnings)
 
   // Enforce option limits and downgrade empty-option choice types
   if (finalAnswerType === 'single_choice') {
@@ -481,17 +525,23 @@ function normalizeInterviewBatchQuestion(value: unknown, index: number): Intervi
   }
 
   return {
-    id: id.trim(),
-    question: question.trim(),
-    ...(phase ? { phase } : {}),
-    ...(priority ? { priority } : {}),
-    ...(rationale ? { rationale } : {}),
-    ...(finalAnswerType && finalAnswerType !== 'free_text' ? { answerType: finalAnswerType } : {}),
-    ...(finalOptions && finalOptions.length > 0 ? { options: finalOptions } : {}),
+    question: {
+      id,
+      question: question.trim(),
+      ...(phase ? { phase } : {}),
+      ...(priority ? { priority } : {}),
+      ...(rationale ? { rationale } : {}),
+      ...(finalAnswerType && finalAnswerType !== 'free_text' ? { answerType: finalAnswerType } : {}),
+      ...(finalOptions && finalOptions.length > 0 ? { options: finalOptions } : {}),
+    },
+    repairWarnings,
   }
 }
 
-function normalizeInterviewBatchPayload(value: unknown): InterviewBatchPayload {
+function normalizeInterviewBatchPayload(value: unknown): {
+  batch: InterviewBatchPayload
+  repairWarnings: string[]
+} {
   const parsed = maybeUnwrapRecord(value, [
     'interviewbatch',
     'interview_batch',
@@ -522,7 +572,9 @@ function normalizeInterviewBatchPayload(value: unknown): InterviewBatchPayload {
     throw new Error('Interview batch output is missing a valid progress.total')
   }
 
-  const questions = rawQuestions.map((question, index) => normalizeInterviewBatchQuestion(question, index))
+  const normalizedQuestions = rawQuestions.map((question, index) => normalizeInterviewBatchQuestion(question, index))
+  const repairWarnings = normalizedQuestions.flatMap((question) => question.repairWarnings)
+  const questions = normalizedQuestions.map((question) => question.question)
 
   // Enforce architecture batch size limit (1-3 questions per batch)
   if (questions.length > MAX_INTERVIEW_BATCH_SIZE) {
@@ -530,11 +582,14 @@ function normalizeInterviewBatchPayload(value: unknown): InterviewBatchPayload {
   }
 
   return {
-    batchNumber,
-    progress: { current, total },
-    isFinalFreeForm: toBoolean(getValueByAliases(parsed, ['isfinalfreeform', 'is_final_free_form'])) ?? false,
-    aiCommentary: toOptionalString(getValueByAliases(parsed, ['aicommentary', 'ai_commentary', 'commentary', 'notes'])) ?? '',
-    questions,
+    batch: {
+      batchNumber,
+      progress: { current, total },
+      isFinalFreeForm: toBoolean(getValueByAliases(parsed, ['isfinalfreeform', 'is_final_free_form'])) ?? false,
+      aiCommentary: toOptionalString(getValueByAliases(parsed, ['aicommentary', 'ai_commentary', 'commentary', 'notes'])) ?? '',
+      questions,
+    },
+    repairWarnings,
   }
 }
 
@@ -593,22 +648,23 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
   const batchCandidates = collectTaggedCandidates(rawContent, 'INTERVIEW_BATCH')
   for (const candidate of batchCandidates) {
     try {
-      const batch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate))
+      const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate))
+      const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
       return {
         ok: true,
         value: {
           kind: 'batch',
-          batch,
+          batch: normalizedBatch.batch,
         },
         normalizedContent: buildYamlDocument({
-          batch_number: batch.batchNumber,
-          progress: batch.progress,
-          is_final_free_form: batch.isFinalFreeForm,
-          ai_commentary: batch.aiCommentary,
-          questions: batch.questions,
+          batch_number: normalizedBatch.batch.batchNumber,
+          progress: normalizedBatch.batch.progress,
+          is_final_free_form: normalizedBatch.batch.isFinalFreeForm,
+          ai_commentary: normalizedBatch.batch.aiCommentary,
+          questions: normalizedBatch.batch.questions,
         }),
-        repairApplied: candidate !== rawTrimmed,
-        repairWarnings,
+        repairApplied: candidate !== rawTrimmed || candidateWarnings.length > 0,
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -638,22 +694,23 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
     }
 
     try {
-      const batch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate))
+      const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate))
+      const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
       return {
         ok: true,
         value: {
           kind: 'batch',
-          batch,
+          batch: normalizedBatch.batch,
         },
         normalizedContent: buildYamlDocument({
-          batch_number: batch.batchNumber,
-          progress: batch.progress,
-          is_final_free_form: batch.isFinalFreeForm,
-          ai_commentary: batch.aiCommentary,
-          questions: batch.questions,
+          batch_number: normalizedBatch.batch.batchNumber,
+          progress: normalizedBatch.batch.progress,
+          is_final_free_form: normalizedBatch.batch.isFinalFreeForm,
+          ai_commentary: normalizedBatch.batch.aiCommentary,
+          questions: normalizedBatch.batch.questions,
         }),
-        repairApplied: candidate !== rawTrimmed,
-        repairWarnings,
+        repairApplied: candidate !== rawTrimmed || candidateWarnings.length > 0,
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -845,9 +902,14 @@ export function normalizeInterviewRefinementOutput(
   }
 }
 
-function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQuestion[] {
-  if (!Array.isArray(value)) return []
-  return value.map((entry, index) => {
+function normalizeCoverageFollowUpQuestions(value: unknown): {
+  questions: CoverageFollowUpQuestion[]
+  repairWarnings: string[]
+} {
+  if (!Array.isArray(value)) return { questions: [], repairWarnings: [] }
+
+  const repairWarnings: string[] = []
+  const questions = value.map((entry, index) => {
     if (typeof entry === 'string') {
       return {
         id: `FU${index + 1}`,
@@ -877,6 +939,11 @@ function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQue
     let finalOptions = rawNormAnswerType === 'yes_no'
       ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]
       : parsedOptions
+    const questionId = typeof record.id === 'string' ? record.id : `FU${index + 1}`
+
+    const dedupedOptions = dedupeQuestionOptions(finalOptions, `Coverage follow-up question ${questionId}`)
+    finalOptions = dedupedOptions.options
+    repairWarnings.push(...dedupedOptions.repairWarnings)
 
     // Enforce option limits and downgrade empty-option choice types
     if (finalAnswerType === 'single_choice') {
@@ -896,7 +963,7 @@ function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQue
     }
 
     return {
-      id: typeof record.id === 'string' ? record.id : `FU${index + 1}`,
+      id: questionId,
       question: question.trim(),
       phase: typeof record.phase === 'string' ? record.phase : undefined,
       priority: typeof record.priority === 'string' ? record.priority : undefined,
@@ -905,9 +972,14 @@ function normalizeCoverageFollowUpQuestions(value: unknown): CoverageFollowUpQue
       ...(finalOptions && finalOptions.length > 0 ? { options: finalOptions } : {}),
     }
   }).filter((entry) => entry.question.length > 0)
+
+  return { questions, repairWarnings }
 }
 
-function parseCoverageResultCandidate(candidate: string): CoverageResultEnvelope {
+function parseCoverageResultCandidate(candidate: string): {
+  value: CoverageResultEnvelope
+  repairWarnings: string[]
+} {
   const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
     'coverage',
     'result',
@@ -920,9 +992,10 @@ function parseCoverageResultCandidate(candidate: string): CoverageResultEnvelope
     ? String(getValueByAliases(parsed, ['status'])).trim().toLowerCase()
     : ''
   const gaps = toStringArray(getValueByAliases(parsed, ['gaps', 'issues']))
-  const followUpQuestions = normalizeCoverageFollowUpQuestions(
+  const normalizedFollowUps = normalizeCoverageFollowUpQuestions(
     getValueByAliases(parsed, ['followupquestions', 'follow_up_questions']),
   )
+  const followUpQuestions = normalizedFollowUps.questions
 
   const status: CoverageResultEnvelope['status'] = rawStatus === 'clean'
     || rawStatus === 'pass'
@@ -939,9 +1012,12 @@ function parseCoverageResultCandidate(candidate: string): CoverageResultEnvelope
         : (() => { throw new Error('Coverage output missing valid status') })()
 
   return {
-    status,
-    gaps,
-    followUpQuestions,
+    value: {
+      status,
+      gaps,
+      followUpQuestions,
+    },
+    repairWarnings: normalizedFollowUps.repairWarnings,
   }
 }
 
@@ -956,18 +1032,18 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
     let repairApplied = false
 
     try {
-      const value = parseCoverageResultCandidate(candidate)
+      const normalized = parseCoverageResultCandidate(candidate)
 
       return {
         ok: true,
-        value,
+        value: normalized.value,
         normalizedContent: buildYamlDocument({
-          status: value.status,
-          gaps: value.gaps,
-          follow_up_questions: value.followUpQuestions,
+          status: normalized.value.status,
+          gaps: normalized.value.gaps,
+          follow_up_questions: normalized.value.followUpQuestions,
         }),
-        repairApplied: candidate !== rawContent.trim(),
-        repairWarnings,
+        repairApplied: candidate !== rawContent.trim() || normalized.repairWarnings.length > 0,
+        repairWarnings: normalized.repairWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -978,17 +1054,17 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
       }
 
       try {
-        const value = parseCoverageResultCandidate(repairedCandidate.content)
+        const normalized = parseCoverageResultCandidate(repairedCandidate.content)
         repairApplied = true
-        repairWarnings = [...repairedCandidate.repairWarnings]
+        repairWarnings = [...repairedCandidate.repairWarnings, ...normalized.repairWarnings]
 
         return {
           ok: true,
-          value,
+          value: normalized.value,
           normalizedContent: buildYamlDocument({
-            status: value.status,
-            gaps: value.gaps,
-            follow_up_questions: value.followUpQuestions,
+            status: normalized.value.status,
+            gaps: normalized.value.gaps,
+            follow_up_questions: normalized.value.followUpQuestions,
           }),
           repairApplied: candidate !== rawContent.trim() || repairApplied,
           repairWarnings,

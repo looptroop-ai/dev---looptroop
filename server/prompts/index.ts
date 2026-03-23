@@ -265,12 +265,12 @@ export const PROM4: PromptTemplate = {
       phase: (Foundation | Structure | Assembly)
       priority: (critical | high | medium | low)
       rationale: (why this question matters)
-      answer_type: (REQUIRED — evaluate every question and choose the best type:
-        - "free_text" for open-ended questions where the answer space is too large or creative to enumerate (e.g., "Describe the problem you're solving", "What are your performance requirements?")
+      answer_type: (REQUIRED — evaluate every question and choose the best type. Default to structured answer types; use free_text only as a last resort:
+        - "yes_no" for simple boolean/binary questions (e.g., "Do you need authentication?", "Should there be an admin panel?") — do NOT include options, the system generates Yes/No automatically
         - "single_choice" for mutually-exclusive choices from a finite set (e.g., "Which database engine?", "What deployment target?") — provide 2-10 options
         - "multiple_choice" for "select all that apply" from a finite set (e.g., "Which platforms to support?", "Which authentication methods?") — provide 2-15 options
-        - "yes_no" for simple boolean/binary questions (e.g., "Do you need authentication?", "Should there be an admin panel?") — do NOT include options, the system generates Yes/No automatically
-        Aim for a natural mix of question types across the interview. At least 30-40% of questions should use structured types (single_choice, multiple_choice, or yes_no) when the question naturally fits. Do NOT force-fit genuinely open-ended questions into choice types, but actively look for questions that benefit from structured answers. The user always has a free-form text field below the options to add notes or write their own answer, so do NOT include an "Other" option yourself.)
+        - "free_text" ONLY for genuinely open-ended questions where the answer space cannot be reasonably enumerated into choices (e.g., "Describe the problem you're solving", "What are your performance requirements?")
+        IMPORTANT: Prefer structured types (yes_no, single_choice, multiple_choice) as the default. At least 60-70% of questions should use structured types. Most product and technical questions CAN be expressed as choices — think about what the realistic options are and offer them. Use free_text ONLY when the answer is truly creative, narrative, or unbounded. The user always has a free-form text field below the options to add notes or write their own answer, so structured types never limit the user. Do NOT include an "Other" option yourself.)
       options: (required when answer_type is single_choice or multiple_choice; omit for free_text and yes_no — list of choices with id and label, e.g.:)
         - id: opt1
           label: "PostgreSQL"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe('repairYamlListDashSpace', () => {
   it('passes through correctly formatted list items unchanged', () => {
@@ -311,6 +311,55 @@ describe('repairYamlDuplicateKeys', () => {
     ].join('\n')
 
     expect(repairYamlDuplicateKeys(input)).toBe(input)
+  })
+
+  it('removes duplicate mapping blocks together with their nested lines', () => {
+    const input = [
+      'questions:',
+      '  - id: Q25',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '  - id: Q25',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+    ].join('\n')
+
+    expect(repairYamlDuplicateKeys(input)).toBe(expected)
+
+    const parsed = jsYaml.load(repairYamlDuplicateKeys(input)) as {
+      questions: Array<{ options?: Array<{ id: string; label: string }> }>
+    }
+    expect(parsed.questions[0]!.options).toHaveLength(4)
+    expect(parsed.questions[0]!.options?.map((option) => option.id)).toEqual(['opt1', 'opt2', 'opt3', 'opt4'])
   })
 
 })
@@ -742,5 +791,115 @@ describe('repairYamlUnclosedQuotes', () => {
     ].join('\n')
 
     expect(repairYamlUnclosedQuotes(input)).toBe(expected)
+  })
+})
+
+describe('repairYamlInlineKeys', () => {
+  it('passes through valid multi-line YAML unchanged', () => {
+    const yaml = [
+      'batch_number: 4',
+      'progress:',
+      '  current: 4',
+      '  total: 17',
+      'is_final_free_form: false',
+    ].join('\n')
+
+    expect(repairYamlInlineKeys(yaml)).toBe(yaml)
+  })
+
+  it('splits flat inline keys', () => {
+    const input = 'batch_number: 4 is_final_free_form: false ai_commentary: "text"'
+
+    const result = repairYamlInlineKeys(input)
+    const parsed = jsYaml.load(result) as Record<string, unknown>
+
+    expect(parsed.batch_number).toBe(4)
+    expect(parsed.is_final_free_form).toBe(false)
+    expect(parsed.ai_commentary).toBe('text')
+  })
+
+  it('splits nested inline keys (progress: current: total:)', () => {
+    const input = 'progress: current: 4 total: 17'
+
+    const result = repairYamlInlineKeys(input)
+    const parsed = jsYaml.load(result) as Record<string, unknown>
+
+    expect(parsed).toEqual({
+      progress: { current: 4, total: 17 },
+    })
+  })
+
+  it('handles the exact reported error pattern', () => {
+    const input = 'batch_number: 4 progress: current: 4 total: 17 is_final_free_form: false'
+
+    const result = repairYamlInlineKeys(input)
+    const parsed = jsYaml.load(result) as Record<string, unknown>
+
+    expect(parsed).toEqual({
+      batch_number: 4,
+      progress: { current: 4, total: 17 },
+      is_final_free_form: false,
+    })
+  })
+
+  it('does not break values with spaces', () => {
+    const input = 'rationale: This is an important question about the project'
+
+    expect(repairYamlInlineKeys(input)).toBe(input)
+  })
+
+  it('does not break quoted values containing colons', () => {
+    const input = 'rationale: "key: value style explanation"'
+
+    expect(repairYamlInlineKeys(input)).toBe(input)
+  })
+
+  it('handles list-item lines with inline keys', () => {
+    const input = '  - id: Q01 phase: Foundation priority: critical'
+
+    const result = repairYamlInlineKeys(input)
+    const parsed = jsYaml.load(result) as unknown[]
+
+    expect(parsed).toEqual([
+      { id: 'Q01', phase: 'Foundation', priority: 'critical' },
+    ])
+  })
+
+  it('handles boolean values before next key', () => {
+    const input = 'is_final_free_form: false ai_commentary: "Choosing questions"'
+
+    const result = repairYamlInlineKeys(input)
+    const parsed = jsYaml.load(result) as Record<string, unknown>
+
+    expect(parsed.is_final_free_form).toBe(false)
+    expect(parsed.ai_commentary).toBe('Choosing questions')
+  })
+
+  it('preserves blank lines and comments', () => {
+    const yaml = [
+      '# A comment',
+      '',
+      'batch_number: 4',
+      'is_final_free_form: false',
+    ].join('\n')
+
+    expect(repairYamlInlineKeys(yaml)).toBe(yaml)
+  })
+
+  it('handles mixed valid and inline lines', () => {
+    const input = [
+      'batch_number: 4',
+      'progress: current: 4 total: 17',
+      'is_final_free_form: false',
+    ].join('\n')
+
+    const result = repairYamlInlineKeys(input)
+    const parsed = jsYaml.load(result) as Record<string, unknown>
+
+    expect(parsed).toEqual({
+      batch_number: 4,
+      progress: { current: 4, total: 17 },
+      is_final_free_form: false,
+    })
   })
 })

@@ -51,13 +51,21 @@ const PROM4_SCHEMA_REMINDER = [
   'If the interview should continue, return exactly one <INTERVIEW_BATCH>...</INTERVIEW_BATCH> block.',
   'Inside <INTERVIEW_BATCH>, return YAML with: batch_number, progress.current, progress.total, is_final_free_form, ai_commentary, questions[].',
   'Each question item must include: id, question, phase, priority, rationale.',
-  'Each question item MUST include: answer_type (free_text|single_choice|multiple_choice|yes_no). For single_choice, provide 2-10 options. For multiple_choice, provide 2-15 options. For yes_no, omit options. Options are objects with id and label fields.',
+  'Each question item MUST include: answer_type (yes_no|single_choice|multiple_choice|free_text). Prefer structured types (yes_no, single_choice, multiple_choice) — use free_text only for genuinely open-ended questions. For single_choice, provide 2-10 options. For multiple_choice, provide 2-15 options. For yes_no, omit options. Options are objects with id and label fields.',
   'If the interview is complete, return exactly one <INTERVIEW_COMPLETE>...</INTERVIEW_COMPLETE> block.',
   'Inside <INTERVIEW_COMPLETE>, return YAML with these exact top-level keys: schema_version, ticket_id, artifact, status, generated_by, questions, follow_up_rounds, summary, approval.',
   'Each `questions` item must include: id, phase, prompt, source, follow_up_round, answer_type, options, answer.',
   'Each `answer` item must include: skipped, selected_option_ids, free_text, answered_by, answered_at.',
   PROM4_FINAL_INTERVIEW_SCHEMA,
 ].join('\n')
+
+function logInterviewTurnRepairWarnings(warnings: string[], ticketId?: string) {
+  if (warnings.length === 0) return
+  const label = ticketId
+    ? `Interview batch normalization repairs applied for ticket ${ticketId}:`
+    : 'Interview batch normalization repairs applied:'
+  console.warn(label, warnings.join(' '))
+}
 
 export function createBatches(questions: InterviewQuestion[], batchSize: number = MAX_INTERVIEW_BATCH_SIZE): QABatch[] {
   const batches: QABatch[] = []
@@ -260,6 +268,7 @@ export function parseBatchResponse(response: string): BatchResponse {
   if (!normalized.ok) {
     throw new Error(normalized.error)
   }
+  logInterviewTurnRepairWarnings(normalized.repairWarnings)
   return toBatchResponse(normalized.value)
 }
 
@@ -307,6 +316,7 @@ async function parseBatchResponseWithRetry(input: {
 }): Promise<BatchResponse> {
   const normalized = normalizeInterviewTurnOutput(input.response)
   if (normalized.ok) {
+    logInterviewTurnRepairWarnings(normalized.repairWarnings, input.ticketId)
     return toBatchResponse(normalized.value)
   }
 
@@ -349,5 +359,6 @@ async function parseBatchResponseWithRetry(input: {
     throw new Error(`PROM4 output failed validation after retry: ${retried.error}`)
   }
 
+  logInterviewTurnRepairWarnings(retried.repairWarnings, input.ticketId)
   return toBatchResponse(retried.value)
 }

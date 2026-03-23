@@ -1925,6 +1925,95 @@ describe('structured output normalization', () => {
     expect(result.value.batch.questions[0]!.options).toBeUndefined()
   })
 
+  it('keeps only the first duplicated options block in interview batches', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 12',
+      'progress:',
+      '  current: 12',
+      '  total: 23',
+      'is_final_free_form: false',
+      'ai_commentary: "Testing duplicated options block"',
+      'questions:',
+      '  - id: Q25',
+      '    question: "For obvious secret leak detection, what policy should apply at launch?"',
+      '    phase: Assembly',
+      '    priority: high',
+      '    rationale: "This determines detector aggressiveness and whether teams can suppress known-safe matches."',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+
+    expect(result.value.batch.questions[0]!.options).toEqual([
+      { id: 'opt1', label: 'Strict signatures, no allowlist' },
+      { id: 'opt2', label: 'Strict signatures with allowlist' },
+      { id: 'opt3', label: 'Conservative low-false-positive only' },
+      { id: 'opt4', label: 'Warn only, never block' },
+    ])
+  })
+
+  it('dedupes interview batch options by id and surfaces repair warnings', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 1',
+      '  total: 3',
+      'is_final_free_form: false',
+      'ai_commentary: "Testing option dedupe"',
+      'questions:',
+      '  - id: Q01',
+      '    question: "Which policy should apply?"',
+      '    phase: Assembly',
+      '    priority: high',
+      '    rationale: "Dedupes duplicate ids."',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: "First"',
+      '      - id: opt1',
+      '        label: "Duplicate first"',
+      '      - id: opt2',
+      '        label: "Second"',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.kind).toBe('batch')
+    if (result.value.kind !== 'batch') return
+
+    expect(result.value.batch.questions[0]!.options).toEqual([
+      { id: 'opt1', label: 'First' },
+      { id: 'opt2', label: 'Second' },
+    ])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Interview batch question Q01: removed duplicate option ids opt1')
+  })
+
   it('normalizes coverage follow-up questions with answer types', () => {
     const result = normalizeCoverageResultOutput([
       'status: gaps',
@@ -1971,6 +2060,80 @@ describe('structured output normalization', () => {
         { id: 'android', label: 'Android' },
       ],
     })
+  })
+
+  it('keeps only the first duplicated options block in coverage follow-up questions', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - "Missing secret detection policy"',
+      'follow_up_questions:',
+      '  - id: FU1',
+      '    question: "What policy should apply at launch?"',
+      '    phase: Assembly',
+      '    priority: high',
+      '    rationale: "Fix malformed duplicate options blocks."',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+      '    options:',
+      '      - id: opt1',
+      '        label: "Strict signatures, no allowlist"',
+      '      - id: opt2',
+      '        label: "Strict signatures with allowlist"',
+      '      - id: opt3',
+      '        label: "Conservative low-false-positive only"',
+      '      - id: opt4',
+      '        label: "Warn only, never block"',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.followUpQuestions[0]!.options).toEqual([
+      { id: 'opt1', label: 'Strict signatures, no allowlist' },
+      { id: 'opt2', label: 'Strict signatures with allowlist' },
+      { id: 'opt3', label: 'Conservative low-false-positive only' },
+      { id: 'opt4', label: 'Warn only, never block' },
+    ])
+  })
+
+  it('dedupes coverage follow-up options by id and surfaces repair warnings', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: gaps',
+      'gaps:',
+      '  - "Missing selection policy"',
+      'follow_up_questions:',
+      '  - id: FU1',
+      '    question: "Which policy should apply?"',
+      '    phase: Assembly',
+      '    priority: high',
+      '    rationale: "Dedupes duplicate ids."',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: "First"',
+      '      - id: opt1',
+      '        label: "Duplicate first"',
+      '      - id: opt2',
+      '        label: "Second"',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.value.followUpQuestions[0]!.options).toEqual([
+      { id: 'opt1', label: 'First' },
+      { id: 'opt2', label: 'Second' },
+    ])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Coverage follow-up question FU1: removed duplicate option ids opt1')
   })
 
   it('normalizes interview documents, repairs yes/no answers, and syncs the final free-form summary', () => {

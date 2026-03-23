@@ -228,10 +228,13 @@ export function repairYamlSequenceEntryIndent(yaml: string): string {
 /**
  * Remove exact-duplicate mapping keys from YAML.
  *
- * Models sometimes emit the same key-value pair twice within a mapping.
- * This function removes exact duplicates (same key + same full line text)
- * while preserving entries with different values (those are ambiguous and
- * should be left for js-yaml to error on).
+ * Models sometimes emit the same key-value pair twice within a mapping, or
+ * repeat a block key like `options:` with the same nested list. This function
+ * removes exact duplicates (same key + same full line text) while preserving
+ * entries with different values (those are ambiguous and should be left for
+ * js-yaml to error on). When the duplicate key opens a nested block, the
+ * duplicate block contents are removed as well so they do not get merged into
+ * the first key during YAML parsing.
  */
 export function repairYamlDuplicateKeys(yaml: string): string {
   const lines = yaml.split('\n')
@@ -241,19 +244,26 @@ export function repairYamlDuplicateKeys(yaml: string): string {
   // Map from effective indent level → Map<key_name, full_line_text>
   const seenByIndent = new Map<number, Map<string, string>>()
 
+  // When >= 0, we are skipping nested lines of a removed duplicate mapping
+  // block (for example a duplicate `options:` plus its list items).
+  let skipNestedBlockIndent = -1
+
   // When >= 0, we are skipping continuation lines of a removed block-scalar duplicate
   let skipBlockScalarIndent = -1
 
   for (const line of lines) {
     const trimmed = line.trim()
-
-    // Blank / comment lines pass through
-    if (!trimmed || trimmed.startsWith('#')) {
-      result.push(line)
-      continue
-    }
-
     const lineIndent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+
+    if (skipNestedBlockIndent >= 0) {
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue
+      }
+      if (lineIndent > skipNestedBlockIndent) {
+        continue
+      }
+      skipNestedBlockIndent = -1
+    }
 
     // If we're skipping block-scalar continuation of a removed duplicate
     if (skipBlockScalarIndent >= 0) {
@@ -261,6 +271,12 @@ export function repairYamlDuplicateKeys(yaml: string): string {
         continue // skip continuation line
       }
       skipBlockScalarIndent = -1
+    }
+
+    // Blank / comment lines pass through
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
     }
 
     // When indentation decreases, deeper mapping contexts are closed
@@ -309,6 +325,11 @@ export function repairYamlDuplicateKeys(yaml: string): string {
         // Exact duplicate — skip this line
         if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
           skipBlockScalarIndent = lineIndent
+        } else {
+          const valuePortion = keyMatch[3]?.trim() ?? ''
+          if (!valuePortion || valuePortion.startsWith('#')) {
+            skipNestedBlockIndent = lineIndent
+          }
         }
         continue
       }
@@ -344,6 +365,157 @@ export function stripCodeFences(content: string): string {
   const closeMatch = trimmed.match(/\n\s*```\s*$/)
   if (!closeMatch) return content
   return trimmed.slice(openMatch[0].length, closeMatch.index!)
+}
+
+/**
+ * Repair YAML where multiple mapping keys appear on a single line.
+ *
+ * Models sometimes emit all keys inline, e.g.:
+ *   batch_number: 4 progress: current: 4 total: 17 is_final_free_form: false
+ * This function splits them onto separate lines with correct indentation,
+ * handling both flat siblings and nested mappings.
+ */
+export function repairYamlInlineKeys(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    // Skip block scalar indicators
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      result.push(line)
+      continue
+    }
+
+    const indent = (line.match(/^(\s*)/) ?? [''])[0]
+    const hasDash = /^\s*-\s+/.test(line)
+    const content = hasDash ? line.replace(/^\s*-\s+/, '') : trimmed
+    const dashPrefix = hasDash ? (line.match(/^(\s*-\s+)/) ?? [''])[1]! : ''
+
+    const tokens = tokenizeInlineKeys(content)
+    if (!tokens || tokens.length <= 1) {
+      result.push(line)
+      continue
+    }
+
+    // Build nested structure from flat tokens
+    const structured = buildNestedStructure(tokens)
+
+    // Emit onto separate lines
+    const baseIndent = hasDash ? indent + '  ' : indent
+    for (let i = 0; i < structured.length; i++) {
+      const entry = structured[i]!
+      const linePrefix = i === 0 && hasDash ? dashPrefix : baseIndent
+      if ('children' in entry) {
+        result.push(`${linePrefix}${entry.key}:`)
+        const nestedIndent = baseIndent + '  '
+        for (const child of entry.children) {
+          result.push(`${nestedIndent}${child.key}: ${child.value}`)
+        }
+      } else {
+        result.push(`${linePrefix}${entry.key}: ${entry.value}`)
+      }
+    }
+  }
+
+  return result.join('\n')
+}
+
+interface InlineKVToken { key: string; value: string }
+interface InlineKVLeaf { key: string; value: string }
+interface InlineKVParent { key: string; children: InlineKVToken[] }
+type InlineKVEntry = InlineKVLeaf | InlineKVParent
+
+/**
+ * Tokenize text into key-value pairs. Returns null if the text
+ * doesn't look like inline YAML keys (e.g. it's a normal value with spaces).
+ */
+function tokenizeInlineKeys(text: string): InlineKVToken[] | null {
+  const KEY_PATTERN = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*/g
+  const keyMatches: Array<{ key: string; start: number; valueStart: number }> = []
+
+  let m: RegExpExecArray | null
+  while ((m = KEY_PATTERN.exec(text)) !== null) {
+    keyMatches.push({ key: m[1]!, start: m.index, valueStart: m.index + m[0].length })
+  }
+
+  if (keyMatches.length < 2) return null
+  // Text must begin with a key
+  if (keyMatches[0]!.start !== 0) return null
+
+  const tokens: InlineKVToken[] = []
+  for (let i = 0; i < keyMatches.length; i++) {
+    const km = keyMatches[i]!
+    const nextStart = i + 1 < keyMatches.length ? keyMatches[i + 1]!.start : text.length
+    tokens.push({ key: km.key, value: text.slice(km.valueStart, nextStart).trim() })
+  }
+
+  // Validate: all non-empty values must be simple (number, boolean, quoted, single word)
+  for (const token of tokens) {
+    if (token.value && !isInlineSimpleValue(token.value)) return null
+  }
+
+  return tokens
+}
+
+/**
+ * Group flat tokens into a nested structure.
+ * A key with an empty value is treated as a parent whose children are the
+ * following keys. Children end when a key's naming style changes (compound
+ * vs simple) or when another parent key is encountered.
+ */
+function buildNestedStructure(tokens: InlineKVToken[]): InlineKVEntry[] {
+  const result: InlineKVEntry[] = []
+  let i = 0
+
+  while (i < tokens.length) {
+    const token = tokens[i]!
+
+    if (token.value === '' && i + 1 < tokens.length) {
+      // Parent key — collect children
+      const children: InlineKVToken[] = []
+      const firstChildStyle = nameHasUnderscore(tokens[i + 1]!.key)
+      i++
+
+      while (i < tokens.length) {
+        if (tokens[i]!.value === '') break // another parent
+        const childStyle = nameHasUnderscore(tokens[i]!.key)
+        if (children.length > 0 && childStyle !== firstChildStyle) break
+        children.push(tokens[i]!)
+        i++
+      }
+
+      if (children.length > 0) {
+        result.push({ key: token.key, children })
+      } else {
+        result.push({ key: token.key, value: '' })
+        // don't increment i — it was already moved past the parent
+      }
+    } else {
+      result.push({ key: token.key, value: token.value })
+      i++
+    }
+  }
+
+  return result
+}
+
+function nameHasUnderscore(name: string): boolean {
+  return name.includes('_')
+}
+
+function isInlineSimpleValue(text: string): boolean {
+  if (/^-?\d+(\.\d+)?$/.test(text)) return true
+  if (/^(true|false|yes|no|null|~)$/i.test(text)) return true
+  if (/^"[^"]*"$/.test(text) || /^'[^']*'$/.test(text)) return true
+  if (/^[^\s:]+$/.test(text)) return true
+  return false
 }
 
 export function repairYamlPlainScalarColons(yaml: string): string {

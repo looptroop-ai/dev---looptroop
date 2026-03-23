@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -142,13 +142,22 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
         }
       }
 
+      // Earliest repair: split inline keys onto separate lines (prerequisite for all other repairs)
+      const inlineRepaired = repairYamlInlineKeys(effectiveBase)
+      if (inlineRepaired !== effectiveBase) {
+        try {
+          return jsYaml.load(inlineRepaired)
+        } catch { /* fall through — lines split but further repairs may be needed */ }
+      }
+      const afterInline = inlineRepaired !== effectiveBase ? inlineRepaired : effectiveBase
+
       // Pre-processing: strip XML tags, remove duplicate keys, fix missing list-dash space
-      const xmlStripped = stripSpuriousXmlTags(effectiveBase)
-      const dashFixed = repairYamlListDashSpace(xmlStripped !== effectiveBase ? xmlStripped : effectiveBase)
+      const xmlStripped = stripSpuriousXmlTags(afterInline)
+      const dashFixed = repairYamlListDashSpace(xmlStripped !== afterInline ? xmlStripped : afterInline)
       const base = repairYamlDuplicateKeys(dashFixed)
 
       // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)
-      if (base !== effectiveBase) {
+      if (base !== afterInline) {
         try {
           return jsYaml.load(base)
         } catch { /* fall through to targeted repairs */ }
