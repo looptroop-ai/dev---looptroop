@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ArtifactContent, InterviewAnswersView } from '../ArtifactContentViewer'
 
@@ -7,6 +7,10 @@ function buildCanonicalInterviewContent(questions: Array<Record<string, unknown>
     artifact: 'interview',
     questions,
   })
+}
+
+function openFoundationGroup() {
+  fireEvent.click(screen.getByText('Foundation').closest('button')!)
 }
 
 describe('ArtifactContentViewer', () => {
@@ -44,6 +48,7 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
+    openFoundationGroup()
     expect(screen.getByText('What outcome matters most?')).toBeInTheDocument()
     expect(screen.getByText('Keep imports idempotent.')).toBeInTheDocument()
     expect(screen.queryByText('Skipped')).not.toBeInTheDocument()
@@ -67,6 +72,7 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
+    openFoundationGroup()
     expect(screen.getByText('Which database engine should we use?')).toBeInTheDocument()
     expect(screen.getByText('PostgreSQL')).toBeInTheDocument()
     expect(screen.queryByText('Skipped')).not.toBeInTheDocument()
@@ -95,6 +101,7 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
+    openFoundationGroup()
     expect(screen.getByText('Web')).toBeInTheDocument()
     expect(screen.getByText('iOS')).toBeInTheDocument()
     expect(screen.getByText('Start with the first two only.')).toBeInTheDocument()
@@ -113,6 +120,7 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
+    openFoundationGroup()
     expect(screen.getByText('Do we need an admin panel?')).toBeInTheDocument()
     expect(screen.getByText(/This question was skipped/i)).toBeInTheDocument()
   })

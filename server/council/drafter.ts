@@ -1,5 +1,13 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
-import type { CouncilMember, DraftGenerationResult, DraftProgressEvent, DraftResult, MemberOutcome } from './types'
+import type {
+  CouncilMember,
+  DraftGenerationResult,
+  DraftMetrics,
+  DraftProgressEvent,
+  DraftResult,
+  DraftStructuredOutputMeta,
+  MemberOutcome,
+} from './types'
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
@@ -11,6 +19,7 @@ interface DraftValidationResult {
   normalizedContent?: string
   repairApplied?: boolean
   repairWarnings?: string[]
+  draftMetrics?: DraftMetrics
 }
 
 type DraftValidator = (content: string) => DraftValidationResult
@@ -104,6 +113,8 @@ export async function generateDrafts(
       error: draft.error,
       content: draft.content,
       questionCount: draft.questionCount,
+      draftMetrics: draft.draftMetrics,
+      structuredOutput: draft.structuredOutput,
     })
     return true
   }
@@ -113,9 +124,20 @@ export async function generateDrafts(
     let sessionId: string | undefined
     let content = ''
     let validation: DraftValidationResult | undefined
+    let lastValidationError: string | undefined
     let attemptCount = 0
     let closed = false
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+
+    const buildStructuredOutput = (): DraftStructuredOutputMeta | undefined => {
+      if (!validation && attemptCount === 0 && !lastValidationError) return undefined
+      return {
+        repairApplied: validation?.repairApplied ?? false,
+        repairWarnings: validation?.repairWarnings ?? [],
+        autoRetryCount: attemptCount,
+        ...(lastValidationError ? { validationError: lastValidationError } : {}),
+      }
+    }
 
     const markTimedOut = async () => {
       if (closed) return
@@ -212,6 +234,7 @@ export async function generateDrafts(
           break
         } catch (error) {
           const validationError = error instanceof Error ? error.message : String(error)
+          lastValidationError = validationError
           if (attemptCount >= maxStructuredRetries) {
             throw error
           }
@@ -231,6 +254,8 @@ export async function generateDrafts(
         duration: Date.now() - startTime,
         content,
         questionCount: validation?.questionCount,
+        draftMetrics: validation?.draftMetrics,
+        structuredOutput: buildStructuredOutput(),
       }
 
       if (!recordResult(draft, sessionId)) {
@@ -268,6 +293,8 @@ export async function generateDrafts(
           duration: timeout,
           error: `AI response timeout reached after ${timeout}ms`,
           questionCount: validation?.questionCount,
+          draftMetrics: validation?.draftMetrics,
+          structuredOutput: buildStructuredOutput(),
         }
         recordResult(draft, sessionId)
         return draft
@@ -281,6 +308,8 @@ export async function generateDrafts(
         duration,
         error: errorDetail,
         questionCount: validation?.questionCount,
+        draftMetrics: validation?.draftMetrics,
+        structuredOutput: buildStructuredOutput(),
       }
       recordResult(draft, sessionId)
       return draft

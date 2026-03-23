@@ -12,6 +12,8 @@ export type {
   FinalTestCommandPayload,
   VoteScorecard,
   PrdDocument,
+  PrdDraftMetrics,
+  PrdInterviewGapResolution,
   RelevantFilesOutputEntry,
   RelevantFilesOutputPayload,
 } from './types'
@@ -31,7 +33,7 @@ export {
   buildApprovedInterviewDocument,
 } from './interviewDocument'
 
-export { normalizePrdYamlOutput } from './prdOutput'
+export { normalizePrdYamlOutput, getPrdDraftMetrics } from './prdOutput'
 
 export {
   normalizeBeadSubsetYamlOutput,

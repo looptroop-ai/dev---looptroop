@@ -1,0 +1,270 @@
+import { describe, expect, it } from 'vitest'
+import type { InterviewDocument } from '@shared/interviewArtifact'
+import { buildInterviewDocumentYaml } from '../../../structuredOutput'
+import { validatePrdDraft } from '../validation'
+
+function buildInterviewYaml(
+  ticketId: string,
+  options: {
+    skippedQuestionIds?: string[]
+  } = {},
+): string {
+  const skipped = new Set(options.skippedQuestionIds ?? [])
+  const document: InterviewDocument = {
+    schema_version: 1,
+    ticket_id: ticketId,
+    artifact: 'interview',
+    status: 'approved',
+    generated_by: {
+      winner_model: 'openai/gpt-5',
+      generated_at: '2026-03-23T09:00:00.000Z',
+    },
+    questions: [
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        prompt: 'Which workflow guardrails are mandatory?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: skipped.has('Q01')
+          ? {
+              skipped: true,
+              selected_option_ids: [],
+              free_text: '',
+              answered_by: 'ai_skip',
+              answered_at: '',
+            }
+          : {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the council flow intact.',
+              answered_by: 'user',
+              answered_at: '2026-03-23T09:03:00.000Z',
+            },
+      },
+      {
+        id: 'Q02',
+        phase: 'Structure',
+        prompt: 'Which downstream phases are out of scope for this pass?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: 'PRD approval and coverage stay out of scope.',
+          answered_by: 'user',
+          answered_at: '2026-03-23T09:04:00.000Z',
+        },
+      },
+    ],
+    follow_up_rounds: [],
+    summary: {
+      goals: ['Harden DRAFTING_PRD'],
+      constraints: ['Preserve council mechanics'],
+      non_goals: ['Touch PRD approval'],
+      final_free_form_answer: '',
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+
+  return buildInterviewDocumentYaml(document)
+}
+
+describe('validatePrdDraft', () => {
+  it('accepts wrapped PRD YAML, repairs ids deterministically, and returns stable metrics', () => {
+    const interviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+
+    const result = validatePrdDraft([
+      '[MODEL] Here is the draft you asked for.',
+      '```yaml',
+      'schema_version: 1',
+      'ticket_id: WRONG-ID',
+      'artifact: prd',
+      'status: needs_review',
+      'source_interview:',
+      '  content_sha256: stale',
+      'product:',
+      '  problem_statement: Keep PRD drafting resilient.',
+      '  target_users: [LoopTroop maintainers]',
+      'scope:',
+      '  in_scope: [Normalize council PRD drafts]',
+      '  out_of_scope: [PRD approval workflow]',
+      'technical_requirements:',
+      '  architecture_constraints: [Reuse council retry behavior]',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: [Fail fast without canonical interview]',
+      '  error_handling_rules: [Persist only normalized YAML]',
+      '  tooling_assumptions: [Vitest remains the test runner]',
+      'interview_gap_resolutions:',
+      '  - prompt: Which workflow guardrails are mandatory?',
+      '    resolution: Default to interview council retry semantics.',
+      '    rationale: Avoid losing skipped-question intent.',
+      'epics:',
+      '  - title: Draft parsing parity',
+      '    objective: Match interview council draft rigor.',
+      '    implementation_steps: [Normalize PRD drafts before persistence]',
+      '    user_stories:',
+      '      - title: Repair ids deterministically',
+      '        acceptance_criteria: [Missing ids are repaired deterministically]',
+      '        implementation_steps: [Fill stable fallback ids]',
+      '        verification:',
+      '          required_commands: [npm run test:server]',
+      '  - id: EPIC-1',
+      '    title: UI detail parity',
+      '    objective: Show PRD metrics instead of question counts.',
+      '    implementation_steps: [Surface epic, story, and gap-resolution totals]',
+      '    user_stories:',
+      '      - id: US-1-1',
+      '        title: Show PRD-specific chip detail',
+      '        acceptance_criteria: [Chips show PRD metrics]',
+      '        implementation_steps: [Read draftMetrics from persisted artifacts]',
+      '        verification:',
+      '          required_commands: [npm run test:client]',
+      'risks: [Older artifacts may need regeneration]',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+      '```',
+      '[SYS] Step finished: stop',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      interviewContent,
+    })
+
+    expect(result.metrics).toEqual({
+      epicCount: 2,
+      userStoryCount: 2,
+      gapResolutionCount: 1,
+    })
+    expect(result.document.ticket_id).toBe('PROJ-7')
+    expect(result.document.status).toBe('draft')
+    expect(result.document.interview_gap_resolutions).toEqual([
+      {
+        question_id: 'Q01',
+        prompt: 'Which workflow guardrails are mandatory?',
+        resolution: 'Default to interview council retry semantics.',
+        rationale: 'Avoid losing skipped-question intent.',
+      },
+    ])
+    expect(result.document.epics.map((epic) => epic.id)).toEqual(['EPIC-1', 'EPIC-2'])
+    expect(result.document.epics.flatMap((epic) => epic.user_stories.map((story) => story.id))).toEqual(['US-1-1', 'US-2-1'])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Filled missing interview_gap_resolutions question_id')
+    expect(result.repairWarnings.join('\n')).toContain('Epic at index 0 was missing id')
+    expect(result.repairWarnings.join('\n')).toContain('Renumbered duplicate epic id EPIC-1 to EPIC-2')
+    expect(result.normalizedContent).toContain('interview_gap_resolutions:')
+    expect(result.normalizedContent).toContain('question_id: Q01')
+    expect(result.normalizedContent).toContain('id: EPIC-2')
+    expect(result.normalizedContent).toContain('id: US-2-1')
+  })
+
+  it('requires interview_gap_resolutions to cover every skipped interview question exactly once', () => {
+    const interviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+
+    expect(() => validatePrdDraft([
+      'schema_version: 1',
+      'ticket_id: PROJ-7',
+      'artifact: prd',
+      'status: draft',
+      'source_interview:',
+      '  content_sha256: stale',
+      'product:',
+      '  problem_statement: Keep PRD drafting resilient.',
+      '  target_users: [LoopTroop maintainers]',
+      'scope:',
+      '  in_scope: [Normalize council PRD drafts]',
+      '  out_of_scope: [PRD approval workflow]',
+      'technical_requirements:',
+      '  architecture_constraints: []',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'interview_gap_resolutions: []',
+      'epics:',
+      '  - id: EPIC-1',
+      '    title: Draft parsing parity',
+      '    objective: Match interview council draft rigor.',
+      '    implementation_steps: []',
+      '    user_stories:',
+      '      - id: US-1-1',
+      '        title: Repair ids deterministically',
+      '        acceptance_criteria: []',
+      '        implementation_steps: []',
+      '        verification:',
+      '          required_commands: []',
+      'risks: []',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      interviewContent,
+    })).toThrow('PRD is missing interview_gap_resolutions for skipped interview questions')
+  })
+
+  it('rejects PRD drafts when the canonical interview artifact is missing or invalid', () => {
+    const prdContent = [
+      'schema_version: 1',
+      'ticket_id: PROJ-7',
+      'artifact: prd',
+      'status: draft',
+      'source_interview:',
+      '  content_sha256: stale',
+      'product:',
+      '  problem_statement: Keep PRD drafting resilient.',
+      '  target_users: [LoopTroop maintainers]',
+      'scope:',
+      '  in_scope: [Normalize council PRD drafts]',
+      '  out_of_scope: [PRD approval workflow]',
+      'technical_requirements:',
+      '  architecture_constraints: []',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'interview_gap_resolutions: []',
+      'epics:',
+      '  - id: EPIC-1',
+      '    title: Draft parsing parity',
+      '    objective: Match interview council draft rigor.',
+      '    implementation_steps: []',
+      '    user_stories:',
+      '      - id: US-1-1',
+      '        title: Repair ids deterministically',
+      '        acceptance_criteria: []',
+      '        implementation_steps: []',
+      '        verification:',
+      '          required_commands: []',
+      'risks: []',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n')
+
+    expect(() => validatePrdDraft(prdContent, {
+      ticketId: 'PROJ-7',
+    })).toThrow('Canonical interview artifact is required for PRD normalization')
+
+    expect(() => validatePrdDraft(prdContent, {
+      ticketId: 'PROJ-7',
+      interviewContent: 'artifact: interview\nquestions: [',
+    })).toThrow('Interview artifact is invalid')
+  })
+})

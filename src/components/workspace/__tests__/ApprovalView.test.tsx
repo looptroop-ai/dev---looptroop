@@ -214,6 +214,10 @@ function buildInterviewPayload(answer: string) {
 describe('Interview approval UI', () => {
   let interviewPayload = buildInterviewPayload('Protect the import pipeline.')
 
+  function openFoundationSection() {
+    fireEvent.click(screen.getByText('Foundation').closest('button')!)
+  }
+
   beforeEach(() => {
     interviewPayload = buildInterviewPayload('Protect the import pipeline.')
     mockUseInterviewQuestions.mockImplementation(() => ({
@@ -251,18 +255,24 @@ describe('Interview approval UI', () => {
 
     renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
 
+    openFoundationSection()
     expect(screen.getByText('Protect the import pipeline.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 
     expect(screen.getByText('Answer-only editor')).toBeInTheDocument()
     expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
+    openFoundationSection()
 
     fireEvent.change(screen.getByPlaceholderText('Update the recorded answer.'), {
       target: { value: 'Protect the import pipeline and keep logs reversible.' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    })
+    openFoundationSection()
     await waitFor(() => {
       expect(screen.getByText('Protect the import pipeline and keep logs reversible.')).toBeInTheDocument()
     })
@@ -281,6 +291,7 @@ describe('Interview approval UI', () => {
     renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    openFoundationSection()
     fireEvent.change(screen.getByPlaceholderText('Update the recorded answer.'), {
       target: { value: 'Unsaved answer draft.' },
     })
@@ -327,6 +338,10 @@ describe('Interview approval UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    })
+    openFoundationSection()
     await waitFor(() => {
       expect(screen.getByText('Updated from YAML.')).toBeInTheDocument()
     })

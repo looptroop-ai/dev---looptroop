@@ -193,6 +193,111 @@ describe('PhaseArtifactsPanel', () => {
     expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(expect.arrayContaining(['Original', 'Refined']))
   })
 
+  it('shows PRD drafting chips with epic, story, and gap-resolution metrics', () => {
+    const draftArtifact: DBartifact = {
+      id: 21,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_drafts',
+      filePath: null,
+      createdAt: '2026-03-23T10:12:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: [
+              'schema_version: 1',
+              'ticket_id: LOOP-1',
+              'artifact: prd',
+              'status: draft',
+              'interview_gap_resolutions:',
+              '  - question_id: Q01',
+              '    prompt: Which workflow guardrails are mandatory?',
+              '    resolution: Default to interview council retry semantics.',
+              '    rationale: Avoid losing skipped-question intent.',
+            ].join('\n'),
+            draftMetrics: {
+              epicCount: 3,
+              userStoryCount: 9,
+              gapResolutionCount: 2,
+            },
+          },
+          {
+            memberId: 'openai/gpt-5.1-codex',
+            outcome: 'pending',
+          },
+        ],
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_PRD"
+        isCompleted={false}
+        councilMemberCount={2}
+        councilMemberNames={['openai/gpt-5.2', 'openai/gpt-5.1-codex']}
+        preloadedArtifacts={[draftArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
+    expect(screen.getByText('3 epics · 9 user stories · 2 gap resolutions')).toBeInTheDocument()
+    expect(screen.getByText('waiting for response')).toBeInTheDocument()
+  })
+
+  it('shows PRD draft chips with PRD-specific completion metrics', () => {
+    const draftArtifact: DBartifact = {
+      id: 10,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_drafts',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.1-codex',
+            outcome: 'completed',
+            content: 'schema_version: 1\nticket_id: LOOP-1\nartifact: prd\nstatus: draft\n',
+            draftMetrics: {
+              epicCount: 3,
+              userStoryCount: 9,
+              gapResolutionCount: 2,
+            },
+          },
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: 'schema_version: 1\nticket_id: LOOP-1\nartifact: prd\nstatus: draft\n',
+            draftMetrics: {
+              epicCount: 2,
+              userStoryCount: 5,
+              gapResolutionCount: 0,
+            },
+          },
+        ],
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_PRD"
+        isCompleted={false}
+        councilMemberCount={2}
+        councilMemberNames={['openai/gpt-5.1-codex', 'openai/gpt-5.2']}
+        preloadedArtifacts={[draftArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
+    expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
+    expect(screen.getByText('3 epics · 9 user stories · 2 gap resolutions')).toBeInTheDocument()
+    expect(screen.getByText('2 epics · 5 user stories · 0 gap resolutions')).toBeInTheDocument()
+    expect(screen.queryByText('proposed 3 questions')).not.toBeInTheDocument()
+  })
+
   it('keeps the final interview artifact available while waiting for interview answers', () => {
     const compiledArtifact: DBartifact = {
       id: 3,
@@ -308,12 +413,32 @@ describe('PhaseArtifactsPanel', () => {
           'schema_version: 1',
           'ticket_id: LOOP-1',
           'artifact: interview',
+          'status: approved',
+          'generated_by:',
+          '  winner_model: openai/gpt-5.2',
+          '  generated_at: 2026-03-12T11:50:31.000Z',
           'questions:',
           '  - id: Q01',
+          '    phase: Foundation',
           '    prompt: "Canonical interview question?"',
+          '    source: compiled',
+          '    answer_type: free_text',
+          '    options: []',
           '    answer:',
           '      skipped: false',
+          '      selected_option_ids: []',
           '      free_text: "Canonical answer."',
+          '      answered_by: user',
+          '      answered_at: 2026-03-12T11:50:31.000Z',
+          'follow_up_rounds: []',
+          'summary:',
+          '  goals: [Preserve canonical interview results]',
+          '  constraints: [Keep answers visible]',
+          '  non_goals: [Show compiled fallback]',
+          '  final_free_form_answer: ""',
+          'approval:',
+          '  approved_by: ""',
+          '  approved_at: ""',
         ].join('\n'),
       }),
     }
@@ -332,6 +457,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.queryByText('Final Interview Results')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
     expect(screen.queryByRole('button', { name: /Final Questions/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Foundation/i }))
     expect(screen.getByText('Canonical interview question?')).toBeInTheDocument()
     expect(screen.getByText('Canonical answer.')).toBeInTheDocument()
     expect(screen.queryByText('Old compiled question?')).not.toBeInTheDocument()
@@ -350,12 +476,32 @@ describe('PhaseArtifactsPanel', () => {
           'schema_version: 1',
           'ticket_id: LOOP-1',
           'artifact: interview',
+          'status: approved',
+          'generated_by:',
+          '  winner_model: openai/gpt-5.2',
+          '  generated_at: 2026-03-12T11:50:31.000Z',
           'questions:',
           '  - id: Q01',
+          '    phase: Foundation',
           '    prompt: "Coverage interview question?"',
+          '    source: compiled',
+          '    answer_type: free_text',
+          '    options: []',
           '    answer:',
           '      skipped: false',
+          '      selected_option_ids: []',
           '      free_text: "Coverage answer."',
+          '      answered_by: user',
+          '      answered_at: 2026-03-12T11:50:31.000Z',
+          'follow_up_rounds: []',
+          'summary:',
+          '  goals: [Preserve coverage interview results]',
+          '  constraints: [Keep answers visible]',
+          '  non_goals: [Show raw compiled artifact]',
+          '  final_free_form_answer: ""',
+          'approval:',
+          '  approved_by: ""',
+          '  approved_at: ""',
         ].join('\n'),
       }),
     }
@@ -373,6 +519,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.queryByText('Final Interview Results')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Foundation/i }))
     expect(screen.getByText('Coverage interview question?')).toBeInTheDocument()
     expect(screen.getByText('Coverage answer.')).toBeInTheDocument()
   })

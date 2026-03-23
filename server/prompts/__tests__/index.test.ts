@@ -33,11 +33,13 @@ describe('structured prompt hardening', () => {
     expect(PROM10.outputFormat).toBe(PROM12.outputFormat)
     expect(PROM10.outputFormat).toContain('schema_version')
     expect(PROM10.outputFormat).toContain('technical_requirements')
+    expect(PROM10.outputFormat).toContain('interview_gap_resolutions')
     expect(PROM10.outputFormat).toContain('required_commands')
     expect(PROM10.outputFormat).not.toContain('PROM13.output_file')
 
     const draftPrompt = buildPromptFromTemplate(PROM10, [])
     expect(draftPrompt).toContain('Schema Contract')
+    expect(draftPrompt).toContain('Skipped Questions Output Contract')
     expect(draftPrompt).toContain('artifact: "prd"')
     expect(draftPrompt).toContain('acceptance_criteria')
   })

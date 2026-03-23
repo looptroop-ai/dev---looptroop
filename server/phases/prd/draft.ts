@@ -4,7 +4,7 @@ import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM10, PROM11, PROM12 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
-import { normalizePrdYamlOutput } from '../../structuredOutput'
+import { validatePrdDraft } from './validation'
 
 /** Build a context builder that returns PROM11 (vote) or PROM12 (refine) context. */
 export function buildPrdContextBuilder(ticketContext: PromptPart[]) {
@@ -23,6 +23,7 @@ export async function draftPRD(
     draftTimeoutMs: number
     minQuorum: number
     ticketId?: string
+    ticketExternalId?: string
     phaseAttempt?: number
   },
   signal?: AbortSignal,
@@ -60,15 +61,15 @@ export async function draftPRD(
     onOpenCodeStreamEvent,
     onDraftProgress,
     (content) => {
-      const result = normalizePrdYamlOutput(content, {
-        ticketId: options.ticketId ?? '',
+      const result = validatePrdDraft(content, {
+        ticketId: options.ticketExternalId ?? options.ticketId ?? '',
         interviewContent,
       })
-      if (!result.ok) throw new Error(result.error)
       return {
         normalizedContent: result.normalizedContent,
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
+        draftMetrics: result.metrics,
       }
     },
     {

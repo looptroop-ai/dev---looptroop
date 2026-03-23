@@ -28,6 +28,12 @@ interface DraftLike {
   outcome?: CouncilOutcome
   error?: string
   questionCount?: number
+  draftMetrics?: {
+    questionCount?: number
+    epicCount?: number
+    userStoryCount?: number
+    gapResolutionCount?: number
+  }
 }
 
 interface VoteLike {
@@ -132,7 +138,7 @@ function buildDraftMemberArtifacts(
       modelId: memberId,
       action: 'drafting',
       outcome: draft?.outcome ?? 'pending',
-      detail: getDraftDetail(draft),
+      detail: getDraftDetail(domain, draft),
       viewer,
     }
   })
@@ -199,10 +205,10 @@ function buildRefiningMemberArtifacts(
         ? makeWinnerViewer(domain, phase, memberId, refinedArtifact?.content ?? voteArtifact?.content ?? '', refinedArtifact?.content ? true : false)
         : makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
     const detail = shouldSeparateInterviewResult
-      ? getDraftDetail(draft)
+      ? getDraftDetail(domain, draft)
       : isWinner
         ? 'Winner — refining draft'
-        : getDraftCompletionDetail(draft)
+        : getDraftCompletionDetail(domain, draft)
 
     return {
       key: `${phase}:${memberId}`,
@@ -243,7 +249,27 @@ function buildVerificationMemberArtifacts(
   }]
 }
 
-function getDraftDetail(draft: DraftLike | undefined): string {
+function formatPrdDraftMetrics(draft: DraftLike): string | null {
+  const epicCount = draft.draftMetrics?.epicCount
+  const userStoryCount = draft.draftMetrics?.userStoryCount
+  const gapResolutionCount = draft.draftMetrics?.gapResolutionCount
+
+  if (
+    typeof epicCount !== 'number'
+    && typeof userStoryCount !== 'number'
+    && typeof gapResolutionCount !== 'number'
+  ) {
+    return null
+  }
+
+  return [
+    `${epicCount ?? 0} epics`,
+    `${userStoryCount ?? 0} user stories`,
+    `${gapResolutionCount ?? 0} gap resolutions`,
+  ].join(' · ')
+}
+
+function getDraftDetail(domain: Domain, draft: DraftLike | undefined): string {
   if (!draft) return 'waiting for response'
   if (draft.outcome === 'pending') return 'waiting for response'
   if (draft.outcome === 'timed_out') return 'no response received'
@@ -251,18 +277,24 @@ function getDraftDetail(draft: DraftLike | undefined): string {
   if (draft.outcome === 'invalid_output') {
     // Still try to show useful detail if content exists
     if (draft.content) {
-      const detail = getDraftCompletionDetail(draft)
+      const detail = getDraftCompletionDetail(domain, draft)
       if (detail) return detail
     }
     return draft.error || 'malformed response'
   }
-  return getDraftCompletionDetail(draft)
+  return getDraftCompletionDetail(domain, draft)
 }
 
-function getDraftCompletionDetail(draft: DraftLike | undefined): string {
+function getDraftCompletionDetail(domain: Domain, draft: DraftLike | undefined): string {
   if (!draft?.content) return ''
+  if (domain === 'prd') {
+    const metricsLabel = formatPrdDraftMetrics(draft)
+    if (metricsLabel) return metricsLabel
+  }
   const questionCount = typeof draft.questionCount === 'number'
     ? draft.questionCount
+    : typeof draft.draftMetrics?.questionCount === 'number'
+      ? draft.draftMetrics.questionCount
     : countQuestionsInContent(draft.content)
   if (questionCount > 0) return `proposed ${questionCount} questions`
   const lineCount = draft.content.split('\n').filter((line) => line.trim()).length

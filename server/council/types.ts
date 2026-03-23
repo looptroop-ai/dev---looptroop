@@ -13,6 +13,20 @@ export function throwIfAborted(signal?: AbortSignal, ticketId?: number | string)
 
 export type MemberOutcome = 'pending' | 'completed' | 'timed_out' | 'invalid_output' | 'failed'
 
+export interface DraftMetrics {
+  questionCount?: number
+  epicCount?: number
+  userStoryCount?: number
+  gapResolutionCount?: number
+}
+
+export interface DraftStructuredOutputMeta {
+  repairApplied: boolean
+  repairWarnings: string[]
+  autoRetryCount: number
+  validationError?: string
+}
+
 export interface CouncilMember {
   modelId: string
   name: string
@@ -26,6 +40,8 @@ export interface DraftResult {
   duration: number
   error?: string
   questionCount?: number
+  draftMetrics?: DraftMetrics
+  structuredOutput?: DraftStructuredOutputMeta
 }
 
 export interface DraftProgressEvent {
@@ -37,6 +53,8 @@ export interface DraftProgressEvent {
   error?: string
   content?: string
   questionCount?: number
+  draftMetrics?: DraftMetrics
+  structuredOutput?: DraftStructuredOutputMeta
 }
 
 export interface DraftGenerationResult {

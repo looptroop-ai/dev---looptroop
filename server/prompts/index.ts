@@ -40,11 +40,12 @@ const STRUCTURED_SELF_CHECK = 'Final Self-Check: before responding, verify that 
 const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
 const INTERVIEW_COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. When `status` is `clean`, `follow_up_questions` must be `[]`. When `status` is `gaps`, `follow_up_questions` must be a YAML list of objects with these fields: `id`, `question`, `phase`, `priority`, `rationale`, `answer_type` (required: free_text|single_choice|multiple_choice|yes_no), and optionally `options` (list of {id, label}) when answer_type is single_choice or multiple_choice. Do not return plain strings in `follow_up_questions`.'
 const PRD_OUTPUT_FORMAT = [
-  'YAML with exactly these top-level keys (no wrappers): `schema_version`, `ticket_id`, `artifact`, `status`, `source_interview`, `product`, `scope`, `technical_requirements`, `epics`, `risks`, `approval`.',
+  'YAML with exactly these top-level keys (no wrappers): `schema_version`, `ticket_id`, `artifact`, `status`, `source_interview`, `product`, `scope`, `technical_requirements`, `interview_gap_resolutions`, `epics`, `risks`, `approval`.',
   '`artifact` must be `prd`. `source_interview` must include `content_sha256`.',
   '`product` keys: `problem_statement`, `target_users`.',
   '`scope` keys: `in_scope`, `out_of_scope`.',
   '`technical_requirements` keys: `architecture_constraints`, `data_model`, `api_contracts`, `security_constraints`, `performance_constraints`, `reliability_constraints`, `error_handling_rules`, `tooling_assumptions`.',
+  '`interview_gap_resolutions` must be a list of objects with `question_id`, `prompt`, `resolution`, and `rationale`. Include exactly one item for each skipped interview question. If no interview questions were skipped, output `interview_gap_resolutions: []`.',
   '`epics` must be a non-empty list. Each epic: `id`, `title`, `objective`, `implementation_steps`, `user_stories`.',
   'Each user story: `id`, `title`, `acceptance_criteria`, `implementation_steps`, `verification.required_commands`.',
   'Example:',
@@ -73,6 +74,11 @@ const PRD_OUTPUT_FORMAT = [
   '  reliability_constraints: []',
   '  error_handling_rules: []',
   '  tooling_assumptions: []',
+  'interview_gap_resolutions:',
+  '  - question_id: "Q07"',
+  '    prompt: "Which fallback should we use when the user skipped this decision?"',
+  '    resolution: "Default to the existing retry strategy for v1."',
+  '    rationale: "This matches current production behavior and minimizes rollout risk."',
   'epics:',
   '  - id: "EPIC-1"',
   '    title: "..."',
@@ -308,7 +314,8 @@ export const PROM10: PromptTemplate = {
   systemRole: 'You are an expert Technical Product Manager and Software Architect.',
   task: 'Generate a complete Product Requirements Document (PRD) based on the provided Interview Results. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity.',
   instructions: [
-    'Skipped Questions: For each question the user skipped during the interview, decide the best approach based on available context, codebase analysis, and best practices. Document your decision and reasoning in the PRD.',
+    'Skipped Questions: For each interview question the user skipped, decide the best approach based on available context, codebase analysis, and best practices.',
+    'Skipped Questions Output Contract: Record every skipped-question decision in the required top-level `interview_gap_resolutions` section using the exact skipped `question_id`, canonical `prompt`, a concrete `resolution`, and a concise `rationale`.',
     'Product Scope: Include epics, user stories, and acceptance criteria. Every in-scope feature from the Interview Results must map to at least one user story.',
     'Implementation Steps: For each user story, include detailed technical implementation steps decomposed as far as possible — data flows, state changes, component interactions, and integration points.',
     'Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, explicit non-goals.',
@@ -346,6 +353,7 @@ export const PROM12: PromptTemplate = {
     'Gap Scan: Read through the alternative drafts and note anything they cover that your draft does not: requirements you missed, edge cases or error states you omitted, risks you underweighted, or constraints that are unambiguously more precise than yours. These are candidates — not automatic additions.',
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a rephrasing of something you already cover well? If it fills a real gap, add it. If it is a strictly better formulation of something you already have, replace yours with it. Otherwise, discard it.',
     'Restraint: Avoid adding content that merely restates what you already cover. But if genuine gaps exist — missing requirements, unaddressed risks, overlooked error states — add them; completeness matters more than brevity.',
+    'Skipped Interview Decisions: Preserve and improve the required `interview_gap_resolutions` section so it still contains exactly one normalized resolution entry per skipped interview question.',
     'Formatting: Output the final refined PRD. Output only the final artifact.',
     'Schema Preservation: keep the same PRD schema, required top-level sections, and nested field structure. Do not wrap the PRD in another object.',
     'ID Stability: Preserve existing epic IDs and user story IDs from the winning draft unless you are adding a genuinely new epic or story.',

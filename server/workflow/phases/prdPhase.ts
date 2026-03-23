@@ -11,8 +11,9 @@ import { safeAtomicWrite } from '../../io/atomicWrite'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
-import { normalizePrdYamlOutput } from '../../structuredOutput'
+import { normalizeInterviewDocumentOutput } from '../../structuredOutput'
 import { PROM12 } from '../../prompts/index'
+import { validatePrdDraft } from '../../phases/prd/validation'
 
 import { adapter, phaseIntermediate } from './state'
 import {
@@ -38,6 +39,49 @@ import {
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
 
+function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalId: string): string {
+  const interviewPath = resolve(ticketDir, 'interview.yaml')
+  if (!existsSync(interviewPath)) {
+    throw new Error(`Canonical interview artifact is required before PRD drafting: ${interviewPath}`)
+  }
+
+  const interview = readFileSync(interviewPath, 'utf-8')
+  const validation = normalizeInterviewDocumentOutput(interview, { ticketId: ticketExternalId })
+  if (!validation.ok) {
+    throw new Error(`Canonical interview artifact is invalid for PRD drafting: ${validation.error}`)
+  }
+
+  return interview
+}
+
+function formatPrdDraftMetrics(draft: {
+  content?: string
+  draftMetrics?: {
+    epicCount?: number
+    userStoryCount?: number
+    gapResolutionCount?: number
+  }
+}): string {
+  const epicCount = draft.draftMetrics?.epicCount
+  const userStoryCount = draft.draftMetrics?.userStoryCount
+  const gapResolutionCount = draft.draftMetrics?.gapResolutionCount
+
+  if (
+    typeof epicCount === 'number'
+    || typeof userStoryCount === 'number'
+    || typeof gapResolutionCount === 'number'
+  ) {
+    return [
+      `${epicCount ?? 0} epics`,
+      `${userStoryCount ?? 0} user stories`,
+      `${gapResolutionCount ?? 0} gap resolutions`,
+    ].join(' · ')
+  }
+
+  const lineCount = draft.content?.split('\n').filter((line) => line.trim()).length ?? 0
+  return lineCount > 0 ? `${lineCount} lines` : 'empty draft'
+}
+
 export async function handlePrdDraft(
   ticketId: string,
   context: TicketContext,
@@ -49,12 +93,7 @@ export async function handlePrdDraft(
   const council = resolveCouncilMembers(context)
   const members = council.members
 
-  // Load interview results from disk
-  const interviewPath = resolve(ticketDir, 'interview.yaml')
-  let interview: string | undefined
-  if (existsSync(interviewPath)) {
-    try { interview = readFileSync(interviewPath, 'utf-8') } catch { /* ignore */ }
-  }
+  const interview = requireCanonicalInterviewForPrdDraft(ticketDir, context.externalId)
 
   const ticketState: TicketState = {
     ticketId: context.externalId,
@@ -68,11 +107,9 @@ export async function handlePrdDraft(
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
     formatCouncilResolutionLog(context, council))
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
-    interview
-      ? `Loaded interview artifact (${interview.length} chars).`
-      : 'Interview artifact missing; PRD drafting will rely on available ticket context.')
+    `Loaded canonical interview artifact (${interview.length} chars).`)
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
-    `PRD council drafting started. Context: ${ticketContext.length} parts, interview=${interview ? 'loaded' : 'missing'}.`)
+    `PRD council drafting started. Context: ${ticketContext.length} parts, interview=loaded.`)
   const councilSettings = resolveCouncilRuntimeSettings(context)
   emitPhaseLog(ticketId, context.externalId, phase, 'info',
     `PRD draft settings: council_response_timeout=${councilSettings.draftTimeoutMs}ms, min_council_quorum=${councilSettings.minQuorum}.`)
@@ -91,6 +128,7 @@ export async function handlePrdDraft(
     {
       ...councilSettings,
       ticketId,
+      ticketExternalId: context.externalId,
     },
     signal,
     (entry) => {
@@ -142,6 +180,26 @@ export async function handlePrdDraft(
         duration: entry.duration ?? liveDrafts[draftIndex]!.duration,
         error: entry.error,
         questionCount: entry.questionCount,
+        draftMetrics: entry.draftMetrics,
+        structuredOutput: entry.structuredOutput,
+      }
+      if (entry.structuredOutput?.repairWarnings.length) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} PRD draft normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
+        )
+      }
+      if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} PRD draft required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
+        )
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
     },
@@ -181,7 +239,7 @@ export async function handlePrdDraft(
         ? 'invalid output'
         : draft.outcome === 'failed'
           ? 'failed'
-          : `drafted PRD (${draft.content.length} chars)`
+          : `drafted PRD (${formatPrdDraftMetrics(draft)})`
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
       `${draft.memberId} ${detail}.`,
       {
@@ -448,17 +506,10 @@ export async function handlePrdRefine(
     },
     undefined,
     (content) => {
-      const result = normalizePrdYamlOutput(content, {
+      const result = validatePrdDraft(content, {
         ticketId: context.externalId,
         interviewContent,
       })
-      if (!result.ok) {
-        structuredMeta = buildStructuredMetadata(structuredMeta, {
-          autoRetryCount: 1,
-          validationError: result.error,
-        })
-        throw new Error(result.error)
-      }
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
@@ -494,22 +545,72 @@ export async function handlePrdRefine(
 export function buildMockPrdContent(context: TicketContext) {
   return jsYaml.dump({
     schema_version: 1,
+    ticket_id: context.externalId,
     artifact: 'prd',
-    title: context.title,
-    summary: `Mock PRD for ${context.title}`,
-    goals: [
-      'Keep all LoopTroop runtime state inside the project-local .looptroop directory.',
-      'Preserve ticket lifecycle metadata and artifacts for restart and inspection.',
+    status: 'draft',
+    source_interview: {
+      content_sha256: 'mock-interview-sha256',
+    },
+    product: {
+      problem_statement: `Mock PRD for ${context.title}`,
+      target_users: ['LoopTroop maintainers'],
+    },
+    scope: {
+      in_scope: [
+        'Keep all LoopTroop runtime state inside the project-local .looptroop directory.',
+        'Preserve ticket lifecycle metadata and artifacts for restart and inspection.',
+      ],
+      out_of_scope: [
+        'Changes outside the mock workflow path.',
+      ],
+    },
+    technical_requirements: {
+      architecture_constraints: [
+        'Do not write ticket data into the app checkout.',
+        'Keep the workflow deterministic in mock mode for testing.',
+      ],
+      data_model: [],
+      api_contracts: [],
+      security_constraints: [],
+      performance_constraints: [],
+      reliability_constraints: [],
+      error_handling_rules: [],
+      tooling_assumptions: [],
+    },
+    interview_gap_resolutions: [],
+    epics: [
+      {
+        id: 'EPIC-1',
+        title: 'Persist mock planning artifacts',
+        objective: 'Produce a canonical mock PRD artifact that downstream phases can consume.',
+        implementation_steps: [
+          'Write the refined mock PRD to disk.',
+          'Keep the artifact shape aligned with the real PRD schema.',
+        ],
+        user_stories: [
+          {
+            id: 'US-1-1',
+            title: 'Maintain deterministic mock planning data',
+            acceptance_criteria: [
+              'The mock PRD matches the canonical PRD schema.',
+              'Downstream phases can read the PRD without special-case parsing.',
+            ],
+            implementation_steps: [
+              'Emit canonical YAML fields.',
+              'Keep mock-only assumptions explicit inside the artifact.',
+            ],
+            verification: {
+              required_commands: ['npm test'],
+            },
+          },
+        ],
+      },
     ],
-    constraints: [
-      'Do not write ticket data into the app checkout.',
-      'Keep the workflow deterministic in mock mode for testing.',
-    ],
-    acceptance_criteria: [
-      'Project-local db.sqlite exists inside the attached repo.',
-      'Ticket artifacts and execution log are written under the project-local worktree.',
-      'The ticket can progress through the full lifecycle in mock mode.',
-    ],
+    risks: [],
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
   }, { lineWidth: 120, noRefs: true }) as string
 }
 

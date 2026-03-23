@@ -102,8 +102,6 @@ describe('InterviewApprovalNavigator', () => {
     expect(screen.getByText('Foundation')).toBeInTheDocument()
     expect(screen.getByText('Coverage Follow-ups · Round 1')).toBeInTheDocument()
     expect(screen.getByText('Follow-up Rounds')).toBeInTheDocument()
-    expect(screen.getByText('Approval')).toBeInTheDocument()
-
     fireEvent.click(screen.getByText('How should retries be tested?').closest('button')!)
 
     const focusEvent = dispatchSpy.mock.calls

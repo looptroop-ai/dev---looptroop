@@ -35,7 +35,9 @@ export default defineConfig({
         test: {
           name: 'client',
           environment: 'jsdom',
+          pool: 'threads',
           fileParallelism: false,
+          maxWorkers: 1,
           isolate: false,
           sequence: { groupOrder: 0 },
           setupFiles: ['./src/test/setup.ts'],

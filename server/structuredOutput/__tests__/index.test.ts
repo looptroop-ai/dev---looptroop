@@ -620,6 +620,38 @@ describe('structured output normalization', () => {
   })
 
   it('normalizes PRD YAML and fills deterministic metadata from runtime context', () => {
+    const interviewContent = [
+      'schema_version: 1',
+      'ticket_id: "K8S-17"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5"',
+      '  generated_at: "2026-03-20T10:00:00.000Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "Which fallback path should we use?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: "ai_skip"',
+      '      answered_at: ""',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'follow_up_rounds: []',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-20T10:10:00.000Z"',
+    ].join('\n')
     const result = normalizePrdYamlOutput([
       'prd:',
       '  product:',
@@ -634,6 +666,11 @@ describe('structured output normalization', () => {
       '  technicalRequirements:',
       '    architectureConstraints:',
       '      - Shared validator layer',
+      '  interviewGapResolutions:',
+      '    - questionId: Q01',
+      '      prompt: Which fallback path should we use?',
+      '      resolution: Default to the existing retry strategy for v1.',
+      '      rationale: This matches current production behavior.',
       '  epics:',
       '    - id: EPIC-1',
       '      title: Harden structured output',
@@ -654,7 +691,7 @@ describe('structured output normalization', () => {
       '    - Retry loop could hide semantic mistakes if too permissive',
     ].join('\n'), {
       ticketId: 'K8S-17',
-      interviewContent: 'interview',
+      interviewContent,
     })
 
     expect(result.ok).toBe(true)
@@ -662,10 +699,50 @@ describe('structured output normalization', () => {
     expect(result.value.ticket_id).toBe('K8S-17')
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
+    expect(result.value.interview_gap_resolutions).toEqual([
+      {
+        question_id: 'Q01',
+        prompt: 'Which fallback path should we use?',
+        resolution: 'Default to the existing retry strategy for v1.',
+        rationale: 'This matches current production behavior.',
+      },
+    ])
     expect(result.normalizedContent).toContain('schema_version: 1')
   })
 
   it('accepts a top-level PRD document with artifact field instead of unwrapping it', () => {
+    const interviewContent = [
+      'schema_version: 1',
+      'ticket_id: "LOOTR-1"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5"',
+      '  generated_at: "2026-03-20T10:00:00.000Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What problem are we solving?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: "Ship a deterministic planning pipeline."',
+      '      answered_by: "user"',
+      '      answered_at: "2026-03-20T10:05:00.000Z"',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'follow_up_rounds: []',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-20T10:10:00.000Z"',
+    ].join('\n')
     const result = normalizePrdYamlOutput([
       'schema_version: 1',
       'ticket_id: "LOOTR-1"',
@@ -692,6 +769,7 @@ describe('structured output normalization', () => {
       '  reliability_constraints: []',
       '  error_handling_rules: []',
       '  tooling_assumptions: []',
+      'interview_gap_resolutions: []',
       'epics:',
       '  - id: EPIC-1',
       '    title: Harden structured output',
@@ -715,7 +793,7 @@ describe('structured output normalization', () => {
       '  approved_at: ""',
     ].join('\n'), {
       ticketId: 'LOOTR-1',
-      interviewContent: 'interview',
+      interviewContent,
     })
 
     expect(result.ok).toBe(true)
@@ -723,12 +801,44 @@ describe('structured output normalization', () => {
     expect(result.value.ticket_id).toBe('LOOTR-1')
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
+    expect(result.value.interview_gap_resolutions).toEqual([])
   })
 
   it('rejects non-object PRD payloads', () => {
     const result = normalizePrdYamlOutput('"prd"', {
       ticketId: 'K8S-17',
-      interviewContent: 'interview',
+      interviewContent: [
+        'schema_version: 1',
+        'ticket_id: "K8S-17"',
+        'artifact: "interview"',
+        'status: "approved"',
+        'generated_by:',
+        '  winner_model: "openai/gpt-5"',
+        '  generated_at: "2026-03-20T10:00:00.000Z"',
+        'questions:',
+        '  - id: "Q01"',
+        '    phase: "Foundation"',
+        '    prompt: "Which workflow guardrails are mandatory?"',
+        '    source: "compiled"',
+        '    follow_up_round: null',
+        '    answer_type: "free_text"',
+        '    options: []',
+        '    answer:',
+        '      skipped: false',
+        '      selected_option_ids: []',
+        '      free_text: "Keep the council flow intact."',
+        '      answered_by: "user"',
+        '      answered_at: "2026-03-20T10:05:00.000Z"',
+        'follow_up_rounds: []',
+        'summary:',
+        '  goals: []',
+        '  constraints: []',
+        '  non_goals: []',
+        '  final_free_form_answer: ""',
+        'approval:',
+        '  approved_by: "user"',
+        '  approved_at: "2026-03-20T10:10:00.000Z"',
+      ].join('\n'),
     })
 
     expect(result.ok).toBe(false)
@@ -748,16 +858,217 @@ describe('structured output normalization', () => {
       'technical_requirements:',
       '  architecture_constraints:',
       '    - "Shared validator layer"',
+      'interview_gap_resolutions: []',
       'risks:',
       '  - "Incomplete plans can block delivery"',
     ].join('\n'), {
       ticketId: 'K8S-17',
-      interviewContent: 'interview',
+      interviewContent: [
+        'schema_version: 1',
+        'ticket_id: "K8S-17"',
+        'artifact: "interview"',
+        'status: "approved"',
+        'generated_by:',
+        '  winner_model: "openai/gpt-5"',
+        '  generated_at: "2026-03-20T10:00:00.000Z"',
+        'questions:',
+        '  - id: "Q01"',
+        '    phase: "Foundation"',
+        '    prompt: "Which workflow guardrails are mandatory?"',
+        '    source: "compiled"',
+        '    answer_type: "free_text"',
+        '    options: []',
+        '    answer:',
+        '      skipped: false',
+        '      selected_option_ids: []',
+        '      free_text: "Keep the council flow intact."',
+        '      answered_by: "user"',
+        '      answered_at: "2026-03-20T10:05:00.000Z"',
+        'follow_up_rounds: []',
+        'summary:',
+        '  goals: []',
+        '  constraints: []',
+        '  non_goals: []',
+        '  final_free_form_answer: ""',
+        'approval:',
+        '  approved_by: "user"',
+        '  approved_at: "2026-03-20T10:10:00.000Z"',
+      ].join('\n'),
     })
 
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toContain('missing epics')
+  })
+
+  it('repairs duplicate and missing PRD ids deterministically', () => {
+    const result = normalizePrdYamlOutput([
+      '```yaml',
+      'schema_version: 1',
+      'artifact: "prd"',
+      'status: "draft"',
+      'product:',
+      '  problem_statement: "Ship a deterministic planning pipeline."',
+      '  target_users:',
+      '    - "Maintainers"',
+      'scope:',
+      '  in_scope:',
+      '    - "Prompt hardening"',
+      '  out_of_scope: []',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Shared validator layer"',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'interview_gap_resolutions: []',
+      'epics:',
+      '  - id: "EPIC-1"',
+      '    title: "First epic"',
+      '    objective: "Cover the first slice."',
+      '    implementation_steps: []',
+      '    user_stories:',
+      '      - id: "US-1"',
+      '        title: "First story"',
+      '        acceptance_criteria: []',
+      '        implementation_steps: []',
+      '        verification:',
+      '          required_commands: []',
+      '  - title: "Second epic"',
+      '    objective: "Cover the second slice."',
+      '    implementation_steps: []',
+      '    user_stories:',
+      '      - id: "US-1"',
+      '        title: "Second story"',
+      '        acceptance_criteria: []',
+      '        implementation_steps: []',
+      '        verification:',
+      '          required_commands: []',
+      '```',
+    ].join('\n'), {
+      ticketId: 'K8S-17',
+      interviewContent: [
+        'schema_version: 1',
+        'ticket_id: "K8S-17"',
+        'artifact: "interview"',
+        'status: "approved"',
+        'generated_by:',
+        '  winner_model: "openai/gpt-5"',
+        '  generated_at: "2026-03-20T10:00:00.000Z"',
+        'questions:',
+        '  - id: "Q01"',
+        '    phase: "Foundation"',
+        '    prompt: "Which workflow guardrails are mandatory?"',
+        '    source: "compiled"',
+        '    follow_up_round: null',
+        '    answer_type: "free_text"',
+        '    options: []',
+        '    answer:',
+        '      skipped: false',
+        '      selected_option_ids: []',
+        '      free_text: "Keep the council flow intact."',
+        '      answered_by: "user"',
+        '      answered_at: "2026-03-20T10:05:00.000Z"',
+        'follow_up_rounds: []',
+        'summary:',
+        '  goals: []',
+        '  constraints: []',
+        '  non_goals: []',
+        '  final_free_form_answer: ""',
+        'approval:',
+        '  approved_by: "user"',
+        '  approved_at: "2026-03-20T10:10:00.000Z"',
+      ].join('\n'),
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value.epics.map((epic) => epic.id)).toEqual(['EPIC-1', 'EPIC-2'])
+    expect(result.value.epics.flatMap((epic) => epic.user_stories.map((story) => story.id))).toEqual(['US-1', 'US-2-1'])
+    expect(result.repairWarnings.join('\n')).toContain('Epic at index 1 was missing id')
+    expect(result.repairWarnings.join('\n')).toContain('duplicate user story id US-1')
+  })
+
+  it('requires interview_gap_resolutions to match the skipped interview questions exactly', () => {
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      'artifact: "prd"',
+      'status: "draft"',
+      'product:',
+      '  problem_statement: "Ship a deterministic planning pipeline."',
+      '  target_users:',
+      '    - "Maintainers"',
+      'scope:',
+      '  in_scope:',
+      '    - "Prompt hardening"',
+      '  out_of_scope: []',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Shared validator layer"',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'interview_gap_resolutions: []',
+      'epics:',
+      '  - id: "EPIC-1"',
+      '    title: "First epic"',
+      '    objective: "Cover the first slice."',
+      '    implementation_steps: []',
+      '    user_stories:',
+      '      - id: "US-1"',
+      '        title: "First story"',
+      '        acceptance_criteria: []',
+      '        implementation_steps: []',
+      '        verification:',
+      '          required_commands: []',
+    ].join('\n'), {
+      ticketId: 'K8S-17',
+      interviewContent: [
+        'schema_version: 1',
+        'ticket_id: "K8S-17"',
+        'artifact: "interview"',
+        'status: "approved"',
+        'generated_by:',
+        '  winner_model: "openai/gpt-5"',
+        '  generated_at: "2026-03-20T10:00:00.000Z"',
+        'questions:',
+        '  - id: "Q01"',
+        '    phase: "Foundation"',
+        '    prompt: "Which fallback path should we use?"',
+        '    source: "compiled"',
+        '    follow_up_round: null',
+        '    answer_type: "free_text"',
+        '    options: []',
+        '    answer:',
+        '      skipped: true',
+        '      selected_option_ids: []',
+        '      free_text: ""',
+        '      answered_by: "ai_skip"',
+        '      answered_at: ""',
+        'follow_up_rounds: []',
+        'summary:',
+        '  goals: []',
+        '  constraints: []',
+        '  non_goals: []',
+        '  final_free_form_answer: ""',
+        'approval:',
+        '  approved_by: "user"',
+        '  approved_at: "2026-03-20T10:10:00.000Z"',
+      ].join('\n'),
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('missing interview_gap_resolutions')
   })
 
   it('normalizes bead subset YAML and generates fallback ids when needed', () => {
