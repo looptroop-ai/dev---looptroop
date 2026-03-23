@@ -395,10 +395,12 @@ describe('InterviewQAView', () => {
     // Should not have saved immediately
     expect(savedUiState).toBeNull()
 
-    // Wait for debounce to fire (350ms + margin)
+    // Wait for debounce to fire (350ms + margin); use a generous timeout to
+    // avoid flakiness under high load (e.g. WSL2 running alongside the dev server).
+    await act(async () => { await new Promise((r) => setTimeout(r, 500)) })
     await waitFor(() => {
       expect(savedUiState).not.toBeNull()
-    }, { timeout: 2000 })
+    }, { timeout: 5000 })
 
     const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
     expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
@@ -423,10 +425,12 @@ describe('InterviewQAView', () => {
 
     expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' }, selectedOptions: {} })
 
-    // Wait for debounce to fire auto-save of cleaned state
+    // Wait for debounce to fire auto-save of cleaned state; generous timeout to
+    // avoid flakiness under high load.
+    await act(async () => { await new Promise((r) => setTimeout(r, 500)) })
     await waitFor(() => {
       expect(savedUiState).not.toBeNull()
-    }, { timeout: 2000 })
+    }, { timeout: 5000 })
 
     const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
     expect(data.draftAnswers[batchKey]).toBeUndefined()

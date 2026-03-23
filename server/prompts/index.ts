@@ -303,7 +303,7 @@ export const PROM5: PromptTemplate = {
 
 // PRD Phase Prompts
 export const PROM09D: PromptTemplate = {
-  id: 'PROM09d',
+  id: 'PROM09D',
   description: 'PRD Gap Resolution Prompt',
   systemRole: 'You are an expert Technical Product Manager and Software Architect.',
   task: 'Fill every skipped answer in the approved Interview Results and output one complete Full Answers interview artifact that preserves the original approved interview structure.',

@@ -339,7 +339,7 @@ export async function draftPRD(
     let fullAnswersResult: DraftResult | null = null
     let prdResult: DraftResult | null = null
 
-    const emitFailedResult = async (error: unknown, step: 'full_answers' | 'prd_draft') => {
+    const emitFailedResult = (error: unknown, step: 'full_answers' | 'prd_draft') => {
       if (signal?.aborted || error instanceof CancelledError || (isAbortError(error) && signal?.aborted)) {
         throw new CancelledError()
       }
@@ -606,7 +606,7 @@ export async function draftPRD(
       }
 
       const failedStep = fullAnswersResult ? 'prd_draft' : 'full_answers'
-      await emitFailedResult(error, failedStep)
+      emitFailedResult(error, failedStep)
       return {
         fullAnswers: fullAnswersResult!,
         prd: prdResult!,
