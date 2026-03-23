@@ -105,6 +105,24 @@ export function validateRelevantFilesScanResponse(response: string): StructuredO
   return normalized
 }
 
+function loadWinnerPrdFullAnswers(ticketId: string, winnerId: string): string | undefined {
+  const artifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers')
+  if (!artifact) return undefined
+
+  try {
+    const parsed = JSON.parse(artifact.content) as { drafts?: Array<{ memberId?: string; outcome?: string; content?: string }> }
+    const winnerDraft = parsed.drafts?.find((draft) => (
+      draft.memberId === winnerId
+      && draft.outcome === 'completed'
+      && typeof draft.content === 'string'
+      && draft.content.trim().length > 0
+    ))
+    return winnerDraft?.content
+  } catch {
+    return undefined
+  }
+}
+
 export async function handleRelevantFilesScan(
   ticketId: string,
   context: TicketContext,
@@ -412,7 +430,7 @@ export async function handleCoverageVerification(
   const interviewSnapshot = phase === 'interview'
     ? readInterviewSessionSnapshotArtifact(ticketId)
     : null
-  let canonicalInterview = phase === 'interview'
+  let canonicalInterview = phase === 'interview' || phase === 'prd'
     ? loadCanonicalInterview(ticketDir)
     : undefined
 
@@ -440,7 +458,17 @@ export async function handleCoverageVerification(
     title: context.title,
     description: ticket?.description ?? '',
     relevantFiles,
-    interview: phase === 'interview' ? canonicalInterview : refinedContent,
+    interview: phase === 'interview'
+      ? canonicalInterview
+      : phase === 'prd'
+        ? canonicalInterview
+        : refinedContent,
+    ...(phase === 'prd'
+      ? (() => {
+          const winnerFullAnswers = loadWinnerPrdFullAnswers(ticketId, winnerId)
+          return winnerFullAnswers ? { fullAnswers: [winnerFullAnswers] } : {}
+        })()
+      : {}),
     ...(phase === 'interview'
       ? { userAnswers: buildInterviewAnswerSummary(interviewSnapshot) }
       : {}),
@@ -659,7 +687,11 @@ export async function handleCoverageVerification(
   const coverageInputContent = phase === 'interview'
     ? JSON.stringify({ interview: ticketState.interview, userAnswers: ticketState.userAnswers })
     : phase === 'prd'
-      ? JSON.stringify({ prd: ticketState.prd, refinedContent })
+      ? JSON.stringify({
+          interview: ticketState.interview,
+          fullAnswers: ticketState.fullAnswers?.[0] ?? '',
+          refinedContent,
+        })
       : JSON.stringify({ beads: ticketState.beads, refinedContent })
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,
@@ -1017,5 +1049,4 @@ export async function handleMockCoverage(
   emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', `Mock ${phase} coverage passed.`)
   sendEvent({ type: 'COVERAGE_CLEAN' })
 }
-
 

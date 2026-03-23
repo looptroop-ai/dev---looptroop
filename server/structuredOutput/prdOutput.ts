@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { InterviewDocument } from '@shared/interviewArtifact'
-import type { PrdDocument, PrdDraftMetrics, PrdInterviewGapResolution, StructuredOutputResult } from './types'
+import type { PrdDocument, PrdDraftMetrics, StructuredOutputResult } from './types'
 import { normalizeInterviewDocumentOutput } from './interviewDocument'
 import {
   isRecord,
@@ -146,10 +145,10 @@ function normalizeEpic(
   }
 }
 
-function parseCanonicalInterview(
+function ensureInterviewArtifactForPrd(
   interviewContent: string | undefined,
   ticketId: string,
-): InterviewDocument {
+): string {
   if (!interviewContent?.trim()) {
     throw new Error('Canonical interview artifact is required for PRD normalization')
   }
@@ -159,96 +158,13 @@ function parseCanonicalInterview(
     throw new Error(`Interview artifact is invalid: ${result.error}`)
   }
 
-  return result.value
+  return result.normalizedContent
 }
 
-function normalizeInterviewGapResolutions(
-  rawValue: unknown,
-  interviewDocument: InterviewDocument,
-  repairWarnings: string[],
-): PrdInterviewGapResolution[] {
-  const skippedQuestions = interviewDocument.questions
-    .filter((question) => question.answer.skipped)
-    .map((question) => ({
-      question_id: question.id,
-      prompt: question.prompt,
-    }))
-
-  if (skippedQuestions.length === 0) {
-    const provided = Array.isArray(rawValue) ? rawValue.length : 0
-    if (provided > 0) {
-      throw new Error('PRD must not include interview_gap_resolutions when no interview questions were skipped')
-    }
-    return []
-  }
-
-  if (!Array.isArray(rawValue) || rawValue.length === 0) {
-    throw new Error('PRD is missing interview_gap_resolutions for skipped interview questions')
-  }
-
-  const expectedById = new Map(skippedQuestions.map((question) => [question.question_id, question]))
-  const expectedByPrompt = new Map(skippedQuestions.map((question) => [question.prompt, question]))
-  const seenQuestionIds = new Set<string>()
-  const normalized = rawValue.map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`interview_gap_resolutions[${index}] is not an object`)
-    }
-
-    let questionId = readOptionalString(entry, ['questionid', 'question_id', 'id'])
-    const prompt = readOptionalString(entry, ['prompt', 'question'])
-    let expected = questionId ? expectedById.get(questionId) : undefined
-
-    if (!expected && prompt) {
-      expected = expectedByPrompt.get(prompt)
-      if (expected && !questionId) {
-        questionId = expected.question_id
-        repairWarnings.push(`Filled missing interview_gap_resolutions question_id for skipped prompt "${expected.prompt}".`)
-      }
-    }
-
-    if (!expected || !questionId) {
-      const label = questionId || prompt || `entry ${index + 1}`
-      throw new Error(`interview_gap_resolutions contains an unknown skipped question reference: ${label}`)
-    }
-
-    if (seenQuestionIds.has(questionId)) {
-      throw new Error(`interview_gap_resolutions contains duplicate question_id ${questionId}`)
-    }
-    seenQuestionIds.add(questionId)
-
-    if (!prompt) {
-      repairWarnings.push(`Filled missing interview_gap_resolutions prompt for ${questionId}.`)
-    } else if (prompt !== expected.prompt) {
-      repairWarnings.push(`Canonicalized interview_gap_resolutions prompt for ${questionId} to match Interview Results.`)
-    }
-
-    return {
-      question_id: questionId,
-      prompt: expected.prompt,
-      resolution: getRequiredString(entry, ['resolution', 'decision'], `interview_gap_resolutions[${index}].resolution`),
-      rationale: getRequiredString(entry, ['rationale', 'reasoning'], `interview_gap_resolutions[${index}].rationale`),
-    }
-  })
-
-  const missingQuestions = skippedQuestions.filter((question) => !seenQuestionIds.has(question.question_id))
-  if (missingQuestions.length > 0) {
-    throw new Error(`interview_gap_resolutions is missing skipped questions: ${missingQuestions.map((question) => question.question_id).join(', ')}`)
-  }
-
-  const ordered = skippedQuestions.map((question) => normalized.find((entry) => entry.question_id === question.question_id)!)
-  const orderChanged = ordered.some((entry, index) => entry !== normalized[index])
-  if (orderChanged) {
-    repairWarnings.push('Reordered interview_gap_resolutions to match skipped interview question order.')
-  }
-
-  return ordered
-}
-
-export function getPrdDraftMetrics(document: Pick<PrdDocument, 'epics' | 'interview_gap_resolutions'>): PrdDraftMetrics {
+export function getPrdDraftMetrics(document: Pick<PrdDocument, 'epics'>): PrdDraftMetrics {
   return {
     epicCount: document.epics.length,
     userStoryCount: document.epics.reduce((sum, epic) => sum + epic.user_stories.length, 0),
-    gapResolutionCount: document.interview_gap_resolutions.length,
   }
 }
 
@@ -260,7 +176,7 @@ export function normalizePrdYamlOutput(
   },
 ): StructuredOutputResult<PrdDocument> {
   const candidates = collectStructuredCandidates(rawContent, {
-    topLevelHints: ['schema_version', 'artifact', 'product', 'scope', 'technical_requirements', 'interview_gap_resolutions', 'epics'],
+    topLevelHints: ['schema_version', 'artifact', 'product', 'scope', 'technical_requirements', 'epics'],
   })
   let lastError = 'No PRD content found'
 
@@ -277,7 +193,6 @@ export function normalizePrdYamlOutput(
       ])
       if (!isRecord(parsed)) throw new Error('PRD output is not a YAML/JSON object')
 
-      const interviewDocument = parseCanonicalInterview(options.interviewContent, options.ticketId)
       const product = getNestedRecord(parsed, ['product'])
       const scope = getNestedRecord(parsed, ['scope'])
       const technicalRequirements = getNestedRecord(parsed, ['technicalrequirements', 'technical_requirements'])
@@ -294,7 +209,8 @@ export function normalizePrdYamlOutput(
         throw new Error('PRD is missing epics')
       }
 
-      const runtimeInterviewHash = hashContent(options.interviewContent)
+      const normalizedInterviewContent = ensureInterviewArtifactForPrd(options.interviewContent, options.ticketId)
+      const runtimeInterviewHash = hashContent(normalizedInterviewContent)
       const providedTicketId = readOptionalString(parsed, ['ticketid', 'ticket_id'])
       const providedInterviewHash = readOptionalString(sourceInterview, ['contentsha256', 'content_sha256'])
       const runtimeTicketId = options.ticketId.trim()
@@ -334,11 +250,6 @@ export function normalizePrdYamlOutput(
           error_handling_rules: toStringArray(getValueByAliases(technicalRequirements, ['errorhandlingrules', 'error_handling_rules'])),
           tooling_assumptions: toStringArray(getValueByAliases(technicalRequirements, ['toolingassumptions', 'tooling_assumptions'])),
         },
-        interview_gap_resolutions: normalizeInterviewGapResolutions(
-          getValueByAliases(parsed, ['interviewgapresolutions', 'interview_gap_resolutions']),
-          interviewDocument,
-          repairWarnings,
-        ),
         epics,
         risks: toStringArray(getValueByAliases(parsed, ['risks'])),
         approval: {

@@ -496,106 +496,184 @@ export function InterviewAnswersView({ content }: { content: string }) {
   )
 }
 
+interface ParsedPrdUserStory {
+  id?: string
+  title?: string
+  acceptance_criteria?: string[]
+}
+
+interface ParsedPrdEpic {
+  id?: string
+  title?: string
+  objective?: string
+  user_stories?: ParsedPrdUserStory[]
+}
+
+interface ParsedPrdDocument {
+  product?: {
+    problem_statement?: string
+    target_users?: string[]
+  }
+  scope?: {
+    in_scope?: string[]
+    out_of_scope?: string[]
+  }
+  technical_requirements?: {
+    architecture_constraints?: string[]
+    data_model?: string[]
+    api_contracts?: string[]
+    security_constraints?: string[]
+    performance_constraints?: string[]
+    reliability_constraints?: string[]
+    error_handling_rules?: string[]
+    tooling_assumptions?: string[]
+  }
+  epics?: ParsedPrdEpic[]
+}
+
+interface ParsedBead {
+  id?: string
+  title?: string
+  prdRefs?: string[]
+  description?: string
+  contextGuidance?: string
+}
+
+const PRD_TECHNICAL_SECTION_CONFIG: Array<{
+  key: keyof NonNullable<ParsedPrdDocument['technical_requirements']>
+  label: string
+}> = [
+  { key: 'architecture_constraints', label: 'Architecture Constraints' },
+  { key: 'data_model', label: 'Data Model' },
+  { key: 'api_contracts', label: 'API Contracts' },
+  { key: 'security_constraints', label: 'Security Constraints' },
+  { key: 'performance_constraints', label: 'Performance Constraints' },
+  { key: 'reliability_constraints', label: 'Reliability Constraints' },
+  { key: 'error_handling_rules', label: 'Error Handling Rules' },
+  { key: 'tooling_assumptions', label: 'Tooling Assumptions' },
+]
+
+function parsePrdDocument(content: string): ParsedPrdDocument | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const document = parsed as ParsedPrdDocument
+  return Array.isArray(document.epics) ? document : null
+}
+
+function parseBeadsArtifact(content: string): ParsedBead[] | null {
+  const parsed = tryParseStructuredContent(content)
+  if (Array.isArray(parsed)) {
+    return parsed as ParsedBead[]
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray((parsed as { beads?: ParsedBead[] }).beads)) {
+    return (parsed as { beads: ParsedBead[] }).beads
+  }
+  if (content.trim().startsWith('{')) {
+    try {
+      return content.trim().split('\n').map((line) => JSON.parse(line) as ParsedBead)
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 export function PrdDraftView({ content }: { content: string }) {
-  try {
-    const parsed = jsYaml.load(content) as any
-    if (parsed && typeof parsed === 'object' && parsed.epics) {
-      return (
-        <div className="space-y-4">
-          {parsed.product && (
-            <CollapsibleSection title="Product" defaultOpen>
-              <div className="space-y-2 p-2">
-                {parsed.product.problem_statement && <div><strong className="text-xs">Problem Statement:</strong> <span className="text-xs">{parsed.product.problem_statement}</span></div>}
-                {parsed.product.target_audience && <div><strong className="text-xs">Target Audience:</strong> <span className="text-xs">{parsed.product.target_audience}</span></div>}
-                {parsed.product.value_proposition && <div><strong className="text-xs">Value Proposition:</strong> <span className="text-xs">{parsed.product.value_proposition}</span></div>}
-              </div>
-            </CollapsibleSection>
-          )}
-          {parsed.scope && (
-            <CollapsibleSection title="Scope">
-              <div className="space-y-2 p-2 flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                  <strong className="text-xs">In Scope:</strong>
+  const parsed = parsePrdDocument(content)
+  if (parsed && Array.isArray(parsed.epics)) {
+    const technicalSections = PRD_TECHNICAL_SECTION_CONFIG
+      .map((section) => ({
+        ...section,
+        values: parsed.technical_requirements?.[section.key] ?? [],
+      }))
+      .filter((section) => section.values.length > 0)
+
+    return (
+      <div className="space-y-4">
+        {parsed.product && (
+          <CollapsibleSection title="Product" defaultOpen>
+            <div className="space-y-2 p-2">
+              {parsed.product.problem_statement && (
+                <div><strong className="text-xs">Problem Statement:</strong> <span className="text-xs">{parsed.product.problem_statement}</span></div>
+              )}
+              {Array.isArray(parsed.product.target_users) && parsed.product.target_users.length > 0 && (
+                <div>
+                  <strong className="text-xs">Target Users:</strong>
                   <ul className="list-disc list-inside text-xs mt-1 pl-2">
-                    {(parsed.scope.in_scope || []).map((s: string, i: number) => <li key={i}>{s}</li>)}
+                    {parsed.product.target_users.map((user, index) => <li key={index}>{user}</li>)}
                   </ul>
                 </div>
-                <div className="flex-1">
-                  <strong className="text-xs">Out of Scope:</strong>
-                  <ul className="list-disc list-inside text-xs mt-1 pl-2 text-muted-foreground">
-                    {(parsed.scope.out_of_scope || []).map((s: string, i: number) => <li key={i}>{s}</li>)}
+              )}
+            </div>
+          </CollapsibleSection>
+        )}
+        {parsed.scope && (
+          <CollapsibleSection title="Scope">
+            <div className="space-y-2 p-2 flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <strong className="text-xs">In Scope:</strong>
+                <ul className="list-disc list-inside text-xs mt-1 pl-2">
+                  {(parsed.scope.in_scope ?? []).map((scopeItem, index) => <li key={index}>{scopeItem}</li>)}
+                </ul>
+              </div>
+              <div className="flex-1">
+                <strong className="text-xs">Out of Scope:</strong>
+                <ul className="list-disc list-inside text-xs mt-1 pl-2 text-muted-foreground">
+                  {(parsed.scope.out_of_scope ?? []).map((scopeItem, index) => <li key={index}>{scopeItem}</li>)}
+                </ul>
+              </div>
+            </div>
+          </CollapsibleSection>
+        )}
+        {technicalSections.length > 0 && (
+          <CollapsibleSection title="Technical Requirements">
+            <div className="space-y-3 p-2">
+              {technicalSections.map((section) => (
+                <div key={section.key}>
+                  <strong className="text-xs">{section.label}:</strong>
+                  <ul className="list-disc list-inside text-xs mt-1 pl-2">
+                    {section.values.map((value, index) => <li key={index}>{value}</li>)}
                   </ul>
                 </div>
-              </div>
-            </CollapsibleSection>
-          )}
-          {parsed.technical_requirements && (
-            <CollapsibleSection title="Technical Requirements">
-               <div className="space-y-3 p-2">
-                 {parsed.technical_requirements.non_functional_requirements && parsed.technical_requirements.non_functional_requirements.length > 0 && (
-                   <div>
-                     <strong className="text-xs">Non-Functional Requirements:</strong>
-                     <ul className="list-disc list-inside text-xs mt-1 pl-2">
-                       {parsed.technical_requirements.non_functional_requirements.map((r: string, i: number) => <li key={i}>{r}</li>)}
-                     </ul>
-                   </div>
-                 )}
-                 {parsed.technical_requirements.tooling_assumptions && parsed.technical_requirements.tooling_assumptions.length > 0 && (
-                   <div>
-                     <strong className="text-xs">Tooling Assumptions:</strong>
-                     <ul className="list-disc list-inside text-xs mt-1 pl-2">
-                       {parsed.technical_requirements.tooling_assumptions.map((r: string, i: number) => <li key={i}>{r}</li>)}
-                     </ul>
-                   </div>
-                 )}
-               </div>
-            </CollapsibleSection>
-          )}
-          {parsed.interview_gap_resolutions && parsed.interview_gap_resolutions.length > 0 && (
-            <CollapsibleSection title={`Interview Gap Resolutions (${parsed.interview_gap_resolutions.length})`}>
-              <div className="space-y-2 p-2">
-                {parsed.interview_gap_resolutions.map((res: any, i: number) => (
-                  <div key={i} className="text-xs p-2 bg-muted/50 rounded border border-border">
-                    <div className="font-medium text-amber-700 dark:text-amber-500 mb-1">Gap: {res.prompt || res.gap}</div>
-                    <div className="text-muted-foreground">Resolution: {res.resolution}</div>
-                  </div>
-                ))}
-              </div>
-            </CollapsibleSection>
-          )}
-          {parsed.epics && parsed.epics.length > 0 && (
-            <div className="space-y-2 mt-2">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Epics ({parsed.epics.length})</div>
-              {parsed.epics.map((epic: any, i: number) => (
-                <CollapsibleSection key={i} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{epic.id || `EPIC-${i+1}`}</span> {epic.title}</span>} defaultOpen={i === 0}>
-                  <div className="space-y-2 p-2">
-                    {(epic.user_stories || []).map((story: any, j: number) => (
-                      <div key={j} className="border border-border/50 rounded p-2 bg-background">
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <span className="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{story.id || `US-${j+1}`}</span>
-                          <span className="text-xs font-medium">{story.title}</span>
-                        </div>
-                        {story.acceptance_criteria && story.acceptance_criteria.length > 0 && (
-                          <div className="pl-6 mt-1">
-                            <ul className="list-disc text-[11px] text-muted-foreground space-y-0.5">
-                              {story.acceptance_criteria.map((ac: string, k: number) => (
-                                <li key={k}>{ac}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CollapsibleSection>
               ))}
             </div>
-          )}
-        </div>
-      )
-    }
-  } catch {
-    // Fall back to text parsing if not valid YAML
+          </CollapsibleSection>
+        )}
+        {parsed.epics.length > 0 && (
+          <div className="space-y-2 mt-2">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Epics ({parsed.epics.length})</div>
+            {parsed.epics.map((epic, index) => (
+              <CollapsibleSection
+                key={`${epic.id ?? 'epic'}-${index}`}
+                title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{epic.id || `EPIC-${index + 1}`}</span> {epic.title}</span>}
+                defaultOpen={index === 0}
+              >
+                <div className="space-y-2 p-2">
+                  {epic.objective && <div className="text-xs"><strong className="text-muted-foreground font-medium">Objective:</strong> {epic.objective}</div>}
+                  {(epic.user_stories ?? []).map((story, storyIndex) => (
+                    <div key={`${story.id ?? 'story'}-${storyIndex}`} className="border border-border/50 rounded p-2 bg-background">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{story.id || `US-${storyIndex + 1}`}</span>
+                        <span className="text-xs font-medium">{story.title}</span>
+                      </div>
+                      {Array.isArray(story.acceptance_criteria) && story.acceptance_criteria.length > 0 && (
+                        <div className="pl-6 mt-1">
+                          <ul className="list-disc text-[11px] text-muted-foreground space-y-0.5">
+                            {story.acceptance_criteria.map((criterion, criterionIndex) => (
+                              <li key={criterionIndex}>{criterion}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleSection>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const lines = content.split('\n')
@@ -628,41 +706,30 @@ export function PrdDraftView({ content }: { content: string }) {
 }
 
 function BeadsDraftView({ content }: { content: string }) {
-  try {
-    let parsed = jsYaml.load(content) as any
-    // Try to parse JSONL if jsYaml.load returns a string or fails
-    if (typeof parsed === 'string' && content.trim().startsWith('{')) {
-      parsed = content.trim().split('\n').map(line => JSON.parse(line))
-    }
-    
-    const beadsArray = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? parsed.beads : null)
-    
-    if (Array.isArray(beadsArray)) {
-      return (
-        <div className="space-y-2">
-          <div className="text-xs text-muted-foreground mb-2">{beadsArray.length} beads</div>
-          {beadsArray.map((b: any, i: number) => (
-            <CollapsibleSection key={i} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{b.id || `Bead ${i+1}`}</span> {b.title}</span>}>
-              <div className="space-y-2 p-2">
-                {b.prdRefs && b.prdRefs.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {b.prdRefs.map((ref: string, j: number) => <span key={j} className="px-1.5 py-0.5 bg-muted rounded border border-border text-[10px] text-muted-foreground">{ref}</span>)}
-                  </div>
-                )}
-                {b.description && (
-                  <div className="text-xs"><strong className="text-muted-foreground font-medium">Description:</strong> <span className="whitespace-pre-wrap">{b.description}</span></div>
-                )}
-                {b.contextGuidance && (
-                  <div className="text-xs"><strong className="text-muted-foreground font-medium">Guidance:</strong> <span className="whitespace-pre-wrap">{b.contextGuidance}</span></div>
-                )}
-              </div>
-            </CollapsibleSection>
-          ))}
-        </div>
-      )
-    }
-  } catch {
-    // Fall back to text parsing if not valid YAML/JSONL
+  const beadsArray = parseBeadsArtifact(content)
+  if (Array.isArray(beadsArray)) {
+    return (
+      <div className="space-y-2">
+        <div className="text-xs text-muted-foreground mb-2">{beadsArray.length} beads</div>
+        {beadsArray.map((bead, index) => (
+          <CollapsibleSection key={`${bead.id ?? 'bead'}-${index}`} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{bead.id || `Bead ${index + 1}`}</span> {bead.title}</span>}>
+            <div className="space-y-2 p-2">
+              {Array.isArray(bead.prdRefs) && bead.prdRefs.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {bead.prdRefs.map((ref, refIndex) => <span key={refIndex} className="px-1.5 py-0.5 bg-muted rounded border border-border text-[10px] text-muted-foreground">{ref}</span>)}
+                </div>
+              )}
+              {bead.description && (
+                <div className="text-xs"><strong className="text-muted-foreground font-medium">Description:</strong> <span className="whitespace-pre-wrap">{bead.description}</span></div>
+              )}
+              {bead.contextGuidance && (
+                <div className="text-xs"><strong className="text-muted-foreground font-medium">Guidance:</strong> <span className="whitespace-pre-wrap">{bead.contextGuidance}</span></div>
+              )}
+            </div>
+          </CollapsibleSection>
+        ))}
+      </div>
+    )
   }
 
   const lines = content.split('\n')
@@ -1095,6 +1162,58 @@ function RelevantFilesScanView({ content }: { content: string }) {
   )
 }
 
+function FullAnswersArtifactView({ content }: { content: string }) {
+  const councilResult = tryParseCouncilResult(content)
+  const drafts = Array.isArray(councilResult?.drafts) ? councilResult.drafts : []
+
+  if (drafts.length === 0) {
+    return <RawContentView content={content} />
+  }
+
+  return (
+    <div className="space-y-3">
+      {drafts.map((draft, index) => {
+        const header = (
+          <ModelBadge modelId={draft.memberId} active={draft.outcome === 'completed'} className="px-3 py-2 h-auto flex-1 justify-start">
+            <div className="min-w-0 text-left">
+              <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
+              <div className="text-[10px] mt-0.5 opacity-80 normal-case">
+                {getCouncilStatusEmoji(draft.outcome, 'drafting')} {getCouncilStatusLabel(draft.outcome, 'drafting')}
+              </div>
+            </div>
+          </ModelBadge>
+        )
+
+        if (draft.content) {
+          return (
+            <div key={`${draft.memberId}-${index}`} className="space-y-2">
+              {header}
+              <InterviewAnswersView content={draft.content} />
+            </div>
+          )
+        }
+
+        return (
+          <div key={`${draft.memberId}-${index}`} className="space-y-2">
+            {header}
+            <div className="text-xs text-muted-foreground italic">
+              {draft.outcome === 'pending'
+                ? 'Full Answers artifact is still being generated for this model.'
+                : draft.outcome === 'timed_out'
+                  ? 'No Full Answers response was received before the council timeout.'
+                  : draft.outcome === 'failed'
+                    ? (draft.error || 'This model failed before producing Full Answers.')
+                    : draft.outcome === 'invalid_output'
+                      ? (draft.error || 'This model returned malformed Full Answers output.')
+                      : 'No Full Answers content available yet.'}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
   if (artifactId === 'relevant-files-scan') {
     return <RelevantFilesScanView content={content} />
@@ -1109,6 +1228,14 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     return (
       <WithRawTab content={content} structuredLabel="Q&A" header={header}>
         <InterviewAnswersView content={content} />
+      </WithRawTab>
+    )
+  }
+  if (artifactId === 'prd-full-answers') {
+    const header = <div className="text-xs font-semibold px-1">Full Answers</div>
+    return (
+      <WithRawTab content={content} structuredLabel="Full Answers" header={header}>
+        <FullAnswersArtifactView content={content} />
       </WithRawTab>
     )
   }
@@ -1149,6 +1276,18 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     return (
       <WithRawTab content={content} structuredLabel="Sections">
         <div className="space-y-6">
+          {parsedCoverageInput.interview && (
+            <div>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Approved Interview</div>
+              <div className="opacity-80"><InterviewAnswersView content={parsedCoverageInput.interview} /></div>
+            </div>
+          )}
+          {parsedCoverageInput.fullAnswers && (
+            <div>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Winner Full Answers</div>
+              <div className="opacity-80"><InterviewAnswersView content={parsedCoverageInput.fullAnswers} /></div>
+            </div>
+          )}
           {parsedCoverageInput.prd && (
             <div>
               <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (PRD)</div>

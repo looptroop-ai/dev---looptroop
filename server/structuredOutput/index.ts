@@ -13,7 +13,6 @@ export type {
   VoteScorecard,
   PrdDocument,
   PrdDraftMetrics,
-  PrdInterviewGapResolution,
   RelevantFilesOutputEntry,
   RelevantFilesOutputPayload,
 } from './types'
@@ -27,6 +26,7 @@ export {
 
 export {
   normalizeInterviewDocumentOutput,
+  normalizeResolvedInterviewDocumentOutput,
   buildInterviewDocumentYaml,
   toDraftInterviewDocument,
   updateInterviewDocumentAnswers,

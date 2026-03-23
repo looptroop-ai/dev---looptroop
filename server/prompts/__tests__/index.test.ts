@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PROM1, PROM3, PROM4, PROM5, PROM10, PROM12, PROM13, PROM20, PROM22, PROM24, PROM52, buildPromptFromTemplate } from '../index'
+import { PROM1, PROM3, PROM4, PROM5, PROM09D, PROM10, PROM12, PROM13, PROM20, PROM22, PROM24, PROM52, buildPromptFromTemplate } from '../index'
 
 describe('structured prompt hardening', () => {
   it('keeps the interview refinement prompt explicit about phase order and self-checks', () => {
@@ -33,15 +33,22 @@ describe('structured prompt hardening', () => {
     expect(PROM10.outputFormat).toBe(PROM12.outputFormat)
     expect(PROM10.outputFormat).toContain('schema_version')
     expect(PROM10.outputFormat).toContain('technical_requirements')
-    expect(PROM10.outputFormat).toContain('interview_gap_resolutions')
     expect(PROM10.outputFormat).toContain('required_commands')
     expect(PROM10.outputFormat).not.toContain('PROM13.output_file')
 
     const draftPrompt = buildPromptFromTemplate(PROM10, [])
     expect(draftPrompt).toContain('Schema Contract')
-    expect(draftPrompt).toContain('Skipped Questions Output Contract')
+    expect(draftPrompt).toContain('Complete Interview Input')
     expect(draftPrompt).toContain('artifact: "prd"')
     expect(draftPrompt).toContain('acceptance_criteria')
+  })
+
+  it('keeps PROM09d strict about preserving user answers and outputting only a full interview artifact', () => {
+    const gapPrompt = buildPromptFromTemplate(PROM09D, [])
+    expect(gapPrompt).toContain('Preserve every existing non-skipped answer exactly as-is')
+    expect(gapPrompt).toContain('answered_by: ai_skip')
+    expect(gapPrompt).toContain('status: draft')
+    expect(gapPrompt).toContain('Return exactly one complete interview artifact and nothing else')
   })
 
   it('keeps PRD coverage output envelope-only without PRD rewrite instructions', () => {

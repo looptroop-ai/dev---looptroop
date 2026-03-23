@@ -1,5 +1,5 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
-import type { MemberOutcome, Vote } from '../../council/types'
+import type { DraftResult, MemberOutcome, Vote } from '../../council/types'
 import { CancelledError } from '../../council/types'
 import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
@@ -59,27 +59,33 @@ function formatPrdDraftMetrics(draft: {
   draftMetrics?: {
     epicCount?: number
     userStoryCount?: number
-    gapResolutionCount?: number
   }
 }): string {
   const epicCount = draft.draftMetrics?.epicCount
   const userStoryCount = draft.draftMetrics?.userStoryCount
-  const gapResolutionCount = draft.draftMetrics?.gapResolutionCount
 
-  if (
-    typeof epicCount === 'number'
-    || typeof userStoryCount === 'number'
-    || typeof gapResolutionCount === 'number'
-  ) {
+  if (typeof epicCount === 'number' || typeof userStoryCount === 'number') {
     return [
       `${epicCount ?? 0} epics`,
       `${userStoryCount ?? 0} user stories`,
-      `${gapResolutionCount ?? 0} gap resolutions`,
     ].join(' · ')
   }
 
   const lineCount = draft.content?.split('\n').filter((line) => line.trim()).length ?? 0
   return lineCount > 0 ? `${lineCount} lines` : 'empty draft'
+}
+
+function formatFullAnswersMetrics(draft: DraftResult): string {
+  if (typeof draft.questionCount === 'number' && draft.questionCount > 0) {
+    return `${draft.questionCount} answered questions`
+  }
+
+  const lineCount = draft.content?.split('\n').filter((line) => line.trim()).length ?? 0
+  return lineCount > 0 ? `${lineCount} lines` : 'empty artifact'
+}
+
+function findWinnerFullAnswers(fullAnswers: DraftResult[], winnerId: string): DraftResult | undefined {
+  return fullAnswers.find((draft) => draft.memberId === winnerId && draft.outcome === 'completed' && draft.content)
 }
 
 export async function handlePrdDraft(
@@ -118,12 +124,14 @@ export async function handlePrdDraft(
   if (signal.aborted) throw new CancelledError(ticketId)
   const startedAt = Date.now()
   const streamStates = new Map<string, OpenCodeStreamState>()
+  const liveFullAnswers = createPendingDrafts(members)
   const liveDrafts = createPendingDrafts(members)
+  upsertCouncilDraftArtifact(ticketId, phase, 'prd_full_answers', liveFullAnswers)
   upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
   const result = await draftPRD(
     adapter,
     members,
-    ticketContext,
+    ticketState,
     worktreePath,
     {
       ...councilSettings,
@@ -169,6 +177,38 @@ export async function handlePrdDraft(
       )
     },
     (entry) => {
+      const fullAnswersIndex = liveFullAnswers.findIndex((draft) => draft.memberId === entry.memberId)
+      if (fullAnswersIndex < 0 || !entry.outcome) return
+      liveFullAnswers[fullAnswersIndex] = {
+        ...liveFullAnswers[fullAnswersIndex]!,
+        content: entry.content ?? liveFullAnswers[fullAnswersIndex]!.content,
+        outcome: entry.outcome,
+        duration: entry.duration ?? liveFullAnswers[fullAnswersIndex]!.duration,
+        error: entry.error,
+        questionCount: entry.questionCount,
+        structuredOutput: entry.structuredOutput,
+      }
+      if (entry.structuredOutput?.repairWarnings.length) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} Full Answers normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
+        )
+      }
+      if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} Full Answers required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
+        )
+      }
+      upsertCouncilDraftArtifact(ticketId, phase, 'prd_full_answers', liveFullAnswers)
+    },
+    (entry) => {
       emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'PRD', entry)
       if (entry.status !== 'finished' || !entry.outcome) return
       const draftIndex = liveDrafts.findIndex(draft => draft.memberId === entry.memberId)
@@ -203,6 +243,43 @@ export async function handlePrdDraft(
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
     },
+    (entry) => {
+      const stepLabel = entry.step === 'full_answers' ? 'Full Answers' : 'PRD draft'
+      if (entry.status === 'started') {
+        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} started.`)
+        return
+      }
+      if (entry.status === 'skipped') {
+        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} skipped; reusing the approved interview artifact.`)
+        return
+      }
+      if (entry.status === 'completed') {
+        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} completed.`)
+        return
+      }
+      emitPhaseLog(
+        ticketId,
+        context.externalId,
+        phase,
+        entry.outcome === 'failed' ? 'error' : 'info',
+        `${entry.memberId} ${stepLabel} ${entry.outcome === 'timed_out' ? 'timed out' : 'failed'}${entry.error ? `: ${entry.error}` : '.'}`,
+      )
+    },
+  )
+
+  const fullAnswersSummary = summarizeDraftOutcomes(result.fullAnswers)
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    phase,
+    'info',
+    formatDraftRoundSummary(
+      'Full Answers round',
+      Date.now() - startedAt,
+      councilSettings.draftTimeoutMs,
+      Boolean(result.deadlineReached),
+      fullAnswersSummary,
+    ),
   )
 
   const draftSummary = summarizeDraftOutcomes(result.drafts)
@@ -255,25 +332,58 @@ export async function handlePrdDraft(
       })
   }
 
+  for (const fullAnswers of result.fullAnswers) {
+    const detail = fullAnswers.outcome === 'timed_out'
+      ? 'timed out'
+      : fullAnswers.outcome === 'invalid_output'
+        ? 'invalid output'
+        : fullAnswers.outcome === 'failed'
+          ? 'failed'
+          : `produced Full Answers (${formatFullAnswersMetrics(fullAnswers)})`
+    emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
+      `${fullAnswers.memberId} ${detail}.`,
+      {
+        entryId: `prd-full-answers-summary:${fullAnswers.memberId}`,
+        audience: 'ai',
+        kind: fullAnswers.outcome === 'completed' ? 'text' : 'error',
+        op: 'append',
+        source: `model:${fullAnswers.memberId}`,
+        modelId: fullAnswers.memberId,
+        streaming: false,
+        outcome: fullAnswers.outcome,
+        duration: fullAnswers.duration,
+      })
+  }
+
+  upsertCouncilDraftArtifact(ticketId, phase, 'prd_full_answers', result.fullAnswers, result.fullAnswerOutcomes, true)
   upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', result.drafts, result.memberOutcomes, true)
   emitPhaseLog(
     ticketId,
     context.externalId,
     phase,
     'info',
-    `Saved PRD draft artifact with ${Object.keys(result.memberOutcomes).length} member outcomes.`,
+    `Saved PRD drafting artifacts with ${Object.keys(result.memberOutcomes).length} PRD outcomes and ${Object.keys(result.fullAnswerOutcomes).length} Full Answers outcomes.`,
   )
 
   if (!quorum.passed) {
     throw new Error(`Council quorum not met for prd_draft: ${quorum.message}`)
   }
 
+  const nextTicketState: TicketState = {
+    ...ticketState,
+    fullAnswers: result.fullAnswers
+      .filter((draft) => draft.outcome === 'completed' && draft.content)
+      .map((draft) => draft.content),
+  }
+
   phaseIntermediate.set(`${ticketId}:prd`, {
     drafts: result.drafts,
+    fullAnswers: result.fullAnswers,
     memberOutcomes: result.memberOutcomes,
-    contextBuilder: buildPrdContextBuilder(ticketContext),
+    contextBuilder: buildPrdContextBuilder(nextTicketState),
     worktreePath,
     phase: result.phase,
+    ticketState: nextTicketState,
   })
 
   sendEvent({ type: 'DRAFTS_READY' })
@@ -442,16 +552,10 @@ export async function handlePrdRefine(
     throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   }
   const ticketDir = paths.ticketDir
-  const interviewPath = resolve(ticketDir, 'interview.yaml')
-  const interviewContent = existsSync(interviewPath)
-    ? (() => {
-        try {
-          return readFileSync(interviewPath, 'utf-8')
-        } catch {
-          return undefined
-        }
-      })()
-    : undefined
+  const winnerFullAnswers = findWinnerFullAnswers(intermediate.fullAnswers ?? [], intermediate.winnerId)
+  if (!winnerFullAnswers?.content) {
+    throw new Error(`No Full Answers artifact found for PRD winner ${intermediate.winnerId}`)
+  }
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
@@ -508,7 +612,7 @@ export async function handlePrdRefine(
     (content) => {
       const result = validatePrdDraft(content, {
         ticketId: context.externalId,
-        interviewContent,
+        interviewContent: winnerFullAnswers.content,
       })
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         repairApplied: result.repairApplied,
@@ -577,7 +681,6 @@ export function buildMockPrdContent(context: TicketContext) {
       error_handling_rules: [],
       tooling_assumptions: [],
     },
-    interview_gap_resolutions: [],
     epics: [
       {
         id: 'EPIC-1',
@@ -615,10 +718,29 @@ export function buildMockPrdContent(context: TicketContext) {
 }
 
 export async function handleMockPrdDraft(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const interviewPath = resolve(paths.ticketDir, 'interview.yaml')
+  const fullAnswersContent = existsSync(interviewPath) ? readFileSync(interviewPath, 'utf-8') : ''
+  insertPhaseArtifact(ticketId, {
+    phase: 'DRAFTING_PRD',
+    artifactType: 'prd_full_answers',
+    content: JSON.stringify({
+      phase: 'prd_full_answer',
+      drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: fullAnswersContent }],
+      memberOutcomes: { 'mock-model-1': 'completed' },
+      isFinal: true,
+    }),
+  })
   insertPhaseArtifact(ticketId, {
     phase: 'DRAFTING_PRD',
     artifactType: 'prd_drafts',
-    content: JSON.stringify({ drafts: [{ memberId: 'mock-model-1', outcome: 'completed' }] }),
+    content: JSON.stringify({
+      phase: 'prd_draft',
+      drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: buildMockPrdContent(context) }],
+      memberOutcomes: { 'mock-model-1': 'completed' },
+      isFinal: true,
+    }),
   })
   emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'info', 'Mock PRD drafts ready.')
   sendEvent({ type: 'DRAFTS_READY' })

@@ -193,7 +193,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(expect.arrayContaining(['Original', 'Refined']))
   })
 
-  it('shows PRD drafting chips with epic, story, and gap-resolution metrics', () => {
+  it('shows PRD drafting chips with epic and story metrics', () => {
     const draftArtifact: DBartifact = {
       id: 21,
       ticketId: 'ticket-1',
@@ -211,16 +211,10 @@ describe('PhaseArtifactsPanel', () => {
               'ticket_id: LOOP-1',
               'artifact: prd',
               'status: draft',
-              'interview_gap_resolutions:',
-              '  - question_id: Q01',
-              '    prompt: Which workflow guardrails are mandatory?',
-              '    resolution: Default to interview council retry semantics.',
-              '    rationale: Avoid losing skipped-question intent.',
             ].join('\n'),
             draftMetrics: {
               epicCount: 3,
               userStoryCount: 9,
-              gapResolutionCount: 2,
             },
           },
           {
@@ -243,7 +237,7 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
-    expect(screen.getByText('3 epics · 9 user stories · 2 gap resolutions')).toBeInTheDocument()
+    expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
     expect(screen.getByText('waiting for response')).toBeInTheDocument()
   })
 
@@ -264,7 +258,6 @@ describe('PhaseArtifactsPanel', () => {
             draftMetrics: {
               epicCount: 3,
               userStoryCount: 9,
-              gapResolutionCount: 2,
             },
           },
           {
@@ -274,7 +267,6 @@ describe('PhaseArtifactsPanel', () => {
             draftMetrics: {
               epicCount: 2,
               userStoryCount: 5,
-              gapResolutionCount: 0,
             },
           },
         ],
@@ -293,8 +285,8 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
-    expect(screen.getByText('3 epics · 9 user stories · 2 gap resolutions')).toBeInTheDocument()
-    expect(screen.getByText('2 epics · 5 user stories · 0 gap resolutions')).toBeInTheDocument()
+    expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
+    expect(screen.getByText('2 epics · 5 user stories')).toBeInTheDocument()
     expect(screen.queryByText('proposed 3 questions')).not.toBeInTheDocument()
   })
 

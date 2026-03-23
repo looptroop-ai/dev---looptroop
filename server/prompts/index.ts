@@ -40,12 +40,11 @@ const STRUCTURED_SELF_CHECK = 'Final Self-Check: before responding, verify that 
 const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
 const INTERVIEW_COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. When `status` is `clean`, `follow_up_questions` must be `[]`. When `status` is `gaps`, `follow_up_questions` must be a YAML list of objects with these fields: `id`, `question`, `phase`, `priority`, `rationale`, `answer_type` (required: free_text|single_choice|multiple_choice|yes_no), and optionally `options` (list of {id, label}) when answer_type is single_choice or multiple_choice. Do not return plain strings in `follow_up_questions`.'
 const PRD_OUTPUT_FORMAT = [
-  'YAML with exactly these top-level keys (no wrappers): `schema_version`, `ticket_id`, `artifact`, `status`, `source_interview`, `product`, `scope`, `technical_requirements`, `interview_gap_resolutions`, `epics`, `risks`, `approval`.',
+  'YAML with exactly these top-level keys (no wrappers): `schema_version`, `ticket_id`, `artifact`, `status`, `source_interview`, `product`, `scope`, `technical_requirements`, `epics`, `risks`, `approval`.',
   '`artifact` must be `prd`. `source_interview` must include `content_sha256`.',
   '`product` keys: `problem_statement`, `target_users`.',
   '`scope` keys: `in_scope`, `out_of_scope`.',
   '`technical_requirements` keys: `architecture_constraints`, `data_model`, `api_contracts`, `security_constraints`, `performance_constraints`, `reliability_constraints`, `error_handling_rules`, `tooling_assumptions`.',
-  '`interview_gap_resolutions` must be a list of objects with `question_id`, `prompt`, `resolution`, and `rationale`. Include exactly one item for each skipped interview question. If no interview questions were skipped, output `interview_gap_resolutions: []`.',
   '`epics` must be a non-empty list. Each epic: `id`, `title`, `objective`, `implementation_steps`, `user_stories`.',
   'Each user story: `id`, `title`, `acceptance_criteria`, `implementation_steps`, `verification.required_commands`.',
   'Example:',
@@ -74,11 +73,6 @@ const PRD_OUTPUT_FORMAT = [
   '  reliability_constraints: []',
   '  error_handling_rules: []',
   '  tooling_assumptions: []',
-  'interview_gap_resolutions:',
-  '  - question_id: "Q07"',
-  '    prompt: "Which fallback should we use when the user skipped this decision?"',
-  '    resolution: "Default to the existing retry strategy for v1."',
-  '    rationale: "This matches current production behavior and minimizes rollout risk."',
   'epics:',
   '  - id: "EPIC-1"',
   '    title: "..."',
@@ -308,14 +302,31 @@ export const PROM5: PromptTemplate = {
 }
 
 // PRD Phase Prompts
+export const PROM09D: PromptTemplate = {
+  id: 'PROM09d',
+  description: 'PRD Gap Resolution Prompt',
+  systemRole: 'You are an expert Technical Product Manager and Software Architect.',
+  task: 'Fill every skipped answer in the approved Interview Results and output one complete Full Answers interview artifact that preserves the original approved interview structure.',
+  instructions: [
+    'Source Of Truth: Treat the provided approved Interview Results as canonical for question order, IDs, prompts, phases, options, source metadata, and every non-skipped user answer.',
+    'Preservation Rule: Preserve every existing non-skipped answer exactly as-is. Do not rewrite, summarize, or improve user-provided answers.',
+    'Gap Resolution Rule: Fill only the questions whose current answer is marked `skipped: true`. Use the ticket details, relevant files, and the rest of the interview to infer the strongest concrete answer.',
+    'Answer Encoding: For every filled skipped question, set `answer.skipped: false`, provide a concrete `free_text` and/or `selected_option_ids` consistent with the question `answer_type`, set `answered_by: ai_skip`, and set a non-empty ISO-8601 `answered_at` timestamp.',
+    'Artifact Status: Output the completed interview artifact as `status: draft` with empty approval fields, because these AI-filled answers are not user-approved.',
+    'Output Discipline: Return exactly one complete interview artifact and nothing else. No prose, no PRD content, no wrappers, no markdown fences, and no extra keys.',
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: PROM4_FINAL_INTERVIEW_SCHEMA,
+  contextInputs: ['relevant_files', 'ticket_details', 'interview'],
+}
+
 export const PROM10: PromptTemplate = {
   id: 'PROM10',
   description: 'PRD Draft Specification Prompt',
   systemRole: 'You are an expert Technical Product Manager and Software Architect.',
-  task: 'Generate a complete Product Requirements Document (PRD) based on the provided Interview Results. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity.',
+  task: 'Generate a complete Product Requirements Document (PRD) based on the provided Full Answers interview artifact. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity.',
   instructions: [
-    'Skipped Questions: For each interview question the user skipped, decide the best approach based on available context, codebase analysis, and best practices.',
-    'Skipped Questions Output Contract: Record every skipped-question decision in the required top-level `interview_gap_resolutions` section using the exact skipped `question_id`, canonical `prompt`, a concrete `resolution`, and a concise `rationale`.',
+    'Complete Interview Input: Treat the provided Full Answers interview artifact as the complete requirement source, including any AI-resolved answers for questions the user originally skipped.',
     'Product Scope: Include epics, user stories, and acceptance criteria. Every in-scope feature from the Interview Results must map to at least one user story.',
     'Implementation Steps: For each user story, include detailed technical implementation steps decomposed as far as possible — data flows, state changes, component interactions, and integration points.',
     'Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, explicit non-goals.',
@@ -324,7 +335,7 @@ export const PROM10: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PRD_OUTPUT_FORMAT,
-  contextInputs: ['relevant_files', 'ticket_details', 'interview'],
+  contextInputs: ['relevant_files', 'ticket_details', 'full_answers'],
 }
 
 export const PROM11: PromptTemplate = {
@@ -335,6 +346,7 @@ export const PROM11: PromptTemplate = {
   instructions: [
     'Impartiality: Rate impartially as if all drafts are anonymous. Do not favor any draft based on its origin or style.',
     'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
+    'Draft Provenance: Some PRD drafts may reflect model-specific AI-filled answers for questions the user originally skipped. Score the draft quality and requirement coverage as presented, not the identity of the model that filled those gaps.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_PRD.map(item => item.category)),
     STRUCTURED_SELF_CHECK,
@@ -350,27 +362,28 @@ export const PROM12: PromptTemplate = {
   task: 'Create the final, definitive version of your PRD by reviewing the alternative (losing) drafts. Extract any superior ideas, missing edge cases, or better technical constraints they contain, and integrate them seamlessly into your winning foundation.',
   instructions: [
     'Your winning draft earned its position — its structure and architecture decisions are sound. Now approach the alternatives with genuine curiosity: they may have caught things you missed.',
+    'Full Answers Context: You are also given every model-specific Full Answers artifact produced during PRD drafting. Use them as optional inspiration for how unresolved skips were completed, but do not merge them blindly and do not treat them as equal-weight truth.',
     'Gap Scan: Read through the alternative drafts and note anything they cover that your draft does not: requirements you missed, edge cases or error states you omitted, risks you underweighted, or constraints that are unambiguously more precise than yours. These are candidates — not automatic additions.',
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a rephrasing of something you already cover well? If it fills a real gap, add it. If it is a strictly better formulation of something you already have, replace yours with it. Otherwise, discard it.',
     'Restraint: Avoid adding content that merely restates what you already cover. But if genuine gaps exist — missing requirements, unaddressed risks, overlooked error states — add them; completeness matters more than brevity.',
-    'Skipped Interview Decisions: Preserve and improve the required `interview_gap_resolutions` section so it still contains exactly one normalized resolution entry per skipped interview question.',
     'Formatting: Output the final refined PRD. Output only the final artifact.',
     'Schema Preservation: keep the same PRD schema, required top-level sections, and nested field structure. Do not wrap the PRD in another object.',
     'ID Stability: Preserve existing epic IDs and user story IDs from the winning draft unless you are adding a genuinely new epic or story.',
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PRD_OUTPUT_FORMAT,
-  contextInputs: ['relevant_files', 'ticket_details', 'interview', 'drafts', 'votes'],
+  contextInputs: ['relevant_files', 'ticket_details', 'full_answers', 'drafts', 'votes'],
 }
 
 export const PROM13: PromptTemplate = {
   id: 'PROM13',
   description: 'PRD Coverage Verification Prompt',
   systemRole: 'You are a meticulous Quality Assurance Lead.',
-  task: 'Re-read the Interview Results as the source of truth and compare them against the final PRD to ensure complete coverage.',
+  task: 'Re-read the approved Interview Results and the winner Full Answers artifact, then compare them against the final PRD to ensure complete coverage.',
   instructions: [
+    'Primary Truth: Treat the approved Interview Results as primary user truth. Use the winner Full Answers artifact as the adopted completion for questions the user skipped.',
     'Coverage Check: Detect missing requirements, edge cases, constraints, and acceptance criteria.',
-    'Identify Gaps: List any specific gaps or discrepancies found between the Interview Results and the PRD.',
+    'Identify Gaps: List any specific gaps or discrepancies found between the Interview Results, the winner Full Answers artifact, and the PRD.',
     'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
     'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
@@ -379,7 +392,7 @@ export const PROM13: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: COVERAGE_OUTPUT_FORMAT,
-  contextInputs: ['interview', 'prd'],
+  contextInputs: ['interview', 'full_answers', 'prd'],
 }
 
 // Beads Phase Prompts
@@ -562,6 +575,7 @@ export const ALL_PROMPTS = {
   PROM3,
   PROM4,
   PROM5,
+  PROM09D,
   PROM10,
   PROM11,
   PROM12,

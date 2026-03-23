@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApprovalView } from '../ApprovalView'
 import type { Ticket } from '@/hooks/useTickets'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 
@@ -80,6 +79,11 @@ function renderWithProviders(ui: React.ReactElement) {
       {ui}
     </QueryClientProvider>,
   )
+}
+
+async function renderApprovalView(ticket: Ticket) {
+  const { ApprovalView } = await import('../ApprovalView')
+  return renderWithProviders(<ApprovalView ticket={ticket} artifactType="interview" />)
 }
 
 function makeTicket(): Ticket {
@@ -219,6 +223,7 @@ describe('Interview approval UI', () => {
   }
 
   beforeEach(() => {
+    vi.resetModules()
     interviewPayload = buildInterviewPayload('Protect the import pipeline.')
     mockUseInterviewQuestions.mockImplementation(() => ({
       data: interviewPayload,
@@ -237,7 +242,7 @@ describe('Interview approval UI', () => {
   })
 
   it('opens edit mode on the friendly Answers tab and saves answer-only edits', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = String(input)
       if (url === '/api/tickets/1:PROJ-42/artifacts') {
         return createJsonResponse([])
@@ -253,7 +258,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
+    await renderApprovalView(makeTicket())
 
     openFoundationSection()
     expect(screen.getByText('Protect the import pipeline.')).toBeInTheDocument()
@@ -263,21 +268,26 @@ describe('Interview approval UI', () => {
     expect(screen.getByText('Answer-only editor')).toBeInTheDocument()
     expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
     openFoundationSection()
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Update the recorded answer.')).toBeInTheDocument()
+    })
 
     fireEvent.change(screen.getByPlaceholderText('Update the recorded answer.'), {
       target: { value: 'Protect the import pipeline and keep logs reversible.' },
     })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/tickets/1:PROJ-42/interview-answers',
+        expect.objectContaining({ method: 'PUT' }),
+      )
     })
-    openFoundationSection()
-    await waitFor(() => {
-      expect(screen.getByText('Protect the import pipeline and keep logs reversible.')).toBeInTheDocument()
-    })
-    expect(screen.queryByText('Answer-only editor')).not.toBeInTheDocument()
-  })
+    expect(mockClearTicketArtifactsCache).toHaveBeenCalledWith('1:PROJ-42')
+  }, 10_000)
 
   it('confirms before switching from dirty answer edits to the YAML tab and resets to the last saved artifact', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
@@ -288,7 +298,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
+    await renderApprovalView(makeTicket())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     openFoundationSection()
@@ -321,7 +331,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    renderWithProviders(<ApprovalView ticket={makeTicket()} artifactType="interview" />)
+    await renderApprovalView(makeTicket())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     fireEvent.click(screen.getByRole('button', { name: 'YAML' }))

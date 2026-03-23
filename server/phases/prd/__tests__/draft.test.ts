@@ -152,6 +152,38 @@ function buildInterviewYaml(ticketId: string): string {
 describe('draftPRD', () => {
   it('retries invalid structured PRD output and keeps normalized metrics', async () => {
     const adapter = new TestOpenCodeAdapter([
+      [
+        'schema_version: 1',
+        'ticket_id: PROJ-9',
+        'artifact: interview',
+        'status: draft',
+        'generated_by:',
+        '  winner_model: model-a',
+        '  generated_at: 2026-03-23T09:10:00.000Z',
+        'questions:',
+        '  - id: Q01',
+        '    phase: Foundation',
+        '    prompt: Which workflow guardrails are mandatory?',
+        '    source: compiled',
+        '    follow_up_round: null',
+        '    answer_type: free_text',
+        '    options: []',
+        '    answer:',
+        '      skipped: false',
+        '      selected_option_ids: []',
+        '      free_text: Preserve council retry behavior and strict validation.',
+        '      answered_by: ai_skip',
+        '      answered_at: 2026-03-23T09:11:00.000Z',
+        'follow_up_rounds: []',
+        'summary:',
+        '  goals: [Harden DRAFTING_PRD]',
+        '  constraints: [Preserve council mechanics]',
+        '  non_goals: [Touch PRD approval]',
+        '  final_free_form_answer: ""',
+        'approval:',
+        '  approved_by: ""',
+        '  approved_at: ""',
+      ].join('\n'),
       'I would draft a PRD with a few epics and stories.',
       [
         '```yaml',
@@ -176,10 +208,6 @@ describe('draftPRD', () => {
         '  reliability_constraints: [Fail fast without canonical interview]',
         '  error_handling_rules: [Persist only normalized YAML]',
         '  tooling_assumptions: [Vitest remains the test runner]',
-        'interview_gap_resolutions:',
-        '  - prompt: Which workflow guardrails are mandatory?',
-        '    resolution: Default to interview council retry semantics.',
-        '    rationale: Avoid losing skipped-question intent.',
         'epics:',
         '  - title: Draft parsing parity',
         '    objective: Match interview council draft rigor.',
@@ -196,15 +224,53 @@ describe('draftPRD', () => {
         '  approved_at: ""',
         '```',
       ].join('\n'),
+      [
+        'schema_version: 1',
+        'ticket_id: PROJ-9',
+        'artifact: prd',
+        'status: draft',
+        'source_interview:',
+        '  content_sha256: stale',
+        'product:',
+        '  problem_statement: Keep PRD drafting resilient.',
+        '  target_users: [LoopTroop maintainers]',
+        'scope:',
+        '  in_scope: [Normalize council PRD drafts]',
+        '  out_of_scope: [PRD approval workflow]',
+        'technical_requirements:',
+        '  architecture_constraints: [Reuse council retry behavior]',
+        '  data_model: []',
+        '  api_contracts: []',
+        '  security_constraints: []',
+        '  performance_constraints: []',
+        '  reliability_constraints: [Fail fast without canonical interview]',
+        '  error_handling_rules: [Persist only normalized YAML]',
+        '  tooling_assumptions: [Vitest remains the test runner]',
+        'epics:',
+        '  - title: Draft parsing parity',
+        '    objective: Match interview council draft rigor.',
+        '    implementation_steps: [Normalize PRD drafts before persistence]',
+        '    user_stories:',
+        '      - title: Repair ids deterministically',
+        '        acceptance_criteria: [Missing ids are repaired deterministically]',
+        '        implementation_steps: [Fill stable fallback ids]',
+        '        verification:',
+        '          required_commands: [npm run test:server]',
+        'approval:',
+        '  approved_by: ""',
+        '  approved_at: ""',
+      ].join('\n'),
     ])
 
     const result = await draftPRD(
       adapter,
       [{ modelId: 'model-a', name: 'Model A' }],
-      [
-        { type: 'text', source: 'ticket_details', content: 'Ticket: Harden PRD drafting output.' },
-        { type: 'text', source: 'interview', content: buildInterviewYaml('PROJ-9') },
-      ],
+      {
+        ticketId: 'PROJ-9',
+        title: 'Harden PRD drafting output',
+        description: 'Keep the PRD drafting phase strict and restart-safe.',
+        interview: buildInterviewYaml('PROJ-9'),
+      },
       '/tmp/test',
       {
         draftTimeoutMs: 1_000,
@@ -220,15 +286,19 @@ describe('draftPRD', () => {
       draftMetrics: {
         epicCount: 1,
         userStoryCount: 1,
-        gapResolutionCount: 1,
       },
       structuredOutput: {
         autoRetryCount: 1,
         repairApplied: true,
       },
     })
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      questionCount: 1,
+    })
+    expect(result.fullAnswers[0]?.content).toContain('answered_by: ai_skip')
     expect(result.drafts[0]?.content).toContain('ticket_id: PROJ-9')
-    expect(result.drafts[0]?.content).toContain('question_id: Q01')
     expect(result.drafts[0]?.content).toContain('id: EPIC-1')
     expect(result.drafts[0]?.structuredOutput?.validationError).toBeTruthy()
 

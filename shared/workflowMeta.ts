@@ -7,6 +7,7 @@ export type WorkflowContextKey =
   | 'relevant_files'
   | 'drafts'
   | 'interview'
+  | 'full_answers'
   | 'user_answers'
   | 'votes'
   | 'prd'
@@ -145,7 +146,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['relevant_files', 'ticket_details', 'interview'],
+    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'full_answers'],
   },
   {
     id: 'COUNCIL_VOTING_PRD',
@@ -167,7 +168,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
+    contextSummary: ['relevant_files', 'ticket_details', 'full_answers', 'drafts'],
   },
   {
     id: 'VERIFYING_PRD_COVERAGE',
@@ -178,7 +179,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['interview', 'prd'],
+    contextSummary: ['interview', 'full_answers', 'prd'],
   },
   {
     id: 'WAITING_PRD_APPROVAL',
@@ -190,7 +191,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     editable: true,
     multiModelLogs: false,
     reviewArtifactType: 'prd',
-    contextSummary: ['prd', 'interview'],
+    contextSummary: [],
   },
   {
     id: 'DRAFTING_BEADS',
@@ -246,7 +247,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     editable: true,
     multiModelLogs: false,
     reviewArtifactType: 'beads',
-    contextSummary: ['beads', 'prd'],
+    contextSummary: [],
   },
   {
     id: 'PRE_FLIGHT_CHECK',

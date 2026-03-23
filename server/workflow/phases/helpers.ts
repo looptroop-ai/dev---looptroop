@@ -1072,9 +1072,23 @@ export function tryRecoverPhaseIntermediate(
       baseTicketState = ticketState
     } else if (pipeline === 'prd') {
       const interviewPath = resolve(ticketDir, 'interview.yaml')
+      const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers')
       let interview: string | undefined
+      let fullAnswers: string[] | undefined
       if (existsSync(interviewPath)) {
         try { interview = readFileSync(interviewPath, 'utf-8') } catch { /* ignore */ }
+      }
+      if (fullAnswersArtifact) {
+        try {
+          const parsed = JSON.parse(fullAnswersArtifact.content) as DraftPhaseResult
+          if (Array.isArray(parsed.drafts)) {
+            fullAnswers = parsed.drafts
+              .filter((draft) => draft.outcome === 'completed' && Boolean(draft.content))
+              .map((draft) => draft.content)
+          }
+        } catch {
+          fullAnswers = undefined
+        }
       }
       const ticketState: TicketState = {
         ticketId: context.externalId,
@@ -1082,8 +1096,10 @@ export function tryRecoverPhaseIntermediate(
         description: ticket?.description ?? '',
         relevantFiles,
         interview,
+        fullAnswers,
       }
-      contextBuilder = buildPrdContextBuilder(buildMinimalContext('prd_draft', ticketState))
+      contextBuilder = buildPrdContextBuilder(ticketState)
+      baseTicketState = ticketState
     } else {
       const prdPath = resolve(ticketDir, 'prd.yaml')
       let prd: string | undefined
@@ -1106,6 +1122,19 @@ export function tryRecoverPhaseIntermediate(
       worktreePath,
       phase: result.phase,
       ticketState: baseTicketState,
+    }
+    if (pipeline === 'prd' && baseTicketState?.fullAnswers) {
+      const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers')
+      if (fullAnswersArtifact) {
+        try {
+          const parsed = JSON.parse(fullAnswersArtifact.content) as DraftPhaseResult
+          if (Array.isArray(parsed.drafts)) {
+            data.fullAnswers = parsed.drafts
+          }
+        } catch {
+          // Ignore malformed persisted full-answers artifact during recovery.
+        }
+      }
     }
     if (contextBuilder) {
       data.contextBuilder = contextBuilder

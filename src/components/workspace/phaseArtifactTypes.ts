@@ -39,6 +39,7 @@ export interface InterviewArtifactData {
 
 export interface CoverageInputData {
   interview?: string
+  fullAnswers?: string
   prd?: string
   beads?: string
   refinedContent?: string
@@ -543,6 +544,8 @@ export function resolveStaticArtifact(
       return findExactType('interview_compiled')
     case 'winner-prd-draft':
       return findExactType('prd_votes')
+    case 'prd-full-answers':
+      return findExactType('prd_full_answers')
     case 'winner-beads-draft':
       return findExactType('beads_votes')
     case 'interview-answers':

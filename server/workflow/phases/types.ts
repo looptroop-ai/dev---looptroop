@@ -5,6 +5,7 @@ import type { TicketState } from '../../opencode/contextBuilder'
 /** Intermediate data stored between draft→vote→refine state machine phases. */
 export interface PhaseIntermediateData {
   drafts: DraftResult[]
+  fullAnswers?: DraftResult[]
   memberOutcomes: Record<string, MemberOutcome>
   contextBuilder?: (step: 'vote' | 'refine') => PromptPart[]
   worktreePath: string

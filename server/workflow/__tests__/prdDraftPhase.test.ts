@@ -173,13 +173,22 @@ describe('handlePrdDraft', () => {
     draftPRDMock.mockImplementationOnce(async (
       _adapter: unknown,
       _members: unknown,
-      ticketContext: Array<{ source?: string }>,
+      ticketState: { ticketId?: string; interview?: string; relevantFiles?: string },
       _projectPath: string,
       options: { ticketId?: string; ticketExternalId?: string },
       _signal: AbortSignal,
       _onOpenCodeSessionLog: unknown,
       _onOpenCodeStreamEvent: unknown,
       _onOpenCodePromptDispatched: unknown,
+      onFullAnswersProgress?: (entry: {
+        memberId: string
+        status: 'finished'
+        outcome: 'completed'
+        duration?: number
+        content?: string
+        questionCount?: number
+        structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
+      }) => void,
       onDraftProgress?: (entry: {
         memberId: string
         status: 'finished'
@@ -187,13 +196,49 @@ describe('handlePrdDraft', () => {
         outcome: 'completed'
         duration?: number
         content?: string
-        draftMetrics?: { epicCount?: number; userStoryCount?: number; gapResolutionCount?: number }
+        draftMetrics?: { epicCount?: number; userStoryCount?: number }
         structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
       }) => void,
     ) => {
-      expect(ticketContext.map((part) => part.source)).toEqual(['ticket_details', 'relevant_files', 'interview'])
+      expect(ticketState.ticketId).toBe(ticket.externalId)
+      expect(ticketState.relevantFiles).toContain('src/main.ts')
+      expect(ticketState.interview).toContain('artifact: interview')
       expect(options.ticketId).toBe(ticket.id)
       expect(options.ticketExternalId).toBe(ticket.externalId)
+
+      const fullAnswersContent = [
+        'schema_version: 1',
+        `ticket_id: ${ticket.externalId}`,
+        'artifact: interview',
+        'status: draft',
+        'generated_by:',
+        '  winner_model: openai/gpt-5-mini',
+        '  generated_at: 2026-03-23T09:10:00.000Z',
+        '  canonicalization: server_normalized',
+        'questions:',
+        '  - id: Q01',
+        '    phase: Foundation',
+        '    prompt: Which workflow guardrails are mandatory?',
+        '    source: compiled',
+        '    follow_up_round: null',
+        '    answer_type: free_text',
+        '    options: []',
+        '    answer:',
+        '      skipped: false',
+        '      selected_option_ids: []',
+        '      free_text: Preserve council retry behavior and strict validation.',
+        '      answered_by: ai_skip',
+        '      answered_at: 2026-03-23T09:11:00.000Z',
+        'follow_up_rounds: []',
+        'summary:',
+        '  goals: [Harden DRAFTING_PRD]',
+        '  constraints: [Preserve council mechanics]',
+        '  non_goals: [Touch PRD approval]',
+        '  final_free_form_answer: ""',
+        'approval:',
+        '  approved_by: ""',
+        '  approved_at: ""',
+      ].join('\n')
 
       const content = [
         'schema_version: 1',
@@ -217,11 +262,6 @@ describe('handlePrdDraft', () => {
         '  reliability_constraints: [Fail fast without canonical interview]',
         '  error_handling_rules: [Persist only normalized YAML]',
         '  tooling_assumptions: [Vitest remains the test runner]',
-        'interview_gap_resolutions:',
-        '  - question_id: Q01',
-        '    prompt: Which workflow guardrails are mandatory?',
-        '    resolution: Default to interview council retry semantics.',
-        '    rationale: Avoid losing skipped-question intent.',
         'epics:',
         '  - id: EPIC-1',
         '    title: Draft parsing parity',
@@ -246,6 +286,32 @@ describe('handlePrdDraft', () => {
         '  approved_at: ""',
       ].join('\n')
 
+      onFullAnswersProgress?.({
+        memberId: 'openai/gpt-5-mini',
+        status: 'finished',
+        outcome: 'completed',
+        duration: 95,
+        content: fullAnswersContent,
+        questionCount: 1,
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: ['Canonicalized generated_by.winner_model from "wrong-model" to "openai/gpt-5-mini".'],
+          autoRetryCount: 0,
+        },
+      })
+      onFullAnswersProgress?.({
+        memberId: 'openai/gpt-5.2',
+        status: 'finished',
+        outcome: 'completed',
+        duration: 91,
+        content: fullAnswersContent.replace('openai/gpt-5-mini', 'openai/gpt-5.2'),
+        questionCount: 1,
+        structuredOutput: {
+          repairApplied: false,
+          repairWarnings: [],
+          autoRetryCount: 0,
+        },
+      })
       onDraftProgress?.({
         memberId: 'openai/gpt-5-mini',
         status: 'finished',
@@ -255,11 +321,10 @@ describe('handlePrdDraft', () => {
         draftMetrics: {
           epicCount: 1,
           userStoryCount: 2,
-          gapResolutionCount: 1,
         },
         structuredOutput: {
           repairApplied: true,
-          repairWarnings: ['Canonicalized interview_gap_resolutions prompt for Q01 to match Interview Results.'],
+          repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
           autoRetryCount: 1,
           validationError: 'PRD output is not a YAML/JSON object',
         },
@@ -273,7 +338,6 @@ describe('handlePrdDraft', () => {
         draftMetrics: {
           epicCount: 1,
           userStoryCount: 2,
-          gapResolutionCount: 1,
         },
         structuredOutput: {
           repairApplied: false,
@@ -284,6 +348,32 @@ describe('handlePrdDraft', () => {
 
       return {
         phase: 'prd_draft',
+        fullAnswers: [
+          {
+            memberId: 'openai/gpt-5-mini',
+            outcome: 'completed',
+            content: fullAnswersContent,
+            duration: 95,
+            questionCount: 1,
+            structuredOutput: {
+              repairApplied: true,
+              repairWarnings: ['Canonicalized generated_by.winner_model from "wrong-model" to "openai/gpt-5-mini".'],
+              autoRetryCount: 0,
+            },
+          },
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: fullAnswersContent.replace('openai/gpt-5-mini', 'openai/gpt-5.2'),
+            duration: 91,
+            questionCount: 1,
+            structuredOutput: {
+              repairApplied: false,
+              repairWarnings: [],
+              autoRetryCount: 0,
+            },
+          },
+        ],
         drafts: [
           {
             memberId: 'openai/gpt-5-mini',
@@ -293,11 +383,10 @@ describe('handlePrdDraft', () => {
             draftMetrics: {
               epicCount: 1,
               userStoryCount: 2,
-              gapResolutionCount: 1,
             },
             structuredOutput: {
               repairApplied: true,
-              repairWarnings: ['Canonicalized interview_gap_resolutions prompt for Q01 to match Interview Results.'],
+              repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
               autoRetryCount: 1,
               validationError: 'PRD output is not a YAML/JSON object',
             },
@@ -310,7 +399,6 @@ describe('handlePrdDraft', () => {
             draftMetrics: {
               epicCount: 1,
               userStoryCount: 2,
-              gapResolutionCount: 1,
             },
             structuredOutput: {
               repairApplied: false,
@@ -323,6 +411,10 @@ describe('handlePrdDraft', () => {
           'openai/gpt-5-mini': 'completed',
           'openai/gpt-5.2': 'completed',
         },
+        fullAnswerOutcomes: {
+          'openai/gpt-5-mini': 'completed',
+          'openai/gpt-5.2': 'completed',
+        },
         deadlineReached: false,
       }
     })
@@ -330,31 +422,40 @@ describe('handlePrdDraft', () => {
     await handlePrdDraft(ticket.id, context, sendEvent, new AbortController().signal)
 
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
+    const fullAnswersRow = getLatestPhaseArtifact(ticket.id, 'prd_full_answers', 'DRAFTING_PRD')
     const artifactRow = getLatestPhaseArtifact(ticket.id, 'prd_drafts', 'DRAFTING_PRD')
+    expect(fullAnswersRow).toBeDefined()
     expect(artifactRow).toBeDefined()
+    const fullAnswersArtifact = JSON.parse(fullAnswersRow!.content) as {
+      drafts?: Array<{
+        content?: string
+        questionCount?: number
+      }>
+    }
     const artifact = JSON.parse(artifactRow!.content) as {
       drafts?: Array<{
         content?: string
-        draftMetrics?: { epicCount?: number; userStoryCount?: number; gapResolutionCount?: number }
+        draftMetrics?: { epicCount?: number; userStoryCount?: number }
         structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
       }>
     }
 
-    expect(artifact.drafts?.[0]?.content).toContain('interview_gap_resolutions:')
+    expect(fullAnswersArtifact.drafts?.[0]?.content).toContain('answered_by: ai_skip')
+    expect(fullAnswersArtifact.drafts?.[0]?.questionCount).toBe(1)
     expect(artifact.drafts?.[0]?.draftMetrics).toEqual({
       epicCount: 1,
       userStoryCount: 2,
-      gapResolutionCount: 1,
     })
     expect(artifact.drafts?.[0]?.structuredOutput).toEqual({
       repairApplied: true,
-      repairWarnings: ['Canonicalized interview_gap_resolutions prompt for Q01 to match Interview Results.'],
+      repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
       autoRetryCount: 1,
       validationError: 'PRD output is not a YAML/JSON object',
     })
     expect(existsSync(paths.executionLogPath)).toBe(true)
     const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
-    expect(executionLog).toContain('drafted PRD (1 epics · 2 user stories · 1 gap resolutions).')
+    expect(executionLog).toContain('produced Full Answers (1 answered questions).')
+    expect(executionLog).toContain('drafted PRD (1 epics · 2 user stories).')
     expect(executionLog).toContain('PRD draft normalization applied repairs')
     expect(executionLog).toContain('PRD draft required 1 structured retry attempt(s)')
   })

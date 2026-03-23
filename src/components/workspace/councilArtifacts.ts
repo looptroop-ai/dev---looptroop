@@ -32,7 +32,6 @@ interface DraftLike {
     questionCount?: number
     epicCount?: number
     userStoryCount?: number
-    gapResolutionCount?: number
   }
 }
 
@@ -252,20 +251,14 @@ function buildVerificationMemberArtifacts(
 function formatPrdDraftMetrics(draft: DraftLike): string | null {
   const epicCount = draft.draftMetrics?.epicCount
   const userStoryCount = draft.draftMetrics?.userStoryCount
-  const gapResolutionCount = draft.draftMetrics?.gapResolutionCount
 
-  if (
-    typeof epicCount !== 'number'
-    && typeof userStoryCount !== 'number'
-    && typeof gapResolutionCount !== 'number'
-  ) {
+  if (typeof epicCount !== 'number' && typeof userStoryCount !== 'number') {
     return null
   }
 
   return [
     `${epicCount ?? 0} epics`,
     `${userStoryCount ?? 0} user stories`,
-    `${gapResolutionCount ?? 0} gap resolutions`,
   ].join(' · ')
 }
 

@@ -15,14 +15,14 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   interview_qa: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
   // PROM5: "Ticket description + collected answers + current Interview Results"
   interview_coverage: ['ticket_details', 'user_answers', 'interview'],
-  // PROM10: "Relevant files + ticket details + final Interview Results"
-  prd_draft: ['relevant_files', 'ticket_details', 'interview'],
+  // PROM09d + PROM10: "Relevant files + ticket details + final Interview Results / Full Answers"
+  prd_draft: ['relevant_files', 'ticket_details', 'interview', 'full_answers'],
   // PROM11: "Relevant files + ticket details + final Interview Results + all PRD drafts"
   prd_vote: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
-  // PROM12: "Relevant files + ticket details + final Interview Results + all PRD drafts"
-  prd_refine: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
-  // PROM13: "Final Interview Results + final PRD"
-  prd_coverage: ['interview', 'prd'],
+  // PROM12: "Relevant files + ticket details + all Full Answers artifacts + all PRD drafts"
+  prd_refine: ['relevant_files', 'ticket_details', 'full_answers', 'drafts'],
+  // PROM13: "Final Interview Results + winner Full Answers artifact + final PRD"
+  prd_coverage: ['interview', 'full_answers', 'prd'],
   // PROM20: "Relevant files + ticket details + final PRD"
   beads_draft: ['relevant_files', 'ticket_details', 'prd'],
   // PROM21: "Relevant files + ticket details + final PRD + all bead drafts"
@@ -54,6 +54,7 @@ const TRIM_PRIORITY: { key: string; sources: string[] }[] = [
   { key: 'tests', sources: ['tests'] },
   { key: 'votes', sources: ['vote'] },
   { key: 'drafts', sources: ['draft'] },
+  { key: 'full_answers', sources: ['full_answers'] },
   { key: 'beads_draft', sources: ['beads_draft'] },
   { key: 'beads', sources: ['beads'] },
   { key: 'interview', sources: ['interview'] },
@@ -123,6 +124,7 @@ export interface TicketState {
   description?: string
   relevantFiles?: string
   interview?: string
+  fullAnswers?: string[]
   prd?: string
   beads?: string
   beadsDraft?: string
@@ -183,6 +185,14 @@ export function buildMinimalContext(
         const content = cached ?? ticketState.interview ?? ''
         if (!cached && ticketState.interview) setCachedContext(cacheKey, content)
         if (content) parts.push({ source, content, order: order++ })
+        break
+      }
+      case 'full_answers': {
+        if (ticketState.fullAnswers) {
+          for (const fullAnswer of ticketState.fullAnswers) {
+            if (fullAnswer) parts.push({ source: 'full_answers', content: fullAnswer, order: order++ })
+          }
+        }
         break
       }
       case 'prd': {

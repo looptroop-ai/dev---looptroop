@@ -666,11 +666,6 @@ describe('structured output normalization', () => {
       '  technicalRequirements:',
       '    architectureConstraints:',
       '      - Shared validator layer',
-      '  interviewGapResolutions:',
-      '    - questionId: Q01',
-      '      prompt: Which fallback path should we use?',
-      '      resolution: Default to the existing retry strategy for v1.',
-      '      rationale: This matches current production behavior.',
       '  epics:',
       '    - id: EPIC-1',
       '      title: Harden structured output',
@@ -699,14 +694,6 @@ describe('structured output normalization', () => {
     expect(result.value.ticket_id).toBe('K8S-17')
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
-    expect(result.value.interview_gap_resolutions).toEqual([
-      {
-        question_id: 'Q01',
-        prompt: 'Which fallback path should we use?',
-        resolution: 'Default to the existing retry strategy for v1.',
-        rationale: 'This matches current production behavior.',
-      },
-    ])
     expect(result.normalizedContent).toContain('schema_version: 1')
   })
 
@@ -769,7 +756,6 @@ describe('structured output normalization', () => {
       '  reliability_constraints: []',
       '  error_handling_rules: []',
       '  tooling_assumptions: []',
-      'interview_gap_resolutions: []',
       'epics:',
       '  - id: EPIC-1',
       '    title: Harden structured output',
@@ -801,7 +787,6 @@ describe('structured output normalization', () => {
     expect(result.value.ticket_id).toBe('LOOTR-1')
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
-    expect(result.value.interview_gap_resolutions).toEqual([])
   })
 
   it('rejects non-object PRD payloads', () => {
@@ -858,7 +843,6 @@ describe('structured output normalization', () => {
       'technical_requirements:',
       '  architecture_constraints:',
       '    - "Shared validator layer"',
-      'interview_gap_resolutions: []',
       'risks:',
       '  - "Incomplete plans can block delivery"',
     ].join('\n'), {
@@ -925,7 +909,6 @@ describe('structured output normalization', () => {
       '  reliability_constraints: []',
       '  error_handling_rules: []',
       '  tooling_assumptions: []',
-      'interview_gap_resolutions: []',
       'epics:',
       '  - id: "EPIC-1"',
       '    title: "First epic"',
@@ -994,7 +977,7 @@ describe('structured output normalization', () => {
     expect(result.repairWarnings.join('\n')).toContain('duplicate user story id US-1')
   })
 
-  it('requires interview_gap_resolutions to match the skipped interview questions exactly', () => {
+  it('accepts PRD normalization even when the source interview contains skipped questions', () => {
     const result = normalizePrdYamlOutput([
       'schema_version: 1',
       'artifact: "prd"',
@@ -1017,7 +1000,6 @@ describe('structured output normalization', () => {
       '  reliability_constraints: []',
       '  error_handling_rules: []',
       '  tooling_assumptions: []',
-      'interview_gap_resolutions: []',
       'epics:',
       '  - id: "EPIC-1"',
       '    title: "First epic"',
@@ -1066,9 +1048,9 @@ describe('structured output normalization', () => {
       ].join('\n'),
     })
 
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error).toContain('missing interview_gap_resolutions')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.epics).toHaveLength(1)
   })
 
   it('normalizes bead subset YAML and generates fallback ids when needed', () => {

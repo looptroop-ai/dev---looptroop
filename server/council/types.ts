@@ -17,7 +17,6 @@ export interface DraftMetrics {
   questionCount?: number
   epicCount?: number
   userStoryCount?: number
-  gapResolutionCount?: number
 }
 
 export interface DraftStructuredOutputMeta {

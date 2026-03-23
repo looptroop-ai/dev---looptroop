@@ -92,17 +92,9 @@ export interface VoteScorecard {
   draftScores: Record<string, Record<string, number>>
 }
 
-export interface PrdInterviewGapResolution {
-  question_id: string
-  prompt: string
-  resolution: string
-  rationale: string
-}
-
 export interface PrdDraftMetrics {
   epicCount: number
   userStoryCount: number
-  gapResolutionCount: number
 }
 
 export interface PrdDocument {
@@ -131,7 +123,6 @@ export interface PrdDocument {
     error_handling_rules: string[]
     tooling_assumptions: string[]
   }
-  interview_gap_resolutions: PrdInterviewGapResolution[]
   epics: Array<{
     id: string
     title: string

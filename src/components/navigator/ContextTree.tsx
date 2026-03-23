@@ -42,6 +42,12 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     icon: '💬',
     description: 'Interview question/answer artifact content.',
   },
+  full_answers: {
+    id: 'full_answers',
+    label: 'Full Answers',
+    icon: '🧠',
+    description: 'Model-specific interview results with skipped questions filled in by AI.',
+  },
   user_answers: {
     id: 'user_answers',
     label: 'User Answers',
