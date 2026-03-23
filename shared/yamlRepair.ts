@@ -418,3 +418,112 @@ export function repairYamlPlainScalarColons(yaml: string): string {
 
   return result.join('\n')
 }
+
+/**
+ * Repair YAML values with unclosed double-quotes.
+ *
+ * Models sometimes emit `key: "value` without a closing `"`. The YAML parser
+ * then treats all subsequent lines as part of the quoted scalar, swallowing
+ * sibling keys and list items. This function detects unclosed double-quoted
+ * values and appends a closing `"` when the next non-blank line is clearly a
+ * separate YAML structural element (a list item, sibling key, code fence,
+ * document marker, or EOF).
+ */
+export function repairYamlUnclosedQuotes(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+  // Match `key: "value` with optional leading `- ` for list item first keys
+  const QUOTED_VALUE_PATTERN = /^(\s*(?:-\s+)?[A-Za-z_][\w_-]*\s*:\s+)"(.*)$/
+
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const trimmed = line.trim()
+
+    // Blank / comment lines pass through
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const lineIndent = (line.match(/^(\s*)/) ?? [''])[0].length
+
+    // Block-scalar continuation tracking
+    if (insideBlockScalar) {
+      if (lineIndent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    // Detect block scalar indicator — skip these lines from quote repair
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      insideBlockScalar = true
+      blockScalarBaseIndent = lineIndent
+      result.push(line)
+      continue
+    }
+
+    const quotedMatch = line.match(QUOTED_VALUE_PATTERN)
+    if (quotedMatch) {
+      const valueAfterOpenQuote = quotedMatch[2]!
+      // If the value has an even number of unescaped double-quotes after the
+      // opening one, the total is odd — meaning the opening quote is unclosed.
+      if (countUnescapedDoubleQuotes(valueAfterOpenQuote) % 2 === 0) {
+        const nextLine = findNextNonBlankLine(lines, i + 1)
+        if (nextLine === null || looksLikeYamlStructuralLine(nextLine, lineIndent)) {
+          result.push(line + '"')
+          continue
+        }
+      }
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}
+
+function countUnescapedDoubleQuotes(value: string): number {
+  let count = 0
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] !== '"') continue
+    let backslashes = 0
+    for (let j = i - 1; j >= 0 && value[j] === '\\'; j--) {
+      backslashes++
+    }
+    if (backslashes % 2 === 0) count++
+  }
+  return count
+}
+
+function findNextNonBlankLine(lines: string[], startIndex: number): string | null {
+  for (let i = startIndex; i < lines.length; i++) {
+    if (lines[i]!.trim()) return lines[i]!
+  }
+  return null
+}
+
+function looksLikeYamlStructuralLine(line: string, currentIndent: number): boolean {
+  const trimmed = line.trim()
+  const lineIndent = (line.match(/^(\s*)/) ?? [''])[0].length
+
+  // New list item at same or lesser indent (with some tolerance)
+  if (/^\s*-\s+\S/.test(line) && lineIndent <= currentIndent + 2) return true
+
+  // Mapping key at same or lesser indent
+  if (/^\s*[A-Za-z_][\w_-]*\s*:/.test(line) && lineIndent <= currentIndent) return true
+
+  // Code fence
+  if (trimmed.startsWith('```')) return true
+
+  // YAML document markers
+  if (trimmed === '---' || trimmed === '...') return true
+
+  return false
+}

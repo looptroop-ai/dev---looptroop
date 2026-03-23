@@ -13,7 +13,9 @@ export function formatTimestamp(timestamp?: string): string {
   if (!timestamp) return '--:--:--'
   const parsed = new Date(timestamp)
   if (Number.isNaN(parsed.getTime())) return '--:--:--'
-  return parsed.toLocaleTimeString(undefined, {
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',

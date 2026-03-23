@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -154,6 +154,19 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
         } catch { /* fall through to targeted repairs */ }
       }
 
+      // Try unclosed-quote repair
+      const quoteRepaired = repairYamlUnclosedQuotes(base)
+      if (quoteRepaired !== base) {
+        try {
+          return jsYaml.load(quoteRepaired)
+        } catch {
+          // Try combined: unclosed-quote + indentation repair
+          try {
+            return jsYaml.load(repairYamlIndentation(quoteRepaired))
+          } catch { /* fall through */ }
+        }
+      }
+
       // Try colon-in-scalar repair (most targeted fix)
       const colonRepaired = repairYamlPlainScalarColons(base)
       if (colonRepaired !== base) {
@@ -180,7 +193,7 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
         }
       }
 
-      const repaired = repairYamlIndentation(base)
+      const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(base))
       return jsYaml.load(repaired)
     }
   }

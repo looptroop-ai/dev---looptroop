@@ -39,7 +39,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   const [isExpanded, setIsExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
-  const isMultiline = entry.line.split('\n').length > 3
+  const isMultiline = entry.line.split('\n').length > 5
 
   useEffect(() => {
     const el = contentRef.current
@@ -56,8 +56,8 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
 
   return (
     <div className="py-0.5 border-b border-border/30 last:border-0 flex relative group">
-      <div className="flex flex-col shrink-0 w-16 mr-2 pt-0.5 items-start">
-        <span className="text-muted-foreground/40 select-none pb-1">{formatTimestamp(entry.timestamp)}</span>
+      <div className="flex flex-col shrink-0 w-[105px] mr-2 pt-0.5 items-start">
+        <span className="text-muted-foreground/40 pb-1">{formatTimestamp(entry.timestamp)}</span>
         {isTruncatable && (
           <div className="sticky top-1">
             <button
@@ -87,7 +87,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             className={cn(
               getEntryColor(entry),
               'whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] max-w-full',
-              !isExpanded && 'line-clamp-3'
+              !isExpanded && 'line-clamp-5'
             )}
           >
             {renderLogLine(entry, showModelName)}

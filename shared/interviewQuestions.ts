@@ -400,6 +400,11 @@ function repairInterviewCandidate(candidate: string): string {
         index += 1
       }
 
+      // Close the unclosed quote if we broke at a structural boundary
+      if (hasUnclosedQuote(merged)) {
+        merged = merged + '"'
+      }
+
       const mergedQuestion = merged.replace(/^(question|prompt|text|content)\s*:\s*/i, '')
       const recovered = cleanRecoveredQuestion(mergedQuestion)
       if (recovered.carryId) {
@@ -488,14 +493,27 @@ function parseLooseQuestionLines(content: string): InterviewQuestionPreview[] {
       let rawQuestion = questionMatch[2] ?? ''
       while (hasUnclosedQuote(rawQuestion) && index + 1 < lines.length) {
         const nextLine = lines[index + 1]?.trim() ?? ''
-        if (!nextLine || nextLine.startsWith('```')) {
+        if (!nextLine) {
           index += 1
           continue
+        }
+        // Stop at structural boundaries — do not swallow subsequent questions
+        if (
+          /^-\s*id\s*:/i.test(nextLine)
+          || /^-\s*(foundation|structure|assembly)\s*$/i.test(nextLine)
+          || /^(?:-\s*)?(?:id|phase|category|section|stage)\s*:/i.test(nextLine)
+          || nextLine.startsWith('```')
+        ) {
+          break
         }
 
         rawQuestion = `${rawQuestion} ${nextLine}`.trim()
         index += 1
         if (!hasUnclosedQuote(rawQuestion)) break
+      }
+      // Close the unclosed quote if we broke at a boundary
+      if (hasUnclosedQuote(rawQuestion)) {
+        rawQuestion = rawQuestion + '"'
       }
 
       const recovered = cleanRecoveredQuestion(rawQuestion)

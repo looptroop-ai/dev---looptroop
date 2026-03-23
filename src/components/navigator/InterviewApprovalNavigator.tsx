@@ -2,7 +2,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { useInterviewQuestions } from '@/hooks/useTickets'
 import {
-  getInterviewApprovalAnchorId,
   getInterviewFollowUpsAnchorId,
   getInterviewQuestionAnchorId,
   getInterviewSummaryAnchorId,
@@ -99,17 +98,6 @@ export function InterviewApprovalNavigator({ ticketId }: { ticketId: string }) {
                   </div>
                 </button>
               ) : null}
-
-              <button
-                type="button"
-                onClick={() => focusApprovalAnchor(ticketId, getInterviewApprovalAnchorId())}
-                className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
-              >
-                <div className="text-xs font-medium">Approval</div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  Approval status and final approval metadata.
-                </div>
-              </button>
             </>
           )}
         </div>

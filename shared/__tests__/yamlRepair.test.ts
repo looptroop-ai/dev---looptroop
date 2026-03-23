@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe('repairYamlListDashSpace', () => {
   it('passes through correctly formatted list items unchanged', () => {
@@ -583,5 +583,164 @@ describe('repairYamlSequenceEntryIndent', () => {
     expect(parsed.questions).toHaveLength(2)
     expect(parsed.questions[0]!.id).toBe('Q01')
     expect(parsed.questions[1]!.id).toBe('Q02')
+  })
+})
+
+describe('repairYamlUnclosedQuotes', () => {
+  it('passes through valid YAML with properly closed quotes unchanged', () => {
+    const yaml = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: "Who are the users?"',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(yaml)).toBe(yaml)
+  })
+
+  it('closes unclosed quote when next line is a list item', () => {
+    const input = [
+      'questions:',
+      '  - id: Q04',
+      '    phase: foundation',
+      '    question: "Are there any constraints (e.g., compatibility, security)?',
+      '  - id: Q05',
+      '    phase: foundation',
+      '    question: "Are there any non-goals?"',
+    ].join('\n')
+
+    const expected = [
+      'questions:',
+      '  - id: Q04',
+      '    phase: foundation',
+      '    question: "Are there any constraints (e.g., compatibility, security)?"',
+      '  - id: Q05',
+      '    phase: foundation',
+      '    question: "Are there any non-goals?"',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(input)).toBe(expected)
+  })
+
+  it('closes unclosed quote when next line is a sibling key', () => {
+    const input = [
+      '  - id: Q04',
+      '    question: "Are there any constraints?',
+      '    phase: foundation',
+    ].join('\n')
+
+    const expected = [
+      '  - id: Q04',
+      '    question: "Are there any constraints?"',
+      '    phase: foundation',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(input)).toBe(expected)
+  })
+
+  it('closes unclosed quote at EOF', () => {
+    const input = [
+      '  - id: Q04',
+      '    phase: foundation',
+      '    question: "Are there any constraints?',
+    ].join('\n')
+
+    const expected = [
+      '  - id: Q04',
+      '    phase: foundation',
+      '    question: "Are there any constraints?"',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(input)).toBe(expected)
+  })
+
+  it('handles escaped quotes correctly — does not count \\" as closing', () => {
+    const input = [
+      '  - id: Q01',
+      '    question: "What does \\"scope\\" mean?',
+      '  - id: Q02',
+      '    question: "Next question?"',
+    ].join('\n')
+
+    const repaired = repairYamlUnclosedQuotes(input)
+    // The escaped quotes \" don't count as closing, so the quote is still unclosed
+    expect(repaired).toContain('    question: "What does \\"scope\\" mean?"')
+  })
+
+  it('does not modify lines inside block scalars', () => {
+    const yaml = [
+      '  - id: Q01',
+      '    question: >-',
+      '      This has "unclosed quote inside block scalar',
+      '  - id: Q02',
+      '    question: "Next?"',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(yaml)).toBe(yaml)
+  })
+
+  it('does not modify already-closed quotes', () => {
+    const yaml = [
+      '    question: "valid question?"',
+      '    rationale: "some rationale"',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(yaml)).toBe(yaml)
+  })
+
+  it('repaired output parses correctly with js-yaml', () => {
+    const input = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What is the primary goal?',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What features are needed?"',
+    ].join('\n')
+
+    const repaired = repairYamlUnclosedQuotes(input)
+    const parsed = jsYaml.load(repaired) as { questions: { id: string; question: string }[] }
+    expect(parsed.questions).toHaveLength(2)
+    expect(parsed.questions[0]!.id).toBe('Q01')
+    expect(parsed.questions[0]!.question).toBe('What is the primary goal?')
+    expect(parsed.questions[1]!.id).toBe('Q02')
+    expect(parsed.questions[1]!.question).toBe('What features are needed?')
+  })
+
+  it('handles multiple unclosed quotes across different list items', () => {
+    const input = [
+      'questions:',
+      '  - id: Q01',
+      '    question: "First unclosed question?',
+      '  - id: Q02',
+      '    question: "Second unclosed question?',
+      '  - id: Q03',
+      '    question: "Third properly closed?"',
+    ].join('\n')
+
+    const repaired = repairYamlUnclosedQuotes(input)
+    const parsed = jsYaml.load(repaired) as { questions: { id: string; question: string }[] }
+    expect(parsed.questions).toHaveLength(3)
+    expect(parsed.questions[0]!.question).toBe('First unclosed question?')
+    expect(parsed.questions[1]!.question).toBe('Second unclosed question?')
+    expect(parsed.questions[2]!.question).toBe('Third properly closed?')
+  })
+
+  it('handles unclosed quote on list item first key (- key: "value)', () => {
+    const input = [
+      '  - question: "What is the goal?',
+      '  - question: "Who are users?"',
+    ].join('\n')
+
+    const expected = [
+      '  - question: "What is the goal?"',
+      '  - question: "Who are users?"',
+    ].join('\n')
+
+    expect(repairYamlUnclosedQuotes(input)).toBe(expected)
   })
 })

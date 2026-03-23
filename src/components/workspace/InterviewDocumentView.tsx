@@ -3,7 +3,6 @@ import { cn } from '@/lib/utils'
 import type { InterviewDocument, InterviewDocumentQuestion } from '@shared/interviewArtifact'
 import {
   getInterviewAnswerSummary,
-  getInterviewApprovalAnchorId,
   getInterviewFollowUpsAnchorId,
   getInterviewQuestionAnchorId,
   getInterviewSummaryAnchorId,
@@ -202,20 +201,6 @@ export function InterviewDocumentView({
         </section>
       ) : null}
 
-      {!hideSummary && (
-        <section
-          id={getInterviewApprovalAnchorId()}
-          className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
-        >
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-foreground">Approval</div>
-            <div className="flex flex-wrap gap-2">
-              <MetaPill>Approved by: {document.approval.approved_by || 'Not yet approved'}</MetaPill>
-              <MetaPill>Approved at: {document.approval.approved_at || 'Pending'}</MetaPill>
-            </div>
-          </div>
-        </section>
-      )}
     </div>
   )
 }

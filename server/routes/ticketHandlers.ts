@@ -14,6 +14,7 @@ import { abortTicketSessions } from '../opencode/sessionManager'
 import { clearContextCache } from '../opencode/contextBuilder'
 import { isMockOpenCodeMode } from '../opencode/factory'
 import { broadcaster } from '../sse/broadcaster'
+import { appendLogEvent } from '../log/executionLog'
 import { cancelTicket, handleInterviewQABatch, processInterviewBatchAsync, skipAllInterviewQuestionsToApproval } from '../workflow/runner'
 import { createTicket as createTicketRecord } from '../ticket/create'
 import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
@@ -767,6 +768,13 @@ export function handleApproveInterview(c: Context) {
   try {
     approveInterviewDocument(ticketId)
     ensureActorForTicket(ticketId)
+
+    const phase = 'WAITING_INTERVIEW_APPROVAL'
+    const message = '[SYS] Interview approved by user.'
+    const timestamp = new Date().toISOString()
+    broadcaster.broadcast(ticketId, 'log', { ticketId, phase, type: 'info', content: message, timestamp, source: 'system' })
+    appendLogEvent(ticketId, 'info', phase, message, { ticketId, timestamp }, 'system', phase, { audience: 'all', kind: 'milestone', op: 'append', streaming: false })
+
     sendTicketEvent(ticketId, { type: 'APPROVE' })
   } catch (err) {
     console.error(`[tickets] Failed to approve interview for ${ticketId}:`, err)

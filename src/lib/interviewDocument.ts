@@ -269,10 +269,6 @@ export function getInterviewFollowUpsAnchorId(): string {
   return 'interview-follow-ups'
 }
 
-export function getInterviewApprovalAnchorId(): string {
-  return 'interview-approval'
-}
-
 export function groupInterviewDocumentQuestions(document: InterviewDocument): InterviewDocumentGroup[] {
   const groups = new Map<string, InterviewDocumentGroup>()
 
