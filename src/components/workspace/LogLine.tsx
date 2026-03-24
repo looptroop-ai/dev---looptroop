@@ -3,30 +3,64 @@ import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { getEntryColor, formatTimestamp, formatVisibleTag } from './logFormat'
 
-function renderLogLine(entry: LogEntry, showModelName: boolean) {
+function renderLogLine(entry: LogEntry, showModelName: boolean, isStreamingCollapsed: boolean = false) {
   const tagMatch = entry.line.match(/^(\[[^\]]+\])([\s\S]*)$/)
   if (tagMatch) {
     const [, rawTag = '', rest = ''] = tagMatch
     const tag = formatVisibleTag(rawTag, entry, showModelName)
     const color = getEntryColor(entry)
+    
+    let displayRest = rest
+    if (isStreamingCollapsed) {
+      const lines = rest.split('\n')
+      if (lines.length > 5) {
+        displayRest = ' ...\n' + lines.slice(-4).join('\n')
+      } else if (rest.length > 1000) {
+        displayRest = ' ...' + rest.slice(-1000)
+      }
+    }
+
     return (
       <>
         <span className={cn('font-semibold', color)}>{tag}</span>
-        {rest}
+        {displayRest}
       </>
     )
   }
+  
   if (entry.kind === 'reasoning' && !tagMatch) {
     const color = getEntryColor(entry)
     const tag = formatVisibleTag('[THINKING]', entry, showModelName)
+    
+    let displayContent = entry.line
+    if (isStreamingCollapsed) {
+      const lines = displayContent.split('\n')
+      if (lines.length > 5) {
+        displayContent = ' ...\n' + lines.slice(-4).join('\n')
+      } else if (displayContent.length > 1000) {
+        displayContent = ' ...' + displayContent.slice(-1000)
+      }
+    }
+
     return (
       <>
         <span className={cn('font-semibold', color)}>{tag}</span>
-        {' '}{entry.line}
+        {' '}{displayContent}
       </>
     )
   }
-  return <>{entry.line}</>
+
+  let displayContent = entry.line
+  if (isStreamingCollapsed) {
+    const lines = displayContent.split('\n')
+    if (lines.length > 5) {
+      displayContent = '...\n' + lines.slice(-4).join('\n')
+    } else if (displayContent.length > 1000) {
+      displayContent = '...' + displayContent.slice(-1000)
+    }
+  }
+
+  return <>{displayContent}</>
 }
 
 export interface LogEntryRowProps {
@@ -87,10 +121,10 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             className={cn(
               getEntryColor(entry),
               'whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] max-w-full',
-              !isExpanded && 'line-clamp-5'
+              !isExpanded && !entry.streaming && 'line-clamp-5'
             )}
           >
-            {renderLogLine(entry, showModelName)}
+            {renderLogLine(entry, showModelName, !isExpanded && !!entry.streaming)}
           </div>
           {isTruncatable && !isExpanded && (
             <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-muted to-transparent pointer-events-none" />

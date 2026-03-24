@@ -137,18 +137,6 @@ export async function executeBead(
           signal,
           timeoutMs: timeout,
           model: callbacks?.model,
-          ...(callbacks?.ticketId
-            ? {
-                sessionOwnership: {
-                  ticketId: callbacks.ticketId,
-                  phase: 'CODING',
-                  memberId: callbacks.model,
-                  beadId: bead.id,
-                  iteration,
-                  keepActive: true,
-                },
-              }
-            : {}),
           onStreamEvent: (event) => {
             callbacks?.onOpenCodeStreamEvent?.({
               sessionId: runResult.session.id,

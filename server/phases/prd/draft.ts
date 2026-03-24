@@ -199,7 +199,6 @@ async function executeStructuredStep(
           timeoutMs: remainingTimeoutMs,
           model: member.modelId,
           variant: member.variant,
-          ...(sessionOwnership ? { sessionOwnership } : {}),
           onStreamEvent: (event) => {
             options.onOpenCodeStreamEvent?.({
               stage: 'draft',

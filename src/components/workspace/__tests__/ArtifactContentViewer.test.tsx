@@ -35,6 +35,29 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByRole('button', { name: 'Q&A' })).toBeInTheDocument()
   })
 
+  it('renders interview answers without the interview summary section', () => {
+    render(
+      <ArtifactContent
+        artifactId="interview-answers"
+        phase="WAITING_INTERVIEW_APPROVAL"
+        content={buildCanonicalInterviewContent([
+          {
+            id: 'Q01',
+            prompt: 'Which constraints are fixed?',
+            answer: { skipped: false, free_text: 'Keep imports idempotent.' },
+          },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('Interview Answers')).toBeInTheDocument()
+    expect(screen.queryByText('Interview Summary')).not.toBeInTheDocument()
+
+    openFoundationGroup()
+    expect(screen.getByText('Which constraints are fixed?')).toBeInTheDocument()
+    expect(screen.getByText('Keep imports idempotent.')).toBeInTheDocument()
+  })
+
   it('renders canonical free-text answers', () => {
     render(
       <InterviewAnswersView

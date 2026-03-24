@@ -16,6 +16,8 @@ describe('structured prompt hardening', () => {
     const refinePrompt = buildPromptFromTemplate(PROM3, [])
 
     expect(draftPrompt).toContain('hard upper bound, never a target')
+    expect(draftPrompt).toContain('Return the full final `questions` list in one response')
+    expect(draftPrompt).toContain('Do not output a partial artifact')
     expect(refinePrompt).toContain('hard upper bound, never a target')
     expect(draftPrompt).not.toContain('endeavor to approach that limit')
   })

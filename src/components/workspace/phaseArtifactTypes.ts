@@ -552,7 +552,7 @@ export function resolveStaticArtifact(
       if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
         return findExactType('interview_coverage_input')
       }
-      break
+      return findExactType('interview_session')
     case 'refined-prd':
       return findExactType('prd_coverage_input')
     case 'refined-beads':

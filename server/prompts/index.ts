@@ -133,6 +133,7 @@ export const PROM1: PromptTemplate = {
     'Phase 3 - Assembly (Deep Dive Per Feature): Then go feature-by-feature and define implementation-level expectations (behavior, edge cases, acceptance criteria, test intent, dependencies). Exit criteria: each in-scope feature has enough detail to support PRD generation without guessing.',
     INTERVIEW_PHASE_ORDER_RULE,
     'Question Limit: Treat `max_initial_questions` as a hard upper bound, never a target. Ask only as many questions as are genuinely needed to remove meaningful ambiguity and gather enough detail for PRD generation. Returning well under `max_initial_questions` is fully acceptable when coverage is already strong. Do not add low-value or redundant questions just because budget remains.',
+    'Completeness: Return the full final `questions` list in one response. Do not output a partial artifact.',
     `Output Format: Output strict machine-readable YAML. The top-level key MUST be \`questions\` containing a list. Each entry MUST have exactly three fields: \`id\`, \`phase\`, and \`question\`.
     Example:
     \`\`\`yaml

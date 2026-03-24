@@ -426,6 +426,226 @@ describe('structured output normalization', () => {
     ])
   })
 
+  it('synthesizes omitted same-identity modified changes when final questions are complete', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What flow matters most?"',
+      '  - id: Q03',
+      '    phase: assembly',
+      '    question: "How do we verify success?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What flow matters most?"',
+      '  - id: Q03',
+      '    phase: assembly',
+      '    question: "How should success be verified in practice?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Synthesized omitted interview refinement modified change for Q03')
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+      },
+      {
+        type: 'modified',
+        before: {
+          id: 'Q03',
+          phase: 'assembly',
+          question: 'How do we verify success?',
+        },
+        after: {
+          id: 'Q03',
+          phase: 'assembly',
+          question: 'How should success be verified in practice?',
+        },
+      },
+    ])
+  })
+
+  it('succeeds when a modified entry is missing one side and there is a unique same-identity repair path', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+      },
+    ])
+  })
+
+  it('drops a redundant partial entry after synthesizing the canonical same-identity modified change', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Synthesized omitted interview refinement modified change for Q01')
+    expect(result.repairWarnings.join('\n')).toContain('Dropped partial interview refinement change at index 0')
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+      },
+    ])
+  })
+
+  it('still fails when a partial modified entry is ambiguous after safe repairs', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What flow matters most?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q03',
+      '    phase: assembly',
+      '    question: "How should success be verified?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('no unique safe repair candidate')
+  })
+
+  it('still fails for suspicious cross-id pairings that would require guessing', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "What flow matters most?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      '  - id: Q02',
+      '    phase: structure',
+      '    question: "Which flow matters most in practice?"',
+      'changes:',
+      '  - type: replaced',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q02',
+      '      phase: structure',
+      '      question: "Which flow matters most in practice?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('do not fully and exactly account')
+  })
+
   it('parses wrapped vote scorecards and repairs incorrect totals', () => {
     const wrapped = [
       '```yaml',

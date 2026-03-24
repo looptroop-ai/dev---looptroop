@@ -60,6 +60,74 @@ describe('compiled interview artifacts', () => {
     expect(artifact.changes.map((change) => change.type)).toEqual(['modified', 'replaced'])
   })
 
+  it('builds a validated artifact when same-identity modified changes are omitted from PROM3 output', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "What problem are we solving?"',
+      '  - id: Q02',
+      '    phase: Assembly',
+      '    question: "How do we verify success?"',
+    ].join('\n')
+
+    const artifact = buildCompiledInterviewArtifact(
+      'openai/gpt-5',
+      [
+        'questions:',
+        '  - id: Q01',
+        '    phase: Foundation',
+        '    question: "What user problem are we solving?"',
+        '  - id: Q02',
+        '    phase: Assembly',
+        '    question: "How should success be verified in practice?"',
+        'changes:',
+        '  - type: modified',
+        '    before:',
+        '      id: Q01',
+        '      phase: Foundation',
+        '      question: "What problem are we solving?"',
+        '    after:',
+        '      id: Q01',
+        '      phase: Foundation',
+        '      question: "What user problem are we solving?"',
+      ].join('\n'),
+      winnerDraft,
+      10,
+    )
+
+    expect(artifact.questionCount).toBe(2)
+    expect(artifact.questions.map(question => question.id)).toEqual(['Q01', 'Q02'])
+    expect(artifact.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'Foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'Foundation',
+          question: 'What user problem are we solving?',
+        },
+      },
+      {
+        type: 'modified',
+        before: {
+          id: 'Q02',
+          phase: 'Assembly',
+          question: 'How do we verify success?',
+        },
+        after: {
+          id: 'Q02',
+          phase: 'Assembly',
+          question: 'How should success be verified in practice?',
+        },
+      },
+    ])
+  })
+
   it('fails hard when PROM3 refinement output does not satisfy the interview schema', () => {
     const winnerDraft = [
       'questions:',

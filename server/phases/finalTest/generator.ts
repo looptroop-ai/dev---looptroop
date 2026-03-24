@@ -105,17 +105,6 @@ export async function generateFinalTests(
         signal,
         timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
         model: callbacks?.model,
-        ...(callbacks?.ticketId
-          ? {
-              sessionOwnership: {
-                ticketId: callbacks.ticketId,
-                phase: 'RUNNING_FINAL_TEST',
-                phaseAttempt: 1,
-                keepActive: true,
-                ...(callbacks.model ? { memberId: callbacks.model } : {}),
-              },
-            }
-          : {}),
         onStreamEvent: (event) => {
           if (!sessionId) return
           callbacks?.onOpenCodeStreamEvent?.({

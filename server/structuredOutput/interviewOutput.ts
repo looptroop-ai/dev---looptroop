@@ -47,6 +47,13 @@ interface NormalizedInterviewRefinementChange {
   after: NormalizedInterviewQuestion | null
 }
 
+interface ParsedInterviewRefinementChangeCandidate {
+  type: InterviewQuestionChangeType
+  before: NormalizedInterviewQuestion | null | undefined
+  after: NormalizedInterviewQuestion | null | undefined
+  sourceIndex: number
+}
+
 function normalizeInterviewPhase(value: string): 'foundation' | 'structure' | 'assembly' {
   const normalized = normalizeKey(value)
   if (normalized === 'foundation') return 'foundation'
@@ -195,7 +202,7 @@ function normalizeInterviewChangeQuestion(value: unknown, label: string): Normal
 function parseInterviewRefinementChangeEntry(
   value: unknown,
   index: number,
-): NormalizedInterviewRefinementChange {
+): ParsedInterviewRefinementChangeCandidate {
   if (!isRecord(value)) {
     throw new Error(`Interview refinement change at index ${index} is not an object`)
   }
@@ -204,17 +211,34 @@ function parseInterviewRefinementChangeEntry(
   const hasBefore = Object.keys(value).some((key) => normalizeKey(key) === 'before')
   const hasAfter = Object.keys(value).some((key) => normalizeKey(key) === 'after')
 
+  const rawBefore = hasBefore ? getValueByAliases(value, ['before']) : undefined
+  const rawAfter = hasAfter ? getValueByAliases(value, ['after']) : undefined
+  const before = !hasBefore
+    ? undefined
+    : rawBefore === null
+      ? null
+      : normalizeInterviewChangeQuestion(rawBefore, `Interview refinement change.before at index ${index}`)
+  const after = !hasAfter
+    ? undefined
+    : rawAfter === null
+      ? null
+      : normalizeInterviewChangeQuestion(rawAfter, `Interview refinement change.after at index ${index}`)
+
+  if (type === 'modified' || type === 'replaced') {
+    if (!hasBefore && !hasAfter) {
+      throw new Error(`Interview refinement change at index ${index} is missing before and after`)
+    }
+    if (hasBefore && before === null) {
+      throw new Error(`Interview refinement change at index ${index} must use a populated before for type ${type}`)
+    }
+    if (hasAfter && after === null) {
+      throw new Error(`Interview refinement change at index ${index} must use a populated after for type ${type}`)
+    }
+    return { type, before, after, sourceIndex: index }
+  }
+
   if (!hasBefore) throw new Error(`Interview refinement change at index ${index} is missing before`)
   if (!hasAfter) throw new Error(`Interview refinement change at index ${index} is missing after`)
-
-  const rawBefore = getValueByAliases(value, ['before'])
-  const rawAfter = getValueByAliases(value, ['after'])
-  const before = rawBefore === null ? null : normalizeInterviewChangeQuestion(rawBefore, `Interview refinement change.before at index ${index}`)
-  const after = rawAfter === null ? null : normalizeInterviewChangeQuestion(rawAfter, `Interview refinement change.after at index ${index}`)
-
-  if ((type === 'modified' || type === 'replaced') && (!before || !after)) {
-    throw new Error(`Interview refinement change at index ${index} requires both before and after for type ${type}`)
-  }
   if (type === 'added' && (before !== null || !after)) {
     throw new Error(`Interview refinement change at index ${index} with type added must use before: null and a populated after`)
   }
@@ -222,7 +246,7 @@ function parseInterviewRefinementChangeEntry(
     throw new Error(`Interview refinement change at index ${index} with type removed must use after: null and a populated before`)
   }
 
-  return { type, before, after }
+  return { type, before, after, sourceIndex: index }
 }
 
 function resolveCanonicalInterviewQuestion(
@@ -251,21 +275,21 @@ function resolveCanonicalInterviewQuestion(
 }
 
 function canonicalizeInterviewRefinementChanges(
-  changes: NormalizedInterviewRefinementChange[],
+  changes: ParsedInterviewRefinementChangeCandidate[],
   winnerQuestions: NormalizedInterviewQuestion[],
   finalQuestions: NormalizedInterviewQuestion[],
 ): {
-  changes: NormalizedInterviewRefinementChange[]
+  changes: ParsedInterviewRefinementChangeCandidate[]
   repairApplied: boolean
   repairWarnings: string[]
 } {
   const winnerLookup = buildInterviewQuestionLookup(winnerQuestions)
   const finalLookup = buildInterviewQuestionLookup(finalQuestions)
-  const normalizedChanges: NormalizedInterviewRefinementChange[] = []
+  const normalizedChanges: ParsedInterviewRefinementChangeCandidate[] = []
   const repairWarnings: string[] = []
   let repairApplied = false
 
-  for (const [index, change] of changes.entries()) {
+  for (const change of changes) {
     let before = change.before
     let after = change.after
 
@@ -274,7 +298,7 @@ function canonicalizeInterviewRefinementChanges(
       if (resolved.repaired) {
         before = resolved.question
         repairApplied = true
-        repairWarnings.push(`Canonicalized interview refinement change.before at index ${index} to the winning draft record for ${before.id}.`)
+        repairWarnings.push(`Canonicalized interview refinement change.before at index ${change.sourceIndex} to the winning draft record for ${before.id}.`)
       }
     }
 
@@ -283,7 +307,7 @@ function canonicalizeInterviewRefinementChanges(
       if (resolved.repaired) {
         after = resolved.question
         repairApplied = true
-        repairWarnings.push(`Canonicalized interview refinement change.after at index ${index} to the refined final record for ${after.id}.`)
+        repairWarnings.push(`Canonicalized interview refinement change.after at index ${change.sourceIndex} to the refined final record for ${after.id}.`)
       }
     }
 
@@ -296,7 +320,7 @@ function canonicalizeInterviewRefinementChanges(
       && finalLookup.byFullKey.has(buildInterviewQuestionKey(after))
     ) {
       repairApplied = true
-      repairWarnings.push(`Dropped no-op interview refinement ${change.type} at index ${index} because the question is unchanged across the winning and final drafts.`)
+      repairWarnings.push(`Dropped no-op interview refinement ${change.type} at index ${change.sourceIndex} because the question is unchanged across the winning and final drafts.`)
       continue
     }
 
@@ -304,6 +328,7 @@ function canonicalizeInterviewRefinementChanges(
       type: change.type,
       before,
       after,
+      sourceIndex: change.sourceIndex,
     })
   }
 
@@ -321,11 +346,16 @@ function canonicalizeInterviewRefinementChanges(
     if (change.type === 'added' && change.before === null && change.after) {
       const orphanedWinner = winnerById.get(change.after.id)
       if (orphanedWinner && buildInterviewQuestionKey(orphanedWinner) !== buildInterviewQuestionKey(change.after)) {
-        normalizedChanges[i] = { type: 'replaced', before: orphanedWinner, after: change.after }
+        normalizedChanges[i] = {
+          type: 'replaced',
+          before: orphanedWinner,
+          after: change.after,
+          sourceIndex: change.sourceIndex,
+        }
         winnerById.delete(change.after.id)
         repairApplied = true
         repairWarnings.push(
-          `Converted interview refinement change at index ${i} from "added" to "replaced" because ${change.after.id} already existed in the winning draft with different content.`,
+          `Converted interview refinement change at index ${change.sourceIndex} from "added" to "replaced" because ${change.after.id} already existed in the winning draft with different content.`,
         )
       }
     }
@@ -335,6 +365,266 @@ function canonicalizeInterviewRefinementChanges(
     changes: normalizedChanges,
     repairApplied,
     repairWarnings,
+  }
+}
+
+function isCompleteInterviewRefinementChangeCandidate(
+  change: ParsedInterviewRefinementChangeCandidate,
+): boolean {
+  if (change.type === 'modified' || change.type === 'replaced') {
+    return Boolean(change.before && change.after)
+  }
+  if (change.type === 'added') {
+    return change.before === null && Boolean(change.after)
+  }
+  if (change.type === 'removed') {
+    return Boolean(change.before) && change.after === null
+  }
+  return false
+}
+
+function normalizeCompleteInterviewRefinementChangeCandidate(
+  change: ParsedInterviewRefinementChangeCandidate,
+): NormalizedInterviewRefinementChange {
+  if (change.type === 'modified' || change.type === 'replaced') {
+    if (!change.before || !change.after) {
+      const missingSide = !change.before ? 'before' : 'after'
+      throw new Error(`Interview refinement change at index ${change.sourceIndex} is missing ${missingSide} and no unique safe repair candidate was found`)
+    }
+    return {
+      type: change.type,
+      before: change.before,
+      after: change.after,
+    }
+  }
+
+  if (change.type === 'added') {
+    if (change.before !== null || !change.after) {
+      throw new Error(`Interview refinement change at index ${change.sourceIndex} with type added is incomplete`)
+    }
+    return {
+      type: change.type,
+      before: null,
+      after: change.after,
+    }
+  }
+
+  if (!change.before || change.after !== null) {
+    throw new Error(`Interview refinement change at index ${change.sourceIndex} with type removed is incomplete`)
+  }
+  return {
+    type: change.type,
+    before: change.before,
+    after: null,
+  }
+}
+
+function synthesizeOmittedSameIdentityInterviewRefinementChanges(
+  changes: ParsedInterviewRefinementChangeCandidate[],
+  winnerQuestions: NormalizedInterviewQuestion[],
+  finalQuestions: NormalizedInterviewQuestion[],
+): {
+  changes: ParsedInterviewRefinementChangeCandidate[]
+  synthesizedChanges: ParsedInterviewRefinementChangeCandidate[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const usedBeforeKeys = new Set<string>()
+  const usedAfterKeys = new Set<string>()
+  for (const change of changes) {
+    if (!isCompleteInterviewRefinementChangeCandidate(change)) continue
+    if (change.before) usedBeforeKeys.add(buildInterviewQuestionKey(change.before))
+    if (change.after) usedAfterKeys.add(buildInterviewQuestionKey(change.after))
+  }
+
+  const winnerLookup = buildInterviewQuestionLookup(winnerQuestions)
+  const finalLookup = buildInterviewQuestionLookup(finalQuestions)
+  const synthesizedChanges: ParsedInterviewRefinementChangeCandidate[] = []
+  const repairWarnings: string[] = []
+
+  for (const winnerQuestion of winnerQuestions) {
+    const identityKey = buildInterviewQuestionIdentityKey(winnerQuestion)
+    const finalMatches = finalLookup.byIdentityKey.get(identityKey)
+    if (finalMatches?.length !== 1) continue
+
+    const finalQuestion = finalMatches[0]!
+    const beforeKey = buildInterviewQuestionKey(winnerQuestion)
+    const afterKey = buildInterviewQuestionKey(finalQuestion)
+
+    if (beforeKey === afterKey) continue
+    if (!winnerLookup.byFullKey.has(beforeKey) || !finalLookup.byFullKey.has(afterKey)) continue
+    if (usedBeforeKeys.has(beforeKey) || usedAfterKeys.has(afterKey)) continue
+
+    synthesizedChanges.push({
+      type: 'modified',
+      before: winnerQuestion,
+      after: finalQuestion,
+      sourceIndex: -1,
+    })
+    usedBeforeKeys.add(beforeKey)
+    usedAfterKeys.add(afterKey)
+    repairWarnings.push(
+      `Synthesized omitted interview refinement modified change for ${winnerQuestion.id} by matching id and phase across the winning and final drafts.`,
+    )
+  }
+
+  return {
+    changes: [...changes, ...synthesizedChanges],
+    synthesizedChanges,
+    repairApplied: synthesizedChanges.length > 0,
+    repairWarnings,
+  }
+}
+
+function dropRedundantPartialInterviewRefinementChanges(
+  changes: ParsedInterviewRefinementChangeCandidate[],
+  synthesizedChanges: ParsedInterviewRefinementChangeCandidate[],
+): {
+  changes: ParsedInterviewRefinementChangeCandidate[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  if (synthesizedChanges.length === 0) {
+    return {
+      changes,
+      repairApplied: false,
+      repairWarnings: [],
+    }
+  }
+
+  const synthesizedBeforeKeys = new Set(
+    synthesizedChanges
+      .map((change) => change.before)
+      .filter((question): question is NormalizedInterviewQuestion => Boolean(question))
+      .map(buildInterviewQuestionKey),
+  )
+  const synthesizedAfterKeys = new Set(
+    synthesizedChanges
+      .map((change) => change.after)
+      .filter((question): question is NormalizedInterviewQuestion => Boolean(question))
+      .map(buildInterviewQuestionKey),
+  )
+
+  const normalizedChanges: ParsedInterviewRefinementChangeCandidate[] = []
+  const repairWarnings: string[] = []
+  let repairApplied = false
+
+  for (const change of changes) {
+    if (isCompleteInterviewRefinementChangeCandidate(change)) {
+      normalizedChanges.push(change)
+      continue
+    }
+
+    const beforeKey = change.before ? buildInterviewQuestionKey(change.before) : null
+    const afterKey = change.after ? buildInterviewQuestionKey(change.after) : null
+    if (
+      (beforeKey && synthesizedBeforeKeys.has(beforeKey))
+      || (afterKey && synthesizedAfterKeys.has(afterKey))
+    ) {
+      repairApplied = true
+      const questionId = change.before?.id ?? change.after?.id ?? 'unknown question'
+      repairWarnings.push(
+        `Dropped partial interview refinement change at index ${change.sourceIndex} because a canonical same-identity modified change for ${questionId} was synthesized from the winner/final question lists.`,
+      )
+      continue
+    }
+
+    normalizedChanges.push(change)
+  }
+
+  return {
+    changes: normalizedChanges,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+function repairPartialInterviewRefinementChanges(
+  changes: ParsedInterviewRefinementChangeCandidate[],
+  winnerQuestions: NormalizedInterviewQuestion[],
+  finalQuestions: NormalizedInterviewQuestion[],
+): {
+  changes: ParsedInterviewRefinementChangeCandidate[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const winnerLookup = buildInterviewQuestionLookup(winnerQuestions)
+  const finalLookup = buildInterviewQuestionLookup(finalQuestions)
+  const usedBeforeKeys = new Set<string>()
+  const usedAfterKeys = new Set<string>()
+  for (const change of changes) {
+    if (!isCompleteInterviewRefinementChangeCandidate(change)) continue
+    if (change.before) usedBeforeKeys.add(buildInterviewQuestionKey(change.before))
+    if (change.after) usedAfterKeys.add(buildInterviewQuestionKey(change.after))
+  }
+
+  const normalizedChanges: ParsedInterviewRefinementChangeCandidate[] = []
+  const repairWarnings: string[] = []
+  let repairApplied = false
+
+  for (const change of changes) {
+    if (isCompleteInterviewRefinementChangeCandidate(change) || (change.type !== 'modified' && change.type !== 'replaced')) {
+      normalizedChanges.push(change)
+      continue
+    }
+
+    let repairedChange = change
+    if (change.before && change.after === undefined) {
+      const identityKey = buildInterviewQuestionIdentityKey(change.before)
+      const finalMatches = finalLookup.byIdentityKey.get(identityKey)
+      if (finalMatches?.length === 1) {
+        const candidate = finalMatches[0]!
+        const beforeKey = buildInterviewQuestionKey(change.before)
+        const afterKey = buildInterviewQuestionKey(candidate)
+        if (beforeKey !== afterKey && !usedBeforeKeys.has(beforeKey) && !usedAfterKeys.has(afterKey)) {
+          repairedChange = { ...change, after: candidate }
+          usedBeforeKeys.add(beforeKey)
+          usedAfterKeys.add(afterKey)
+          repairApplied = true
+          repairWarnings.push(
+            `Inferred missing interview refinement change.after at index ${change.sourceIndex} from refined final question ${candidate.id} by matching id and phase.`,
+          )
+        }
+      }
+    } else if (change.after && change.before === undefined) {
+      const identityKey = buildInterviewQuestionIdentityKey(change.after)
+      const winnerMatches = winnerLookup.byIdentityKey.get(identityKey)
+      if (winnerMatches?.length === 1) {
+        const candidate = winnerMatches[0]!
+        const beforeKey = buildInterviewQuestionKey(candidate)
+        const afterKey = buildInterviewQuestionKey(change.after)
+        if (beforeKey !== afterKey && !usedBeforeKeys.has(beforeKey) && !usedAfterKeys.has(afterKey)) {
+          repairedChange = { ...change, before: candidate }
+          usedBeforeKeys.add(beforeKey)
+          usedAfterKeys.add(afterKey)
+          repairApplied = true
+          repairWarnings.push(
+            `Inferred missing interview refinement change.before at index ${change.sourceIndex} from winning-draft question ${candidate.id} by matching id and phase.`,
+          )
+        }
+      }
+    }
+
+    normalizedChanges.push(repairedChange)
+  }
+
+  return {
+    changes: normalizedChanges,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+function assertNoPartialInterviewRefinementChanges(
+  changes: ParsedInterviewRefinementChangeCandidate[],
+) {
+  for (const change of changes) {
+    if (isCompleteInterviewRefinementChangeCandidate(change)) continue
+    if (change.type === 'modified' || change.type === 'replaced') {
+      const missingSide = change.before === undefined ? 'before' : 'after'
+      throw new Error(`Interview refinement change at index ${change.sourceIndex} is missing ${missingSide} and no unique safe repair candidate was found`)
+    }
+    throw new Error(`Interview refinement change at index ${change.sourceIndex} remains incomplete after repair`)
   }
 }
 
@@ -852,7 +1142,40 @@ export function normalizeInterviewRefinementOutput(
         repairApplied = true
         repairWarnings.push(...canonicalizedChanges.repairWarnings)
       }
-      const changes = canonicalizedChanges.changes.map((change, index) => validateInterviewRefinementChangeEntry(
+
+      const synthesizedChanges = synthesizeOmittedSameIdentityInterviewRefinementChanges(
+        canonicalizedChanges.changes,
+        winnerDraftQuestions,
+        normalizedQuestions.questions,
+      )
+      if (synthesizedChanges.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...synthesizedChanges.repairWarnings)
+      }
+
+      const prunedPartialChanges = dropRedundantPartialInterviewRefinementChanges(
+        synthesizedChanges.changes,
+        synthesizedChanges.synthesizedChanges,
+      )
+      if (prunedPartialChanges.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...prunedPartialChanges.repairWarnings)
+      }
+
+      const repairedPartialChanges = repairPartialInterviewRefinementChanges(
+        prunedPartialChanges.changes,
+        winnerDraftQuestions,
+        normalizedQuestions.questions,
+      )
+      if (repairedPartialChanges.repairApplied) {
+        repairApplied = true
+        repairWarnings.push(...repairedPartialChanges.repairWarnings)
+      }
+
+      assertNoPartialInterviewRefinementChanges(repairedPartialChanges.changes)
+
+      const completeChanges = repairedPartialChanges.changes.map((change) => normalizeCompleteInterviewRefinementChangeCandidate(change))
+      const changes = completeChanges.map((change, index) => validateInterviewRefinementChangeEntry(
         change,
         index,
         winnerKeySet,

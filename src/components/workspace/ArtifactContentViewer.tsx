@@ -25,7 +25,7 @@ import {
   parseCoverageArtifact,
   parseInterviewQuestions,
 } from './phaseArtifactTypes'
-import { parseInterviewDocument } from '@/lib/interviewDocument'
+import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
 import { InterviewDocumentView } from './InterviewDocumentView'
 import {
   getCouncilStatusEmoji,
@@ -374,10 +374,10 @@ function FinalInterviewArtifactView({ content, header }: { content: string; head
   )
 }
 
-export function InterviewAnswersView({ content }: { content: string }) {
+export function InterviewAnswersView({ content, hideSummary = false }: { content: string; hideSummary?: boolean }) {
   const interviewDocument = parseInterviewDocument(content)
   if (interviewDocument) {
-    return <InterviewDocumentView document={interviewDocument} defaultGroupsOpen={false} />
+    return <InterviewDocumentView document={interviewDocument} defaultGroupsOpen={false} hideSummary={hideSummary} />
   }
 
   let parsedContent: unknown = null
@@ -388,6 +388,38 @@ export function InterviewAnswersView({ content }: { content: string }) {
       parsedContent = jsYaml.load(content)
     } catch {
       return <RawContentView content={content} />
+    }
+  }
+
+  if (
+    parsedContent &&
+    typeof parsedContent === 'object' &&
+    'questions' in parsedContent &&
+    Array.isArray((parsedContent as any).questions) &&
+    'answers' in parsedContent &&
+    !('artifact' in parsedContent)
+  ) {
+    const snapshot = parsedContent as any
+    const mappedQuestions = snapshot.questions.map((q: any) => {
+      const ans = snapshot.answers?.[q.id]
+      return {
+        ...q,
+        answer_type: q.answerType,
+        answer: ans ? {
+          skipped: ans.skipped,
+          free_text: ans.answer,
+          selected_option_ids: ans.selectedOptionIds || [],
+          answered_by: 'user',
+          answered_at: ans.answeredAt,
+        } : null
+      }
+    })
+    const doc = normalizeInterviewDocumentLike({
+      artifact: 'interview',
+      questions: mappedQuestions
+    })
+    if (doc) {
+      return <InterviewDocumentView document={doc} defaultGroupsOpen={false} hideSummary={hideSummary} />
     }
   }
 
@@ -1227,7 +1259,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     const header = <div className="text-xs font-semibold px-1">Interview Answers</div>
     return (
       <WithRawTab content={content} structuredLabel="Q&A" header={header}>
-        <InterviewAnswersView content={content} />
+        <InterviewAnswersView content={content} hideSummary />
       </WithRawTab>
     )
   }
@@ -1364,7 +1396,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         : isBeads ? <BeadsDraftView content={winnerContent} />
           : <InterviewDraftView content={winnerContent} />
       return (
-        <WithRawTab content={content} structuredLabel="Winner" header={header}>
+        <WithRawTab content={winnerContent} structuredLabel="Winner" header={header}>
           {structured || <RawContentView content={winnerContent} />}
         </WithRawTab>
       )
@@ -1422,7 +1454,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
       if (structured) {
         return (
-          <WithRawTab content={content} structuredLabel="Draft" header={header}>
+          <WithRawTab content={draftContent} structuredLabel="Draft" header={header}>
             {structured}
           </WithRawTab>
         )
@@ -1446,7 +1478,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
               ⚠️ Output did not pass strict validation{draft.error ? `: ${draft.error}` : ''} — content shown below may have formatting issues.
             </div>
             {structured
-              ? <WithRawTab content={content} structuredLabel="Draft">{structured}</WithRawTab>
+              ? <WithRawTab content={draft.content} structuredLabel="Draft">{structured}</WithRawTab>
               : <RawContentWithCopy content={draft.content} />}
           </div>
         )

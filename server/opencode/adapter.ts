@@ -272,15 +272,10 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   }
 
   async listSessions(): Promise<Session[]> {
-    try {
-      const res = await this.client.session.list({ limit: SESSION_LIST_LIMIT })
-      return Array.isArray(res.data)
-        ? res.data.map(session => this.mapSession(session as Record<string, unknown>))
-        : []
-    } catch (err) {
-      warnIfVerbose(`[adapter] listSessions failed: ${err instanceof Error ? err.message : err}`)
-      return []
-    }
+    const res = await this.client.session.list({ limit: SESSION_LIST_LIMIT })
+    return Array.isArray(res.data)
+      ? res.data.map(session => this.mapSession(session as Record<string, unknown>))
+      : []
   }
 
   async getSessionMessages(sessionId: string): Promise<Message[]> {
