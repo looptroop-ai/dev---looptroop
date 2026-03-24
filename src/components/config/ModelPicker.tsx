@@ -4,7 +4,6 @@ import { ChevronDown, Search, Zap, Eye, Wrench, Brain, AlertCircle, Loader2 } fr
 import { cn } from '@/lib/utils'
 import { useOpenCodeModels, useAllOpenCodeModels } from '@/hooks/useOpenCodeModels'
 import type { OpenCodeModel } from '@/hooks/useOpenCodeModels'
-import { MAX_UNFILTERED_MODELS } from '@/lib/constants'
 
 interface ModelPickerProps {
   value: string
@@ -88,6 +87,65 @@ function ModelRow({ model, selected, disabled, onSelect }: {
   )
 }
 
+function ProviderGroup({
+  providerName,
+  models,
+  value,
+  disabledValues,
+  onChange,
+  onClose,
+  query
+}: {
+  providerName: string
+  models: OpenCodeModel[]
+  value: string
+  disabledValues: string[]
+  onChange: (id: string) => void
+  onClose: () => void
+  query: string
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    if (query) {
+      setCollapsed(false)
+    }
+  }, [query])
+
+  return (
+    <div>
+      <div 
+        className="sticky top-0 z-10 bg-popover/95 backdrop-blur-sm px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors select-none border-b border-border/40"
+        onClick={() => setCollapsed(c => !c)}
+      >
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {providerName}
+          <span className="ml-1.5 font-normal normal-case opacity-60">
+            {models.length} {models.length === 1 ? 'model' : 'models'}
+          </span>
+        </div>
+        <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground opacity-70 transition-transform', collapsed && '-rotate-90')} aria-hidden="true" />
+      </div>
+      {!collapsed && (
+        <div className="flex flex-col">
+          {models.map(m => (
+            <ModelRow
+              key={m.fullId}
+              model={m}
+              selected={m.fullId === value}
+              disabled={m.fullId !== value && disabledValues.includes(m.fullId)}
+              onSelect={() => {
+                onChange(m.fullId)
+                onClose()
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ModelPicker({ value, onChange, placeholder = 'Search models…', disabledValues = [] }: ModelPickerProps) {
   const [showAll, setShowAll] = useState(false)
   const { data: connectedModels, isLoading: loadingConnected, isError: errorConnected } = useOpenCodeModels()
@@ -97,6 +155,7 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
   const isError = showAll ? errorAll : errorConnected
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [showOnlyFree, setShowOnlyFree] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownNodeRef = useRef<HTMLDivElement | null>(null)
@@ -160,16 +219,20 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
 
   const filtered = useMemo(() => {
     if (!models) return []
+    let result = models
+    if (showOnlyFree) {
+      result = result.filter(m => m.costInput === 0)
+    }
     const q = query.trim().toLowerCase()
-    if (!q) return models.slice(0, MAX_UNFILTERED_MODELS) // show top unfiltered
-    return models.filter(m =>
+    if (!q) return result
+    return result.filter(m =>
       m.name.toLowerCase().includes(q) ||
       m.providerName.toLowerCase().includes(q) ||
       m.providerID.toLowerCase().includes(q) ||
       m.id.toLowerCase().includes(q) ||
       m.family.toLowerCase().includes(q)
     )
-  }, [models, query])
+  }, [models, query, showOnlyFree])
 
   // Group by provider
   const grouped = useMemo(() => {
@@ -235,29 +298,40 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
           )}
         >
           {/* Search */}
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2 shrink-0">
-            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
-            <input
-              ref={inputRef}
-              type="search"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search by name, provider, family…"
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              aria-label="Search models"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            {query && (
-              <button
-                type="button"
-                aria-label="Clear search"
-                onClick={() => setQuery('')}
-                className="text-muted-foreground hover:text-foreground text-xs"
-              >
-                ✕
-              </button>
-            )}
+          <div className="flex flex-col border-b border-border shrink-0">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+              <input
+                ref={inputRef}
+                type="search"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search by name, provider, family…"
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                aria-label="Search models"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setQuery('')}
+                  className="text-muted-foreground hover:text-foreground text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <label className="flex items-center gap-2 px-3 pb-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnlyFree}
+                onChange={e => setShowOnlyFree(e.target.checked)}
+                className="rounded border-input text-primary focus:ring-primary"
+              />
+              <span className="text-xs text-muted-foreground">Show free models only</span>
+            </label>
           </div>
 
           {/* Results */}
@@ -284,34 +358,20 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
             )}
 
             {grouped.map(([providerID, { providerName, models: pModels }]) => (
-              <div key={providerID}>
-                <div className="sticky top-0 bg-popover/95 backdrop-blur-sm px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border/40">
-                  {providerName}
-                  <span className="ml-1.5 font-normal normal-case opacity-60">
-                    {pModels.length} {pModels.length === 1 ? 'model' : 'models'}
-                  </span>
-                </div>
-                {pModels.map(m => (
-                  <ModelRow
-                    key={m.fullId}
-                    model={m}
-                    selected={m.fullId === value}
-                    disabled={m.fullId !== value && disabledValues.includes(m.fullId)}
-                    onSelect={() => {
-                      onChange(m.fullId)
-                      setOpen(false)
-                      setQuery('')
-                    }}
-                  />
-                ))}
-              </div>
+              <ProviderGroup
+                key={providerID}
+                providerName={providerName}
+                models={pModels}
+                value={value}
+                disabledValues={disabledValues}
+                onChange={onChange}
+                onClose={() => {
+                  setOpen(false)
+                  setQuery('')
+                }}
+                query={query}
+              />
             ))}
-
-            {!query && filtered.length >= MAX_UNFILTERED_MODELS && (
-              <div className="text-center text-xs text-muted-foreground py-3 border-t border-border/40">
-                Showing first {MAX_UNFILTERED_MODELS} of {models?.length ?? 0} — type to search all
-              </div>
-            )}
           </div>
 
           {/* Show all providers toggle */}

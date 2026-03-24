@@ -66,8 +66,9 @@ function QuestionMeta({ question }: { question: InterviewDocumentQuestion }) {
 
 function AnswerBlock({ question }: { question: InterviewDocumentQuestion }) {
   const answerSummary = getInterviewAnswerSummary(question.answer, question.options)
+  const isAiAnswer = question.answer.answered_by === 'ai_skip'
 
-  if (answerSummary.skipped) {
+  if (answerSummary.skipped && !isAiAnswer) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
         This question was skipped and left for downstream drafting to interpret.
@@ -77,6 +78,12 @@ function AnswerBlock({ question }: { question: InterviewDocumentQuestion }) {
 
   return (
     <div className="space-y-2">
+      {isAiAnswer && (
+        <div className="inline-flex items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-800 dark:border-purple-900/60 dark:bg-purple-900/20 dark:text-purple-300">
+          <span className="shrink-0 leading-none pb-[1px]">✨</span>
+          <span>Answered automatically by AI in Drafting specs status</span>
+        </div>
+      )}
       {answerSummary.labels.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {answerSummary.labels.map((label) => (
