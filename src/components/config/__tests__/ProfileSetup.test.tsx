@@ -15,7 +15,7 @@ const existingProfile = {
   councilMembers: JSON.stringify(['opencode/big-pickle', 'openai/gpt-5.1-codex']),
   minCouncilQuorum: 1,
   perIterationTimeout: 1_200_000,
-  councilResponseTimeout: 300_000,
+  councilResponseTimeout: 1_200_000,
   interviewQuestions: 50,
   coverageFollowUpBudgetPercent: 20,
   maxCoveragePasses: 2,
