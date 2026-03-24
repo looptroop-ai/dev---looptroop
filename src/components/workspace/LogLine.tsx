@@ -3,6 +3,16 @@ import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { getEntryColor, formatTimestamp, formatVisibleTag } from './logFormat'
 
+/** For streaming entries: returns [firstLine, ...last5Lines] with a separator when truncated. */
+function getStreamingVisibleLines(text: string): { lines: string[]; truncated: boolean } {
+  const allLines = text.split('\n')
+  if (allLines.length <= 6) return { lines: allLines, truncated: false }
+  return {
+    lines: [allLines[0]!, ...allLines.slice(-5)],
+    truncated: true,
+  }
+}
+
 function renderLogLine(entry: LogEntry, showModelName: boolean) {
   const tagMatch = entry.line.match(/^(\[[^\]]+\])([\s\S]*)$/)
   if (tagMatch) {
@@ -27,6 +37,27 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
     )
   }
   return <>{entry.line}</>
+}
+
+function StreamingPreview({ entry, showModelName }: { entry: LogEntry; showModelName: boolean }) {
+  const { lines, truncated } = useMemo(() => getStreamingVisibleLines(entry.line), [entry.line])
+
+  if (!truncated) {
+    return <div>{renderLogLine(entry, showModelName)}</div>
+  }
+
+  // Build a synthetic entry for the first line to reuse tag/color rendering
+  const firstLineEntry = { ...entry, line: lines[0]! }
+  const tailText = lines.slice(1).join('\n')
+  const tailEntry = { ...entry, line: tailText }
+
+  return (
+    <div>
+      <div>{renderLogLine(firstLineEntry, showModelName)}</div>
+      <div className="text-muted-foreground/50 select-none text-xs py-0.5">{'···'}</div>
+      <div>{renderLogLine(tailEntry, showModelName)}</div>
+    </div>
+  )
 }
 
 export interface LogEntryRowProps {
@@ -99,12 +130,15 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
               getEntryColor(entry),
               'whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] max-w-full',
               !isExpanded && !entry.streaming && 'line-clamp-5',
-              !isExpanded && entry.streaming && 'flex flex-col-reverse overflow-hidden max-h-[7.5rem]'
             )}
           >
-            <div>
-              {renderLogLine(entry, showModelName)}
-            </div>
+            {!isExpanded && entry.streaming ? (
+              <StreamingPreview entry={entry} showModelName={showModelName} />
+            ) : (
+              <div>
+                {renderLogLine(entry, showModelName)}
+              </div>
+            )}
           </div>
           {isTruncatable && !isExpanded && (
             <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-muted to-transparent pointer-events-none" />

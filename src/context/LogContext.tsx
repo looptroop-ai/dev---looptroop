@@ -74,27 +74,25 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
 
     pendingLogsRef.current = {}
 
-    startTransition(() => {
-      setLogsByPhase(prev => {
-        const merged = { ...prev }
-        let hasChanges = false
-        for (const [status, entries] of Object.entries(pending)) {
-          if (entries.length > 0) {
-            hasChanges = true
-            let bucket = merged[status] ?? []
-            for (const entry of entries) {
-              bucket = mergeEntry(bucket, entry)
-            }
-            merged[status] = bucket
+    setLogsByPhase(prev => {
+      const merged = { ...prev }
+      let hasChanges = false
+      for (const [status, entries] of Object.entries(pending)) {
+        if (entries.length > 0) {
+          hasChanges = true
+          let bucket = merged[status] ?? []
+          for (const entry of entries) {
+            bucket = mergeEntry(bucket, entry)
           }
+          merged[status] = bucket
         }
+      }
 
-        if (hasChanges) {
-          persistLogs(ticketId, merged)
-          return merged
-        }
-        return prev
-      })
+      if (hasChanges) {
+        persistLogs(ticketId, merged)
+        return merged
+      }
+      return prev
     })
   }, [ticketId])
 
@@ -203,7 +201,7 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     pendingLogsRef.current[entry.status] = bucket
 
     if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = setTimeout(flushPendingLogs, 200)
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, 0)
     }
   }, [flushPendingLogs])
 
@@ -216,7 +214,7 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     pendingLogsRef.current[entry.status] = bucket
 
     if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = setTimeout(flushPendingLogs, 200)
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, 0)
     }
   }, [flushPendingLogs])
 
