@@ -4,8 +4,8 @@ import { Loader2, CheckCircle2, Circle, Play, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { LoadingText } from '@/components/ui/LoadingText'
-import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import type { Ticket } from '@/hooks/useTickets'
 import { useTicketAction } from '@/hooks/useTickets'
 import { cn } from '@/lib/utils'
@@ -235,7 +235,7 @@ export function CodingView({ ticket }: CodingViewProps) {
             )}
           </div>
         ) : (
-          <PhaseLogPanel phase={ticket.status} ticket={ticket} />
+          <CollapsiblePhaseLogSection phase={ticket.status} ticket={ticket} />
         )}
       </div>
     </div>

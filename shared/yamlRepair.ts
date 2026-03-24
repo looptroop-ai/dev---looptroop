@@ -344,6 +344,69 @@ export function repairYamlDuplicateKeys(yaml: string): string {
 }
 
 /**
+ * Quote one-line `free_text` scalar values.
+ *
+ * `free_text` fields are always string-typed in our structured artifacts, but
+ * models often emit them as plain YAML scalars. Those are fragile: values that
+ * start with backticks, look like booleans, or contain `: ` can all break YAML
+ * parsing or coerce to the wrong type. This repair wraps any non-empty
+ * one-line plain `free_text:` value in double quotes while preserving block
+ * scalars and already-quoted values.
+ */
+export function repairYamlFreeTextScalars(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+  const SAFE_VALUE_START = /^["'|>&*!#]/
+
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+    if (insideBlockScalar) {
+      if (indent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      insideBlockScalar = true
+      blockScalarBaseIndent = indent
+      result.push(line)
+      continue
+    }
+
+    const freeTextMatch = line.match(/^(\s*(?:-\s+)?free_text\s*:\s*)(.+)$/)
+    if (!freeTextMatch) {
+      result.push(line)
+      continue
+    }
+
+    const prefix = freeTextMatch[1]!
+    const value = freeTextMatch[2]!
+    if (SAFE_VALUE_START.test(value)) {
+      result.push(line)
+      continue
+    }
+
+    result.push(`${prefix}${JSON.stringify(value)}`)
+  }
+
+  return result.join('\n')
+}
+
+/**
  * Repair YAML plain scalars that contain `: ` (colon-space).
  *
  * In YAML, a plain scalar value must not contain `: ` because parsers

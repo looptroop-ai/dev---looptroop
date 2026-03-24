@@ -15,6 +15,7 @@ interface PhaseLogPanelProps {
   phase: string
   logs?: LogEntry[]
   ticket?: Ticket
+  hideHeader?: boolean
 }
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
@@ -22,7 +23,7 @@ type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 const BOTTOM_THRESHOLD = 50
 
-export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelProps) {
+export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = false }: PhaseLogPanelProps) {
   const logCtx = useLogs()
   const isLoadingLogs = logCtx?.isLoadingLogs ?? false
   const phaseLogs: LogEntry[] = useMemo(
@@ -185,11 +186,13 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket }: PhaseLogPanelPr
 
   return (
     <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-      <div className="px-1 py-1.5 flex items-center gap-2">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Log — {getStatusUserLabel(phase)}
-        </span>
-      </div>
+      {!hideHeader && (
+        <div className="px-1 py-1.5 flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Log — {getStatusUserLabel(phase)}
+          </span>
+        </div>
+      )}
       <div className="text-xs text-muted-foreground px-1 mb-1">{description}</div>
       <div className="flex gap-1 px-1 py-1 items-center flex-wrap">
         {FIXED_TABS.map(tab => {

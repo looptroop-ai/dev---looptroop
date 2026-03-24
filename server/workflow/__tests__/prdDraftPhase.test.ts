@@ -182,8 +182,9 @@ describe('handlePrdDraft', () => {
       _onOpenCodePromptDispatched: unknown,
       onFullAnswersProgress?: (entry: {
         memberId: string
-        status: 'finished'
-        outcome: 'completed'
+        status: 'session_created' | 'finished'
+        outcome?: 'completed'
+        sessionId?: string
         duration?: number
         content?: string
         questionCount?: number
@@ -191,9 +192,9 @@ describe('handlePrdDraft', () => {
       }) => void,
       onDraftProgress?: (entry: {
         memberId: string
-        status: 'finished'
+        status: 'session_created' | 'finished'
         sessionId?: string
-        outcome: 'completed'
+        outcome?: 'completed'
         duration?: number
         content?: string
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
@@ -288,7 +289,13 @@ describe('handlePrdDraft', () => {
 
       onFullAnswersProgress?.({
         memberId: 'openai/gpt-5-mini',
+        status: 'session_created',
+        sessionId: 'session-full-answers-mini',
+      })
+      onFullAnswersProgress?.({
+        memberId: 'openai/gpt-5-mini',
         status: 'finished',
+        sessionId: 'session-full-answers-mini',
         outcome: 'completed',
         duration: 95,
         content: fullAnswersContent,
@@ -314,7 +321,13 @@ describe('handlePrdDraft', () => {
       })
       onDraftProgress?.({
         memberId: 'openai/gpt-5-mini',
+        status: 'session_created',
+        sessionId: 'session-prd-mini',
+      })
+      onDraftProgress?.({
+        memberId: 'openai/gpt-5-mini',
         status: 'finished',
+        sessionId: 'session-prd-mini',
         outcome: 'completed',
         duration: 125,
         content,
@@ -454,6 +467,7 @@ describe('handlePrdDraft', () => {
     })
     expect(existsSync(paths.executionLogPath)).toBe(true)
     const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
+    expect(executionLog).toContain('PRD draft session created for openai/gpt-5-mini: session-prd-mini.')
     expect(executionLog).toContain('produced Full Answers (1 answered questions).')
     expect(executionLog).toContain('drafted PRD (1 epics · 2 user stories).')
     expect(executionLog).toContain('PRD draft normalization applied repairs')

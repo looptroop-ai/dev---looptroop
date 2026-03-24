@@ -12,6 +12,7 @@ export interface SessionOwnership {
   memberId?: string | null
   beadId?: string | null
   iteration?: number | null
+  step?: string | null
 }
 
 function findSessionRecord(sessionId: string) {
@@ -38,6 +39,7 @@ export class SessionManager {
     memberId?: string,
     beadId?: string,
     iteration?: number,
+    step?: string,
     projectPath?: string,
   ): Promise<Session> {
     const context = getTicketContext(ticketId)
@@ -54,6 +56,7 @@ export class SessionManager {
         memberId: memberId ?? null,
         beadId: beadId ?? null,
         iteration: iteration ?? null,
+        step: step ?? null,
         state: 'active',
       })
       .run()
@@ -74,6 +77,7 @@ export class SessionManager {
       ownership.memberId ?? undefined,
       ownership.beadId ?? undefined,
       ownership.iteration ?? undefined,
+      ownership.step ?? undefined,
       projectPath,
     )
   }
@@ -137,6 +141,11 @@ export class SessionManager {
       conditions.push(isNull(opencodeSessions.iteration))
     } else {
       conditions.push(eq(opencodeSessions.iteration, ownership.iteration))
+    }
+    if (ownership.step == null) {
+      conditions.push(isNull(opencodeSessions.step))
+    } else {
+      conditions.push(eq(opencodeSessions.step, ownership.step))
     }
     return context.projectDb
       .select()

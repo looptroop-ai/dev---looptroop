@@ -1,4 +1,4 @@
-import { PhaseLogPanel } from './PhaseLogPanel'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 
 export function CanceledView() {
   return (
@@ -10,9 +10,7 @@ export function CanceledView() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">
-        <PhaseLogPanel phase="CANCELED" />
-      </div>
+      <CollapsiblePhaseLogSection phase="CANCELED" className="px-4 pb-4" />
     </div>
   )
 }

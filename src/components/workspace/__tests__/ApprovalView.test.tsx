@@ -38,6 +38,10 @@ vi.mock('../VerticalResizeHandle', () => ({
   VerticalResizeHandle: () => <div data-testid="resize-handle" />,
 }))
 
+vi.mock('../CollapsiblePhaseLogSection', () => ({
+  CollapsiblePhaseLogSection: () => <div data-testid="collapsible-log-section" />,
+}))
+
 vi.mock('@/components/editor/YamlEditor', () => ({
   YamlEditor: ({
     value,

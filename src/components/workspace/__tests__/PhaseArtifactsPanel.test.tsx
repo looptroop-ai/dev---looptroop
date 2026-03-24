@@ -235,10 +235,13 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
-    expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
+    // Model names appear in both Part 1 (full answers) and Part 2 (drafts)
+    expect(screen.queryAllByText('gpt-5.2').length).toBeGreaterThan(0)
+    expect(screen.queryAllByText('gpt-5.1-codex').length).toBeGreaterThan(0)
     expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
-    expect(screen.getByText('waiting for response')).toBeInTheDocument()
+    expect(screen.queryAllByText('waiting for response').length).toBeGreaterThan(0)
+    expect(screen.getByText('Part 1')).toBeInTheDocument()
+    expect(screen.getByText('Part 2')).toBeInTheDocument()
   })
 
   it('shows PRD draft chips with PRD-specific completion metrics', () => {
@@ -283,8 +286,9 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    expect(screen.getByText('gpt-5.1-codex')).toBeInTheDocument()
-    expect(screen.getByText('gpt-5.2')).toBeInTheDocument()
+    // Model names appear in both Part 1 (full answers) and Part 2 (drafts)
+    expect(screen.queryAllByText('gpt-5.1-codex').length).toBeGreaterThan(0)
+    expect(screen.queryAllByText('gpt-5.2').length).toBeGreaterThan(0)
     expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
     expect(screen.getByText('2 epics · 5 user stories')).toBeInTheDocument()
     expect(screen.queryByText('proposed 3 questions')).not.toBeInTheDocument()

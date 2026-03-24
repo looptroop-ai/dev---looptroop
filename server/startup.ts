@@ -65,6 +65,7 @@ export function startupSequence() {
               memberId: session.memberId,
               beadId: session.beadId,
               ...(session.iteration != null ? { iteration: session.iteration } : {}),
+              step: session.step,
             })
           : null
 

@@ -215,6 +215,64 @@ describe('validatePrdDraft', () => {
     expect(result.repairWarnings.join('\n')).toContain('Cleared approval fields')
   })
 
+  it('repairs malformed free_text scalars before normalizing a resolved interview', () => {
+    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+
+    const result = validateResolvedInterview([
+      'schema_version: 1',
+      'ticket_id: PROJ-7',
+      'artifact: interview',
+      'status: approved',
+      'generated_by:',
+      '  winner_model: wrong-model',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which workflow guardrails are mandatory?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: `language` comes from the file extension',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    prompt: Which downstream phases are out of scope for this pass?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: PRD approval and coverage stay out of scope.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:04:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Harden DRAFTING_PRD]',
+      '  constraints: [Preserve council mechanics]',
+      '  non_goals: [Touch PRD approval]',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: user',
+      '  approved_at: 2026-03-23T09:12:00.000Z',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })
+
+    expect(result.document.questions[0]?.answer.free_text).toBe('`language` comes from the file extension')
+    expect(result.document.questions[0]?.answer.answered_by).toBe('ai_skip')
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized generated_by.winner_model')
+  })
+
   it('rejects resolved interviews that modify existing answered user questions', () => {
     const canonicalInterviewContent = buildInterviewYaml('PROJ-7')
 

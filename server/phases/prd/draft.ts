@@ -34,6 +34,8 @@ interface StructuredStepSuccess {
   structuredOutput: DraftStructuredOutputMeta
 }
 
+type PrdDraftSubstep = 'full_answers' | 'prd_draft'
+
 class StructuredStepError extends Error {
   constructor(
     message: string,
@@ -54,7 +56,7 @@ export interface PrdDraftPhaseResult extends DraftPhaseResult {
 
 export interface PrdDraftStepEvent {
   memberId: string
-  step: 'full_answers' | 'prd_draft'
+  step: PrdDraftSubstep
   status: 'started' | 'completed' | 'skipped' | 'failed'
   outcome?: MemberOutcome
   duration?: number
@@ -134,6 +136,7 @@ async function executeStructuredStep(
   projectPath: string,
   baseParts: PromptPart[],
   options: {
+    step: PrdDraftSubstep
     signal?: AbortSignal
     ticketId?: string
     phaseAttempt?: number
@@ -176,6 +179,7 @@ async function executeStructuredStep(
         phase: 'DRAFTING_PRD',
         phaseAttempt: options.phaseAttempt ?? 1,
         memberId: member.modelId,
+        step: options.step,
         keepActive: true,
       }
     : undefined
@@ -333,8 +337,8 @@ export async function draftPRD(
 
   const results = await Promise.all(members.map(async (member) => {
     const memberStart = Date.now()
-    const sessionManager = new SessionManager(adapter)
-    let activeSession: Session | undefined
+    const sessionManager = options.ticketId ? new SessionManager(adapter) : null
+    let currentSession: Session | undefined
     let fullAnswersResult: DraftResult | null = null
     let prdResult: DraftResult | null = null
 
@@ -389,7 +393,7 @@ export async function draftPRD(
         onFullAnswersProgress?.({
           memberId: member.modelId,
           status: 'finished',
-          sessionId: activeSession?.id,
+          sessionId: currentSession?.id,
           outcome: fullAnswersResult.outcome,
           duration: fullAnswersResult.duration,
           error: fullAnswersResult.error,
@@ -404,7 +408,7 @@ export async function draftPRD(
         onDraftProgress?.({
           memberId: member.modelId,
           status: 'finished',
-          sessionId: activeSession?.id,
+          sessionId: currentSession?.id,
           outcome: prdResult.outcome,
           duration: prdResult.duration,
           error: prdResult.error,
@@ -430,11 +434,12 @@ export async function draftPRD(
         )
 
         const fullAnswersStep = await executeStructuredStep(adapter, member, projectPath, gapResolutionParts, {
+          step: 'full_answers',
           signal,
           ticketId: options.ticketId,
           phaseAttempt: options.phaseAttempt,
           timeoutMs: options.draftTimeoutMs,
-          activeSession,
+          activeSession: currentSession,
           deadlineAt,
           validateStep: (content) => {
             const result = validateResolvedInterview(content, {
@@ -462,7 +467,7 @@ export async function draftPRD(
           },
         })
 
-        activeSession = fullAnswersStep.session
+        currentSession = fullAnswersStep.session
         resolvedInterviewContent = fullAnswersStep.content
         fullAnswersResult = buildCompletedDraft(
           member.modelId,
@@ -475,7 +480,7 @@ export async function draftPRD(
         onFullAnswersProgress?.({
           memberId: member.modelId,
           status: 'finished',
-          sessionId: activeSession.id,
+          sessionId: currentSession.id,
           outcome: 'completed',
           duration: fullAnswersResult.duration,
           content: fullAnswersResult.content,
@@ -489,6 +494,11 @@ export async function draftPRD(
           outcome: 'completed',
           duration: fullAnswersResult.duration,
         })
+
+        if (currentSession && sessionManager) {
+          await sessionManager.completeSession(currentSession.id)
+        }
+        currentSession = undefined
       } else {
         const syntheticFullAnswers = validateResolvedInterview(canonicalInterview, {
           ticketId: options.ticketExternalId ?? options.ticketId ?? '',
@@ -536,11 +546,12 @@ export async function draftPRD(
       )
 
       const prdStep = await executeStructuredStep(adapter, member, projectPath, prdPromptParts, {
+        step: 'prd_draft',
         signal,
         ticketId: options.ticketId,
         phaseAttempt: options.phaseAttempt,
         timeoutMs: options.draftTimeoutMs,
-        activeSession,
+        activeSession: currentSession,
         deadlineAt,
         validateStep: (content) => {
           const result = validatePrdDraft(content, {
@@ -558,9 +569,16 @@ export async function draftPRD(
         onOpenCodeSessionLog,
         onOpenCodeStreamEvent,
         onOpenCodePromptDispatched,
+        onSessionCreated: (sessionId) => {
+          onDraftProgress?.({
+            memberId: member.modelId,
+            status: 'session_created',
+            sessionId,
+          })
+        },
       })
 
-      activeSession = prdStep.session
+      currentSession = prdStep.session
       prdResult = buildCompletedDraft(
         member.modelId,
         Date.now() - memberStart,
@@ -572,7 +590,7 @@ export async function draftPRD(
       onDraftProgress?.({
         memberId: member.modelId,
         status: 'finished',
-        sessionId: activeSession.id,
+        sessionId: currentSession.id,
         outcome: 'completed',
         duration: prdResult.duration,
         content: prdResult.content,
@@ -587,9 +605,10 @@ export async function draftPRD(
         duration: prdResult.duration,
       })
 
-      if (activeSession) {
-        await sessionManager.completeSession(activeSession.id)
+      if (currentSession && sessionManager) {
+        await sessionManager.completeSession(currentSession.id)
       }
+      currentSession = undefined
 
       return {
         fullAnswers: fullAnswersResult,
@@ -597,8 +616,8 @@ export async function draftPRD(
       }
     } catch (error) {
       try {
-        if (activeSession) {
-          await sessionManager.abandonSession(activeSession.id)
+        if (currentSession && sessionManager) {
+          await sessionManager.abandonSession(currentSession.id)
         }
       } catch {
         // Best effort cleanup only.

@@ -248,6 +248,55 @@ function buildVerificationMemberArtifacts(
   }]
 }
 
+export function buildFullAnswerMemberArtifacts(
+  phase: string,
+  artifacts: DBartifact[],
+  configuredMembers: string[],
+  fallbackCount: number = 3,
+): CouncilMemberArtifactChip[] {
+  if (phase !== 'DRAFTING_PRD') return []
+
+  const fullAnswersArtifact = findLatestArtifact(artifacts, (a) => a.phase === phase && a.artifactType === 'prd_full_answers')
+  const result = parseCouncilResult(fullAnswersArtifact?.content)
+  const drafts = Array.isArray(result?.drafts) ? result.drafts : []
+  const draftByMember = new Map(drafts.map((d) => [d.memberId, d]))
+  const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((d) => d.memberId), fallbackCount)
+
+  return orderedMembers.map((memberId) => {
+    const draft = draftByMember.get(memberId)
+    const viewer = makeFullAnswersViewer(memberId, fullAnswersArtifact?.content ?? '')
+    return {
+      key: `${phase}:fullanswers:${memberId}`,
+      modelId: memberId,
+      action: 'drafting' as CouncilAction,
+      outcome: draft?.outcome ?? 'pending',
+      detail: getFullAnswersDetail(draft),
+      viewer,
+    }
+  })
+}
+
+function makeFullAnswersViewer(modelId: string, content: string): CouncilViewerArtifact {
+  const safe = encodeURIComponent(modelId)
+  return {
+    id: `prd-fullanswers-member-${safe}`,
+    label: `Full Answers — ${getModelDisplayName(modelId)}`,
+    description: 'Interview results with skipped answers filled in',
+    content,
+  }
+}
+
+function getFullAnswersDetail(draft: DraftLike | undefined): string {
+  if (!draft) return 'waiting for response'
+  if (draft.outcome === 'pending') return 'filling in answers'
+  if (draft.outcome === 'timed_out') return 'no response received'
+  if (draft.outcome === 'failed') return draft.error || 'runtime failure'
+  if (draft.outcome === 'invalid_output') return draft.error || 'malformed response'
+  if (!draft.content) return ''
+  const count = countQuestionsInContent(draft.content)
+  return count > 0 ? `${count} answers` : ''
+}
+
 function formatPrdDraftMetrics(draft: DraftLike): string | null {
   const epicCount = draft.draftMetrics?.epicCount
   const userStoryCount = draft.draftMetrics?.userStoryCount

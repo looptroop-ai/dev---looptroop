@@ -130,7 +130,7 @@ project/                                        ← main repo (main branch)
 All council operations run in parallel: draft generation (each member drafts simultaneously via separate OpenCode sessions) and voting (each member scores all drafts simultaneously). Only the refinement step is sequential.
 
 #### OpenCode Session Lifecycle
-- **Council phases (draft, vote):** Create a fresh OpenCode session per council member per phase attempt. Do not reuse prior council-step history.
+- **Council phases (draft, vote):** Create a fresh OpenCode session per council member per phase attempt. Do not reuse prior council-step history. PRD drafting is split into owned sub-steps: `full_answers` gets its own fresh session only when skipped interview answers exist, and `prd_draft` always starts in a separate fresh session.
 - **Winner-only phases (refine, coverage):** Create a single fresh OpenCode session for the winning model only. Coverage verification is never sent to all council members — only the winner runs it.
 - **Execution phase:** Create a fresh OpenCode session per bead execution attempt (`bead_id` + `iteration`). Do not reuse sessions across beads.
 - **Context wipe behavior:** On retry/context wipe, always start a new session for the new attempt. Failed-attempt session history is not reused.
@@ -341,7 +341,7 @@ The primary panel displays the main content for the ticket's current phase. When
 
 #### II. PRD Phase (Product Requirements Document)
 
-*   **Generation:** Context is refreshed, now each model gets codebase map, ticket details, and the final Interview Results. For each skipped question, AIC members will decide the best approach. A complete PRD is created by each council member using PROM10. (AIC)
+*   **Generation:** Context is refreshed. If the approved Interview Results contain skipped answers, each model first runs a `full_answers` pass in its own fresh session to fill only those gaps. If there are no skipped answers, that pass is skipped entirely. The PRD draft then runs in a separate fresh session where each model gets the codebase map, ticket details, and the complete Full Answers interview artifact. A complete PRD is created by each council member using PROM10. (AIC)
 *   **Comparison:** SYS anonymizes and randomizes draft order per voter before voting. Context is refreshed; now each model gets the codebase map, ticket details, the final Interview Results, and each PRD draft. Models/critics compare PRD versions and vote/decide which version is best using PROM11. (AIC). Winning model is decided by SYS based on the highest score.
 *   **Refinement:** Context is refreshed, now winning AIC gets codebase map, ticket details, the final Interview Results and all PRD drafts. The winning model incorporates relevant missing elements from other proposals into its winning draft using PROM12. (winning AIC)
 *   **Coverage Verification Pass (winning AIC):**

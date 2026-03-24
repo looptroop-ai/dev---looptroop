@@ -89,6 +89,7 @@ export const opencodeSessions = sqliteTable('opencode_sessions', {
   memberId: text('member_id'), // council member model ID
   beadId: text('bead_id'),
   iteration: integer('iteration'),
+  step: text('step'), // optional sub-step when a phase owns multiple sessions
   state: text('state').notNull().default('active'), // active, completed, abandoned
   lastEventId: text('last_event_id'),
   lastEventAt: text('last_event_at'),

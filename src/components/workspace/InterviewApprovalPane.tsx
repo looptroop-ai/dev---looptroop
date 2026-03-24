@@ -3,12 +3,11 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { PhaseLogPanel } from './PhaseLogPanel'
-import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { InterviewDocumentView } from './InterviewDocumentView'
 import { InterviewApprovalAnswerEditor } from './InterviewApprovalAnswerEditor'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { clearTicketArtifactsCache } from '@/hooks/useTicketArtifacts'
 import { useInterviewQuestions, useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
 import type { InterviewAnswerUpdate, InterviewDocument } from '@shared/interviewArtifact'
@@ -90,8 +89,6 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   const [approveError, setApproveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
   const [discardTarget, setDiscardTarget] = useState<DiscardTarget>(null)
-  const [logExpanded, setLogExpanded] = useState(false)
-  const [logHeight, setLogHeight] = useState(200)
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -463,18 +460,14 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
         )}
       </div>
 
-      {logExpanded ? <VerticalResizeHandle onResize={setLogHeight} containerRef={containerRef} /> : null}
-      <div className="shrink-0 px-4 pb-4 flex flex-col" style={logExpanded ? { height: logHeight, minHeight: 0 } : undefined}>
-        <button
-          type="button"
-          onClick={() => setLogExpanded((value) => !value)}
-          className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider py-1 hover:text-foreground transition-colors"
-        >
-          <span className="inline-block transition-transform" style={{ transform: logExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-          Log
-        </button>
-        {logExpanded ? <PhaseLogPanel phase={ticket.status} ticket={ticket} /> : null}
-      </div>
+      <CollapsiblePhaseLogSection
+        phase={ticket.status}
+        ticket={ticket}
+        defaultExpanded={false}
+        variant="bottom"
+        className="px-4 pb-4"
+        resizeContainerRef={containerRef}
+      />
     </div>
   )
 }

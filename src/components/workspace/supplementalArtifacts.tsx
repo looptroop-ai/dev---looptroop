@@ -21,16 +21,22 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     return [{ id: 'final-interview', label: 'Interview Results', description: 'Canonical interview questions and answers', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COUNCIL_VOTING_PRD') {
-    return [{ id: 'winner-prd-draft', label: 'Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'vote-details', label: 'Voting Details', description: 'Weighted scoring across all council votes', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'winner-prd-draft', label: 'Winning PRD Draft', description: 'Highest-scored PRD draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'DRAFTING_PRD') {
-    return [{ id: 'prd-full-answers', label: 'Full Answers', description: 'Model-specific interview results with skipped answers filled in', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return []
   }
   if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
     return [{ id: 'refined-prd', label: 'Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COUNCIL_VOTING_BEADS') {
-    return [{ id: 'winner-beads-draft', label: 'Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> }]
+    return [
+      { id: 'vote-details', label: 'Voting Details', description: 'Weighted scoring across all council votes', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'winner-beads-draft', label: 'Winning Beads Draft', description: 'Highest-scored beads draft', icon: <Trophy className="h-3.5 w-3.5" /> },
+    ]
   }
   if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
     return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]

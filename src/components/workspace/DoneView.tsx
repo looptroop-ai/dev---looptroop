@@ -1,5 +1,5 @@
-import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 
 export function DoneView() {
   return (
@@ -17,9 +17,7 @@ export function DoneView() {
         <PhaseArtifactsPanel phase="COMPLETED" isCompleted={true} />
       </div>
 
-      <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">
-        <PhaseLogPanel phase="COMPLETED" />
-      </div>
+      <CollapsiblePhaseLogSection phase="COMPLETED" className="px-4 pb-4" />
     </div>
   )
 }

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTicketAction } from '@/hooks/useTickets'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
-import { PhaseLogPanel } from './PhaseLogPanel'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import type { Ticket } from '@/hooks/useTickets'
 
 interface ErrorViewProps {
@@ -89,9 +89,7 @@ export function ErrorView({ ticket }: ErrorViewProps) {
         </Card>
       </div>
 
-      <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">
-        <PhaseLogPanel phase="BLOCKED_ERROR" logs={errorLogs} />
-      </div>
+      <CollapsiblePhaseLogSection phase="BLOCKED_ERROR" logs={errorLogs} ticket={ticket} className="px-4 pb-4" />
     </div>
   )
 }

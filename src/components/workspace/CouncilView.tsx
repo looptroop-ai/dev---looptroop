@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { PhaseLogPanel } from './PhaseLogPanel'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 
 import type { Ticket } from '@/hooks/useTickets'
@@ -84,9 +84,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
         />
       </div>
 
-      <div className="flex-1 min-h-0 px-4 pb-4 flex flex-col">
-        <PhaseLogPanel phase={phase} ticket={ticket} />
-      </div>
+      <CollapsiblePhaseLogSection phase={phase} ticket={ticket} className="px-4 pb-4" />
     </div>
   )
 }

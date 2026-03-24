@@ -85,6 +85,7 @@ export async function runOpenCodePrompt({
       ...(sessionOwnership.memberId !== undefined ? { memberId: sessionOwnership.memberId } : {}),
       ...(sessionOwnership.beadId !== undefined ? { beadId: sessionOwnership.beadId } : {}),
       ...(sessionOwnership.iteration !== undefined ? { iteration: sessionOwnership.iteration } : {}),
+      ...(sessionOwnership.step !== undefined ? { step: sessionOwnership.step } : {}),
     }) ?? await sessionManager!.createSessionForPhase(
       sessionOwnership.ticketId,
       sessionOwnership.phase,
@@ -92,6 +93,7 @@ export async function runOpenCodePrompt({
       sessionOwnership.memberId ?? undefined,
       sessionOwnership.beadId ?? undefined,
       sessionOwnership.iteration ?? undefined,
+      sessionOwnership.step ?? undefined,
       projectPath,
     )
     : await adapter.createSession(projectPath, signal)
@@ -143,6 +145,7 @@ export async function runOpenCodeSessionPrompt({
       ...(sessionOwnership.memberId !== undefined ? { memberId: sessionOwnership.memberId } : {}),
       ...(sessionOwnership.beadId !== undefined ? { beadId: sessionOwnership.beadId } : {}),
       ...(sessionOwnership.iteration !== undefined ? { iteration: sessionOwnership.iteration } : {}),
+      ...(sessionOwnership.step !== undefined ? { step: sessionOwnership.step } : {}),
     })
     if (!reconnected || reconnected.id !== session.id) {
       throw new Error(`OpenCode session ${session.id} is no longer active for ${sessionOwnership.ticketId}:${sessionOwnership.phase}`)

@@ -89,6 +89,7 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       member_id TEXT,
       bead_id TEXT,
       iteration INTEGER,
+      step TEXT,
       state TEXT NOT NULL DEFAULT 'active',
       last_event_id TEXT,
       last_event_at TEXT,
@@ -116,6 +117,12 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   ensureColumn(sqlite, 'tickets', 'locked_max_coverage_passes', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_main_implementer_variant', 'TEXT')
   ensureColumn(sqlite, 'tickets', 'locked_council_member_variants', 'TEXT')
+  ensureColumn(sqlite, 'opencode_sessions', 'step', 'TEXT')
+
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase_step
+      ON opencode_sessions(ticket_id, phase, phase_attempt, member_id, bead_id, iteration, step, state);
+  `)
 }
 
 export function getProjectDatabase(projectRoot: string): ProjectDatabase {

@@ -678,7 +678,7 @@ export function PrdDraftView({ content }: { content: string }) {
               <CollapsibleSection
                 key={`${epic.id ?? 'epic'}-${index}`}
                 title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{epic.id || `EPIC-${index + 1}`}</span> {epic.title}</span>}
-                defaultOpen={index === 0}
+                defaultOpen={false}
               >
                 <div className="space-y-2 p-2">
                   {epic.objective && <div className="text-xs"><strong className="text-muted-foreground font-medium">Objective:</strong> {epic.objective}</div>}
@@ -727,7 +727,7 @@ export function PrdDraftView({ content }: { content: string }) {
   return (
     <div className="space-y-2">
       {sections.map((s, i) => (
-        <CollapsibleSection key={i} title={s.title} defaultOpen={i === 0}>
+        <CollapsibleSection key={i} title={s.title}>
           <div className="space-y-1">
             {s.items.map((item, j) => <div key={j} className="text-xs">• {item}</div>)}
           </div>
@@ -1194,58 +1194,6 @@ function RelevantFilesScanView({ content }: { content: string }) {
   )
 }
 
-function FullAnswersArtifactView({ content }: { content: string }) {
-  const councilResult = tryParseCouncilResult(content)
-  const drafts = Array.isArray(councilResult?.drafts) ? councilResult.drafts : []
-
-  if (drafts.length === 0) {
-    return <RawContentView content={content} />
-  }
-
-  return (
-    <div className="space-y-3">
-      {drafts.map((draft, index) => {
-        const header = (
-          <ModelBadge modelId={draft.memberId} active={draft.outcome === 'completed'} className="px-3 py-2 h-auto flex-1 justify-start">
-            <div className="min-w-0 text-left">
-              <div className="text-xs font-medium truncate">{getModelDisplayName(draft.memberId)}</div>
-              <div className="text-[10px] mt-0.5 opacity-80 normal-case">
-                {getCouncilStatusEmoji(draft.outcome, 'drafting')} {getCouncilStatusLabel(draft.outcome, 'drafting')}
-              </div>
-            </div>
-          </ModelBadge>
-        )
-
-        if (draft.content) {
-          return (
-            <div key={`${draft.memberId}-${index}`} className="space-y-2">
-              {header}
-              <InterviewAnswersView content={draft.content} />
-            </div>
-          )
-        }
-
-        return (
-          <div key={`${draft.memberId}-${index}`} className="space-y-2">
-            {header}
-            <div className="text-xs text-muted-foreground italic">
-              {draft.outcome === 'pending'
-                ? 'Full Answers artifact is still being generated for this model.'
-                : draft.outcome === 'timed_out'
-                  ? 'No Full Answers response was received before the council timeout.'
-                  : draft.outcome === 'failed'
-                    ? (draft.error || 'This model failed before producing Full Answers.')
-                    : draft.outcome === 'invalid_output'
-                      ? (draft.error || 'This model returned malformed Full Answers output.')
-                      : 'No Full Answers content available yet.'}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
   if (artifactId === 'relevant-files-scan') {
     return <RelevantFilesScanView content={content} />
@@ -1263,15 +1211,6 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
       </WithRawTab>
     )
   }
-  if (artifactId === 'prd-full-answers') {
-    const header = <div className="text-xs font-semibold px-1">Full Answers</div>
-    return (
-      <WithRawTab content={content} structuredLabel="Full Answers" header={header}>
-        <FullAnswersArtifactView content={content} />
-      </WithRawTab>
-    )
-  }
-
   if (artifactId?.endsWith('coverage-result')) {
     const coverageResult = parseCoverageArtifact(content)
     const header = coverageResult?.winnerId ? (
@@ -1443,14 +1382,16 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     ) : null
 
     if (draftContent) {
+      const isFullAnswers = artifactId?.includes('fullanswers')
       const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
-      const isPrd = artifactId?.includes('prd')
+      const isPrd = artifactId?.includes('prd') && !isFullAnswers
       const isBeads = artifactId?.includes('beads')
 
-      const structured = isInterview ? <InterviewDraftView content={draftContent} />
-        : isPrd ? <PrdDraftView content={draftContent} />
-          : isBeads ? <BeadsDraftView content={draftContent} />
-            : null
+      const structured = isFullAnswers ? <InterviewAnswersView content={draftContent} />
+        : isInterview ? <InterviewDraftView content={draftContent} />
+          : isPrd ? <PrdDraftView content={draftContent} />
+            : isBeads ? <BeadsDraftView content={draftContent} />
+              : null
 
       if (structured) {
         return (
@@ -1464,13 +1405,15 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
     if (draft) {
       if (draft.outcome === 'invalid_output' && draft.content) {
+        const isFullAnswers = artifactId?.includes('fullanswers')
         const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
-        const isPrd = artifactId?.includes('prd')
+        const isPrd = artifactId?.includes('prd') && !isFullAnswers
         const isBeads = artifactId?.includes('beads')
-        const structured = isInterview ? <InterviewDraftView content={draft.content} />
-          : isPrd ? <PrdDraftView content={draft.content} />
-            : isBeads ? <BeadsDraftView content={draft.content} />
-              : null
+        const structured = isFullAnswers ? <InterviewAnswersView content={draft.content} />
+          : isInterview ? <InterviewDraftView content={draft.content} />
+            : isPrd ? <PrdDraftView content={draft.content} />
+              : isBeads ? <BeadsDraftView content={draft.content} />
+                : null
         return (
           <div className="space-y-2">
             {header}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe('repairYamlListDashSpace', () => {
   it('passes through correctly formatted list items unchanged', () => {
@@ -362,6 +362,50 @@ describe('repairYamlDuplicateKeys', () => {
     expect(parsed.questions[0]!.options?.map((option) => option.id)).toEqual(['opt1', 'opt2', 'opt3', 'opt4'])
   })
 
+})
+
+describe('repairYamlFreeTextScalars', () => {
+  it('quotes plain free_text values that begin with backticks', () => {
+    const input = [
+      'answer:',
+      '  free_text: `language` comes from the file extension',
+      '  answered_by: user',
+    ].join('\n')
+
+    expect(() => jsYaml.load(input)).toThrow()
+
+    const repaired = repairYamlFreeTextScalars(input)
+    expect(repaired).toContain('free_text: "`language` comes from the file extension"')
+
+    const parsed = jsYaml.load(repaired) as { answer: { free_text: string } }
+    expect(parsed.answer.free_text).toBe('`language` comes from the file extension')
+  })
+
+  it('quotes plain free_text values containing colon-space', () => {
+    const input = [
+      'answer:',
+      '  free_text: Log type: structured execution trace',
+      '  answered_by: user',
+    ].join('\n')
+
+    const repaired = repairYamlFreeTextScalars(input)
+    expect(repaired).toContain('free_text: "Log type: structured execution trace"')
+
+    const parsed = jsYaml.load(repaired) as { answer: { free_text: string } }
+    expect(parsed.answer.free_text).toBe('Log type: structured execution trace')
+  })
+
+  it('preserves block-scalar free_text values unchanged', () => {
+    const input = [
+      'answer:',
+      '  free_text: |-',
+      '    `language` comes from the file extension',
+      '    log type: structured execution trace',
+      '  answered_by: user',
+    ].join('\n')
+
+    expect(repairYamlFreeTextScalars(input)).toBe(input)
+  })
 })
 
 describe('repairYamlPlainScalarColons', () => {

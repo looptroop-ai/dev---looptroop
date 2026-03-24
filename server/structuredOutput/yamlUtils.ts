@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -151,9 +151,10 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
       }
       const afterInline = inlineRepaired !== effectiveBase ? inlineRepaired : effectiveBase
 
-      // Pre-processing: strip XML tags, remove duplicate keys, fix missing list-dash space
+      // Pre-processing: strip XML tags, quote fragile free_text values, remove duplicate keys, fix missing list-dash space
       const xmlStripped = stripSpuriousXmlTags(afterInline)
-      const dashFixed = repairYamlListDashSpace(xmlStripped !== afterInline ? xmlStripped : afterInline)
+      const freeTextQuoted = repairYamlFreeTextScalars(xmlStripped)
+      const dashFixed = repairYamlListDashSpace(freeTextQuoted)
       const base = repairYamlDuplicateKeys(dashFixed)
 
       // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)

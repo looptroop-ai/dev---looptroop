@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, memo, useMemo } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { getEntryColor, formatTimestamp, formatVisibleTag } from './logFormat'
@@ -39,18 +39,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   const [isExpanded, setIsExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
-  
-  // Fast multiline check
-  const isMultiline = useMemo(() => {
-    let count = 0;
-    let pos = entry.line.indexOf('\n');
-    while (pos !== -1) {
-      count++;
-      if (count >= 5) return true;
-      pos = entry.line.indexOf('\n', pos + 1);
-    }
-    return false;
-  }, [entry.line]);
+  const isMultiline = entry.line.split('\n').length > 5
 
   useEffect(() => {
     const el = contentRef.current
@@ -98,13 +87,10 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             className={cn(
               getEntryColor(entry),
               'whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] max-w-full',
-              !isExpanded && !entry.streaming && 'line-clamp-5',
-              !isExpanded && entry.streaming && 'flex flex-col-reverse overflow-hidden max-h-[7.5rem]'
+              !isExpanded && 'line-clamp-5'
             )}
           >
-            <div>
-              {renderLogLine(entry, showModelName)}
-            </div>
+            {renderLogLine(entry, showModelName)}
           </div>
           {isTruncatable && !isExpanded && (
             <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-muted to-transparent pointer-events-none" />

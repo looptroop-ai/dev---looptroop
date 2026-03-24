@@ -1,10 +1,9 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
-import { PhaseLogPanel } from './PhaseLogPanel'
-import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { PhaseArtifactsPanel, PrdDraftView } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 
 import { StructuredViewer } from '@/components/editor/StructuredViewer'
 import { YamlEditor } from '@/components/editor/YamlEditor'
@@ -100,8 +99,6 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
-  const [logExpanded, setLogExpanded] = useState(false)
-  const [logHeight, setLogHeight] = useState(200)
   const containerRef = useRef<HTMLDivElement>(null)
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
@@ -265,18 +262,14 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
         ) : null}
       </div>
 
-      {logExpanded && <VerticalResizeHandle onResize={setLogHeight} containerRef={containerRef} />}
-      <div className="shrink-0 px-4 pb-4 flex flex-col" style={logExpanded ? { height: logHeight, minHeight: 0 } : undefined}>
-        <button
-          type="button"
-          onClick={() => setLogExpanded(v => !v)}
-          className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider py-1 hover:text-foreground transition-colors"
-        >
-          <span className="inline-block transition-transform" style={{ transform: logExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-          Log
-        </button>
-        {logExpanded && <PhaseLogPanel phase={ticket.status} ticket={ticket} />}
-      </div>
+      <CollapsiblePhaseLogSection
+        phase={ticket.status}
+        ticket={ticket}
+        defaultExpanded={false}
+        variant="bottom"
+        className="px-4 pb-4"
+        resizeContainerRef={containerRef}
+      />
     </div>
   )
 }

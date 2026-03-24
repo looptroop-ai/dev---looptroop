@@ -8,6 +8,7 @@ import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { normalizeTicketArtifact, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
 import {
   buildCouncilMemberArtifacts,
+  buildFullAnswerMemberArtifacts,
   getCouncilAction,
 } from './councilArtifacts'
 import type { ArtifactDef, CouncilOutcome, ViewingArtifact, ViewingArtifactSelection } from './phaseArtifactTypes'
@@ -85,6 +86,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     () => buildCouncilMemberArtifacts(phase, dbArtifacts, configuredMembers, isCompleted, councilMemberCount),
     [configuredMembers, councilMemberCount, dbArtifacts, isCompleted, phase],
   )
+  const fullAnswerArtifacts = useMemo(
+    () => buildFullAnswerMemberArtifacts(phase, dbArtifacts, configuredMembers, councilMemberCount),
+    [configuredMembers, councilMemberCount, dbArtifacts, phase],
+  )
   const action = getCouncilAction(phase)
   const collapseVotingMemberArtifacts = shouldCollapseVotingMemberArtifacts(phase)
   const prominentSupplementalArtifacts = collapseVotingMemberArtifacts ? supplementalArtifacts : []
@@ -151,7 +156,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     if (!viewingSelection) return null
 
     if (viewingSelection.kind === 'member') {
-      return memberArtifacts.find((artifact) => artifact.key === viewingSelection.key)?.viewer ?? null
+      return memberArtifacts.find((artifact) => artifact.key === viewingSelection.key)?.viewer
+        ?? fullAnswerArtifacts.find((artifact) => artifact.key === viewingSelection.key)?.viewer
+        ?? null
     }
 
     const artifact = supplementalArtifacts.find((item) => item.id === viewingSelection.id)
@@ -164,51 +171,114 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       content: findDbContent(artifact) ?? '',
       icon: artifact.icon,
     }
-  }, [findDbContent, memberArtifacts, supplementalArtifacts, viewingSelection])
+  }, [findDbContent, fullAnswerArtifacts, memberArtifacts, supplementalArtifacts, viewingSelection])
 
   const visibleMemberArtifacts = collapseVotingMemberArtifacts ? [] : memberArtifacts
   const compactInterviewArtifacts = phase === 'COMPILING_INTERVIEW'
   const hasTopArtifactRow = visibleMemberArtifacts.length > 0 || prominentSupplementalArtifacts.length > 0
-  const hasArtifacts = hasTopArtifactRow || inlineSupplementalArtifacts.length > 0 || Boolean(prefixElement)
+  const hasFullAnswerRow = fullAnswerArtifacts.length > 0
+  const hasArtifacts = hasTopArtifactRow || hasFullAnswerRow || inlineSupplementalArtifacts.length > 0 || Boolean(prefixElement)
   if (!hasArtifacts) return null
+
+  const artifactsBody = phase === 'DRAFTING_PRD' ? (
+    <div>
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">Artifacts</span>
+
+      {hasFullAnswerRow && (
+        <div className="mt-2">
+          <div className="flex items-baseline gap-1.5 px-0.5 mb-0.5">
+            <span className="text-[11px] font-semibold text-foreground/80">Part 1</span>
+            <span className="text-[11px] text-muted-foreground">— Answering Skipped Questions</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">
+            Each model fills in answers to questions that were skipped during the interview.
+          </p>
+          <div className="flex flex-row flex-wrap gap-2">
+            <ArtifactList
+              memberArtifacts={fullAnswerArtifacts}
+              compactInterviewArtifacts={false}
+              compact={true}
+              onSelectMember={(key) => setViewingSelection({ kind: 'member', key })}
+            />
+          </div>
+        </div>
+      )}
+
+      {hasFullAnswerRow && hasTopArtifactRow && (
+        <div className="border-t border-border/40 my-2" />
+      )}
+
+      {hasTopArtifactRow && (
+        <div className={hasFullAnswerRow ? '' : 'mt-2'}>
+          <div className="flex items-baseline gap-1.5 px-0.5 mb-0.5">
+            <span className="text-[11px] font-semibold text-foreground/80">Part 2</span>
+            <span className="text-[11px] text-muted-foreground">— Generating PRD Drafts</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">
+            Each council model independently generates a competing PRD draft based on the complete interview answers.
+          </p>
+          <div className="flex flex-row flex-wrap gap-2">
+            <ArtifactList
+              memberArtifacts={visibleMemberArtifacts}
+              compactInterviewArtifacts={false}
+              compact={true}
+              onSelectMember={(key) => setViewingSelection({ kind: 'member', key })}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  ) : (
+    <div>
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">Artifacts</span>
+
+      {hasTopArtifactRow && (
+        <div className="flex flex-row flex-wrap gap-2 mt-1">
+          <ArtifactList
+            memberArtifacts={visibleMemberArtifacts}
+            compactInterviewArtifacts={compactInterviewArtifacts}
+            onSelectMember={(key) => setViewingSelection({ kind: 'member', key })}
+          />
+          <ArtifactTypeFilter
+            artifacts={prominentSupplementalArtifacts}
+            getArtifactState={getArtifactState}
+            action={action}
+            isCompleted={isCompleted}
+            onSelect={(id) => setViewingSelection({ kind: 'supplemental', id })}
+            variant="prominent"
+          />
+        </div>
+      )}
+
+      {hasFullAnswerRow && (
+        <div className={`flex flex-row flex-wrap gap-2 ${hasTopArtifactRow ? 'mt-2' : 'mt-1'}`}>
+          <ArtifactList
+            memberArtifacts={fullAnswerArtifacts}
+            compactInterviewArtifacts={true}
+            onSelectMember={(key) => setViewingSelection({ kind: 'member', key })}
+          />
+        </div>
+      )}
+
+      {(inlineSupplementalArtifacts.length > 0 || prefixElement) && (
+        <div className={`flex flex-row flex-wrap gap-2 ${hasTopArtifactRow ? 'mt-2' : 'mt-1'}`}>
+          <ArtifactTypeFilter
+            artifacts={inlineSupplementalArtifacts}
+            getArtifactState={getArtifactState}
+            action={action}
+            isCompleted={isCompleted}
+            onSelect={(id) => setViewingSelection({ kind: 'supplemental', id })}
+            variant="inline"
+          />
+          {prefixElement}
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <>
-      <div>
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">Artifacts</span>
-
-        {hasTopArtifactRow && (
-          <div className="flex flex-row flex-wrap gap-2 mt-1">
-            <ArtifactList
-              memberArtifacts={visibleMemberArtifacts}
-              compactInterviewArtifacts={compactInterviewArtifacts}
-              onSelectMember={(key) => setViewingSelection({ kind: 'member', key })}
-            />
-            <ArtifactTypeFilter
-              artifacts={prominentSupplementalArtifacts}
-              getArtifactState={getArtifactState}
-              action={action}
-              isCompleted={isCompleted}
-              onSelect={(id) => setViewingSelection({ kind: 'supplemental', id })}
-              variant="prominent"
-            />
-          </div>
-        )}
-
-        {(inlineSupplementalArtifacts.length > 0 || prefixElement) && (
-          <div className={`flex flex-row flex-wrap gap-2 ${hasTopArtifactRow ? 'mt-2' : 'mt-1'}`}>
-            <ArtifactTypeFilter
-              artifacts={inlineSupplementalArtifacts}
-              getArtifactState={getArtifactState}
-              action={action}
-              isCompleted={isCompleted}
-              onSelect={(id) => setViewingSelection({ kind: 'supplemental', id })}
-              variant="inline"
-            />
-            {prefixElement}
-          </div>
-        )}
-      </div>
+      {artifactsBody}
 
       <Dialog open={!!viewingArtifact} onOpenChange={(open) => !open && setViewingSelection(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
