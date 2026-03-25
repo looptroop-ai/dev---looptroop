@@ -41,16 +41,24 @@ interface NormalizedInterviewQuestion {
   question: string
 }
 
+interface NormalizedInspirationSource {
+  draftIndex: number
+  memberId: string
+  question: NormalizedInterviewQuestion
+}
+
 interface NormalizedInterviewRefinementChange {
   type: InterviewQuestionChangeType
   before: NormalizedInterviewQuestion | null
   after: NormalizedInterviewQuestion | null
+  inspiration: NormalizedInspirationSource | null
 }
 
 interface ParsedInterviewRefinementChangeCandidate {
   type: InterviewQuestionChangeType
   before: NormalizedInterviewQuestion | null | undefined
   after: NormalizedInterviewQuestion | null | undefined
+  inspiration: NormalizedInspirationSource | null | undefined
   sourceIndex: number
 }
 
@@ -224,6 +232,30 @@ function parseInterviewRefinementChangeEntry(
       ? null
       : normalizeInterviewChangeQuestion(rawAfter, `Interview refinement change.after at index ${index}`)
 
+  // Parse optional inspiration (soft-repair: malformed → null)
+  let inspiration: NormalizedInspirationSource | null | undefined = undefined
+  const rawInspiration = getValueByAliases(value, ['inspiration', 'inspired_by', 'source_inspiration'])
+  if (rawInspiration === null) {
+    inspiration = null
+  } else if (isRecord(rawInspiration)) {
+    try {
+      const altDraft = toInteger(getValueByAliases(rawInspiration, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index']))
+      const rawInspirationQuestion = getValueByAliases(rawInspiration, ['question', 'item'])
+      if (altDraft != null && isRecord(rawInspirationQuestion)) {
+        const draftIndex = altDraft - 1
+        const question = normalizeInterviewChangeQuestion(
+          rawInspirationQuestion,
+          `Interview refinement change.inspiration.question at index ${index}`,
+        )
+        inspiration = { draftIndex, memberId: '', question }
+      } else {
+        inspiration = null
+      }
+    } catch {
+      inspiration = null
+    }
+  }
+
   if (type === 'modified' || type === 'replaced') {
     if (!hasBefore && !hasAfter) {
       throw new Error(`Interview refinement change at index ${index} is missing before and after`)
@@ -234,7 +266,7 @@ function parseInterviewRefinementChangeEntry(
     if (hasAfter && after === null) {
       throw new Error(`Interview refinement change at index ${index} must use a populated after for type ${type}`)
     }
-    return { type, before, after, sourceIndex: index }
+    return { type, before, after, inspiration, sourceIndex: index }
   }
 
   if (!hasBefore) throw new Error(`Interview refinement change at index ${index} is missing before`)
@@ -246,7 +278,7 @@ function parseInterviewRefinementChangeEntry(
     throw new Error(`Interview refinement change at index ${index} with type removed must use after: null and a populated before`)
   }
 
-  return { type, before, after, sourceIndex: index }
+  return { type, before, after, inspiration: type === 'removed' ? null : inspiration, sourceIndex: index }
 }
 
 function resolveCanonicalInterviewQuestion(
@@ -328,6 +360,7 @@ function canonicalizeInterviewRefinementChanges(
       type: change.type,
       before,
       after,
+      inspiration: change.inspiration,
       sourceIndex: change.sourceIndex,
     })
   }
@@ -350,6 +383,7 @@ function canonicalizeInterviewRefinementChanges(
           type: 'replaced',
           before: orphanedWinner,
           after: change.after,
+          inspiration: change.inspiration,
           sourceIndex: change.sourceIndex,
         }
         winnerById.delete(change.after.id)
@@ -386,6 +420,8 @@ function isCompleteInterviewRefinementChangeCandidate(
 function normalizeCompleteInterviewRefinementChangeCandidate(
   change: ParsedInterviewRefinementChangeCandidate,
 ): NormalizedInterviewRefinementChange {
+  const inspiration = change.inspiration ?? null
+
   if (change.type === 'modified' || change.type === 'replaced') {
     if (!change.before || !change.after) {
       const missingSide = !change.before ? 'before' : 'after'
@@ -395,6 +431,7 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
       type: change.type,
       before: change.before,
       after: change.after,
+      inspiration,
     }
   }
 
@@ -406,6 +443,7 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
       type: change.type,
       before: null,
       after: change.after,
+      inspiration,
     }
   }
 
@@ -416,6 +454,7 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
     type: change.type,
     before: change.before,
     after: null,
+    inspiration: null,
   }
 }
 
@@ -459,6 +498,7 @@ function synthesizeOmittedSameIdentityInterviewRefinementChanges(
       type: 'modified',
       before: winnerQuestion,
       after: finalQuestion,
+      inspiration: null,
       sourceIndex: -1,
     })
     usedBeforeKeys.add(beforeKey)
@@ -1072,6 +1112,7 @@ export function normalizeInterviewRefinementOutput(
   rawContent: string,
   winnerDraftContent: string,
   maxInitialQuestions: number,
+  losingDraftMeta?: Array<{ memberId: string; content: string }>,
 ): StructuredOutputResult<{
   questions: NormalizedInterviewQuestion[]
   questionCount: number
@@ -1184,6 +1225,21 @@ export function normalizeInterviewRefinementOutput(
         usedAfterKeys,
       ))
 
+      // Resolve inspiration memberIds from losingDraftMeta
+      if (losingDraftMeta) {
+        for (const change of changes) {
+          if (change.inspiration && change.inspiration.draftIndex >= 0 && change.inspiration.draftIndex < losingDraftMeta.length) {
+            change.inspiration.memberId = losingDraftMeta[change.inspiration.draftIndex]!.memberId
+          } else if (change.inspiration && change.inspiration.draftIndex >= 0) {
+            repairApplied = true
+            repairWarnings.push(
+              `Inspiration draftIndex ${change.inspiration.draftIndex} is out of bounds (${losingDraftMeta.length} alternatives). Setting inspiration to null.`,
+            )
+            ;(change as { inspiration: NormalizedInspirationSource | null }).inspiration = null
+          }
+        }
+      }
+
       ensureQuestionChangeCoverage(
         winnerDraftQuestions,
         normalizedQuestions.questions,
@@ -1207,6 +1263,7 @@ export function normalizeInterviewRefinementOutput(
             type: change.type,
             before: change.before,
             after: change.after,
+            ...(change.inspiration ? { inspiration: change.inspiration } : { inspiration: null }),
           })),
         }),
         repairApplied: repairApplied || candidate !== rawContent.trim(),

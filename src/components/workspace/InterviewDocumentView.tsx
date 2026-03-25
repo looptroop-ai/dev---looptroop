@@ -6,6 +6,7 @@ import {
   getInterviewFollowUpsAnchorId,
   getInterviewQuestionAnchorId,
   getInterviewSummaryAnchorId,
+  hasInterviewSummaryContent,
   groupInterviewDocumentQuestions,
 } from '@/lib/interviewDocument'
 import { CollapsibleSection } from './ArtifactContentViewer'
@@ -64,7 +65,7 @@ function QuestionMeta({ question }: { question: InterviewDocumentQuestion }) {
   )
 }
 
-function AnswerBlock({ question }: { question: InterviewDocumentQuestion }) {
+function AnswerBlock({ question, hideAiAnswerBadge }: { question: InterviewDocumentQuestion; hideAiAnswerBadge?: boolean }) {
   const answerSummary = getInterviewAnswerSummary(question.answer, question.options)
   const isAiAnswer = question.answer.answered_by === 'ai_skip'
 
@@ -78,7 +79,7 @@ function AnswerBlock({ question }: { question: InterviewDocumentQuestion }) {
 
   return (
     <div className="space-y-2">
-      {isAiAnswer && (
+      {isAiAnswer && !hideAiAnswerBadge && (
         <div className="inline-flex items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-800 dark:border-purple-900/60 dark:bg-purple-900/20 dark:text-purple-300">
           <span className="shrink-0 leading-none pb-[1px]">✨</span>
           <span>Answered automatically by AI in Drafting specs status</span>
@@ -102,7 +103,7 @@ function AnswerBlock({ question }: { question: InterviewDocumentQuestion }) {
   )
 }
 
-function QuestionCard({ question }: { question: InterviewDocumentQuestion }) {
+function QuestionCard({ question, hideAiAnswerBadge }: { question: InterviewDocumentQuestion; hideAiAnswerBadge?: boolean }) {
   return (
     <article
       id={getInterviewQuestionAnchorId(question.id)}
@@ -111,7 +112,7 @@ function QuestionCard({ question }: { question: InterviewDocumentQuestion }) {
       <div className="space-y-3">
         <QuestionMeta question={question} />
         <div className="text-sm font-medium leading-6 text-foreground">{question.prompt}</div>
-        <AnswerBlock question={question} />
+        <AnswerBlock question={question} hideAiAnswerBadge={hideAiAnswerBadge} />
       </div>
     </article>
   )
@@ -122,17 +123,20 @@ export function InterviewDocumentView({
   className,
   hideSummary = false,
   defaultGroupsOpen = false,
+  hideAiAnswerBadge = false,
 }: {
   document: InterviewDocument
   className?: string
   hideSummary?: boolean
   defaultGroupsOpen?: boolean
+  hideAiAnswerBadge?: boolean
 }) {
   const groups = groupInterviewDocumentQuestions(document)
+  const showSummary = !hideSummary && hasInterviewSummaryContent(document)
 
   return (
     <div className={cn('space-y-5', className)}>
-      {!hideSummary && (
+      {showSummary && (
         <section
           id={getInterviewSummaryAnchorId()}
           className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 p-4 shadow-sm scroll-mt-6"
@@ -177,7 +181,7 @@ export function InterviewDocumentView({
           >
             <div className="space-y-3">
               {group.questions.map((question) => (
-                <QuestionCard key={question.id} question={question} />
+                <QuestionCard key={question.id} question={question} hideAiAnswerBadge={hideAiAnswerBadge} />
               ))}
             </div>
           </CollapsibleSection>

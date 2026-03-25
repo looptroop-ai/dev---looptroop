@@ -111,6 +111,7 @@ describe('compiled interview artifacts', () => {
           phase: 'Foundation',
           question: 'What user problem are we solving?',
         },
+        inspiration: null,
       },
       {
         type: 'modified',
@@ -124,6 +125,7 @@ describe('compiled interview artifacts', () => {
           phase: 'Assembly',
           question: 'How should success be verified in practice?',
         },
+        inspiration: null,
       },
     ])
   })

@@ -2,6 +2,7 @@ import jsYaml from 'js-yaml'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { extractInterviewQuestionPreviews, type InterviewQuestionChange } from '@shared/interviewQuestions'
+import type { RefinementChange } from '@shared/refinementChanges'
 
 export interface ArtifactDef {
   id: string
@@ -43,6 +44,7 @@ export interface CoverageInputData {
   prd?: string
   beads?: string
   refinedContent?: string
+  changes?: RefinementChange[]
 }
 
 export interface CoverageFollowUpArtifactQuestion {
@@ -116,6 +118,13 @@ export interface InterviewDiffArtifactData {
   changes?: InterviewQuestionChange[]
 }
 
+export interface InspirationDiffSource {
+  memberId: string
+  question: string
+  questionId?: string
+  phase?: string
+}
+
 export interface InterviewDiffEntry {
   key: string
   id: string
@@ -123,6 +132,29 @@ export interface InterviewDiffEntry {
   phase?: string
   before?: string
   after?: string
+  inspiration?: InspirationDiffSource | null
+}
+
+export interface RefinementDiffArtifactData {
+  winnerId?: string
+  refinedContent?: string
+  winnerDraftContent?: string
+  changes?: RefinementChange[]
+}
+
+export interface RefinementDiffEntry {
+  key: string
+  type: 'modified' | 'added' | 'removed'
+  itemType?: string
+  beforeId?: string
+  beforeLabel?: string
+  afterId?: string
+  afterLabel?: string
+  inspiration?: {
+    memberId: string
+    itemId: string
+    itemLabel: string
+  } | null
 }
 
 export interface QuestionDiffSegment {
@@ -268,6 +300,15 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
         const id = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
         const phase = after?.phase || before?.phase
 
+        const inspiration: InspirationDiffSource | null | undefined = change.inspiration
+          ? {
+              memberId: change.inspiration.memberId ?? '',
+              question: change.inspiration.question?.question ?? '',
+              questionId: change.inspiration.question?.id,
+              phase: change.inspiration.question?.phase,
+            }
+          : change.inspiration === null ? null : undefined
+
         return [{
           key: `${id}:${normalizedType}:${index}`,
           id,
@@ -275,6 +316,7 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
           phase,
           before: before?.question,
           after: after?.question,
+          ...(inspiration !== undefined ? { inspiration } : {}),
         }]
       })
     }
@@ -552,9 +594,9 @@ export function resolveStaticArtifact(
       }
       return findExactType('interview_session')
     case 'refined-prd':
-      return findExactType('prd_coverage_input')
+      return findExactType('prd_coverage_input') ?? findExactType('prd_refined')
     case 'refined-beads':
-      return findExactType('beads_coverage_input')
+      return findExactType('beads_coverage_input') ?? findExactType('beads_refined')
     case 'relevant-files-scan':
       return findExactType('relevant_files_scan')
     case 'diagnostics':
@@ -572,6 +614,46 @@ export function resolveStaticArtifact(
   const prefix = artifactDef.id.split('-')[0] ?? ''
   return findByPredicate(artifact => artifact.artifactType.toLowerCase().includes(prefix))
     ?? findByPredicate(artifact => Boolean(artifact.content))
+}
+
+export function buildRefinementDiffEntries(content: string | undefined): RefinementDiffEntry[] {
+  if (!content) return []
+  try {
+    const parsed = JSON.parse(content) as RefinementDiffArtifactData
+    if (!Array.isArray(parsed.changes)) return []
+
+    return parsed.changes.flatMap((change, index) => {
+      const normalizedType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
+      if (normalizedType !== 'modified' && normalizedType !== 'added' && normalizedType !== 'removed') {
+        return []
+      }
+
+      const afterId = change.after?.id
+      const beforeId = change.before?.id
+      const key = `${afterId || beforeId || index}:${normalizedType}:${index}`
+
+      const inspiration = change.inspiration
+        ? {
+            memberId: change.inspiration.memberId ?? '',
+            itemId: change.inspiration.item?.id ?? '',
+            itemLabel: change.inspiration.item?.label ?? '',
+          }
+        : change.inspiration === null ? null : undefined
+
+      return [{
+        key,
+        type: normalizedType as RefinementDiffEntry['type'],
+        itemType: change.itemType,
+        beforeId: change.before?.id,
+        beforeLabel: change.before?.label,
+        afterId: change.after?.id,
+        afterLabel: change.after?.label,
+        ...(inspiration !== undefined ? { inspiration } : {}),
+      }]
+    })
+  } catch {
+    return []
+  }
 }
 
 export function shouldCollapseVotingMemberArtifacts(phase: string): boolean {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import jsYaml from 'js-yaml'
 import { encode } from 'gpt-tokenizer'
-import { ChevronDown, ChevronRight, Trophy, Copy, Check } from 'lucide-react'
+import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import type {
@@ -14,6 +14,7 @@ import type {
   QuestionDiffSegment,
   RelevantFileScanEntry,
   RelevantFilesScanData,
+  InspirationDiffSource,
 } from './phaseArtifactTypes'
 import {
   tryParseStructuredContent,
@@ -21,10 +22,12 @@ import {
   normalizeInterviewDiffQuestions,
   buildInterviewDiffEntries,
   buildQuestionDiffSegments,
+  buildRefinementDiffEntries,
   normalizeCoverageFollowUpArtifacts,
   parseCoverageArtifact,
   parseInterviewQuestions,
 } from './phaseArtifactTypes'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
 import { InterviewDocumentView } from './InterviewDocumentView'
 import {
@@ -114,6 +117,70 @@ export function WithRawTab({ content, structuredLabel, children, header }: { con
           </pre>
         </div>
       )}
+    </div>
+  )
+}
+
+function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent }: {
+  content: string
+  hasChanges: boolean
+  sectionsContent: React.ReactNode
+  diffContent?: React.ReactNode
+}) {
+  const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(hasChanges ? 'diff' : 'sections')
+  const lineCount = content.split('\n').length
+  const charCount = content.length
+  const tokenCount = encode(content).length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ml-auto">
+          <button
+            onClick={() => setActiveTab('sections')}
+            className={activeTab === 'sections'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Sections
+          </button>
+          {hasChanges && (
+            <button
+              onClick={() => setActiveTab('diff')}
+              className={activeTab === 'diff'
+                ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+                : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+            >
+              Diff
+            </button>
+          )}
+          <button
+            onClick={() => setActiveTab('raw')}
+            className={activeTab === 'raw'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+          >
+            Raw
+          </button>
+          {activeTab === 'raw' && <CopyButton content={content} />}
+        </div>
+      </div>
+
+      {activeTab === 'raw' && (
+        <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+        </div>
+      )}
+
+      {activeTab === 'sections' ? sectionsContent : activeTab === 'diff' && diffContent ? diffContent : activeTab === 'raw' ? (
+        <div className="min-w-0 w-full overflow-hidden">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+            {content}
+          </pre>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -221,6 +288,118 @@ function InterviewDraftView({ content }: { content: string }) {
   )
 }
 
+function InterviewInspirationTooltip({ inspiration }: { inspiration: InspirationDiffSource }) {
+  const modelName = inspiration.memberId ? getModelDisplayName(inspiration.memberId) : 'Unknown model'
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors" type="button">
+            <Lightbulb className="h-3 w-3 text-amber-500" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <div className="space-y-1">
+            <div className="font-medium">Inspired by {modelName}</div>
+            {inspiration.question && (
+              <div className="text-[11px] opacity-90 leading-snug">{inspiration.question}</div>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId: string; itemId: string; itemLabel: string } }) {
+  const modelName = inspiration.memberId ? getModelDisplayName(inspiration.memberId) : 'Unknown model'
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors" type="button">
+            <Lightbulb className="h-3 w-3 text-amber-500" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <div className="space-y-1">
+            <div className="font-medium">Inspired by {modelName}</div>
+            {inspiration.itemLabel && (
+              <div className="text-[11px] opacity-90 leading-snug">
+                {inspiration.itemId && <span className="font-mono">{inspiration.itemId}: </span>}
+                {inspiration.itemLabel}
+              </div>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+function RefinementDiffView({ content }: { content: string }) {
+  const diffs = buildRefinementDiffEntries(content)
+  const modifiedCount = diffs.filter((d) => d.type === 'modified').length
+  const addedCount = diffs.filter((d) => d.type === 'added').length
+  const removedCount = diffs.filter((d) => d.type === 'removed').length
+
+  if (diffs.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+        No refinement changes recorded.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Added {addedCount}</span>
+        <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Removed {removedCount}</span>
+      </div>
+      <div className="space-y-2">
+        {diffs.map((diff) => (
+          <CollapsibleSection
+            key={diff.key}
+            defaultOpen
+            title={(
+              <span className="flex items-center gap-2">
+                {diff.itemType && <span className="text-muted-foreground text-[10px] uppercase">{diff.itemType}</span>}
+                <span>{diff.afterId || diff.beforeId}</span>
+                <span className={diff.type === 'added'
+                  ? 'text-green-600 dark:text-green-400'
+                  : diff.type === 'removed'
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-blue-600 dark:text-blue-400'}
+                >
+                  {diff.type === 'modified' ? 'Modified' : diff.type === 'added' ? 'Added' : 'Removed'}
+                </span>
+                {diff.inspiration && <RefinementInspirationTooltip inspiration={diff.inspiration} />}
+              </span>
+            )}
+          >
+            <div className="space-y-2">
+              {diff.beforeLabel && (
+                <div className="rounded-md border border-red-100 bg-red-50/40 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/10">
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
+                  <div className="text-xs leading-5 text-red-950 dark:text-red-100">{diff.beforeId && <span className="font-mono mr-1">{diff.beforeId}:</span>}{diff.beforeLabel}</div>
+                </div>
+              )}
+              {diff.afterLabel && (
+                <div className="rounded-md border border-green-100 bg-green-50/40 px-3 py-2 dark:border-green-900/40 dark:bg-green-950/10">
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
+                  <div className="text-xs leading-5 text-green-950 dark:text-green-100">{diff.afterId && <span className="font-mono mr-1">{diff.afterId}:</span>}{diff.afterLabel}</div>
+                </div>
+              )}
+            </div>
+          </CollapsibleSection>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function InterviewDraftDiffView({ content }: { content: string }) {
   let parsed: InterviewDiffArtifactData | null = null
   try {
@@ -280,6 +459,7 @@ function InterviewDraftDiffView({ content }: { content: string }) {
                             ? 'Added'
                             : 'Removed'}
                     </span>
+                    {diff.inspiration && <InterviewInspirationTooltip inspiration={diff.inspiration} />}
                   </span>
                 )}
               >
@@ -310,16 +490,16 @@ function InterviewDraftDiffView({ content }: { content: string }) {
   )
 }
 
-function FinalInterviewArtifactView({ content, header }: { content: string; header?: React.ReactNode }) {
+function FinalInterviewArtifactView({ content, header, hideAiAnswerBadge }: { content: string; header?: React.ReactNode; hideAiAnswerBadge?: boolean }) {
   const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
   const parsedContent = tryParseStructuredContent(content)
   if (parsedContent && typeof parsedContent === 'object') {
     const interviewArtifact = parsedContent as InterviewArtifactData
     if (typeof interviewArtifact.interview === 'string' && interviewArtifact.interview.trim()) {
-      return <WithRawTab content={interviewArtifact.interview} structuredLabel="Q&A" header={header}><InterviewAnswersView content={interviewArtifact.interview} /></WithRawTab>
+      return <WithRawTab content={interviewArtifact.interview} structuredLabel="Q&A" header={header}><InterviewAnswersView content={interviewArtifact.interview} hideAiAnswerBadge={hideAiAnswerBadge} /></WithRawTab>
     }
     if (interviewArtifact.artifact === 'interview') {
-      return <WithRawTab content={content} structuredLabel="Q&A" header={header}><InterviewAnswersView content={content} /></WithRawTab>
+      return <WithRawTab content={content} structuredLabel="Q&A" header={header}><InterviewAnswersView content={content} hideAiAnswerBadge={hideAiAnswerBadge} /></WithRawTab>
     }
   }
 
@@ -374,10 +554,10 @@ function FinalInterviewArtifactView({ content, header }: { content: string; head
   )
 }
 
-export function InterviewAnswersView({ content, hideSummary = false }: { content: string; hideSummary?: boolean }) {
+export function InterviewAnswersView({ content, hideSummary = false, hideAiAnswerBadge = false }: { content: string; hideSummary?: boolean; hideAiAnswerBadge?: boolean }) {
   const interviewDocument = parseInterviewDocument(content)
   if (interviewDocument) {
-    return <InterviewDocumentView document={interviewDocument} defaultGroupsOpen={false} hideSummary={hideSummary} />
+    return <InterviewDocumentView document={interviewDocument} defaultGroupsOpen={false} hideSummary={hideSummary} hideAiAnswerBadge={hideAiAnswerBadge} />
   }
 
   let parsedContent: unknown = null
@@ -419,7 +599,7 @@ export function InterviewAnswersView({ content, hideSummary = false }: { content
       questions: mappedQuestions
     })
     if (doc) {
-      return <InterviewDocumentView document={doc} defaultGroupsOpen={false} hideSummary={hideSummary} />
+      return <InterviewDocumentView document={doc} defaultGroupsOpen={false} hideSummary={hideSummary} hideAiAnswerBadge={hideAiAnswerBadge} />
     }
   }
 
@@ -1201,7 +1381,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   if (artifactId === 'final-interview') {
     const isCanonicalInterviewPhase = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
     const header = <div className="text-xs font-semibold px-1">{isCanonicalInterviewPhase ? 'Interview Results' : 'Final Interview'}</div>
-    return <FinalInterviewArtifactView content={content} header={header} />
+    return <FinalInterviewArtifactView content={content} header={header} hideAiAnswerBadge={isCanonicalInterviewPhase} />
   }
   if (artifactId === 'interview-answers') {
     const header = <div className="text-xs font-semibold px-1">Interview Answers</div>
@@ -1244,41 +1424,47 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
   if (parsedCoverageInput && (artifactId === 'refined-prd' || artifactId === 'refined-beads')) {
     const isPrd = artifactId === 'refined-prd'
+    const hasChanges = Array.isArray(parsedCoverageInput.changes) && parsedCoverageInput.changes.length > 0
     return (
-      <WithRawTab content={content} structuredLabel="Sections">
-        <div className="space-y-6">
-          {parsedCoverageInput.interview && (
-            <div>
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Approved Interview</div>
-              <div className="opacity-80"><InterviewAnswersView content={parsedCoverageInput.interview} /></div>
-            </div>
-          )}
-          {parsedCoverageInput.fullAnswers && (
-            <div>
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Winner Full Answers</div>
-              <div className="opacity-80"><InterviewAnswersView content={parsedCoverageInput.fullAnswers} /></div>
-            </div>
-          )}
-          {parsedCoverageInput.prd && (
-            <div>
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (PRD)</div>
-              <div className="opacity-80"><PrdDraftView content={parsedCoverageInput.prd} /></div>
-            </div>
-          )}
-          {parsedCoverageInput.beads && (
-            <div>
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (Beads)</div>
-              <div className="opacity-80"><BeadsDraftView content={parsedCoverageInput.beads} /></div>
-            </div>
-          )}
-          {parsedCoverageInput.refinedContent && (
-            <div className="border-t border-border pt-4">
-              <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification ({isPrd ? 'PRD' : 'Beads'})</div>
-              {isPrd ? <PrdDraftView content={parsedCoverageInput.refinedContent} /> : <BeadsDraftView content={parsedCoverageInput.refinedContent} />}
-            </div>
-          )}
-        </div>
-      </WithRawTab>
+      <RefinedArtifactTabs
+        content={content}
+        hasChanges={hasChanges}
+        sectionsContent={(
+          <div className="space-y-6">
+            {parsedCoverageInput.interview && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Approved Interview</div>
+                <div className="opacity-80"><InterviewAnswersView content={parsedCoverageInput.interview} /></div>
+              </div>
+            )}
+            {parsedCoverageInput.fullAnswers && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Winner Full Answers</div>
+                <div className="opacity-80"><InterviewAnswersView content={parsedCoverageInput.fullAnswers} /></div>
+              </div>
+            )}
+            {parsedCoverageInput.prd && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (PRD)</div>
+                <div className="opacity-80"><PrdDraftView content={parsedCoverageInput.prd} /></div>
+              </div>
+            )}
+            {parsedCoverageInput.beads && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (Beads)</div>
+                <div className="opacity-80"><BeadsDraftView content={parsedCoverageInput.beads} /></div>
+              </div>
+            )}
+            {parsedCoverageInput.refinedContent && (
+              <div className="border-t border-border pt-4">
+                <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification ({isPrd ? 'PRD' : 'Beads'})</div>
+                {isPrd ? <PrdDraftView content={parsedCoverageInput.refinedContent} /> : <BeadsDraftView content={parsedCoverageInput.refinedContent} />}
+              </div>
+            )}
+          </div>
+        )}
+        diffContent={hasChanges ? <RefinementDiffView content={content} /> : undefined}
+      />
     )
   }
 

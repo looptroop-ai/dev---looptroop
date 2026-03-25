@@ -193,6 +193,100 @@ function answerHasContent(answer: InterviewDocumentQuestion['answer']): boolean 
   return answer.free_text.trim().length > 0 || answer.selected_option_ids.length > 0
 }
 
+function compareSummary(
+  left: InterviewDocument['summary'],
+  right: InterviewDocument['summary'],
+): boolean {
+  return compareStringArrays(left.goals, right.goals)
+    && compareStringArrays(left.constraints, right.constraints)
+    && compareStringArrays(left.non_goals, right.non_goals)
+    && left.final_free_form_answer === right.final_free_form_answer
+}
+
+function parseExactOptionLabelSelections(
+  answerText: string,
+  answerType: InterviewQuestionAnswerType,
+): string[] {
+  const trimmed = answerText.trim()
+  if (!trimmed) return []
+
+  if (answerType === 'single_choice') {
+    return [trimmed]
+  }
+
+  const newlineTokens = trimmed
+    .split('\n')
+    .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    .filter(Boolean)
+  if (newlineTokens.length > 1) {
+    return newlineTokens
+  }
+
+  const commaTokens = trimmed
+    .split(/[;,]/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+  if (commaTokens.length > 1) {
+    return commaTokens
+  }
+
+  return [trimmed]
+}
+
+function normalizeChoiceQuestionAnswer(
+  canonicalQuestion: InterviewDocumentQuestion,
+  candidateQuestion: InterviewDocumentQuestion,
+): { selectedOptionIds: string[]; freeText: string } {
+  const optionIdSet = new Set(canonicalQuestion.options.map((option) => option.id))
+  const explicitSelections = Array.from(new Set(candidateQuestion.answer.selected_option_ids))
+
+  if (explicitSelections.length > 0) {
+    const invalidSelection = explicitSelections.find((optionId) => !optionIdSet.has(optionId))
+    if (invalidSelection) {
+      throw new Error(`Resolved interview selected unknown option id "${invalidSelection}" for canonical question ${canonicalQuestion.id}`)
+    }
+    if (canonicalQuestion.answer_type === 'single_choice' && explicitSelections.length !== 1) {
+      throw new Error(`Resolved interview must select exactly one option for canonical question ${canonicalQuestion.id}`)
+    }
+    return {
+      selectedOptionIds: explicitSelections,
+      freeText: candidateQuestion.answer.free_text,
+    }
+  }
+
+  const labels = parseExactOptionLabelSelections(candidateQuestion.answer.free_text, canonicalQuestion.answer_type)
+  if (labels.length === 0) {
+    throw new Error(`Resolved interview left skipped question unanswered: ${canonicalQuestion.id}`)
+  }
+
+  const normalizedOptionLabels = new Map<string, string>()
+  for (const option of canonicalQuestion.options) {
+    const normalized = normalizeKey(option.label)
+    if (normalizedOptionLabels.has(normalized)) {
+      throw new Error(`Canonical question ${canonicalQuestion.id} has ambiguous option labels after normalization`)
+    }
+    normalizedOptionLabels.set(normalized, option.id)
+  }
+
+  const selectedOptionIds = labels.map((label) => {
+    const optionId = normalizedOptionLabels.get(normalizeKey(label))
+    if (!optionId) {
+      throw new Error(`Resolved interview answer for canonical question ${canonicalQuestion.id} does not map exactly to canonical options`)
+    }
+    return optionId
+  })
+
+  const uniqueSelections = Array.from(new Set(selectedOptionIds))
+  if (canonicalQuestion.answer_type === 'single_choice' && uniqueSelections.length !== 1) {
+    throw new Error(`Resolved interview must select exactly one option for canonical question ${canonicalQuestion.id}`)
+  }
+
+  return {
+    selectedOptionIds: uniqueSelections,
+    freeText: candidateQuestion.answer.free_text,
+  }
+}
+
 function normalizeQuestion(
   value: unknown,
   index: number,
@@ -437,21 +531,43 @@ export function normalizeResolvedInterviewDocumentOutput(
       throw new Error(`Resolved interview must preserve all ${canonical.questions.length} canonical questions`)
     }
 
-    const questions = canonical.questions.map((canonicalQuestion, index) => {
-      const candidateQuestion = candidate.questions[index]
+    const canonicalIds = canonical.questions.map((question) => question.id)
+    const candidateIds = candidate.questions.map((question) => question.id)
+    const candidateIdSet = new Set(candidateIds)
+    const canonicalIdSet = new Set(canonicalIds)
+    const missingCanonicalIds = canonicalIds.filter((id) => !candidateIdSet.has(id))
+    const unexpectedIds = candidateIds.filter((id) => !canonicalIdSet.has(id))
+
+    if (missingCanonicalIds.length > 0 || unexpectedIds.length > 0) {
+      const parts: string[] = []
+      if (missingCanonicalIds.length > 0) {
+        parts.push(`missing canonical ids: ${missingCanonicalIds.join(', ')}`)
+      }
+      if (unexpectedIds.length > 0) {
+        parts.push(`unexpected ids: ${unexpectedIds.join(', ')}`)
+      }
+      throw new Error(`Resolved interview must preserve canonical question ids (${parts.join('; ')})`)
+    }
+
+    if (candidateIds.some((id, index) => id !== canonicalIds[index])) {
+      repairWarnings.push('Canonicalized question order to match the approved Interview Results artifact.')
+    }
+
+    const candidateQuestionsById = new Map(candidate.questions.map((question) => [question.id, question]))
+
+    const questions = canonical.questions.map((canonicalQuestion) => {
+      const candidateQuestion = candidateQuestionsById.get(canonicalQuestion.id)
       if (!candidateQuestion) {
         throw new Error(`Resolved interview is missing canonical question ${canonicalQuestion.id}`)
       }
-      if (candidateQuestion.id !== canonicalQuestion.id) {
-        throw new Error(`Resolved interview changed question order or ids at index ${index}: expected ${canonicalQuestion.id}, received ${candidateQuestion.id}`)
-      }
+
       if (!compareQuestionMetadata(candidateQuestion, canonicalQuestion)) {
-        throw new Error(`Resolved interview changed metadata for canonical question ${canonicalQuestion.id}`)
+        repairWarnings.push(`Canonicalized metadata for canonical question ${canonicalQuestion.id}.`)
       }
 
       if (!canonicalQuestion.answer.skipped) {
         if (!compareQuestionAnswers(candidateQuestion.answer, canonicalQuestion.answer)) {
-          throw new Error(`Resolved interview changed an answered user question: ${canonicalQuestion.id}`)
+          repairWarnings.push(`Restored answered canonical question ${canonicalQuestion.id} from the approved Interview Results artifact.`)
         }
         return canonicalQuestion
       }
@@ -468,12 +584,30 @@ export function normalizeResolvedInterviewDocumentOutput(
         repairWarnings.push(`Canonicalized answered_by to ai_skip for AI-filled question ${canonicalQuestion.id}.`)
       }
 
+      if (canonicalQuestion.answer_type === 'free_text') {
+        return {
+          ...canonicalQuestion,
+          answer: {
+            skipped: false,
+            selected_option_ids: [],
+            free_text: candidateQuestion.answer.free_text,
+            answered_by: 'ai_skip' as const,
+            answered_at: candidateQuestion.answer.answered_at,
+          },
+        }
+      }
+
+      const normalizedChoiceAnswer = normalizeChoiceQuestionAnswer(canonicalQuestion, candidateQuestion)
+      if (candidateQuestion.answer.selected_option_ids.length === 0) {
+        repairWarnings.push(`Mapped free_text to canonical option ids for AI-filled question ${canonicalQuestion.id}.`)
+      }
+
       return {
         ...canonicalQuestion,
         answer: {
           skipped: false,
-          selected_option_ids: candidateQuestion.answer.selected_option_ids,
-          free_text: candidateQuestion.answer.free_text,
+          selected_option_ids: normalizedChoiceAnswer.selectedOptionIds,
+          free_text: normalizedChoiceAnswer.freeText,
           answered_by: 'ai_skip' as const,
           answered_at: candidateQuestion.answer.answered_at,
         },
@@ -494,6 +628,12 @@ export function normalizeResolvedInterviewDocumentOutput(
     }
 
     const approvalChanged = candidate.approval.approved_by || candidate.approval.approved_at
+    if (!compareSummary(candidate.summary, canonical.summary)) {
+      repairWarnings.push('Canonicalized summary to match the approved Interview Results artifact.')
+    }
+    if (candidate.ticket_id !== canonical.ticket_id) {
+      repairWarnings.push(`Canonicalized ticket_id from "${candidate.ticket_id}" to "${canonical.ticket_id}".`)
+    }
     if (candidate.status !== 'draft') {
       repairWarnings.push(`Canonicalized resolved interview status from "${candidate.status}" to "draft".`)
     }
@@ -505,7 +645,8 @@ export function normalizeResolvedInterviewDocumentOutput(
     }
 
     const document = syncFinalFreeFormSummary({
-      ...candidate,
+      ...canonical,
+      ticket_id: canonical.ticket_id,
       status: 'draft',
       generated_by: {
         ...candidate.generated_by,
@@ -514,6 +655,7 @@ export function normalizeResolvedInterviewDocumentOutput(
       },
       questions,
       follow_up_rounds: canonical.follow_up_rounds,
+      summary: canonical.summary,
       approval: {
         approved_by: '',
         approved_at: '',

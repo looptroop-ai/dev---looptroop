@@ -5,7 +5,9 @@
   "main": "eslint.config.js",
   "scripts": {
     "predev": "tsx scripts/dev-preflight.ts",
-    "dev": "concurrently -n fe,be -c blue,green \"vite\" \"CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts\"",
+    "dev": "concurrently -n oc,fe,be -c yellow,blue,green \"npm:dev:opencode\" \"npm:dev:frontend\" \"npm:dev:backend\"",
+    "dev:app": "concurrently -n fe,be -c blue,green \"npm:dev:frontend\" \"npm:dev:backend\"",
+    "dev:opencode": "tsx scripts/dev-opencode.ts",
     "dev:frontend": "vite",
     "dev:backend": "CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts",
     "build": "tsc -b && vite build",

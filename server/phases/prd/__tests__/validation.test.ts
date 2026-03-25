@@ -77,6 +77,90 @@ function buildInterviewYaml(
   return buildInterviewDocumentYaml(document)
 }
 
+function buildStructuredInterviewYaml(ticketId: string): string {
+  const document: InterviewDocument = {
+    schema_version: 1,
+    ticket_id: ticketId,
+    artifact: 'interview',
+    status: 'approved',
+    generated_by: {
+      winner_model: 'openai/gpt-5',
+      generated_at: '2026-03-23T09:00:00.000Z',
+    },
+    questions: [
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        prompt: 'Which workflow guardrails are mandatory?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: 'Keep the council flow intact.',
+          answered_by: 'user',
+          answered_at: '2026-03-23T09:03:00.000Z',
+        },
+      },
+      {
+        id: 'Q02',
+        phase: 'Structure',
+        prompt: 'Which sharding mode should be the default?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'single_choice',
+        options: [
+          { id: 'opt1', label: 'Always sharded' },
+          { id: 'opt2', label: 'Automatic detection' },
+          { id: 'opt3', label: 'Manual flag only' },
+        ],
+        answer: {
+          skipped: true,
+          selected_option_ids: [],
+          free_text: '',
+          answered_by: 'ai_skip',
+          answered_at: '',
+        },
+      },
+      {
+        id: 'Q03',
+        phase: 'Assembly',
+        prompt: 'Who is affected by sharding?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'multiple_choice',
+        options: [
+          { id: 'opt1', label: 'Operators running the pipeline' },
+          { id: 'opt2', label: 'Council models' },
+          { id: 'opt3', label: 'Downstream consumers of issues.jsonl' },
+        ],
+        answer: {
+          skipped: true,
+          selected_option_ids: [],
+          free_text: '',
+          answered_by: 'ai_skip',
+          answered_at: '',
+        },
+      },
+    ],
+    follow_up_rounds: [],
+    summary: {
+      goals: ['Harden DRAFTING_PRD'],
+      constraints: ['Preserve council mechanics'],
+      non_goals: ['Touch PRD approval'],
+      final_free_form_answer: '',
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+
+  return buildInterviewDocumentYaml(document)
+}
+
 describe('validatePrdDraft', () => {
   it('accepts wrapped PRD YAML, repairs ids deterministically, and returns stable metrics', () => {
     const interviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
@@ -273,12 +357,77 @@ describe('validatePrdDraft', () => {
     expect(result.repairWarnings.join('\n')).toContain('Canonicalized generated_by.winner_model')
   })
 
-  it('rejects resolved interviews that modify existing answered user questions', () => {
-    const canonicalInterviewContent = buildInterviewYaml('PROJ-7')
+  it('restores canonical metadata, question order, and answered user questions instead of failing', () => {
+    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
 
-    expect(() => validateResolvedInterview([
+    const result = validateResolvedInterview([
       'schema_version: 1',
       'ticket_id: PROJ-7',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    prompt: Which downstream phases are out of scope for this pass?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Changed answer',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:04:00.000Z',
+      '  - id: Q01',
+      '    phase: Assembly',
+      '    prompt: Rewritten prompt that should be ignored',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Preserve council retries and strict normalization.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Changed summary]',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: changed',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })
+
+    expect(result.document.questions.map((question) => question.id)).toEqual(['Q01', 'Q02'])
+    expect(result.document.questions[0]?.phase).toBe('Foundation')
+    expect(result.document.questions[0]?.prompt).toBe('Which workflow guardrails are mandatory?')
+    expect(result.document.questions[0]?.answer.free_text).toBe('Preserve council retries and strict normalization.')
+    expect(result.document.questions[0]?.answer.answered_by).toBe('ai_skip')
+    expect(result.document.questions[1]?.answer.free_text).toBe('PRD approval and coverage stay out of scope.')
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized question order')
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized metadata for canonical question Q01')
+    expect(result.repairWarnings.join('\n')).toContain('Restored answered canonical question Q02')
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized summary')
+  })
+
+  it('maps exact canonical option labels for skipped structured questions', () => {
+    const canonicalInterviewContent = buildStructuredInterviewYaml('PROJ-8')
+
+    const result = validateResolvedInterview([
+      'schema_version: 1',
+      'ticket_id: PROJ-8',
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -295,12 +444,12 @@ describe('validatePrdDraft', () => {
       '    answer:',
       '      skipped: false',
       '      selected_option_ids: []',
-      '      free_text: Changed answer',
+      '      free_text: Keep the council flow intact.',
       '      answered_by: user',
       '      answered_at: 2026-03-23T09:03:00.000Z',
       '  - id: Q02',
       '    phase: Structure',
-      '    prompt: Which downstream phases are out of scope for this pass?',
+      '    prompt: Which sharding mode should be the default?',
       '    source: compiled',
       '    follow_up_round: null',
       '    answer_type: free_text',
@@ -308,23 +457,109 @@ describe('validatePrdDraft', () => {
       '    answer:',
       '      skipped: false',
       '      selected_option_ids: []',
-      '      free_text: PRD approval and coverage stay out of scope.',
+      '      free_text: Automatic detection',
       '      answered_by: user',
-      '      answered_at: 2026-03-23T09:04:00.000Z',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      '  - id: Q03',
+      '    phase: Assembly',
+      '    prompt: Who is affected by sharding?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: |',
+      '        - Operators running the pipeline',
+      '        - Downstream consumers of issues.jsonl',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:12:00.000Z',
       'follow_up_rounds: []',
       'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
+      '  goals: [Harden DRAFTING_PRD]',
+      '  constraints: [Preserve council mechanics]',
+      '  non_goals: [Touch PRD approval]',
       '  final_free_form_answer: ""',
       'approval:',
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: 'PROJ-8',
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
-    })).toThrow('Resolved interview changed an answered user question: Q01')
+    })
+
+    expect(result.document.questions[1]?.answer.selected_option_ids).toEqual(['opt2'])
+    expect(result.document.questions[2]?.answer.selected_option_ids).toEqual(['opt1', 'opt3'])
+    expect(result.repairWarnings.filter((warning) => warning.includes('Mapped free_text to canonical option ids'))).toHaveLength(2)
+  })
+
+  it('rejects ambiguous prose for skipped structured questions', () => {
+    const canonicalInterviewContent = buildStructuredInterviewYaml('PROJ-8')
+
+    expect(() => validateResolvedInterview([
+      'schema_version: 1',
+      'ticket_id: PROJ-8',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which workflow guardrails are mandatory?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Keep the council flow intact.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:03:00.000Z',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    prompt: Which sharding mode should be the default?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Use automatic detection unless operators force the legacy path.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      '  - id: Q03',
+      '    phase: Assembly',
+      '    prompt: Who is affected by sharding?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Operators and downstream systems benefit the most.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:12:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Harden DRAFTING_PRD]',
+      '  constraints: [Preserve council mechanics]',
+      '  non_goals: [Touch PRD approval]',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-8',
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })).toThrow('does not map exactly to canonical options')
   })
 
   it('rejects PRD drafts when the canonical interview artifact is missing or invalid', () => {

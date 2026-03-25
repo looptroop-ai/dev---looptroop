@@ -1,5 +1,5 @@
 import type { ParsedInterviewQuestion } from './questions'
-import type { InterviewQuestionChange, InterviewQuestionChangeType } from '@shared/interviewQuestions'
+import type { InspirationSource, InterviewQuestionChange, InterviewQuestionChangeType } from '@shared/interviewQuestions'
 import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
 
 export interface CompiledInterviewArtifact {
@@ -46,6 +46,22 @@ function normalizeArtifactChangeType(value: unknown, index: number): InterviewQu
   throw new Error(`Compiled interview change at index ${index} has an invalid type`)
 }
 
+function normalizeArtifactInspirationSource(value: unknown): InspirationSource | null {
+  if (!value || !isRecord(value)) return null
+
+  const draftIndex = typeof value.draftIndex === 'number' ? value.draftIndex : -1
+  const memberId = typeof value.memberId === 'string' ? value.memberId : ''
+  const rawQuestion = value.question
+  if (!isRecord(rawQuestion)) return null
+
+  const id = typeof rawQuestion.id === 'string' ? rawQuestion.id.trim() : ''
+  const phase = typeof rawQuestion.phase === 'string' ? rawQuestion.phase.trim() : ''
+  const question = typeof rawQuestion.question === 'string' ? rawQuestion.question.trim() : ''
+  if (!id || !phase || !question) return null
+
+  return { draftIndex, memberId, question: { id, phase, question } }
+}
+
 function normalizeArtifactChange(value: unknown, index: number): InterviewQuestionChange {
   if (!isRecord(value)) {
     throw new Error(`Compiled interview change at index ${index} is not an object`)
@@ -60,6 +76,7 @@ function normalizeArtifactChange(value: unknown, index: number): InterviewQuesti
     type: normalizeArtifactChangeType(value.type, index),
     before: value.before === null ? null : normalizeArtifactQuestion(value.before, index),
     after: value.after === null ? null : normalizeArtifactQuestion(value.after, index),
+    inspiration: normalizeArtifactInspirationSource(value.inspiration),
   }
 }
 
@@ -68,6 +85,7 @@ export function buildCompiledInterviewArtifact(
   refinementOutput: string,
   winnerDraftContent: string,
   maxInitialQuestions: number,
+  losingDraftMeta?: Array<{ memberId: string; content: string }>,
 ): CompiledInterviewArtifact {
   const normalizedWinnerId = winnerId.trim()
   if (!normalizedWinnerId) {
@@ -78,6 +96,7 @@ export function buildCompiledInterviewArtifact(
     refinementOutput,
     winnerDraftContent,
     maxInitialQuestions,
+    losingDraftMeta,
   )
   if (!refinement.ok) {
     throw new Error(refinement.error)
@@ -110,6 +129,17 @@ export function buildCompiledInterviewArtifact(
             id: change.after.id,
             phase: formatArtifactPhase(change.after.phase),
             question: change.after.question,
+          }
+        : null,
+      inspiration: change.inspiration
+        ? {
+            draftIndex: change.inspiration.draftIndex,
+            memberId: change.inspiration.memberId,
+            question: {
+              id: change.inspiration.question.id,
+              phase: formatArtifactPhase(change.inspiration.question.phase),
+              question: change.inspiration.question.question,
+            },
           }
         : null,
     })),

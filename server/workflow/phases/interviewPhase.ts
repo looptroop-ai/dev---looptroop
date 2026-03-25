@@ -325,7 +325,7 @@ export function buildInterviewRefinePrompt(
     drafts: [
       ['## Winning Draft', winnerDraft.content].join('\n'),
       ...losingDrafts.map((draft, index) => [
-        `## Alternative Draft ${index + 1}`,
+        `## Alternative Draft ${index + 1} (model: ${draft.memberId})`,
         draft.content,
       ].join('\n')),
     ],
@@ -826,10 +826,12 @@ export async function handleInterviewCompile(
       activeLosingDrafts,
     ),
     (content) => {
+      const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId, content: d.content }))
       const result = normalizeInterviewRefinementOutput(
         content,
         winnerDraft.content,
         resolveInterviewDraftSettings(context).maxInitialQuestions,
+        losingDraftMeta,
       )
       if (!result.ok) {
         structuredMeta = buildStructuredMetadata(structuredMeta, {
@@ -852,11 +854,13 @@ export async function handleInterviewCompile(
   phaseIntermediate.delete(`${ticketId}:interview`)
 
   try {
+    const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId, content: d.content }))
     const compiledArtifact = buildCompiledInterviewArtifact(
       intermediate.winnerId,
       refinedContent,
       winnerDraft.content,
       resolveInterviewDraftSettings(context).maxInitialQuestions,
+      losingDraftMeta,
     )
 
     insertPhaseArtifact(ticketId, {

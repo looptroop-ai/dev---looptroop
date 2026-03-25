@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { RefinementChange } from '@shared/refinementChanges'
 import type { PrdDocument, PrdDraftMetrics, StructuredOutputResult } from './types'
 import { normalizeInterviewDocumentOutput } from './interviewDocument'
 import {
@@ -13,6 +14,7 @@ import {
   getRequiredString,
   buildYamlDocument,
 } from './yamlUtils'
+import { parseRefinementChanges } from './refinementChanges'
 
 function hashContent(content: string | undefined): string {
   return createHash('sha256').update(content ?? '').digest('hex')
@@ -173,8 +175,9 @@ export function normalizePrdYamlOutput(
   options: {
     ticketId: string
     interviewContent?: string
+    losingDraftMeta?: Array<{ memberId: string }>
   },
-): StructuredOutputResult<PrdDocument> {
+): StructuredOutputResult<PrdDocument & { changes?: RefinementChange[] }> {
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['schema_version', 'artifact', 'product', 'scope', 'technical_requirements', 'epics'],
   })
@@ -192,6 +195,14 @@ export function normalizePrdYamlOutput(
         'data',
       ])
       if (!isRecord(parsed)) throw new Error('PRD output is not a YAML/JSON object')
+
+      // Extract changes before PRD validation (changes is not part of the PRD schema)
+      const rawChanges = getValueByAliases(parsed, ['changes'])
+      if (rawChanges !== undefined) {
+        delete (parsed as Record<string, unknown>).changes
+      }
+      const parsedRefinementChanges = parseRefinementChanges(rawChanges, options.losingDraftMeta)
+      repairWarnings.push(...parsedRefinementChanges.repairWarnings)
 
       const product = getNestedRecord(parsed, ['product'])
       const scope = getNestedRecord(parsed, ['scope'])
@@ -258,9 +269,13 @@ export function normalizePrdYamlOutput(
         },
       }
 
+      const valueWithChanges = parsedRefinementChanges.changes.length > 0
+        ? { ...document, changes: parsedRefinementChanges.changes }
+        : document
+
       return {
         ok: true,
-        value: document,
+        value: valueWithChanges,
         normalizedContent: buildYamlDocument(document),
         repairApplied: candidate !== rawContent.trim() || repairWarnings.length > 0,
         repairWarnings,

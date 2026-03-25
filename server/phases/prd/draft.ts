@@ -15,7 +15,7 @@ import { SessionManager } from '../../opencode/sessionManager'
 import { buildPromptFromTemplate, PROM09D, PROM10, PROM11, PROM12 } from '../../prompts/index'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runOpenCodePrompt'
-import { buildStructuredRetryPrompt } from '../../structuredOutput'
+import { buildStructuredRetryPrompt, normalizeInterviewDocumentOutput } from '../../structuredOutput'
 import { validatePrdDraft, validateResolvedInterview } from './validation'
 
 interface StepValidationResult {
@@ -74,6 +74,48 @@ export function buildPrdContextBuilder(ticketState: TicketState) {
 
 function buildPromptParts(template: typeof PROM09D | typeof PROM10, contextParts: PromptPart[]): PromptPart[] {
   return [{ type: 'text', content: buildPromptFromTemplate(template, contextParts) }]
+}
+
+function buildFullAnswersRetryPrompt(
+  baseParts: PromptPart[],
+  options: {
+    validationError: string
+    rawResponse: string
+    canonicalInterviewContent: string
+    skippedQuestionIds: string[]
+  },
+): PromptPart[] {
+  const skippedLabel = options.skippedQuestionIds.length > 0
+    ? options.skippedQuestionIds.join(', ')
+    : '[none]'
+
+  return [
+    ...baseParts,
+    {
+      type: 'text',
+      content: [
+        '## Full Answers Structured Output Retry',
+        `Your previous response failed machine validation: ${options.validationError}`,
+        'Return only a corrected full interview YAML artifact.',
+        `Only these skipped question answers may change: ${skippedLabel}`,
+        'Allowed edits:',
+        '- Only `questions[*].answer` for the skipped question IDs listed above.',
+        '- For choice questions, populate `selected_option_ids` using the existing canonical option IDs.',
+        'Forbidden edits:',
+        '- Do not change question IDs, question order, prompts, phases, `answer_type`, or `options`.',
+        '- Do not change any existing non-skipped answer.',
+        '- Do not change `follow_up_rounds`, `summary`, or approval fields.',
+        'Canonical approved interview artifact (copy everything except the skipped question answers):',
+        '```yaml',
+        options.canonicalInterviewContent.trim() || '[empty canonical interview artifact]',
+        '```',
+        'Previous invalid response:',
+        '```',
+        options.rawResponse.trim() || '[empty response]',
+        '```',
+      ].join('\n\n'),
+    },
+  ]
 }
 
 function buildStructuredOutput(
@@ -145,6 +187,11 @@ async function executeStructuredStep(
     deadlineAt: number | null
     validateStep: (content: string) => StepValidationResult
     schemaReminder: string
+    buildRetryPrompt?: (params: {
+      baseParts: PromptPart[]
+      validationError: string
+      rawResponse: string
+    }) => PromptPart[]
     onOpenCodeSessionLog?: (entry: {
       stage: 'draft' | 'vote' | 'refine'
       memberId: string
@@ -282,7 +329,11 @@ async function executeStructuredStep(
       }
 
       attemptCount += 1
-      promptParts = buildStructuredRetryPrompt(baseParts, {
+      promptParts = options.buildRetryPrompt?.({
+        baseParts,
+        validationError: lastValidationError,
+        rawResponse,
+      }) ?? buildStructuredRetryPrompt(baseParts, {
         validationError: lastValidationError,
         rawResponse,
         schemaReminder: options.schemaReminder,
@@ -334,6 +385,19 @@ export async function draftPRD(
   const shouldResolveGaps = canonicalInterview.includes('skipped: true')
   const deadlineAt = options.draftTimeoutMs > 0 ? Date.now() + options.draftTimeoutMs : null
   let deadlineReached = false
+  const canonicalInterviewResult = shouldResolveGaps
+    ? normalizeInterviewDocumentOutput(canonicalInterview, {
+        ticketId: options.ticketExternalId ?? options.ticketId ?? '',
+      })
+    : null
+  const canonicalInterviewForRetry = canonicalInterviewResult?.ok
+    ? canonicalInterviewResult.normalizedContent
+    : canonicalInterview
+  const skippedQuestionIds = canonicalInterviewResult?.ok
+    ? canonicalInterviewResult.value.questions
+      .filter((question) => question.answer.skipped)
+      .map((question) => question.id)
+    : []
 
   const results = await Promise.all(members.map(async (member) => {
     const memberStart = Date.now()
@@ -455,6 +519,12 @@ export async function draftPRD(
             }
           },
           schemaReminder: PROM09D.outputFormat,
+          buildRetryPrompt: ({ baseParts, validationError, rawResponse }) => buildFullAnswersRetryPrompt(baseParts, {
+            validationError,
+            rawResponse,
+            canonicalInterviewContent: canonicalInterviewForRetry,
+            skippedQuestionIds,
+          }),
           onOpenCodeSessionLog,
           onOpenCodeStreamEvent,
           onOpenCodePromptDispatched,

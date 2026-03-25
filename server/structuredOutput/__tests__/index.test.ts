@@ -272,6 +272,7 @@ describe('structured output normalization', () => {
           phase: 'foundation',
           question: 'What user problem are we solving?',
         },
+        inspiration: null,
       },
     ])
   })
@@ -409,6 +410,7 @@ describe('structured output normalization', () => {
           phase: 'structure',
           question: 'What components need to interact?',
         },
+        inspiration: null,
       },
       {
         type: 'replaced',
@@ -422,6 +424,7 @@ describe('structured output normalization', () => {
           phase: 'structure',
           question: 'How should data flow between modules?',
         },
+        inspiration: null,
       },
     ])
   })
@@ -480,6 +483,7 @@ describe('structured output normalization', () => {
           phase: 'foundation',
           question: 'What user problem are we solving?',
         },
+        inspiration: null,
       },
       {
         type: 'modified',
@@ -493,6 +497,7 @@ describe('structured output normalization', () => {
           phase: 'assembly',
           question: 'How should success be verified in practice?',
         },
+        inspiration: null,
       },
     ])
   })
@@ -534,6 +539,7 @@ describe('structured output normalization', () => {
           phase: 'foundation',
           question: 'What user problem are we solving?',
         },
+        inspiration: null,
       },
     ])
   })
@@ -577,6 +583,7 @@ describe('structured output normalization', () => {
           phase: 'foundation',
           question: 'What user problem are we solving?',
         },
+        inspiration: null,
       },
     ])
   })

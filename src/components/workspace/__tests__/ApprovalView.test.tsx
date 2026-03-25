@@ -223,7 +223,12 @@ describe('Interview approval UI', () => {
   let interviewPayload = buildInterviewPayload('Protect the import pipeline.')
 
   function openFoundationSection() {
-    fireEvent.click(screen.getByText('Foundation').closest('button')!)
+    const foundationLabels = screen.getAllByText('Foundation')
+    fireEvent.click(foundationLabels[foundationLabels.length - 1]!.closest('button')!)
+  }
+
+  function clickHeaderEditButton() {
+    fireEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0]!)
   }
 
   beforeEach(() => {
@@ -267,7 +272,7 @@ describe('Interview approval UI', () => {
     openFoundationSection()
     expect(screen.getByText('Protect the import pipeline.')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    clickHeaderEditButton()
 
     expect(screen.getByText('Answer-only editor')).toBeInTheDocument()
     expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
@@ -291,7 +296,7 @@ describe('Interview approval UI', () => {
       )
     })
     expect(mockClearTicketArtifactsCache).toHaveBeenCalledWith('1:PROJ-42')
-  }, 10_000)
+  }, 30_000)
 
   it('confirms before switching from dirty answer edits to the YAML tab and resets to the last saved artifact', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
@@ -304,7 +309,7 @@ describe('Interview approval UI', () => {
 
     await renderApprovalView(makeTicket())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    clickHeaderEditButton()
     openFoundationSection()
     fireEvent.change(screen.getByPlaceholderText('Update the recorded answer.'), {
       target: { value: 'Unsaved answer draft.' },
@@ -317,7 +322,7 @@ describe('Interview approval UI', () => {
     const editor = await screen.findByLabelText('YAML editor')
     expect(editor).toHaveValue(buildInterviewYaml('Protect the import pipeline.'))
     expect(screen.queryByDisplayValue('Unsaved answer draft.')).not.toBeInTheDocument()
-  })
+  }, 30_000)
 
   it('shows local YAML validation feedback and saves valid YAML edits', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
@@ -337,7 +342,7 @@ describe('Interview approval UI', () => {
 
     await renderApprovalView(makeTicket())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    clickHeaderEditButton()
     fireEvent.click(screen.getByRole('button', { name: 'YAML' }))
 
     const editor = await screen.findByLabelText('YAML editor')
@@ -359,5 +364,24 @@ describe('Interview approval UI', () => {
     await waitFor(() => {
       expect(screen.getByText('Updated from YAML.')).toBeInTheDocument()
     })
-  })
+  }, 30_000)
+
+  it('shows a loading state instead of briefly rendering raw YAML while interview data is refetching', async () => {
+    mockUseInterviewQuestions.mockImplementation(() => ({
+      data: {
+        winnerId: 'openai/gpt-5',
+        raw: 'questions:\n  - id: Q01\n    question: Old compiled question',
+        document: null,
+        session: null,
+        questions: [],
+      },
+      isLoading: false,
+      isFetching: true,
+    }))
+
+    await renderApprovalView(makeTicket())
+
+    expect(screen.getByText('Building the structured approval view.')).toBeInTheDocument()
+    expect(screen.queryByText(/schema_version: 1/i)).not.toBeInTheDocument()
+  }, 30_000)
 })

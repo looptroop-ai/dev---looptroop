@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { LoadingText } from '@/components/ui/LoadingText'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { InterviewDocumentView } from './InterviewDocumentView'
@@ -70,7 +71,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
     [ticket.status],
   )
   const { data: persistedUiState } = useTicketUIState<InterviewApprovalUiState>(ticket.id, uiStateScope, true)
-  const { data: interviewData, isLoading } = useInterviewQuestions(ticket.id)
+  const { data: interviewData, isLoading, isFetching } = useInterviewQuestions(ticket.id)
 
   const interviewDocument = useMemo(
     () => normalizeInterviewDocumentLike(interviewData?.document) ?? parseInterviewDocument(interviewData?.raw),
@@ -78,6 +79,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   )
   const rawContent = interviewData?.raw ?? ''
   const showSkippedQuestionsNotice = hasSkippedInterviewAnswers(interviewDocument)
+  const isPreparingStructuredInterview = !interviewDocument && Boolean(rawContent) && isFetching
 
   const [editMode, setEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('answers')
@@ -347,7 +349,13 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
         <div className="flex items-center gap-2 text-sm">
           <span className="font-semibold">Interview Results</span>
           <span className="flex-1 text-xs text-muted-foreground">Review the final interview artifact, edit recorded answers if needed, then approve it.</span>
-          <Button variant="outline" size="sm" onClick={handleToggleEdit} className="text-xs shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleEdit}
+            disabled={isPreparingStructuredInterview}
+            className="text-xs shrink-0"
+          >
             {editMode ? 'View' : 'Edit'}
           </Button>
           <Button
@@ -411,8 +419,17 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
       </div>
 
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading interview results…</div>
+        {isLoading || isPreparingStructuredInterview ? (
+          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+            <div className="text-center space-y-2">
+              <LoadingText text={isPreparingStructuredInterview ? 'Preparing interview results' : 'Loading interview results'} className="text-sm font-medium animate-pulse" />
+              <p className="text-[10px]">
+                {isPreparingStructuredInterview
+                  ? 'Building the structured approval view.'
+                  : 'Fetching the latest interview artifact.'}
+              </p>
+            </div>
+          </div>
         ) : editMode ? (
           <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
             {editTab === 'yaml' ? (
@@ -450,7 +467,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
             )}
           </div>
         ) : interviewDocument ? (
-          <InterviewDocumentView document={interviewDocument} />
+          <InterviewDocumentView document={interviewDocument} hideAiAnswerBadge />
         ) : rawContent ? (
           <div className="rounded-xl border border-border bg-background p-4">
             <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawContent}</pre>

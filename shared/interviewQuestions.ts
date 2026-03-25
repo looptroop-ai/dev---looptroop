@@ -15,10 +15,17 @@ export interface ParsedInterviewQuestion {
 
 export type InterviewQuestionChangeType = 'modified' | 'replaced' | 'added' | 'removed'
 
+export interface InspirationSource {
+  draftIndex: number
+  memberId: string
+  question: ParsedInterviewQuestion
+}
+
 export interface InterviewQuestionChange {
   type: InterviewQuestionChangeType
   before?: ParsedInterviewQuestion | null
   after?: ParsedInterviewQuestion | null
+  inspiration?: InspirationSource | null
 }
 
 export interface ParseInterviewQuestionsOptions {

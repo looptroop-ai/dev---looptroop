@@ -113,4 +113,71 @@ describe('InterviewApprovalNavigator', () => {
       anchorId: 'interview-question-cf01',
     })
   })
+
+  it('shows phase-specific descriptions for compiled interview sections', async () => {
+    const data = buildInterviewData()
+    data.document!.questions.splice(1, 0,
+      {
+        id: 'Q02',
+        phase: 'Structure',
+        prompt: 'Which workflow boundaries are fixed?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: 'Imports stay inside the sync worker.',
+          answered_by: 'user',
+          answered_at: '2026-03-17T10:06:00.000Z',
+        },
+      },
+      {
+        id: 'Q03',
+        phase: 'Assembly',
+        prompt: 'Which integration points need validation?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: 'Validate retries and dedupe behavior.',
+          answered_by: 'user',
+          answered_at: '2026-03-17T10:07:00.000Z',
+        },
+      },
+    )
+
+    renderWithProviders(<InterviewApprovalNavigator ticketId="1:PROJ-42" />, data)
+
+    await waitFor(() => {
+      expect(screen.getByText('Structure')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Problem framing, goals, and constraints established in the approved interview.')).toBeInTheDocument()
+    expect(screen.getByText('System shape, workflows, and boundaries defined in the approved interview.')).toBeInTheDocument()
+    expect(screen.getByText('Implementation details, integrations, and delivery considerations captured in the approved interview.')).toBeInTheDocument()
+  })
+
+  it('hides the summary entry when the interview summary has no content', async () => {
+    const data = buildInterviewData()
+    data.document!.summary = {
+      goals: [],
+      constraints: [],
+      non_goals: [],
+      final_free_form_answer: '',
+    }
+
+    renderWithProviders(<InterviewApprovalNavigator ticketId="1:PROJ-42" />, data)
+
+    await waitFor(() => {
+      expect(screen.getByText('Foundation')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Summary')).not.toBeInTheDocument()
+    expect(screen.getByText('Coverage Follow-ups · Round 1')).toBeInTheDocument()
+  })
 })

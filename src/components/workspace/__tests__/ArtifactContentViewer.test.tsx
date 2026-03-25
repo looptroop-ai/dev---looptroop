@@ -9,6 +9,37 @@ function buildCanonicalInterviewContent(questions: Array<Record<string, unknown>
   })
 }
 
+function buildInterviewDocumentContent({
+  questions,
+  summary,
+}: {
+  questions: Array<Record<string, unknown>>
+  summary?: Record<string, unknown>
+}) {
+  return JSON.stringify({
+    schema_version: 1,
+    ticket_id: 'PROJ-42',
+    artifact: 'interview',
+    status: 'draft',
+    generated_by: {
+      winner_model: 'openai/gpt-5',
+      generated_at: '2026-03-25T09:00:00.000Z',
+    },
+    questions,
+    follow_up_rounds: [],
+    summary: summary ?? {
+      goals: [],
+      constraints: [],
+      non_goals: [],
+      final_free_form_answer: '',
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  })
+}
+
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
 }
@@ -77,6 +108,31 @@ describe('ArtifactContentViewer', () => {
     expect(screen.queryByText('Skipped')).not.toBeInTheDocument()
   })
 
+  it('hides the interview summary when the canonical interview summary is empty', () => {
+    render(
+      <InterviewAnswersView
+        content={buildInterviewDocumentContent({
+          questions: [
+            {
+              id: 'Q01',
+              phase: 'Foundation',
+              prompt: 'What outcome matters most?',
+              source: 'compiled',
+              answer_type: 'free_text',
+              options: [],
+              answer: { skipped: false, free_text: 'Keep imports idempotent.', selected_option_ids: [] },
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.queryByText('Interview Summary')).not.toBeInTheDocument()
+
+    openFoundationGroup()
+    expect(screen.getByText('What outcome matters most?')).toBeInTheDocument()
+  })
+
   it('renders single-choice selections without marking them skipped', () => {
     render(
       <InterviewAnswersView
@@ -137,7 +193,7 @@ describe('ArtifactContentViewer', () => {
           {
             id: 'Q04',
             prompt: 'Do we need an admin panel?',
-            answer: { skipped: true, free_text: '', selected_option_ids: [] },
+            answer: { skipped: true, free_text: '', selected_option_ids: [], answered_by: 'user', answered_at: '' },
           },
         ])}
       />,

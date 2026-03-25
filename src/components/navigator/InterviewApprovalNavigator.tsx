@@ -5,6 +5,7 @@ import {
   getInterviewFollowUpsAnchorId,
   getInterviewQuestionAnchorId,
   getInterviewSummaryAnchorId,
+  hasInterviewSummaryContent,
   groupInterviewDocumentQuestions,
   INTERVIEW_APPROVAL_FOCUS_EVENT,
   normalizeInterviewDocumentLike,
@@ -21,6 +22,7 @@ export function InterviewApprovalNavigator({ ticketId }: { ticketId: string }) {
   const { data, isLoading } = useInterviewQuestions(ticketId)
   const document = normalizeInterviewDocumentLike(data?.document) ?? parseInterviewDocument(data?.raw)
   const groups = document ? groupInterviewDocumentQuestions(document) : []
+  const showSummary = hasInterviewSummaryContent(document)
 
   return (
     <div className="p-2">
@@ -35,19 +37,21 @@ export function InterviewApprovalNavigator({ ticketId }: { ticketId: string }) {
             <div className="px-2 py-1 text-xs text-muted-foreground">Interview results will appear once the canonical artifact is ready.</div>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => focusApprovalAnchor(ticketId, getInterviewSummaryAnchorId())}
-                className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">Summary</span>
-                  <Badge variant="outline" className="h-4 text-[10px]">{document.status}</Badge>
-                </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  Goals, constraints, non-goals, and the final free-form answer.
-                </div>
-              </button>
+              {showSummary ? (
+                <button
+                  type="button"
+                  onClick={() => focusApprovalAnchor(ticketId, getInterviewSummaryAnchorId())}
+                  className="w-full rounded-md border border-border/70 bg-background px-2 py-2 text-left hover:bg-accent/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium">Summary</span>
+                    <Badge variant="outline" className="h-4 text-[10px]">{document.status}</Badge>
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Goals, constraints, non-goals, and the final free-form answer.
+                  </div>
+                </button>
+              ) : null}
 
               {groups.map((group) => (
                 <div key={group.id} className="space-y-1">

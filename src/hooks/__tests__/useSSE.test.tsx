@@ -149,4 +149,29 @@ describe('useSSE', () => {
 
     expect(source.closed).toBe(true)
   })
+
+  it('refreshes interview data when a ticket enters interview approval', async () => {
+    const ticketId = '1:T-42'
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    const source = MockEventSource.instances[0]!
+
+    await act(async () => {
+      source.emit('state_change', {
+        ticketId,
+        from: 'VERIFYING_INTERVIEW_COVERAGE',
+        to: 'WAITING_INTERVIEW_APPROVAL',
+      }, '1')
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['interview', ticketId] })
+    })
+  })
 })

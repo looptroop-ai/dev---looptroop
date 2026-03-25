@@ -1,4 +1,5 @@
 import type { InterviewDocument } from '@shared/interviewArtifact'
+import type { RefinementChange } from '@shared/refinementChanges'
 import type { PrdDocument, PrdDraftMetrics } from '../../structuredOutput'
 import {
   getPrdDraftMetrics,
@@ -20,6 +21,7 @@ export interface ValidatedPrdDraft {
   normalizedContent: string
   repairApplied: boolean
   repairWarnings: string[]
+  changes?: RefinementChange[]
 }
 
 export function validatePrdDraft(
@@ -27,6 +29,7 @@ export function validatePrdDraft(
   options: {
     ticketId: string
     interviewContent?: string
+    losingDraftMeta?: Array<{ memberId: string }>
   },
 ): ValidatedPrdDraft {
   const result = normalizePrdYamlOutput(content, options)
@@ -34,12 +37,15 @@ export function validatePrdDraft(
     throw new Error(result.error)
   }
 
+  const { changes, ...document } = result.value
+
   return {
-    document: result.value,
-    metrics: getPrdDraftMetrics(result.value),
+    document,
+    metrics: getPrdDraftMetrics(document),
     normalizedContent: result.normalizedContent,
     repairApplied: result.repairApplied,
     repairWarnings: result.repairWarnings,
+    ...(changes ? { changes } : {}),
   }
 }
 

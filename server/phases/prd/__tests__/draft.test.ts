@@ -105,6 +105,25 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
   }
 }
 
+class SlowTestOpenCodeAdapter extends TestOpenCodeAdapter {
+  constructor(
+    responses: string[],
+    private readonly delayMs: number,
+  ) {
+    super(responses)
+  }
+
+  override async promptSession(
+    sessionId: string,
+    parts: PromptPart[],
+    signal?: AbortSignal,
+    options?: PromptSessionOptions,
+  ): Promise<string> {
+    await new Promise((resolve) => setTimeout(resolve, this.delayMs))
+    return super.promptSession(sessionId, parts, signal, options)
+  }
+}
+
 function buildInterviewYaml(ticketId: string): string {
   const document: InterviewDocument = {
     schema_version: 1,
@@ -237,6 +256,41 @@ function buildResolvedInterviewYaml(ticketId: string, memberId = 'model-a'): str
   ].join('\n')
 }
 
+function buildNearMissResolvedInterviewYaml(ticketId: string, memberId = 'model-a'): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: ${ticketId}`,
+    'artifact: interview',
+    'status: approved',
+    'generated_by:',
+    `  winner_model: ${memberId}`,
+    '  generated_at: 2026-03-23T09:10:00.000Z',
+    'questions:',
+    '  - id: Q01',
+    '    phase: Assembly',
+    '    prompt: Rewritten prompt that should be ignored',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: free_text',
+    '    options: []',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: Preserve council retry behavior and strict validation.',
+    '      answered_by: user',
+    '      answered_at: 2026-03-23T09:11:00.000Z',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: [Changed summary]',
+    '  constraints: []',
+    '  non_goals: []',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: user',
+    '  approved_at: 2026-03-23T09:12:00.000Z',
+  ].join('\n')
+}
+
 function buildPrdYaml(ticketId: string): string {
   return [
     'schema_version: 1',
@@ -280,6 +334,42 @@ function buildPrdYaml(ticketId: string): string {
 }
 
 describe('draftPRD', () => {
+  it('salvages near-miss full answers without using a structured retry', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      buildNearMissResolvedInterviewYaml('PROJ-12'),
+      buildPrdYaml('PROJ-12'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-12',
+        title: 'Salvage near-miss full answers',
+        description: 'Treat the approved interview as canonical structure for future tickets.',
+        interview: buildInterviewYaml('PROJ-12'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-12',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      structuredOutput: {
+        autoRetryCount: 0,
+        repairApplied: true,
+      },
+    })
+    expect(result.fullAnswers[0]?.content).toContain('prompt: Which workflow guardrails are mandatory?')
+    expect(result.fullAnswers[0]?.content).not.toContain('Rewritten prompt that should be ignored')
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
   it('skips full answers and creates only one PRD session when no interview questions are skipped', async () => {
     const adapter = new TestOpenCodeAdapter([
       buildPrdYaml('PROJ-10'),
@@ -553,7 +643,114 @@ describe('draftPRD', () => {
       { status: 'session_created', sessionId: 'mock-session-2' },
       { status: 'finished', sessionId: 'mock-session-2' },
     ])
-    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
+    const fullAnswerRetryMessages = adapter.messages.get('mock-session-1')?.filter((message) => typeof message.content === 'string' && message.content.includes('Full Answers Structured Output Retry')) ?? []
+    expect(fullAnswerRetryMessages).toHaveLength(1)
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Only these skipped question answers may change: Q01')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Canonical approved interview artifact')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Which workflow guardrails are mandatory?')
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('continues to fail when the full-answers retry devolves into prose planning', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      'This is not valid interview YAML.',
+      [
+        '1. Introduce shard support.',
+        '2. Add parser repairs.',
+        '3. Update tests.',
+      ].join('\n'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-13',
+        title: 'Keep prose retries invalid',
+        description: 'Pure prose should not be salvageable.',
+        interview: buildInterviewYaml('PROJ-13'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-13',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'invalid_output',
+      structuredOutput: {
+        autoRetryCount: 1,
+      },
+    })
+    expect(result.drafts[0]?.outcome).toBe('invalid_output')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
+  })
+
+  it('continues to fail when the full-answers retry is only a status message', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      'This is not valid interview YAML.',
+      'The complete interview artifact has been written to `.ticket/interview.yaml`.',
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-14',
+        title: 'Keep status-message retries invalid',
+        description: 'Status text is not a structured artifact.',
+        interview: buildInterviewYaml('PROJ-14'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-14',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'invalid_output',
+      structuredOutput: {
+        autoRetryCount: 1,
+      },
+    })
+    expect(result.drafts[0]?.outcome).toBe('invalid_output')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
+  })
+
+  it('continues to time out when the model misses the full-answers deadline', async () => {
+    const adapter = new SlowTestOpenCodeAdapter([
+      buildResolvedInterviewYaml('PROJ-15'),
+    ], 50)
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-15',
+        title: 'Keep full-answers timeouts unchanged',
+        description: 'Timeout policy is out of scope for this hardening pass.',
+        interview: buildInterviewYaml('PROJ-15'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 10,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-15',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'timed_out',
+      error: 'AI response timeout reached after 10ms',
+    })
+    expect(result.drafts[0]?.outcome).toBe('timed_out')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
   })
 })

@@ -16,8 +16,8 @@ describe('structured prompt hardening', () => {
     const refinePrompt = buildPromptFromTemplate(PROM3, [])
 
     expect(draftPrompt).toContain('hard upper bound, never a target')
-    expect(draftPrompt).toContain('Return the full final `questions` list in one response')
-    expect(draftPrompt).toContain('Do not output a partial artifact')
+    expect(draftPrompt).toContain('Return one complete final `questions` list in this single response')
+    expect(draftPrompt).toContain('do not emit a partial subset or phased draft')
     expect(refinePrompt).toContain('hard upper bound, never a target')
     expect(draftPrompt).not.toContain('endeavor to approach that limit')
   })
@@ -32,7 +32,9 @@ describe('structured prompt hardening', () => {
   })
 
   it('defines an explicit shared PRD schema contract for draft and refine prompts', () => {
-    expect(PROM10.outputFormat).toBe(PROM12.outputFormat)
+    expect(PROM12.outputFormat).toContain(PROM10.outputFormat)
+    expect(PROM12.outputFormat).toContain('top-level `changes` list')
+    expect(PROM12.outputFormat).toContain('inspiration')
     expect(PROM10.outputFormat).toContain('schema_version')
     expect(PROM10.outputFormat).toContain('technical_requirements')
     expect(PROM10.outputFormat).toContain('required_commands')
@@ -82,7 +84,9 @@ describe('structured prompt hardening', () => {
   it('requires the bead subset schema consistently in draft and refine prompts', () => {
     expect(PROM20.outputFormat).toContain('top-level `beads` list')
     expect(PROM20.outputFormat).toContain('`id`')
-    expect(PROM22.outputFormat).toBe(PROM20.outputFormat)
+    expect(PROM22.outputFormat).toContain(PROM20.outputFormat)
+    expect(PROM22.outputFormat).toContain('top-level `changes` list')
+    expect(PROM22.outputFormat).toContain('inspiration')
   })
 
   it('keeps PROM4 and PROM52 explicit about marker-only structured output', () => {

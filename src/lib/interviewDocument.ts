@@ -213,6 +213,19 @@ export function parseInterviewDocument(content: string | null | undefined): Inte
   return parseInterviewDocumentContent(content).document
 }
 
+function hasMeaningfulSummaryItems(items: string[]): boolean {
+  return items.some((item) => item.trim().length > 0)
+}
+
+export function hasInterviewSummaryContent(document: Pick<InterviewDocument, 'summary'> | null | undefined): boolean {
+  if (!document) return false
+
+  return hasMeaningfulSummaryItems(document.summary.goals)
+    || hasMeaningfulSummaryItems(document.summary.constraints)
+    || hasMeaningfulSummaryItems(document.summary.non_goals)
+    || document.summary.final_free_form_answer.trim().length > 0
+}
+
 function buildGroupId(question: InterviewDocumentQuestion): string {
   if (question.source === 'prompt_follow_up') {
     return `prompt-follow-up-${question.follow_up_round ?? 0}`
@@ -224,6 +237,22 @@ function buildGroupId(question: InterviewDocumentQuestion): string {
     return 'final-free-form'
   }
   return `phase-${slugify(question.phase || 'foundation') || 'foundation'}`
+}
+
+function getPhaseGroupDescription(phase: string): string {
+  const normalizedPhase = phase.trim().toLowerCase()
+
+  if (normalizedPhase === 'foundation') {
+    return 'Problem framing, goals, and constraints established in the approved interview.'
+  }
+  if (normalizedPhase === 'structure') {
+    return 'System shape, workflows, and boundaries defined in the approved interview.'
+  }
+  if (normalizedPhase === 'assembly') {
+    return 'Implementation details, integrations, and delivery considerations captured in the approved interview.'
+  }
+
+  return 'Core interview questions captured in the approved interview results.'
 }
 
 function buildGroupLabel(question: InterviewDocumentQuestion): { label: string; description: string } {
@@ -249,7 +278,7 @@ function buildGroupLabel(question: InterviewDocumentQuestion): { label: string; 
   }
   return {
     label: question.phase || 'Foundation',
-    description: 'Core interview questions captured in the approved interview results.',
+    description: getPhaseGroupDescription(question.phase || 'Foundation'),
   }
 }
 

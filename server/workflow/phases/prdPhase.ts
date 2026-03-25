@@ -610,14 +610,18 @@ export async function handlePrdRefine(
     },
     undefined,
     (content) => {
+      const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId }))
       const result = validatePrdDraft(content, {
         ticketId: context.externalId,
         interviewContent: winnerFullAnswers.content,
+        losingDraftMeta,
       })
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
       })
+      // Stash changes for artifact storage
+      ;(structuredMeta as unknown as Record<string, unknown>)._refinementChanges = result.changes
       return { normalizedContent: result.normalizedContent }
     },
     PROM12.outputFormat,
@@ -627,12 +631,17 @@ export async function handlePrdRefine(
   phaseIntermediate.delete(`${ticketId}:prd`)
   const prdPath = resolve(ticketDir, 'prd.yaml')
 
+  const refinementChanges = (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
+  delete (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
+
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
     content: JSON.stringify({
       winnerId: intermediate.winnerId,
       refinedContent,
+      winnerDraftContent: winnerDraft.content,
+      ...(Array.isArray(refinementChanges) && refinementChanges.length > 0 ? { changes: refinementChanges } : {}),
       structuredOutput: structuredMeta,
     }),
   })

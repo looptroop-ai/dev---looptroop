@@ -1,3 +1,4 @@
+import type { RefinementChange } from '@shared/refinementChanges'
 import type { Bead, BeadSubset } from '../phases/beads/types'
 import type { StructuredOutputResult, RelevantFilesOutputEntry, RelevantFilesOutputPayload } from './types'
 import {
@@ -13,6 +14,7 @@ import {
   buildYamlDocument,
   buildJsonlDocument,
 } from './yamlUtils'
+import { parseRefinementChanges } from './refinementChanges'
 
 function normalizeBeadSubsetEntry(value: unknown, index: number): BeadSubset {
   if (!isRecord(value)) throw new Error(`Bead at index ${index} is not an object`)
@@ -46,7 +48,10 @@ function normalizeBeadSubsetEntry(value: unknown, index: number): BeadSubset {
   return subset
 }
 
-export function normalizeBeadSubsetYamlOutput(rawContent: string): StructuredOutputResult<BeadSubset[]> {
+export function normalizeBeadSubsetYamlOutput(
+  rawContent: string,
+  losingDraftMeta?: Array<{ memberId: string }>,
+): StructuredOutputResult<BeadSubset[] & { changes?: RefinementChange[] }> {
   const repairWarnings: string[] = []
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['beads', 'tasks', 'items'],
@@ -55,7 +60,20 @@ export function normalizeBeadSubsetYamlOutput(rawContent: string): StructuredOut
 
   for (const candidate of candidates) {
     try {
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+      const rawParsed = parseYamlOrJsonCandidate(candidate)
+
+      // Extract changes before unwrapping (unwrapping would lose the changes key)
+      let rawChanges: unknown
+      if (isRecord(rawParsed)) {
+        rawChanges = getValueByAliases(rawParsed, ['changes'])
+        if (rawChanges !== undefined) {
+          delete (rawParsed as Record<string, unknown>).changes
+        }
+      }
+      const parsedRefinementChanges = parseRefinementChanges(rawChanges, losingDraftMeta)
+      repairWarnings.push(...parsedRefinementChanges.repairWarnings)
+
+      const parsed = maybeUnwrapRecord(rawParsed, [
         'beads',
         'tasks',
         'items',
@@ -77,9 +95,12 @@ export function normalizeBeadSubsetYamlOutput(rawContent: string): StructuredOut
 
       const subsets = entries.map((entry, index) => normalizeBeadSubsetEntry(entry, index))
       const normalizedContent = buildYamlDocument({ beads: subsets })
+      const valueWithChanges = parsedRefinementChanges.changes.length > 0
+        ? Object.assign(subsets, { changes: parsedRefinementChanges.changes })
+        : subsets
       return {
         ok: true,
-        value: subsets,
+        value: valueWithChanges,
         normalizedContent,
         repairApplied: candidate !== rawContent.trim() || repairWarnings.length > 0,
         repairWarnings,

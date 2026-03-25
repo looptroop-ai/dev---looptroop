@@ -52,7 +52,7 @@ export async function refineDraft(
             winnerDraft.content,
             '',
             '## Alternative Drafts',
-            ...losingDrafts.map((d, i) => `### Alternative ${i + 1}\n${d.content}`),
+            ...losingDrafts.map((d, i) => `### Alternative ${i + 1} (model: ${d.memberId})\n${d.content}`),
           ].join('\n'),
         },
       ]
