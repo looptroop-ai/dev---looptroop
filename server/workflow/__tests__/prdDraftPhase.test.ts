@@ -562,7 +562,7 @@ describe('handlePrdDraft', () => {
       buildPromptForVoter?: (entry: {
         voter: { modelId: string }
         anonymizedDrafts: Array<{ draftId: string; content: string }>
-        rubric: Array<{ category: string; weight: number }>
+        rubric: Array<{ category: string; weight: number; description?: string }>
       }) => Array<{ content: string }>,
     ) => {
       expect(contextParts).toEqual([])
@@ -575,21 +575,28 @@ describe('handlePrdDraft', () => {
           content: `Draft ${index + 1}:\n${draft.content}`,
         })),
         rubric: [
-          { category: 'Coverage of requirements', weight: 20 },
-          { category: 'Correctness / feasibility', weight: 20 },
-          { category: 'Testability', weight: 20 },
-          { category: 'Minimal complexity / good decomposition', weight: 20 },
-          { category: 'Risks / edge cases addressed', weight: 20 },
+          { category: 'Coverage of requirements', weight: 20, description: 'PRD fully addresses all Interview Results' },
+          { category: 'Correctness / feasibility', weight: 20, description: 'Requirements are technically sound' },
+          { category: 'Testability', weight: 20, description: 'Each requirement is specific and verifiable' },
+          { category: 'Minimal complexity / good decomposition', weight: 20, description: 'Epics and user stories are well-structured' },
+          { category: 'Risks / edge cases addressed', weight: 20, description: 'Error states and failure modes are documented' },
         ],
       })
 
       const rendered = prompt.map((part) => part.content).join('\n')
+      expect(prompt).toHaveLength(1)
       expect(rendered).toContain('You are an impartial judge on an AI Council.')
       expect(rendered).toContain('## Context')
       expect(rendered).toContain('### draft')
       expect(rendered).toContain('Draft 1:')
       expect(rendered).toContain('Draft 2:')
+      // Rubric must appear inside ## Context as ### vote_rubric (not as a disconnected trailing part)
+      expect(rendered).toContain('### vote_rubric')
+      const contextIdx = rendered.indexOf('## Context')
+      const rubricIdx = rendered.indexOf('### vote_rubric')
+      expect(rubricIdx).toBeGreaterThan(contextIdx)
       expect(rendered).toContain('Use the exact PROM11 `draft_scores` YAML schema')
+      expect(rendered).toContain('PRD fully addresses all Interview Results')
 
       const firstVote: Vote = {
         voterId: 'openai/gpt-5-mini',

@@ -237,6 +237,59 @@ describe('validatePrdDraft', () => {
     expect(result.normalizedContent).toContain('id: US-2-1')
   })
 
+  it('repairs colon-bearing list item scalars in PRD drafts', () => {
+    const interviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+
+    const result = validatePrdDraft([
+      'schema_version: 1',
+      'ticket_id: PROJ-7',
+      'artifact: prd',
+      'status: draft',
+      'source_interview:',
+      '  content_sha256: stale',
+      'product:',
+      '  problem_statement: Keep PRD drafting resilient.',
+      '  target_users: [LoopTroop maintainers]',
+      'scope:',
+      '  in_scope: [Normalize council PRD drafts]',
+      '  out_of_scope: [PRD approval workflow]',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - Must preserve deterministic workflow transitions and backward compatibility for all tickets in progress',
+      '    - Persisted strategy artifact path: `.looptroop/tickets/<ticket-id>/test-strategy.yaml`',
+      '    - Schema must support inheritance: epic-level properties with story-level overrides',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'epics:',
+      '  - id: EPIC-1',
+      '    title: Draft parsing parity',
+      '    objective: Match interview council draft rigor.',
+      '    implementation_steps: [Normalize PRD drafts before persistence]',
+      '    user_stories:',
+      '      - id: US-1-1',
+      '        title: Repair ids deterministically',
+      '        acceptance_criteria: [Missing ids are repaired deterministically]',
+      '        implementation_steps: [Fill stable fallback ids]',
+      '        verification:',
+      '          required_commands: [npm run test:server]',
+      'risks: []',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      interviewContent,
+    })
+
+    expect(result.document.technical_requirements.architecture_constraints[1]).toBe('Persisted strategy artifact path: `.looptroop/tickets/<ticket-id>/test-strategy.yaml`')
+    expect(result.document.technical_requirements.architecture_constraints[2]).toBe('Schema must support inheritance: epic-level properties with story-level overrides')
+  })
+
   it('normalizes a resolved interview against the approved interview artifact', () => {
     const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
 
@@ -355,6 +408,65 @@ describe('validatePrdDraft', () => {
     expect(result.document.questions[0]?.answer.free_text).toBe('`language` comes from the file extension')
     expect(result.document.questions[0]?.answer.answered_by).toBe('ai_skip')
     expect(result.repairWarnings.join('\n')).toContain('Canonicalized generated_by.winner_model')
+  })
+
+  it('repairs malformed multiline single-quoted free_text before normalizing a resolved interview', () => {
+    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+
+    const result = validateResolvedInterview([
+      'schema_version: 1',
+      'ticket_id: PROJ-7',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which workflow guardrails are mandatory?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      "      free_text: 'No human approval checkpoint. Strategy generation and validation should",
+      '        happen automatically between PRD approval and bead drafting. This follows the',
+      '        user\'s non-goal of "Add human approval step" and keeps the phase deterministic.\'',
+      '      answered_by: ai_skip',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    prompt: Which downstream phases are out of scope for this pass?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: PRD approval and coverage stay out of scope.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:04:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Changed summary that should be ignored]',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: changed',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })
+
+    expect(result.document.questions[0]?.answer.free_text).toContain('No human approval checkpoint.')
+    expect(result.document.questions[0]?.answer.free_text).toContain('user\'s non-goal of "Add human approval step"')
   })
 
   it('restores canonical metadata, question order, and answered user questions instead of failing', () => {
@@ -493,6 +605,77 @@ describe('validatePrdDraft', () => {
     expect(result.document.questions[1]?.answer.selected_option_ids).toEqual(['opt2'])
     expect(result.document.questions[2]?.answer.selected_option_ids).toEqual(['opt1', 'opt3'])
     expect(result.repairWarnings.filter((warning) => warning.includes('Mapped free_text to canonical option ids'))).toHaveLength(2)
+  })
+
+  it('skips echoed retry artifacts when a later resolved interview candidate is valid', () => {
+    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+
+    const result = validateResolvedInterview([
+      '## Full Answers Structured Output Retry',
+      '',
+      'Canonical approved interview artifact (copy everything except the skipped question answers):',
+      '```yaml',
+      canonicalInterviewContent,
+      '```',
+      '',
+      'Previous invalid response:',
+      '```',
+      '[empty response]',
+      '```',
+      '',
+      '```yaml',
+      'schema_version: 1',
+      'ticket_id: PROJ-7',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which workflow guardrails are mandatory?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Preserve council retries and strict normalization.',
+      '      answered_by: ai_skip',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    prompt: Which downstream phases are out of scope for this pass?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: PRD approval and coverage stay out of scope.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:04:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Changed summary that should be ignored]',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: changed',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+      '```',
+    ].join('\n'), {
+      ticketId: 'PROJ-7',
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })
+
+    expect(result.document.questions[0]?.answer.free_text).toBe('Preserve council retries and strict normalization.')
+    expect(result.document.questions[1]?.answer.free_text).toBe('PRD approval and coverage stay out of scope.')
   })
 
   it('rejects ambiguous prose for skipped structured questions', () => {

@@ -406,6 +406,24 @@ describe('repairYamlFreeTextScalars', () => {
 
     expect(repairYamlFreeTextScalars(input)).toBe(input)
   })
+
+  it('converts malformed multiline single-quoted free_text values into block scalars', () => {
+    const input = [
+      'answer:',
+      "  free_text: 'No human approval checkpoint. Strategy generation and validation should",
+      '    happen automatically between PRD approval and bead drafting. This follows the',
+      '    user\'s non-goal of "Add human approval step" and keeps the phase deterministic.\'',
+      '  answered_by: ai_skip',
+    ].join('\n')
+
+    const repaired = repairYamlFreeTextScalars(input)
+    expect(repaired).toContain('free_text: |-')
+
+    const parsed = jsYaml.load(repaired) as { answer: { free_text: string; answered_by: string } }
+    expect(parsed.answer.free_text).toContain('No human approval checkpoint.')
+    expect(parsed.answer.free_text).toContain('user\'s non-goal of "Add human approval step"')
+    expect(parsed.answer.answered_by).toBe('ai_skip')
+  })
 })
 
 describe('repairYamlPlainScalarColons', () => {
@@ -527,6 +545,26 @@ describe('repairYamlPlainScalarColons', () => {
     expect(parsed.files[0]!.rationale).toBe('Simple rationale without colons.')
     expect(parsed.files[1]!.rationale).toBe('Complex rules: this has colons inside.')
     expect(parsed.files[2]!.rationale).toBe('Already quoted: safe.')
+  })
+
+  it('quotes list-item scalar values containing colon-space', () => {
+    const yaml = [
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - Must preserve deterministic workflow transitions and backward compatibility for all tickets in progress',
+      '    - Persisted strategy artifact path: `.looptroop/tickets/<ticket-id>/test-strategy.yaml`',
+      '    - Schema must support inheritance: epic-level properties with story-level overrides',
+    ].join('\n')
+
+    const repaired = repairYamlPlainScalarColons(yaml)
+
+    const parsed = jsYaml.load(repaired) as {
+      technical_requirements: {
+        architecture_constraints: string[]
+      }
+    }
+    expect(parsed.technical_requirements.architecture_constraints[1]).toBe('Persisted strategy artifact path: `.looptroop/tickets/<ticket-id>/test-strategy.yaml`')
+    expect(parsed.technical_requirements.architecture_constraints[2]).toBe('Schema must support inheritance: epic-level properties with story-level overrides')
   })
 })
 

@@ -1,6 +1,6 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
 import type { DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
-import { CancelledError } from '../../council/types'
+import { CancelledError, VOTING_RUBRIC_PRD } from '../../council/types'
 import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
 import { checkMemberResponseQuorum, checkQuorum } from '../../council/quorum'
@@ -38,7 +38,6 @@ import {
   mapCouncilStageToStatus,
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
-import { VOTING_RUBRIC_PRD } from '../../council/types'
 
 function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalId: string): string {
   const interviewPath = resolve(ticketDir, 'interview.yaml')
@@ -92,27 +91,25 @@ function findWinnerFullAnswers(fullAnswers: DraftResult[], winnerId: string): Dr
 export function buildPrdVotePrompt(
   ticketState: TicketState,
   anonymizedDrafts: Array<{ draftId: string; content: string }>,
+  rubric: Array<{ category: string; weight: number; description: string }> = VOTING_RUBRIC_PRD,
 ): Array<{ type: 'text'; content: string }> {
-  const promptContext = buildMinimalContext('prd_vote', {
-    ...ticketState,
-    drafts: anonymizedDrafts.map((draft) => draft.content),
-  })
-
-  return [
+  const voteContext = [
+    ...buildMinimalContext('prd_vote', {
+      ...ticketState,
+      drafts: anonymizedDrafts.map((draft) => draft.content),
+    }),
     {
-      type: 'text',
-      content: buildPromptFromTemplate(PROM11, promptContext),
-    },
-    {
-      type: 'text',
+      type: 'text' as const,
+      source: 'vote_rubric',
       content: [
         'Detailed scoring rubric:',
-        ...VOTING_RUBRIC_PRD.map((item) => `- ${item.category} (${item.weight}pts): ${item.description}`),
+        ...rubric.map((item) => `- ${item.category} (${item.weight}pts): ${item.description}`),
         '',
         'Use the exact PROM11 `draft_scores` YAML schema. Keep the exact draft labels, include only rubric integer fields plus `total_score`, and do not add prose or extra keys.',
       ].join('\n'),
     },
   ]
+  return [{ type: 'text', content: buildPromptFromTemplate(PROM11, voteContext) }]
 }
 
 function buildMockPrdDocument(context: TicketContext, variantIndex: number) {
@@ -610,12 +607,22 @@ export async function handlePrdVote(
   const { members } = resolveCouncilMembers(context)
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const ticketDirContext = loadTicketDirContext(context)
-  const voteTicketState = intermediate.ticketState ?? {
-    ticketId: context.externalId,
-    title: context.title,
-    description: ticketDirContext.ticket?.description ?? '',
-    relevantFiles: ticketDirContext.relevantFiles,
-  }
+  const voteTicketState = intermediate.ticketState ?? (() => {
+    const { ticket, relevantFiles, ticketDir } = ticketDirContext
+    let interview: string | undefined
+    try {
+      interview = requireCanonicalInterviewForPrdDraft(ticketDir, context.externalId)
+    } catch {
+      interview = undefined
+    }
+    return {
+      ticketId: context.externalId,
+      title: context.title,
+      description: ticket?.description ?? '',
+      relevantFiles,
+      interview,
+    } satisfies TicketState
+  })()
   const streamStates = new Map<string, OpenCodeStreamState>()
   const liveVotes: Vote[] = []
   const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
@@ -676,7 +683,7 @@ export async function handlePrdVote(
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
     },
-    ({ anonymizedDrafts }) => buildPrdVotePrompt(voteTicketState, anonymizedDrafts),
+    ({ anonymizedDrafts, rubric }) => buildPrdVotePrompt(voteTicketState, anonymizedDrafts, rubric),
     {
       ticketId,
       phase: 'COUNCIL_VOTING_PRD',

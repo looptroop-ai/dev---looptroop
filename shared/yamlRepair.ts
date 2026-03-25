@@ -362,7 +362,8 @@ export function repairYamlFreeTextScalars(yaml: string): string {
   let insideBlockScalar = false
   let blockScalarBaseIndent = -1
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
     const trimmed = line.trim()
 
     if (!trimmed || trimmed.startsWith('#')) {
@@ -395,6 +396,17 @@ export function repairYamlFreeTextScalars(yaml: string): string {
 
     const prefix = freeTextMatch[1]!
     const value = freeTextMatch[2]!
+    const multilineSingleQuoted = collectMultilineSingleQuotedFreeText(lines, index, indent)
+    if (multilineSingleQuoted) {
+      result.push(`${prefix}|-`)
+      const contentIndent = ' '.repeat(indent + 2)
+      for (const contentLine of multilineSingleQuoted.contentLines) {
+        result.push(`${contentIndent}${contentLine}`)
+      }
+      index = multilineSingleQuoted.endIndex
+      continue
+    }
+
     if (SAFE_VALUE_START.test(value)) {
       result.push(line)
       continue
@@ -404,6 +416,65 @@ export function repairYamlFreeTextScalars(yaml: string): string {
   }
 
   return result.join('\n')
+}
+
+function collectMultilineSingleQuotedFreeText(
+  lines: string[],
+  startIndex: number,
+  parentIndent: number,
+): { endIndex: number; contentLines: string[] } | null {
+  const firstLine = lines[startIndex]
+  if (!firstLine) return null
+
+  const freeTextMatch = firstLine.match(/^(\s*(?:-\s+)?free_text\s*:\s*)'(.*)$/)
+  if (!freeTextMatch) return null
+
+  const firstValuePart = freeTextMatch[2]!
+  if (firstValuePart.trimEnd().endsWith("'")) {
+    return null
+  }
+
+  const rawContentLines = [firstValuePart]
+  const continuationIndents: number[] = []
+  let endIndex = startIndex
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!
+    const trimmed = line.trim()
+    const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+
+    if (trimmed && indent <= parentIndent) {
+      break
+    }
+
+    rawContentLines.push(line)
+    endIndex = index
+    if (trimmed) {
+      continuationIndents.push(indent)
+    }
+  }
+
+  if (endIndex === startIndex) {
+    return null
+  }
+
+  const contentBaseIndent = continuationIndents.length > 0
+    ? Math.min(...continuationIndents)
+    : parentIndent + 2
+
+  const contentLines = rawContentLines.map((line, index) => {
+    if (index === 0) return line
+    if (!line.trim()) return ''
+    return line.slice(Math.min(contentBaseIndent, line.length))
+  })
+
+  const lastIndex = contentLines.length - 1
+  contentLines[lastIndex] = contentLines[lastIndex]!.replace(/'$/, '')
+
+  return {
+    endIndex,
+    contentLines,
+  }
 }
 
 /**
@@ -635,6 +706,23 @@ export function repairYamlPlainScalarColons(yaml: string): string {
       }
 
       // Check if the value contains a problematic `: ` or ends with `:`
+      if (/:\s/.test(value) || value.endsWith(':')) {
+        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        result.push(`${prefix}"${escaped}"`)
+        continue
+      }
+    }
+
+    const listScalarMatch = line.match(/^(\s*-\s+)(.+)$/)
+    if (listScalarMatch) {
+      const prefix = listScalarMatch[1]!
+      const value = listScalarMatch[2]!
+
+      if (SAFE_VALUE_START.test(value) || /^[A-Za-z_][\w_-]*\s*:\s+/.test(value)) {
+        result.push(line)
+        continue
+      }
+
       if (/:\s/.test(value) || value.endsWith(':')) {
         const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
         result.push(`${prefix}"${escaped}"`)

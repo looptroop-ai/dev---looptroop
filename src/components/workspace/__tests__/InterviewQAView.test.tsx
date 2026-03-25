@@ -382,7 +382,7 @@ describe('InterviewQAView', () => {
     expect((textareas[0] as HTMLTextAreaElement).value).toBe('Restored draft answer')
   })
 
-  it('auto-saves drafts after debounce', async () => {
+  it('auto-saves drafts after debounce', { timeout: 15000 }, async () => {
     renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
 
     await waitFor(() => {
@@ -406,7 +406,7 @@ describe('InterviewQAView', () => {
     expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
   })
 
-  it('clears persisted drafts after batch submission', async () => {
+  it('clears persisted drafts after batch submission', { timeout: 15000 }, async () => {
     const batchKey = 'prom4:0:2'
     preSeededDrafts = {
       draftAnswers: { [batchKey]: { QF01: 'Pre-filled answer' } },

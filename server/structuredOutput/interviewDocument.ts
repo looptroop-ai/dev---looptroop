@@ -515,167 +515,177 @@ export function normalizeResolvedInterviewDocumentOutput(
     }
   }
 
-  const candidateResult = normalizeInterviewDocumentOutput(rawContent, {
-    ticketId: options.ticketId,
+  const candidates = collectStructuredCandidates(rawContent, {
+    topLevelHints: ['schema_version', 'ticket_id', 'artifact', 'questions'],
   })
-  if (!candidateResult.ok) {
-    return candidateResult
-  }
+  let lastError = 'No resolved interview document content found'
 
-  try {
-    const repairWarnings = [...candidateResult.repairWarnings]
-    const canonical = canonicalResult.value
-    const candidate = candidateResult.value
-
-    if (candidate.questions.length !== canonical.questions.length) {
-      throw new Error(`Resolved interview must preserve all ${canonical.questions.length} canonical questions`)
+  for (const candidateContent of candidates) {
+    const candidateResult = normalizeInterviewDocumentOutput(candidateContent, {
+      ticketId: options.ticketId,
+    })
+    if (!candidateResult.ok) {
+      lastError = candidateResult.error
+      continue
     }
 
-    const canonicalIds = canonical.questions.map((question) => question.id)
-    const candidateIds = candidate.questions.map((question) => question.id)
-    const candidateIdSet = new Set(candidateIds)
-    const canonicalIdSet = new Set(canonicalIds)
-    const missingCanonicalIds = canonicalIds.filter((id) => !candidateIdSet.has(id))
-    const unexpectedIds = candidateIds.filter((id) => !canonicalIdSet.has(id))
+    try {
+      const repairWarnings = [...candidateResult.repairWarnings]
+      const canonical = canonicalResult.value
+      const candidate = candidateResult.value
 
-    if (missingCanonicalIds.length > 0 || unexpectedIds.length > 0) {
-      const parts: string[] = []
-      if (missingCanonicalIds.length > 0) {
-        parts.push(`missing canonical ids: ${missingCanonicalIds.join(', ')}`)
-      }
-      if (unexpectedIds.length > 0) {
-        parts.push(`unexpected ids: ${unexpectedIds.join(', ')}`)
-      }
-      throw new Error(`Resolved interview must preserve canonical question ids (${parts.join('; ')})`)
-    }
-
-    if (candidateIds.some((id, index) => id !== canonicalIds[index])) {
-      repairWarnings.push('Canonicalized question order to match the approved Interview Results artifact.')
-    }
-
-    const candidateQuestionsById = new Map(candidate.questions.map((question) => [question.id, question]))
-
-    const questions = canonical.questions.map((canonicalQuestion) => {
-      const candidateQuestion = candidateQuestionsById.get(canonicalQuestion.id)
-      if (!candidateQuestion) {
-        throw new Error(`Resolved interview is missing canonical question ${canonicalQuestion.id}`)
+      if (candidate.questions.length !== canonical.questions.length) {
+        throw new Error(`Resolved interview must preserve all ${canonical.questions.length} canonical questions`)
       }
 
-      if (!compareQuestionMetadata(candidateQuestion, canonicalQuestion)) {
-        repairWarnings.push(`Canonicalized metadata for canonical question ${canonicalQuestion.id}.`)
-      }
+      const canonicalIds = canonical.questions.map((question) => question.id)
+      const candidateIds = candidate.questions.map((question) => question.id)
+      const candidateIdSet = new Set(candidateIds)
+      const canonicalIdSet = new Set(canonicalIds)
+      const missingCanonicalIds = canonicalIds.filter((id) => !candidateIdSet.has(id))
+      const unexpectedIds = candidateIds.filter((id) => !canonicalIdSet.has(id))
 
-      if (!canonicalQuestion.answer.skipped) {
-        if (!compareQuestionAnswers(candidateQuestion.answer, canonicalQuestion.answer)) {
-          repairWarnings.push(`Restored answered canonical question ${canonicalQuestion.id} from the approved Interview Results artifact.`)
+      if (missingCanonicalIds.length > 0 || unexpectedIds.length > 0) {
+        const parts: string[] = []
+        if (missingCanonicalIds.length > 0) {
+          parts.push(`missing canonical ids: ${missingCanonicalIds.join(', ')}`)
         }
-        return canonicalQuestion
+        if (unexpectedIds.length > 0) {
+          parts.push(`unexpected ids: ${unexpectedIds.join(', ')}`)
+        }
+        throw new Error(`Resolved interview must preserve canonical question ids (${parts.join('; ')})`)
       }
 
-      if (candidateQuestion.answer.skipped || !answerHasContent(candidateQuestion.answer)) {
-        throw new Error(`Resolved interview left skipped question unanswered: ${canonicalQuestion.id}`)
+      if (candidateIds.some((id, index) => id !== canonicalIds[index])) {
+        repairWarnings.push('Canonicalized question order to match the approved Interview Results artifact.')
       }
 
-      if (!candidateQuestion.answer.answered_at.trim()) {
-        throw new Error(`Resolved interview is missing answered_at for AI-filled question ${canonicalQuestion.id}`)
-      }
+      const candidateQuestionsById = new Map(candidate.questions.map((question) => [question.id, question]))
 
-      if (candidateQuestion.answer.answered_by !== 'ai_skip') {
-        repairWarnings.push(`Canonicalized answered_by to ai_skip for AI-filled question ${canonicalQuestion.id}.`)
-      }
+      const questions = canonical.questions.map((canonicalQuestion) => {
+        const candidateQuestion = candidateQuestionsById.get(canonicalQuestion.id)
+        if (!candidateQuestion) {
+          throw new Error(`Resolved interview is missing canonical question ${canonicalQuestion.id}`)
+        }
 
-      if (canonicalQuestion.answer_type === 'free_text') {
+        if (!compareQuestionMetadata(candidateQuestion, canonicalQuestion)) {
+          repairWarnings.push(`Canonicalized metadata for canonical question ${canonicalQuestion.id}.`)
+        }
+
+        if (!canonicalQuestion.answer.skipped) {
+          if (!compareQuestionAnswers(candidateQuestion.answer, canonicalQuestion.answer)) {
+            repairWarnings.push(`Restored answered canonical question ${canonicalQuestion.id} from the approved Interview Results artifact.`)
+          }
+          return canonicalQuestion
+        }
+
+        if (candidateQuestion.answer.skipped || !answerHasContent(candidateQuestion.answer)) {
+          throw new Error(`Resolved interview left skipped question unanswered: ${canonicalQuestion.id}`)
+        }
+
+        if (!candidateQuestion.answer.answered_at.trim()) {
+          throw new Error(`Resolved interview is missing answered_at for AI-filled question ${canonicalQuestion.id}`)
+        }
+
+        if (candidateQuestion.answer.answered_by !== 'ai_skip') {
+          repairWarnings.push(`Canonicalized answered_by to ai_skip for AI-filled question ${canonicalQuestion.id}.`)
+        }
+
+        if (canonicalQuestion.answer_type === 'free_text') {
+          return {
+            ...canonicalQuestion,
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: candidateQuestion.answer.free_text,
+              answered_by: 'ai_skip' as const,
+              answered_at: candidateQuestion.answer.answered_at,
+            },
+          }
+        }
+
+        const normalizedChoiceAnswer = normalizeChoiceQuestionAnswer(canonicalQuestion, candidateQuestion)
+        if (candidateQuestion.answer.selected_option_ids.length === 0) {
+          repairWarnings.push(`Mapped free_text to canonical option ids for AI-filled question ${canonicalQuestion.id}.`)
+        }
+
         return {
           ...canonicalQuestion,
           answer: {
             skipped: false,
-            selected_option_ids: [],
-            free_text: candidateQuestion.answer.free_text,
+            selected_option_ids: normalizedChoiceAnswer.selectedOptionIds,
+            free_text: normalizedChoiceAnswer.freeText,
             answered_by: 'ai_skip' as const,
             answered_at: candidateQuestion.answer.answered_at,
           },
         }
+      })
+
+      if (candidate.follow_up_rounds.length !== canonical.follow_up_rounds.length) {
+        repairWarnings.push('Canonicalized follow_up_rounds to match the approved Interview Results artifact.')
+      } else {
+        const followUpChanged = candidate.follow_up_rounds.some((round, index) => (
+          round.round_number !== canonical.follow_up_rounds[index]?.round_number
+          || round.source !== canonical.follow_up_rounds[index]?.source
+          || !compareStringArrays(round.question_ids, canonical.follow_up_rounds[index]?.question_ids ?? [])
+        ))
+        if (followUpChanged) {
+          repairWarnings.push('Canonicalized follow_up_rounds to match the approved Interview Results artifact.')
+        }
       }
 
-      const normalizedChoiceAnswer = normalizeChoiceQuestionAnswer(canonicalQuestion, candidateQuestion)
-      if (candidateQuestion.answer.selected_option_ids.length === 0) {
-        repairWarnings.push(`Mapped free_text to canonical option ids for AI-filled question ${canonicalQuestion.id}.`)
+      const approvalChanged = candidate.approval.approved_by || candidate.approval.approved_at
+      if (!compareSummary(candidate.summary, canonical.summary)) {
+        repairWarnings.push('Canonicalized summary to match the approved Interview Results artifact.')
       }
+      if (candidate.ticket_id !== canonical.ticket_id) {
+        repairWarnings.push(`Canonicalized ticket_id from "${candidate.ticket_id}" to "${canonical.ticket_id}".`)
+      }
+      if (candidate.status !== 'draft') {
+        repairWarnings.push(`Canonicalized resolved interview status from "${candidate.status}" to "draft".`)
+      }
+      if (approvalChanged) {
+        repairWarnings.push('Cleared approval fields for the AI-generated Full Answers artifact.')
+      }
+      if (options.memberId && candidate.generated_by.winner_model !== options.memberId) {
+        repairWarnings.push(`Canonicalized generated_by.winner_model from "${candidate.generated_by.winner_model}" to "${options.memberId}".`)
+      }
+
+      const document = syncFinalFreeFormSummary({
+        ...canonical,
+        ticket_id: canonical.ticket_id,
+        status: 'draft',
+        generated_by: {
+          ...candidate.generated_by,
+          ...(options.memberId ? { winner_model: options.memberId } : {}),
+          canonicalization: 'server_normalized',
+        },
+        questions,
+        follow_up_rounds: canonical.follow_up_rounds,
+        summary: canonical.summary,
+        approval: {
+          approved_by: '',
+          approved_at: '',
+        },
+      })
 
       return {
-        ...canonicalQuestion,
-        answer: {
-          skipped: false,
-          selected_option_ids: normalizedChoiceAnswer.selectedOptionIds,
-          free_text: normalizedChoiceAnswer.freeText,
-          answered_by: 'ai_skip' as const,
-          answered_at: candidateQuestion.answer.answered_at,
-        },
+        ok: true,
+        value: document,
+        normalizedContent: buildInterviewDocumentYaml(document),
+        repairApplied: candidateResult.repairApplied || repairWarnings.length > 0,
+        repairWarnings,
       }
-    })
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+  }
 
-    if (candidate.follow_up_rounds.length !== canonical.follow_up_rounds.length) {
-      repairWarnings.push('Canonicalized follow_up_rounds to match the approved Interview Results artifact.')
-    } else {
-      const followUpChanged = candidate.follow_up_rounds.some((round, index) => (
-        round.round_number !== canonical.follow_up_rounds[index]?.round_number
-        || round.source !== canonical.follow_up_rounds[index]?.source
-        || !compareStringArrays(round.question_ids, canonical.follow_up_rounds[index]?.question_ids ?? [])
-      ))
-      if (followUpChanged) {
-        repairWarnings.push('Canonicalized follow_up_rounds to match the approved Interview Results artifact.')
-      }
-    }
-
-    const approvalChanged = candidate.approval.approved_by || candidate.approval.approved_at
-    if (!compareSummary(candidate.summary, canonical.summary)) {
-      repairWarnings.push('Canonicalized summary to match the approved Interview Results artifact.')
-    }
-    if (candidate.ticket_id !== canonical.ticket_id) {
-      repairWarnings.push(`Canonicalized ticket_id from "${candidate.ticket_id}" to "${canonical.ticket_id}".`)
-    }
-    if (candidate.status !== 'draft') {
-      repairWarnings.push(`Canonicalized resolved interview status from "${candidate.status}" to "draft".`)
-    }
-    if (approvalChanged) {
-      repairWarnings.push('Cleared approval fields for the AI-generated Full Answers artifact.')
-    }
-    if (options.memberId && candidate.generated_by.winner_model !== options.memberId) {
-      repairWarnings.push(`Canonicalized generated_by.winner_model from "${candidate.generated_by.winner_model}" to "${options.memberId}".`)
-    }
-
-    const document = syncFinalFreeFormSummary({
-      ...canonical,
-      ticket_id: canonical.ticket_id,
-      status: 'draft',
-      generated_by: {
-        ...candidate.generated_by,
-        ...(options.memberId ? { winner_model: options.memberId } : {}),
-        canonicalization: 'server_normalized',
-      },
-      questions,
-      follow_up_rounds: canonical.follow_up_rounds,
-      summary: canonical.summary,
-      approval: {
-        approved_by: '',
-        approved_at: '',
-      },
-    })
-
-    return {
-      ok: true,
-      value: document,
-      normalizedContent: buildInterviewDocumentYaml(document),
-      repairApplied: candidateResult.repairApplied || repairWarnings.length > 0,
-      repairWarnings,
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      repairApplied: false,
-      repairWarnings: [],
-    }
+  return {
+    ok: false,
+    error: lastError,
+    repairApplied: false,
+    repairWarnings: [],
   }
 }
 

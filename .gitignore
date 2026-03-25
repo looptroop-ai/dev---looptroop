@@ -70,7 +70,15 @@ new.txt
 # Cache and testing
 .eslintcache
 .vite/
+.vitest-cache/
 playwright-report/
 test-results/
 .playwright/
 .cache/start-test.log
+
+# Root-level temp test/debug scripts
+test-perf.js
+test-perf2.js
+test.html
+test2.html
+start-test.log
