@@ -147,11 +147,12 @@ function ProviderGroup({
 
 export function ModelPicker({ value, onChange, placeholder = 'Search models…', disabledValues = [] }: ModelPickerProps) {
   const [showAll, setShowAll] = useState(false)
-  const { data: connectedModels, isLoading: loadingConnected, isError: errorConnected } = useOpenCodeModels()
-  const { data: allModels, isLoading: loadingAll, isError: errorAll } = useAllOpenCodeModels()
+  const { data: connectedModels, isLoading: loadingConnected, isError: errorConnected, isFetching: fetchingConnected } = useOpenCodeModels()
+  const { data: allModels, isLoading: loadingAll, isError: errorAll, isFetching: fetchingAll } = useAllOpenCodeModels()
   const models = showAll ? allModels : connectedModels
   const isLoading = showAll ? loadingAll : loadingConnected
   const isError = showAll ? errorAll : errorConnected
+  const isFetching = showAll ? fetchingAll : fetchingConnected
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [showOnlyFree, setShowOnlyFree] = useState(false)
@@ -262,14 +263,16 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
           open && 'border-ring ring-2 ring-ring',
         )}
       >
-        {isLoading ? (
+        {(isLoading || (isError && isFetching)) ? (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" aria-hidden="true" />
         ) : (
           <Zap className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
         )}
         <span className="flex-1 truncate">
-          {isError ? (
+          {isError && !isFetching ? (
             <span className="text-destructive text-xs">OpenCode not reachable</span>
+          ) : isError && isFetching ? (
+            <span className="text-muted-foreground text-xs">Connecting to OpenCode…</span>
           ) : selected ? (
             <>
               <span className="font-medium">{selected.name}</span>
@@ -335,18 +338,18 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
 
           {/* Results */}
           <div className="overflow-y-auto flex-1">
-            {isError && (
+            {isError && !isFetching && (
               <div className="flex items-center gap-2 px-4 py-6 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                LoopTroop could not load models from the configured OpenCode connection.
-                Make sure <code className="font-mono text-xs">opencode serve</code> is running and the backend OpenCode URL is correct.
+                LoopTroop could not connect to OpenCode. It starts automatically with{' '}
+                <code className="font-mono text-xs">npm run dev</code> — check that it launched successfully.
               </div>
             )}
 
-            {isLoading && (
+            {(isLoading || (isError && isFetching)) && (
               <div className="flex items-center justify-center gap-2 px-4 py-6 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                Loading models from OpenCode…
+                {isError ? 'Connecting to OpenCode…' : 'Loading models from OpenCode…'}
               </div>
             )}
 

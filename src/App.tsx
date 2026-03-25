@@ -15,7 +15,15 @@ import { useProfile } from '@/hooks/useProfile'
 import { useQueryClient } from '@tanstack/react-query'
 import { clearOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 
+function getInitialModal(pathname: string): 'profile' | 'project' | 'ticket' | null {
+  if (pathname === '/config') return 'profile'
+  if (pathname === '/project/new') return 'project'
+  if (pathname === '/ticket/new') return 'ticket'
+  return null
+}
+
 function App() {
+  const initialModal = getInitialModal(window.location.pathname)
   useProfile() // Preload profile for faster Configuration open
   const { state, dispatch } = useUI()
   const queryClient = useQueryClient()
@@ -23,11 +31,17 @@ function App() {
   const ticketsRef = useRef(tickets)
   useEffect(() => { ticketsRef.current = tickets }, [tickets])
   const initialUrlProcessed = useRef(false)
-  const [showProfile, setShowProfile] = useState(false)
-  const [showProject, setShowProject] = useState(false)
-  const [showTicket, setShowTicket] = useState(false)
+  const [showProfile, setShowProfile] = useState(() => initialModal === 'profile')
+  const [showProject, setShowProject] = useState(() => initialModal === 'project')
+  const [showTicket, setShowTicket] = useState(() => initialModal === 'ticket')
   const isModalOpen = showProfile || showProject || showTicket
   const prevPathRef = useRef('/')
+
+  useEffect(() => {
+    if (initialModal === 'profile') {
+      clearOpenCodeModelsQuery(queryClient)
+    }
+  }, [initialModal, queryClient])
 
   // Resolve ticket from URL externalId when tickets load
   useEffect(() => {

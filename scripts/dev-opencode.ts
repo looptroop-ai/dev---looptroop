@@ -58,12 +58,41 @@ function canConnect(hostname: string, targetPort: number) {
   })
 }
 
+async function isOpenCodeResponding(hostname: string, targetPort: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://${hostname}:${targetPort}/provider`, {
+      signal: AbortSignal.timeout(1000),
+    })
+    // OpenCode /provider returns 200 with { all, default, connected }.
+    // Any other service (e.g. a different dev tool) will return 401/404/etc.
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 let alreadyRunning = false
 
 for (const host of probeHosts) {
-  if (await canConnect(host, port)) {
+  if (await isOpenCodeResponding(host, port)) {
     alreadyRunning = true
     break
+  }
+}
+
+if (!alreadyRunning) {
+  // Port reachable but not serving the OpenCode API — refuse to proceed so that
+  // the user gets a clear diagnostic instead of a cryptic 401 from an unrelated
+  // service (e.g. a VS Code extension sharing the same port).
+  for (const host of probeHosts) {
+    if (await canConnect(host, port)) {
+      console.error(
+        `[dev-opencode] Port ${port} is already in use by a non-OpenCode process on ${host}.` +
+        ` Set LOOPTROOP_OPENCODE_BASE_URL to a free port (e.g. http://127.0.0.1:4097) or` +
+        ` stop the conflicting service before running \`npm run dev\`.`,
+      )
+      process.exit(1)
+    }
   }
 }
 
@@ -73,9 +102,10 @@ if (alreadyRunning) {
 }
 
 const serveHostname = url.hostname === 'localhost' ? '127.0.0.1' : url.hostname
+console.log(`[dev-opencode] Checking OpenCode availability at ${baseUrl}.`)
 console.log(`[dev-opencode] Starting OpenCode on ${serveHostname}:${port}.`)
 
-const child = spawn('opencode', ['serve', '--print-logs', '--hostname', serveHostname, '--port', String(port)], {
+const child = spawn('opencode', ['serve', '--log-level', 'WARN', '--hostname', serveHostname, '--port', String(port)], {
   stdio: 'inherit',
 })
 

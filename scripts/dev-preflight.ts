@@ -16,6 +16,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
+const verboseLogging = process.env.LOOPTROOP_DEV_VERBOSE === '1'
 
 function listProcesses() {
   const output = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], { encoding: 'utf8' })
@@ -97,8 +98,13 @@ function listPortOccupantPids(port: number): number[] {
 
 async function terminateProcessTree(root: ProcessInfo, graph = buildProcessGraph(listProcesses())) {
   const processTree = collectProcessTree(root.pid, graph)
-  console.log(`[dev-preflight] Terminating stale LoopTroop dev tree rooted at ${formatProcessSummary(root)}`)
-  console.log(`[dev-preflight]   tree: ${processTree.map(formatProcessSummary).join(' | ')}`)
+  console.log(
+    `[dev-preflight] Stopping stale LoopTroop dev tree rooted at ${formatProcessSummary(root)}` +
+    ` (${processTree.length} ${processTree.length === 1 ? 'process' : 'processes'}).`,
+  )
+  if (verboseLogging) {
+    console.log(`[dev-preflight]   tree: ${processTree.map(formatProcessSummary).join(' | ')}`)
+  }
 
   for (const entry of processTree) {
     killProcess(entry.pid)
@@ -108,7 +114,13 @@ async function terminateProcessTree(root: ProcessInfo, graph = buildProcessGraph
 
   const survivors = processTree.filter((entry) => isProcessAlive(entry.pid))
   if (survivors.length > 0) {
-    console.warn(`[dev-preflight] Escalating to SIGKILL for stubborn processes: ${survivors.map(formatProcessSummary).join(' | ')}`)
+    console.warn(
+      `[dev-preflight] Escalating to SIGKILL for ${survivors.length} stubborn ` +
+      `${survivors.length === 1 ? 'process' : 'processes'} in the stale dev tree.`,
+    )
+    if (verboseLogging) {
+      console.warn(`[dev-preflight]   survivors: ${survivors.map(formatProcessSummary).join(' | ')}`)
+    }
     for (const entry of survivors) {
       killProcess(entry.pid, 'SIGKILL')
     }

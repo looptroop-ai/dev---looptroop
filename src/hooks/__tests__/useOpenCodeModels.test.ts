@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import {
   clearOpenCodeModelsQuery,
+  fetchModelsApi,
   OPENCODE_MODELS_QUERY_KEY,
   refetchOpenCodeModelsQuery,
   useAllOpenCodeModels,
@@ -64,6 +65,21 @@ describe('useOpenCodeModels', () => {
 
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(fetch).toHaveBeenCalledWith('/api/models', { signal: expect.any(AbortSignal) })
+  })
+
+  it('treats a response with a message field as an error (opencode not ready)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        models: [],
+        allModels: [],
+        connectedProviders: [],
+        defaultModels: {},
+        message: 'OpenCode server is not reachable. Start it with `opencode serve`.',
+      }),
+    })))
+
+    await expect(fetchModelsApi()).rejects.toThrow(/not reachable/i)
   })
 
   it('clears the cached models query before configuration opens', () => {
