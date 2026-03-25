@@ -203,4 +203,57 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Do we need an admin panel?')).toBeInTheDocument()
     expect(screen.getByText(/This question was skipped/i)).toBeInTheDocument()
   })
+
+  it('renders PRD vote details with voter progress, rankings, and presentation order', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-votes"
+        phase="COUNCIL_VOTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            { memberId: 'vendor/draft-a', outcome: 'completed', content: 'draft-a' },
+            { memberId: 'vendor/draft-b', outcome: 'completed', content: 'draft-b' },
+          ],
+          votes: [
+            {
+              voterId: 'vendor/voter-a',
+              draftId: 'vendor/draft-a',
+              totalScore: 91,
+              scores: [
+                { category: 'Coverage of requirements', score: 18, justification: 'Strong coverage' },
+                { category: 'Correctness / feasibility', score: 19, justification: 'Feasible' },
+                { category: 'Testability', score: 18, justification: 'Testable' },
+                { category: 'Minimal complexity / good decomposition', score: 18, justification: 'Well scoped' },
+                { category: 'Risks / edge cases addressed', score: 18, justification: 'Good risk handling' },
+              ],
+            },
+          ],
+          voterOutcomes: {
+            'vendor/voter-a': 'completed',
+            'vendor/voter-b': 'pending',
+          },
+          presentationOrders: {
+            'vendor/voter-a': {
+              seed: 'seed-alpha-1234',
+              order: ['vendor/draft-b', 'vendor/draft-a'],
+            },
+          },
+          winnerId: 'vendor/draft-a',
+          totalScore: 91,
+          isFinal: true,
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Voter Status')).toBeInTheDocument()
+    expect(screen.getAllByText('draft-a').length).toBeGreaterThan(0)
+    expect(screen.getByText('Rankings')).toBeInTheDocument()
+    expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
+    expect(screen.getByText('Presentation Order')).toBeInTheDocument()
+    expect(screen.getByText(/seed seed-alp/i)).toBeInTheDocument()
+    expect(screen.getByText('Draft 1: draft-b')).toBeInTheDocument()
+    expect(screen.getByText('Draft 2: draft-a')).toBeInTheDocument()
+  })
 })

@@ -3,43 +3,57 @@ import net from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getBackendPort, getFrontendPort } from '../shared/appConfig'
+import {
+  buildProcessGraph,
+  collectProcessTree,
+  formatProcessSummary,
+  isLoopTroopDevProcess,
+  findOwningRootProcess,
+  parseProcessTable,
+  resolveProcessTreesToTerminate,
+  type ProcessInfo,
+} from './dev-preflight-utils'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
 
-const REPO_PROCESS_MARKERS = [
-  `${repoRoot}/node_modules/.bin/vite`,
-  `${repoRoot}/server/index.ts`,
-  `${repoRoot}/node_modules/concurrently`,
-  `${repoRoot}/scripts/dev-preflight.ts`,
-]
-
 function listProcesses() {
-  const output = execFileSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' })
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const firstSpace = line.indexOf(' ')
-      const pid = Number(line.slice(0, firstSpace))
-      const args = line.slice(firstSpace + 1)
-      return { pid, args }
-    })
-    .filter((entry) => Number.isInteger(entry.pid) && entry.pid > 0)
+  const output = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], { encoding: 'utf8' })
+  return parseProcessTable(output)
 }
 
-function isLoopTroopDevProcess(args: string) {
-  return REPO_PROCESS_MARKERS.some((marker) => args.includes(marker))
+function collectProtectedPids(currentPid: number, graph: ReturnType<typeof buildProcessGraph>) {
+  const protectedPids = new Set<number>()
+  let current = graph.byPid.get(currentPid)
+
+  while (current) {
+    protectedPids.add(current.pid)
+    current = graph.byPid.get(current.ppid)
+  }
+
+  return protectedPids
 }
 
-function killProcess(pid: number) {
+function killProcess(pid: number, signal: NodeJS.Signals = 'SIGTERM') {
   try {
-    process.kill(pid, 'SIGTERM')
+    process.kill(pid, signal)
     return true
   } catch {
     return false
   }
+}
+
+function isProcessAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 }
 
 async function ensurePortFree(port: number) {
@@ -81,29 +95,103 @@ function listPortOccupantPids(port: number): number[] {
     .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
 }
 
-const processes = listProcesses()
-const stalePids = processes
-  .filter((entry) => entry.pid !== process.pid && isLoopTroopDevProcess(entry.args))
-  .map((entry) => entry.pid)
+async function terminateProcessTree(root: ProcessInfo, graph = buildProcessGraph(listProcesses())) {
+  const processTree = collectProcessTree(root.pid, graph)
+  console.log(`[dev-preflight] Terminating stale LoopTroop dev tree rooted at ${formatProcessSummary(root)}`)
+  console.log(`[dev-preflight]   tree: ${processTree.map(formatProcessSummary).join(' | ')}`)
 
-if (stalePids.length > 0) {
-  for (const pid of stalePids) {
-    killProcess(pid)
+  for (const entry of processTree) {
+    killProcess(entry.pid)
+  }
+
+  await sleep(300)
+
+  const survivors = processTree.filter((entry) => isProcessAlive(entry.pid))
+  if (survivors.length > 0) {
+    console.warn(`[dev-preflight] Escalating to SIGKILL for stubborn processes: ${survivors.map(formatProcessSummary).join(' | ')}`)
+    for (const entry of survivors) {
+      killProcess(entry.pid, 'SIGKILL')
+    }
+    await sleep(300)
   }
 }
 
-await new Promise((resolvePromise) => setTimeout(resolvePromise, stalePids.length > 0 ? 500 : 0))
+async function reclaimOccupiedPorts(ports: number[]) {
+  const processes = listProcesses()
+  const graph = buildProcessGraph(processes)
+  const protectedPids = collectProtectedPids(process.pid, graph)
+
+  const initialRoots = new Map<number, ProcessInfo>()
+  const unresolvedOccupants: Array<{ port: number; process: ProcessInfo }> = []
+
+  for (const port of ports) {
+    const occupantPids = listPortOccupantPids(port)
+    const resolution = resolveProcessTreesToTerminate(processes, occupantPids, repoRoot)
+    for (const root of resolution.roots) {
+      if (protectedPids.has(root.pid)) continue
+      initialRoots.set(root.pid, root)
+    }
+    for (const occupant of resolution.unrelatedOccupants) {
+      unresolvedOccupants.push({ port, process: occupant })
+    }
+  }
+
+  if (unresolvedOccupants.length > 0) {
+    for (const occupant of unresolvedOccupants) {
+      console.error(`[dev-preflight] Refusing to terminate unrelated occupant on port ${occupant.port}: ${formatProcessSummary(occupant.process)}`)
+    }
+    return false
+  }
+
+  for (const root of initialRoots.values()) {
+    await terminateProcessTree(root, graph)
+  }
+
+  await sleep(500)
+  return true
+}
+
+const processes = listProcesses()
+const graph = buildProcessGraph(processes)
+const protectedPids = collectProtectedPids(process.pid, graph)
+const staleRoots = new Map<number, ProcessInfo>()
+for (const processEntry of processes) {
+  if (processEntry.pid === process.pid) continue
+  if (!isLoopTroopDevProcess(processEntry.args, repoRoot)) continue
+  const root = findOwningRootProcess(processEntry, graph, repoRoot)
+  if (root && !protectedPids.has(root.pid)) {
+    staleRoots.set(root.pid, root)
+  }
+}
+
+for (const root of staleRoots.values()) {
+  await terminateProcessTree(root, graph)
+}
+
+if (staleRoots.size > 0) {
+  await sleep(500)
+}
+
+const reclaimed = await reclaimOccupiedPorts([getFrontendPort(), getBackendPort()])
+if (!reclaimed) {
+  process.exit(1)
+}
 
 for (const port of [getFrontendPort(), getBackendPort()]) {
   try {
     await ensurePortFree(port)
-  } catch {
+  } catch (error) {
     const occupantPids = listPortOccupantPids(port)
-    if (occupantPids.length > 0) {
-      for (const pid of occupantPids) {
-        killProcess(pid)
+    const remainingProcesses = listProcesses()
+    const resolution = resolveProcessTreesToTerminate(remainingProcesses, occupantPids, repoRoot)
+    if (resolution.roots.length > 0) {
+      const graph = buildProcessGraph(remainingProcesses)
+      const protectedPids = collectProtectedPids(process.pid, graph)
+      for (const root of resolution.roots) {
+        if (protectedPids.has(root.pid)) continue
+        await terminateProcessTree(root, graph)
       }
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 500))
+      await sleep(500)
     }
 
     try {
@@ -112,6 +200,9 @@ for (const port of [getFrontendPort(), getBackendPort()]) {
       const message = retryError instanceof Error ? retryError.message : String(retryError)
       console.error(`[dev-preflight] Cannot start LoopTroop on port ${port}: ${message}`)
       console.error(describePortOccupants(port))
+      if (error instanceof Error && error.message) {
+        console.error(`[dev-preflight] Initial check failed with: ${error.message}`)
+      }
       process.exit(1)
     }
   }

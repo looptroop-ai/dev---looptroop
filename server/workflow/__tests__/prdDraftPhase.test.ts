@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { InterviewDocument } from '@shared/interviewArtifact'
+import type { Vote } from '../../council/types'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
 import { clearProjectDatabaseCache } from '../../db/project'
@@ -12,8 +13,10 @@ import { buildInterviewDocumentYaml } from '../../structuredOutput'
 import type { TicketContext as MachineTicketContext } from '../../machines/types'
 import { phaseIntermediate } from '../phases/state'
 
-const { draftPRDMock } = vi.hoisted(() => ({
+const { draftPRDMock, conductVotingMock, selectWinnerMock } = vi.hoisted(() => ({
   draftPRDMock: vi.fn(),
+  conductVotingMock: vi.fn(),
+  selectWinnerMock: vi.fn(),
 }))
 
 vi.mock('../../opencode/factory', () => ({
@@ -29,7 +32,16 @@ vi.mock('../../phases/prd/draft', async () => {
   }
 })
 
-import { handlePrdDraft } from '../phases/prdPhase'
+vi.mock('../../council/voter', async () => {
+  const actual = await vi.importActual<typeof import('../../council/voter')>('../../council/voter')
+  return {
+    ...actual,
+    conductVoting: conductVotingMock,
+    selectWinner: selectWinnerMock,
+  }
+})
+
+import { handleMockPrdDraft, handleMockPrdVote, handlePrdDraft, handlePrdVote } from '../phases/prdPhase'
 
 const repoManager = createFixtureRepoManager({
   templatePrefix: 'looptroop-prd-draft-',
@@ -145,6 +157,8 @@ describe('handlePrdDraft', () => {
     sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
     phaseIntermediate.clear()
     draftPRDMock.mockReset()
+    conductVotingMock.mockReset()
+    selectWinnerMock.mockReset()
   })
 
   afterAll(() => {
@@ -473,4 +487,241 @@ describe('handlePrdDraft', () => {
     expect(executionLog).toContain('PRD draft normalization applied repairs')
     expect(executionLog).toContain('PRD draft required 1 structured retry attempt(s)')
   })
+
+  it('persists the full mock PRD vote artifact shape', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, buildInterviewYaml(ticket.externalId), 'utf-8')
+
+    await handleMockPrdDraft(ticket.id, context, sendEvent)
+    await handleMockPrdVote(ticket.id, context, sendEvent)
+
+    const voteRow = getLatestPhaseArtifact(ticket.id, 'prd_votes', 'COUNCIL_VOTING_PRD')
+    expect(voteRow).toBeDefined()
+
+    const voteArtifact = JSON.parse(voteRow!.content) as {
+      drafts?: Array<{ memberId?: string; outcome?: string; content?: string }>
+      votes?: Array<{ voterId?: string; draftId?: string; scores?: Array<{ category?: string; score?: number }>; totalScore?: number }>
+      voterOutcomes?: Record<string, string>
+      presentationOrders?: Record<string, { seed: string; order: string[] }>
+      winnerId?: string
+      totalScore?: number
+      isFinal?: boolean
+    }
+
+    expect(voteArtifact.isFinal).toBe(true)
+    expect(voteArtifact.drafts).toHaveLength(2)
+    expect(voteArtifact.drafts?.every((draft) => draft.outcome === 'completed')).toBe(true)
+    expect(voteArtifact.votes).toHaveLength(4)
+    expect(voteArtifact.votes?.every((vote) => vote.scores?.length === 5)).toBe(true)
+    expect(Object.keys(voteArtifact.voterOutcomes ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
+    expect(Object.keys(voteArtifact.presentationOrders ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
+    expect(voteArtifact.winnerId).toBeTruthy()
+    expect(voteArtifact.totalScore).toBeGreaterThan(0)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: voteArtifact.winnerId })
+  })
+
+  it('persists live and final PRD vote artifacts with winner metadata and presentation order', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const draftA = buildMockVoteDraft('openai/gpt-5-mini', 'Alpha')
+    const draftB = buildMockVoteDraft('openai/gpt-5.2', 'Beta')
+
+    phaseIntermediate.set(`${ticket.id}:prd`, {
+      drafts: [draftA, draftB],
+      memberOutcomes: {
+        [draftA.memberId]: draftA.outcome,
+        [draftB.memberId]: draftB.outcome,
+      },
+      worktreePath: paths.worktreePath,
+      phase: 'prd_draft',
+      ticketState: {
+        ticketId: context.externalId,
+        title: context.title,
+        description: context.title,
+        relevantFiles: 'files:\n  - path: src/main.ts',
+        interview: buildInterviewYaml(ticket.externalId),
+      },
+    })
+
+    conductVotingMock.mockImplementationOnce(async (
+      _adapter: unknown,
+      _members: Array<{ modelId: string }>,
+      drafts: Array<{ memberId: string; content: string }>,
+      contextParts: Array<{ content?: string }>,
+      _projectPath: string,
+      _phase: string,
+      _timeoutMs: number,
+      _signal: AbortSignal,
+      _onOpenCodeSessionLog: unknown,
+      _onOpenCodeStreamEvent: unknown,
+      _onOpenCodePromptDispatched: unknown,
+      onVoteProgress?: (entry: { memberId: string; outcome: string; votes: Vote[] }) => void,
+      buildPromptForVoter?: (entry: {
+        voter: { modelId: string }
+        anonymizedDrafts: Array<{ draftId: string; content: string }>
+        rubric: Array<{ category: string; weight: number }>
+      }) => Array<{ content: string }>,
+    ) => {
+      expect(contextParts).toEqual([])
+      expect(buildPromptForVoter).toBeTypeOf('function')
+
+      const prompt = buildPromptForVoter!({
+        voter: { modelId: 'openai/gpt-5-mini' },
+        anonymizedDrafts: drafts.map((draft, index) => ({
+          draftId: draft.memberId,
+          content: `Draft ${index + 1}:\n${draft.content}`,
+        })),
+        rubric: [
+          { category: 'Coverage of requirements', weight: 20 },
+          { category: 'Correctness / feasibility', weight: 20 },
+          { category: 'Testability', weight: 20 },
+          { category: 'Minimal complexity / good decomposition', weight: 20 },
+          { category: 'Risks / edge cases addressed', weight: 20 },
+        ],
+      })
+
+      const rendered = prompt.map((part) => part.content).join('\n')
+      expect(rendered).toContain('You are an impartial judge on an AI Council.')
+      expect(rendered).toContain('## Context')
+      expect(rendered).toContain('### draft')
+      expect(rendered).toContain('Draft 1:')
+      expect(rendered).toContain('Draft 2:')
+      expect(rendered).toContain('Use the exact PROM11 `draft_scores` YAML schema')
+
+      const firstVote: Vote = {
+        voterId: 'openai/gpt-5-mini',
+        draftId: 'openai/gpt-5-mini',
+        scores: buildVoteScores([19, 18, 19, 18, 18]),
+        totalScore: 92,
+      }
+      const secondVote: Vote = {
+        voterId: 'openai/gpt-5.2',
+        draftId: 'openai/gpt-5.2',
+        scores: buildVoteScores([18, 18, 18, 18, 18]),
+        totalScore: 90,
+      }
+
+      onVoteProgress?.({
+        memberId: 'openai/gpt-5-mini',
+        outcome: 'completed',
+        votes: [firstVote],
+      })
+      onVoteProgress?.({
+        memberId: 'openai/gpt-5.2',
+        outcome: 'completed',
+        votes: [secondVote],
+      })
+
+      return {
+        votes: [firstVote, secondVote],
+        memberOutcomes: {
+          'openai/gpt-5-mini': 'completed',
+          'openai/gpt-5.2': 'completed',
+        },
+        deadlineReached: false,
+        presentationOrders: {
+          'openai/gpt-5-mini': {
+            seed: 'seed-alpha',
+            order: ['openai/gpt-5-mini', 'openai/gpt-5.2'],
+          },
+          'openai/gpt-5.2': {
+            seed: 'seed-beta',
+            order: ['openai/gpt-5.2', 'openai/gpt-5-mini'],
+          },
+        },
+      }
+    })
+    selectWinnerMock.mockReturnValueOnce({ winnerId: 'openai/gpt-5-mini', totalScore: 92 })
+
+    await handlePrdVote(ticket.id, context, sendEvent, new AbortController().signal)
+
+    const voteRow = getLatestPhaseArtifact(ticket.id, 'prd_votes', 'COUNCIL_VOTING_PRD')
+    expect(voteRow).toBeDefined()
+    const voteArtifact = JSON.parse(voteRow!.content) as {
+      votes?: Vote[]
+      voterOutcomes?: Record<string, string>
+      presentationOrders?: Record<string, { seed: string; order: string[] }>
+      winnerId?: string
+      totalScore?: number
+      isFinal?: boolean
+    }
+
+    expect(voteArtifact.isFinal).toBe(true)
+    expect(voteArtifact.votes).toHaveLength(2)
+    expect(voteArtifact.voterOutcomes).toEqual({
+      'openai/gpt-5-mini': 'completed',
+      'openai/gpt-5.2': 'completed',
+    })
+    expect(voteArtifact.presentationOrders?.['openai/gpt-5-mini']).toEqual({
+      seed: 'seed-alpha',
+      order: ['openai/gpt-5-mini', 'openai/gpt-5.2'],
+    })
+    expect(voteArtifact.winnerId).toBe('openai/gpt-5-mini')
+    expect(voteArtifact.totalScore).toBe(92)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: 'openai/gpt-5-mini' })
+  })
 })
+
+function buildMockVoteDraft(memberId: string, title: string) {
+  return {
+    memberId,
+    outcome: 'completed' as const,
+    duration: 1,
+    content: [
+      'schema_version: 1',
+      'ticket_id: "PROJ-42"',
+      'artifact: "prd"',
+      'status: "draft"',
+      'source_interview:',
+      '  content_sha256: "mock-sha"',
+      'product:',
+      `  problem_statement: "${title}"`,
+      '  target_users: ["Team"]',
+      'scope:',
+      '  in_scope: ["Voting on Specs"]',
+      '  out_of_scope: []',
+      'technical_requirements:',
+      '  architecture_constraints: []',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'epics:',
+      '  - id: "EPIC-1"',
+      `    title: "${title}"`,
+      '    objective: "Test PRD voting"',
+      '    implementation_steps: ["Compare drafts"]',
+      '    user_stories:',
+      '      - id: "US-1"',
+      '        title: "Vote"',
+      '        acceptance_criteria: ["Pick a winner"]',
+      '        implementation_steps: ["Persist votes"]',
+      '        verification:',
+      '          required_commands: ["npm test"]',
+      'risks: []',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'),
+  }
+}
+
+function buildVoteScores(scores: number[]): Vote['scores'] {
+  return [
+    'Coverage of requirements',
+    'Correctness / feasibility',
+    'Testability',
+    'Minimal complexity / good decomposition',
+    'Risks / edge cases addressed',
+  ].map((category, index) => ({
+    category,
+    score: scores[index] ?? 0,
+    justification: `Scored ${category}`,
+  }))
+}

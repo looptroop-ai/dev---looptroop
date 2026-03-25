@@ -247,6 +247,31 @@ interface InterviewAnswerViewItem {
   isSkipped: boolean
 }
 
+interface LegacyInterviewSnapshotQuestion {
+  id?: string
+  prompt?: string
+  answerType?: string
+}
+
+interface LegacyInterviewSnapshotAnswer {
+  skipped?: boolean
+  answer?: string
+  selectedOptionIds?: string[]
+  answeredAt?: string
+}
+
+interface LegacyInterviewSnapshot {
+  questions: LegacyInterviewSnapshotQuestion[]
+  answers?: Record<string, LegacyInterviewSnapshotAnswer>
+  artifact?: unknown
+}
+
+function isLegacyInterviewSnapshot(value: unknown): value is LegacyInterviewSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (!('questions' in value) || !Array.isArray(value.questions)) return false
+  return !('artifact' in value)
+}
+
 function getSelectedOptionLabels(question: InterviewArtifactQuestion): string[] {
   const selectedOptionIds = Array.isArray(question.answer?.selected_option_ids)
     ? question.answer.selected_option_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
@@ -571,17 +596,11 @@ export function InterviewAnswersView({ content, hideSummary = false, hideAiAnswe
     }
   }
 
-  if (
-    parsedContent &&
-    typeof parsedContent === 'object' &&
-    'questions' in parsedContent &&
-    Array.isArray((parsedContent as any).questions) &&
-    'answers' in parsedContent &&
-    !('artifact' in parsedContent)
-  ) {
-    const snapshot = parsedContent as any
-    const mappedQuestions = snapshot.questions.map((q: any) => {
-      const ans = snapshot.answers?.[q.id]
+  if (isLegacyInterviewSnapshot(parsedContent)) {
+    const snapshot = parsedContent
+    const mappedQuestions = snapshot.questions.map((q) => {
+      const questionId = typeof q.id === 'string' ? q.id : null
+      const ans = questionId ? snapshot.answers?.[questionId] : undefined
       return {
         ...q,
         answer_type: q.answerType,

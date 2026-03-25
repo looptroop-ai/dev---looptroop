@@ -11,6 +11,7 @@ import type {
   StreamEvent,
 } from '../../../opencode/types'
 import { draftPRD } from '../draft'
+import { buildPrdVotePrompt } from '../../../workflow/phases/prdPhase'
 
 class TestOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
@@ -334,6 +335,37 @@ function buildPrdYaml(ticketId: string): string {
 }
 
 describe('draftPRD', () => {
+  it('builds the PRD voting prompt with anonymized drafts and a strict scorecard reminder', () => {
+    const prompt = buildPrdVotePrompt(
+      {
+        ticketId: 'PROJ-20',
+        title: 'Vote on PRD drafts',
+        description: 'Compare PRD candidates.',
+        relevantFiles: 'files:\n  - path: src/main.ts',
+        interview: [
+          'schema_version: 1',
+          'ticket_id: PROJ-20',
+          'artifact: interview',
+          'status: approved',
+        ].join('\n'),
+      },
+      [
+        { draftId: 'model-a', content: 'Draft 1:\nMock PRD alpha' },
+        { draftId: 'model-b', content: 'Draft 2:\nMock PRD beta' },
+      ],
+    )
+
+    const rendered = prompt.map((part) => part.content).join('\n')
+    expect(rendered).toContain('You are an impartial judge on an AI Council.')
+    expect(rendered).toContain('## Context')
+    expect(rendered).toContain('### draft')
+    expect(rendered).toContain('Draft 1:')
+    expect(rendered).toContain('Draft 2:')
+    expect(rendered).toContain('Use the exact PROM11 `draft_scores` YAML schema')
+    expect(rendered).toContain('Coverage of requirements')
+    expect(rendered).toContain('Correctness / feasibility')
+  })
+
   it('salvages near-miss full answers without using a structured retry', async () => {
     const adapter = new TestOpenCodeAdapter([
       buildNearMissResolvedInterviewYaml('PROJ-12'),

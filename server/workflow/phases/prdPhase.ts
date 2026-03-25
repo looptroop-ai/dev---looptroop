@@ -1,5 +1,5 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
-import type { DraftResult, MemberOutcome, Vote } from '../../council/types'
+import type { DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
 import { CancelledError } from '../../council/types'
 import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { normalizeInterviewDocumentOutput } from '../../structuredOutput'
-import { PROM12 } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM11, PROM12 } from '../../prompts/index'
 import { validatePrdDraft } from '../../phases/prd/validation'
 
 import { adapter, phaseIntermediate } from './state'
@@ -38,6 +38,7 @@ import {
   mapCouncilStageToStatus,
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
+import { VOTING_RUBRIC_PRD } from '../../council/types'
 
 function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalId: string): string {
   const interviewPath = resolve(ticketDir, 'interview.yaml')
@@ -86,6 +87,212 @@ function formatFullAnswersMetrics(draft: DraftResult): string {
 
 function findWinnerFullAnswers(fullAnswers: DraftResult[], winnerId: string): DraftResult | undefined {
   return fullAnswers.find((draft) => draft.memberId === winnerId && draft.outcome === 'completed' && draft.content)
+}
+
+export function buildPrdVotePrompt(
+  ticketState: TicketState,
+  anonymizedDrafts: Array<{ draftId: string; content: string }>,
+): Array<{ type: 'text'; content: string }> {
+  const promptContext = buildMinimalContext('prd_vote', {
+    ...ticketState,
+    drafts: anonymizedDrafts.map((draft) => draft.content),
+  })
+
+  return [
+    {
+      type: 'text',
+      content: buildPromptFromTemplate(PROM11, promptContext),
+    },
+    {
+      type: 'text',
+      content: [
+        'Detailed scoring rubric:',
+        ...VOTING_RUBRIC_PRD.map((item) => `- ${item.category} (${item.weight}pts): ${item.description}`),
+        '',
+        'Use the exact PROM11 `draft_scores` YAML schema. Keep the exact draft labels, include only rubric integer fields plus `total_score`, and do not add prose or extra keys.',
+      ].join('\n'),
+    },
+  ]
+}
+
+function buildMockPrdDocument(context: TicketContext, variantIndex: number) {
+  const variantLabel = variantIndex === 0 ? '' : ` alternative ${variantIndex + 1}`
+  const extraScope = variantIndex === 0
+    ? []
+    : [`Add${variantLabel} council vote telemetry for traceability.`]
+  const extraRisk = variantIndex === 0
+    ? []
+    : [`Alternative ${variantIndex + 1} should still keep mock artifacts deterministic.`]
+
+  return {
+    schema_version: 1,
+    ticket_id: context.externalId,
+    artifact: 'prd',
+    status: 'draft',
+    source_interview: {
+      content_sha256: 'mock-interview-sha256',
+    },
+    product: {
+      problem_statement: variantIndex === 0
+        ? `Mock PRD for ${context.title}`
+        : `Mock PRD alternative ${variantIndex + 1} for ${context.title}`,
+      target_users: ['LoopTroop maintainers'],
+    },
+    scope: {
+      in_scope: [
+        'Keep all LoopTroop runtime state inside the project-local .looptroop directory.',
+        'Preserve ticket lifecycle metadata and artifacts for restart and inspection.',
+        ...extraScope,
+      ],
+      out_of_scope: [
+        'Changes outside the mock workflow path.',
+      ],
+    },
+    technical_requirements: {
+      architecture_constraints: [
+        'Do not write ticket data into the app checkout.',
+        'Keep the workflow deterministic in mock mode for testing.',
+      ],
+      data_model: [],
+      api_contracts: [],
+      security_constraints: [],
+      performance_constraints: [],
+      reliability_constraints: [],
+      error_handling_rules: [],
+      tooling_assumptions: [],
+    },
+    epics: [
+      {
+        id: 'EPIC-1',
+        title: 'Persist mock planning artifacts',
+        objective: 'Produce a canonical mock PRD artifact that downstream phases can consume.',
+        implementation_steps: [
+          'Write the refined mock PRD to disk.',
+          'Keep the artifact shape aligned with the real PRD schema.',
+        ],
+        user_stories: [
+          {
+            id: 'US-1-1',
+            title: 'Maintain deterministic mock planning data',
+            acceptance_criteria: [
+              'The mock PRD matches the canonical PRD schema.',
+              'Downstream phases can read the PRD without special-case parsing.',
+            ],
+            implementation_steps: [
+              'Emit canonical YAML fields.',
+              'Keep mock-only assumptions explicit inside the artifact.',
+            ],
+            verification: {
+              required_commands: ['npm test'],
+            },
+          },
+          ...(variantIndex === 0
+            ? []
+            : [
+                {
+                  id: `US-1-${variantIndex + 2}`,
+                  title: `Differentiate mock alternative ${variantIndex + 1}`,
+                  acceptance_criteria: [
+                    'Each council member sees a distinct but still valid mock PRD draft.',
+                  ],
+                  implementation_steps: [
+                    'Vary the mock content slightly per council member.',
+                  ],
+                  verification: {
+                    required_commands: ['npm test'],
+                  },
+                },
+              ]),
+        ],
+      },
+    ],
+    risks: [
+      ...extraRisk,
+    ],
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+}
+
+function buildMockPrdVariantContent(context: TicketContext, variantIndex = 0) {
+  return jsYaml.dump(buildMockPrdDocument(context, variantIndex), { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildMockPrdDrafts(members: Array<{ modelId: string; name: string }>, context: TicketContext): DraftResult[] {
+  return members.map((member, index) => ({
+    memberId: member.modelId,
+    content: buildMockPrdVariantContent(context, index),
+    outcome: 'completed',
+    duration: 1,
+    draftMetrics: {
+      epicCount: 1,
+      userStoryCount: index === 0 ? 1 : 2,
+    },
+  }))
+}
+
+function buildMockPrdVoteResult(
+  members: Array<{ modelId: string; name: string }>,
+  drafts: DraftResult[],
+): {
+  votes: Vote[]
+  voterOutcomes: Record<string, MemberOutcome>
+  presentationOrders: Record<string, VotePresentationOrder>
+  winnerId: string
+  totalScore: number
+} {
+  const winnerId = drafts[0]?.memberId ?? members[0]?.modelId ?? 'mock-model-1'
+  const winnerScorecards = [
+    [19, 19, 18, 18, 19],
+    [18, 19, 19, 18, 18],
+  ]
+  const challengerScorecards = [
+    [16, 15, 15, 16, 15],
+    [15, 16, 15, 15, 16],
+  ]
+
+  const votes: Vote[] = []
+  const voterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
+    acc[member.modelId] = 'completed'
+    return acc
+  }, {})
+  const presentationOrders: Record<string, VotePresentationOrder> = {}
+
+  members.forEach((member, memberIndex) => {
+    const orderedDrafts = memberIndex % 2 === 0 ? drafts : [...drafts].reverse()
+    presentationOrders[member.modelId] = {
+      seed: `mock-seed-prd-${memberIndex + 1}`,
+      order: orderedDrafts.map((draft) => draft.memberId),
+    }
+
+    orderedDrafts.forEach((draft) => {
+      const scoreTemplate = draft.memberId === winnerId
+        ? winnerScorecards[memberIndex % winnerScorecards.length]!
+        : challengerScorecards[memberIndex % challengerScorecards.length]!
+      const scores = VOTING_RUBRIC_PRD.map((criterion, scoreIndex) => ({
+        category: criterion.category,
+        score: scoreTemplate[scoreIndex] ?? 15,
+        justification: draft.memberId === winnerId
+          ? `Mock voter ${memberIndex + 1} preferred this PRD on ${criterion.category.toLowerCase()}.`
+          : `Mock voter ${memberIndex + 1} found this PRD weaker on ${criterion.category.toLowerCase()}.`,
+      }))
+      const totalScore = scores.reduce((sum, score) => sum + score.score, 0)
+      votes.push({
+        voterId: member.modelId,
+        draftId: draft.memberId,
+        scores,
+        totalScore,
+      })
+    })
+  })
+
+  const totalScore = votes
+    .filter((vote) => vote.draftId === winnerId)
+    .reduce((sum, vote) => sum + vote.totalScore, 0)
+
+  return { votes, voterOutcomes, presentationOrders, winnerId, totalScore }
 }
 
 export async function handlePrdDraft(
@@ -402,10 +609,13 @@ export async function handlePrdVote(
 
   const { members } = resolveCouncilMembers(context)
   const councilSettings = resolveCouncilRuntimeSettings(context)
-  if (!intermediate.contextBuilder) {
-    throw new Error('No PRD context builder found — cannot vote')
+  const ticketDirContext = loadTicketDirContext(context)
+  const voteTicketState = intermediate.ticketState ?? {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticketDirContext.ticket?.description ?? '',
+    relevantFiles: ticketDirContext.relevantFiles,
   }
-  const voteContext = intermediate.contextBuilder('vote')
   const streamStates = new Map<string, OpenCodeStreamState>()
   const liveVotes: Vote[] = []
   const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
@@ -422,7 +632,7 @@ export async function handlePrdVote(
     adapter,
     members,
     intermediate.drafts,
-    voteContext,
+    [],
     intermediate.worktreePath,
     intermediate.phase,
     councilSettings.draftTimeoutMs,
@@ -466,7 +676,7 @@ export async function handlePrdVote(
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
     },
-    undefined,
+    ({ anonymizedDrafts }) => buildPrdVotePrompt(voteTicketState, anonymizedDrafts),
     {
       ticketId,
       phase: 'COUNCIL_VOTING_PRD',
@@ -656,88 +866,33 @@ export async function handlePrdRefine(
 }
 
 export function buildMockPrdContent(context: TicketContext) {
-  return jsYaml.dump({
-    schema_version: 1,
-    ticket_id: context.externalId,
-    artifact: 'prd',
-    status: 'draft',
-    source_interview: {
-      content_sha256: 'mock-interview-sha256',
-    },
-    product: {
-      problem_statement: `Mock PRD for ${context.title}`,
-      target_users: ['LoopTroop maintainers'],
-    },
-    scope: {
-      in_scope: [
-        'Keep all LoopTroop runtime state inside the project-local .looptroop directory.',
-        'Preserve ticket lifecycle metadata and artifacts for restart and inspection.',
-      ],
-      out_of_scope: [
-        'Changes outside the mock workflow path.',
-      ],
-    },
-    technical_requirements: {
-      architecture_constraints: [
-        'Do not write ticket data into the app checkout.',
-        'Keep the workflow deterministic in mock mode for testing.',
-      ],
-      data_model: [],
-      api_contracts: [],
-      security_constraints: [],
-      performance_constraints: [],
-      reliability_constraints: [],
-      error_handling_rules: [],
-      tooling_assumptions: [],
-    },
-    epics: [
-      {
-        id: 'EPIC-1',
-        title: 'Persist mock planning artifacts',
-        objective: 'Produce a canonical mock PRD artifact that downstream phases can consume.',
-        implementation_steps: [
-          'Write the refined mock PRD to disk.',
-          'Keep the artifact shape aligned with the real PRD schema.',
-        ],
-        user_stories: [
-          {
-            id: 'US-1-1',
-            title: 'Maintain deterministic mock planning data',
-            acceptance_criteria: [
-              'The mock PRD matches the canonical PRD schema.',
-              'Downstream phases can read the PRD without special-case parsing.',
-            ],
-            implementation_steps: [
-              'Emit canonical YAML fields.',
-              'Keep mock-only assumptions explicit inside the artifact.',
-            ],
-            verification: {
-              required_commands: ['npm test'],
-            },
-          },
-        ],
-      },
-    ],
-    risks: [],
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }, { lineWidth: 120, noRefs: true }) as string
+  return buildMockPrdVariantContent(context, 0)
 }
 
 export async function handleMockPrdDraft(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
   const paths = getTicketPaths(ticketId)
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const { members } = resolveCouncilMembers(context)
   const interviewPath = resolve(paths.ticketDir, 'interview.yaml')
   const fullAnswersContent = existsSync(interviewPath) ? readFileSync(interviewPath, 'utf-8') : ''
+  const fullAnswers = members.map((member) => ({
+    memberId: member.modelId,
+    outcome: 'completed' as const,
+    content: fullAnswersContent,
+    duration: 1,
+    questionCount: 1,
+  }))
+  const drafts = buildMockPrdDrafts(members, context)
   insertPhaseArtifact(ticketId, {
     phase: 'DRAFTING_PRD',
     artifactType: 'prd_full_answers',
     content: JSON.stringify({
       phase: 'prd_full_answer',
-      drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: fullAnswersContent }],
-      memberOutcomes: { 'mock-model-1': 'completed' },
+      drafts: fullAnswers,
+      memberOutcomes: fullAnswers.reduce<Record<string, MemberOutcome>>((acc, draft) => {
+        acc[draft.memberId] = draft.outcome
+        return acc
+      }, {}),
       isFinal: true,
     }),
   })
@@ -746,8 +901,11 @@ export async function handleMockPrdDraft(ticketId: string, context: TicketContex
     artifactType: 'prd_drafts',
     content: JSON.stringify({
       phase: 'prd_draft',
-      drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: buildMockPrdContent(context) }],
-      memberOutcomes: { 'mock-model-1': 'completed' },
+      drafts,
+      memberOutcomes: drafts.reduce<Record<string, MemberOutcome>>((acc, draft) => {
+        acc[draft.memberId] = draft.outcome
+        return acc
+      }, {}),
       isFinal: true,
     }),
   })
@@ -756,32 +914,36 @@ export async function handleMockPrdDraft(ticketId: string, context: TicketContex
 }
 
 export async function handleMockPrdVote(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const { members } = resolveCouncilMembers(context)
+  const drafts = buildMockPrdDrafts(members, context)
+  const voteResult = buildMockPrdVoteResult(members, drafts)
   insertPhaseArtifact(ticketId, {
     phase: 'COUNCIL_VOTING_PRD',
     artifactType: 'prd_votes',
     content: JSON.stringify({
-      winnerId: 'mock-model-1',
-      totalScore: 1,
-      presentationOrders: {
-        'mock-model-1': {
-          seed: 'mock-seed-prd',
-          order: ['mock-model-1'],
-        },
-      },
+      drafts,
+      votes: voteResult.votes,
+      voterOutcomes: voteResult.voterOutcomes,
+      presentationOrders: voteResult.presentationOrders,
+      winnerId: voteResult.winnerId,
+      totalScore: voteResult.totalScore,
+      isFinal: true,
     }),
   })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info', 'Mock PRD winner selected.')
-  sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
+  sendEvent({ type: 'WINNER_SELECTED', winner: voteResult.winnerId })
 }
 
 export async function handleMockPrdRefine(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
   const paths = getTicketPaths(ticketId)
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const { members } = resolveCouncilMembers(context)
+  const winnerId = members[0]?.modelId ?? 'mock-model-1'
   const refinedContent = buildMockPrdContent(context)
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
-    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent }),
+    content: JSON.stringify({ winnerId, refinedContent }),
   })
   safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), refinedContent)
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info', 'Mock PRD written to disk.')

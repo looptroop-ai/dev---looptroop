@@ -105,18 +105,17 @@ function ProviderGroup({
   query: string
 }) {
   const [collapsed, setCollapsed] = useState(false)
-
-  useEffect(() => {
-    if (query) {
-      setCollapsed(false)
-    }
-  }, [query])
+  const hasQuery = query.trim().length > 0
+  const isCollapsed = hasQuery ? false : collapsed
 
   return (
     <div>
       <div 
         className="sticky top-0 z-10 bg-popover/95 backdrop-blur-sm px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors select-none border-b border-border/40"
-        onClick={() => setCollapsed(c => !c)}
+        onClick={() => {
+          if (hasQuery) return
+          setCollapsed(c => !c)
+        }}
       >
         <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {providerName}
@@ -124,9 +123,9 @@ function ProviderGroup({
             {models.length} {models.length === 1 ? 'model' : 'models'}
           </span>
         </div>
-        <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground opacity-70 transition-transform', collapsed && '-rotate-90')} aria-hidden="true" />
+        <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground opacity-70 transition-transform', isCollapsed && '-rotate-90')} aria-hidden="true" />
       </div>
-      {!collapsed && (
+      {!isCollapsed && (
         <div className="flex flex-col">
           {models.map(m => (
             <ModelRow
