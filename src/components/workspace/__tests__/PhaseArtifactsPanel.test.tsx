@@ -24,6 +24,90 @@ function renderWithProviders(ui: React.ReactElement) {
   )
 }
 
+function buildInterviewDocumentContent() {
+  return [
+    'schema_version: 1',
+    'ticket_id: PROJ-42',
+    'artifact: interview',
+    'status: draft',
+    'generated_by:',
+    '  winner_model: openai/gpt-5.2',
+    '  generated_at: 2026-03-25T09:00:00.000Z',
+    'questions:',
+    '  - id: Q01',
+    '    phase: Foundation',
+    '    prompt: "How should skipped answers be completed?"',
+    '    source: compiled',
+    '    answer_type: free_text',
+    '    options: []',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: "Use AI-authored answers and label them clearly."',
+    '      answered_by: ai_skip',
+    '      answered_at: 2026-03-25T09:00:00.000Z',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: []',
+    '  constraints: []',
+    '  non_goals: []',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
+function buildPrdDocumentContent({
+  epicTitle = 'Restore rich PRD views',
+  storyTitle = 'Review PRD drafts',
+  acceptanceCriterion = 'Show epics and user stories in the structured view.',
+}: {
+  epicTitle?: string
+  storyTitle?: string
+  acceptanceCriterion?: string
+} = {}) {
+  return [
+    'schema_version: 1',
+    'ticket_id: PROJ-42',
+    'artifact: prd',
+    'status: draft',
+    'source_interview:',
+    '  content_sha256: mock-sha',
+    'product:',
+    '  problem_statement: "Restore the richer PRD artifact viewer."',
+    '  target_users:',
+    '    - "LoopTroop maintainers"',
+    'scope:',
+    '  in_scope:',
+    '    - "PRD artifact dialogs"',
+    '  out_of_scope:',
+    '    - "Workflow logic"',
+    'technical_requirements:',
+    '  architecture_constraints:',
+    '    - "UI-only change"',
+    '  data_model: []',
+    '  api_contracts: []',
+    '  security_constraints: []',
+    '  performance_constraints: []',
+    '  reliability_constraints: []',
+    '  error_handling_rules: []',
+    '  tooling_assumptions: []',
+    'epics:',
+    '  - id: "EPIC-1"',
+    `    title: "${epicTitle}"`,
+    '    objective: "Make PRD artifacts easy to inspect."',
+    '    user_stories:',
+    '      - id: "US-1"',
+    `        title: "${storyTitle}"`,
+    '        acceptance_criteria:',
+    `          - "${acceptanceCriterion}"`,
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
 describe('PhaseArtifactsPanel', () => {
   it('collapses interview voting artifacts into a winning draft card plus shared voting details', () => {
     const voteArtifact: DBartifact = {
@@ -292,6 +376,296 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
     expect(screen.getByText('2 epics · 5 user stories')).toBeInTheDocument()
     expect(screen.queryByText('proposed 3 questions')).not.toBeInTheDocument()
+  })
+
+  it('opens Drafting PRD part 1 artifacts with the interview-style full answers viewer', () => {
+    const fullAnswersArtifact: DBartifact = {
+      id: 30,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      filePath: null,
+      createdAt: '2026-03-25T10:12:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildInterviewDocumentContent(),
+            questionCount: 1,
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_PRD"
+        isCompleted={false}
+        councilMemberCount={1}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[fullAnswersArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: /gpt-5\.2/i })[0]!)
+    fireEvent.click(screen.getByRole('button', { name: /Foundation/i }))
+
+    expect(screen.getByText('How should skipped answers be completed?')).toBeInTheDocument()
+    expect(screen.getByText('Use AI-authored answers and label them clearly.')).toBeInTheDocument()
+    expect(screen.getByText(/Answered automatically by AI in Drafting specs status/i)).toBeInTheDocument()
+  })
+
+  it('shows the stored full-answer count in the Drafting PRD ticket chips', () => {
+    const fullAnswersArtifact: DBartifact = {
+      id: 35,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      filePath: null,
+      createdAt: '2026-03-25T10:17:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: [
+              'schema_version: 1',
+              'ticket_id: PROJ-42',
+              'artifact: interview',
+              'questions:',
+              '  - id: Q01',
+              '    prompt: "First preserved question?"',
+              '    answer:',
+              '      skipped: false',
+              '      free_text: "First answer."',
+              '  - id: Q02',
+              '    prompt: "Second preserved question?"',
+              '    answer:',
+              '      skipped: false',
+              '      free_text: "Second answer."',
+            ].join('\n'),
+            questionCount: 1,
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_PRD"
+        isCompleted={false}
+        councilMemberCount={1}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[fullAnswersArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('1 answers')).toBeInTheDocument()
+    expect(screen.queryByText('2 answers')).not.toBeInTheDocument()
+  })
+
+  it('opens Drafting PRD part 2 artifacts with the structured PRD viewer', () => {
+    const draftArtifact: DBartifact = {
+      id: 31,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_drafts',
+      filePath: null,
+      createdAt: '2026-03-25T10:13:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildPrdDocumentContent(),
+            draftMetrics: {
+              epicCount: 1,
+              userStoryCount: 1,
+            },
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_PRD"
+        isCompleted={false}
+        councilMemberCount={1}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[draftArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: /gpt-5\.2/i })[1]!)
+
+    expect(screen.getByText('Epics (1)')).toBeInTheDocument()
+    expect(screen.getByText('Restore rich PRD views')).toBeInTheDocument()
+
+    // Expand the epic section to reveal user stories
+    fireEvent.click(screen.getByText('Restore rich PRD views').closest('button')!)
+
+    expect(screen.getByText('Review PRD drafts')).toBeInTheDocument()
+  })
+
+  it('keeps Voting on Specs winner artifacts on the structured PRD viewer', () => {
+    const voteArtifact: DBartifact = {
+      id: 32,
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_VOTING_PRD',
+      artifactType: 'prd_votes',
+      filePath: null,
+      createdAt: '2026-03-25T10:14:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildPrdDocumentContent({
+              epicTitle: 'Winning PRD draft',
+              storyTitle: 'Inspect the winning PRD',
+            }),
+          },
+        ],
+        votes: [
+          {
+            voterId: 'openai/gpt-5.2',
+            draftId: 'openai/gpt-5.2',
+            totalScore: 95,
+            scores: [
+              { category: 'Coverage of requirements', score: 19 },
+              { category: 'Correctness / feasibility', score: 19 },
+              { category: 'Testability', score: 19 },
+              { category: 'Minimal complexity / good decomposition', score: 19 },
+              { category: 'Risks / edge cases addressed', score: 19 },
+            ],
+          },
+        ],
+        voterOutcomes: {
+          'openai/gpt-5.2': 'completed',
+        },
+        winnerId: 'openai/gpt-5.2',
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_VOTING_PRD"
+        isCompleted={false}
+        councilMemberCount={1}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[voteArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Winning PRD Draft/i }))
+
+    expect(screen.getByText('Epics (1)')).toBeInTheDocument()
+    expect(screen.getByText('Winning PRD draft')).toBeInTheDocument()
+
+    // Expand the epic section to reveal user stories
+    fireEvent.click(screen.getByText('Winning PRD draft').closest('button')!)
+
+    expect(screen.getByText('Inspect the winning PRD')).toBeInTheDocument()
+  })
+
+  it('keeps Voting on Specs details on the voting results view', () => {
+    const voteArtifact: DBartifact = {
+      id: 34,
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_VOTING_PRD',
+      artifactType: 'prd_votes',
+      filePath: null,
+      createdAt: '2026-03-25T10:16:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildPrdDocumentContent(),
+          },
+        ],
+        votes: [
+          {
+            voterId: 'openai/gpt-5.2',
+            draftId: 'openai/gpt-5.2',
+            totalScore: 95,
+            scores: [
+              { category: 'Coverage of requirements', score: 19 },
+              { category: 'Correctness / feasibility', score: 19 },
+              { category: 'Testability', score: 19 },
+              { category: 'Minimal complexity / good decomposition', score: 19 },
+              { category: 'Risks / edge cases addressed', score: 19 },
+            ],
+          },
+        ],
+        voterOutcomes: {
+          'openai/gpt-5.2': 'completed',
+        },
+        winnerId: 'openai/gpt-5.2',
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_VOTING_PRD"
+        isCompleted={false}
+        councilMemberCount={1}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[voteArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Voting Details/i }))
+
+    expect(screen.getByText('Rankings')).toBeInTheDocument()
+    expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
+  })
+
+  it('keeps later PRD review phases on the structured refined PRD viewer', () => {
+    const refinedArtifact: DBartifact = {
+      id: 33,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+
+    expect(screen.getByText('Epics (1)')).toBeInTheDocument()
+    expect(screen.getByText('Refined PRD review')).toBeInTheDocument()
+
+    // Expand the epic section to reveal user stories
+    fireEvent.click(screen.getByText('Refined PRD review').closest('button')!)
+
+    expect(screen.getByText('Inspect refined PRD sections')).toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {

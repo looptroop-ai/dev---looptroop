@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { RefinementChange } from '@shared/refinementChanges'
+import { looksLikePromptEcho } from '../lib/promptEcho'
 import type { PrdDocument, PrdDraftMetrics, StructuredOutputResult } from './types'
 import { normalizeInterviewDocumentOutput } from './interviewDocument'
 import {
@@ -15,6 +16,24 @@ import {
   buildYamlDocument,
 } from './yamlUtils'
 import { parseRefinementChanges } from './refinementChanges'
+
+const PRD_NESTED_MAPPING_CHILDREN = {
+  source_interview: ['content_sha256'],
+  product: ['problem_statement', 'target_users'],
+  scope: ['in_scope', 'out_of_scope'],
+  technical_requirements: [
+    'architecture_constraints',
+    'data_model',
+    'api_contracts',
+    'security_constraints',
+    'performance_constraints',
+    'reliability_constraints',
+    'error_handling_rules',
+    'tooling_assumptions',
+  ],
+  approval: ['approved_by', 'approved_at'],
+  verification: ['required_commands'],
+} as const
 
 function hashContent(content: string | undefined): string {
   return createHash('sha256').update(content ?? '').digest('hex')
@@ -187,7 +206,9 @@ export function normalizePrdYamlOutput(
     const repairWarnings: string[] = []
 
     try {
-      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate), [
+      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: PRD_NESTED_MAPPING_CHILDREN,
+      }), [
         'prd',
         'document',
         'output',
@@ -287,7 +308,9 @@ export function normalizePrdYamlOutput(
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'PRD output echoed the prompt instead of returning structured PRD YAML'
+      : lastError,
     repairApplied: false,
     repairWarnings: [],
   }

@@ -578,6 +578,8 @@ export function resolveStaticArtifact(
     case 'winner-draft':
       return findExactType('interview_votes')
     case 'vote-details':
+      if (phase.includes('PRD')) return findExactType('prd_votes')
+      if (phase.includes('BEADS')) return findExactType('beads_votes')
       return findExactType('interview_votes')
     case 'final-interview':
       if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
@@ -657,5 +659,5 @@ export function buildRefinementDiffEntries(content: string | undefined): Refinem
 }
 
 export function shouldCollapseVotingMemberArtifacts(phase: string): boolean {
-  return phase === 'COUNCIL_VOTING_INTERVIEW'
+  return phase === 'COUNCIL_VOTING_INTERVIEW' || phase === 'COUNCIL_VOTING_PRD' || phase === 'COUNCIL_VOTING_BEADS'
 }

@@ -4,16 +4,15 @@ import { CancelledError, VOTING_RUBRIC_PRD } from '../../council/types'
 import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
 import { checkMemberResponseQuorum, checkQuorum } from '../../council/quorum'
-import { draftPRD, buildPrdContextBuilder } from '../../phases/prd/draft'
+import { draftPRD, buildPrdContextBuilder, buildPrdRefinePrompt } from '../../phases/prd/draft'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { safeAtomicWrite } from '../../io/atomicWrite'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
-import { normalizeInterviewDocumentOutput } from '../../structuredOutput'
+import { normalizeInterviewDocumentOutput, normalizePrdYamlOutput, getPrdDraftMetrics } from '../../structuredOutput'
 import { buildPromptFromTemplate, PROM11, PROM12 } from '../../prompts/index'
-import { validatePrdDraft } from '../../phases/prd/validation'
 
 import { adapter, phaseIntermediate } from './state'
 import {
@@ -759,10 +758,6 @@ export async function handlePrdRefine(
   const winnerDraft = intermediate.drafts.find(d => d.memberId === intermediate.winnerId)!
   const losingDrafts = intermediate.drafts.filter(d => d.memberId !== intermediate.winnerId && d.outcome === 'completed')
   const councilSettings = resolveCouncilRuntimeSettings(context)
-  if (!intermediate.contextBuilder) {
-    throw new Error('No PRD context builder found — cannot refine')
-  }
-  const refineContext = intermediate.contextBuilder('refine')
   const streamStates = new Map<string, OpenCodeStreamState>()
   const paths = getTicketPaths(ticketId)
   if (!paths) {
@@ -774,6 +769,17 @@ export async function handlePrdRefine(
     throw new Error(`No Full Answers artifact found for PRD winner ${intermediate.winnerId}`)
   }
 
+  // Build ticket state for labeled prompt construction
+  const refineTicketState = intermediate.ticketState ?? (() => {
+    const { ticket, relevantFiles } = loadTicketDirContext(context)
+    return {
+      ticketId: context.externalId,
+      title: context.title,
+      description: ticket?.description ?? '',
+      relevantFiles,
+    } satisfies TicketState
+  })()
+
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
 
@@ -783,7 +789,7 @@ export async function handlePrdRefine(
     adapter,
     winnerDraft,
     losingDrafts,
-    refineContext,
+    [], // contextParts unused when buildPrompt is provided
     intermediate.worktreePath,
     councilSettings.draftTimeoutMs,
     signal,
@@ -825,20 +831,35 @@ export async function handlePrdRefine(
       ticketId,
       phase: 'REFINING_PRD',
     },
-    undefined,
+    (activeWinnerDraft, activeLosingDrafts) => buildPrdRefinePrompt(
+      refineTicketState,
+      activeWinnerDraft,
+      activeLosingDrafts,
+      intermediate.fullAnswers ?? [],
+    ),
     (content) => {
       const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId }))
-      const result = validatePrdDraft(content, {
+      const result = normalizePrdYamlOutput(content, {
         ticketId: context.externalId,
         interviewContent: winnerFullAnswers.content,
         losingDraftMeta,
       })
+      if (!result.ok) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: (structuredMeta.autoRetryCount ?? 0) + 1,
+          validationError: result.error,
+        })
+        throw new Error(result.error)
+      }
+      const { changes, ...document } = result.value
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
+        autoRetryCount: structuredMeta.autoRetryCount,
       })
-      // Stash changes for artifact storage
-      ;(structuredMeta as unknown as Record<string, unknown>)._refinementChanges = result.changes
+      // Stash changes and metrics for artifact storage
+      ;(structuredMeta as unknown as Record<string, unknown>)._refinementChanges = changes
+      ;(structuredMeta as unknown as Record<string, unknown>)._draftMetrics = getPrdDraftMetrics(document)
       return { normalizedContent: result.normalizedContent }
     },
     PROM12.outputFormat,
@@ -850,6 +871,8 @@ export async function handlePrdRefine(
 
   const refinementChanges = (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
   delete (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
+  const draftMetrics = (structuredMeta as unknown as Record<string, unknown>)._draftMetrics as { epicCount: number; userStoryCount: number } | undefined
+  delete (structuredMeta as unknown as Record<string, unknown>)._draftMetrics
 
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
@@ -863,11 +886,45 @@ export async function handlePrdRefine(
     }),
   })
 
+  // Persist winnerId separately for restart resilience (matches interview_winner pattern)
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_PRD',
+    artifactType: 'prd_winner',
+    content: JSON.stringify({ winnerId: intermediate.winnerId }),
+  })
+
   // Save refined PRD to disk
   safeAtomicWrite(prdPath, refinedContent)
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
+
+  // Emit AI detail log with refined PRD summary
+  const changeCount = Array.isArray(refinementChanges) ? refinementChanges.length : 0
+  const metricsLabel = draftMetrics
+    ? `${draftMetrics.epicCount} epics, ${draftMetrics.userStoryCount} user stories`
+    : ''
+  const summaryParts = [
+    `Refined PRD from ${intermediate.winnerId}`,
+    ...(metricsLabel ? [metricsLabel] : []),
+    ...(changeCount > 0 ? [`${changeCount} change${changeCount === 1 ? '' : 's'} from alternative drafts`] : []),
+  ]
+  emitAiDetail(
+    ticketId,
+    context.externalId,
+    'REFINING_PRD',
+    'model_output',
+    summaryParts.join('. ') + '.',
+    {
+      entryId: `refined-prd:${intermediate.winnerId}`,
+      audience: 'ai',
+      kind: 'text',
+      op: 'append',
+      source: `model:${intermediate.winnerId}`,
+      modelId: intermediate.winnerId,
+      streaming: false,
+    },
+  )
 
   sendEvent({ type: 'REFINED' })
 }

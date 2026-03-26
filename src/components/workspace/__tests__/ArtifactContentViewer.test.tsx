@@ -40,6 +40,56 @@ function buildInterviewDocumentContent({
   })
 }
 
+function buildPrdDocumentContent({
+  epicTitle = 'Restore rich PRD views',
+  storyTitle = 'Review PRD drafts',
+  acceptanceCriterion = 'Show epics and user stories in the structured view.',
+}: {
+  epicTitle?: string
+  storyTitle?: string
+  acceptanceCriterion?: string
+} = {}) {
+  return [
+    'schema_version: 1',
+    'ticket_id: PROJ-42',
+    'artifact: prd',
+    'status: draft',
+    'source_interview:',
+    '  content_sha256: mock-sha',
+    'product:',
+    '  problem_statement: "Restore the richer PRD artifact viewer."',
+    '  target_users:',
+    '    - "LoopTroop maintainers"',
+    'scope:',
+    '  in_scope:',
+    '    - "PRD artifact dialogs"',
+    '  out_of_scope:',
+    '    - "Workflow logic"',
+    'technical_requirements:',
+    '  architecture_constraints:',
+    '    - "UI-only change"',
+    '  data_model: []',
+    '  api_contracts: []',
+    '  security_constraints: []',
+    '  performance_constraints: []',
+    '  reliability_constraints: []',
+    '  error_handling_rules: []',
+    '  tooling_assumptions: []',
+    'epics:',
+    '  - id: "EPIC-1"',
+    `    title: "${epicTitle}"`,
+    '    objective: "Make PRD artifacts easy to inspect."',
+    '    user_stories:',
+    '      - id: "US-1"',
+    `        title: "${storyTitle}"`,
+    '        acceptance_criteria:',
+    `          - "${acceptanceCriterion}"`,
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
 }
@@ -202,6 +252,130 @@ describe('ArtifactContentViewer', () => {
     openFoundationGroup()
     expect(screen.getByText('Do we need an admin panel?')).toBeInTheDocument()
     expect(screen.getByText(/This question was skipped/i)).toBeInTheDocument()
+  })
+
+  it('renders PRD full answers with the interview-style view and AI-answer badge', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-fullanswers-member-openai%2Fgpt-5.2"
+        phase="DRAFTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: buildInterviewDocumentContent({
+                questions: [
+                  {
+                    id: 'Q01',
+                    phase: 'Foundation',
+                    prompt: 'What should happen for skipped interview answers?',
+                    source: 'compiled',
+                    answer_type: 'free_text',
+                    options: [],
+                    answer: {
+                      skipped: false,
+                      free_text: 'Fill them in with explicit AI-authored answers.',
+                      selected_option_ids: [],
+                      answered_by: 'ai_skip',
+                      answered_at: '2026-03-25T09:00:00.000Z',
+                    },
+                  },
+                ],
+              }),
+            },
+          ],
+          memberOutcomes: {
+            'openai/gpt-5.2': 'completed',
+          },
+        })}
+      />,
+    )
+
+    openFoundationGroup()
+    expect(screen.getByText('What should happen for skipped interview answers?')).toBeInTheDocument()
+    expect(screen.getByText('Fill them in with explicit AI-authored answers.')).toBeInTheDocument()
+    expect(screen.getByText(/Answered automatically by AI in Drafting specs status/i)).toBeInTheDocument()
+  })
+
+  it('renders PRD draft member artifacts with structured epics and user stories', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-draft-member-openai%2Fgpt-5.2"
+        phase="DRAFTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: buildPrdDocumentContent(),
+            },
+          ],
+          memberOutcomes: {
+            'openai/gpt-5.2': 'completed',
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Epics (1)')).toBeInTheDocument()
+    expect(screen.getByText('Restore rich PRD views')).toBeInTheDocument()
+
+    // Expand the epic section to reveal user stories
+    fireEvent.click(screen.getByText('Restore rich PRD views').closest('button')!)
+
+    expect(screen.getByText('Review PRD drafts')).toBeInTheDocument()
+    expect(screen.getByText('Show epics and user stories in the structured view.')).toBeInTheDocument()
+  })
+
+  it('renders refined PRD artifacts with the same structured PRD viewer', () => {
+    render(
+      <ArtifactContent
+        artifactId="refined-prd"
+        phase="WAITING_PRD_APPROVAL"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          refinedContent: buildPrdDocumentContent({
+            epicTitle: 'Refine the winning PRD',
+            storyTitle: 'Inspect refined stories',
+            acceptanceCriterion: 'Keep the PRD viewer structured after refinement.',
+          }),
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Epics (1)')).toBeInTheDocument()
+    expect(screen.getByText('Refine the winning PRD')).toBeInTheDocument()
+
+    // Expand the epic section to reveal user stories
+    fireEvent.click(screen.getByText('Refine the winning PRD').closest('button')!)
+
+    expect(screen.getByText('Inspect refined stories')).toBeInTheDocument()
+    expect(screen.getByText('Keep the PRD viewer structured after refinement.')).toBeInTheDocument()
+  })
+
+  it('falls back to raw content for unparseable PRD drafts', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-draft-member-openai%2Fgpt-5.2"
+        phase="DRAFTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: 'plain draft text without PRD structure',
+            },
+          ],
+          memberOutcomes: {
+            'openai/gpt-5.2': 'completed',
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('plain draft text without PRD structure')).toBeInTheDocument()
+    expect(screen.queryByText(/Epics \(/)).not.toBeInTheDocument()
   })
 
   it('renders PRD vote details with voter progress, rankings, and presentation order', () => {

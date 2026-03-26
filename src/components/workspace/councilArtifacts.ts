@@ -293,7 +293,11 @@ function getFullAnswersDetail(draft: DraftLike | undefined): string {
   if (draft.outcome === 'failed') return draft.error || 'runtime failure'
   if (draft.outcome === 'invalid_output') return draft.error || 'malformed response'
   if (!draft.content) return ''
-  const count = countQuestionsInContent(draft.content)
+  const count = typeof draft.questionCount === 'number'
+    ? draft.questionCount
+    : typeof draft.draftMetrics?.questionCount === 'number'
+      ? draft.draftMetrics.questionCount
+      : countQuestionsInContent(draft.content)
   return count > 0 ? `${count} answers` : ''
 }
 
@@ -431,11 +435,22 @@ function parseWinnerIdFromArtifacts(domain: Domain, phase: string, artifacts: Ar
   const refinedWinner = parseCouncilResult(refinedArtifact?.content)?.winnerId
   if (refinedWinner) return refinedWinner
 
-  const winnerArtifactType = domain === 'interview' ? 'interview_winner' : `${domain}_votes`
+  const winnerArtifactType = domain === 'interview' ? 'interview_winner' : `${domain}_winner`
   const winnerArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === winnerArtifactType)
-  if (!winnerArtifact?.content) return undefined
+  if (winnerArtifact?.content) {
+    try {
+      const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+      if (parsed.winnerId) return parsed.winnerId
+    } catch {
+      // fall through to votes lookup
+    }
+  }
+
+  const votesArtifactType = `${domain}_votes`
+  const votesArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === votesArtifactType)
+  if (!votesArtifact?.content) return undefined
   try {
-    const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+    const parsed = JSON.parse(votesArtifact.content) as { winnerId?: string }
     return parsed.winnerId
   } catch {
     return undefined

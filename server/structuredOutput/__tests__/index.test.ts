@@ -15,6 +15,7 @@ import {
   normalizeVoteScorecardOutput,
   updateInterviewDocumentAnswers,
 } from '../index'
+import { normalizeResolvedInterviewDocumentOutput } from '../interviewDocument'
 
 describe('structured output normalization', () => {
   it('repairs interview phase ordering without changing within-phase order', () => {
@@ -1016,6 +1017,101 @@ describe('structured output normalization', () => {
     expect(result.value.epics).toHaveLength(1)
   })
 
+  it('repairs dedented PRD nested wrapper mappings without relaxing schema checks', () => {
+    const interviewContent = [
+      'schema_version: 1',
+      'ticket_id: "PROJ-42"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5"',
+      '  generated_at: "2026-03-20T10:00:00.000Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What problem are we solving?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: "Ship a deterministic planning pipeline."',
+      '      answered_by: "user"',
+      '      answered_at: "2026-03-20T10:05:00.000Z"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-20T10:10:00.000Z"',
+    ].join('\n')
+
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      'ticket_id: "PROJ-42"',
+      'artifact: "prd"',
+      'status: "draft"',
+      'source_interview:',
+      'content_sha256: "stale-hash"',
+      'product:',
+      'problem_statement: "Ship a deterministic planning pipeline."',
+      'target_users:',
+      '  - "Maintainers"',
+      'scope:',
+      'in_scope:',
+      '  - "Prompt hardening"',
+      'out_of_scope:',
+      '  - "Execution changes"',
+      'technical_requirements:',
+      'architecture_constraints:',
+      '  - "Shared validator layer"',
+      'data_model: []',
+      'api_contracts: []',
+      'security_constraints: []',
+      'performance_constraints: []',
+      'reliability_constraints: []',
+      'error_handling_rules: []',
+      'tooling_assumptions: []',
+      'epics:',
+      '  - id: EPIC-1',
+      '    title: Harden structured output',
+      '    objective: Prevent format-only model mistakes from blocking tickets.',
+      '    implementation_steps:',
+      '      - Add validators',
+      '    user_stories:',
+      '      - id: US-1',
+      '        title: Validate interview and PRD artifacts',
+      '        acceptance_criteria:',
+      '          - Structured artifacts are normalized before save',
+      '        implementation_steps:',
+      '          - Reuse shared repair helpers',
+      '        verification:',
+      '        required_commands:',
+      '        - npm run test:server',
+      'risks:',
+      '  - "Permissive repairs could hide semantic issues"',
+      'approval:',
+      'approved_by: ""',
+      'approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-42',
+      interviewContent,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.product.problem_statement).toBe('Ship a deterministic planning pipeline.')
+    expect(result.value.scope.in_scope).toEqual(['Prompt hardening'])
+    expect(result.value.epics[0]?.user_stories[0]?.verification.required_commands).toEqual(['npm run test:server'])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized source_interview.content_sha256')
+  })
+
   it('rejects non-object PRD payloads', () => {
     const result = normalizePrdYamlOutput('"prd"', {
       ticketId: 'K8S-17',
@@ -1689,6 +1785,34 @@ describe('structured output normalization', () => {
     })
   })
 
+  it('repairs dedented completion checks under BEAD_STATUS markers', () => {
+    const result = normalizeBeadCompletionMarkerOutput([
+      '<BEAD_STATUS>',
+      'bead_id: bead-2',
+      'status: completed',
+      'checks:',
+      'tests: pass',
+      'lint: pass',
+      'typecheck: pass',
+      'qualitative: pass',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toEqual({
+      beadId: 'bead-2',
+      status: 'completed',
+      checks: {
+        tests: 'pass',
+        lint: 'pass',
+        typecheck: 'pass',
+        qualitative: 'pass',
+      },
+    })
+    expect(result.repairApplied).toBe(true)
+  })
+
   it('normalizes FINAL_TEST_COMMANDS markers and single-string commands', () => {
     const result = normalizeFinalTestCommandsOutput([
       '[assistant] <FINAL_TEST_COMMANDS>',
@@ -1777,6 +1901,40 @@ describe('structured output normalization', () => {
       '',
       '## Instructions',
       '1. Read the relevant files.',
+    ].join('\n'))
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('echoed the prompt')
+  })
+
+  it('rejects final-test prompt echoes with a clear validation error', () => {
+    const result = normalizeFinalTestCommandsOutput([
+      'CRITICAL OUTPUT RULE:',
+      'Return strict machine-readable output.',
+      '',
+      'CONTEXT REFRESH:',
+      'Use the latest ticket context.',
+      '',
+      '## System Role',
+      'You are a senior test engineer.',
+    ].join('\n'))
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('echoed the prompt')
+  })
+
+  it('rejects coverage prompt echoes with a clear validation error', () => {
+    const result = normalizeCoverageResultOutput([
+      'CRITICAL OUTPUT RULE:',
+      'Return strict machine-readable output.',
+      '',
+      'CONTEXT REFRESH:',
+      'Use the latest ticket context.',
+      '',
+      '## Instructions',
+      '1. Return a coverage result.',
     ].join('\n'))
 
     expect(result.ok).toBe(false)
@@ -2395,6 +2553,124 @@ describe('structured output normalization', () => {
     ])
     expect(result.value.summary.final_free_form_answer).toBe('Keep retries reviewable.')
     expect(result.repairApplied).toBe(true)
+  })
+
+  it('repairs GLM-style dedented interview wrappers and still canonicalizes the resolved interview', () => {
+    const canonicalInterview = [
+      'schema_version: 1',
+      'ticket_id: "PROJ-42"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5.4"',
+      '  generated_at: "2026-03-25T18:18:55.102Z"',
+      '  canonicalization: "server_normalized"',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: "What primary problem should the new phase solve?"',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q02',
+      '    phase: Foundation',
+      '    prompt: "Who should consume the strategy?"',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: multiple_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: Workflow engine',
+      '      - id: opt2',
+      '        label: Beads generation',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids:',
+      '        - opt1',
+      '      free_text: ""',
+      '      answered_by: user',
+      '      answered_at: "2026-03-25T18:19:00.000Z"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-25T18:19:30.000Z"',
+    ].join('\n')
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      'schema_version: 1',
+      'ticket_id: PROJ-42',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      'winner_model: openai/gpt-5.4',
+      'generated_at: "2026-03-25T18:18:55.102Z"',
+      'canonicalization: server_normalized',
+      'questions:',
+      '- id: Q01',
+      '  phase: Foundation',
+      '  prompt: "What primary problem should the new phase solve?"',
+      '  source: compiled',
+      '  follow_up_round: null',
+      '  answer_type: free_text',
+      '  options: []',
+      '  answer:',
+      '  skipped: false',
+      '  selected_option_ids: []',
+      '  free_text: >-',
+      '    Introduce a deterministic, risk-first planning checkpoint.',
+      '  answered_by: ai_skip',
+      '  answered_at: "2026-03-25T18:20:00.000Z"',
+      '- id: Q02',
+      '  phase: Foundation',
+      '  prompt: "Who should consume the strategy?"',
+      '  source: compiled',
+      '  follow_up_round: null',
+      '  answer_type: multiple_choice',
+      '  options:',
+      '    - id: opt1',
+      '      label: Workflow engine',
+      '    - id: opt2',
+      '      label: Beads generation',
+      '  answer:',
+      '  skipped: false',
+      '  selected_option_ids:',
+      '  - opt1',
+      '  free_text: ""',
+      '  answered_by: user',
+      '  answered_at: "2026-03-25T18:19:00.000Z"',
+      'follow_up_rounds: []',
+      'summary:',
+      'goals: []',
+      'constraints: []',
+      'non_goals: []',
+      'final_free_form_answer: ""',
+      'approval:',
+      'approved_by: ""',
+      'approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'PROJ-42',
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/z-ai/glm5',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.generated_by.winner_model).toBe('nvidia/z-ai/glm5')
+    expect(result.value.questions[0]?.answer.free_text).toContain('risk-first planning checkpoint')
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized generated_by.winner_model')
   })
 
   it('updates interview answers as draft edits and stamps approval separately', () => {

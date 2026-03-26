@@ -127,6 +127,148 @@ export function repairYamlIndentation(yaml: string): string {
   return result.join('\n')
 }
 
+function normalizeYamlRepairKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function getLineIndent(line: string): number {
+  return line.match(/^(\s*)/)?.[1]?.length ?? 0
+}
+
+function replaceLineIndent(line: string, indent: number): string {
+  return `${' '.repeat(indent)}${line.trimStart()}`
+}
+
+/**
+ * Repair known nested mapping children that were emitted at the parent indent.
+ *
+ * Models sometimes emit a bare parent key such as `generated_by:` and then
+ * place known child keys like `winner_model:` or `generated_at:` at the same
+ * indentation level. This helper only repairs explicitly whitelisted parent /
+ * child relationships and stops before the first unknown sibling mapping.
+ */
+export function repairYamlNestedMappingChildren(
+  yaml: string,
+  nestedMappingChildren: Record<string, readonly string[]>,
+): string {
+  const normalizedConfig = new Map<string, Set<string>>()
+  for (const [parentKey, childKeys] of Object.entries(nestedMappingChildren)) {
+    const normalizedParent = normalizeYamlRepairKey(parentKey)
+    if (!normalizedParent) continue
+    const normalizedChildren = new Set(
+      childKeys
+        .map((childKey) => normalizeYamlRepairKey(childKey))
+        .filter(Boolean),
+    )
+    if (normalizedChildren.size > 0) {
+      normalizedConfig.set(normalizedParent, normalizedChildren)
+    }
+  }
+
+  if (normalizedConfig.size === 0) {
+    return yaml
+  }
+
+  const lines = yaml.split('\n')
+  const result: string[] = []
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
+    const trimmed = line.trim()
+
+    const parentMatch = trimmed.match(/^([A-Za-z_][\w-]*)\s*:\s*$/)
+    const allowedChildren = parentMatch
+      ? normalizedConfig.get(normalizeYamlRepairKey(parentMatch[1]!))
+      : undefined
+
+    if (!allowedChildren) {
+      result.push(line)
+      continue
+    }
+
+    const parentIndent = getLineIndent(line)
+    result.push(line)
+
+    let cursor = index + 1
+    while (cursor < lines.length) {
+      const currentLine = lines[cursor]!
+      const currentTrimmed = currentLine.trim()
+
+      if (!currentTrimmed || currentTrimmed.startsWith('#')) {
+        result.push(currentLine)
+        cursor += 1
+        continue
+      }
+
+      const currentIndent = getLineIndent(currentLine)
+      if (currentIndent > parentIndent) {
+        result.push(currentLine)
+        cursor += 1
+        continue
+      }
+
+      const currentMatch = currentTrimmed.match(/^([A-Za-z_][\w-]*)\s*:(.*)$/)
+      if (!currentMatch) {
+        break
+      }
+
+      if (!allowedChildren.has(normalizeYamlRepairKey(currentMatch[1]!))) {
+        break
+      }
+
+      const childSourceIndent = currentIndent
+      const childTargetIndent = parentIndent + 2
+      const childOpensNested = currentMatch[2]!.trim().length === 0
+        || /^[>|][+-]?(?:\s+#.*)?$/.test(currentMatch[2]!.trim())
+      const childDelta = childTargetIndent - childSourceIndent
+
+      const repairedChildLine = replaceLineIndent(currentLine, childTargetIndent)
+      result.push(repairedChildLine)
+      cursor += 1
+
+      while (cursor < lines.length) {
+        const nestedLine = lines[cursor]!
+        const nestedTrimmed = nestedLine.trim()
+
+        if (!nestedTrimmed || nestedTrimmed.startsWith('#')) {
+          result.push(nestedLine)
+          cursor += 1
+          continue
+        }
+
+        if (nestedTrimmed === '---' || nestedTrimmed === '...') {
+          break
+        }
+
+        const nestedIndent = getLineIndent(nestedLine)
+        const nestedMatch = nestedTrimmed.match(/^([A-Za-z_][\w-]*)\s*:(.*)$/)
+        if (nestedMatch && nestedIndent <= childTargetIndent) {
+          if (allowedChildren.has(normalizeYamlRepairKey(nestedMatch[1]!))) {
+            break
+          }
+          if (nestedIndent <= parentIndent) {
+            break
+          }
+        }
+
+        if (!childOpensNested) {
+          break
+        }
+
+        const repairedIndent = nestedIndent > childSourceIndent
+          ? nestedIndent + childDelta
+          : childTargetIndent + 2
+        result.push(replaceLineIndent(nestedLine, repairedIndent))
+        cursor += 1
+      }
+    }
+
+    index = cursor - 1
+  }
+
+  return result.join('\n')
+}
+
 /**
  * Repair inconsistent sequence entry indentation.
  *

@@ -366,10 +366,11 @@ export const PROM12: PromptTemplate = {
   systemRole: "You are the Lead Architect and the winner of the AI Council's PRD drafting phase.",
   task: 'Create the final, definitive version of your PRD by reviewing the alternative (losing) drafts. Extract any superior ideas, missing edge cases, or better technical constraints they contain, and integrate them seamlessly into your winning foundation.',
   instructions: [
-    'Your winning draft earned its position — its structure and architecture decisions are sound. Now approach the alternatives with genuine curiosity: they may have caught things you missed.',
-    'Full Answers Context: You are also given every model-specific Full Answers artifact produced during PRD drafting. Use them as optional inspiration for how unresolved skips were completed, but do not merge them blindly and do not treat them as equal-weight truth.',
+    'Anchor on the winning draft. It won because its structure, architecture decisions, and core requirements are the best starting point. Preserve its strengths, but do not treat its exact wording or every individual epic as untouchable.',
+    'Full Answers Context: Each council member produced their own Full Answers artifact during PRD drafting — filling in skipped interview questions with their own model-specific answers. As a result, each PRD draft was built from a different set of underlying answers and assumptions. When reviewing alternative drafts, consider not just the PRD requirements themselves but also the Full Answers that informed them. Some models may have produced better answers for certain skipped questions, leading to requirements you should adopt.',
     'Gap Scan: Read through the alternative drafts and note anything they cover that your draft does not: requirements you missed, edge cases or error states you omitted, risks you underweighted, or constraints that are unambiguously more precise than yours. These are candidates — not automatic additions.',
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a rephrasing of something you already cover well? If it fills a real gap, add it. If it is a strictly better formulation of something you already have, replace yours with it. Otherwise, discard it.',
+    'Measured Refinement: Do not rewrite from scratch or blend drafts together just for balance. But it is acceptable to improve multiple sections, adjust local structure, or rework content across the draft if that produces a clearly stronger final result.',
     'Restraint: Avoid adding content that merely restates what you already cover. But if genuine gaps exist — missing requirements, unaddressed risks, overlooked error states — add them; completeness matters more than brevity.',
     'Formatting: Output the final refined PRD followed by the `changes` list. Output only the final artifact plus the changes.',
     'Schema Preservation: keep the same PRD schema, required top-level sections, and nested field structure. Do not wrap the PRD in another object. The `changes` key is the only addition to the top-level keys.',
@@ -378,10 +379,11 @@ export const PROM12: PromptTemplate = {
     'Change Semantics: Use `type: modified` when an existing epic or user story was improved. Use `type: added` when a new epic or user story was created. Use `type: removed` when an epic or user story was dropped.',
     'Change Records: `before` and `after` must each be either `null` or an object with `id` and `title`. For `modified`, both are required. For `added`, use `before: null`. For `removed`, use `after: null`. `item_type` is `epic` or `user_story`. If there are no differences, output `changes: []`.',
     'Inspiration Tracking: For each `modified` or `added` change, include `inspiration: {alternative_draft, item}` where `alternative_draft` is the 1-based index of the Alternative Draft and `item` is `{id, title}` from that draft. Use `inspiration: null` for purely editorial changes and `removed` changes.',
+    'Diff Coverage: The `changes` list must fully account for the exact record-level diff between the winning draft and the final output. Compare by `{id, title}` records for epics and user stories. Unchanged records must not appear in `changes`. Every winning-draft record missing from the final list must appear exactly once in `before`, and every final record not present in the winning draft must appear exactly once in `after`.',
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PRD_OUTPUT_FORMAT + ' Additionally, include a top-level `changes` list: `{type, item_type, before, after, inspiration}` where `type` is `modified`/`added`/`removed`; `item_type` is `epic` or `user_story`; `before`/`after` are null or `{id, title}`; `inspiration` is null or `{alternative_draft, item}` where `alternative_draft` is a 1-based integer and `item` is `{id, title}`.',
-  contextInputs: ['relevant_files', 'ticket_details', 'full_answers', 'drafts', 'votes'],
+  contextInputs: ['relevant_files', 'ticket_details', 'full_answers', 'drafts'],
 }
 
 export const PROM13: PromptTemplate = {

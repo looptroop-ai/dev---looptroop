@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe('repairYamlListDashSpace', () => {
   it('passes through correctly formatted list items unchanged', () => {
@@ -205,6 +205,130 @@ describe('repairYamlIndentation', () => {
     expect(repairYamlIndentation(input)).toBe(expected)
   })
 
+})
+
+describe('repairYamlNestedMappingChildren', () => {
+  it('passes through valid nested mappings unchanged', () => {
+    const yaml = [
+      'generated_by:',
+      '  winner_model: openai/gpt-5.4',
+      '  generated_at: "2026-03-25T18:20:00Z"',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n')
+
+    expect(repairYamlNestedMappingChildren(yaml, {
+      generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+    })).toBe(yaml)
+  })
+
+  it('repairs dedented known child keys under a bare wrapper key', () => {
+    const input = [
+      'generated_by:',
+      'winner_model: openai/gpt-5.4',
+      'generated_at: "2026-03-25T18:20:00Z"',
+      'canonicalization: server_normalized',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n')
+
+    const expected = [
+      'generated_by:',
+      '  winner_model: openai/gpt-5.4',
+      '  generated_at: "2026-03-25T18:20:00Z"',
+      '  canonicalization: server_normalized',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n')
+
+    expect(repairYamlNestedMappingChildren(input, {
+      generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+    })).toBe(expected)
+  })
+
+  it('stops before an unknown sibling mapping key', () => {
+    const input = [
+      'generated_by:',
+      'winner_model: openai/gpt-5.4',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n')
+
+    const expected = [
+      'generated_by:',
+      '  winner_model: openai/gpt-5.4',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n')
+
+    expect(repairYamlNestedMappingChildren(input, {
+      generated_by: ['winner_model', 'generated_at'],
+    })).toBe(expected)
+  })
+
+  it('preserves block scalars and list continuations under repaired child keys', () => {
+    const input = [
+      'answer:',
+      'skipped: false',
+      'selected_option_ids:',
+      '- opt1',
+      '- opt2',
+      'free_text: >-',
+      '  Risk-first planning matters.',
+      'answered_by: ai_skip',
+      'answered_at: "2026-03-25T18:20:00Z"',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n')
+
+    const repaired = repairYamlNestedMappingChildren(input, {
+      answer: ['skipped', 'selected_option_ids', 'free_text', 'answered_by', 'answered_at'],
+    })
+
+    expect(repaired).toBe([
+      'answer:',
+      '  skipped: false',
+      '  selected_option_ids:',
+      '    - opt1',
+      '    - opt2',
+      '  free_text: >-',
+      '    Risk-first planning matters.',
+      '  answered_by: ai_skip',
+      '  answered_at: "2026-03-25T18:20:00Z"',
+      'questions:',
+      '  - id: Q01',
+    ].join('\n'))
+
+    const parsed = jsYaml.load(repaired) as {
+      answer: {
+        skipped: boolean
+        selected_option_ids: string[]
+        free_text: string
+        answered_by: string
+        answered_at: string
+      }
+    }
+    expect(parsed.answer.selected_option_ids).toEqual(['opt1', 'opt2'])
+    expect(parsed.answer.free_text).toBe('Risk-first planning matters.')
+  })
+
+  it('does not guess unknown child keys into nested mappings', () => {
+    const input = [
+      'generated_by:',
+      'winner_model: openai/gpt-5.4',
+      'extra_field: not whitelisted',
+    ].join('\n')
+
+    const repaired = repairYamlNestedMappingChildren(input, {
+      generated_by: ['winner_model', 'generated_at'],
+    })
+
+    expect(repaired).toBe([
+      'generated_by:',
+      '  winner_model: openai/gpt-5.4',
+      'extra_field: not whitelisted',
+    ].join('\n'))
+  })
 })
 
 describe('stripCodeFences', () => {

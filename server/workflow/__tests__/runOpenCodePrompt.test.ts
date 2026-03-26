@@ -365,6 +365,79 @@ describe('runOpenCodePrompt', () => {
     expect(result.response).toBe('<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>')
   })
 
+  it('waits for the terminal snapshot when the immediate SDK response echoes the prompt', async () => {
+    let latestAssistantText = [
+      'CRITICAL OUTPUT RULE:',
+      'Return strict machine-readable output.',
+      '',
+      'CONTEXT REFRESH:',
+      'Use the latest ticket context.',
+    ].join('\n')
+
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: async () => ({
+          data: {
+            info: { id: 'msg-echo' },
+            parts: [
+              { type: 'text', text: latestAssistantText },
+            ],
+          },
+        }),
+        messages: async () => ({
+          data: [
+            {
+              info: { id: 'msg-final', role: 'assistant', time: { created: Date.now() } },
+              parts: [
+                {
+                  id: 'part-final',
+                  type: 'text',
+                  text: latestAssistantText,
+                  sessionID: 'ses-1',
+                  messageID: 'msg-final',
+                  time: { end: Date.now() },
+                },
+              ],
+            },
+          ],
+        }),
+        abort: async () => ({ data: {} }),
+      },
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            latestAssistantText = [
+              '<RELEVANT_FILES_RESULT>',
+              'file_count: 1',
+              'files:',
+              '  - path: src/app.ts',
+              '    rationale: Entry point.',
+              '    relevance: high',
+              '    likely_action: modify',
+              '</RELEVANT_FILES_RESULT>',
+            ].join('\n')
+            yield {
+              type: 'session.idle',
+              properties: { info: { id: 'ses-1' } },
+            }
+          })(),
+        }),
+      },
+    }
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.response).toContain('<RELEVANT_FILES_RESULT>')
+    expect(result.response).not.toContain('CRITICAL OUTPUT RULE:')
+  })
+
   it('keeps timeout behavior when done would arrive after the timeout window', async () => {
     const fakeClient = {
       session: {

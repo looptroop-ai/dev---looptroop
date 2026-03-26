@@ -72,6 +72,39 @@ export function buildPrdContextBuilder(ticketState: TicketState) {
   }
 }
 
+/** Build labeled prompt parts for PROM12 refinement. Labels Full Answers and drafts per-model. */
+export function buildPrdRefinePrompt(
+  ticketState: TicketState,
+  winnerDraft: DraftResult,
+  losingDrafts: DraftResult[],
+  allFullAnswers: DraftResult[],
+): PromptPart[] {
+  const labeledFullAnswers = allFullAnswers
+    .filter(fa => fa.outcome === 'completed' && fa.content)
+    .map(fa => {
+      const isWinner = fa.memberId === winnerDraft.memberId
+      return [
+        `## Full Answers — ${fa.memberId}${isWinner ? ' (Winner)' : ' (Alternative)'}`,
+        fa.content,
+      ].join('\n')
+    })
+
+  const labeledDrafts = [
+    ['## Winning Draft', winnerDraft.content].join('\n'),
+    ...losingDrafts.map((draft, index) => [
+      `## Alternative Draft ${index + 1} (model: ${draft.memberId})`,
+      draft.content,
+    ].join('\n')),
+  ]
+
+  const refineContext = buildMinimalContext('prd_refine', {
+    ...ticketState,
+    fullAnswers: labeledFullAnswers,
+    drafts: labeledDrafts,
+  })
+  return [{ type: 'text', content: buildPromptFromTemplate(PROM12, refineContext) }]
+}
+
 function buildPromptParts(template: typeof PROM09D | typeof PROM10, contextParts: PromptPart[]): PromptPart[] {
   return [{ type: 'text', content: buildPromptFromTemplate(template, contextParts) }]
 }

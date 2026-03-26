@@ -20,6 +20,7 @@ import { resolve } from 'path'
 import { logIfVerbose, warnIfVerbose } from '../runtime'
 import { getOpenCodeBaseUrl } from './runtimeConfig'
 import type { Bead } from '../phases/beads/types'
+import { looksLikePromptEcho } from '../lib/promptEcho'
 import {
   ADAPTER_RETRY_DELAY_MS,
   SDK_OPERATION_TIMEOUT_MS,
@@ -253,6 +254,15 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         streamFirstResponse,
         ...(signalAbort ? [signalAbort] : []),
       ])
+      if (responseText && looksLikePromptEcho(responseText) && !streamDoneObserved) {
+        const terminalResponse = await Promise.race([
+          streamDoneResponse.then((snapshot) => snapshot?.trim() ?? ''),
+          ...(signalAbort ? [signalAbort] : []),
+        ])
+        if (terminalResponse) {
+          responseText = terminalResponse
+        }
+      }
       if (!responseText) {
         responseText = buildStreamedTextResponse()
       }

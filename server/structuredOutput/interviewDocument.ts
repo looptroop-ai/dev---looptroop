@@ -29,6 +29,13 @@ import {
   unwrapExplicitWrapperRecord,
 } from './yamlUtils'
 
+const INTERVIEW_DOCUMENT_NESTED_MAPPING_CHILDREN = {
+  generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+  answer: ['skipped', 'selected_option_ids', 'free_text', 'answered_by', 'answered_at'],
+  summary: ['goals', 'constraints', 'non_goals', 'final_free_form_answer'],
+  approval: ['approved_by', 'approved_at'],
+} as const
+
 function normalizePhaseLabel(value: string): string {
   const trimmed = value.trim()
   const normalized = normalizeKey(trimmed)
@@ -389,7 +396,9 @@ export function normalizeInterviewDocumentOutput(
   for (const candidate of candidates) {
     try {
       const warnings: string[] = []
-      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate), [
+      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: INTERVIEW_DOCUMENT_NESTED_MAPPING_CHILDREN,
+      }), [
         'interview',
         'output',
         'result',

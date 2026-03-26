@@ -1,6 +1,7 @@
 import { parseInterviewQuestions, type ParsedInterviewQuestion } from '../phases/interview/questions'
 import type { InterviewQuestionChangeType } from '@shared/interviewQuestions'
 import { MAX_SINGLE_CHOICE_OPTIONS, MAX_MULTIPLE_CHOICE_OPTIONS } from '../lib/constants'
+import { looksLikePromptEcho } from '../lib/promptEcho'
 import type {
   InterviewBatchPayload,
   InterviewBatchPayloadQuestion,
@@ -34,6 +35,13 @@ const PHASE_ORDER = new Map([
   ['structure', 1],
   ['assembly', 2],
 ])
+
+const INTERVIEW_TURN_NESTED_MAPPING_CHILDREN = {
+  generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+  summary: ['goals', 'constraints', 'non_goals', 'final_free_form_answer'],
+  approval: ['approved_by', 'approved_at'],
+  progress: ['current', 'total'],
+} as const
 
 interface NormalizedInterviewQuestion {
   id: string
@@ -959,7 +967,9 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
   const completeCandidates = collectTaggedCandidates(rawContent, 'INTERVIEW_COMPLETE')
   for (const candidate of completeCandidates) {
     try {
-      const normalizedContent = normalizeInterviewCompletePayload(parseYamlOrJsonCandidate(candidate), true)
+      const normalizedContent = normalizeInterviewCompletePayload(parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+      }), true)
       return {
         ok: true,
         value: {
@@ -978,7 +988,9 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
   const batchCandidates = collectTaggedCandidates(rawContent, 'INTERVIEW_BATCH')
   for (const candidate of batchCandidates) {
     try {
-      const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate))
+      const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+      }))
       const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
       return {
         ok: true,
@@ -1007,7 +1019,9 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
 
   for (const candidate of fallbackCandidates) {
     try {
-      const parsed = parseYamlOrJsonCandidate(candidate)
+      const parsed = parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+      })
       const normalizedContent = normalizeInterviewCompletePayload(parsed, false)
       return {
         ok: true,
@@ -1024,7 +1038,9 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
     }
 
     try {
-      const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate))
+      const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+      }))
       const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
       return {
         ok: true,
@@ -1049,7 +1065,9 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Interview output echoed the prompt instead of returning an <INTERVIEW_BATCH> or <INTERVIEW_COMPLETE> artifact'
+      : lastError,
     repairApplied: false,
     repairWarnings: [],
   }
@@ -1102,7 +1120,9 @@ export function normalizeInterviewQuestionsOutput(
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Interview question output echoed the prompt instead of returning structured questions'
+      : lastError,
     repairApplied,
     repairWarnings,
   }
@@ -1263,7 +1283,15 @@ export function normalizeInterviewRefinementOutput(
             type: change.type,
             before: change.before,
             after: change.after,
-            ...(change.inspiration ? { inspiration: change.inspiration } : { inspiration: null }),
+            ...(change.inspiration
+              ? {
+                  inspiration: {
+                    alternative_draft: change.inspiration.draftIndex + 1,
+                    memberId: change.inspiration.memberId,
+                    question: change.inspiration.question,
+                  },
+                }
+              : { inspiration: null }),
           })),
         }),
         repairApplied: repairApplied || candidate !== rawContent.trim(),
@@ -1276,7 +1304,9 @@ export function normalizeInterviewRefinementOutput(
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Interview refinement output echoed the prompt instead of returning structured refinement YAML'
+      : lastError,
     repairApplied,
     repairWarnings,
   }
@@ -1457,7 +1487,9 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Coverage output echoed the prompt instead of returning structured coverage YAML'
+      : lastError,
     repairApplied: false,
     repairWarnings: [],
   }

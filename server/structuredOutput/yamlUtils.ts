@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -118,13 +118,30 @@ export function stripSpuriousXmlTags(content: string): string {
     .join('\n')
 }
 
-export function parseYamlOrJsonCandidate(content: string): unknown {
+interface ParseYamlOrJsonCandidateOptions {
+  nestedMappingChildren?: Record<string, readonly string[]>
+}
+
+export function parseYamlOrJsonCandidate(
+  content: string,
+  options?: ParseYamlOrJsonCandidateOptions,
+): unknown {
+  const applyNestedMappingRepair = (value: string): string => options?.nestedMappingChildren
+    ? repairYamlNestedMappingChildren(value, options.nestedMappingChildren)
+    : value
   const trimmed = content.trim()
   if (!trimmed) return null
 
   try {
     return JSON.parse(trimmed)
   } catch {
+    const repairedTrimmed = applyNestedMappingRepair(trimmed)
+    if (repairedTrimmed !== trimmed) {
+      try {
+        return jsYaml.load(repairedTrimmed)
+      } catch { /* fall through to the original input and later repairs */ }
+    }
+
     try {
       return jsYaml.load(trimmed)
     } catch {
@@ -133,9 +150,15 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
       const effectiveBase = defenced !== trimmed ? defenced.trim() : trimmed
 
       if (effectiveBase !== trimmed) {
+        const repairedDefenced = applyNestedMappingRepair(effectiveBase)
         try {
           return JSON.parse(effectiveBase)
         } catch {
+          if (repairedDefenced !== effectiveBase) {
+            try {
+              return jsYaml.load(repairedDefenced)
+            } catch { /* fall through to the original defenced input */ }
+          }
           try {
             return jsYaml.load(effectiveBase)
           } catch { /* fall through to further repairs */ }
@@ -145,6 +168,12 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
       // Earliest repair: split inline keys onto separate lines (prerequisite for all other repairs)
       const inlineRepaired = repairYamlInlineKeys(effectiveBase)
       if (inlineRepaired !== effectiveBase) {
+        const nestedInlineRepaired = applyNestedMappingRepair(inlineRepaired)
+        if (nestedInlineRepaired !== inlineRepaired) {
+          try {
+            return jsYaml.load(nestedInlineRepaired)
+          } catch { /* fall through — later repairs may still be needed */ }
+        }
         try {
           return jsYaml.load(inlineRepaired)
         } catch { /* fall through — lines split but further repairs may be needed */ }
@@ -155,7 +184,8 @@ export function parseYamlOrJsonCandidate(content: string): unknown {
       const xmlStripped = stripSpuriousXmlTags(afterInline)
       const freeTextQuoted = repairYamlFreeTextScalars(xmlStripped)
       const dashFixed = repairYamlListDashSpace(freeTextQuoted)
-      const base = repairYamlDuplicateKeys(dashFixed)
+      const deduped = repairYamlDuplicateKeys(dashFixed)
+      const base = applyNestedMappingRepair(deduped)
 
       // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)
       if (base !== afterInline) {

@@ -11,10 +11,15 @@ import type {
   InterviewSessionSnapshot,
 } from '@shared/interviewSession'
 import type { InterviewDocument, InterviewDocumentQuestion } from '@shared/interviewArtifact'
-import jsYaml from 'js-yaml'
-import { repairYamlIndentation } from '@shared/yamlRepair'
 import { calculateFollowUpLimit } from './followUpBudget'
 import { buildInterviewDocumentYaml } from '../../structuredOutput'
+import { isRecord, parseYamlOrJsonCandidate } from '../../structuredOutput/yamlUtils'
+
+const INTERVIEW_SESSION_NESTED_MAPPING_CHILDREN = {
+  generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+  summary: ['goals', 'constraints', 'non_goals', 'final_free_form_answer'],
+  approval: ['approved_by', 'approved_at'],
+} as const
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -139,8 +144,10 @@ function extractRawFinalInterviewSummary(rawFinalYaml: string | null | undefined
   if (!rawFinalYaml?.trim()) return null
 
   try {
-    const parsed = jsYaml.load(repairYamlIndentation(rawFinalYaml)) as Record<string, unknown> | null
-    if (!parsed || typeof parsed !== 'object') return null
+    const parsed = parseYamlOrJsonCandidate(rawFinalYaml, {
+      nestedMappingChildren: INTERVIEW_SESSION_NESTED_MAPPING_CHILDREN,
+    })
+    if (!isRecord(parsed)) return null
 
     const summary = parsed.summary
     if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null
@@ -232,8 +239,8 @@ function normalizeCoverageQuestion(question: BatchQuestion, roundNumber: number)
 
 function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
   try {
-    const parsed = jsYaml.load(repairYamlIndentation(response)) as Record<string, unknown> | null
-    if (!parsed || typeof parsed !== 'object') return []
+    const parsed = parseYamlOrJsonCandidate(response)
+    if (!isRecord(parsed)) return []
 
     const rawFollowUps = Array.isArray(parsed.follow_up_questions)
       ? parsed.follow_up_questions

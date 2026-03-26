@@ -1,4 +1,5 @@
 import type { BeadChecks } from '../phases/execution/completionSchema'
+import { looksLikePromptEcho } from '../lib/promptEcho'
 import type { BeadCompletionPayload, FinalTestCommandPayload, StructuredOutputResult } from './types'
 import {
   isRecord,
@@ -12,6 +13,10 @@ import {
   getValueByAliases,
   getRequiredString,
 } from './yamlUtils'
+
+const COMPLETION_NESTED_MAPPING_CHILDREN = {
+  checks: ['tests', 'lint', 'typecheck', 'qualitative'],
+} as const
 
 function normalizeCompletionStatus(value: unknown): 'completed' | 'failed' {
   const raw = getRequiredString({ status: value }, ['status'], 'status')
@@ -75,7 +80,9 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
   if (candidates.length === 0) {
     return {
       ok: false,
-      error: lastError,
+      error: looksLikePromptEcho(rawContent)
+        ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
+        : lastError,
       repairApplied: false,
       repairWarnings,
     }
@@ -83,7 +90,9 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
 
   for (const candidate of candidates) {
     try {
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate, {
+        nestedMappingChildren: COMPLETION_NESTED_MAPPING_CHILDREN,
+      }), [
         'beadstatus',
         'bead_status',
         'statusmarker',
@@ -123,7 +132,9 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
+      : lastError,
     repairApplied: false,
     repairWarnings,
   }
@@ -138,7 +149,9 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
   if (candidates.length === 0) {
     return {
       ok: false,
-      error: lastError,
+      error: looksLikePromptEcho(rawContent)
+        ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
+        : lastError,
       repairApplied: false,
       repairWarnings,
     }
@@ -184,7 +197,9 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
+      : lastError,
     repairApplied: false,
     repairWarnings,
   }

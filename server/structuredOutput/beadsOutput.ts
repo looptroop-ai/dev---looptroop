@@ -1,9 +1,9 @@
 import type { RefinementChange } from '@shared/refinementChanges'
 import type { Bead, BeadSubset } from '../phases/beads/types'
+import { looksLikePromptEcho } from '../lib/promptEcho'
 import type { StructuredOutputResult, RelevantFilesOutputEntry, RelevantFilesOutputPayload } from './types'
 import {
   isRecord,
-  stripTranscriptPrefixes,
   collectStructuredCandidates,
   collectTaggedCandidates,
   maybeUnwrapRecord,
@@ -112,7 +112,9 @@ export function normalizeBeadSubsetYamlOutput(
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Bead subset output echoed the prompt instead of returning structured bead YAML'
+      : lastError,
     repairApplied: false,
     repairWarnings,
   }
@@ -233,32 +235,12 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Beads JSONL output echoed the prompt instead of returning bead records'
+      : lastError,
     repairApplied: false,
     repairWarnings,
   }
-}
-
-const RELEVANT_FILES_PROMPT_ECHO_MARKERS = [
-  'CRITICAL OUTPUT RULE:',
-  'CONTEXT REFRESH:',
-  '## System Role',
-  '## Task',
-  '## Instructions',
-  '## Expected Output Format',
-  '## Context',
-]
-
-function looksLikeRelevantFilesPromptEcho(content: string): boolean {
-  const normalized = stripTranscriptPrefixes(content).trim()
-  if (!normalized) return false
-
-  let markerHits = 0
-  for (const marker of RELEVANT_FILES_PROMPT_ECHO_MARKERS) {
-    if (normalized.includes(marker)) markerHits += 1
-  }
-
-  return markerHits >= 2
 }
 
 /** Truncate YAML content to only complete file entries when the last entry is incomplete (truncated output) */
@@ -299,7 +281,7 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
 
   for (const candidate of uniqueCandidates) {
     try {
-      if (looksLikeRelevantFilesPromptEcho(candidate)) {
+      if (looksLikePromptEcho(candidate)) {
         throw new Error('Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact')
       }
 
@@ -381,7 +363,9 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact'
+      : lastError,
     repairApplied: false,
     repairWarnings: [],
   }

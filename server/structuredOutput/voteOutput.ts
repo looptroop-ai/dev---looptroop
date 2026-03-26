@@ -1,3 +1,4 @@
+import { looksLikePromptEcho } from '../lib/promptEcho'
 import type { VoteScorecard, StructuredOutputResult } from './types'
 import {
   isRecord,
@@ -194,7 +195,9 @@ export function normalizeVoteScorecardOutput(
 
   return {
     ok: false,
-    error: lastError,
+    error: looksLikePromptEcho(rawContent)
+      ? 'Vote scorecard output echoed the prompt instead of returning a structured scorecard'
+      : lastError,
     repairApplied: false,
     repairWarnings,
   }

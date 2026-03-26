@@ -809,6 +809,23 @@ function parseBeadsArtifact(content: string): ParsedBead[] | null {
   return null
 }
 
+function isPrdFullAnswersArtifactId(artifactId?: string): boolean {
+  return artifactId?.startsWith('prd-fullanswers-member-') ?? false
+}
+
+function isPrdDraftArtifactId(artifactId?: string): boolean {
+  return artifactId === 'winner-prd-draft'
+    || (artifactId?.startsWith('prd-draft-member-') ?? false)
+}
+
+function isRefinedPrdArtifactId(artifactId?: string): boolean {
+  return artifactId === 'refined-prd'
+}
+
+function isStructuredPrdArtifactId(artifactId?: string): boolean {
+  return isPrdDraftArtifactId(artifactId) || isRefinedPrdArtifactId(artifactId)
+}
+
 export function PrdDraftView({ content }: { content: string }) {
   const parsed = parsePrdDocument(content)
   if (parsed && Array.isArray(parsed.epics)) {
@@ -926,7 +943,7 @@ export function PrdDraftView({ content }: { content: string }) {
   return (
     <div className="space-y-2">
       {sections.map((s, i) => (
-        <CollapsibleSection key={i} title={s.title}>
+        <CollapsibleSection key={i} title={s.title} defaultOpen={i === 0}>
           <div className="space-y-1">
             {s.items.map((item, j) => <div key={j} className="text-xs">• {item}</div>)}
           </div>
@@ -1534,7 +1551,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
           </div>
         </ModelBadge>
       ) : null
-      const isPrd = artifactId?.includes('prd')
+      const isPrd = isStructuredPrdArtifactId(artifactId)
       const isBeads = artifactId?.includes('beads')
       const structured = isPrd ? <PrdDraftView content={winnerContent} />
         : isBeads ? <BeadsDraftView content={winnerContent} />
@@ -1587,9 +1604,9 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     ) : null
 
     if (draftContent) {
-      const isFullAnswers = artifactId?.includes('fullanswers')
+      const isFullAnswers = isPrdFullAnswersArtifactId(artifactId)
       const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
-      const isPrd = artifactId?.includes('prd') && !isFullAnswers
+      const isPrd = isStructuredPrdArtifactId(artifactId) && !isFullAnswers
       const isBeads = artifactId?.includes('beads')
 
       const structured = isFullAnswers ? <InterviewAnswersView content={draftContent} />
@@ -1610,9 +1627,9 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
     if (draft) {
       if (draft.outcome === 'invalid_output' && draft.content) {
-        const isFullAnswers = artifactId?.includes('fullanswers')
+        const isFullAnswers = isPrdFullAnswersArtifactId(artifactId)
         const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
-        const isPrd = artifactId?.includes('prd') && !isFullAnswers
+        const isPrd = isStructuredPrdArtifactId(artifactId) && !isFullAnswers
         const isBeads = artifactId?.includes('beads')
         const structured = isFullAnswers ? <InterviewAnswersView content={draft.content} />
           : isInterview ? <InterviewDraftView content={draft.content} />
