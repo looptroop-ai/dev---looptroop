@@ -1,40 +1,34 @@
-import type { LogEvent } from './types'
-import { safeAtomicAppend } from '../io/atomicAppend'
+/*
+ * ── Upsert entry tracking ───────────────────────────────────────────────
+ *
+ * Streaming upsert events are NO LONGER flushed to disk. They are delivered
+ * to the UI exclusively via SSE (broadcaster.broadcast in helpers.ts).
+ * Only the final 'finalize' event is persisted to execution-log.jsonl.
+ *
+ * This buffer exists solely so that `removeBuffered(entryId)` can be called
+ * when a finalize event arrives, keeping the tracked set clean. The periodic
+ * flush-to-disk logic was removed because intermediate snapshots caused
+ * quadratic content growth (each snapshot carried the full accumulated text,
+ * producing ~90 progressive copies for a 5-minute streaming session).
+ *
+ * See LOG SIZE BUDGET comment in executionLog.ts for the full rationale.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
 
-interface BufferedEntry {
-  event: LogEvent
-  logPath: string
-}
+const trackedEntries = new Set<string>()
 
-const buffer = new Map<string, BufferedEntry>()
-let intervalHandle: ReturnType<typeof setInterval> | null = null
-const FLUSH_INTERVAL_MS = 3000
-
-function flushAll(): void {
-  for (const [, { event, logPath }] of buffer) {
-    safeAtomicAppend(logPath, JSON.stringify(event))
-  }
-  buffer.clear()
-}
-
-export function bufferUpsert(entryId: string, event: LogEvent, logPath: string): void {
-  buffer.set(entryId, { event, logPath })
+export function bufferUpsert(entryId: string): void {
+  trackedEntries.add(entryId)
 }
 
 export function removeBuffered(entryId: string): void {
-  buffer.delete(entryId)
+  trackedEntries.delete(entryId)
 }
 
 export function startUpsertBuffer(): void {
-  if (intervalHandle) return
-  intervalHandle = setInterval(flushAll, FLUSH_INTERVAL_MS)
-  intervalHandle.unref()
+  // No-op — kept for API compatibility with server/index.ts lifecycle hooks.
 }
 
 export function stopUpsertBuffer(): void {
-  if (intervalHandle) {
-    clearInterval(intervalHandle)
-    intervalHandle = null
-  }
-  flushAll()
+  trackedEntries.clear()
 }

@@ -144,6 +144,18 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       }
     }
 
+    if (artifact.id === 'final-prd-draft' || artifact.id === 'final-beads-draft') {
+      let winnerId: string | undefined
+      try {
+        const parsed = JSON.parse(content) as { winnerId?: string }
+        winnerId = parsed.winnerId
+      } catch { /* not json */ }
+      return {
+        outcome: isCompleted ? 'completed' : 'pending',
+        detail: winnerId ? getModelDisplayName(winnerId) : undefined,
+      }
+    }
+
     if (artifact.id.includes('refined') || artifact.id.includes('answers')) {
       return { outcome: isCompleted ? 'completed' : 'pending' }
     }

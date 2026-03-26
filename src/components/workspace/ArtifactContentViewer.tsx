@@ -15,6 +15,7 @@ import type {
   RelevantFileScanEntry,
   RelevantFilesScanData,
   InspirationDiffSource,
+  RefinementDiffArtifactData,
 } from './phaseArtifactTypes'
 import {
   tryParseStructuredContent,
@@ -575,6 +576,60 @@ function FinalInterviewArtifactView({ content, header, hideAiAnswerBadge }: { co
       ) : currentTab === 'final'
         ? <InterviewDraftView content={refinedContent} />
         : <InterviewDraftDiffView content={content} />}
+    </div>
+  )
+}
+
+function FinalPrdDraftView({ content, header, isBeads }: { content: string; header?: React.ReactNode; isBeads?: boolean }) {
+  const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
+
+  let parsed: RefinementDiffArtifactData | null = null
+  try {
+    parsed = JSON.parse(content) as RefinementDiffArtifactData
+  } catch {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const refinedContent = parsed?.refinedContent ?? ''
+  if (!refinedContent) return <RawContentWithCopy content={content} />
+
+  const diffEntries = buildRefinementDiffEntries(content)
+  const hasDiffTab = diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent)
+  const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
+
+  const tabButtonClass = (tab: string) =>
+    currentTab === tab
+      ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+      : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        {header && <div className="flex-1 min-w-0">{header}</div>}
+        <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${header ? 'ml-auto' : ''}`}>
+          <button onClick={() => setActiveTab('final')} className={tabButtonClass('final')}>
+            Final {isBeads ? 'Blueprint' : 'PRD'}
+          </button>
+          {hasDiffTab && (
+            <button onClick={() => setActiveTab('diff')} className={tabButtonClass('diff')}>
+              Diff{diffEntries.length > 0 ? ` (${diffEntries.length})` : ''}
+            </button>
+          )}
+          <button onClick={() => setActiveTab('raw')} className={tabButtonClass('raw')}>
+            Raw
+          </button>
+          {currentTab === 'raw' && <CopyButton content={content} />}
+        </div>
+      </div>
+      {currentTab === 'raw' ? (
+        <div className="min-w-0 w-full overflow-hidden">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+            {content}
+          </pre>
+        </div>
+      ) : currentTab === 'final'
+        ? (isBeads ? <BeadsDraftView content={refinedContent} /> : <PrdDraftView content={refinedContent} />)
+        : <RefinementDiffView content={content} />}
     </div>
   )
 }
@@ -1418,6 +1473,14 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     const isCanonicalInterviewPhase = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
     const header = <div className="text-xs font-semibold px-1">{isCanonicalInterviewPhase ? 'Interview Results' : 'Final Interview'}</div>
     return <FinalInterviewArtifactView content={content} header={header} hideAiAnswerBadge={isCanonicalInterviewPhase} />
+  }
+  if (artifactId === 'final-prd-draft') {
+    const header = <div className="text-xs font-semibold px-1">Final PRD Draft</div>
+    return <FinalPrdDraftView content={content} header={header} />
+  }
+  if (artifactId === 'final-beads-draft') {
+    const header = <div className="text-xs font-semibold px-1">Final Blueprint Draft</div>
+    return <FinalPrdDraftView content={content} header={header} isBeads />
   }
   if (artifactId === 'interview-answers') {
     const header = <div className="text-xs font-semibold px-1">Interview Answers</div>

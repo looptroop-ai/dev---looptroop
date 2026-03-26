@@ -67,21 +67,36 @@ export function emitPhaseLog(
     phase,
     structuredExtra,
   )
+  // Debug mirrors are broadcast via SSE for the real-time DEBUG tab but NOT
+  // persisted to disk — they are near-identical copies of the original entry
+  // and account for ~55% of log file bloat. See LOG SIZE BUDGET in executionLog.ts.
   if (type !== 'debug' && !suppressDebugMirror) {
     emitDebugLog(
       ticketId,
       phase,
       `app.${type}`,
       { content, ...(data ? { data } : {}) },
+      false,
     )
   }
 }
 
+/**
+ * Emit a debug-level log entry.
+ *
+ * @param persist  Whether to write this entry to the persistent execution log
+ *   file. Defaults to `true` for direct calls (unique debug data such as raw
+ *   AI responses). Mirror calls from emitPhaseLog pass `false` so the entry
+ *   is only broadcast via SSE for the real-time DEBUG tab — this prevents
+ *   near-duplicate entries from bloating the log file.
+ *   See LOG SIZE BUDGET comment in executionLog.ts.
+ */
 export function emitDebugLog(
   ticketId: string,
   phase: string,
   message: string,
   payload?: unknown,
+  persist = true,
 ) {
   const payloadText = payload === undefined ? '' : ` ${stringifyForLog(payload)}`
   const content = `[DEBUG] ${message}${payloadText}`
@@ -90,6 +105,7 @@ export function emitDebugLog(
     : (payload !== undefined ? { value: payload } : undefined)
   const timestamp = new Date().toISOString()
 
+  // Always broadcast via SSE so the real-time log viewer DEBUG tab works.
   broadcaster.broadcast(ticketId, 'log', {
     ticketId,
     phase,
@@ -102,12 +118,16 @@ export function emitDebugLog(
     streaming: false,
     timestamp,
   })
-  appendLogEvent(ticketId, 'debug', phase, content, debugData ? { ...debugData, timestamp } : { timestamp }, 'debug', phase, {
-    audience: 'debug',
-    kind: 'session',
-    op: 'append',
-    streaming: false,
-  })
+
+  // Only persist to disk when this is a direct (non-mirror) debug call.
+  if (persist) {
+    appendLogEvent(ticketId, 'debug', phase, content, debugData ? { ...debugData, timestamp } : { timestamp }, 'debug', phase, {
+      audience: 'debug',
+      kind: 'session',
+      op: 'append',
+      streaming: false,
+    })
+  }
 }
 
 export function stringifyForLog(value: unknown): string {

@@ -597,8 +597,12 @@ export function resolveStaticArtifact(
       return findExactType('interview_session')
     case 'refined-prd':
       return findExactType('prd_coverage_input') ?? findExactType('prd_refined')
+    case 'final-prd-draft':
+      return findExactType('prd_refined')
     case 'refined-beads':
       return findExactType('beads_coverage_input') ?? findExactType('beads_refined')
+    case 'final-beads-draft':
+      return findExactType('beads_refined')
     case 'relevant-files-scan':
       return findExactType('relevant_files_scan')
     case 'diagnostics':
