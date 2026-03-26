@@ -14,6 +14,7 @@ import { normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../
 import { PROM22 } from '../../prompts/index'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
+import { buildBeadsUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 
 import { adapter, phaseIntermediate } from './state'
 import {
@@ -39,6 +40,7 @@ import {
   mapCouncilStageToStatus,
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
+import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 
 export async function handleBeadsDraft(
   ticketId: string,
@@ -451,8 +453,6 @@ export async function handleBeadsRefine(
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
       })
-      // Stash changes for artifact storage
-      ;(structuredMeta as unknown as Record<string, unknown>)._refinementChanges = result.value.changes
       return { normalizedContent: result.normalizedContent }
     },
     PROM22.outputFormat,
@@ -475,8 +475,12 @@ export async function handleBeadsRefine(
     throw new Error(`Expanded bead graph failed validation: ${beadsJsonlResult.error}`)
   }
 
-  const refinementChanges = (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
-  delete (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
+  const uiDiffArtifact = buildBeadsUiRefinementDiffArtifact({
+    winnerId: intermediate.winnerId,
+    winnerDraftContent: winnerDraft.content,
+    refinedContent,
+    losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+  })
 
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
@@ -485,11 +489,11 @@ export async function handleBeadsRefine(
       winnerId: intermediate.winnerId,
       refinedContent,
       winnerDraftContent: winnerDraft.content,
-      ...(Array.isArray(refinementChanges) && refinementChanges.length > 0 ? { changes: refinementChanges } : {}),
       expandedBeads,
       structuredOutput: structuredMeta,
     }),
   })
+  persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
 
   // Save expanded beads to disk as JSONL
   writeJsonl(beadsPath, beadsJsonlResult.value)
@@ -600,11 +604,18 @@ export async function handleMockBeadsRefine(ticketId: string, context: TicketCon
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   const beadSubsets = buildMockBeadSubsets(context)
   const expandedBeads = expandBeads(beadSubsets)
+  const refinedContent = JSON.stringify(beadSubsets)
+  const uiDiffArtifact = buildBeadsUiRefinementDiffArtifact({
+    winnerId: 'mock-model-1',
+    winnerDraftContent: refinedContent,
+    refinedContent,
+  })
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
     artifactType: 'beads_refined',
-    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent: JSON.stringify(beadSubsets), expandedBeads }),
+    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent, winnerDraftContent: refinedContent, expandedBeads }),
   })
+  persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
   writeJsonl(paths.beadsPath, expandedBeads)
   patchTicket(ticketId, {
     totalBeads: expandedBeads.length,

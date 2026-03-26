@@ -6,9 +6,9 @@ describe('structured prompt hardening', () => {
     const prompt = buildPromptFromTemplate(PROM3, [])
     expect(prompt).toContain('Phase Order Is Mandatory')
     expect(prompt).toContain('Final Self-Check')
-    expect(prompt).toContain('top-level `changes` list')
     expect(prompt).toContain('Preserve the winning draft\'s existing `id`')
-    expect(prompt).toContain('exact record-level diff')
+    expect(prompt).toContain('YAML with top-level `questions` list')
+    expect(prompt).not.toContain('top-level `changes` list')
   })
 
   it('treats interview question limits as a ceiling rather than a target', () => {
@@ -33,8 +33,8 @@ describe('structured prompt hardening', () => {
 
   it('defines an explicit shared PRD schema contract for draft and refine prompts', () => {
     expect(PROM12.outputFormat).toContain(PROM10.outputFormat)
-    expect(PROM12.outputFormat).toContain('top-level `changes` list')
-    expect(PROM12.outputFormat).toContain('inspiration')
+    expect(PROM12.outputFormat).not.toContain('top-level `changes` list')
+    expect(PROM12.outputFormat).not.toContain('inspiration')
     expect(PROM10.outputFormat).toContain('schema_version')
     expect(PROM10.outputFormat).toContain('technical_requirements')
     expect(PROM10.outputFormat).toContain('required_commands')
@@ -85,8 +85,8 @@ describe('structured prompt hardening', () => {
     expect(PROM20.outputFormat).toContain('top-level `beads` list')
     expect(PROM20.outputFormat).toContain('`id`')
     expect(PROM22.outputFormat).toContain(PROM20.outputFormat)
-    expect(PROM22.outputFormat).toContain('top-level `changes` list')
-    expect(PROM22.outputFormat).toContain('inspiration')
+    expect(PROM22.outputFormat).not.toContain('top-level `changes` list')
+    expect(PROM22.outputFormat).not.toContain('inspiration')
   })
 
   it('keeps PROM4 and PROM52 explicit about marker-only structured output', () => {

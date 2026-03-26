@@ -728,10 +728,17 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
 
-    expect(screen.getByText('Modified 1')).toBeInTheDocument()
-    expect(screen.getByText('No source recorded')).toBeInTheDocument()
-    expect(screen.getByText('Original PRD review')).toBeInTheDocument()
-    expect(screen.getByText('Refined PRD review')).toBeInTheDocument()
+    const leafTextMatcher = (text: string) => (_content: string, node: Element | null) => {
+      const hasText = (candidate: Element | null) => candidate?.textContent?.includes(text) ?? false
+      if (!hasText(node)) return false
+      return Array.from(node?.children ?? []).every((child) => !hasText(child))
+    }
+
+    expect(screen.getByText('Modified 2')).toBeInTheDocument()
+    expect(screen.getAllByText('No source recorded')).toHaveLength(2)
+    expect(screen.getByText(leafTextMatcher('Original PRD review'))).toBeInTheDocument()
+    expect(screen.getByText(leafTextMatcher('Refined PRD review'))).toBeInTheDocument()
+    expect(screen.getByText(leafTextMatcher('Inspect refined PRD sections'))).toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {

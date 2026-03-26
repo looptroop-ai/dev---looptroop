@@ -195,7 +195,6 @@ export function normalizePrdYamlOutput(
     ticketId: string
     interviewContent?: string
     losingDraftMeta?: Array<{ memberId: string }>
-    requireChanges?: boolean
   },
 ): StructuredOutputResult<PrdDocument & { changes?: RefinementChange[] }> {
   if (looksLikePromptEcho(rawContent)) {
@@ -229,9 +228,6 @@ export function normalizePrdYamlOutput(
 
       // Extract changes before PRD validation (changes is not part of the PRD schema)
       const rawChanges = getValueByAliases(parsed, ['changes'])
-      if (options.requireChanges && !Array.isArray(rawChanges)) {
-        throw new Error('PRD refinement output is missing changes')
-      }
       if (rawChanges !== undefined) {
         delete (parsed as Record<string, unknown>).changes
       }

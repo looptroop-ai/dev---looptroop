@@ -365,7 +365,8 @@ describe('PRD refined artifacts', () => {
 
     expect(parsed.winnerId).toBe('openai/gpt-5')
     expect(parsed.draftMetrics).toEqual({ epicCount: 1, userStoryCount: 2 })
-    expect(parsed.changes).toHaveLength(4)
+    expect(parsed.changes).toEqual([])
+    expect(JSON.stringify(artifact)).not.toContain('"changes"')
     expect(parsed.winnerDraftContent).toContain('title: Prompt hardening')
     expect(parsed.structuredOutput).toMatchObject({
       autoRetryCount: 1,

@@ -751,28 +751,7 @@ export async function handleCoverageVerification(
     return
   }
 
-  // Store the coverage input artifact so the UI can display Q&A / doc being verified
-  // Include refinement changes from the refined artifact if available
-  let refinementChanges: unknown
-  if (phase === 'prd' || phase === 'beads') {
-    const refinedArtifactType = phase === 'prd' ? 'prd_refined' : 'beads_refined'
-    const refinedArtifact = getLatestPhaseArtifact(ticketId, refinedArtifactType)
-    if (refinedArtifact?.content) {
-      try {
-        if (phase === 'prd') {
-          const parsed = parsePrdRefinedArtifact(refinedArtifact.content)
-          if (parsed.changes.length > 0) {
-            refinementChanges = parsed.changes
-          }
-        } else {
-          const parsed = JSON.parse(refinedArtifact.content)
-          if (parsed && Array.isArray(parsed.changes) && parsed.changes.length > 0) {
-            refinementChanges = parsed.changes
-          }
-        }
-      } catch { /* ignore parse errors */ }
-    }
-  }
+  // Store the coverage input artifact so the UI can display Q&A / doc being verified.
   const coverageInputContent = phase === 'interview'
     ? JSON.stringify({ interview: ticketState.interview, userAnswers: ticketState.userAnswers })
     : phase === 'prd'
@@ -780,12 +759,10 @@ export async function handleCoverageVerification(
           interview: ticketState.interview,
           fullAnswers: ticketState.fullAnswers?.[0] ?? '',
           refinedContent,
-          ...(refinementChanges ? { changes: refinementChanges } : {}),
         })
       : JSON.stringify({
           beads: ticketState.beads,
           refinedContent,
-          ...(refinementChanges ? { changes: refinementChanges } : {}),
         })
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,

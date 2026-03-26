@@ -1193,9 +1193,6 @@ export function normalizeInterviewRefinementOutput(
       if (!Array.isArray(rawQuestions)) {
         throw new Error('Interview refinement output is missing questions')
       }
-      if (!Array.isArray(rawChanges)) {
-        throw new Error('Interview refinement output is missing changes')
-      }
 
       const normalizedQuestions = normalizeStructuredInterviewQuestionList(rawQuestions, maxInitialQuestions)
       if (normalizedQuestions.repairApplied) {
@@ -1213,87 +1210,90 @@ export function normalizeInterviewRefinementOutput(
         repairWarnings.push(...winnerDraftNormalized.repairWarnings)
       }
       const winnerDraftQuestions = winnerDraftNormalized.questions
-      const winnerKeySet = new Set(winnerDraftQuestions.map(buildInterviewQuestionKey))
-      const finalKeySet = new Set(normalizedQuestions.questions.map(buildInterviewQuestionKey))
-      const usedBeforeKeys = new Set<string>()
-      const usedAfterKeys = new Set<string>()
-      const parsedChanges = rawChanges.map((entry, index) => parseInterviewRefinementChangeEntry(
-        entry,
-        index,
-      ))
-      const canonicalizedChanges = canonicalizeInterviewRefinementChanges(
-        parsedChanges,
-        winnerDraftQuestions,
-        normalizedQuestions.questions,
-      )
-      if (canonicalizedChanges.repairApplied) {
-        repairApplied = true
-        repairWarnings.push(...canonicalizedChanges.repairWarnings)
-      }
+      let changes: NormalizedInterviewRefinementChange[] = []
+      if (Array.isArray(rawChanges)) {
+        const winnerKeySet = new Set(winnerDraftQuestions.map(buildInterviewQuestionKey))
+        const finalKeySet = new Set(normalizedQuestions.questions.map(buildInterviewQuestionKey))
+        const usedBeforeKeys = new Set<string>()
+        const usedAfterKeys = new Set<string>()
+        const parsedChanges = rawChanges.map((entry, index) => parseInterviewRefinementChangeEntry(
+          entry,
+          index,
+        ))
+        const canonicalizedChanges = canonicalizeInterviewRefinementChanges(
+          parsedChanges,
+          winnerDraftQuestions,
+          normalizedQuestions.questions,
+        )
+        if (canonicalizedChanges.repairApplied) {
+          repairApplied = true
+          repairWarnings.push(...canonicalizedChanges.repairWarnings)
+        }
 
-      const synthesizedChanges = synthesizeOmittedSameIdentityInterviewRefinementChanges(
-        canonicalizedChanges.changes,
-        winnerDraftQuestions,
-        normalizedQuestions.questions,
-      )
-      if (synthesizedChanges.repairApplied) {
-        repairApplied = true
-        repairWarnings.push(...synthesizedChanges.repairWarnings)
-      }
+        const synthesizedChanges = synthesizeOmittedSameIdentityInterviewRefinementChanges(
+          canonicalizedChanges.changes,
+          winnerDraftQuestions,
+          normalizedQuestions.questions,
+        )
+        if (synthesizedChanges.repairApplied) {
+          repairApplied = true
+          repairWarnings.push(...synthesizedChanges.repairWarnings)
+        }
 
-      const prunedPartialChanges = dropRedundantPartialInterviewRefinementChanges(
-        synthesizedChanges.changes,
-        synthesizedChanges.synthesizedChanges,
-      )
-      if (prunedPartialChanges.repairApplied) {
-        repairApplied = true
-        repairWarnings.push(...prunedPartialChanges.repairWarnings)
-      }
+        const prunedPartialChanges = dropRedundantPartialInterviewRefinementChanges(
+          synthesizedChanges.changes,
+          synthesizedChanges.synthesizedChanges,
+        )
+        if (prunedPartialChanges.repairApplied) {
+          repairApplied = true
+          repairWarnings.push(...prunedPartialChanges.repairWarnings)
+        }
 
-      const repairedPartialChanges = repairPartialInterviewRefinementChanges(
-        prunedPartialChanges.changes,
-        winnerDraftQuestions,
-        normalizedQuestions.questions,
-      )
-      if (repairedPartialChanges.repairApplied) {
-        repairApplied = true
-        repairWarnings.push(...repairedPartialChanges.repairWarnings)
-      }
+        const repairedPartialChanges = repairPartialInterviewRefinementChanges(
+          prunedPartialChanges.changes,
+          winnerDraftQuestions,
+          normalizedQuestions.questions,
+        )
+        if (repairedPartialChanges.repairApplied) {
+          repairApplied = true
+          repairWarnings.push(...repairedPartialChanges.repairWarnings)
+        }
 
-      assertNoPartialInterviewRefinementChanges(repairedPartialChanges.changes)
+        assertNoPartialInterviewRefinementChanges(repairedPartialChanges.changes)
 
-      const completeChanges = repairedPartialChanges.changes.map((change) => normalizeCompleteInterviewRefinementChangeCandidate(change))
-      const changes = completeChanges.map((change, index) => validateInterviewRefinementChangeEntry(
-        change,
-        index,
-        winnerKeySet,
-        finalKeySet,
-        usedBeforeKeys,
-        usedAfterKeys,
-      ))
+        const completeChanges = repairedPartialChanges.changes.map((change) => normalizeCompleteInterviewRefinementChangeCandidate(change))
+        changes = completeChanges.map((change, index) => validateInterviewRefinementChangeEntry(
+          change,
+          index,
+          winnerKeySet,
+          finalKeySet,
+          usedBeforeKeys,
+          usedAfterKeys,
+        ))
 
-      // Resolve inspiration memberIds from losingDraftMeta
-      if (losingDraftMeta) {
-        for (const change of changes) {
-          if (change.inspiration && change.inspiration.draftIndex >= 0 && change.inspiration.draftIndex < losingDraftMeta.length) {
-            change.inspiration.memberId = losingDraftMeta[change.inspiration.draftIndex]!.memberId
-          } else if (change.inspiration && change.inspiration.draftIndex >= 0) {
-            repairApplied = true
-            repairWarnings.push(
-              `Inspiration draftIndex ${change.inspiration.draftIndex} is out of bounds (${losingDraftMeta.length} alternatives). Setting inspiration to null.`,
-            )
-            ;(change as { inspiration: NormalizedInspirationSource | null }).inspiration = null
-            change.attributionStatus = 'invalid_unattributed'
+        // Resolve inspiration memberIds from losingDraftMeta
+        if (losingDraftMeta) {
+          for (const change of changes) {
+            if (change.inspiration && change.inspiration.draftIndex >= 0 && change.inspiration.draftIndex < losingDraftMeta.length) {
+              change.inspiration.memberId = losingDraftMeta[change.inspiration.draftIndex]!.memberId
+            } else if (change.inspiration && change.inspiration.draftIndex >= 0) {
+              repairApplied = true
+              repairWarnings.push(
+                `Inspiration draftIndex ${change.inspiration.draftIndex} is out of bounds (${losingDraftMeta.length} alternatives). Setting inspiration to null.`,
+              )
+              ;(change as { inspiration: NormalizedInspirationSource | null }).inspiration = null
+              change.attributionStatus = 'invalid_unattributed'
+            }
           }
         }
-      }
 
-      ensureQuestionChangeCoverage(
-        winnerDraftQuestions,
-        normalizedQuestions.questions,
-        usedBeforeKeys,
-        usedAfterKeys,
-      )
+        ensureQuestionChangeCoverage(
+          winnerDraftQuestions,
+          normalizedQuestions.questions,
+          usedBeforeKeys,
+          usedAfterKeys,
+        )
+      }
 
       const questionsYaml = buildYamlDocument({ questions: normalizedQuestions.questions })
 
@@ -1305,24 +1305,7 @@ export function normalizeInterviewRefinementOutput(
           changes,
           questionsYaml,
         },
-        normalizedContent: buildYamlDocument({
-          questions: normalizedQuestions.questions,
-          changes: changes.map((change) => ({
-            type: change.type,
-            before: change.before,
-            after: change.after,
-            attributionStatus: change.attributionStatus,
-            ...(change.inspiration
-              ? {
-                  inspiration: {
-                    alternative_draft: change.inspiration.draftIndex + 1,
-                    memberId: change.inspiration.memberId,
-                    question: change.inspiration.question,
-                  },
-                }
-              : { inspiration: null }),
-          })),
-        }),
+        normalizedContent: questionsYaml,
         repairApplied: repairApplied || candidate !== rawContent.trim(),
         repairWarnings,
       }

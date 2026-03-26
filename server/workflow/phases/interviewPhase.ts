@@ -36,9 +36,11 @@ import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
 import type { InterviewSessionSnapshot, PersistedInterviewBatch } from '@shared/interviewSession'
+import { buildInterviewUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 import { calculateFollowUpLimit } from '../../phases/interview/followUpBudget'
 import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
+import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 
 import { adapter, interviewQASessions, phaseIntermediate, SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE, getOrCreateAbortSignal } from './state'
 import {
@@ -853,6 +855,10 @@ export async function handleInterviewCompile(
   phaseIntermediate.delete(`${ticketId}:interview`)
 
   try {
+    const paths = getTicketPaths(ticketId)
+    if (!paths) {
+      throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+    }
     const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId, content: d.content }))
     const compiledArtifact = buildCompiledInterviewArtifact(
       intermediate.winnerId,
@@ -861,6 +867,12 @@ export async function handleInterviewCompile(
       resolveInterviewDraftSettings(context).maxInitialQuestions,
       losingDraftMeta,
     )
+    const uiDiffArtifact = buildInterviewUiRefinementDiffArtifact({
+      winnerId: intermediate.winnerId,
+      winnerDraftContent: winnerDraft.content,
+      refinedContent: compiledArtifact.refinedContent,
+      losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+    })
 
     insertPhaseArtifact(ticketId, {
       phase: 'COMPILING_INTERVIEW',
@@ -878,6 +890,7 @@ export async function handleInterviewCompile(
       artifactType: 'interview_winner',
       content: JSON.stringify({ winnerId: intermediate.winnerId }),
     })
+    persistUiRefinementDiffArtifact(ticketId, 'COMPILING_INTERVIEW', paths.ticketDir, uiDiffArtifact)
 
     emitPhaseLog(
       ticketId,
@@ -1493,7 +1506,6 @@ export function buildMockInterviewCompiledContent() {
       priority,
       rationale,
     })),
-    changes: [],
   }, { lineWidth: 120, noRefs: true }) as string
 }
 
@@ -1649,15 +1661,23 @@ export async function handleMockInterviewCompile(
   context: TicketContext,
   sendEvent: (event: TicketEvent) => void,
 ) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   const { members } = resolveCouncilMembers(context)
   const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const refinedContent = buildMockInterviewCompiledContent()
+  const winnerDraftContent = buildMockInterviewDraftContent(0)
   const compiledArtifact = buildCompiledInterviewArtifact(
     winnerId,
     refinedContent,
-    buildMockInterviewDraftContent(0),
+    winnerDraftContent,
     buildMockInterviewQuestions().length,
   )
+  const uiDiffArtifact = buildInterviewUiRefinementDiffArtifact({
+    winnerId,
+    winnerDraftContent,
+    refinedContent: compiledArtifact.refinedContent,
+  })
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',
     artifactType: 'interview_compiled',
@@ -1668,6 +1688,7 @@ export async function handleMockInterviewCompile(
     artifactType: 'interview_winner',
     content: JSON.stringify({ winnerId }),
   })
+  persistUiRefinementDiffArtifact(ticketId, 'COMPILING_INTERVIEW', paths.ticketDir, uiDiffArtifact)
   emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info', 'Mock interview compiled.')
   sendEvent({ type: 'READY' })
 }

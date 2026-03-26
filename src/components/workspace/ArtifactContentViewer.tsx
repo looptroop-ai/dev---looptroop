@@ -340,7 +340,7 @@ function InterviewInspirationTooltip({ inspiration }: { inspiration: Inspiration
   )
 }
 
-function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId: string; itemId: string; itemLabel: string } }) {
+function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId: string; sourceId?: string; sourceLabel: string; sourceText?: string } }) {
   const modelName = inspiration.memberId ? getModelDisplayName(inspiration.memberId) : 'Unknown model'
   return (
     <TooltipProvider delayDuration={200}>
@@ -353,10 +353,10 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
         <TooltipContent side="top" className="max-w-xs">
           <div className="space-y-1">
             <div className="font-medium">Inspired by {modelName}</div>
-            {inspiration.itemLabel && (
+            {inspiration.sourceLabel && (
               <div className="text-[11px] opacity-90 leading-snug">
-                {inspiration.itemId && <span className="font-mono">{inspiration.itemId}: </span>}
-                {inspiration.itemLabel}
+                {inspiration.sourceId && <span className="font-mono">{inspiration.sourceId}: </span>}
+                {inspiration.sourceText ?? inspiration.sourceLabel}
               </div>
             )}
           </div>
@@ -436,13 +436,13 @@ function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: Artif
   )
 }
 
-function RefinementDiffView({ content }: { content: string }) {
+function RefinementDiffView({ content, domain }: { content: string; domain: 'prd' | 'beads' }) {
   const parsed = parseRefinementArtifact(content)
 
-  const diffs = buildRefinementDiffEntries(content)
-  const modifiedCount = diffs.filter((d) => d.type === 'modified').length
-  const addedCount = diffs.filter((d) => d.type === 'added').length
-  const removedCount = diffs.filter((d) => d.type === 'removed').length
+  const diffs = buildRefinementDiffEntries(content, domain)
+  const modifiedCount = diffs.filter((d) => d.changeType === 'modified').length
+  const addedCount = diffs.filter((d) => d.changeType === 'added').length
+  const removedCount = diffs.filter((d) => d.changeType === 'removed').length
 
   if (diffs.length === 0) {
     return (
@@ -467,15 +467,15 @@ function RefinementDiffView({ content }: { content: string }) {
             defaultOpen
             title={(
               <span className="flex items-center gap-2">
-                {diff.itemType && <span className="text-muted-foreground text-[10px] uppercase">{diff.itemType}</span>}
-                <span>{diff.afterId || diff.beforeId}</span>
-                <span className={diff.type === 'added'
+                <span className="text-muted-foreground text-[10px] uppercase">{diff.itemKind}</span>
+                <span>{diff.afterId || diff.beforeId || diff.label}</span>
+                <span className={diff.changeType === 'added'
                   ? 'text-green-600 dark:text-green-400'
-                  : diff.type === 'removed'
+                  : diff.changeType === 'removed'
                     ? 'text-red-600 dark:text-red-400'
                     : 'text-blue-600 dark:text-blue-400'}
                 >
-                  {diff.type === 'modified' ? 'Modified' : diff.type === 'added' ? 'Added' : 'Removed'}
+                  {diff.changeType === 'modified' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
                 </span>
                 {diff.inspiration
                   ? <RefinementInspirationTooltip inspiration={diff.inspiration} />
@@ -485,17 +485,23 @@ function RefinementDiffView({ content }: { content: string }) {
               </span>
             )}
           >
-            <div className="space-y-2">
-              {diff.beforeLabel && (
+            <div className="space-y-3">
+              {diff.beforeText && (
                 <div className="rounded-md border border-red-100 bg-red-50/40 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/10">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
-                  <div className="text-xs leading-5 text-red-950 dark:text-red-100">{diff.beforeId && <span className="font-mono mr-1">{diff.beforeId}:</span>}{diff.beforeLabel}</div>
+                  <div className="text-xs leading-5 text-red-950 dark:text-red-100 whitespace-pre-wrap">
+                    {diff.beforeId && <span className="font-mono mr-1">{diff.beforeId}:</span>}
+                    {renderQuestionDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).before, 'removed')}
+                  </div>
                 </div>
               )}
-              {diff.afterLabel && (
+              {diff.afterText && (
                 <div className="rounded-md border border-green-100 bg-green-50/40 px-3 py-2 dark:border-green-900/40 dark:bg-green-950/10">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
-                  <div className="text-xs leading-5 text-green-950 dark:text-green-100">{diff.afterId && <span className="font-mono mr-1">{diff.afterId}:</span>}{diff.afterLabel}</div>
+                  <div className="text-xs leading-5 text-green-950 dark:text-green-100 whitespace-pre-wrap">
+                    {diff.afterId && <span className="font-mono mr-1">{diff.afterId}:</span>}
+                    {renderQuestionDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).after, 'added')}
+                  </div>
                 </div>
               )}
             </div>
@@ -674,7 +680,8 @@ function FinalPrdDraftView({ content, header, isBeads }: { content: string; head
   const refinedContent = parsed?.refinedContent ?? ''
   if (!refinedContent) return <RawContentWithCopy content={content} />
 
-  const diffEntries = buildRefinementDiffEntries(content)
+  const domain = isBeads ? 'beads' : 'prd'
+  const diffEntries = buildRefinementDiffEntries(content, domain)
   const hasDiffTab = diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent)
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
 
@@ -710,7 +717,7 @@ function FinalPrdDraftView({ content, header, isBeads }: { content: string; head
         </div>
       ) : currentTab === 'final'
         ? (isBeads ? <BeadsDraftView content={refinedContent} /> : <PrdDraftView content={refinedContent} />)
-        : <RefinementDiffView content={content} />}
+        : <RefinementDiffView content={content} domain={domain} />}
     </div>
   )
 }
@@ -1604,7 +1611,8 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
   if (parsedCoverageInput && (artifactId === 'refined-prd' || artifactId === 'refined-beads')) {
     const isPrd = artifactId === 'refined-prd'
-    const hasChanges = Array.isArray(parsedCoverageInput.changes) && parsedCoverageInput.changes.length > 0
+    const diffEntries = buildRefinementDiffEntries(content, isPrd ? 'prd' : 'beads')
+    const hasChanges = diffEntries.length > 0 || Boolean(parseRefinementArtifact(content)?.winnerDraftContent)
     return (
       <RefinedArtifactTabs
         content={content}
@@ -1643,7 +1651,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
             )}
           </div>
         )}
-        diffContent={hasChanges ? <RefinementDiffView content={content} /> : undefined}
+        diffContent={hasChanges ? <RefinementDiffView content={content} domain={isPrd ? 'prd' : 'beads'} /> : undefined}
       />
     )
   }

@@ -19,6 +19,7 @@ import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { normalizeInterviewDocumentOutput, normalizePrdYamlOutput, getPrdDraftMetrics } from '../../structuredOutput'
 import { buildPromptFromTemplate, PROM11, PROM12 } from '../../prompts/index'
+import { buildPrdUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 
 import { adapter, phaseIntermediate } from './state'
 import {
@@ -44,6 +45,7 @@ import {
   mapCouncilStageToStatus,
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
+import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 
 function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalId: string): string {
   const interviewPath = resolve(ticketDir, 'interview.yaml')
@@ -886,6 +888,12 @@ export async function handlePrdRefine(
     currentValidatedRefinement,
     structuredMeta,
   )
+  const uiDiffArtifact = buildPrdUiRefinementDiffArtifact({
+    winnerId: intermediate.winnerId,
+    winnerDraftContent: currentValidatedRefinement.winnerDraftContent,
+    refinedContent: currentValidatedRefinement.refinedContent,
+    losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+  })
 
   if (currentValidatedRefinement.repairWarnings.length > 0) {
     emitPhaseLog(
@@ -918,6 +926,7 @@ export async function handlePrdRefine(
     artifactType: 'prd_winner',
     content: JSON.stringify({ winnerId: intermediate.winnerId }),
   })
+  persistUiRefinementDiffArtifact(ticketId, 'REFINING_PRD', ticketDir, uiDiffArtifact)
 
   // Save refined PRD to disk
   safeAtomicWrite(prdPath, refinedContent)
@@ -933,7 +942,7 @@ export async function handlePrdRefine(
     `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
 
   // Emit AI detail log with refined PRD summary
-  const changeCount = refinedArtifact.changes.length
+  const changeCount = uiDiffArtifact.entries.length
   const metricsLabel = `${refinedArtifact.draftMetrics.epicCount} epics, ${refinedArtifact.draftMetrics.userStoryCount} user stories`
   const summaryParts = [
     `Refined PRD from ${intermediate.winnerId}`,
@@ -1043,22 +1052,28 @@ export async function handleMockPrdRefine(ticketId: string, context: TicketConte
   if (!normalizedPrd.ok) {
     throw new Error(`Mock PRD refinement produced invalid PRD: ${normalizedPrd.error}`)
   }
+  const refinedArtifact = {
+    winnerId,
+    refinedContent: normalizedPrd.normalizedContent,
+    winnerDraftContent: normalizedPrd.normalizedContent,
+    draftMetrics: getPrdDraftMetrics(normalizedPrd.value),
+    structuredOutput: buildStructuredMetadata({
+      repairApplied: normalizedPrd.repairApplied,
+      repairWarnings: normalizedPrd.repairWarnings,
+      autoRetryCount: 0,
+    }),
+  }
+  const uiDiffArtifact = buildPrdUiRefinementDiffArtifact({
+    winnerId,
+    winnerDraftContent: normalizedPrd.normalizedContent,
+    refinedContent: normalizedPrd.normalizedContent,
+  })
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
-    content: JSON.stringify({
-      winnerId,
-      refinedContent: normalizedPrd.normalizedContent,
-      winnerDraftContent: normalizedPrd.normalizedContent,
-      changes: [],
-      draftMetrics: getPrdDraftMetrics(normalizedPrd.value),
-      structuredOutput: buildStructuredMetadata({
-        repairApplied: normalizedPrd.repairApplied,
-        repairWarnings: normalizedPrd.repairWarnings,
-        autoRetryCount: 0,
-      }),
-    }),
+    content: JSON.stringify(refinedArtifact),
   })
+  persistUiRefinementDiffArtifact(ticketId, 'REFINING_PRD', paths.ticketDir, uiDiffArtifact)
   safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), normalizedPrd.normalizedContent)
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info', 'Mock PRD written to disk.')
   sendEvent({ type: 'REFINED' })

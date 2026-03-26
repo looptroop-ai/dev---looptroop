@@ -33,7 +33,7 @@ export interface PrdRefinedArtifact {
   winnerId: string
   refinedContent: string
   winnerDraftContent: string
-  changes: RefinementChange[]
+  changes?: RefinementChange[]
   structuredOutput?: StructuredOutputMetadata
   draftMetrics: PrdDraftMetrics
 }
@@ -276,13 +276,24 @@ export function validatePrdRefinementOutput(
     ticketId: options.ticketId,
     interviewContent: options.interviewContent,
     losingDraftMeta: options.losingDraftMeta,
-    requireChanges: true,
   })
   if (!refinementResult.ok) {
     throw new Error(refinementResult.error)
   }
 
   const { changes = [], ...refinedDocument } = refinementResult.value
+  if (changes.length === 0) {
+    return {
+      document: refinedDocument,
+      metrics: getPrdDraftMetrics(refinedDocument),
+      refinedContent: refinementResult.normalizedContent,
+      winnerDraftContent: winnerResult.normalizedContent,
+      changes: [],
+      repairApplied: refinementResult.repairApplied,
+      repairWarnings: [...refinementResult.repairWarnings],
+    }
+  }
+
   const winnerDocument = winnerResult.value
   const winnerItems = buildDocumentItems(winnerDocument)
   const finalItems = buildDocumentItems(refinedDocument)
@@ -418,7 +429,6 @@ export function buildPrdRefinedArtifact(
     winnerId: normalizedWinnerId,
     refinedContent: refinement.refinedContent,
     winnerDraftContent,
-    changes: refinement.changes,
     ...(structuredOutput ? { structuredOutput } : {}),
     draftMetrics: refinement.metrics,
   }
@@ -471,6 +481,23 @@ export function requirePrdRefinedArtifact(content: string | null | undefined): P
   return parsePrdRefinedArtifact(content)
 }
 
+function stripLegacyTopLevelChangesFromYaml(rawResponse: string): string {
+  const trimmed = rawResponse.trim()
+  if (!trimmed) return trimmed
+
+  try {
+    const parsed = jsYaml.load(trimmed)
+    if (isRecord(parsed) && 'changes' in parsed) {
+      const { changes: _changes, ...sanitized } = parsed
+      return jsYaml.dump(sanitized, { lineWidth: -1, noRefs: true }).trim()
+    }
+  } catch {
+    // Preserve the original response when it cannot be parsed safely.
+  }
+
+  return trimmed.replace(/\nchanges:\n(?: {2,}.*\n?)*/u, '').trim()
+}
+
 export function buildPrdRefinementRetryPrompt(
   baseParts: PromptPart[],
   params: {
@@ -478,6 +505,8 @@ export function buildPrdRefinementRetryPrompt(
     rawResponse: string
   },
 ): PromptPart[] {
+  const sanitizedRawResponse = stripLegacyTopLevelChangesFromYaml(params.rawResponse)
+
   return [
     ...baseParts,
     {
@@ -488,15 +517,14 @@ export function buildPrdRefinementRetryPrompt(
         '',
         'Return only one corrected YAML artifact.',
         'Requirements:',
-        '- Use the exact PROM10 PRD schema plus a top-level `changes` list.',
-        '- The `changes` list must fully and exactly account for the diff between the winning draft and the final output.',
+        '- Use the exact PROM10 PRD schema.',
         '- Preserve epic IDs and user story IDs unless the final draft contains a genuinely new item.',
         '- Do not wrap the PRD in another object.',
         '- Do not include prose, commentary, markdown fences, or extra top-level keys.',
         '',
         '## Previous Invalid Response',
         '```yaml',
-        params.rawResponse.trim(),
+        sanitizedRawResponse,
         '```',
       ].join('\n'),
     },

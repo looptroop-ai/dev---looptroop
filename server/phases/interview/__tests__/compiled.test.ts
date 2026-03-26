@@ -57,7 +57,7 @@ describe('compiled interview artifacts', () => {
     expect(artifact.refinedContent).not.toContain('changes:')
     expect(artifact.questions.map(question => question.id)).toEqual(['Q01', 'Q03'])
     expect(artifact.questions.map(question => question.phase)).toEqual(['Foundation', 'Structure'])
-    expect(artifact.changes.map((change) => change.type)).toEqual(['modified', 'replaced'])
+    expect('changes' in artifact).toBe(false)
   })
 
   it('builds a validated artifact when same-identity modified changes are omitted from PROM3 output', () => {
@@ -98,38 +98,7 @@ describe('compiled interview artifacts', () => {
 
     expect(artifact.questionCount).toBe(2)
     expect(artifact.questions.map(question => question.id)).toEqual(['Q01', 'Q02'])
-    expect(artifact.changes).toEqual([
-      {
-        type: 'modified',
-        before: {
-          id: 'Q01',
-          phase: 'Foundation',
-          question: 'What problem are we solving?',
-        },
-        after: {
-          id: 'Q01',
-          phase: 'Foundation',
-          question: 'What user problem are we solving?',
-        },
-        inspiration: null,
-        attributionStatus: 'model_unattributed',
-      },
-      {
-        type: 'modified',
-        before: {
-          id: 'Q02',
-          phase: 'Assembly',
-          question: 'How do we verify success?',
-        },
-        after: {
-          id: 'Q02',
-          phase: 'Assembly',
-          question: 'How should success be verified in practice?',
-        },
-        inspiration: null,
-        attributionStatus: 'synthesized_unattributed',
-      },
-    ])
+    expect('changes' in artifact).toBe(false)
   })
 
   it('fails hard when PROM3 refinement output does not satisfy the interview schema', () => {
@@ -160,7 +129,7 @@ describe('compiled interview artifacts', () => {
     )).toThrow('do not fully and exactly account')
   })
 
-  it('defaults missing compiled changes to an empty array for legacy artifacts', () => {
+  it('parses legacy compiled artifacts without requiring changes', () => {
     const parsed = parseCompiledInterviewArtifact(JSON.stringify({
       winnerId: 'openai/gpt-5',
       refinedContent: [
@@ -173,7 +142,8 @@ describe('compiled interview artifacts', () => {
       questionCount: 1,
     }))
 
-    expect(parsed.changes).toEqual([])
+    expect(parsed.questionCount).toBe(1)
+    expect(parsed.questions[0]?.id).toBe('Q01')
   })
 
   it('rejects missing or empty compiled artifacts before PROM4 can start', () => {

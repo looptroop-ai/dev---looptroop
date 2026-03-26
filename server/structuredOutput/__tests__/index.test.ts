@@ -150,7 +150,8 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value.questionCount).toBe(2)
     expect(result.value.changes.map((change) => change.type)).toEqual(['modified', 'removed', 'added'])
-    expect(result.normalizedContent).toContain('changes:')
+    expect(result.normalizedContent).not.toContain('changes:')
+    expect(result.normalizedContent).toContain('questions:')
   })
 
   it('marks malformed interview inspiration as invalid without dropping the change', () => {
@@ -199,6 +200,28 @@ describe('structured output normalization', () => {
         attributionStatus: 'invalid_unattributed',
       },
     ])
+  })
+
+  it('accepts PROM3 refinement output without a changes list and keeps the normalized artifact clean', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.changes).toEqual([])
+    expect(result.normalizedContent).toContain('questions:')
+    expect(result.normalizedContent).not.toContain('changes:')
   })
 
   it('preserves folded refinement questions instead of corrupting them during YAML repair', () => {

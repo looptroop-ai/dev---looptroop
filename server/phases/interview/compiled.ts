@@ -1,10 +1,4 @@
 import type { ParsedInterviewQuestion } from './questions'
-import type {
-  InspirationSource,
-  InterviewQuestionChange,
-  InterviewQuestionChangeAttributionStatus,
-  InterviewQuestionChangeType,
-} from '@shared/interviewQuestions'
 import { normalizeInterviewRefinementOutput, type StructuredOutputMetadata } from '../../structuredOutput'
 
 export interface CompiledInterviewArtifact {
@@ -12,7 +6,6 @@ export interface CompiledInterviewArtifact {
   refinedContent: string
   questions: ParsedInterviewQuestion[]
   questionCount: number
-  changes: InterviewQuestionChange[]
   structuredOutput?: StructuredOutputMetadata
 }
 
@@ -44,45 +37,6 @@ function normalizeArtifactQuestion(value: unknown, index: number): ParsedIntervi
   return { id, phase, question }
 }
 
-function normalizeArtifactChangeType(value: unknown, index: number): InterviewQuestionChangeType {
-  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
-  if (raw === 'modified' || raw === 'replaced' || raw === 'added' || raw === 'removed') {
-    return raw
-  }
-  throw new Error(`Compiled interview change at index ${index} has an invalid type`)
-}
-
-function normalizeArtifactInspirationSource(value: unknown): InspirationSource | null {
-  if (!value || !isRecord(value)) return null
-
-  const draftIndex = typeof value.draftIndex === 'number' ? value.draftIndex : -1
-  const memberId = typeof value.memberId === 'string' ? value.memberId : ''
-  const rawQuestion = value.question
-  if (!isRecord(rawQuestion)) return null
-
-  const id = typeof rawQuestion.id === 'string' ? rawQuestion.id.trim() : ''
-  const phase = typeof rawQuestion.phase === 'string' ? rawQuestion.phase.trim() : ''
-  const question = typeof rawQuestion.question === 'string' ? rawQuestion.question.trim() : ''
-  if (!id || !phase || !question) return null
-
-  return { draftIndex, memberId, question: { id, phase, question } }
-}
-
-function normalizeArtifactAttributionStatus(
-  value: unknown,
-  inspiration: InspirationSource | null,
-): InterviewQuestionChangeAttributionStatus {
-  if (
-    value === 'inspired'
-    || value === 'model_unattributed'
-    || value === 'synthesized_unattributed'
-    || value === 'invalid_unattributed'
-  ) {
-    return value
-  }
-  return inspiration ? 'inspired' : 'model_unattributed'
-}
-
 function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMetadata | undefined {
   if (!isRecord(value)) return undefined
 
@@ -102,27 +56,6 @@ function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMeta
     repairWarnings,
     autoRetryCount,
     ...(validationError ? { validationError } : {}),
-  }
-}
-
-function normalizeArtifactChange(value: unknown, index: number): InterviewQuestionChange {
-  if (!isRecord(value)) {
-    throw new Error(`Compiled interview change at index ${index} is not an object`)
-  }
-
-  const hasBefore = Object.keys(value).some((key) => key.trim().toLowerCase() === 'before')
-  const hasAfter = Object.keys(value).some((key) => key.trim().toLowerCase() === 'after')
-  if (!hasBefore) throw new Error(`Compiled interview change at index ${index} is missing before`)
-  if (!hasAfter) throw new Error(`Compiled interview change at index ${index} is missing after`)
-
-  const inspiration = normalizeArtifactInspirationSource(value.inspiration)
-
-  return {
-    type: normalizeArtifactChangeType(value.type, index),
-    before: value.before === null ? null : normalizeArtifactQuestion(value.before, index),
-    after: value.after === null ? null : normalizeArtifactQuestion(value.after, index),
-    inspiration,
-    attributionStatus: normalizeArtifactAttributionStatus(value.attributionStatus, inspiration),
   }
 }
 
@@ -161,35 +94,6 @@ export function buildCompiledInterviewArtifact(
       question: question.question,
     })),
     questionCount: refinement.value.questionCount,
-    changes: refinement.value.changes.map((change) => ({
-      type: change.type,
-      before: change.before
-        ? {
-            id: change.before.id,
-            phase: formatArtifactPhase(change.before.phase),
-            question: change.before.question,
-          }
-        : null,
-      after: change.after
-        ? {
-            id: change.after.id,
-            phase: formatArtifactPhase(change.after.phase),
-            question: change.after.question,
-          }
-        : null,
-      inspiration: change.inspiration
-        ? {
-            draftIndex: change.inspiration.draftIndex,
-            memberId: change.inspiration.memberId,
-            question: {
-              id: change.inspiration.question.id,
-              phase: formatArtifactPhase(change.inspiration.question.phase),
-              question: change.inspiration.question.question,
-            },
-          }
-        : null,
-      attributionStatus: change.attributionStatus,
-    })),
   }
 }
 
@@ -209,7 +113,6 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
   const refinedContent = typeof parsed.refinedContent === 'string' ? parsed.refinedContent : ''
   const rawQuestions = parsed.questions
   const rawQuestionCount = parsed.questionCount
-  const rawChanges = parsed.changes
   const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
 
   if (!winnerId) {
@@ -224,11 +127,6 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
 
   const questions = rawQuestions.map((question, index) => normalizeArtifactQuestion(question, index))
   const questionCount = typeof rawQuestionCount === 'number' ? rawQuestionCount : questions.length
-  const changes = rawChanges === undefined
-    ? []
-    : Array.isArray(rawChanges)
-      ? rawChanges.map((change, index) => normalizeArtifactChange(change, index))
-      : (() => { throw new Error('Compiled interview artifact changes must be an array') })()
 
   if (!Number.isInteger(questionCount) || questionCount <= 0) {
     throw new Error('Compiled interview artifact has an invalid questionCount')
@@ -245,7 +143,6 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
     refinedContent,
     questions,
     questionCount,
-    changes,
     structuredOutput,
   }
 }

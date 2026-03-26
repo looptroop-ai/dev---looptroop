@@ -7,6 +7,13 @@ import {
   type InterviewQuestionChangeAttributionStatus,
 } from '@shared/interviewQuestions'
 import type { RefinementChange, RefinementChangeAttributionStatus } from '@shared/refinementChanges'
+import {
+  buildBeadsUiRefinementDiffArtifact,
+  buildInterviewUiRefinementDiffArtifact,
+  buildPrdUiRefinementDiffArtifact,
+  parseUiRefinementDiffArtifact,
+} from '@shared/refinementDiffArtifacts'
+import type { UiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 
 export interface ArtifactDef {
   id: string
@@ -127,6 +134,7 @@ export interface InterviewDiffArtifactData {
   questionCount?: number
   questions?: unknown[]
   changes?: InterviewQuestionChange[]
+  uiRefinementDiff?: UiRefinementDiffArtifact
   structuredOutput?: ArtifactStructuredOutputData
 }
 
@@ -153,6 +161,7 @@ export interface RefinementDiffArtifactData {
   refinedContent?: string
   winnerDraftContent?: string
   changes?: RefinementChange[]
+  uiRefinementDiff?: UiRefinementDiffArtifact
   draftMetrics?: {
     epicCount: number
     userStoryCount: number
@@ -162,16 +171,18 @@ export interface RefinementDiffArtifactData {
 
 export interface RefinementDiffEntry {
   key: string
-  type: 'modified' | 'added' | 'removed'
-  itemType?: string
+  changeType: 'modified' | 'added' | 'removed'
+  itemKind: string
+  label: string
   beforeId?: string
-  beforeLabel?: string
   afterId?: string
-  afterLabel?: string
+  beforeText?: string
+  afterText?: string
   inspiration?: {
     memberId: string
-    itemId: string
-    itemLabel: string
+    sourceId?: string
+    sourceLabel: string
+    sourceText?: string
   } | null
   attributionStatus?: RefinementChangeAttributionStatus
 }
@@ -328,6 +339,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function normalizeUiRefinementDiff(value: unknown): UiRefinementDiffArtifact | undefined {
+  if (typeof value === 'string') {
+    return parseUiRefinementDiffArtifact(value) ?? undefined
+  }
+  if (!isRecord(value)) return undefined
+  return parseUiRefinementDiffArtifact(JSON.stringify(value)) ?? undefined
+}
+
 export function normalizeArtifactStructuredOutput(value: unknown): ArtifactStructuredOutputData | undefined {
   if (!isRecord(value)) return undefined
 
@@ -381,6 +400,7 @@ export function parseRefinementArtifact(content: string): RefinementDiffArtifact
     refinedContent,
     winnerDraftContent: typeof parsed.winnerDraftContent === 'string' ? parsed.winnerDraftContent : undefined,
     changes: Array.isArray(parsed.changes) ? parsed.changes as RefinementChange[] : [],
+    uiRefinementDiff: normalizeUiRefinementDiff(parsed.uiRefinementDiff),
     draftMetrics: normalizeRefinementDraftMetrics(parsed.draftMetrics),
     structuredOutput: normalizeArtifactStructuredOutput(parsed.structuredOutput),
   }
@@ -399,6 +419,33 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
   if (!content) return []
   try {
     const parsed = JSON.parse(content) as InterviewDiffArtifactData
+    if (parsed.uiRefinementDiff?.domain === 'interview') {
+      const phaseLookup = new Map(
+        [...normalizeInterviewDiffQuestions(parsed.originalContent), ...normalizeInterviewDiffQuestions(parsed.refinedContent)]
+          .map((question) => [question.id, question.phase] as const),
+      )
+      return parsed.uiRefinementDiff.entries.flatMap((entry, index) => {
+        const id = entry.afterId || entry.beforeId || `Q${String(index + 1).padStart(2, '0')}`
+        const inspiration: InspirationDiffSource | null = entry.inspiration
+          ? {
+              memberId: entry.inspiration.memberId,
+              question: entry.inspiration.sourceText ?? entry.inspiration.sourceLabel,
+              questionId: entry.inspiration.sourceId,
+            }
+          : null
+
+        return [{
+          key: entry.key,
+          id,
+          changeType: entry.changeType,
+          phase: phaseLookup.get(id),
+          before: entry.beforeText,
+          after: entry.afterText,
+          ...(inspiration ? { inspiration } : {}),
+          attributionStatus: normalizeInterviewDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
+        }]
+      })
+    }
     if (Array.isArray(parsed.changes)) {
       const synthesizedIds = extractLegacySynthesizedInterviewIds(parsed.structuredOutput?.repairWarnings)
       return parsed.changes.flatMap((change, index) => {
@@ -445,38 +492,27 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
       })
     }
 
-    const originalQuestions = normalizeInterviewDiffQuestions(parsed.originalContent)
-    const refinedQuestions = normalizeInterviewDiffQuestions(parsed.refinedContent)
-    const maxLength = Math.max(originalQuestions.length, refinedQuestions.length)
-    const diffs: InterviewDiffEntry[] = []
+    if (!parsed.originalContent || !parsed.refinedContent) return []
 
-    for (let index = 0; index < maxLength; index += 1) {
-      const before = originalQuestions[index]
-      const after = refinedQuestions[index]
-      const id = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
-      const phase = after?.phase || before?.phase
-
-      if (!before && after) {
-        diffs.push({ key: `${id}:added`, id, changeType: 'added', phase, after: after.question })
-        continue
-      }
-      if (before && !after) {
-        diffs.push({ key: `${id}:removed`, id, changeType: 'removed', phase, before: before.question })
-        continue
-      }
-      if (before && after && (before.question !== after.question || before.phase !== after.phase)) {
-        diffs.push({
-          key: `${id}:modified`,
-          id,
-          changeType: 'modified',
-          phase,
-          before: before.question,
-          after: after.question,
-        })
-      }
-    }
-
-    return diffs
+    return buildInterviewUiRefinementDiffArtifact({
+      winnerId: parsed.winnerId ?? '',
+      winnerDraftContent: parsed.originalContent,
+      refinedContent: parsed.refinedContent,
+    }).entries.map((entry, index) => ({
+      key: entry.key,
+      id: entry.afterId || entry.beforeId || `Q${String(index + 1).padStart(2, '0')}`,
+      changeType: entry.changeType,
+      before: entry.beforeText,
+      after: entry.afterText,
+      inspiration: entry.inspiration
+        ? {
+            memberId: entry.inspiration.memberId,
+            question: entry.inspiration.sourceText ?? entry.inspiration.sourceLabel,
+            questionId: entry.inspiration.sourceId,
+          }
+        : null,
+      attributionStatus: normalizeInterviewDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
+    }))
   } catch {
     return []
   }
@@ -572,7 +608,11 @@ export function buildQuestionDiffSegments(before: string | undefined, after: str
   }
 }
 
-export function buildFinalInterviewArtifactContent(voteContent: string | null | undefined, compiledContent: string | null | undefined): string | null {
+export function buildFinalInterviewArtifactContent(
+  voteContent: string | null | undefined,
+  compiledContent: string | null | undefined,
+  uiDiffContent?: string | null | undefined,
+): string | null {
   if (!compiledContent) return null
   try {
     const compiled = JSON.parse(compiledContent) as {
@@ -581,6 +621,7 @@ export function buildFinalInterviewArtifactContent(voteContent: string | null | 
       questions?: unknown[]
       winnerId?: string
       changes?: unknown
+      uiRefinementDiff?: unknown
       structuredOutput?: ArtifactStructuredOutputData
     }
     const refinedContent = typeof compiled.refinedContent === 'string' ? compiled.refinedContent : ''
@@ -613,12 +654,41 @@ export function buildFinalInterviewArtifactContent(voteContent: string | null | 
       changes: Object.prototype.hasOwnProperty.call(compiled, 'changes') && Array.isArray(compiled.changes)
         ? compiled.changes as InterviewQuestionChange[]
         : undefined,
+      uiRefinementDiff: normalizeUiRefinementDiff(compiled.uiRefinementDiff) ?? normalizeUiRefinementDiff(uiDiffContent),
       structuredOutput: compiled.structuredOutput,
     }
     return JSON.stringify(payload)
   } catch {
     return null
   }
+}
+
+export function buildFinalRefinementArtifactContent(
+  refinedContent: string | null | undefined,
+  uiDiffContent?: string | null | undefined,
+  coverageInputContent?: string | null | undefined,
+): string | null {
+  const refinedArtifact = refinedContent ? parseRefinementArtifact(refinedContent) : null
+  const coverageInput = coverageInputContent ? tryParseStructuredContent(coverageInputContent) : null
+  const coverageRecord = isRecord(coverageInput) ? coverageInput : null
+
+  const nextRefinedContent = typeof coverageRecord?.refinedContent === 'string'
+    ? coverageRecord.refinedContent
+    : refinedArtifact?.refinedContent ?? ''
+  if (!nextRefinedContent.trim()) return null
+
+  const payload: RefinementDiffArtifactData & CoverageInputData = {
+    ...(coverageRecord ? coverageRecord as CoverageInputData : {}),
+    winnerId: refinedArtifact?.winnerId,
+    refinedContent: nextRefinedContent,
+    winnerDraftContent: refinedArtifact?.winnerDraftContent,
+    changes: refinedArtifact?.changes,
+    uiRefinementDiff: refinedArtifact?.uiRefinementDiff ?? normalizeUiRefinementDiff(uiDiffContent),
+    draftMetrics: refinedArtifact?.draftMetrics,
+    structuredOutput: refinedArtifact?.structuredOutput,
+  }
+
+  return JSON.stringify(payload)
 }
 
 export function normalizeCoverageFollowUpArtifacts(questions: unknown): CoverageFollowUpArtifactQuestion[] {
@@ -748,10 +818,77 @@ export function resolveStaticArtifact(
     ?? findByPredicate(artifact => Boolean(artifact.content))
 }
 
-export function buildRefinementDiffEntries(content: string | undefined): RefinementDiffEntry[] {
+export function buildRefinementDiffEntries(
+  content: string | undefined,
+  domain?: 'prd' | 'beads',
+): RefinementDiffEntry[] {
   if (!content) return []
   const parsed = parseRefinementArtifact(content)
-  if (!parsed || !Array.isArray(parsed.changes)) return []
+  if (!parsed) return []
+
+  if (parsed.uiRefinementDiff && (parsed.uiRefinementDiff.domain === 'prd' || parsed.uiRefinementDiff.domain === 'beads')) {
+    return parsed.uiRefinementDiff.entries.flatMap((entry) => {
+      if (entry.changeType === 'replaced') return []
+      return [{
+        key: entry.key,
+        changeType: entry.changeType,
+        itemKind: entry.itemKind,
+        label: entry.label,
+        beforeId: entry.beforeId,
+        afterId: entry.afterId,
+        beforeText: entry.beforeText,
+        afterText: entry.afterText,
+        inspiration: entry.inspiration
+          ? {
+              memberId: entry.inspiration.memberId,
+              sourceId: entry.inspiration.sourceId,
+              sourceLabel: entry.inspiration.sourceLabel,
+              sourceText: entry.inspiration.sourceText,
+            }
+          : null,
+        attributionStatus: normalizeRefinementDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
+      }]
+    })
+  }
+
+  if (parsed.winnerDraftContent && parsed.refinedContent && domain) {
+    const fallbackArtifact = domain === 'prd'
+      ? buildPrdUiRefinementDiffArtifact({
+          winnerId: parsed.winnerId ?? '',
+          winnerDraftContent: parsed.winnerDraftContent,
+          refinedContent: parsed.refinedContent,
+        })
+      : buildBeadsUiRefinementDiffArtifact({
+          winnerId: parsed.winnerId ?? '',
+          winnerDraftContent: parsed.winnerDraftContent,
+          refinedContent: parsed.refinedContent,
+        })
+
+    return fallbackArtifact.entries.flatMap((entry) => {
+      if (entry.changeType === 'replaced') return []
+      return [{
+        key: entry.key,
+        changeType: entry.changeType,
+        itemKind: entry.itemKind,
+        label: entry.label,
+        beforeId: entry.beforeId,
+        afterId: entry.afterId,
+        beforeText: entry.beforeText,
+        afterText: entry.afterText,
+        inspiration: entry.inspiration
+          ? {
+              memberId: entry.inspiration.memberId,
+              sourceId: entry.inspiration.sourceId,
+              sourceLabel: entry.inspiration.sourceLabel,
+              sourceText: entry.inspiration.sourceText,
+            }
+          : null,
+        attributionStatus: normalizeRefinementDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
+      }]
+    })
+  }
+
+  if (!Array.isArray(parsed.changes)) return []
 
   return parsed.changes.flatMap((change, index) => {
     const normalizedType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
@@ -766,8 +903,8 @@ export function buildRefinementDiffEntries(content: string | undefined): Refinem
     const inspiration = change.inspiration
       ? {
           memberId: change.inspiration.memberId ?? '',
-          itemId: change.inspiration.item?.id ?? '',
-          itemLabel: change.inspiration.item?.label ?? '',
+          sourceId: change.inspiration.item?.id ?? '',
+          sourceLabel: change.inspiration.item?.label ?? '',
         }
       : change.inspiration === null ? null : undefined
     const attributionStatus = normalizeRefinementDiffAttributionStatus(change.attributionStatus)
@@ -775,12 +912,13 @@ export function buildRefinementDiffEntries(content: string | undefined): Refinem
 
     return [{
       key,
-      type: normalizedType as RefinementDiffEntry['type'],
-      itemType: change.itemType,
+      changeType: normalizedType as RefinementDiffEntry['changeType'],
+      itemKind: change.itemType ?? 'item',
+      label: change.after?.label ?? change.before?.label ?? change.after?.id ?? change.before?.id ?? key,
       beforeId: change.before?.id,
-      beforeLabel: change.before?.label,
+      beforeText: change.before?.label,
       afterId: change.after?.id,
-      afterLabel: change.after?.label,
+      afterText: change.after?.label,
       ...(inspiration !== undefined ? { inspiration } : {}),
       attributionStatus,
     }]

@@ -358,16 +358,16 @@ describe('handlePrdRefine', () => {
       }) => Array<{ type: 'text'; content: string }>,
     ) => {
       const invalidOutput = validOutput.replace(/\nchanges:[\s\S]*$/, '')
-      expect(() => validateResponse?.(invalidOutput)).toThrow('PRD refinement output is missing changes')
+      expect(validateResponse?.(invalidOutput)?.normalizedContent).toContain('artifact: prd')
 
       const retryPrompt = buildRetryPrompt?.({
         baseParts: [{ type: 'text', content: 'original prompt' }],
-        validationError: 'PRD refinement output is missing changes',
+        validationError: 'unexpected wrapper',
         rawResponse: invalidOutput,
       }) ?? []
       const retryPromptText = retryPrompt.map((part) => part.content).join('\n')
       expect(retryPromptText).toContain('PRD Refinement Structured Output Retry')
-      expect(retryPromptText).toContain('changes')
+      expect(retryPromptText).not.toContain('\nchanges:')
 
       return validateResponse?.(validOutput).normalizedContent ?? validOutput
     })
@@ -378,14 +378,15 @@ describe('handlePrdRefine', () => {
     expect(refinedArtifact).toBeDefined()
     const parsed = parsePrdRefinedArtifact(refinedArtifact!.content)
     expect(parsed.draftMetrics).toEqual({ epicCount: 1, userStoryCount: 2 })
-    expect(parsed.changes).toHaveLength(4)
+    expect(parsed.changes).toEqual([])
     expect(parsed.winnerDraftContent).toContain('title: Prompt hardening')
     expect(parsed.structuredOutput).toMatchObject({
-      autoRetryCount: 1,
+      autoRetryCount: 0,
       repairApplied: true,
     })
-    expect(parsed.structuredOutput?.validationError).toContain('missing changes')
+    expect(parsed.structuredOutput?.validationError).toBeUndefined()
     expect(parsed.structuredOutput?.repairWarnings.join('\n')).toContain('Inferred missing PRD refinement item_type')
+    expect(getLatestPhaseArtifact(ticket.id, 'ui_refinement_diff:prd', 'REFINING_PRD')).toBeDefined()
 
     expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8').trim()).toBe(parsed.refinedContent.trim())
     expect(getLatestPhaseArtifact(ticket.id, 'prd_winner', 'REFINING_PRD')).toBeDefined()
@@ -457,7 +458,7 @@ describe('handlePrdRefine', () => {
       changes?: unknown[]
     }
     expect(parsedCoverageInput.refinedContent).toBe(refinement.refinedContent)
-    expect(parsedCoverageInput.changes).toHaveLength(4)
+    expect(parsedCoverageInput.changes).toBeUndefined()
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
   })
