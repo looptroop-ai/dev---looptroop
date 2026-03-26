@@ -153,6 +153,54 @@ describe('structured output normalization', () => {
     expect(result.normalizedContent).toContain('changes:')
   })
 
+  it('marks malformed interview inspiration as invalid without dropping the change', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+      '    inspiration:',
+      '      alternative_draft: 1',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+        inspiration: null,
+        attributionStatus: 'invalid_unattributed',
+      },
+    ])
+  })
+
   it('preserves folded refinement questions instead of corrupting them during YAML repair', () => {
     const winnerDraft = [
       'questions:',
@@ -274,6 +322,7 @@ describe('structured output normalization', () => {
           question: 'What user problem are we solving?',
         },
         inspiration: null,
+        attributionStatus: 'model_unattributed',
       },
     ])
   })
@@ -412,6 +461,7 @@ describe('structured output normalization', () => {
           question: 'What components need to interact?',
         },
         inspiration: null,
+        attributionStatus: 'model_unattributed',
       },
       {
         type: 'replaced',
@@ -426,6 +476,7 @@ describe('structured output normalization', () => {
           question: 'How should data flow between modules?',
         },
         inspiration: null,
+        attributionStatus: 'model_unattributed',
       },
     ])
   })
@@ -485,6 +536,7 @@ describe('structured output normalization', () => {
           question: 'What user problem are we solving?',
         },
         inspiration: null,
+        attributionStatus: 'model_unattributed',
       },
       {
         type: 'modified',
@@ -499,6 +551,7 @@ describe('structured output normalization', () => {
           question: 'How should success be verified in practice?',
         },
         inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
       },
     ])
   })
@@ -541,6 +594,7 @@ describe('structured output normalization', () => {
           question: 'What user problem are we solving?',
         },
         inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
       },
     ])
   })
@@ -585,6 +639,7 @@ describe('structured output normalization', () => {
           question: 'What user problem are we solving?',
         },
         inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
       },
     ])
   })

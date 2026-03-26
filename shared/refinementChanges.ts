@@ -1,4 +1,9 @@
 export type RefinementChangeType = 'modified' | 'added' | 'removed'
+export type RefinementChangeAttributionStatus =
+  | 'inspired'
+  | 'model_unattributed'
+  | 'synthesized_unattributed'
+  | 'invalid_unattributed'
 
 export interface RefinementChangeItem {
   id: string
@@ -18,4 +23,5 @@ export interface RefinementChange {
   before?: RefinementChangeItem | null
   after?: RefinementChangeItem | null
   inspiration?: RefinementChangeInspiration | null
+  attributionStatus?: RefinementChangeAttributionStatus
 }

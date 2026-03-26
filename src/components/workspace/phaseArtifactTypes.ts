@@ -1,8 +1,12 @@
 import jsYaml from 'js-yaml'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
-import { extractInterviewQuestionPreviews, type InterviewQuestionChange } from '@shared/interviewQuestions'
-import type { RefinementChange } from '@shared/refinementChanges'
+import {
+  extractInterviewQuestionPreviews,
+  type InterviewQuestionChange,
+  type InterviewQuestionChangeAttributionStatus,
+} from '@shared/interviewQuestions'
+import type { RefinementChange, RefinementChangeAttributionStatus } from '@shared/refinementChanges'
 
 export interface ArtifactDef {
   id: string
@@ -77,6 +81,13 @@ export interface CoverageArtifactData {
   }
 }
 
+export interface ArtifactStructuredOutputData {
+  repairApplied?: boolean
+  repairWarnings?: string[]
+  autoRetryCount?: number
+  validationError?: string
+}
+
 export interface CouncilDraftData {
   memberId: string
   outcome?: CouncilOutcome
@@ -116,6 +127,7 @@ export interface InterviewDiffArtifactData {
   questionCount?: number
   questions?: unknown[]
   changes?: InterviewQuestionChange[]
+  structuredOutput?: ArtifactStructuredOutputData
 }
 
 export interface InspirationDiffSource {
@@ -133,6 +145,7 @@ export interface InterviewDiffEntry {
   before?: string
   after?: string
   inspiration?: InspirationDiffSource | null
+  attributionStatus?: InterviewQuestionChangeAttributionStatus
 }
 
 export interface RefinementDiffArtifactData {
@@ -140,6 +153,7 @@ export interface RefinementDiffArtifactData {
   refinedContent?: string
   winnerDraftContent?: string
   changes?: RefinementChange[]
+  structuredOutput?: ArtifactStructuredOutputData
 }
 
 export interface RefinementDiffEntry {
@@ -155,6 +169,7 @@ export interface RefinementDiffEntry {
     itemId: string
     itemLabel: string
   } | null
+  attributionStatus?: RefinementChangeAttributionStatus
 }
 
 export interface QuestionDiffSegment {
@@ -188,6 +203,8 @@ export type ViewingArtifactSelection =
 export type { CouncilOutcome }
 
 export const QUESTION_DIFF_TOKEN_PATTERN = /(\s+|[A-Za-z0-9_]+|[^A-Za-z0-9_\s]+)/g
+type InterviewDiffAttributionStatus = NonNullable<InterviewQuestionChange['attributionStatus']>
+type RefinementDiffAttributionStatus = NonNullable<RefinementChange['attributionStatus']>
 
 export function extractDraftDetail(content: string | null): string {
   if (!content) return ''
@@ -279,11 +296,45 @@ export function normalizeInterviewDiffQuestionRecord(value: unknown, fallbackInd
   return { id, phase, question }
 }
 
+function normalizeInterviewDiffAttributionStatus(value: unknown): InterviewDiffAttributionStatus | undefined {
+  if (
+    value === 'inspired'
+    || value === 'model_unattributed'
+    || value === 'synthesized_unattributed'
+    || value === 'invalid_unattributed'
+  ) {
+    return value
+  }
+  return undefined
+}
+
+function normalizeRefinementDiffAttributionStatus(value: unknown): RefinementDiffAttributionStatus | undefined {
+  if (
+    value === 'inspired'
+    || value === 'model_unattributed'
+    || value === 'synthesized_unattributed'
+    || value === 'invalid_unattributed'
+  ) {
+    return value
+  }
+  return undefined
+}
+
+function extractLegacySynthesizedInterviewIds(repairWarnings: string[] | undefined): Set<string> {
+  const synthesizedIds = new Set<string>()
+  for (const warning of repairWarnings ?? []) {
+    const match = warning.match(/Synthesized omitted interview refinement modified change for (\S+)/i)
+    if (match?.[1]) synthesizedIds.add(match[1])
+  }
+  return synthesizedIds
+}
+
 export function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEntry[] {
   if (!content) return []
   try {
     const parsed = JSON.parse(content) as InterviewDiffArtifactData
     if (Array.isArray(parsed.changes)) {
+      const synthesizedIds = extractLegacySynthesizedInterviewIds(parsed.structuredOutput?.repairWarnings)
       return parsed.changes.flatMap((change, index) => {
         const normalizedType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
         if (
@@ -308,6 +359,12 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
               phase: change.inspiration.question?.phase,
             }
           : change.inspiration === null ? null : undefined
+        const attributionStatus = normalizeInterviewDiffAttributionStatus(change.attributionStatus)
+          ?? (inspiration
+            ? 'inspired'
+            : synthesizedIds.has(id)
+              ? 'synthesized_unattributed'
+              : 'model_unattributed')
 
         return [{
           key: `${id}:${normalizedType}:${index}`,
@@ -317,6 +374,7 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
           before: before?.question,
           after: after?.question,
           ...(inspiration !== undefined ? { inspiration } : {}),
+          attributionStatus,
         }]
       })
     }
@@ -457,6 +515,7 @@ export function buildFinalInterviewArtifactContent(voteContent: string | null | 
       questions?: unknown[]
       winnerId?: string
       changes?: unknown
+      structuredOutput?: ArtifactStructuredOutputData
     }
     const refinedContent = typeof compiled.refinedContent === 'string' ? compiled.refinedContent : ''
     if (!refinedContent) return null
@@ -488,6 +547,7 @@ export function buildFinalInterviewArtifactContent(voteContent: string | null | 
       changes: Object.prototype.hasOwnProperty.call(compiled, 'changes') && Array.isArray(compiled.changes)
         ? compiled.changes as InterviewQuestionChange[]
         : undefined,
+      structuredOutput: compiled.structuredOutput,
     }
     return JSON.stringify(payload)
   } catch {
@@ -645,6 +705,8 @@ export function buildRefinementDiffEntries(content: string | undefined): Refinem
             itemLabel: change.inspiration.item?.label ?? '',
           }
         : change.inspiration === null ? null : undefined
+      const attributionStatus = normalizeRefinementDiffAttributionStatus(change.attributionStatus)
+        ?? (inspiration ? 'inspired' : 'model_unattributed')
 
       return [{
         key,
@@ -655,6 +717,7 @@ export function buildRefinementDiffEntries(content: string | undefined): Refinem
         afterId: change.after?.id,
         afterLabel: change.after?.label,
         ...(inspiration !== undefined ? { inspiration } : {}),
+        attributionStatus,
       }]
     })
   } catch {

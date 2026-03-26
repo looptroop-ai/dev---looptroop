@@ -5,9 +5,11 @@ import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb } from 'lucid
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import type {
+  ArtifactStructuredOutputData,
   InterviewArtifactData,
   InterviewArtifactQuestion,
   InterviewDiffArtifactData,
+  InterviewDiffEntry,
   CoverageInputData,
   CouncilResultData,
   CouncilOutcome,
@@ -16,6 +18,7 @@ import type {
   RelevantFilesScanData,
   InspirationDiffSource,
   RefinementDiffArtifactData,
+  RefinementDiffEntry,
 } from './phaseArtifactTypes'
 import {
   tryParseStructuredContent,
@@ -320,9 +323,9 @@ function InterviewInspirationTooltip({ inspiration }: { inspiration: Inspiration
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors" type="button">
+          <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors">
             <Lightbulb className="h-3 w-3 text-amber-500" />
-          </button>
+          </span>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs">
           <div className="space-y-1">
@@ -343,9 +346,9 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors" type="button">
+          <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors">
             <Lightbulb className="h-3 w-3 text-amber-500" />
-          </button>
+          </span>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs">
           <div className="space-y-1">
@@ -363,7 +366,84 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
   )
 }
 
+type DiffAttributionStatus = NonNullable<InterviewDiffEntry['attributionStatus'] | RefinementDiffEntry['attributionStatus']>
+
+function getDiffAttributionCopy(status: DiffAttributionStatus): { label: string; description: string; className: string } {
+  if (status === 'synthesized_unattributed') {
+    return {
+      label: 'Auto-detected diff',
+      description: 'This diff entry was synthesized during validation because the winner and final artifacts differed, but no reliable inspiration source was recorded.',
+      className: 'border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100',
+    }
+  }
+
+  if (status === 'invalid_unattributed') {
+    return {
+      label: 'Attribution cleared',
+      description: 'This change originally carried attribution data, but that source information could not be validated and was cleared.',
+      className: 'border-rose-200 bg-rose-50/70 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-100',
+    }
+  }
+
+  return {
+    label: 'No source recorded',
+    description: 'The model did not attribute this change to an alternative draft. This is common for editorial rewrites, removals, and other unattributed edits.',
+    className: 'border-border bg-muted/40 text-foreground',
+  }
+}
+
+function ChangeAttributionBadge({ status }: { status: DiffAttributionStatus }) {
+  const copy = getDiffAttributionCopy(status)
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${copy.className}`}>
+            {copy.label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <div className="space-y-1">
+            <div className="font-medium">{copy.label}</div>
+            <div className="text-[11px] opacity-90 leading-snug">{copy.description}</div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: ArtifactStructuredOutputData }) {
+  const repairWarnings = (structuredOutput?.repairWarnings ?? []).filter(
+    (warning): warning is string => typeof warning === 'string' && warning.trim().length > 0,
+  )
+
+  if (!structuredOutput?.repairApplied && repairWarnings.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100">
+      <div className="font-medium">Normalization repaired this artifact.</div>
+      <div className="mt-1 leading-5">
+        Some diff entries may be auto-detected or have cleared attribution because the stored artifact needed validation repairs.
+      </div>
+      {repairWarnings[0] && (
+        <div className="mt-1 text-[11px] opacity-90 leading-5">{repairWarnings[0]}</div>
+      )}
+    </div>
+  )
+}
+
 function RefinementDiffView({ content }: { content: string }) {
+  let parsed: RefinementDiffArtifactData | null = null
+  try {
+    parsed = JSON.parse(content) as RefinementDiffArtifactData
+  } catch {
+    parsed = null
+  }
+
   const diffs = buildRefinementDiffEntries(content)
   const modifiedCount = diffs.filter((d) => d.type === 'modified').length
   const addedCount = diffs.filter((d) => d.type === 'added').length
@@ -379,6 +459,7 @@ function RefinementDiffView({ content }: { content: string }) {
 
   return (
     <div className="space-y-3">
+      <StructuredRepairNotice structuredOutput={parsed?.structuredOutput} />
       <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Added {addedCount}</span>
@@ -401,7 +482,11 @@ function RefinementDiffView({ content }: { content: string }) {
                 >
                   {diff.type === 'modified' ? 'Modified' : diff.type === 'added' ? 'Added' : 'Removed'}
                 </span>
-                {diff.inspiration && <RefinementInspirationTooltip inspiration={diff.inspiration} />}
+                {diff.inspiration
+                  ? <RefinementInspirationTooltip inspiration={diff.inspiration} />
+                  : diff.attributionStatus && diff.attributionStatus !== 'inspired'
+                    ? <ChangeAttributionBadge status={diff.attributionStatus} />
+                    : null}
               </span>
             )}
           >
@@ -446,6 +531,7 @@ function InterviewDraftDiffView({ content }: { content: string }) {
       <div className="text-xs text-muted-foreground">
         Comparing winning draft from {winnerLabel} ({parsed?.originalQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.originalContent).length} questions) with the final refined interview ({parsed?.refinedQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.refinedContent).length} questions).
       </div>
+      <StructuredRepairNotice structuredOutput={parsed?.structuredOutput} />
       <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Replaced {replacedCount}</span>
@@ -485,7 +571,11 @@ function InterviewDraftDiffView({ content }: { content: string }) {
                             ? 'Added'
                             : 'Removed'}
                     </span>
-                    {diff.inspiration && <InterviewInspirationTooltip inspiration={diff.inspiration} />}
+                    {diff.inspiration
+                      ? <InterviewInspirationTooltip inspiration={diff.inspiration} />
+                      : diff.attributionStatus && diff.attributionStatus !== 'inspired'
+                        ? <ChangeAttributionBadge status={diff.attributionStatus} />
+                        : null}
                   </span>
                 )}
               >

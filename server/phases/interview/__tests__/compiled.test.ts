@@ -112,6 +112,7 @@ describe('compiled interview artifacts', () => {
           question: 'What user problem are we solving?',
         },
         inspiration: null,
+        attributionStatus: 'model_unattributed',
       },
       {
         type: 'modified',
@@ -126,6 +127,7 @@ describe('compiled interview artifacts', () => {
           question: 'How should success be verified in practice?',
         },
         inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
       },
     ])
   })

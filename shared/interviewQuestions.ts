@@ -14,6 +14,11 @@ export interface ParsedInterviewQuestion {
 }
 
 export type InterviewQuestionChangeType = 'modified' | 'replaced' | 'added' | 'removed'
+export type InterviewQuestionChangeAttributionStatus =
+  | 'inspired'
+  | 'model_unattributed'
+  | 'synthesized_unattributed'
+  | 'invalid_unattributed'
 
 export interface InspirationSource {
   draftIndex: number
@@ -26,6 +31,7 @@ export interface InterviewQuestionChange {
   before?: ParsedInterviewQuestion | null
   after?: ParsedInterviewQuestion | null
   inspiration?: InspirationSource | null
+  attributionStatus?: InterviewQuestionChangeAttributionStatus
 }
 
 export interface ParseInterviewQuestionsOptions {
@@ -639,5 +645,4 @@ export function formatInterviewQuestionPreview(
     ...(remainingCount > 0 ? [`... ${remainingCount} more ${remainingCount === 1 ? 'question' : 'questions'}`] : []),
   ].join('\n')
 }
-
 

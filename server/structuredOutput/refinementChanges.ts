@@ -1,4 +1,10 @@
-import type { RefinementChange, RefinementChangeInspiration, RefinementChangeItem, RefinementChangeType } from '@shared/refinementChanges'
+import type {
+  RefinementChange,
+  RefinementChangeAttributionStatus,
+  RefinementChangeInspiration,
+  RefinementChangeItem,
+  RefinementChangeType,
+} from '@shared/refinementChanges'
 import { isRecord, normalizeKey, getValueByAliases, toInteger, toOptionalString } from './yamlUtils'
 
 function normalizeRefinementChangeType(value: unknown): RefinementChangeType | null {
@@ -76,9 +82,14 @@ export function parseRefinementChanges(
     const after = rawAfter === null ? null : normalizeRefinementChangeItem(rawAfter)
 
     const rawInspiration = getValueByAliases(entry, ['inspiration', 'inspired_by'])
-    const inspiration = rawInspiration === null
+    const inspiration = rawInspiration === null || rawInspiration === undefined
       ? null
       : normalizeRefinementInspiration(rawInspiration, losingDraftMeta)
+    const attributionStatus: RefinementChangeAttributionStatus = inspiration
+      ? 'inspired'
+      : rawInspiration === null || rawInspiration === undefined
+        ? 'model_unattributed'
+        : 'invalid_unattributed'
 
     changes.push({
       type,
@@ -86,6 +97,7 @@ export function parseRefinementChanges(
       before: before ?? null,
       after: after ?? null,
       inspiration: inspiration ?? null,
+      attributionStatus,
     })
   }
 

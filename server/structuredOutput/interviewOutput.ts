@@ -1,5 +1,5 @@
 import { parseInterviewQuestions, type ParsedInterviewQuestion } from '../phases/interview/questions'
-import type { InterviewQuestionChangeType } from '@shared/interviewQuestions'
+import type { InterviewQuestionChangeAttributionStatus, InterviewQuestionChangeType } from '@shared/interviewQuestions'
 import { MAX_SINGLE_CHOICE_OPTIONS, MAX_MULTIPLE_CHOICE_OPTIONS } from '../lib/constants'
 import { looksLikePromptEcho } from '../lib/promptEcho'
 import type {
@@ -60,6 +60,7 @@ interface NormalizedInterviewRefinementChange {
   before: NormalizedInterviewQuestion | null
   after: NormalizedInterviewQuestion | null
   inspiration: NormalizedInspirationSource | null
+  attributionStatus: InterviewQuestionChangeAttributionStatus
 }
 
 interface ParsedInterviewRefinementChangeCandidate {
@@ -67,6 +68,7 @@ interface ParsedInterviewRefinementChangeCandidate {
   before: NormalizedInterviewQuestion | null | undefined
   after: NormalizedInterviewQuestion | null | undefined
   inspiration: NormalizedInspirationSource | null | undefined
+  attributionStatus: InterviewQuestionChangeAttributionStatus
   sourceIndex: number
 }
 
@@ -242,9 +244,12 @@ function parseInterviewRefinementChangeEntry(
 
   // Parse optional inspiration (soft-repair: malformed → null)
   let inspiration: NormalizedInspirationSource | null | undefined = undefined
+  let attributionStatus: InterviewQuestionChangeAttributionStatus = 'model_unattributed'
   const rawInspiration = getValueByAliases(value, ['inspiration', 'inspired_by', 'source_inspiration'])
   if (rawInspiration === null) {
     inspiration = null
+  } else if (rawInspiration === undefined) {
+    inspiration = undefined
   } else if (isRecord(rawInspiration)) {
     try {
       const altDraft = toInteger(getValueByAliases(rawInspiration, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index']))
@@ -256,12 +261,18 @@ function parseInterviewRefinementChangeEntry(
           `Interview refinement change.inspiration.question at index ${index}`,
         )
         inspiration = { draftIndex, memberId: '', question }
+        attributionStatus = 'inspired'
       } else {
         inspiration = null
+        attributionStatus = 'invalid_unattributed'
       }
     } catch {
       inspiration = null
+      attributionStatus = 'invalid_unattributed'
     }
+  } else {
+    inspiration = null
+    attributionStatus = 'invalid_unattributed'
   }
 
   if (type === 'modified' || type === 'replaced') {
@@ -274,7 +285,7 @@ function parseInterviewRefinementChangeEntry(
     if (hasAfter && after === null) {
       throw new Error(`Interview refinement change at index ${index} must use a populated after for type ${type}`)
     }
-    return { type, before, after, inspiration, sourceIndex: index }
+    return { type, before, after, inspiration, attributionStatus, sourceIndex: index }
   }
 
   if (!hasBefore) throw new Error(`Interview refinement change at index ${index} is missing before`)
@@ -286,7 +297,14 @@ function parseInterviewRefinementChangeEntry(
     throw new Error(`Interview refinement change at index ${index} with type removed must use after: null and a populated before`)
   }
 
-  return { type, before, after, inspiration: type === 'removed' ? null : inspiration, sourceIndex: index }
+  return {
+    type,
+    before,
+    after,
+    inspiration: type === 'removed' ? null : inspiration,
+    attributionStatus,
+    sourceIndex: index,
+  }
 }
 
 function resolveCanonicalInterviewQuestion(
@@ -369,6 +387,7 @@ function canonicalizeInterviewRefinementChanges(
       before,
       after,
       inspiration: change.inspiration,
+      attributionStatus: change.attributionStatus,
       sourceIndex: change.sourceIndex,
     })
   }
@@ -392,6 +411,7 @@ function canonicalizeInterviewRefinementChanges(
           before: orphanedWinner,
           after: change.after,
           inspiration: change.inspiration,
+          attributionStatus: change.attributionStatus,
           sourceIndex: change.sourceIndex,
         }
         winnerById.delete(change.after.id)
@@ -429,6 +449,9 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
   change: ParsedInterviewRefinementChangeCandidate,
 ): NormalizedInterviewRefinementChange {
   const inspiration = change.inspiration ?? null
+  const attributionStatus: InterviewQuestionChangeAttributionStatus = inspiration
+    ? 'inspired'
+    : change.attributionStatus
 
   if (change.type === 'modified' || change.type === 'replaced') {
     if (!change.before || !change.after) {
@@ -440,6 +463,7 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
       before: change.before,
       after: change.after,
       inspiration,
+      attributionStatus,
     }
   }
 
@@ -452,6 +476,7 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
       before: null,
       after: change.after,
       inspiration,
+      attributionStatus,
     }
   }
 
@@ -463,6 +488,7 @@ function normalizeCompleteInterviewRefinementChangeCandidate(
     before: change.before,
     after: null,
     inspiration: null,
+    attributionStatus,
   }
 }
 
@@ -507,6 +533,7 @@ function synthesizeOmittedSameIdentityInterviewRefinementChanges(
       before: winnerQuestion,
       after: finalQuestion,
       inspiration: null,
+      attributionStatus: 'synthesized_unattributed',
       sourceIndex: -1,
     })
     usedBeforeKeys.add(beforeKey)
@@ -1256,6 +1283,7 @@ export function normalizeInterviewRefinementOutput(
               `Inspiration draftIndex ${change.inspiration.draftIndex} is out of bounds (${losingDraftMeta.length} alternatives). Setting inspiration to null.`,
             )
             ;(change as { inspiration: NormalizedInspirationSource | null }).inspiration = null
+            change.attributionStatus = 'invalid_unattributed'
           }
         }
       }
@@ -1283,6 +1311,7 @@ export function normalizeInterviewRefinementOutput(
             type: change.type,
             before: change.before,
             after: change.after,
+            attributionStatus: change.attributionStatus,
             ...(change.inspiration
               ? {
                   inspiration: {

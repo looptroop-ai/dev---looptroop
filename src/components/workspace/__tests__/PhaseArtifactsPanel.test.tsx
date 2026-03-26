@@ -227,18 +227,34 @@ describe('PhaseArtifactsPanel', () => {
             type: 'replaced',
             before: { id: 'Q02', phase: 'Structure', question: 'Replacement source question?' },
             after: { id: 'Q03', phase: 'Structure', question: 'Replacement target question?' },
+            inspiration: {
+              draftIndex: 0,
+              memberId: 'openai/gpt-5.1-codex',
+              question: { id: 'Q07', phase: 'Structure', question: 'Alternative draft replacement question?' },
+            },
+            attributionStatus: 'inspired',
           },
           {
             type: 'added',
             before: null,
             after: { id: 'Q04', phase: 'Assembly', question: 'Added question?' },
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
           },
           {
             type: 'removed',
             before: { id: 'Q05', phase: 'Assembly', question: 'Removed winner question?' },
             after: null,
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
           },
         ],
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: [
+            'Synthesized omitted interview refinement modified change for Q01 by matching id and phase across the winning and final drafts.',
+          ],
+        },
       }),
     }
 
@@ -274,6 +290,8 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Added 1')).toBeInTheDocument()
     expect(screen.getByText('Removed 1')).toBeInTheDocument()
     expect(screen.getByText('Replaced')).toBeInTheDocument()
+    expect(screen.getByText('Auto-detected diff')).toBeInTheDocument()
+    expect(screen.getAllByText('No source recorded').length).toBeGreaterThan(0)
     expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(expect.arrayContaining(['Original', 'Refined']))
   })
 
@@ -666,6 +684,54 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByText('Refined PRD review').closest('button')!)
 
     expect(screen.getByText('Inspect refined PRD sections')).toBeInTheDocument()
+  })
+
+  it('shows no-source badges in generic refinement diff views', () => {
+    const refinedArtifact: DBartifact = {
+      id: 330,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Original PRD review',
+          storyTitle: 'Inspect original PRD sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+        changes: [
+          {
+            type: 'modified',
+            itemType: 'epic',
+            before: { id: 'EPIC-1', label: 'Original PRD review' },
+            after: { id: 'EPIC-1', label: 'Refined PRD review' },
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
+          },
+        ],
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+
+    expect(screen.getByText('Modified 1')).toBeInTheDocument()
+    expect(screen.getByText('No source recorded')).toBeInTheDocument()
+    expect(screen.getByText('Original PRD review')).toBeInTheDocument()
+    expect(screen.getByText('Refined PRD review')).toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {

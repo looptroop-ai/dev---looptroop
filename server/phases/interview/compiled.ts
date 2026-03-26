@@ -1,6 +1,11 @@
 import type { ParsedInterviewQuestion } from './questions'
-import type { InspirationSource, InterviewQuestionChange, InterviewQuestionChangeType } from '@shared/interviewQuestions'
-import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
+import type {
+  InspirationSource,
+  InterviewQuestionChange,
+  InterviewQuestionChangeAttributionStatus,
+  InterviewQuestionChangeType,
+} from '@shared/interviewQuestions'
+import { normalizeInterviewRefinementOutput, type StructuredOutputMetadata } from '../../structuredOutput'
 
 export interface CompiledInterviewArtifact {
   winnerId: string
@@ -8,6 +13,7 @@ export interface CompiledInterviewArtifact {
   questions: ParsedInterviewQuestion[]
   questionCount: number
   changes: InterviewQuestionChange[]
+  structuredOutput?: StructuredOutputMetadata
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -62,6 +68,43 @@ function normalizeArtifactInspirationSource(value: unknown): InspirationSource |
   return { draftIndex, memberId, question: { id, phase, question } }
 }
 
+function normalizeArtifactAttributionStatus(
+  value: unknown,
+  inspiration: InspirationSource | null,
+): InterviewQuestionChangeAttributionStatus {
+  if (
+    value === 'inspired'
+    || value === 'model_unattributed'
+    || value === 'synthesized_unattributed'
+    || value === 'invalid_unattributed'
+  ) {
+    return value
+  }
+  return inspiration ? 'inspired' : 'model_unattributed'
+}
+
+function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMetadata | undefined {
+  if (!isRecord(value)) return undefined
+
+  const repairApplied = typeof value.repairApplied === 'boolean' ? value.repairApplied : false
+  const repairWarnings = Array.isArray(value.repairWarnings)
+    ? value.repairWarnings.filter((warning): warning is string => typeof warning === 'string')
+    : []
+  const autoRetryCount = typeof value.autoRetryCount === 'number' && Number.isInteger(value.autoRetryCount)
+    ? value.autoRetryCount
+    : 0
+  const validationError = typeof value.validationError === 'string' && value.validationError.trim()
+    ? value.validationError
+    : undefined
+
+  return {
+    repairApplied,
+    repairWarnings,
+    autoRetryCount,
+    ...(validationError ? { validationError } : {}),
+  }
+}
+
 function normalizeArtifactChange(value: unknown, index: number): InterviewQuestionChange {
   if (!isRecord(value)) {
     throw new Error(`Compiled interview change at index ${index} is not an object`)
@@ -72,11 +115,14 @@ function normalizeArtifactChange(value: unknown, index: number): InterviewQuesti
   if (!hasBefore) throw new Error(`Compiled interview change at index ${index} is missing before`)
   if (!hasAfter) throw new Error(`Compiled interview change at index ${index} is missing after`)
 
+  const inspiration = normalizeArtifactInspirationSource(value.inspiration)
+
   return {
     type: normalizeArtifactChangeType(value.type, index),
     before: value.before === null ? null : normalizeArtifactQuestion(value.before, index),
     after: value.after === null ? null : normalizeArtifactQuestion(value.after, index),
-    inspiration: normalizeArtifactInspirationSource(value.inspiration),
+    inspiration,
+    attributionStatus: normalizeArtifactAttributionStatus(value.attributionStatus, inspiration),
   }
 }
 
@@ -142,6 +188,7 @@ export function buildCompiledInterviewArtifact(
             },
           }
         : null,
+      attributionStatus: change.attributionStatus,
     })),
   }
 }
@@ -163,6 +210,7 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
   const rawQuestions = parsed.questions
   const rawQuestionCount = parsed.questionCount
   const rawChanges = parsed.changes
+  const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
 
   if (!winnerId) {
     throw new Error('Compiled interview artifact is missing winnerId')
@@ -198,6 +246,7 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
     questions,
     questionCount,
     changes,
+    structuredOutput,
   }
 }
 
