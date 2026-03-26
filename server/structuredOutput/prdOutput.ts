@@ -197,6 +197,15 @@ export function normalizePrdYamlOutput(
     losingDraftMeta?: Array<{ memberId: string }>
   },
 ): StructuredOutputResult<PrdDocument & { changes?: RefinementChange[] }> {
+  if (looksLikePromptEcho(rawContent)) {
+    return {
+      ok: false,
+      error: 'PRD output echoed the prompt instead of returning structured PRD YAML',
+      repairApplied: false,
+      repairWarnings: [],
+    }
+  }
+
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['schema_version', 'artifact', 'product', 'scope', 'technical_requirements', 'epics'],
   })

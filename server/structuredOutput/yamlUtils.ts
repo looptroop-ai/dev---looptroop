@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -207,6 +207,17 @@ export function parseYamlOrJsonCandidate(
         }
       }
 
+      const unionRepaired = repairYamlTypeUnionScalars(base)
+      if (unionRepaired !== base) {
+        try {
+          return jsYaml.load(unionRepaired)
+        } catch {
+          try {
+            return jsYaml.load(repairYamlIndentation(unionRepaired))
+          } catch { /* fall through */ }
+        }
+      }
+
       // Try colon-in-scalar repair (most targeted fix)
       const colonRepaired = repairYamlPlainScalarColons(base)
       if (colonRepaired !== base) {
@@ -333,9 +344,19 @@ export function unwrapExplicitWrapperRecord(
 }
 
 export function toStringArray(value: unknown): string[] {
+  const normalizeEntry = (entry: unknown): string => {
+    if (entry instanceof Date) return entry.toISOString()
+    if (typeof entry === 'string') return entry.trim()
+    if (entry === null || entry === undefined) return ''
+    if (typeof entry === 'object') {
+      return (jsYaml.dump(entry, { lineWidth: 120, noRefs: true }) as string).trim()
+    }
+    return String(entry).trim()
+  }
+
   if (Array.isArray(value)) {
     return value
-      .map((entry) => typeof entry === 'string' ? entry.trim() : String(entry ?? '').trim())
+      .map((entry) => normalizeEntry(entry))
       .filter((entry) => entry.length > 0)
   }
   if (typeof value === 'string') {

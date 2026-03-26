@@ -66,7 +66,7 @@ describe('appendLogEvent', () => {
     )
 
     expect(mockAppend).toHaveBeenCalledOnce()
-    const written = JSON.parse(mockAppend.mock.calls[0][1])
+    const written = JSON.parse(mockAppend.mock.calls[0]![1]!)
     expect(written.op).toBe('finalize')
     expect(written.content).toBe('final content')
   })
@@ -98,7 +98,7 @@ describe('appendLogEvent', () => {
     )
 
     expect(mockAppend).toHaveBeenCalledOnce()
-    const written = JSON.parse(mockAppend.mock.calls[0][1])
+    const written = JSON.parse(mockAppend.mock.calls[0]![1]!)
     // Internal flag should be gone
     expect(written.data?.suppressDebugMirror).toBeUndefined()
     // Structured keys should be gone from data (they're top-level)

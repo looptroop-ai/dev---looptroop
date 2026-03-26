@@ -560,6 +560,117 @@ export function repairYamlFreeTextScalars(yaml: string): string {
   return result.join('\n')
 }
 
+const YAML_UNION_TOKEN_PATTERN = `(?:"(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*'|[A-Za-z_][\\w.\\[\\]-]*)`
+const YAML_UNION_SCALAR_PATTERN = new RegExp(
+  `^(?:${YAML_UNION_TOKEN_PATTERN})(?:\\s*\\|\\s*(?:${YAML_UNION_TOKEN_PATTERN}))+\\s*$`,
+)
+
+function splitYamlValueAndComment(value: string): { value: string; comment: string } {
+  let insideSingleQuote = false
+  let insideDoubleQuote = false
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!
+
+    if (char === '"' && !insideSingleQuote) {
+      let backslashes = 0
+      for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+        backslashes += 1
+      }
+      if (backslashes % 2 === 0) {
+        insideDoubleQuote = !insideDoubleQuote
+      }
+      continue
+    }
+
+    if (char === '\'' && !insideDoubleQuote) {
+      if (insideSingleQuote && value[index + 1] === '\'') {
+        index += 1
+        continue
+      }
+      insideSingleQuote = !insideSingleQuote
+      continue
+    }
+
+    if (char === '#' && !insideSingleQuote && !insideDoubleQuote) {
+      if (index === 0 || /\s/.test(value[index - 1] ?? '')) {
+        return {
+          value: value.slice(0, index).trimEnd(),
+          comment: value.slice(index),
+        }
+      }
+    }
+  }
+
+  return { value: value.trimEnd(), comment: '' }
+}
+
+/**
+ * Quote pseudo-type union scalars so YAML treats them as plain strings.
+ *
+ * Models sometimes emit schema-like values such as
+ * `type: "epic" | "user_story"` or `- "unit" | "integration"`.
+ * YAML interprets the `|` after a quoted token as block-scalar syntax and
+ * rejects the document. This repair wraps the full scalar in quotes while
+ * preserving any trailing comment.
+ */
+export function repairYamlTypeUnionScalars(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+    if (insideBlockScalar) {
+      if (indent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    const mappingMatch = line.match(/^(\s*(?:-\s+)?[A-Za-z_][\w_-]*\s*:\s+)(.+)$/)
+    if (mappingMatch) {
+      const prefix = mappingMatch[1]!
+      const { value, comment } = splitYamlValueAndComment(mappingMatch[2]!)
+      if (YAML_UNION_SCALAR_PATTERN.test(value.trim())) {
+        result.push(`${prefix}${JSON.stringify(value.trim())}${comment ? ` ${comment}` : ''}`)
+        continue
+      }
+    }
+
+    const listScalarMatch = line.match(/^(\s*-\s+)(.+)$/)
+    if (listScalarMatch && !/^[A-Za-z_][\w_-]*\s*:/.test(listScalarMatch[2]!)) {
+      const prefix = listScalarMatch[1]!
+      const { value, comment } = splitYamlValueAndComment(listScalarMatch[2]!)
+      if (YAML_UNION_SCALAR_PATTERN.test(value.trim())) {
+        result.push(`${prefix}${JSON.stringify(value.trim())}${comment ? ` ${comment}` : ''}`)
+        continue
+      }
+    }
+
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      insideBlockScalar = true
+      blockScalarBaseIndent = indent
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}
+
 function collectMultilineSingleQuotedFreeText(
   lines: string[],
   startIndex: number,

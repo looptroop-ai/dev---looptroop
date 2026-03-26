@@ -28,7 +28,6 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    cache: { dir: '.vitest-cache' },
     projects: [
       {
         extends: true,
