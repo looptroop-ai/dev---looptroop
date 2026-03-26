@@ -95,7 +95,8 @@ export function useDeleteProject() {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
-        throw new Error(err.error || 'Failed to delete project')
+        const message = [err.error, err.details].filter(Boolean).join(' — ')
+        throw new Error(message || 'Failed to delete project')
       }
     },
     onSuccess: () => {

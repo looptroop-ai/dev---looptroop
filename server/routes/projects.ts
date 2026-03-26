@@ -6,9 +6,10 @@ import { homedir } from 'os'
 import {
   attachExistingProject,
   attachProject,
-  detachProject,
+  deleteProject,
   type ExistingProjectMetadata,
   getProjectById,
+  getProjectRootById,
   listProjectTickets,
   listProjects,
   resolveProjectState,
@@ -189,18 +190,22 @@ projectRouter.patch('/projects/:id', async (c) => {
 projectRouter.delete('/projects/:id', (c) => {
   const id = Number(c.req.param('id'))
   if (Number.isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
-  const existing = getProjectById(id)
-  if (!existing) return c.json({ error: 'Project not found' }, 404)
+  const projectRoot = getProjectRootById(id)
+  if (!projectRoot) return c.json({ error: 'Project not found' }, 404)
 
   const projectTickets = listProjectTickets(id)
   const allowedStatuses = ['DRAFT', 'COMPLETED', 'CANCELED']
   const hasInProgress = projectTickets.some(ticket => !allowedStatuses.includes(ticket.status))
   if (hasInProgress) {
-    return c.json({ error: 'Cannot detach project. Some tickets are still in progress. Move all tickets to Done or cancel them first.' }, 409)
+    return c.json({ error: 'Cannot delete project. Some tickets are still in progress. Move all tickets to Done or cancel them first.' }, 409)
   }
 
-  detachProject(id)
-  return c.json({ success: true })
+  try {
+    deleteProject(id)
+    return c.json({ success: true, projectRoot })
+  } catch (err) {
+    return c.json({ error: 'Failed to delete project', details: String(err) }, 500)
+  }
 })
 
 export { projectRouter }

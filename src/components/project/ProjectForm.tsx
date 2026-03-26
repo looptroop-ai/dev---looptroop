@@ -129,9 +129,12 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
 
   const handleDelete = () => {
     if (!project) return
-    if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return
+    if (!confirm('Are you sure you want to delete this project? This will remove its local .looptroop state from the repo and cannot be undone.')) return
     deleteProject.mutate(project.id, {
-      onSuccess: () => closeView(),
+      onSuccess: () => {
+        addToast('success', 'Project deleted and local LoopTroop state removed.')
+        closeView()
+      },
       onError: (err) => {
         const message = (err as Error)?.message || 'Failed to delete project'
         addToast('error', message, 5000)

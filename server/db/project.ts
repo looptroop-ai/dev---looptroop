@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { existsSync } from 'fs'
 import * as schema from './schema'
 import { ensureProjectStorageDirs, getProjectDbPath } from '../storage/paths'
 import { SQLITE_BUSY_TIMEOUT_MS } from '../lib/constants'
@@ -11,6 +12,15 @@ interface ProjectDatabase {
 }
 
 const projectDbCache = new Map<string, ProjectDatabase>()
+
+function closeCachedProjectDatabase(projectRoot: string): boolean {
+  const cached = projectDbCache.get(projectRoot)
+  if (!cached) return false
+
+  cached.sqlite.close()
+  projectDbCache.delete(projectRoot)
+  return true
+}
 
 function ensureColumn(
   sqlite: Database.Database,
@@ -126,11 +136,15 @@ function initializeProjectSqlite(sqlite: Database.Database) {
 }
 
 export function getProjectDatabase(projectRoot: string): ProjectDatabase {
+  const dbPath = getProjectDbPath(projectRoot)
   const cached = projectDbCache.get(projectRoot)
-  if (cached) return cached
+  if (cached) {
+    if (existsSync(dbPath)) return cached
+    closeCachedProjectDatabase(projectRoot)
+  }
 
   ensureProjectStorageDirs(projectRoot)
-  const sqlite = new Database(getProjectDbPath(projectRoot))
+  const sqlite = new Database(dbPath)
   sqlite.pragma('journal_mode=WAL')
   sqlite.pragma('locking_mode=NORMAL')
   sqlite.pragma('synchronous=NORMAL')
@@ -145,9 +159,24 @@ export function getProjectDatabase(projectRoot: string): ProjectDatabase {
   return projectDb
 }
 
-export function clearProjectDatabaseCache() {
-  for (const [, entry] of projectDbCache) {
-    entry.sqlite.close()
+export function getExistingProjectDatabase(projectRoot: string): ProjectDatabase | null {
+  const dbPath = getProjectDbPath(projectRoot)
+  if (!existsSync(dbPath)) {
+    closeCachedProjectDatabase(projectRoot)
+    return null
   }
-  projectDbCache.clear()
+
+  const cached = projectDbCache.get(projectRoot)
+  if (cached) return cached
+  return getProjectDatabase(projectRoot)
+}
+
+export function closeProjectDatabase(projectRoot: string): boolean {
+  return closeCachedProjectDatabase(projectRoot)
+}
+
+export function clearProjectDatabaseCache() {
+  for (const projectRoot of [...projectDbCache.keys()]) {
+    closeCachedProjectDatabase(projectRoot)
+  }
 }

@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm'
-import { existsSync } from 'fs'
+import { rmSync } from 'fs'
 import { db as appDb } from '../db/index'
-import { getProjectDatabase } from '../db/project'
+import { closeProjectDatabase, getExistingProjectDatabase, getProjectDatabase } from '../db/project'
 import { attachedProjects, projects, tickets } from '../db/schema'
 import {
   ensureProjectStorageDirs,
-  getProjectDbPath,
+  getProjectLoopTroopDir,
   normalizeFolderPath,
   resolveGitRepoRoot,
 } from './paths'
@@ -50,7 +50,9 @@ function getAttachedRow(id: number): AttachedProjectRow | undefined {
 }
 
 function readLocalProject(projectRoot: string): LocalProjectRow | undefined {
-  const { db } = getProjectDatabase(projectRoot)
+  const projectDb = getExistingProjectDatabase(projectRoot)
+  if (!projectDb) return undefined
+  const { db } = projectDb
   return db.select().from(projects).limit(1).get()
 }
 
@@ -119,7 +121,7 @@ function ensureLocalProject(projectRoot: string, input?: {
 export function hasLoopTroopState(projectRoot: string): boolean {
   const repoRoot = resolveGitRepoRoot(projectRoot)
   if (!repoRoot) return false
-  return existsSync(getProjectDbPath(repoRoot)) && !!readLocalProject(repoRoot)
+  return !!readLocalProject(repoRoot)
 }
 
 export function attachProject(input: {
@@ -214,7 +216,9 @@ export function getProjectContextById(id: number): ProjectContext | undefined {
   const attached = getAttachedRow(id)
   if (!attached) return undefined
   const projectRoot = attached.folderPath
-  const { db } = getProjectDatabase(projectRoot)
+  const projectDb = getExistingProjectDatabase(projectRoot)
+  if (!projectDb) return undefined
+  const { db } = projectDb
   const project = db.select().from(projects).limit(1).get()
   if (!project) return undefined
   return { attached, projectRoot, projectDb: db, project }
@@ -243,6 +247,16 @@ export function detachProject(id: number): boolean {
   return true
 }
 
+export function deleteProject(id: number): boolean {
+  const attached = getAttachedRow(id)
+  if (!attached) return false
+
+  closeProjectDatabase(attached.folderPath)
+  rmSync(getProjectLoopTroopDir(attached.folderPath), { recursive: true, force: true })
+  appDb.delete(attachedProjects).where(eq(attachedProjects.id, id)).run()
+  return true
+}
+
 export function listProjectTickets(id: number): LocalTicketRow[] {
   const context = getProjectContextById(id)
   if (!context) return []
@@ -257,7 +271,9 @@ export function getExistingProjectMetadata(projectRootOrFolder: string): Existin
   const projectRoot = resolveGitRepoRoot(projectRootOrFolder)
   if (!projectRoot) return null
 
-  const { db } = getProjectDatabase(projectRoot)
+  const projectDb = getExistingProjectDatabase(projectRoot)
+  if (!projectDb) return null
+  const { db } = projectDb
   const project = db.select().from(projects).limit(1).get()
   if (!project) return null
 
