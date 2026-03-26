@@ -18,6 +18,7 @@ import {
   extractCompiledInterviewDetail,
   extractCanonicalInterviewDetail,
   buildFinalInterviewArtifactContent,
+  parseRefinementArtifact,
   resolveStaticArtifact,
   shouldCollapseVotingMemberArtifacts,
 } from './phaseArtifactTypes'
@@ -145,11 +146,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifact.id === 'final-prd-draft' || artifact.id === 'final-beads-draft') {
-      let winnerId: string | undefined
-      try {
-        const parsed = JSON.parse(content) as { winnerId?: string }
-        winnerId = parsed.winnerId
-      } catch { /* not json */ }
+      const winnerId = parseRefinementArtifact(content)?.winnerId
       return {
         outcome: isCompleted ? 'completed' : 'pending',
         detail: winnerId ? getModelDisplayName(winnerId) : undefined,

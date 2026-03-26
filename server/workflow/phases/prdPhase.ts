@@ -5,6 +5,12 @@ import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
 import { checkMemberResponseQuorum, checkQuorum } from '../../council/quorum'
 import { draftPRD, buildPrdContextBuilder, buildPrdRefinePrompt } from '../../phases/prd/draft'
+import {
+  buildPrdRefinedArtifact,
+  buildPrdRefinementRetryPrompt,
+  type ValidatedPrdRefinement,
+  validatePrdRefinementOutput,
+} from '../../phases/prd/refined'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { safeAtomicWrite } from '../../io/atomicWrite'
@@ -785,6 +791,7 @@ export async function handlePrdRefine(
 
   if (signal.aborted) throw new CancelledError(ticketId)
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+  let validatedRefinement: ValidatedPrdRefinement | null = null
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
@@ -839,51 +846,73 @@ export async function handlePrdRefine(
     ),
     (content) => {
       const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId }))
-      const result = normalizePrdYamlOutput(content, {
-        ticketId: context.externalId,
-        interviewContent: winnerFullAnswers.content,
-        losingDraftMeta,
-      })
-      if (!result.ok) {
-        structuredMeta = buildStructuredMetadata(structuredMeta, {
-          autoRetryCount: (structuredMeta.autoRetryCount ?? 0) + 1,
-          validationError: result.error,
+      try {
+        const result = validatePrdRefinementOutput(content, {
+          ticketId: context.externalId,
+          interviewContent: winnerFullAnswers.content,
+          winnerDraftContent: winnerDraft.content,
+          losingDraftMeta,
         })
-        throw new Error(result.error)
+        validatedRefinement = result
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          repairApplied: result.repairApplied,
+          repairWarnings: result.repairWarnings,
+          autoRetryCount: structuredMeta.autoRetryCount,
+        })
+        return { normalizedContent: result.refinedContent }
+      } catch (error) {
+        const validationError = error instanceof Error ? error.message : String(error)
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: Math.max(structuredMeta.autoRetryCount ?? 0, 1),
+          validationError,
+        })
+        throw error
       }
-      const { changes, ...document } = result.value
-      structuredMeta = buildStructuredMetadata(structuredMeta, {
-        repairApplied: result.repairApplied,
-        repairWarnings: result.repairWarnings,
-        autoRetryCount: structuredMeta.autoRetryCount,
-      })
-      // Stash changes and metrics for artifact storage
-      ;(structuredMeta as unknown as Record<string, unknown>)._refinementChanges = changes
-      ;(structuredMeta as unknown as Record<string, unknown>)._draftMetrics = getPrdDraftMetrics(document)
-      return { normalizedContent: result.normalizedContent }
     },
     PROM12.outputFormat,
+    ({ baseParts, validationError, rawResponse }) => buildPrdRefinementRetryPrompt(baseParts, {
+      validationError,
+      rawResponse,
+    }),
   )
 
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:prd`)
   const prdPath = resolve(ticketDir, 'prd.yaml')
+  if (!validatedRefinement) {
+    throw new Error('PRD refinement completed without a validated artifact')
+  }
+  const currentValidatedRefinement = validatedRefinement as ValidatedPrdRefinement
+  const refinedArtifact = buildPrdRefinedArtifact(
+    intermediate.winnerId,
+    currentValidatedRefinement.winnerDraftContent,
+    currentValidatedRefinement,
+    structuredMeta,
+  )
 
-  const refinementChanges = (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
-  delete (structuredMeta as unknown as Record<string, unknown>)._refinementChanges
-  const draftMetrics = (structuredMeta as unknown as Record<string, unknown>)._draftMetrics as { epicCount: number; userStoryCount: number } | undefined
-  delete (structuredMeta as unknown as Record<string, unknown>)._draftMetrics
+  if (currentValidatedRefinement.repairWarnings.length > 0) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'REFINING_PRD',
+      'info',
+      `PRD refinement normalization applied repairs: ${currentValidatedRefinement.repairWarnings.join(' | ')}`,
+    )
+  }
+  if ((structuredMeta.autoRetryCount ?? 0) > 0 && structuredMeta.validationError) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'REFINING_PRD',
+      'info',
+      `PRD refinement required ${structuredMeta.autoRetryCount} structured retry attempt(s): ${structuredMeta.validationError}`,
+    )
+  }
 
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
-    content: JSON.stringify({
-      winnerId: intermediate.winnerId,
-      refinedContent,
-      winnerDraftContent: winnerDraft.content,
-      ...(Array.isArray(refinementChanges) && refinementChanges.length > 0 ? { changes: refinementChanges } : {}),
-      structuredOutput: structuredMeta,
-    }),
+    content: JSON.stringify(refinedArtifact),
   })
 
   // Persist winnerId separately for restart resilience (matches interview_winner pattern)
@@ -896,17 +925,22 @@ export async function handlePrdRefine(
   // Save refined PRD to disk
   safeAtomicWrite(prdPath, refinedContent)
 
+  emitPhaseLog(
+    ticketId,
+    context.externalId,
+    'REFINING_PRD',
+    'info',
+    `Validated refined PRD from winner ${intermediate.winnerId} (${refinedArtifact.draftMetrics.epicCount} epics, ${refinedArtifact.draftMetrics.userStoryCount} user stories).`,
+  )
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
 
   // Emit AI detail log with refined PRD summary
-  const changeCount = Array.isArray(refinementChanges) ? refinementChanges.length : 0
-  const metricsLabel = draftMetrics
-    ? `${draftMetrics.epicCount} epics, ${draftMetrics.userStoryCount} user stories`
-    : ''
+  const changeCount = refinedArtifact.changes.length
+  const metricsLabel = `${refinedArtifact.draftMetrics.epicCount} epics, ${refinedArtifact.draftMetrics.userStoryCount} user stories`
   const summaryParts = [
     `Refined PRD from ${intermediate.winnerId}`,
-    ...(metricsLabel ? [metricsLabel] : []),
+    metricsLabel,
     ...(changeCount > 0 ? [`${changeCount} change${changeCount === 1 ? '' : 's'} from alternative drafts`] : []),
   ]
   emitAiDetail(
@@ -1003,13 +1037,32 @@ export async function handleMockPrdRefine(ticketId: string, context: TicketConte
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   const { members } = resolveCouncilMembers(context)
   const winnerId = members[0]?.modelId ?? 'mock-model-1'
-  const refinedContent = buildMockPrdContent(context)
+  const interviewPath = resolve(paths.ticketDir, 'interview.yaml')
+  const interviewContent = existsSync(interviewPath) ? readFileSync(interviewPath, 'utf-8') : ''
+  const normalizedPrd = normalizePrdYamlOutput(buildMockPrdContent(context), {
+    ticketId: context.externalId,
+    interviewContent,
+  })
+  if (!normalizedPrd.ok) {
+    throw new Error(`Mock PRD refinement produced invalid PRD: ${normalizedPrd.error}`)
+  }
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
-    content: JSON.stringify({ winnerId, refinedContent }),
+    content: JSON.stringify({
+      winnerId,
+      refinedContent: normalizedPrd.normalizedContent,
+      winnerDraftContent: normalizedPrd.normalizedContent,
+      changes: [],
+      draftMetrics: getPrdDraftMetrics(normalizedPrd.value),
+      structuredOutput: buildStructuredMetadata({
+        repairApplied: normalizedPrd.repairApplied,
+        repairWarnings: normalizedPrd.repairWarnings,
+        autoRetryCount: 0,
+      }),
+    }),
   })
-  safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), refinedContent)
+  safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), normalizedPrd.normalizedContent)
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info', 'Mock PRD written to disk.')
   sendEvent({ type: 'REFINED' })
 }

@@ -35,7 +35,7 @@ export default defineConfig({
         test: {
           name: 'client',
           environment: 'jsdom',
-          pool: 'threads',
+          pool: 'forks',
           fileParallelism: false,
           maxWorkers: 1,
           isolate: false,

@@ -153,6 +153,10 @@ export interface RefinementDiffArtifactData {
   refinedContent?: string
   winnerDraftContent?: string
   changes?: RefinementChange[]
+  draftMetrics?: {
+    epicCount: number
+    userStoryCount: number
+  }
   structuredOutput?: ArtifactStructuredOutputData
 }
 
@@ -318,6 +322,68 @@ function normalizeRefinementDiffAttributionStatus(value: unknown): RefinementDif
     return value
   }
   return undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function normalizeArtifactStructuredOutput(value: unknown): ArtifactStructuredOutputData | undefined {
+  if (!isRecord(value)) return undefined
+
+  const repairApplied = typeof value.repairApplied === 'boolean' ? value.repairApplied : false
+  const repairWarnings = Array.isArray(value.repairWarnings)
+    ? value.repairWarnings.filter((warning): warning is string => typeof warning === 'string')
+    : []
+  const autoRetryCount = typeof value.autoRetryCount === 'number' && Number.isInteger(value.autoRetryCount)
+    ? value.autoRetryCount
+    : 0
+  const validationError = typeof value.validationError === 'string' && value.validationError.trim()
+    ? value.validationError
+    : undefined
+
+  return {
+    repairApplied,
+    repairWarnings,
+    autoRetryCount,
+    ...(validationError ? { validationError } : {}),
+  }
+}
+
+export function normalizeRefinementDraftMetrics(
+  value: unknown,
+): RefinementDiffArtifactData['draftMetrics'] | undefined {
+  if (!isRecord(value)) return undefined
+
+  const epicCount = typeof value.epicCount === 'number' && Number.isInteger(value.epicCount)
+    ? value.epicCount
+    : null
+  const userStoryCount = typeof value.userStoryCount === 'number' && Number.isInteger(value.userStoryCount)
+    ? value.userStoryCount
+    : null
+
+  if (epicCount == null || userStoryCount == null) {
+    return undefined
+  }
+
+  return { epicCount, userStoryCount }
+}
+
+export function parseRefinementArtifact(content: string): RefinementDiffArtifactData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+
+  const refinedContent = typeof parsed.refinedContent === 'string' ? parsed.refinedContent : ''
+  if (!refinedContent.trim()) return null
+
+  return {
+    winnerId: typeof parsed.winnerId === 'string' ? parsed.winnerId : undefined,
+    refinedContent,
+    winnerDraftContent: typeof parsed.winnerDraftContent === 'string' ? parsed.winnerDraftContent : undefined,
+    changes: Array.isArray(parsed.changes) ? parsed.changes as RefinementChange[] : [],
+    draftMetrics: normalizeRefinementDraftMetrics(parsed.draftMetrics),
+    structuredOutput: normalizeArtifactStructuredOutput(parsed.structuredOutput),
+  }
 }
 
 function extractLegacySynthesizedInterviewIds(repairWarnings: string[] | undefined): Set<string> {
@@ -684,45 +750,41 @@ export function resolveStaticArtifact(
 
 export function buildRefinementDiffEntries(content: string | undefined): RefinementDiffEntry[] {
   if (!content) return []
-  try {
-    const parsed = JSON.parse(content) as RefinementDiffArtifactData
-    if (!Array.isArray(parsed.changes)) return []
+  const parsed = parseRefinementArtifact(content)
+  if (!parsed || !Array.isArray(parsed.changes)) return []
 
-    return parsed.changes.flatMap((change, index) => {
-      const normalizedType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
-      if (normalizedType !== 'modified' && normalizedType !== 'added' && normalizedType !== 'removed') {
-        return []
-      }
+  return parsed.changes.flatMap((change, index) => {
+    const normalizedType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
+    if (normalizedType !== 'modified' && normalizedType !== 'added' && normalizedType !== 'removed') {
+      return []
+    }
 
-      const afterId = change.after?.id
-      const beforeId = change.before?.id
-      const key = `${afterId || beforeId || index}:${normalizedType}:${index}`
+    const afterId = change.after?.id
+    const beforeId = change.before?.id
+    const key = `${afterId || beforeId || index}:${normalizedType}:${index}`
 
-      const inspiration = change.inspiration
-        ? {
-            memberId: change.inspiration.memberId ?? '',
-            itemId: change.inspiration.item?.id ?? '',
-            itemLabel: change.inspiration.item?.label ?? '',
-          }
-        : change.inspiration === null ? null : undefined
-      const attributionStatus = normalizeRefinementDiffAttributionStatus(change.attributionStatus)
-        ?? (inspiration ? 'inspired' : 'model_unattributed')
+    const inspiration = change.inspiration
+      ? {
+          memberId: change.inspiration.memberId ?? '',
+          itemId: change.inspiration.item?.id ?? '',
+          itemLabel: change.inspiration.item?.label ?? '',
+        }
+      : change.inspiration === null ? null : undefined
+    const attributionStatus = normalizeRefinementDiffAttributionStatus(change.attributionStatus)
+      ?? (inspiration ? 'inspired' : 'model_unattributed')
 
-      return [{
-        key,
-        type: normalizedType as RefinementDiffEntry['type'],
-        itemType: change.itemType,
-        beforeId: change.before?.id,
-        beforeLabel: change.before?.label,
-        afterId: change.after?.id,
-        afterLabel: change.after?.label,
-        ...(inspiration !== undefined ? { inspiration } : {}),
-        attributionStatus,
-      }]
-    })
-  } catch {
-    return []
-  }
+    return [{
+      key,
+      type: normalizedType as RefinementDiffEntry['type'],
+      itemType: change.itemType,
+      beforeId: change.before?.id,
+      beforeLabel: change.before?.label,
+      afterId: change.after?.id,
+      afterLabel: change.after?.label,
+      ...(inspiration !== undefined ? { inspiration } : {}),
+      attributionStatus,
+    }]
+  })
 }
 
 export function shouldCollapseVotingMemberArtifacts(phase: string): boolean {

@@ -27,6 +27,7 @@ import { broadcaster } from '../../sse/broadcaster'
 import { resolveInterviewCoverageFollowUpResolution } from '../interviewCoverageFollowUps'
 import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../coverageControl'
 import { calculateFollowUpLimit } from '../../phases/interview/followUpBudget'
+import { parsePrdRefinedArtifact } from '../../phases/prd/refined'
 import {
   countCoverageFollowUpQuestions,
   buildCoverageFollowUpBatch,
@@ -371,12 +372,11 @@ export async function handleCoverageVerification(
     winnerId = councilResult.winnerId
   } else {
     // Fallback: read winnerId from persisted phaseArtifacts (survives server restarts)
-    const winnerArtifactType = phase === 'interview'
-      ? 'interview_winner'
+    const winnerArtifact = phase === 'interview'
+      ? getLatestPhaseArtifact(ticketId, 'interview_winner')
       : phase === 'prd'
-        ? 'prd_votes'
-        : 'beads_votes'
-    const winnerArtifact = getLatestPhaseArtifact(ticketId, winnerArtifactType)
+        ? getLatestPhaseArtifact(ticketId, 'prd_winner') ?? getLatestPhaseArtifact(ticketId, 'prd_votes')
+        : getLatestPhaseArtifact(ticketId, 'beads_votes')
 
     if (!winnerArtifact) {
       const msg = `No council result found for ${phase} phase — cannot determine winning model`
@@ -421,8 +421,9 @@ export async function handleCoverageVerification(
     const compiledArtifact = getLatestPhaseArtifact(ticketId, compiledArtifactType)
     if (compiledArtifact) {
       try {
-        const parsed = JSON.parse(compiledArtifact.content) as { refinedContent?: string }
-        refinedContent = parsed.refinedContent
+        refinedContent = phase === 'prd'
+          ? parsePrdRefinedArtifact(compiledArtifact.content).refinedContent
+          : (JSON.parse(compiledArtifact.content) as { refinedContent?: string }).refinedContent
       } catch { /* ignore */ }
     }
   }
@@ -691,9 +692,16 @@ export async function handleCoverageVerification(
     const refinedArtifact = getLatestPhaseArtifact(ticketId, refinedArtifactType)
     if (refinedArtifact?.content) {
       try {
-        const parsed = JSON.parse(refinedArtifact.content)
-        if (parsed && Array.isArray(parsed.changes) && parsed.changes.length > 0) {
-          refinementChanges = parsed.changes
+        if (phase === 'prd') {
+          const parsed = parsePrdRefinedArtifact(refinedArtifact.content)
+          if (parsed.changes.length > 0) {
+            refinementChanges = parsed.changes
+          }
+        } else {
+          const parsed = JSON.parse(refinedArtifact.content)
+          if (parsed && Array.isArray(parsed.changes) && parsed.changes.length > 0) {
+            refinementChanges = parsed.changes
+          }
         }
       } catch { /* ignore parse errors */ }
     }
@@ -1068,4 +1076,3 @@ export async function handleMockCoverage(
   emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', `Mock ${phase} coverage passed.`)
   sendEvent({ type: 'COVERAGE_CLEAN' })
 }
-

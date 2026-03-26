@@ -39,6 +39,11 @@ export async function refineDraft(
   buildPrompt?: (winnerDraft: DraftResult, losingDrafts: DraftResult[]) => PromptPart[],
   validateResponse?: (content: string) => { normalizedContent?: string },
   schemaReminder?: string,
+  buildRetryPrompt?: (params: {
+    baseParts: PromptPart[]
+    validationError: string
+    rawResponse: string
+  }) => PromptPart[],
 ): Promise<string> {
   let sessionId = ''
   const refineParts = buildPrompt
@@ -120,8 +125,13 @@ export async function refineDraft(
         throw error
       }
       attemptCount += 1
-      promptParts = buildStructuredRetryPrompt(refineParts, {
-        validationError: error instanceof Error ? error.message : String(error),
+      const validationError = error instanceof Error ? error.message : String(error)
+      promptParts = buildRetryPrompt?.({
+        baseParts: refineParts,
+        validationError,
+        rawResponse: refined,
+      }) ?? buildStructuredRetryPrompt(refineParts, {
+        validationError,
         rawResponse: refined,
         schemaReminder,
       })

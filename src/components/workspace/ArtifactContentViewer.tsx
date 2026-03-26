@@ -17,7 +17,6 @@ import type {
   RelevantFileScanEntry,
   RelevantFilesScanData,
   InspirationDiffSource,
-  RefinementDiffArtifactData,
   RefinementDiffEntry,
 } from './phaseArtifactTypes'
 import {
@@ -30,6 +29,7 @@ import {
   normalizeCoverageFollowUpArtifacts,
   parseCoverageArtifact,
   parseInterviewQuestions,
+  parseRefinementArtifact,
 } from './phaseArtifactTypes'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
@@ -437,12 +437,7 @@ function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: Artif
 }
 
 function RefinementDiffView({ content }: { content: string }) {
-  let parsed: RefinementDiffArtifactData | null = null
-  try {
-    parsed = JSON.parse(content) as RefinementDiffArtifactData
-  } catch {
-    parsed = null
-  }
+  const parsed = parseRefinementArtifact(content)
 
   const diffs = buildRefinementDiffEntries(content)
   const modifiedCount = diffs.filter((d) => d.type === 'modified').length
@@ -673,12 +668,8 @@ function FinalInterviewArtifactView({ content, header, hideAiAnswerBadge }: { co
 function FinalPrdDraftView({ content, header, isBeads }: { content: string; header?: React.ReactNode; isBeads?: boolean }) {
   const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
 
-  let parsed: RefinementDiffArtifactData | null = null
-  try {
-    parsed = JSON.parse(content) as RefinementDiffArtifactData
-  } catch {
-    return <RawContentWithCopy content={content} />
-  }
+  const parsed = parseRefinementArtifact(content)
+  if (!parsed) return <RawContentWithCopy content={content} />
 
   const refinedContent = parsed?.refinedContent ?? ''
   if (!refinedContent) return <RawContentWithCopy content={content} />

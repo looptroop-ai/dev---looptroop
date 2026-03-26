@@ -32,14 +32,14 @@ function normalizeRefinementInspiration(
 ): RefinementChangeInspiration | null {
   if (!isRecord(value)) return null
 
-  const altDraft = toInteger(getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index']))
+  const altDraft = toInteger(getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index', 'draftindex']))
   const rawItem = getValueByAliases(value, ['item', 'bead', 'epic', 'story'])
   const item = normalizeRefinementChangeItem(rawItem)
 
   if (altDraft == null || !item) return null
 
   const draftIndex = altDraft - 1
-  let memberId = ''
+  let memberId = toOptionalString(getValueByAliases(value, ['member_id', 'memberid', 'memberId'])) ?? ''
   if (losingDraftMeta && draftIndex >= 0 && draftIndex < losingDraftMeta.length) {
     memberId = losingDraftMeta[draftIndex]!.memberId
   }
@@ -74,7 +74,7 @@ export function parseRefinementChanges(
       continue
     }
 
-    const itemType = toOptionalString(getValueByAliases(entry, ['item_type', 'itemtype'])) ?? undefined
+    const itemType = toOptionalString(getValueByAliases(entry, ['item_type', 'itemtype', 'itemType'])) ?? undefined
 
     const rawBefore = getValueByAliases(entry, ['before'])
     const rawAfter = getValueByAliases(entry, ['after'])
