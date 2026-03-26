@@ -13,6 +13,7 @@ import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
 import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError, classifyDraftFailure } from './draftUtils'
+import { getStructuredRetryDecision } from '../lib/structuredOutputRetry'
 
 interface DraftValidationResult {
   questionCount?: number
@@ -128,6 +129,7 @@ export async function generateDrafts(
     let attemptCount = 0
     let closed = false
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    let lastFailureClass: DraftStructuredOutputMeta['failureClass']
 
     const buildStructuredOutput = (): DraftStructuredOutputMeta | undefined => {
       if (!validation && attemptCount === 0 && !lastValidationError) return undefined
@@ -136,6 +138,7 @@ export async function generateDrafts(
         repairWarnings: validation?.repairWarnings ?? [],
         autoRetryCount: attemptCount,
         ...(lastValidationError ? { validationError: lastValidationError } : {}),
+        ...(lastFailureClass ? { failureClass: lastFailureClass } : {}),
       }
     }
 
@@ -235,16 +238,20 @@ export async function generateDrafts(
         } catch (error) {
           const validationError = error instanceof Error ? error.message : String(error)
           lastValidationError = validationError
+          const retryDecision = getStructuredRetryDecision(content, result.responseMeta)
+          lastFailureClass = retryDecision.failureClass
           if (attemptCount >= maxStructuredRetries) {
             throw error
           }
           attemptCount += 1
-          promptParts = buildStructuredRetryPrompt(
-            contextParts,
-            validationError,
-            content,
-            runtimeOptions?.structuredRetrySchemaReminder,
-          )
+          promptParts = retryDecision.useStructuredRetryPrompt
+            ? buildStructuredRetryPrompt(
+                contextParts,
+                validationError,
+                content,
+                runtimeOptions?.structuredRetrySchemaReminder,
+              )
+            : contextParts
         }
       }
 
@@ -300,7 +307,11 @@ export async function generateDrafts(
         return draft
       }
 
-      const { outcome, errorDetail } = classifyDraftFailure(err, content.length > 0)
+      const {
+        outcome,
+        errorDetail,
+        failureClass,
+      } = classifyDraftFailure(err, { content, failureClass: lastFailureClass })
       const draft: DraftResult = {
         memberId: member.modelId,
         content: outcome === 'failed' ? '' : content,
@@ -309,7 +320,16 @@ export async function generateDrafts(
         error: errorDetail,
         questionCount: validation?.questionCount,
         draftMetrics: validation?.draftMetrics,
-        structuredOutput: buildStructuredOutput(),
+        structuredOutput: buildStructuredOutput() ?? (
+          failureClass
+            ? {
+                repairApplied: false,
+                repairWarnings: [],
+                autoRetryCount: attemptCount,
+                failureClass,
+              }
+            : undefined
+        ),
       }
       recordResult(draft, sessionId)
       return draft

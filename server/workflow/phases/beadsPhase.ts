@@ -29,6 +29,7 @@ import {
   loadTicketDirContext,
   formatCouncilResolutionLog,
   formatDraftRoundSummary,
+  formatDraftFailureDetail,
   summarizeDraftOutcomes,
   createPendingDrafts,
   upsertCouncilDraftArtifact,
@@ -177,12 +178,10 @@ export async function handleBeadsDraft(
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
-      ? 'timed out'
-      : draft.outcome === 'invalid_output'
-        ? 'invalid output'
-        : draft.outcome === 'failed'
-          ? 'failed'
-          : `drafted beads (${draft.content.length} chars)`
+      ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
+      : draft.outcome === 'invalid_output' || draft.outcome === 'failed'
+        ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
+        : `drafted beads (${draft.content.length} chars)`
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_BEADS', 'model_output',
       `${draft.memberId} ${detail}.`,
       {

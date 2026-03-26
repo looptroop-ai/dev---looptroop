@@ -66,6 +66,7 @@ import {
   readMockInterviewWinnerId,
 } from './interviewPhase'
 import { readTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
+import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 
 export function validateRelevantFilesScanResponse(response: string): StructuredOutputResult<RelevantFilesOutputPayload> {
   const trimmed = response.trim()
@@ -218,64 +219,130 @@ export async function handleRelevantFilesScan(
     let finalResponse = result.response
 
     if (!normalized.ok) {
+      const retryDecision = getStructuredRetryDecision(result.response, result.responseMeta)
+      const retryMode = retryDecision.reuseSession ? 'same session' : 'fresh session'
       emitPhaseLog(
         ticketId,
         context.externalId,
         phase,
         'info',
-        `Relevant files scan response failed validation; retrying once in the same session: ${normalized.error}`,
+        `Relevant files scan response failed validation; retrying once in a ${retryMode}: ${normalized.error}`,
       )
 
-      const retryParts = buildStructuredRetryPrompt([{ type: 'text', content: prompt }], {
-        validationError: normalized.error,
-        rawResponse: result.response,
-        schemaReminder: PROM0.outputFormat,
-      })
+      if (retryDecision.reuseSession) {
+        const retryParts = buildStructuredRetryPrompt([{ type: 'text', content: prompt }], {
+          validationError: normalized.error,
+          rawResponse: result.response,
+          schemaReminder: PROM0.outputFormat,
+        })
 
-      const retryResult = await runOpenCodeSessionPrompt({
-        adapter,
-        session: result.session,
-        parts: retryParts,
-        signal,
-        timeoutMs: draftTimeoutMs,
-        model: codingModelId,
-        onStreamEvent: (event) => {
-          if (!sessionId) return
-          emitOpenCodeStreamEvent(
-            ticketId,
-            context.externalId,
-            phase,
-            codingModelId,
-            sessionId,
-            event,
-            streamState,
-          )
-        },
-        onPromptDispatched: (event) => {
-          emitOpenCodePromptLog(
-            ticketId,
-            context.externalId,
-            phase,
-            codingModelId,
-            event,
-          )
-        },
-      })
+        const retryResult = await runOpenCodeSessionPrompt({
+          adapter,
+          session: result.session,
+          parts: retryParts,
+          signal,
+          timeoutMs: draftTimeoutMs,
+          model: codingModelId,
+          onStreamEvent: (event) => {
+            if (!sessionId) return
+            emitOpenCodeStreamEvent(
+              ticketId,
+              context.externalId,
+              phase,
+              codingModelId,
+              sessionId,
+              event,
+              streamState,
+            )
+          },
+          onPromptDispatched: (event) => {
+            emitOpenCodePromptLog(
+              ticketId,
+              context.externalId,
+              phase,
+              codingModelId,
+              event,
+            )
+          },
+        })
 
-      throwIfAborted(signal, ticketId)
+        throwIfAborted(signal, ticketId)
 
-      emitOpenCodeSessionLogs(
-        ticketId,
-        context.externalId,
-        phase,
-        codingModelId,
-        retryResult.session.id,
-        'relevant_files_scan',
-        retryResult.response,
-        retryResult.messages,
-      )
+        emitOpenCodeSessionLogs(
+          ticketId,
+          context.externalId,
+          phase,
+          codingModelId,
+          retryResult.session.id,
+          'relevant_files_scan',
+          retryResult.response,
+          retryResult.messages,
+        )
 
-      finalResponse = retryResult.response
+        finalResponse = retryResult.response
+      } else {
+        const freshResult = await runOpenCodePrompt({
+          adapter,
+          projectPath: worktreePath,
+          parts: [{ type: 'text' as const, content: prompt }],
+          signal,
+          timeoutMs: draftTimeoutMs,
+          model: codingModelId,
+          variant: 'relevant_files_scan',
+          onSessionCreated: (session) => {
+            sessionId = session.id
+            emitAiMilestone(
+              ticketId,
+              context.externalId,
+              phase,
+              `Restarting relevant files scan with ${codingModelId} in a fresh session (session=${session.id}).`,
+              `${phase}:${session.id}:scan-restarted`,
+              {
+                modelId: codingModelId,
+                sessionId: session.id,
+                source: `model:${codingModelId}`,
+              },
+            )
+          },
+          onStreamEvent: (event) => {
+            if (!sessionId) return
+            emitOpenCodeStreamEvent(
+              ticketId,
+              context.externalId,
+              phase,
+              codingModelId,
+              sessionId,
+              event,
+              streamState,
+            )
+          },
+          onPromptDispatched: (event) => {
+            emitOpenCodePromptLog(
+              ticketId,
+              context.externalId,
+              phase,
+              codingModelId,
+              event,
+            )
+          },
+        })
+
+        throwIfAborted(signal, ticketId)
+
+        emitOpenCodeSessionLogs(
+          ticketId,
+          context.externalId,
+          phase,
+          codingModelId,
+          freshResult.session.id,
+          'relevant_files_scan',
+          freshResult.response,
+          freshResult.messages,
+        )
+
+        finalResponse = freshResult.response
+      }
+
       normalized = validateRelevantFilesScanResponse(finalResponse)
       if (!normalized.ok) {
         const msg = `Relevant files scan failed validation after retry: ${normalized.error}`

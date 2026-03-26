@@ -28,6 +28,7 @@ import {
 } from '../../structuredOutput'
 import type { StructuredLogFields, StructuredLogAudience, StructuredLogKind, StructuredLogOp, OpenCodeStreamState, PhaseIntermediateData } from './types'
 import { phaseIntermediate } from './state'
+import { formatStructuredFailureForLog, type StructuredFailureClass } from '../../lib/structuredOutputRetry'
 
 export function emitPhaseLog(
   ticketId: string,
@@ -809,6 +810,23 @@ export function summarizeDraftOutcomes(drafts: DraftResult[]) {
   )
 }
 
+export function formatDraftFailureDetail(
+  outcome: DraftResult['outcome'],
+  error?: string,
+  failureClass?: StructuredFailureClass,
+) {
+  if (outcome === 'timed_out') return 'timed out'
+  if (outcome === 'invalid_output') {
+    if (failureClass && error) return `invalid output (${failureClass}: ${error})`
+    if (failureClass) return `invalid output (${failureClass})`
+    return `invalid output (${error ?? 'malformed response'})`
+  }
+  if (outcome === 'failed') {
+    return formatStructuredFailureForLog(failureClass, error)
+  }
+  return ''
+}
+
 export function emitDraftProgressInfoLog(
   ticketId: string,
   ticketExternalId: string,
@@ -838,11 +856,11 @@ export function emitDraftProgressInfoLog(
   }
 
   if (entry.status === 'finished' && entry.outcome && entry.outcome !== 'completed') {
-    const detail = entry.outcome === 'timed_out'
-      ? 'timed out'
-      : entry.outcome === 'invalid_output'
-        ? `invalid output (${entry.error ?? 'malformed response'})`
-        : `failed (${entry.error ?? 'runtime error'})`
+    const detail = formatDraftFailureDetail(
+      entry.outcome,
+      entry.error,
+      entry.structuredOutput?.failureClass,
+    )
     const durationText = typeof entry.duration === 'number' ? ` after ${formatDurationMs(entry.duration)}` : ''
     const sessionText = entry.sessionId ? ` session=${entry.sessionId}` : ''
     emitAiDetail(

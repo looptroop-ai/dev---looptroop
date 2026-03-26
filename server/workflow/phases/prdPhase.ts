@@ -34,6 +34,7 @@ import {
   loadTicketDirContext,
   formatCouncilResolutionLog,
   formatDraftRoundSummary,
+  formatDraftFailureDetail,
   summarizeDraftOutcomes,
   createPendingDrafts,
   upsertCouncilDraftArtifact,
@@ -520,12 +521,10 @@ export async function handlePrdDraft(
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
-      ? 'timed out'
-      : draft.outcome === 'invalid_output'
-        ? 'invalid output'
-        : draft.outcome === 'failed'
-          ? 'failed'
-          : `drafted PRD (${formatPrdDraftMetrics(draft)})`
+      ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
+      : draft.outcome === 'invalid_output' || draft.outcome === 'failed'
+        ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
+        : `drafted PRD (${formatPrdDraftMetrics(draft)})`
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
       `${draft.memberId} ${detail}.`,
       {
@@ -543,12 +542,10 @@ export async function handlePrdDraft(
 
   for (const fullAnswers of result.fullAnswers) {
     const detail = fullAnswers.outcome === 'timed_out'
-      ? 'timed out'
-      : fullAnswers.outcome === 'invalid_output'
-        ? 'invalid output'
-        : fullAnswers.outcome === 'failed'
-          ? 'failed'
-          : `produced Full Answers (${formatFullAnswersMetrics(fullAnswers)})`
+      ? formatDraftFailureDetail(fullAnswers.outcome, fullAnswers.error, fullAnswers.structuredOutput?.failureClass)
+      : fullAnswers.outcome === 'invalid_output' || fullAnswers.outcome === 'failed'
+        ? formatDraftFailureDetail(fullAnswers.outcome, fullAnswers.error, fullAnswers.structuredOutput?.failureClass)
+        : `produced Full Answers (${formatFullAnswersMetrics(fullAnswers)})`
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
       `${fullAnswers.memberId} ${detail}.`,
       {

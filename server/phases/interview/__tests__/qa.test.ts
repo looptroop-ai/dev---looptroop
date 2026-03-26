@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
-import { startInterviewSession } from '../qa'
+import { startInterviewSession, submitBatchToSession } from '../qa'
+import { buildPersistedBatch, createInterviewSessionSnapshot, recordBatchAnswers, recordPreparedBatch } from '../sessionState'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
@@ -124,5 +125,144 @@ describe('PROM4 interview session parsing', () => {
 
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
+  })
+
+  it('restarts the initial PROM4 session after an empty response', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', '')
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 1',
+      '  total: 4',
+      'is_final_free_form: false',
+      'ai_commentary: Start with the compiled foundation checklist.',
+      'questions:',
+      '  - id: Q01',
+      '    question: What problem are we solving?',
+      '    phase: Foundation',
+      '    priority: critical',
+      '    rationale: Establish the core goal.',
+      '    answer_type: free_text',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    const result = await startInterviewSession(
+      adapter,
+      '/tmp/test',
+      'model-a',
+      [
+        'questions:',
+        '  - id: Q01',
+        '    phase: foundation',
+        '    question: What problem are we solving?',
+      ].join('\n'),
+      {
+        ticketId: 'T-1',
+        title: 'Restart PROM4 session',
+        description: 'Blank output should restart the session.',
+        relevantFiles: '',
+      },
+      5,
+      20,
+    )
+
+    expect(result.sessionId).toBe('mock-session-2')
+    expect(result.firstBatch.batchNumber).toBe(1)
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('restarts a follow-up PROM4 batch from normalized interview state after an empty response', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('existing-session#1', '')
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<INTERVIEW_BATCH>',
+      'batch_number: 2',
+      'progress:',
+      '  current: 2',
+      '  total: 4',
+      'is_final_free_form: false',
+      'ai_commentary: Continuing from the normalized state.',
+      'questions:',
+      '  - id: Q02',
+      '    question: Which platforms should we support first?',
+      '    phase: Scope',
+      '    priority: high',
+      '    rationale: Confirm delivery targets.',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: web',
+      '        label: Web',
+      '      - id: mobile',
+      '        label: Mobile',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    const baseSnapshot = createInterviewSessionSnapshot({
+      winnerId: 'model-a',
+      compiledQuestions: [
+        {
+          id: 'Q01',
+          phase: 'Foundation',
+          question: 'What problem are we solving?',
+        },
+      ],
+      maxInitialQuestions: 5,
+      followUpBudgetPercent: 20,
+    })
+    const preparedSnapshot = recordPreparedBatch(baseSnapshot, buildPersistedBatch({
+      questions: [
+        {
+          id: 'Q01',
+          question: 'What problem are we solving?',
+          phase: 'Foundation',
+          priority: 'critical',
+          rationale: 'Establish the core goal.',
+          answerType: 'free_text',
+        },
+      ],
+      progress: { current: 1, total: 4 },
+      isComplete: false,
+      isFinalFreeForm: false,
+      aiCommentary: 'Start with the compiled foundation checklist.',
+      batchNumber: 1,
+    }, 'prom4', baseSnapshot))
+    const answeredSnapshot = recordBatchAnswers(preparedSnapshot, { Q01: 'Reliable structured output handling.' })
+
+    const result = await submitBatchToSession(
+      adapter,
+      'existing-session',
+      { Q01: 'Reliable structured output handling.' },
+      undefined,
+      'model-a',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        projectPath: '/tmp/test',
+        ticketState: {
+          ticketId: 'T-1',
+          title: 'Resume PROM4 session',
+          description: 'Restart from normalized interview state.',
+          interview: 'questions:\n  - id: Q01\n    phase: Foundation\n    question: What problem are we solving?\n',
+        },
+        snapshot: answeredSnapshot,
+      },
+    )
+
+    expect(result).toMatchObject({
+      batchNumber: 2,
+      sessionId: 'mock-session-1',
+      questions: [
+        {
+          id: 'Q02',
+          phase: 'Scope',
+        },
+      ],
+    })
+    expect(adapter.messages.get('existing-session')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
 })

@@ -28,6 +28,10 @@ import {
   MESSAGE_LIST_LIMIT,
   MAX_CATALOG_MODEL_IDS,
 } from '../lib/constants'
+import {
+  analyzeAssistantMessages,
+  extractTextFromMessageParts,
+} from './assistantMessageAnalysis'
 
 interface RawEvent {
   type: string
@@ -186,7 +190,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         streamDoneObserved = true
         void this.readAssistantSnapshotWithRetry(sessionId)
           .then((snapshot) => {
-            resolveStreamDoneResponse?.(snapshot || buildStreamedTextResponse() || null)
+            resolveStreamDoneResponse?.(snapshot.responseText || buildStreamedTextResponse() || null)
           })
           .catch((err) => {
             warnIfVerbose('[adapter] Snapshot retry failed after stream done, falling back to streamed text', err)
@@ -211,12 +215,12 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
           parts: promptParts,
         }, this.requestOptions(sdkPromptSignal))
 
-        let responseText = this.extractResponseText(res.data?.parts)
+        let responseText = extractTextFromMessageParts(res.data?.parts)
         if (!responseText) {
           const preferredMessageId = typeof this.getRecord(res.data?.info)?.id === 'string'
             ? String(this.getRecord(res.data?.info)?.id)
             : undefined
-          responseText = await this.readAssistantSnapshotWithRetry(sessionId, preferredMessageId)
+          responseText = (await this.readAssistantSnapshotWithRetry(sessionId, preferredMessageId)).responseText
         }
         if (!responseText) {
           responseText = buildStreamedTextResponse()
@@ -524,56 +528,31 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
-  private extractResponseText(parts: unknown): string {
-    if (!Array.isArray(parts)) return ''
-    return parts
-      .filter((part): part is { type?: string; text?: string } => Boolean(part && typeof part === 'object'))
-      .filter(part => part.type === 'text')
-      .map(part => part.text ?? '')
-      .join('')
-  }
-
-  private extractLatestAssistantText(messages: Message[], preferredMessageId?: string): string {
-    const reversed = [...messages].reverse()
-    const ordered = preferredMessageId
-      ? [
-          ...reversed.filter((message) => message.id === preferredMessageId),
-          ...reversed.filter((message) => message.id !== preferredMessageId),
-        ]
-      : reversed
-
-    for (const message of ordered) {
-      if (message.role !== 'assistant') continue
-      const fromParts = this.extractResponseText(message.parts)
-      if (fromParts) return fromParts
-      if (message.content?.trim()) return message.content.trim()
-      if (message.info?.structured !== undefined) {
-        try {
-          return JSON.stringify(message.info.structured, null, 2)
-        } catch {
-          return String(message.info.structured)
-        }
-      }
-    }
-
-    return ''
-  }
-
   private async readAssistantSnapshotWithRetry(
     sessionId: string,
     preferredMessageId?: string,
     maxAttempts = 4,
     delayMs = 75,
-  ): Promise<string> {
+  ): Promise<ReturnType<typeof analyzeAssistantMessages>> {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const messages = await this.getSessionMessages(sessionId)
-      const responseText = this.extractLatestAssistantText(messages, preferredMessageId)
-      if (responseText) return responseText
+      const analysis = analyzeAssistantMessages(messages, preferredMessageId)
+      if (analysis.responseText || analysis.responseMeta.latestAssistantHasError || analysis.responseMeta.latestAssistantWasStale) {
+        return analysis
+      }
       if (attempt >= maxAttempts) break
       await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
     }
 
-    return ''
+    return {
+      responseText: '',
+      responseMeta: {
+        hasAssistantMessage: false,
+        latestAssistantWasEmpty: true,
+        latestAssistantHasError: false,
+        latestAssistantWasStale: false,
+      },
+    }
   }
 
   private mapMessageRecord(entry: unknown): Message {
@@ -585,7 +564,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       : typeof info?.timestamp === 'string'
         ? info.timestamp
         : undefined
-    const content = this.extractResponseText(parts)
+    const content = extractTextFromMessageParts(parts)
 
     return {
       id: typeof info?.id === 'string' ? info.id : '',

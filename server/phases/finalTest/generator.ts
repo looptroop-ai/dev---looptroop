@@ -12,6 +12,7 @@ import { parseFinalTestCommands } from './parser'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
+import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 
 const FINAL_TEST_SCHEMA_REMINDER = [
   'Return exactly one <FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS> block and nothing else.',
@@ -36,6 +37,7 @@ export async function generateFinalTests(
   },
 ): Promise<string> {
   const promptContent = buildPromptFromTemplate(PROM52, ticketContext)
+  const promptParts = [{ type: 'text', content: promptContent }] as PromptPart[]
   let sessionId = ''
   let activeSessionId: string | null = null
   const sessionManager = callbacks?.ticketId ? new SessionManager(adapter) : null
@@ -45,7 +47,7 @@ export async function generateFinalTests(
     result = await runOpenCodePrompt({
       adapter,
       projectPath,
-      parts: [{ type: 'text', content: promptContent }],
+      parts: promptParts,
       signal,
       timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
       model: callbacks?.model,
@@ -63,6 +65,7 @@ export async function generateFinalTests(
         : {}),
       onSessionCreated: (session) => {
         sessionId = session.id
+        activeSessionId = session.id
         callbacks?.onSessionCreated?.(session.id)
       },
       onStreamEvent: (event) => {
@@ -92,35 +95,84 @@ export async function generateFinalTests(
   let response = result.response
   const commandPlan = parseFinalTestCommands(response)
   if (commandPlan.errors.length > 0) {
+    const retryDecision = getStructuredRetryDecision(response, result.responseMeta)
     try {
-      const retryParts = buildStructuredRetryPrompt([], {
-        validationError: commandPlan.errors.join('; '),
-        rawResponse: response,
-        schemaReminder: FINAL_TEST_SCHEMA_REMINDER,
-      })
-      const retryResult = await runOpenCodeSessionPrompt({
-        adapter,
-        session: result.session,
-        parts: retryParts,
-        signal,
-        timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
-        model: callbacks?.model,
-        onStreamEvent: (event) => {
-          if (!sessionId) return
-          callbacks?.onOpenCodeStreamEvent?.({
-            sessionId,
-            event,
-          })
-        },
-        onPromptDispatched: (event) => {
-          callbacks?.onPromptDispatched?.({
-            sessionId: event.session.id,
-            event,
-          })
-        },
-      })
-      throwIfAborted(signal)
-      response = retryResult.response
+      if (retryDecision.reuseSession) {
+        const retryParts = buildStructuredRetryPrompt([], {
+          validationError: commandPlan.errors.join('; '),
+          rawResponse: response,
+          schemaReminder: FINAL_TEST_SCHEMA_REMINDER,
+        })
+        const retryResult = await runOpenCodeSessionPrompt({
+          adapter,
+          session: result.session,
+          parts: retryParts,
+          signal,
+          timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
+          model: callbacks?.model,
+          onStreamEvent: (event) => {
+            if (!sessionId) return
+            callbacks?.onOpenCodeStreamEvent?.({
+              sessionId,
+              event,
+            })
+          },
+          onPromptDispatched: (event) => {
+            callbacks?.onPromptDispatched?.({
+              sessionId: event.session.id,
+              event,
+            })
+          },
+        })
+        throwIfAborted(signal)
+        response = retryResult.response
+      } else {
+        if (activeSessionId && sessionManager) {
+          await sessionManager.abandonSession(activeSessionId)
+          activeSessionId = null
+        }
+        result = await runOpenCodePrompt({
+          adapter,
+          projectPath,
+          parts: promptParts,
+          signal,
+          timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
+          model: callbacks?.model,
+          variant: callbacks?.variant,
+          ...(callbacks?.ticketId
+            ? {
+                sessionOwnership: {
+                  ticketId: callbacks.ticketId,
+                  phase: 'RUNNING_FINAL_TEST',
+                  phaseAttempt: 1,
+                  keepActive: true,
+                  ...(callbacks.model ? { memberId: callbacks.model } : {}),
+                },
+              }
+            : {}),
+          onSessionCreated: (session) => {
+            sessionId = session.id
+            activeSessionId = session.id
+            callbacks?.onSessionCreated?.(session.id)
+          },
+          onStreamEvent: (event) => {
+            if (!sessionId) return
+            callbacks?.onOpenCodeStreamEvent?.({
+              sessionId,
+              event,
+            })
+          },
+          onPromptDispatched: (event) => {
+            callbacks?.onPromptDispatched?.({
+              sessionId: event.session.id,
+              event,
+            })
+          },
+        })
+        throwIfAborted(signal)
+        activeSessionId = result.session.id
+        response = result.response
+      }
     } catch (error) {
       if (activeSessionId && sessionManager) {
         await sessionManager.abandonSession(activeSessionId)

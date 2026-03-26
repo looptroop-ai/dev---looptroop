@@ -80,4 +80,33 @@ describe('executeBead', () => {
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
   })
+
+  it('restarts the bead iteration in a fresh session after an empty completion response', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', '')
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<BEAD_STATUS>',
+      'bead_id: bead-1',
+      'status: completed',
+      'checks:',
+      '  tests: pass',
+      '  lint: pass',
+      '  typecheck: pass',
+      '  qualitative: pass',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const result = await executeBead(
+      adapter,
+      buildBead(),
+      [{ type: 'text', content: 'Bead context' }],
+      '/tmp/test',
+      1,
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.iteration).toBe(1)
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
 })

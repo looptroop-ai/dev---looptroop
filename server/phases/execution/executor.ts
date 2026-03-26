@@ -14,6 +14,7 @@ import { buildCompletionInstructions } from './completionSchema'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
 import { BEAD_EXECUTION_TIMEOUT_MS } from '../../lib/constants'
+import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 
 const COMPLETION_INSTRUCTIONS = buildCompletionInstructions()
 const BEAD_STATUS_SCHEMA_REMINDER = [
@@ -77,7 +78,7 @@ export async function executeBead(
         },
       ]
 
-      const runResult = await runOpenCodePrompt({
+      const runBeadPrompt = () => runOpenCodePrompt({
         adapter,
         projectPath,
         parts: beadPrompt,
@@ -99,6 +100,7 @@ export async function executeBead(
           : {}),
         onSessionCreated: (session) => {
           sessionId = session.id
+          activeSessionId = session.id
           callbacks?.onSessionCreated?.(session.id, iteration)
         },
         onStreamEvent: (event) => {
@@ -118,6 +120,8 @@ export async function executeBead(
         },
       })
 
+      let runResult = await runBeadPrompt()
+
       throwIfAborted(signal)
       activeSessionId = runResult.session.id
       lastOutput = runResult.response
@@ -125,37 +129,50 @@ export async function executeBead(
       // Check completion
       let result = parseCompletionMarker(lastOutput)
       if (!result.complete) {
-        const retryParts = buildStructuredRetryPrompt([], {
-          validationError: result.errors.join('; ') || 'Completion marker missing or invalid.',
-          rawResponse: lastOutput,
-          schemaReminder: BEAD_STATUS_SCHEMA_REMINDER,
-        })
-        const retryResult = await runOpenCodeSessionPrompt({
-          adapter,
-          session: runResult.session,
-          parts: retryParts,
-          signal,
-          timeoutMs: timeout,
-          model: callbacks?.model,
-          onStreamEvent: (event) => {
-            callbacks?.onOpenCodeStreamEvent?.({
-              sessionId: runResult.session.id,
-              iteration,
-              event,
-            })
-          },
-          onPromptDispatched: (event) => {
-            callbacks?.onPromptDispatched?.({
-              sessionId: event.session.id,
-              iteration,
-              event,
-            })
-          },
-        })
+        const retryDecision = getStructuredRetryDecision(lastOutput, runResult.responseMeta)
+        if (retryDecision.reuseSession) {
+          const retryParts = buildStructuredRetryPrompt([], {
+            validationError: result.errors.join('; ') || 'Completion marker missing or invalid.',
+            rawResponse: lastOutput,
+            schemaReminder: BEAD_STATUS_SCHEMA_REMINDER,
+          })
+          const retryResult = await runOpenCodeSessionPrompt({
+            adapter,
+            session: runResult.session,
+            parts: retryParts,
+            signal,
+            timeoutMs: timeout,
+            model: callbacks?.model,
+            onStreamEvent: (event) => {
+              callbacks?.onOpenCodeStreamEvent?.({
+                sessionId: runResult.session.id,
+                iteration,
+                event,
+              })
+            },
+            onPromptDispatched: (event) => {
+              callbacks?.onPromptDispatched?.({
+                sessionId: event.session.id,
+                iteration,
+                event,
+              })
+            },
+          })
 
-        throwIfAborted(signal)
-        lastOutput = retryResult.response
-        result = parseCompletionMarker(lastOutput)
+          throwIfAborted(signal)
+          lastOutput = retryResult.response
+          result = parseCompletionMarker(lastOutput)
+        } else {
+          if (activeSessionId && sessionManager) {
+            await sessionManager.abandonSession(activeSessionId)
+            activeSessionId = null
+          }
+          runResult = await runBeadPrompt()
+          throwIfAborted(signal)
+          activeSessionId = runResult.session.id
+          lastOutput = runResult.response
+          result = parseCompletionMarker(lastOutput)
+        }
       }
 
       if (activeSessionId && sessionManager) {

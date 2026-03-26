@@ -93,6 +93,20 @@ interface ProcessIoSnapshot {
   error?: string
 }
 
+interface CorrelationSample {
+  at: string
+  healthOk: boolean
+  healthStatus: number | null
+  healthDurationMs: number
+  healthError?: string
+  ticketsOk: boolean
+  ticketsStatus: number | null
+  ticketsDurationMs: number
+  ticketsError?: string
+  processStat: string | null
+  processWchan: string | null
+}
+
 interface AttachedProjectRow {
   id: number
   folderPath: string
@@ -257,6 +271,8 @@ What it checks:
   - App DB attached projects
   - Project DB ticket/session state
   - Git responsiveness for attached projects
+  - A short backend correlation sampler across repeated probes
+  - Git Trace2 perf output for repo status calls
   - Direct filesystem latency probes for project metadata paths
   - Ticket meta files that could trigger extra base-branch detection
   - Heuristic summary of the most likely cause
@@ -623,6 +639,68 @@ function parseLocalPortFromUrl(rawUrl: string): number | null {
   } catch {
     return null
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+}
+
+async function sampleRuntimeCorrelation(options: {
+  backendPid: number | null
+  backendHealthUrl: string
+  ticketsUrl: string
+  iterations?: number
+  intervalMs?: number
+  probeTimeoutMs?: number
+}): Promise<CorrelationSample[]> {
+  const samples: CorrelationSample[] = []
+  const iterations = options.iterations ?? 5
+  const intervalMs = options.intervalMs ?? 700
+  const probeTimeoutMs = options.probeTimeoutMs ?? 900
+
+  for (let index = 0; index < iterations; index += 1) {
+    const [healthProbe, ticketsProbe] = await Promise.all([
+      probeHttp(`correlation health ${index + 1}`, options.backendHealthUrl, probeTimeoutMs),
+      probeHttp(`correlation tickets ${index + 1}`, options.ticketsUrl, probeTimeoutMs),
+    ])
+
+    let processStat: string | null = null
+    let processWchan: string | null = null
+
+    if (options.backendPid) {
+      const processSnapshot = runShell(
+        `ps -p ${options.backendPid} -o stat=,wchan=`,
+        Math.max(1500, probeTimeoutMs),
+      )
+
+      const raw = processSnapshot.stdout.trim()
+      if (raw) {
+        const parts = raw.split(/\s+/)
+        processStat = parts[0] ?? null
+        processWchan = parts.slice(1).join(' ') || null
+      }
+    }
+
+    samples.push({
+      at: new Date().toISOString(),
+      healthOk: healthProbe.ok,
+      healthStatus: healthProbe.status,
+      healthDurationMs: healthProbe.durationMs,
+      ...(healthProbe.error ? { healthError: healthProbe.error } : {}),
+      ticketsOk: ticketsProbe.ok,
+      ticketsStatus: ticketsProbe.status,
+      ticketsDurationMs: ticketsProbe.durationMs,
+      ...(ticketsProbe.error ? { ticketsError: ticketsProbe.error } : {}),
+      processStat,
+      processWchan,
+    })
+
+    if (index < iterations - 1) {
+      await sleep(intervalMs)
+    }
+  }
+
+  return samples
 }
 
 function resolveAppConfigDir(env: Record<string, string>): string {
@@ -1042,6 +1120,30 @@ function printProcessIoSnapshot(title: string, snapshot: ProcessIoSnapshot) {
   }
 }
 
+function printCorrelationSamples(title: string, samples: CorrelationSample[]) {
+  heading(title)
+  if (samples.length === 0) {
+    print('(none)')
+    return
+  }
+
+  for (const sample of samples) {
+    print(
+      `- at=${sample.at}` +
+      ` health_ok=${sample.healthOk}` +
+      ` health_status=${sample.healthStatus ?? 'n/a'}` +
+      ` health_ms=${sample.healthDurationMs}` +
+      ` tickets_ok=${sample.ticketsOk}` +
+      ` tickets_status=${sample.ticketsStatus ?? 'n/a'}` +
+      ` tickets_ms=${sample.ticketsDurationMs}` +
+      ` stat=${sample.processStat ?? 'n/a'}` +
+      ` wchan=${sample.processWchan ?? 'n/a'}` +
+      ` health_error=${sample.healthError ?? 'n/a'}` +
+      ` tickets_error=${sample.ticketsError ?? 'n/a'}`,
+    )
+  }
+}
+
 function printProjectSnapshot(project: ProjectSnapshot) {
   heading(`Attached Project ${project.id}`)
   kv('Folder', project.folderPath)
@@ -1114,6 +1216,7 @@ function buildHeuristics(input: {
   projectSnapshots: ProjectSnapshot[]
   ioPressure: PressureSnapshot
   backendIo: ProcessIoSnapshot | null
+  correlationSamples: CorrelationSample[]
 }): string[] {
   const messages: string[] = []
   const totalTickets = input.projectSnapshots.reduce((sum, project) => sum + project.ticketCount, 0)
@@ -1133,6 +1236,12 @@ function buildHeuristics(input: {
   const missingBaseBranch = input.projectSnapshots.reduce((sum, project) => sum + project.metaWithoutBaseBranch, 0)
   const ioPressureSome = input.ioPressure.some?.avg10 ?? 0
   const ioPressureFull = input.ioPressure.full?.avg10 ?? 0
+  const correlatedP9Timeouts = input.correlationSamples.filter((sample) =>
+    (!sample.healthOk || !sample.ticketsOk)
+    && (sample.processWchan?.includes('p9_client_rpc') ?? false),
+  ).length
+  const allCorrelatedSamples = input.correlationSamples.length > 0
+    && correlatedP9Timeouts === input.correlationSamples.length
 
   if (input.backendPid === null) {
     messages.push('No backend listener was found on the configured backend port. If the UI is empty in this case, the backend may simply be down.')
@@ -1160,6 +1269,12 @@ function buildHeuristics(input: {
 
   if (hasP9Wait && onMountedDrive) {
     messages.push('The backend thread list included p9_client_rpc while at least one attached project lives under /mnt/. That is a strong signal of WSL mounted-drive I/O blocking the Node process.')
+  }
+
+  if (allCorrelatedSamples) {
+    messages.push('Every correlation sample that checked the backend during this snapshot saw API failure together with p9_client_rpc. That is very strong evidence that the outage is directly tied to the mounted-drive path layer.')
+  } else if (correlatedP9Timeouts > 0) {
+    messages.push(`Some correlation samples (${correlatedP9Timeouts}/${input.correlationSamples.length}) saw API failure at the same time as p9_client_rpc. That materially increases confidence that the mounted-drive layer is the blocker, not a random unrelated slowdown.`)
   }
 
   if (totalActiveSessions > 0) {
@@ -1308,11 +1423,20 @@ async function main() {
   const healthProbe = await probeHttp('backend health', backendHealthUrl, timeoutMs)
   const ticketsProbe = await probeHttp('tickets list', ticketsUrl, timeoutMs)
   const opencodeProbe = await probeHttp('backend OpenCode health', opencodeHealthUrl, timeoutMs)
+  const correlationSamples = await sampleRuntimeCorrelation({
+    backendPid,
+    backendHealthUrl,
+    ticketsUrl,
+    iterations: 5,
+    intervalMs: 700,
+    probeTimeoutMs: 900,
+  })
 
   printHttpProbe(frontendProbe)
   printHttpProbe(healthProbe)
   printHttpProbe(ticketsProbe)
   printHttpProbe(opencodeProbe)
+  printCorrelationSamples('Backend Stall Correlation Samples', correlationSamples)
 
   printPressureSnapshot('I/O Pressure Snapshot', ioPressure)
   printPressureSnapshot('Memory Pressure Snapshot', memoryPressure)
@@ -1419,6 +1543,12 @@ async function main() {
     const gitStatus = runShell(`git -C ${shellQuote(project.folderPath)} status --short --branch`, 5000)
     printCommandResult(`Project ${project.id} Git Status`, gitStatus)
 
+    const gitStatusTrace = runShell(
+      `env GIT_TRACE2_PERF=1 git -C ${shellQuote(project.folderPath)} status --short --branch`,
+      7000,
+    )
+    printCommandResult(`Project ${project.id} Git Status Trace2`, gitStatusTrace)
+
     const gitBranch = runShell(`git -C ${shellQuote(project.folderPath)} rev-parse --abbrev-ref HEAD`, 3000)
     printCommandResult(`Project ${project.id} Git Branch`, gitBranch)
 
@@ -1437,6 +1567,7 @@ async function main() {
     projectSnapshots,
     ioPressure,
     backendIo: backendPid ? readProcessIo(backendPid) : null,
+    correlationSamples,
   })
 
   heading('Likely Causes')

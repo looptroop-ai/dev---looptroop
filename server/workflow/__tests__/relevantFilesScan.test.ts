@@ -211,6 +211,53 @@ describe('handleRelevantFilesScan', () => {
     expect(getLatestPhaseArtifact(ticket.id, 'relevant_files_scan', 'SCANNING_RELEVANT_FILES')).toBeUndefined()
   })
 
+  it('restarts the scan in a fresh session after an empty response instead of sending a structured retry prompt', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'ses-empty', projectPath: paths.worktreePath },
+        response: '',
+        responseMeta: {
+          hasAssistantMessage: true,
+          latestAssistantMessageId: 'msg-empty',
+          latestAssistantWasEmpty: true,
+          latestAssistantHasError: false,
+          latestAssistantWasStale: false,
+        },
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'ses-fresh', projectPath: paths.worktreePath },
+        response: [
+          '<RELEVANT_FILES_RESULT>',
+          'file_count: 1',
+          'files:',
+          '  - path: src/main.ts',
+          '    rationale: Entry point for the feature workflow.',
+          '    relevance: high',
+          '    likely_action: modify',
+          '</RELEVANT_FILES_RESULT>',
+        ].join('\n'),
+        responseMeta: {
+          hasAssistantMessage: true,
+          latestAssistantMessageId: 'msg-fresh',
+          latestAssistantWasEmpty: false,
+          latestAssistantHasError: false,
+          latestAssistantWasStale: false,
+        },
+        messages: [],
+      })
+
+    await handleRelevantFilesScan(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(2)
+    expect(runOpenCodeSessionPromptMock).not.toHaveBeenCalled()
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'RELEVANT_FILES_READY' })
+    expect(existsSync(`${paths.ticketDir}/relevant-files.yaml`)).toBe(true)
+  })
+
   it('blocks immediately when no main implementer is locked', async () => {
     const { ticket } = createInitializedTicket()
     const sendEvent = vi.fn()

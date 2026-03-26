@@ -1,3 +1,5 @@
+import type { StructuredFailureClass } from '../lib/structuredOutputRetry'
+
 /** Thrown when a ticket is canceled to distinguish from real errors. */
 export class CancelledError extends Error {
   constructor(ticketId?: number | string) {
@@ -24,6 +26,7 @@ export interface DraftStructuredOutputMeta {
   repairWarnings: string[]
   autoRetryCount: number
   validationError?: string
+  failureClass?: StructuredFailureClass
 }
 
 export interface CouncilMember {

@@ -1,4 +1,8 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
+import {
+  analyzeAssistantMessages,
+  type OpenCodeResponseMeta,
+} from '../opencode/assistantMessageAnalysis'
 import type {
   Message,
   PromptPart,
@@ -47,6 +51,7 @@ export interface OpenCodeRunResult {
   session: Session
   response: string
   messages: Message[]
+  responseMeta: OpenCodeResponseMeta
 }
 
 const sessionPromptDispatchCounts = new Map<string, number>()
@@ -217,10 +222,12 @@ export async function runOpenCodeSessionPrompt({
   } catch {
     messages = []
   }
+  const responseMeta = analyzeAssistantMessages(messages).responseMeta
 
   return {
     session: resolvedSession,
     response,
     messages,
+    responseMeta,
   }
 }

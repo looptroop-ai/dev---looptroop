@@ -16,10 +16,10 @@ import { buildPrdVotePrompt } from '../../../workflow/phases/prdPhase'
 class TestOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   public messages = new Map<string, Message[]>()
-  private readonly queuedResponses: string[]
+  private readonly queuedResponses: Array<string | { response: string; error?: string }>
   private sessionCounter = 0
 
-  constructor(responses: string[]) {
+  constructor(responses: Array<string | { response: string; error?: string }>) {
     this.queuedResponses = [...responses]
   }
 
@@ -39,7 +39,8 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     _signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string> {
-    const response = this.queuedResponses.shift() ?? 'assistant response'
+    const queued = this.queuedResponses.shift() ?? 'assistant response'
+    const response = typeof queued === 'string' ? queued : queued.response
     const messages = this.messages.get(sessionId) ?? []
 
     for (const part of parts) {
@@ -56,6 +57,15 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
       role: 'assistant',
       content: response,
       timestamp: new Date().toISOString(),
+      ...(typeof queued === 'string' || !queued.error
+        ? {}
+        : {
+            info: {
+              id: `msg-${sessionId}-${messages.length + 1}`,
+              sessionID: sessionId,
+              error: queued.error,
+            },
+          }),
     }
     messages.push(assistantMessage)
     this.messages.set(sessionId, messages)
@@ -753,6 +763,80 @@ describe('draftPRD', () => {
     })
     expect(result.drafts[0]?.outcome).toBe('invalid_output')
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
+  })
+
+  it('restarts full answers in a fresh session after an empty response instead of sending a structured retry prompt', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      '',
+      buildResolvedInterviewYaml('PROJ-16'),
+      buildPrdYaml('PROJ-16'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-16',
+        title: 'Restart empty full answers',
+        description: 'Blank structured output should restart the session.',
+        interview: buildInterviewYaml('PROJ-16'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-16',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      structuredOutput: {
+        autoRetryCount: 1,
+      },
+    })
+    expect(result.drafts[0]?.outcome).toBe('completed')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2', 'mock-session-3'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('classifies repeated provider/session errors during prd_draft as failed instead of invalid_output', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      buildResolvedInterviewYaml('PROJ-17'),
+      { response: '', error: "Provider returned error: The last message cannot have role 'assistant'" },
+      { response: '', error: "Provider returned error: The last message cannot have role 'assistant'" },
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-17',
+        title: 'Classify provider failures',
+        description: 'Provider/session protocol failures should not be treated as invalid YAML.',
+        interview: buildInterviewYaml('PROJ-17'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-17',
+      },
+    )
+
+    expect(result.fullAnswers[0]?.outcome).toBe('completed')
+    expect(result.drafts[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'failed',
+      structuredOutput: {
+        autoRetryCount: 1,
+        failureClass: 'session_protocol_error',
+      },
+    })
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2', 'mock-session-3'])
+    expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+    expect(adapter.messages.get('mock-session-3')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
 
   it('continues to time out when the model misses the full-answers deadline', async () => {

@@ -56,6 +56,7 @@ import {
   loadTicketDirContext,
   formatCouncilResolutionLog,
   formatDraftRoundSummary,
+  formatDraftFailureDetail,
   summarizeDraftOutcomes,
   createPendingDrafts,
   upsertCouncilDraftArtifact,
@@ -534,12 +535,10 @@ export async function handleInterviewDeliberate(
 
   for (const draft of result.drafts) {
     const detail = draft.outcome === 'timed_out'
-      ? 'timed out'
-      : draft.outcome === 'invalid_output'
-        ? `invalid output${draft.error ? ` (${draft.error})` : ''}`
-        : draft.outcome === 'failed'
-          ? `failed${draft.error ? ` (${draft.error})` : ''}`
-          : `proposed ${draft.questionCount ?? 0} questions`
+      ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
+      : draft.outcome === 'invalid_output' || draft.outcome === 'failed'
+        ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
+        : `proposed ${draft.questionCount ?? 0} questions`
     emitAiDetail(
       ticketId,
       context.externalId,
@@ -1258,6 +1257,26 @@ export async function handleInterviewQABatch(
   const signal = getOrCreateAbortSignal(ticketId)
   const streamState = createOpenCodeStreamState()
   const formattedAnswers = buildFormattedBatchAnswers(currentBatch.questions, batchAnswers, selectedOptions)
+  const paths = getTicketPaths(ticketId)
+  let restartOptions: Parameters<typeof submitBatchToSession>[9] | undefined
+  if (paths) {
+    const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
+    try {
+      const compiledInterview = requireCompiledInterviewArtifact(compiledArtifact?.content)
+      restartOptions = {
+        projectPath: paths.worktreePath,
+        ticketState: {
+          ticketId: externalId,
+          title: ticket?.title ?? '',
+          description: ticket?.description ?? '',
+          interview: compiledInterview.refinedContent,
+        },
+        snapshot: answeredSnapshot,
+      }
+    } catch {
+      restartOptions = undefined
+    }
+  }
   const result = await submitBatchToSession(
     adapter,
     sessionInfo.sessionId,
@@ -1285,11 +1304,29 @@ export async function handleInterviewQABatch(
       )
     },
     ticketId,
+    undefined,
+    restartOptions,
   )
   throwIfAborted(signal, ticketId)
 
+  if (result.sessionId && result.sessionId !== sessionInfo.sessionId) {
+    interviewQASessions.set(ticketId, { sessionId: result.sessionId, winnerId: sessionInfo.winnerId })
+    upsertLatestPhaseArtifact(
+      ticketId,
+      INTERVIEW_QA_SESSION_ARTIFACT,
+      'WAITING_INTERVIEW_ANSWERS',
+      JSON.stringify({ sessionId: result.sessionId, winnerId: sessionInfo.winnerId }),
+    )
+    emitPhaseLog(
+      ticketId,
+      externalId,
+      'WAITING_INTERVIEW_ANSWERS',
+      'info',
+      `PROM4 session restarted after structured-output failure (old=${sessionInfo.sessionId}, new=${result.sessionId}).`,
+    )
+  }
+
   if (result.isComplete) {
-    const paths = getTicketPaths(ticketId)
     if (!paths) {
       throw new Error(`Ticket workspace not initialized: missing ticket paths for ${externalId}`)
     }

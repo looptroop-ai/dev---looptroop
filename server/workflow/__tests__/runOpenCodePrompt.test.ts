@@ -365,6 +365,143 @@ describe('runOpenCodePrompt', () => {
     expect(result.response).toBe('<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>')
   })
 
+  it('does not fall back to older assistant text when the latest assistant snapshot is empty', async () => {
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: async () => ({
+          data: {
+            info: { id: 'msg-2' },
+            parts: [{ type: 'text', text: '' }],
+          },
+        }),
+        messages: async () => ({
+          data: [
+            {
+              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() - 10 } },
+              parts: [
+                {
+                  id: 'part-1',
+                  type: 'text',
+                  text: 'older assistant output',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                  time: { end: Date.now() - 10 },
+                },
+              ],
+            },
+            {
+              info: { id: 'msg-2', role: 'assistant', time: { created: Date.now() } },
+              parts: [
+                {
+                  id: 'part-2',
+                  type: 'text',
+                  text: '',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-2',
+                  time: { end: Date.now() },
+                },
+              ],
+            },
+          ],
+        }),
+        abort: async () => ({ data: {} }),
+      },
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'session.idle',
+              properties: { info: { id: 'ses-1' } },
+            }
+          })(),
+        }),
+      },
+    }
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.response).toBe('')
+    expect(result.responseMeta).toMatchObject({
+      hasAssistantMessage: true,
+      latestAssistantMessageId: 'msg-2',
+      latestAssistantWasEmpty: true,
+      latestAssistantHasError: false,
+    })
+  })
+
+  it('surfaces provider metadata from the latest assistant snapshot instead of reusing stale text', async () => {
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: async () => ({
+          data: {
+            info: { id: 'msg-2' },
+            parts: [],
+          },
+        }),
+        messages: async () => ({
+          data: [
+            {
+              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() - 10 } },
+              parts: [
+                {
+                  id: 'part-1',
+                  type: 'text',
+                  text: 'older assistant output',
+                  sessionID: 'ses-1',
+                  messageID: 'msg-1',
+                  time: { end: Date.now() - 10 },
+                },
+              ],
+            },
+            {
+              info: {
+                id: 'msg-2',
+                role: 'assistant',
+                error: "Provider returned error: The last message cannot have role 'assistant'",
+                time: { created: Date.now() },
+              },
+              parts: [],
+            },
+          ],
+        }),
+        abort: async () => ({ data: {} }),
+      },
+      event: {
+        subscribe: async () => ({
+          stream: (async function* () {
+            yield {
+              type: 'session.idle',
+              properties: { info: { id: 'ses-1' } },
+            }
+          })(),
+        }),
+      },
+    }
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.response).toBe('')
+    expect(result.responseMeta).toMatchObject({
+      hasAssistantMessage: true,
+      latestAssistantMessageId: 'msg-2',
+      latestAssistantWasEmpty: true,
+      latestAssistantHasError: true,
+      latestAssistantError: "Provider returned error: The last message cannot have role 'assistant'",
+    })
+  })
+
   it('waits for the terminal snapshot when the immediate SDK response echoes the prompt', async () => {
     let latestAssistantText = [
       'CRITICAL OUTPUT RULE:',

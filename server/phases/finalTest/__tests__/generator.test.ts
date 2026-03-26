@@ -52,4 +52,33 @@ describe('generateFinalTests', () => {
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
   })
+
+  it('restarts final test generation in a fresh session after an empty response', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', '')
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<FINAL_TEST_COMMANDS>',
+      'commands:',
+      '  - npm run test:server',
+      'summary: verify end-to-end ticket coverage',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n'))
+
+    const output = await generateFinalTests(
+      adapter,
+      [{ type: 'text', content: 'Ticket context' }],
+      '/tmp/test',
+    )
+
+    expect(parseFinalTestCommands(output)).toEqual({
+      markerFound: true,
+      commands: ['npm run test:server'],
+      summary: 'verify end-to-end ticket coverage',
+      errors: [],
+      repairApplied: true,
+      repairWarnings: [],
+    })
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
 })

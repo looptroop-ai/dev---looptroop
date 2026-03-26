@@ -16,6 +16,7 @@ import { buildPromptFromTemplate, PROM09D, PROM10, PROM11, PROM12 } from '../../
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt, normalizeInterviewDocumentOutput } from '../../structuredOutput'
+import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { validatePrdDraft, validateResolvedInterview } from './validation'
 
 interface StepValidationResult {
@@ -155,12 +156,14 @@ function buildStructuredOutput(
   validation: StepValidationResult | undefined,
   lastValidationError: string | undefined,
   attemptCount: number,
+  failureClass?: DraftStructuredOutputMeta['failureClass'],
 ): DraftStructuredOutputMeta {
   return {
     repairApplied: validation?.repairApplied ?? false,
     repairWarnings: validation?.repairWarnings ?? [],
     autoRetryCount: attemptCount,
     ...(lastValidationError ? { validationError: lastValidationError } : {}),
+    ...(failureClass ? { failureClass } : {}),
   }
 }
 
@@ -252,6 +255,7 @@ async function executeStructuredStep(
   let validation: StepValidationResult | undefined
   let lastValidationError: string | undefined
   let rawResponse = ''
+  const sessionManager = options.ticketId ? new SessionManager(adapter) : null
 
   const sessionOwnership = options.ticketId
     ? {
@@ -351,17 +355,27 @@ async function executeStructuredStep(
       }
     } catch (error) {
       lastValidationError = error instanceof Error ? error.message : String(error)
+      const retryDecision = getStructuredRetryDecision(rawResponse, result.responseMeta)
       if (attemptCount >= 1) {
         throw new StructuredStepError(
           lastValidationError,
           rawResponse,
-          buildStructuredOutput(validation, lastValidationError, attemptCount),
+          buildStructuredOutput(validation, lastValidationError, attemptCount, retryDecision.failureClass),
           validation?.questionCount,
           validation?.draftMetrics,
         )
       }
 
       attemptCount += 1
+      if (!retryDecision.reuseSession) {
+        if (sessionManager && session) {
+          await sessionManager.abandonSession(session.id)
+        }
+        session = undefined
+        promptParts = baseParts
+        continue
+      }
+
       promptParts = options.buildRetryPrompt?.({
         baseParts,
         validationError: lastValidationError,
@@ -463,7 +477,19 @@ export async function draftPRD(
             structuredError?.structuredOutput,
           )
         : (() => {
-            const { outcome, errorDetail } = classifyDraftFailure(error, errorContent.length > 0)
+            const {
+              outcome,
+              errorDetail,
+              failureClass,
+            } = classifyDraftFailure(error, {
+              content: errorContent,
+              failureClass: structuredError?.structuredOutput.failureClass,
+            })
+            const structuredOutput = structuredError?.structuredOutput ?? (
+              failureClass
+                ? buildStructuredOutput(undefined, undefined, 0, failureClass)
+                : undefined
+            )
             return buildFailedDraft(
               member.modelId,
               outcome,
@@ -472,7 +498,7 @@ export async function draftPRD(
               outcome === 'failed' ? '' : errorContent,
               structuredError?.questionCount,
               structuredError?.draftMetrics,
-              structuredError?.structuredOutput,
+              structuredOutput,
             )
           })()
 
