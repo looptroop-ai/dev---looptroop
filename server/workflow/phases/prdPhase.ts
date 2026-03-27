@@ -390,38 +390,6 @@ export async function handlePrdDraft(
       )
     },
     (entry) => {
-      const fullAnswersIndex = liveFullAnswers.findIndex((draft) => draft.memberId === entry.memberId)
-      if (fullAnswersIndex < 0 || !entry.outcome) return
-      liveFullAnswers[fullAnswersIndex] = {
-        ...liveFullAnswers[fullAnswersIndex]!,
-        content: entry.content ?? liveFullAnswers[fullAnswersIndex]!.content,
-        outcome: entry.outcome,
-        duration: entry.duration ?? liveFullAnswers[fullAnswersIndex]!.duration,
-        error: entry.error,
-        questionCount: entry.questionCount,
-        structuredOutput: entry.structuredOutput,
-      }
-      if (entry.structuredOutput?.repairWarnings.length) {
-        emitPhaseLog(
-          ticketId,
-          context.externalId,
-          phase,
-          'info',
-          `${entry.memberId} Full Answers normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
-        )
-      }
-      if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
-        emitPhaseLog(
-          ticketId,
-          context.externalId,
-          phase,
-          'info',
-          `${entry.memberId} Full Answers required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
-        )
-      }
-      upsertCouncilDraftArtifact(ticketId, phase, 'prd_full_answers', liveFullAnswers)
-    },
-    (entry) => {
       emitDraftProgressInfoLog(ticketId, context.externalId, phase, 'PRD', entry)
       if (entry.status !== 'finished' || !entry.outcome) return
       const draftIndex = liveDrafts.findIndex(draft => draft.memberId === entry.memberId)
@@ -455,6 +423,38 @@ export async function handlePrdDraft(
         )
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
+    },
+    (entry) => {
+      const fullAnswersIndex = liveFullAnswers.findIndex((draft) => draft.memberId === entry.memberId)
+      if (fullAnswersIndex < 0 || !entry.outcome) return
+      liveFullAnswers[fullAnswersIndex] = {
+        ...liveFullAnswers[fullAnswersIndex]!,
+        content: entry.content ?? liveFullAnswers[fullAnswersIndex]!.content,
+        outcome: entry.outcome,
+        duration: entry.duration ?? liveFullAnswers[fullAnswersIndex]!.duration,
+        error: entry.error,
+        questionCount: entry.questionCount,
+        structuredOutput: entry.structuredOutput,
+      }
+      if (entry.structuredOutput?.repairWarnings.length) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} Full Answers normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
+        )
+      }
+      if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} Full Answers required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
+        )
+      }
+      upsertCouncilDraftArtifact(ticketId, phase, 'prd_full_answers', liveFullAnswers)
     },
     (entry) => {
       const stepLabel = entry.step === 'full_answers' ? 'Full Answers' : 'PRD draft'
