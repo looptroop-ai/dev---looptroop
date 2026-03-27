@@ -278,7 +278,6 @@ export function buildInterviewUiRefinementDiffArtifact(params: {
   const sourceCandidates = buildSourceCandidates(losingDrafts, buildInterviewQuestionBlocks)
 
   const winnerById = new Map(winnerQuestions.map((question) => [question.id, question] as const))
-  const refinedById = new Map(refinedQuestions.map((question) => [question.id, question] as const))
   const consumedWinnerIds = new Set<string>()
   const consumedRefinedIds = new Set<string>()
   const entries: UiRefinementDiffEntry[] = []

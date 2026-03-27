@@ -2,6 +2,12 @@ import jsYaml from 'js-yaml'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import {
+  mergeCoverageArtifactContent,
+  mergeVoteArtifactContent,
+  parseArtifactCompanionPayload,
+  readWinnerIdFromArtifactContent,
+} from './artifactCompanionUtils'
+import {
   extractInterviewQuestionPreviews,
   type InterviewQuestionChange,
   type InterviewQuestionChangeAttributionStatus,
@@ -612,6 +618,8 @@ export function buildFinalInterviewArtifactContent(
   voteContent: string | null | undefined,
   compiledContent: string | null | undefined,
   uiDiffContent?: string | null | undefined,
+  compiledCompanionContent?: string | null | undefined,
+  winnerArtifactContent?: string | null | undefined,
 ): string | null {
   if (!compiledContent) return null
   try {
@@ -624,11 +632,16 @@ export function buildFinalInterviewArtifactContent(
       uiRefinementDiff?: unknown
       structuredOutput?: ArtifactStructuredOutputData
     }
+    const compiledCompanion = parseArtifactCompanionPayload(compiledCompanionContent, 'interview_compiled')
     const refinedContent = typeof compiled.refinedContent === 'string' ? compiled.refinedContent : ''
     if (!refinedContent) return null
 
-    const voteResult = voteContent ? tryParseCouncilResult(voteContent) : null
-    const winnerId = compiled.winnerId ?? voteResult?.winnerId
+    const mergedVoteContent = mergeVoteArtifactContent(voteContent)
+    const voteResult = mergedVoteContent ? tryParseCouncilResult(mergedVoteContent) : null
+    const winnerId = compiled.winnerId
+      ?? (typeof compiledCompanion?.winnerId === 'string' ? compiledCompanion.winnerId : undefined)
+      ?? readWinnerIdFromArtifactContent(winnerArtifactContent)
+      ?? voteResult?.winnerId
     const winnerDraft = voteResult?.winnerId
       ? (voteResult.drafts ?? []).find((draft) => draft.memberId === voteResult.winnerId)
       : null
@@ -644,18 +657,26 @@ export function buildFinalInterviewArtifactContent(
         ? compiled.questionCount
         : Array.isArray(compiled.questions)
           ? compiled.questions.length
+          : typeof compiledCompanion?.questionCount === 'number'
+            ? compiledCompanion.questionCount
           : normalizeInterviewDiffQuestions(refinedContent).length,
       questionCount: typeof compiled.questionCount === 'number'
         ? compiled.questionCount
         : Array.isArray(compiled.questions)
           ? compiled.questions.length
+          : typeof compiledCompanion?.questionCount === 'number'
+            ? compiledCompanion.questionCount
           : normalizeInterviewDiffQuestions(refinedContent).length,
-      questions: Array.isArray(compiled.questions) ? compiled.questions : undefined,
+      questions: Array.isArray(compiled.questions)
+        ? compiled.questions
+        : Array.isArray(compiledCompanion?.questions)
+          ? compiledCompanion.questions
+          : undefined,
       changes: Object.prototype.hasOwnProperty.call(compiled, 'changes') && Array.isArray(compiled.changes)
         ? compiled.changes as InterviewQuestionChange[]
         : undefined,
       uiRefinementDiff: normalizeUiRefinementDiff(compiled.uiRefinementDiff) ?? normalizeUiRefinementDiff(uiDiffContent),
-      structuredOutput: compiled.structuredOutput,
+      structuredOutput: compiled.structuredOutput ?? normalizeArtifactStructuredOutput(compiledCompanion?.structuredOutput),
     }
     return JSON.stringify(payload)
   } catch {
@@ -667,10 +688,13 @@ export function buildFinalRefinementArtifactContent(
   refinedContent: string | null | undefined,
   uiDiffContent?: string | null | undefined,
   coverageInputContent?: string | null | undefined,
+  refinedCompanionContent?: string | null | undefined,
+  winnerArtifactContent?: string | null | undefined,
 ): string | null {
   const refinedArtifact = refinedContent ? parseRefinementArtifact(refinedContent) : null
   const coverageInput = coverageInputContent ? tryParseStructuredContent(coverageInputContent) : null
   const coverageRecord = isRecord(coverageInput) ? coverageInput : null
+  const refinedCompanion = parseArtifactCompanionPayload(refinedCompanionContent)
 
   const nextRefinedContent = typeof coverageRecord?.refinedContent === 'string'
     ? coverageRecord.refinedContent
@@ -679,16 +703,24 @@ export function buildFinalRefinementArtifactContent(
 
   const payload: RefinementDiffArtifactData & CoverageInputData = {
     ...(coverageRecord ? coverageRecord as CoverageInputData : {}),
-    winnerId: refinedArtifact?.winnerId,
+    winnerId: refinedArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
     refinedContent: nextRefinedContent,
-    winnerDraftContent: refinedArtifact?.winnerDraftContent,
+    winnerDraftContent: refinedArtifact?.winnerDraftContent
+      ?? (typeof refinedCompanion?.winnerDraftContent === 'string' ? refinedCompanion.winnerDraftContent : undefined),
     changes: refinedArtifact?.changes,
     uiRefinementDiff: refinedArtifact?.uiRefinementDiff ?? normalizeUiRefinementDiff(uiDiffContent),
-    draftMetrics: refinedArtifact?.draftMetrics,
-    structuredOutput: refinedArtifact?.structuredOutput,
+    draftMetrics: refinedArtifact?.draftMetrics ?? normalizeRefinementDraftMetrics(refinedCompanion?.draftMetrics),
+    structuredOutput: refinedArtifact?.structuredOutput ?? normalizeArtifactStructuredOutput(refinedCompanion?.structuredOutput),
   }
 
   return JSON.stringify(payload)
+}
+
+export function buildCoverageArtifactContent(
+  coverageContent: string | null | undefined,
+  coverageCompanionContent?: string | null | undefined,
+): string | null {
+  return mergeCoverageArtifactContent(coverageContent, coverageCompanionContent)
 }
 
 export function normalizeCoverageFollowUpArtifacts(questions: unknown): CoverageFollowUpArtifactQuestion[] {

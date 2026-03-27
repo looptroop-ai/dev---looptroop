@@ -41,6 +41,7 @@ import {
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
+import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 
 export async function handleBeadsDraft(
   ticketId: string,
@@ -486,12 +487,17 @@ export async function handleBeadsRefine(
     phase: 'REFINING_BEADS',
     artifactType: 'beads_refined',
     content: JSON.stringify({
-      winnerId: intermediate.winnerId,
       refinedContent,
-      winnerDraftContent: winnerDraft.content,
-      expandedBeads,
-      structuredOutput: structuredMeta,
     }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_refined', {
+    winnerDraftContent: winnerDraft.content,
+    structuredOutput: structuredMeta,
+  })
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_BEADS',
+    artifactType: 'beads_winner',
+    content: JSON.stringify({ winnerId: intermediate.winnerId }),
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
 
@@ -571,10 +577,18 @@ export function buildMockBeadSubsets(context: TicketContext): BeadSubset[] {
 }
 
 export async function handleMockBeadsDraft(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const refinedContent = JSON.stringify(buildMockBeadSubsets(context))
   insertPhaseArtifact(ticketId, {
     phase: 'DRAFTING_BEADS',
     artifactType: 'beads_drafts',
-    content: JSON.stringify({ drafts: [{ memberId: 'mock-model-1', outcome: 'completed' }] }),
+    content: JSON.stringify({
+      drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: refinedContent }],
+      memberOutcomes: { 'mock-model-1': 'completed' },
+      isFinal: true,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'DRAFTING_BEADS', 'beads_drafts', {
+    draftDetails: [{ memberId: 'mock-model-1', duration: 1 }],
   })
   emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'info', 'Mock beads drafts ready.')
   sendEvent({ type: 'DRAFTS_READY' })
@@ -586,14 +600,20 @@ export async function handleMockBeadsVote(ticketId: string, context: TicketConte
     artifactType: 'beads_votes',
     content: JSON.stringify({
       winnerId: 'mock-model-1',
-      totalScore: 1,
-      presentationOrders: {
-        'mock-model-1': {
-          seed: 'mock-seed-beads',
-          order: ['mock-model-1'],
-        },
-      },
+      isFinal: true,
     }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', {
+    totalScore: 1,
+    voterOutcomes: { 'mock-model-1': 'completed' },
+    presentationOrders: {
+      'mock-model-1': {
+        seed: 'mock-seed-beads',
+        order: ['mock-model-1'],
+      },
+    },
+    votes: [],
+    drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: JSON.stringify(buildMockBeadSubsets(context)) }],
   })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info', 'Mock beads winner selected.')
   sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
@@ -613,7 +633,15 @@ export async function handleMockBeadsRefine(ticketId: string, context: TicketCon
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
     artifactType: 'beads_refined',
-    content: JSON.stringify({ winnerId: 'mock-model-1', refinedContent, winnerDraftContent: refinedContent, expandedBeads }),
+    content: JSON.stringify({ refinedContent }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_refined', {
+    winnerDraftContent: refinedContent,
+  })
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_BEADS',
+    artifactType: 'beads_winner',
+    content: JSON.stringify({ winnerId: 'mock-model-1' }),
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
   writeJsonl(paths.beadsPath, expandedBeads)

@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync, writeFileSync } from 'node:fs'
 import jsYaml from 'js-yaml'
 import type { InterviewDocument } from '@shared/interviewArtifact'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
 import { clearProjectDatabaseCache } from '../../db/project'
@@ -376,16 +377,36 @@ describe('handlePrdRefine', () => {
 
     const refinedArtifact = getLatestPhaseArtifact(ticket.id, 'prd_refined', 'REFINING_PRD')
     expect(refinedArtifact).toBeDefined()
+    expect(JSON.parse(refinedArtifact!.content)).toEqual({
+      refinedContent: expect.any(String),
+    })
     const parsed = parsePrdRefinedArtifact(refinedArtifact!.content)
     expect(parsed.draftMetrics).toEqual({ epicCount: 1, userStoryCount: 2 })
     expect(parsed.changes).toEqual([])
-    expect(parsed.winnerDraftContent).toContain('title: Prompt hardening')
-    expect(parsed.structuredOutput).toMatchObject({
+    expect(parsed.winnerDraftContent).toBe('')
+    expect(parsed.structuredOutput).toBeUndefined()
+
+    const refinedCompanionArtifact = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_refined', 'REFINING_PRD')
+    expect(refinedCompanionArtifact).toBeDefined()
+    const refinedCompanion = parseUiArtifactCompanionArtifact(refinedCompanionArtifact!.content)?.payload as {
+      winnerDraftContent?: string
+      draftMetrics?: { epicCount?: number; userStoryCount?: number }
+      structuredOutput?: {
+        autoRetryCount?: number
+        repairApplied?: boolean
+        repairWarnings?: string[]
+        validationError?: string
+      }
+    } | undefined
+    expect(refinedCompanion).toBeDefined()
+    expect(refinedCompanion?.draftMetrics).toEqual({ epicCount: 1, userStoryCount: 2 })
+    expect(refinedCompanion?.winnerDraftContent).toContain('title: Prompt hardening')
+    expect(refinedCompanion?.structuredOutput).toMatchObject({
       autoRetryCount: 0,
       repairApplied: true,
     })
-    expect(parsed.structuredOutput?.validationError).toBeUndefined()
-    expect(parsed.structuredOutput?.repairWarnings.join('\n')).toContain('Inferred missing PRD refinement item_type')
+    expect(refinedCompanion?.structuredOutput?.validationError).toBeUndefined()
+    expect(refinedCompanion?.structuredOutput?.repairWarnings?.join('\n')).toContain('Inferred missing PRD refinement item_type')
     expect(getLatestPhaseArtifact(ticket.id, 'ui_refinement_diff:prd', 'REFINING_PRD')).toBeDefined()
 
     expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8').trim()).toBe(parsed.refinedContent.trim())
@@ -451,12 +472,13 @@ describe('handlePrdRefine', () => {
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
 
-    const coverageInput = getLatestPhaseArtifact(ticket.id, 'prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
+    const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
     expect(coverageInput).toBeDefined()
-    const parsedCoverageInput = JSON.parse(coverageInput!.content) as {
+    const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {
       refinedContent?: string
       changes?: unknown[]
-    }
+    } | undefined
+    if (!parsedCoverageInput) throw new Error('Expected PRD coverage-input companion payload')
     expect(parsedCoverageInput.refinedContent).toBe(refinement.refinedContent)
     expect(parsedCoverageInput.changes).toBeUndefined()
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)

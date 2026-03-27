@@ -14,9 +14,6 @@ import {
   completeInterviewBySkippingRemaining,
   countCoverageFollowUpQuestions,
   createInterviewSessionSnapshot,
-  INTERVIEW_BATCH_HISTORY_ARTIFACT,
-  INTERVIEW_CURRENT_BATCH_ARTIFACT,
-  INTERVIEW_PROM4_FINAL_ARTIFACT,
   INTERVIEW_QA_SESSION_ARTIFACT,
   INTERVIEW_SESSION_ARTIFACT,
   markInterviewSessionComplete,
@@ -35,12 +32,13 @@ import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
-import type { InterviewSessionSnapshot, PersistedInterviewBatch } from '@shared/interviewSession'
+import type { InterviewSessionSnapshot } from '@shared/interviewSession'
 import { buildInterviewUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 import { calculateFollowUpLimit } from '../../phases/interview/followUpBudget'
 import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
+import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 
 import { adapter, interviewQASessions, phaseIntermediate, SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE, getOrCreateAbortSignal } from './state'
 import {
@@ -99,28 +97,8 @@ export function writeInterviewSessionSnapshotArtifact(ticketId: string, snapshot
   )
 }
 
-export function writeInterviewCurrentBatchArtifact(ticketId: string, batch: PersistedInterviewBatch | null) {
-  upsertLatestPhaseArtifact(
-    ticketId,
-    INTERVIEW_CURRENT_BATCH_ARTIFACT,
-    'WAITING_INTERVIEW_ANSWERS',
-    JSON.stringify(batch),
-  )
-}
-
-export function writeInterviewBatchHistoryArtifact(ticketId: string, snapshot: InterviewSessionSnapshot) {
-  upsertLatestPhaseArtifact(
-    ticketId,
-    INTERVIEW_BATCH_HISTORY_ARTIFACT,
-    'WAITING_INTERVIEW_ANSWERS',
-    JSON.stringify(snapshot.batchHistory),
-  )
-}
-
 export function persistInterviewSession(ticketId: string, snapshot: InterviewSessionSnapshot) {
   writeInterviewSessionSnapshotArtifact(ticketId, snapshot)
-  writeInterviewCurrentBatchArtifact(ticketId, snapshot.currentBatch)
-  writeInterviewBatchHistoryArtifact(ticketId, snapshot)
 }
 
 export function loadCanonicalInterview(ticketDir: string): string | undefined {
@@ -208,45 +186,45 @@ export function skipAllInterviewQuestionsToApproval(
   const coverageRunNumber = Math.max(1, countPhaseArtifacts(ticketId, 'interview_coverage', 'VERIFYING_INTERVIEW_COVERAGE') || 1)
   const followUpBudgetTotal = calculateFollowUpLimit(finalizedSnapshot.maxInitialQuestions, coverageFollowUpBudgetPercent)
   const followUpBudgetUsed = countCoverageFollowUpQuestions(finalizedSnapshot)
-  upsertLatestPhaseArtifact(
-    ticketId,
-    'interview_coverage_input',
-    'VERIFYING_INTERVIEW_COVERAGE',
-    JSON.stringify({ interview: canonicalInterview, userAnswers }),
-  )
+  persistUiArtifactCompanionArtifact(ticketId, 'VERIFYING_INTERVIEW_COVERAGE', 'interview_coverage_input', {
+    interview: canonicalInterview,
+    userAnswers,
+  })
   upsertLatestPhaseArtifact(
     ticketId,
     'interview_coverage',
     'VERIFYING_INTERVIEW_COVERAGE',
     JSON.stringify({
       winnerId: finalizedSnapshot.winnerId,
-      response: SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE,
-      normalizedContent: [
-        'status: clean',
-        'gaps: []',
-        'follow_up_questions: []',
-      ].join('\n'),
       hasGaps: false,
-      parsed: {
-        status: 'clean',
-        gaps: [],
-        followUpQuestions: [],
-      },
       coverageRunNumber,
       maxCoveragePasses,
       limitReached: false,
       terminationReason: 'clean',
-      followUpBudgetPercent: coverageFollowUpBudgetPercent,
-      followUpBudgetTotal,
-      followUpBudgetUsed,
-      followUpBudgetRemaining: Math.max(0, followUpBudgetTotal - followUpBudgetUsed),
-      structuredOutput: {
-        repairApplied: false,
-        repairWarnings: [],
-        autoRetryCount: 0,
-      },
     }),
   )
+  persistUiArtifactCompanionArtifact(ticketId, 'VERIFYING_INTERVIEW_COVERAGE', 'interview_coverage', {
+    response: SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE,
+    normalizedContent: [
+      'status: clean',
+      'gaps: []',
+      'follow_up_questions: []',
+    ].join('\n'),
+    parsed: {
+      status: 'clean',
+      gaps: [],
+      followUpQuestions: [],
+    },
+    followUpBudgetPercent: coverageFollowUpBudgetPercent,
+    followUpBudgetTotal,
+    followUpBudgetUsed,
+    followUpBudgetRemaining: Math.max(0, followUpBudgetTotal - followUpBudgetUsed),
+    structuredOutput: {
+      repairApplied: false,
+      repairWarnings: [],
+      autoRetryCount: 0,
+    },
+  })
 
   emitPhaseLog(
     ticketId,
@@ -878,9 +856,14 @@ export async function handleInterviewCompile(
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
       content: JSON.stringify({
-        ...compiledArtifact,
-        structuredOutput: structuredMeta,
+        refinedContent: compiledArtifact.refinedContent,
       }),
+    })
+    persistUiArtifactCompanionArtifact(ticketId, 'COMPILING_INTERVIEW', 'interview_compiled', {
+      winnerId: compiledArtifact.winnerId,
+      questions: compiledArtifact.questions,
+      questionCount: compiledArtifact.questionCount,
+      structuredOutput: structuredMeta,
     })
 
     // Persist winnerId separately so it survives server restarts and is available
@@ -963,17 +946,6 @@ export async function handleInterviewQAStart(
 
   const restoredSession = await restoreInterviewQASession(ticketId)
   if (restoredSession) {
-    const currentBatchArtifact = getLatestPhaseArtifact(ticketId, INTERVIEW_CURRENT_BATCH_ARTIFACT, 'WAITING_INTERVIEW_ANSWERS')
-    const persistedBatch = currentBatchArtifact
-      ? (() => {
-          try {
-            return JSON.parse(currentBatchArtifact.content) as PersistedInterviewBatch
-          } catch {
-            return null
-          }
-        })()
-      : null
-
     emitPhaseLog(
       ticketId,
       context.externalId,
@@ -981,14 +953,6 @@ export async function handleInterviewQAStart(
       'info',
       `Reattached PROM4 session ${restoredSession.sessionId} for ${restoredSession.winnerId}.`,
     )
-
-    if (persistedBatch) {
-      broadcaster.broadcast(ticketId, 'needs_input', {
-        ticketId,
-        type: 'interview_batch',
-        batch: persistedBatch,
-      })
-    }
     return
   }
 
@@ -1223,11 +1187,6 @@ export async function handleInterviewQABatch(
       if (!nextMockBatch) {
         const rawFinalYaml = buildCanonicalInterviewYaml(externalId, answeredSnapshot)
         const completedSnapshot = markInterviewSessionComplete(answeredSnapshot, rawFinalYaml)
-        insertPhaseArtifact(ticketId, {
-          phase: 'WAITING_INTERVIEW_ANSWERS',
-          artifactType: INTERVIEW_PROM4_FINAL_ARTIFACT,
-          content: rawFinalYaml,
-        })
         writeCanonicalInterview(externalId, paths.ticketDir, completedSnapshot)
         persistInterviewSession(ticketId, completedSnapshot)
 
@@ -1345,13 +1304,6 @@ export async function handleInterviewQABatch(
     }
 
     const completedSnapshot = markInterviewSessionComplete(answeredSnapshot, result.finalYaml)
-    if (result.finalYaml?.trim()) {
-      insertPhaseArtifact(ticketId, {
-        phase: 'WAITING_INTERVIEW_ANSWERS',
-        artifactType: INTERVIEW_PROM4_FINAL_ARTIFACT,
-        content: result.finalYaml.trim(),
-      })
-    }
     writeCanonicalInterview(externalId, paths.ticketDir, completedSnapshot)
     persistInterviewSession(ticketId, completedSnapshot)
 
@@ -1681,7 +1633,14 @@ export async function handleMockInterviewCompile(
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',
     artifactType: 'interview_compiled',
-    content: JSON.stringify(compiledArtifact),
+    content: JSON.stringify({
+      refinedContent: compiledArtifact.refinedContent,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'COMPILING_INTERVIEW', 'interview_compiled', {
+    winnerId: compiledArtifact.winnerId,
+    questions: compiledArtifact.questions,
+    questionCount: compiledArtifact.questionCount,
   })
   insertPhaseArtifact(ticketId, {
     phase: 'COMPILING_INTERVIEW',

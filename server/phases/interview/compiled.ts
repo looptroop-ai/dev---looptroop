@@ -1,3 +1,4 @@
+import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 import type { ParsedInterviewQuestion } from './questions'
 import { normalizeInterviewRefinementOutput, type StructuredOutputMetadata } from '../../structuredOutput'
 
@@ -114,18 +115,17 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
   const rawQuestions = parsed.questions
   const rawQuestionCount = parsed.questionCount
   const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
-
-  if (!winnerId) {
-    throw new Error('Compiled interview artifact is missing winnerId')
-  }
   if (!refinedContent.trim()) {
     throw new Error('Compiled interview artifact is missing refinedContent')
   }
-  if (!Array.isArray(rawQuestions)) {
-    throw new Error('Compiled interview artifact is missing questions')
-  }
 
-  const questions = rawQuestions.map((question, index) => normalizeArtifactQuestion(question, index))
+  const questions = Array.isArray(rawQuestions)
+    ? rawQuestions.map((question, index) => normalizeArtifactQuestion(question, index))
+    : extractInterviewQuestionPreviews(refinedContent).map((question, index) => ({
+        id: question.id || `Q${String(index + 1).padStart(2, '0')}`,
+        phase: formatArtifactPhase(question.phase || 'Foundation'),
+        question: question.question,
+      }))
   const questionCount = typeof rawQuestionCount === 'number' ? rawQuestionCount : questions.length
 
   if (!Number.isInteger(questionCount) || questionCount <= 0) {

@@ -1,6 +1,13 @@
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
+import {
+  findLatestArtifact,
+  findLatestCompanionArtifact,
+  mergeCoverageArtifactContent,
+  mergeDraftArtifactContent,
+  mergeVoteArtifactContent,
+} from './artifactCompanionUtils'
 
 export type CouncilAction = 'drafting' | 'scoring' | 'refining' | 'verifying' | 'working'
 export type CouncilOutcome = 'pending' | 'completed' | 'timed_out' | 'invalid_output' | 'failed'
@@ -124,14 +131,16 @@ function buildDraftMemberArtifacts(
   if (!domain) return []
 
   const draftArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_drafts`)
-  const draftResult = parseCouncilResult(draftArtifact?.content)
+  const draftCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_drafts`, [phase])
+  const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanionArtifact?.content)
+  const draftResult = parseCouncilResult(mergedDraftContent)
   const drafts = Array.isArray(draftResult?.drafts) ? draftResult.drafts : []
   const draftByMember = new Map(drafts.map((draft) => [draft.memberId, draft]))
   const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
 
   return orderedMembers.map((memberId) => {
     const draft = draftByMember.get(memberId)
-    const viewer = makeDraftViewer(domain, memberId, draftArtifact?.content ?? '')
+    const viewer = makeDraftViewer(domain, memberId, mergedDraftContent ?? draftArtifact?.content ?? '')
     return {
       key: `${phase}:${memberId}`,
       modelId: memberId,
@@ -153,14 +162,19 @@ function buildVotingMemberArtifacts(
   if (!domain) return []
 
   const voteArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_votes`)
-  const voteResult = parseCouncilResult(voteArtifact?.content)
+  const voteCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_votes`, [phase])
+  const draftArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === `${domain}_drafts`)
+  const draftCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_drafts`)
+  const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanionArtifact?.content)
+  const mergedVoteContent = mergeVoteArtifactContent(voteArtifact?.content, voteCompanionArtifact?.content, mergedDraftContent)
+  const voteResult = parseCouncilResult(mergedVoteContent)
   const voterOutcomes = voteResult?.voterOutcomes ?? {}
   const orderedMembers = getOrderedMembers(
     configuredMembers,
     Object.keys(voterOutcomes).length > 0 ? Object.keys(voterOutcomes) : unique(voteResult?.votes?.map((vote) => vote.voterId) ?? []),
     fallbackCount,
   )
-  const viewer = makeVotingViewer(domain, voteArtifact?.content ?? '')
+  const viewer = makeVotingViewer(domain, mergedVoteContent ?? voteArtifact?.content ?? '')
 
   return orderedMembers.map((memberId) => {
     const outcome = voterOutcomes[memberId] ?? 'pending'
@@ -188,7 +202,12 @@ function buildRefiningMemberArtifacts(
 
   const votePhase = getVotePhaseForRefine(phase)
   const voteArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === votePhase && artifact.artifactType === `${domain}_votes`)
-  const voteResult = parseCouncilResult(voteArtifact?.content)
+  const voteCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_votes`, [votePhase])
+  const draftArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === `${domain}_drafts`)
+  const draftCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_drafts`)
+  const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanionArtifact?.content)
+  const mergedVoteContent = mergeVoteArtifactContent(voteArtifact?.content, voteCompanionArtifact?.content, mergedDraftContent)
+  const voteResult = parseCouncilResult(mergedVoteContent)
   const drafts = Array.isArray(voteResult?.drafts) ? voteResult.drafts : []
   const winnerId = voteResult?.winnerId ?? ''
   const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
@@ -199,10 +218,10 @@ function buildRefiningMemberArtifacts(
     const draft = drafts.find((d) => d.memberId === memberId)
     const isWinner = memberId === winnerId
     const viewer = shouldShowProposedDraft
-      ? makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
+      ? makeDraftViewer(domain, memberId, mergedVoteContent ?? voteArtifact?.content ?? '')
       : isWinner
         ? makeWinnerViewer(domain, phase, memberId, refinedArtifact?.content ?? voteArtifact?.content ?? '', refinedArtifact?.content ? true : false)
-        : makeDraftViewer(domain, memberId, voteArtifact?.content ?? '')
+        : makeDraftViewer(domain, memberId, mergedVoteContent ?? voteArtifact?.content ?? '')
     const detail = shouldShowProposedDraft
       ? getDraftDetail(domain, draft)
       : isWinner
@@ -234,7 +253,9 @@ function buildVerificationMemberArtifacts(
   if (!domain) return []
 
   const coverageArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === `${domain}_coverage`)
-  const coverageResult = parseCoverageResult(coverageArtifact?.content)
+  const coverageCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_coverage`, [phase])
+  const mergedCoverageContent = mergeCoverageArtifactContent(coverageArtifact?.content, coverageCompanionArtifact?.content)
+  const coverageResult = parseCoverageResult(mergedCoverageContent)
   const winnerId = coverageResult?.winnerId
     ?? parseWinnerIdFromArtifacts(domain, phase, artifacts)
 
@@ -248,7 +269,7 @@ function buildVerificationMemberArtifacts(
     outcome: coverageComplete ? 'completed' : 'pending',
     detail: getCoverageDetail(coverageResult),
     isWinner: true,
-    viewer: makeCoverageViewer(domain, coverageArtifact?.content ?? ''),
+    viewer: makeCoverageViewer(domain, mergedCoverageContent ?? coverageArtifact?.content ?? ''),
   }]
 }
 
@@ -261,14 +282,16 @@ export function buildFullAnswerMemberArtifacts(
   if (phase !== 'DRAFTING_PRD') return []
 
   const fullAnswersArtifact = findLatestArtifact(artifacts, (a) => a.phase === phase && a.artifactType === 'prd_full_answers')
-  const result = parseCouncilResult(fullAnswersArtifact?.content)
+  const fullAnswersCompanionArtifact = findLatestCompanionArtifact(artifacts, 'prd_full_answers', [phase])
+  const mergedFullAnswersContent = mergeDraftArtifactContent(fullAnswersArtifact?.content, fullAnswersCompanionArtifact?.content)
+  const result = parseCouncilResult(mergedFullAnswersContent)
   const drafts = Array.isArray(result?.drafts) ? result.drafts : []
   const draftByMember = new Map(drafts.map((d) => [d.memberId, d]))
   const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((d) => d.memberId), fallbackCount)
 
   return orderedMembers.map((memberId) => {
     const draft = draftByMember.get(memberId)
-    const viewer = makeFullAnswersViewer(memberId, fullAnswersArtifact?.content ?? '')
+    const viewer = makeFullAnswersViewer(memberId, mergedFullAnswersContent ?? fullAnswersArtifact?.content ?? '')
     return {
       key: `${phase}:fullanswers:${memberId}`,
       modelId: memberId,
@@ -484,17 +507,6 @@ function parseCoverageResult(content: string | null | undefined): CoverageResult
     return null
   }
   return null
-}
-
-function findLatestArtifact(
-  artifacts: ArtifactSource[],
-  predicate: (artifact: ArtifactSource) => boolean,
-): ArtifactSource | undefined {
-  for (let index = artifacts.length - 1; index >= 0; index -= 1) {
-    const artifact = artifacts[index]
-    if (artifact && predicate(artifact)) return artifact
-  }
-  return undefined
 }
 
 function getOrderedMembers(configuredMembers: string[], discoveredMembers: string[], fallbackCount: number): string[] {

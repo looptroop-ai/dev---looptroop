@@ -46,6 +46,7 @@ import {
 } from './helpers'
 import type { OpenCodeStreamState } from './types'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
+import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 
 function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalId: string): string {
   const interviewPath = resolve(ticketDir, 'interview.yaml')
@@ -194,20 +195,20 @@ function buildMockPrdDocument(context: TicketContext, variantIndex: number) {
           ...(variantIndex === 0
             ? []
             : [
-                {
-                  id: `US-1-${variantIndex + 2}`,
-                  title: `Differentiate mock alternative ${variantIndex + 1}`,
-                  acceptance_criteria: [
-                    'Each council member sees a distinct but still valid mock PRD draft.',
-                  ],
-                  implementation_steps: [
-                    'Vary the mock content slightly per council member.',
-                  ],
-                  verification: {
-                    required_commands: ['npm test'],
-                  },
+              {
+                id: `US-1-${variantIndex + 2}`,
+                title: `Differentiate mock alternative ${variantIndex + 1}`,
+                acceptance_criteria: [
+                  'Each council member sees a distinct but still valid mock PRD draft.',
+                ],
+                implementation_steps: [
+                  'Vary the mock content slightly per council member.',
+                ],
+                verification: {
+                  required_commands: ['npm test'],
                 },
-              ]),
+              },
+            ]),
         ],
       },
     ],
@@ -917,7 +918,14 @@ export async function handlePrdRefine(
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
-    content: JSON.stringify(refinedArtifact),
+    content: JSON.stringify({
+      refinedContent: refinedArtifact.refinedContent,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'REFINING_PRD', 'prd_refined', {
+    winnerDraftContent: refinedArtifact.winnerDraftContent,
+    draftMetrics: refinedArtifact.draftMetrics,
+    structuredOutput: refinedArtifact.structuredOutput ?? null,
   })
 
   // Persist winnerId separately for restart resilience (matches interview_winner pattern)
@@ -991,8 +999,11 @@ export async function handleMockPrdDraft(ticketId: string, context: TicketContex
     phase: 'DRAFTING_PRD',
     artifactType: 'prd_full_answers',
     content: JSON.stringify({
-      phase: 'prd_full_answer',
-      drafts: fullAnswers,
+      drafts: fullAnswers.map((draft) => ({
+        memberId: draft.memberId,
+        outcome: draft.outcome,
+        ...(draft.content ? { content: draft.content } : {}),
+      })),
       memberOutcomes: fullAnswers.reduce<Record<string, MemberOutcome>>((acc, draft) => {
         acc[draft.memberId] = draft.outcome
         return acc
@@ -1000,18 +1011,36 @@ export async function handleMockPrdDraft(ticketId: string, context: TicketContex
       isFinal: true,
     }),
   })
+  persistUiArtifactCompanionArtifact(ticketId, 'DRAFTING_PRD', 'prd_full_answers', {
+    draftDetails: fullAnswers.map((draft) => ({
+      memberId: draft.memberId,
+      ...(typeof draft.duration === 'number' ? { duration: draft.duration } : {}),
+      ...(typeof draft.questionCount === 'number' ? { questionCount: draft.questionCount } : {}),
+    })),
+  })
   insertPhaseArtifact(ticketId, {
     phase: 'DRAFTING_PRD',
     artifactType: 'prd_drafts',
     content: JSON.stringify({
-      phase: 'prd_draft',
-      drafts,
+      drafts: drafts.map((draft) => ({
+        memberId: draft.memberId,
+        outcome: draft.outcome,
+        ...(draft.content ? { content: draft.content } : {}),
+      })),
       memberOutcomes: drafts.reduce<Record<string, MemberOutcome>>((acc, draft) => {
         acc[draft.memberId] = draft.outcome
         return acc
       }, {}),
       isFinal: true,
     }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'DRAFTING_PRD', 'prd_drafts', {
+    draftDetails: drafts.map((draft) => ({
+      memberId: draft.memberId,
+      ...(typeof draft.duration === 'number' ? { duration: draft.duration } : {}),
+      ...(typeof draft.questionCount === 'number' ? { questionCount: draft.questionCount } : {}),
+      ...(draft.draftMetrics ? { draftMetrics: draft.draftMetrics } : {}),
+    })),
   })
   emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'info', 'Mock PRD drafts ready.')
   sendEvent({ type: 'DRAFTS_READY' })
@@ -1025,14 +1054,15 @@ export async function handleMockPrdVote(ticketId: string, context: TicketContext
     phase: 'COUNCIL_VOTING_PRD',
     artifactType: 'prd_votes',
     content: JSON.stringify({
-      drafts,
-      votes: voteResult.votes,
-      voterOutcomes: voteResult.voterOutcomes,
-      presentationOrders: voteResult.presentationOrders,
       winnerId: voteResult.winnerId,
-      totalScore: voteResult.totalScore,
       isFinal: true,
     }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', {
+    votes: voteResult.votes,
+    voterOutcomes: voteResult.voterOutcomes,
+    presentationOrders: voteResult.presentationOrders,
+    totalScore: voteResult.totalScore,
   })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info', 'Mock PRD winner selected.')
   sendEvent({ type: 'WINNER_SELECTED', winner: voteResult.winnerId })
@@ -1071,7 +1101,14 @@ export async function handleMockPrdRefine(ticketId: string, context: TicketConte
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_PRD',
     artifactType: 'prd_refined',
-    content: JSON.stringify(refinedArtifact),
+    content: JSON.stringify({
+      refinedContent: refinedArtifact.refinedContent,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'REFINING_PRD', 'prd_refined', {
+    winnerDraftContent: refinedArtifact.winnerDraftContent,
+    draftMetrics: refinedArtifact.draftMetrics,
+    structuredOutput: refinedArtifact.structuredOutput ?? null,
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_PRD', paths.ticketDir, uiDiffArtifact)
   safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), normalizedPrd.normalizedContent)

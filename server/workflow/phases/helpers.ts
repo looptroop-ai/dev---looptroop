@@ -4,7 +4,7 @@ import type { LogEventType, LogSource } from '../../log/types'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { PROM5, PROM13, PROM24 } from '../../prompts/index'
-import type { DraftPhaseResult, DraftProgressEvent, DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
+import type { DraftProgressEvent, DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
 import { parseCouncilMembers } from '../../council/members'
 import { db as appDb } from '../../db/index'
 import { profiles } from '../../db/schema'
@@ -29,6 +29,7 @@ import {
 import type { StructuredLogFields, StructuredLogAudience, StructuredLogKind, StructuredLogOp, OpenCodeStreamState, PhaseIntermediateData } from './types'
 import { phaseIntermediate } from './state'
 import { formatStructuredFailureForLog, type StructuredFailureClass } from '../../lib/structuredOutputRetry'
+import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 
 export function emitPhaseLog(
   ticketId: string,
@@ -920,12 +921,36 @@ export function upsertCouncilDraftArtifact(
     {},
   )
 
+  const persistedDrafts = drafts.map((draft) => ({
+    memberId: draft.memberId,
+    outcome: draft.outcome,
+    ...(draft.outcome === 'completed' && draft.content
+      ? { content: draft.content }
+      : {}),
+  }))
+
   upsertLatestPhaseArtifact(ticketId, artifactType, phase, JSON.stringify({
-    phase: artifactType.replace(/s$/, ''),
-    drafts,
+    drafts: persistedDrafts,
     memberOutcomes: resolvedOutcomes,
     isFinal,
   }))
+
+  persistUiArtifactCompanionArtifact(ticketId, phase, artifactType, {
+    draftDetails: drafts.map((draft) => ({
+      memberId: draft.memberId,
+      ...(typeof draft.duration === 'number' ? { duration: draft.duration } : {}),
+      ...(draft.error ? { error: draft.error } : {}),
+      ...(typeof draft.questionCount === 'number' ? { questionCount: draft.questionCount } : {}),
+      ...(draft.draftMetrics ? { draftMetrics: draft.draftMetrics } : {}),
+      ...(draft.structuredOutput ? { structuredOutput: draft.structuredOutput } : {}),
+      ...(
+        draft.outcome !== 'completed'
+        && draft.content
+          ? { content: draft.content }
+          : {}
+      ),
+    })),
+  })
 }
 
 export function upsertCouncilVoteArtifact(
@@ -941,14 +966,61 @@ export function upsertCouncilVoteArtifact(
   isFinal: boolean = false,
 ) {
   upsertLatestPhaseArtifact(ticketId, artifactType, phase, JSON.stringify({
-    drafts,
+    ...(winnerId ? { winnerId } : {}),
+    ...(isFinal ? { isFinal } : { isFinal: false }),
+  }))
+
+  persistUiArtifactCompanionArtifact(ticketId, phase, artifactType, {
     votes,
     voterOutcomes: memberOutcomes,
     ...(presentationOrders ? { presentationOrders } : {}),
     ...(winnerId ? { winnerId } : {}),
     ...(typeof totalScore === 'number' ? { totalScore } : {}),
-    isFinal,
-  }))
+    drafts: drafts.map((draft) => ({
+      memberId: draft.memberId,
+      outcome: draft.outcome,
+      ...(draft.outcome === 'completed' && draft.content
+        ? { content: draft.content }
+        : {}),
+    })),
+  })
+}
+
+function getRecoveredDraftPhase(pipeline: 'interview' | 'prd' | 'beads'): string {
+  if (pipeline === 'interview') return 'interview_draft'
+  if (pipeline === 'prd') return 'prd_draft'
+  return 'beads_draft'
+}
+
+function recoverPersistedDrafts(
+  drafts: unknown,
+  memberOutcomes?: Record<string, MemberOutcome>,
+): DraftResult[] {
+  if (!Array.isArray(drafts)) return []
+
+  return drafts.flatMap((draft) => {
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return []
+    const record = draft as Record<string, unknown>
+    const memberId = typeof record.memberId === 'string' ? record.memberId : ''
+    if (!memberId) return []
+
+    const outcome = (
+      record.outcome === 'completed'
+      || record.outcome === 'pending'
+      || record.outcome === 'timed_out'
+      || record.outcome === 'invalid_output'
+      || record.outcome === 'failed'
+    )
+      ? record.outcome
+      : memberOutcomes?.[memberId] ?? 'pending'
+
+    return [{
+      memberId,
+      outcome,
+      content: typeof record.content === 'string' ? record.content : '',
+      duration: 0,
+    }]
+  })
 }
 
 export function collectMembersByOutcome(
@@ -1093,8 +1165,13 @@ export function tryRecoverPhaseIntermediate(
     const artifact = getLatestPhaseArtifact(ticketId, `${pipeline}_drafts`)
     if (!artifact) return false
 
-    const result = JSON.parse(artifact.content) as DraftPhaseResult
-    if (result.isFinal !== true || !result.drafts || result.drafts.length === 0) return false
+    const result = JSON.parse(artifact.content) as {
+      drafts?: unknown
+      memberOutcomes?: Record<string, MemberOutcome>
+      isFinal?: boolean
+    }
+    const recoveredDrafts = recoverPersistedDrafts(result.drafts, result.memberOutcomes)
+    if (result.isFinal !== true || recoveredDrafts.length === 0) return false
 
     const { worktreePath, ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
 
@@ -1118,12 +1195,13 @@ export function tryRecoverPhaseIntermediate(
       }
       if (fullAnswersArtifact) {
         try {
-          const parsed = JSON.parse(fullAnswersArtifact.content) as DraftPhaseResult
-          if (Array.isArray(parsed.drafts)) {
-            fullAnswers = parsed.drafts
-              .filter((draft) => draft.outcome === 'completed' && Boolean(draft.content))
-              .map((draft) => draft.content)
+          const parsed = JSON.parse(fullAnswersArtifact.content) as {
+            drafts?: unknown
+            memberOutcomes?: Record<string, MemberOutcome>
           }
+          fullAnswers = recoverPersistedDrafts(parsed.drafts, parsed.memberOutcomes)
+            .filter((draft) => draft.outcome === 'completed' && Boolean(draft.content))
+            .map((draft) => draft.content)
         } catch {
           fullAnswers = undefined
         }
@@ -1155,20 +1233,21 @@ export function tryRecoverPhaseIntermediate(
     }
 
     const data: PhaseIntermediateData = {
-      drafts: result.drafts,
-      memberOutcomes: result.memberOutcomes,
+      drafts: recoveredDrafts,
+      memberOutcomes: result.memberOutcomes ?? {},
       worktreePath,
-      phase: result.phase,
+      phase: getRecoveredDraftPhase(pipeline),
       ticketState: baseTicketState,
     }
     if (pipeline === 'prd' && baseTicketState?.fullAnswers) {
       const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers')
       if (fullAnswersArtifact) {
         try {
-          const parsed = JSON.parse(fullAnswersArtifact.content) as DraftPhaseResult
-          if (Array.isArray(parsed.drafts)) {
-            data.fullAnswers = parsed.drafts
+          const parsed = JSON.parse(fullAnswersArtifact.content) as {
+            drafts?: unknown
+            memberOutcomes?: Record<string, MemberOutcome>
           }
+          data.fullAnswers = recoverPersistedDrafts(parsed.drafts, parsed.memberOutcomes)
         } catch {
           // Ignore malformed persisted full-answers artifact during recovery.
         }
@@ -1182,15 +1261,11 @@ export function tryRecoverPhaseIntermediate(
       const voteArtifact = getLatestPhaseArtifact(ticketId, `${pipeline}_votes`)
       if (!voteArtifact) return false
       const voteResult = JSON.parse(voteArtifact.content) as {
-        votes: Vote[]
         winnerId: string
-        presentationOrders?: Record<string, VotePresentationOrder>
         isFinal?: boolean
       }
       if (voteResult.isFinal !== true) return false
-      data.votes = voteResult.votes
       data.winnerId = voteResult.winnerId
-      data.presentationOrders = voteResult.presentationOrders
     }
 
     phaseIntermediate.set(key, data)

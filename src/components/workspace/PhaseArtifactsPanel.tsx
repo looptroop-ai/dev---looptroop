@@ -19,10 +19,19 @@ import {
   extractCanonicalInterviewDetail,
   buildFinalInterviewArtifactContent,
   buildFinalRefinementArtifactContent,
+  getArtifactTargetPhases,
   parseRefinementArtifact,
   resolveStaticArtifact,
   shouldCollapseVotingMemberArtifacts,
 } from './phaseArtifactTypes'
+import {
+  buildUiArtifactCompanionArtifactType,
+} from '@shared/artifactCompanions'
+import {
+  mergeDraftArtifactContent,
+  mergeVoteArtifactContent,
+  unwrapArtifactCompanionPayloadContent,
+} from './artifactCompanionUtils'
 import { ArtifactContent, RawContentView, InterviewAnswersView, PrdDraftView } from './ArtifactContentViewer'
 import { ArtifactList } from './ArtifactList'
 import { ArtifactTypeFilter } from './ArtifactTypeFilter'
@@ -98,49 +107,169 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : supplementalArtifacts
 
   const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
+    const targetPhases = getArtifactTargetPhases(phase)
+    const findExactType = (artifactType: string) =>
+      reversedArtifacts.find((artifact) => targetPhases.includes(artifact.phase) && artifact.artifactType === artifactType)
+    const findCompanion = (baseArtifactType: string) =>
+      reversedArtifacts.find((artifact) => (
+        targetPhases.includes(artifact.phase)
+        && artifact.artifactType === buildUiArtifactCompanionArtifactType(baseArtifactType)
+      ))
+        ?? reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType(baseArtifactType))
+
+    if (artifactDef.id === 'winner-draft') {
+      const voteArtifact = findExactType('interview_votes')
+      const voteCompanion = findCompanion('interview_votes')
+      const draftArtifact = findExactType('interview_drafts')
+      const draftCompanion = findCompanion('interview_drafts')
+      const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+      return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
+        ?? voteArtifact?.content
+        ?? null
+    }
+
+    if (artifactDef.id === 'winner-prd-draft') {
+      const voteArtifact = findExactType('prd_votes')
+      const voteCompanion = findCompanion('prd_votes')
+      const draftArtifact = findExactType('prd_drafts')
+      const draftCompanion = findCompanion('prd_drafts')
+      const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+      return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
+        ?? voteArtifact?.content
+        ?? null
+    }
+
+    if (artifactDef.id === 'winner-beads-draft') {
+      const voteArtifact = findExactType('beads_votes')
+      const voteCompanion = findCompanion('beads_votes')
+      const draftArtifact = findExactType('beads_drafts')
+      const draftCompanion = findCompanion('beads_drafts')
+      const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+      return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
+        ?? voteArtifact?.content
+        ?? null
+    }
+
+    if (artifactDef.id === 'vote-details') {
+      const baseArtifactType = phase.includes('PRD')
+        ? 'prd_votes'
+        : phase.includes('BEADS')
+          ? 'beads_votes'
+          : 'interview_votes'
+      const draftArtifactType = phase.includes('PRD')
+        ? 'prd_drafts'
+        : phase.includes('BEADS')
+          ? 'beads_drafts'
+          : 'interview_drafts'
+      const voteArtifact = findExactType(baseArtifactType)
+      const voteCompanion = findCompanion(baseArtifactType)
+      const draftArtifact = findExactType(draftArtifactType)
+      const draftCompanion = findCompanion(draftArtifactType)
+      const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+      return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
+        ?? voteArtifact?.content
+        ?? null
+    }
+
     if (artifactDef.id === 'final-interview') {
-      const finalInterviewArtifact = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
-      if (finalInterviewArtifact?.artifactType === 'interview_coverage_input') {
-        return finalInterviewArtifact.content
+      if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
+        const coverageInputArtifact = findExactType('interview_coverage_input')
+        const coverageInputCompanion = findCompanion('interview_coverage_input')
+        const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageInputCompanion?.content, 'interview_coverage_input')
+          ?? coverageInputArtifact?.content
+        if (coverageInputContent) {
+          return coverageInputContent
+        }
       }
       const voteArtifact = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_VOTING_INTERVIEW' && artifact.artifactType === 'interview_votes')
+      const voteCompanion = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_VOTING_INTERVIEW' && artifact.artifactType === buildUiArtifactCompanionArtifactType('interview_votes'))
+      const draftArtifact = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_DELIBERATING' && artifact.artifactType === 'interview_drafts')
+      const draftCompanion = reversedArtifacts.find((artifact) => artifact.phase === 'COUNCIL_DELIBERATING' && artifact.artifactType === buildUiArtifactCompanionArtifactType('interview_drafts'))
+      const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+      const mergedVoteContent = mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
       const compiledArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'interview_compiled')
+      const compiledCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('interview_compiled'))
+      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'interview_winner')
       const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:interview')
-      return buildFinalInterviewArtifactContent(voteArtifact?.content, compiledArtifact?.content, uiDiffArtifact?.content)
+      return buildFinalInterviewArtifactContent(
+        mergedVoteContent ?? voteArtifact?.content,
+        compiledArtifact?.content,
+        uiDiffArtifact?.content,
+        compiledCompanion?.content,
+        winnerArtifact?.content,
+      )
     }
 
     if (artifactDef.id === 'refined-prd') {
       const coverageArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_coverage_input')
+      const coverageCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('prd_coverage_input'))
       const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_refined')
+      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('prd_refined'))
+      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_winner')
       const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:prd')
-      return buildFinalRefinementArtifactContent(refinedArtifact?.content, uiDiffArtifact?.content, coverageArtifact?.content)
+      const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'prd_coverage_input')
         ?? coverageArtifact?.content
+      return buildFinalRefinementArtifactContent(
+        refinedArtifact?.content,
+        uiDiffArtifact?.content,
+        coverageInputContent,
+        refinedCompanion?.content,
+        winnerArtifact?.content,
+      )
+        ?? coverageInputContent
         ?? refinedArtifact?.content
         ?? null
     }
 
     if (artifactDef.id === 'final-prd-draft') {
       const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_refined')
+      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('prd_refined'))
+      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_winner')
       const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:prd')
-      return buildFinalRefinementArtifactContent(refinedArtifact?.content, uiDiffArtifact?.content)
+      return buildFinalRefinementArtifactContent(
+        refinedArtifact?.content,
+        uiDiffArtifact?.content,
+        undefined,
+        refinedCompanion?.content,
+        winnerArtifact?.content,
+      )
         ?? refinedArtifact?.content
         ?? null
     }
 
     if (artifactDef.id === 'refined-beads') {
       const coverageArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_coverage_input')
+      const coverageCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('beads_coverage_input'))
       const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_refined')
+      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('beads_refined'))
+      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_winner')
       const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:beads')
-      return buildFinalRefinementArtifactContent(refinedArtifact?.content, uiDiffArtifact?.content, coverageArtifact?.content)
+      const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'beads_coverage_input')
         ?? coverageArtifact?.content
+      return buildFinalRefinementArtifactContent(
+        refinedArtifact?.content,
+        uiDiffArtifact?.content,
+        coverageInputContent,
+        refinedCompanion?.content,
+        winnerArtifact?.content,
+      )
+        ?? coverageInputContent
         ?? refinedArtifact?.content
         ?? null
     }
 
     if (artifactDef.id === 'final-beads-draft') {
       const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_refined')
+      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('beads_refined'))
+      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_winner')
       const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:beads')
-      return buildFinalRefinementArtifactContent(refinedArtifact?.content, uiDiffArtifact?.content)
+      return buildFinalRefinementArtifactContent(
+        refinedArtifact?.content,
+        uiDiffArtifact?.content,
+        undefined,
+        refinedCompanion?.content,
+        winnerArtifact?.content,
+      )
         ?? refinedArtifact?.content
         ?? null
     }

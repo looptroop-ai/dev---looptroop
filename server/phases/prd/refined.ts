@@ -453,9 +453,6 @@ export function parsePrdRefinedArtifact(content: string): PrdRefinedArtifact {
   const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
   const draftMetrics = normalizeDraftMetrics(parsed.draftMetrics) ?? deriveDraftMetricsFromRefinedContent(refinedContent)
 
-  if (!winnerId) {
-    throw new Error('PRD refined artifact is missing winnerId')
-  }
   if (!refinedContent.trim()) {
     throw new Error('PRD refined artifact is missing refinedContent')
   }
@@ -488,7 +485,8 @@ function stripLegacyTopLevelChangesFromYaml(rawResponse: string): string {
   try {
     const parsed = jsYaml.load(trimmed)
     if (isRecord(parsed) && 'changes' in parsed) {
-      const { changes: _changes, ...sanitized } = parsed
+      const sanitized = { ...parsed }
+      delete sanitized.changes
       return jsYaml.dump(sanitized, { lineWidth: -1, noRefs: true }).trim()
     }
   } catch {

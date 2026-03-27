@@ -67,6 +67,7 @@ import {
 } from './interviewPhase'
 import { readTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
+import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 
 export function validateRelevantFilesScanResponse(response: string): StructuredOutputResult<RelevantFilesOutputPayload> {
   const trimmed = response.trim()
@@ -443,7 +444,7 @@ export async function handleCoverageVerification(
       ? getLatestPhaseArtifact(ticketId, 'interview_winner')
       : phase === 'prd'
         ? getLatestPhaseArtifact(ticketId, 'prd_winner') ?? getLatestPhaseArtifact(ticketId, 'prd_votes')
-        : getLatestPhaseArtifact(ticketId, 'beads_votes')
+        : getLatestPhaseArtifact(ticketId, 'beads_winner') ?? getLatestPhaseArtifact(ticketId, 'beads_votes')
 
     if (!winnerArtifact) {
       const msg = `No council result found for ${phase} phase — cannot determine winning model`
@@ -751,24 +752,26 @@ export async function handleCoverageVerification(
     return
   }
 
-  // Store the coverage input artifact so the UI can display Q&A / doc being verified.
-  const coverageInputContent = phase === 'interview'
-    ? JSON.stringify({ interview: ticketState.interview, userAnswers: ticketState.userAnswers })
-    : phase === 'prd'
-      ? JSON.stringify({
-          interview: ticketState.interview,
-          fullAnswers: ticketState.fullAnswers?.[0] ?? '',
-          refinedContent,
-        })
-      : JSON.stringify({
-          beads: ticketState.beads,
-          refinedContent,
-        })
-  insertPhaseArtifact(ticketId, {
-    phase: stateLabel,
-    artifactType: `${phase}_coverage_input`,
-    content: coverageInputContent,
-  })
+  persistUiArtifactCompanionArtifact(
+    ticketId,
+    stateLabel,
+    `${phase}_coverage_input`,
+    phase === 'interview'
+      ? {
+          ...(ticketState.interview ? { interview: ticketState.interview } : {}),
+          ...(ticketState.userAnswers ? { userAnswers: ticketState.userAnswers } : {}),
+        }
+      : phase === 'prd'
+        ? {
+            ...(ticketState.interview ? { interview: ticketState.interview } : {}),
+            ...(ticketState.fullAnswers?.[0] ? { fullAnswers: ticketState.fullAnswers[0] } : {}),
+            ...(refinedContent ? { refinedContent } : {}),
+          }
+        : {
+            ...(ticketState.beads ? { beads: ticketState.beads } : {}),
+            ...(refinedContent ? { refinedContent } : {}),
+          },
+  )
   const detectedGaps = coverageEnvelope.value.status === 'gaps'
   const followUpQuestions = interviewCoverageResolution?.followUpQuestions ?? []
   const gapDisposition = resolveCoverageGapDisposition({
@@ -780,37 +783,39 @@ export async function handleCoverageVerification(
   })
   const shouldQueueInterviewFollowUps = gapDisposition.shouldLoopBack && phase === 'interview'
 
-  // Store the coverage result artifact
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,
     artifactType: `${phase}_coverage`,
     content: JSON.stringify({
       winnerId,
-      response,
-      normalizedContent: coverageEnvelope.normalizedContent,
       hasGaps: detectedGaps,
-      parsed: coverageEnvelope.value,
-      structuredOutput: structuredMeta,
       coverageRunNumber,
       maxCoveragePasses: coverageSettings.maxCoveragePasses,
       limitReached: gapDisposition.limitReached,
       terminationReason: gapDisposition.terminationReason,
-      ...(phase === 'interview' && interviewCoverageResolution
+    }),
+  })
+
+  persistUiArtifactCompanionArtifact(ticketId, stateLabel, `${phase}_coverage`, {
+    response,
+    normalizedContent: coverageEnvelope.normalizedContent,
+    parsed: coverageEnvelope.value,
+    structuredOutput: structuredMeta,
+    ...(phase === 'interview' && interviewCoverageResolution
+      ? {
+          followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
+          followUpBudgetTotal: interviewCoverageResolution.budget.total,
+          followUpBudgetUsed: interviewCoverageResolution.budget.used,
+          followUpBudgetRemaining: interviewCoverageResolution.budget.remaining,
+        }
+      : phase === 'interview' && interviewCoverageBudget
         ? {
             followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
-            followUpBudgetTotal: interviewCoverageResolution.budget.total,
-            followUpBudgetUsed: interviewCoverageResolution.budget.used,
-            followUpBudgetRemaining: interviewCoverageResolution.budget.remaining,
+            followUpBudgetTotal: interviewCoverageBudget.total,
+            followUpBudgetUsed: interviewCoverageBudget.used,
+            followUpBudgetRemaining: interviewCoverageBudget.remaining,
           }
-        : phase === 'interview' && interviewCoverageBudget
-          ? {
-              followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
-              followUpBudgetTotal: interviewCoverageBudget.total,
-              followUpBudgetUsed: interviewCoverageBudget.used,
-              followUpBudgetRemaining: interviewCoverageBudget.remaining,
-            }
-          : {}),
-    }),
+        : {}),
   })
 
   if (detectedGaps) {
@@ -833,11 +838,6 @@ export async function handleCoverageVerification(
           followUpBatch,
         )
         persistInterviewSession(ticketId, updatedSnapshot)
-        insertPhaseArtifact(ticketId, {
-          phase: stateLabel,
-          artifactType: 'interview_coverage_followups',
-          content: JSON.stringify(followUpBatch),
-        })
 
         // Clean up stale PROM4 session so handleInterviewQAStart can run on re-entry
         interviewQASessions.delete(ticketId)
@@ -1084,29 +1084,34 @@ export async function handleMockCoverage(
     ? readInterviewSessionSnapshotArtifact(ticketId)
     : null
 
+  persistUiArtifactCompanionArtifact(ticketId, stateLabel, `${phase}_coverage`, {
+    response: 'mock coverage clean',
+    normalizedContent: 'mock coverage clean',
+    parsed: { status: 'clean', gaps: [] },
+    ...(phase === 'interview' && interviewSnapshot
+      ? {
+          followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
+          followUpBudgetTotal: calculateFollowUpLimit(interviewSnapshot.maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent),
+          followUpBudgetUsed: countCoverageFollowUpQuestions(interviewSnapshot),
+          followUpBudgetRemaining: Math.max(
+            0,
+            calculateFollowUpLimit(interviewSnapshot.maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent)
+              - countCoverageFollowUpQuestions(interviewSnapshot),
+          ),
+        }
+      : {}),
+  })
+
   insertPhaseArtifact(ticketId, {
     phase: stateLabel,
     artifactType: `${phase}_coverage`,
     content: JSON.stringify({
       winnerId,
-      response: 'mock coverage clean',
       hasGaps: false,
       coverageRunNumber,
       maxCoveragePasses: coverageSettings.maxCoveragePasses,
       limitReached: false,
       terminationReason: 'clean',
-      ...(phase === 'interview' && interviewSnapshot
-        ? {
-            followUpBudgetPercent: coverageSettings.coverageFollowUpBudgetPercent,
-            followUpBudgetTotal: calculateFollowUpLimit(interviewSnapshot.maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent),
-            followUpBudgetUsed: countCoverageFollowUpQuestions(interviewSnapshot),
-            followUpBudgetRemaining: Math.max(
-              0,
-              calculateFollowUpLimit(interviewSnapshot.maxInitialQuestions, coverageSettings.coverageFollowUpBudgetPercent)
-                - countCoverageFollowUpQuestions(interviewSnapshot),
-            ),
-          }
-        : {}),
     }),
   })
 

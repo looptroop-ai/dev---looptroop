@@ -6,12 +6,12 @@ import { clearProjectDatabaseCache } from '../../db/project'
 import {
   buildPersistedBatch,
   createInterviewSessionSnapshot,
-  INTERVIEW_CURRENT_BATCH_ARTIFACT,
   INTERVIEW_SESSION_ARTIFACT,
   recordBatchAnswers,
   recordPreparedBatch,
   serializeInterviewSessionSnapshot,
 } from '../../phases/interview/sessionState'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { attachProject } from '../../storage/projects'
 import {
   createTicket,
@@ -133,12 +133,12 @@ describe('skipAllInterviewQuestionsToApproval', () => {
       batchNumber: 2,
     })
 
-    const currentBatchArtifact = getLatestPhaseArtifact(ticket.id, INTERVIEW_CURRENT_BATCH_ARTIFACT, 'WAITING_INTERVIEW_ANSWERS')
-    expect(currentBatchArtifact?.content).toBe('null')
+    expect(getLatestPhaseArtifact(ticket.id, 'interview_current_batch', 'WAITING_INTERVIEW_ANSWERS')).toBeUndefined()
 
-    const coverageInputArtifact = getLatestPhaseArtifact(ticket.id, 'interview_coverage_input', 'VERIFYING_INTERVIEW_COVERAGE')
+    const coverageInputArtifact = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:interview_coverage_input', 'VERIFYING_INTERVIEW_COVERAGE')
     expect(coverageInputArtifact).toBeDefined()
-    const coverageInput = JSON.parse(coverageInputArtifact!.content) as { interview?: string; userAnswers?: string }
+    const coverageInput = parseUiArtifactCompanionArtifact(coverageInputArtifact!.content)?.payload as { interview?: string; userAnswers?: string } | undefined
+    if (!coverageInput) throw new Error('Expected interview coverage-input companion payload')
     expect(coverageInput.interview).toBe(interviewYaml)
     expect(coverageInput.userAnswers).toContain('Q01: What outcome matters most?')
     expect(coverageInput.userAnswers).toContain('Answer: Keep imports idempotent.')
@@ -151,6 +151,13 @@ describe('skipAllInterviewQuestionsToApproval', () => {
     expect(coverage).toMatchObject({
       winnerId: 'openai/gpt-5-mini',
       hasGaps: false,
+    })
+
+    const coverageCompanionArtifact = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:interview_coverage', 'VERIFYING_INTERVIEW_COVERAGE')
+    expect(coverageCompanionArtifact).toBeDefined()
+    const coverageCompanion = parseUiArtifactCompanionArtifact(coverageCompanionArtifact!.content)?.payload as { response?: string } | undefined
+    if (!coverageCompanion) throw new Error('Expected interview coverage companion payload')
+    expect(coverageCompanion).toMatchObject({
       response: 'Coverage skipped by user shortcut after marking remaining questions skipped.',
     })
   })
