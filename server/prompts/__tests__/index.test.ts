@@ -49,9 +49,11 @@ describe('structured prompt hardening', () => {
 
   it('keeps PROM09d strict about preserving user answers and outputting only a full interview artifact', () => {
     const gapPrompt = buildPromptFromTemplate(PROM09D, [])
+    expect(gapPrompt).toContain('The approved Interview Results artifact is already included in the prompt')
     expect(gapPrompt).toContain('Preserve every existing non-skipped answer exactly as-is')
     expect(gapPrompt).toContain('answered_by: ai_skip')
     expect(gapPrompt).toContain('status: draft')
+    expect(gapPrompt).toContain('Return the entire interview artifact from `schema_version` through the final `approval` block')
     expect(gapPrompt).toContain('Return exactly one complete interview artifact and nothing else')
   })
 

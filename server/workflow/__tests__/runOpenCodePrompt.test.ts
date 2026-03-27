@@ -35,11 +35,15 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 class TestOpenCodeAdapter implements OpenCodeAdapter {
-  private readonly queuedResponses: Array<string | Deferred<string>>
+  private readonly queuedResponses: Array<
+    | string
+    | Deferred<string>
+    | { response: string | Deferred<string>; messageContent?: string }
+  >
   private readonly sessionMessages = new Map<string, Message[]>()
   private sessionCounter = 0
 
-  constructor(responses: Array<string | Deferred<string>>) {
+  constructor(responses: Array<string | Deferred<string> | { response: string | Deferred<string>; messageContent?: string }>) {
     this.queuedResponses = [...responses]
   }
 
@@ -58,23 +62,29 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     options?: PromptSessionOptions,
   ): Promise<string> {
     const queued = this.queuedResponses.shift() ?? 'assistant response'
+    const queuedResponse = typeof queued === 'object' && 'response' in queued
+      ? queued.response
+      : queued
     const signal = options?.signal ?? _signal
-    const response = typeof queued === 'string'
-      ? queued
+    const response = typeof queuedResponse === 'string'
+      ? queuedResponse
       : signal
         ? await Promise.race([
-            queued.promise,
+            queuedResponse.promise,
             new Promise<string>((_, reject) => {
               if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
               signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
             }),
           ])
-        : await queued.promise
+        : await queuedResponse.promise
+    const messageContent = typeof queued === 'object' && 'response' in queued && typeof queued.messageContent === 'string'
+      ? queued.messageContent
+      : response
 
     const assistantMessage: Message = {
       id: `msg-${sessionId}-${this.sessionMessages.size + 1}`,
       role: 'assistant',
-      content: response,
+      content: messageContent,
       timestamp: new Date().toISOString(),
     }
     this.sessionMessages.set(sessionId, [assistantMessage])
@@ -573,6 +583,57 @@ describe('runOpenCodePrompt', () => {
 
     expect(result.response).toContain('<RELEVANT_FILES_RESULT>')
     expect(result.response).not.toContain('CRITICAL OUTPUT RULE:')
+  })
+
+  it('prefers the complete latest assistant message when the immediate response is only a strict prefix', async () => {
+    const fullMessage = [
+      'schema_version: 1',
+      'ticket_id: PROJ-22',
+      'artifact: interview',
+      'status: draft',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which workflow guardrails are mandatory?',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n')
+    const adapter = new TestOpenCodeAdapter([{
+      response: fullMessage.slice(0, fullMessage.indexOf('follow_up_rounds:')),
+      messageContent: fullMessage,
+    }])
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.response).toBe(fullMessage)
+    expect(result.responseMeta).toMatchObject({
+      hasAssistantMessage: true,
+      latestAssistantWasEmpty: false,
+      latestAssistantHasError: false,
+    })
+  })
+
+  it('keeps the immediate response when the latest assistant message is not a strict extension', async () => {
+    const adapter = new TestOpenCodeAdapter([{
+      response: 'immediate provider response',
+      messageContent: 'different assistant text',
+    }])
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.response).toBe('immediate provider response')
   })
 
   it('keeps timeout behavior when done would arrive after the timeout window', async () => {

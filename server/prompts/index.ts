@@ -306,6 +306,7 @@ export const PROM09D: PromptTemplate = {
   task: 'Fill every skipped answer in the approved Interview Results and output one complete Full Answers interview artifact that preserves the original approved interview structure.',
   instructions: [
     'Source Of Truth: Treat the provided approved Interview Results as canonical for question order, IDs, prompts, phases, options, source metadata, and every non-skipped user answer.',
+    'Provided Artifact Rule: The approved Interview Results artifact is already included in the prompt. Do not ask to search for it, read files, or fetch additional context before answering.',
     'Preservation Rule: Preserve every existing non-skipped answer exactly as-is. Do not rewrite, summarize, or improve user-provided answers.',
     'Allowed Edits Only: The only fields you may change are `questions[*].answer` for questions whose current answer is marked `skipped: true`.',
     'Forbidden Edits: Do not change question IDs, question order, prompts, phases, `answer_type`, `options`, `follow_up_rounds`, `summary`, approval fields, or any existing non-skipped answer.',
@@ -313,6 +314,7 @@ export const PROM09D: PromptTemplate = {
     'Answer Encoding: For every filled skipped question, set `answer.skipped: false`, provide a concrete `free_text` and/or `selected_option_ids` consistent with the question `answer_type`, set `answered_by: ai_skip`, and set a non-empty ISO-8601 `answered_at` timestamp.',
     'Artifact Status: Output the completed interview artifact as `status: draft` with empty approval fields, because these AI-filled answers are not user-approved.',
     'Self-Check: Before responding, verify that the output contains the exact same number of questions and the exact same canonical question IDs as the approved interview artifact.',
+    'Completeness Rule: Return the entire interview artifact from `schema_version` through the final `approval` block. Do not stop early, emit only a prefix, or omit trailing question blocks.',
     'Output Discipline: Return exactly one complete interview artifact and nothing else. No prose, no PRD content, no wrappers, no markdown fences, and no extra keys.',
     STRUCTURED_SELF_CHECK,
   ],

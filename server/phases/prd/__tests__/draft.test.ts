@@ -16,10 +16,10 @@ import { buildPrdVotePrompt } from '../../../workflow/phases/prdPhase'
 class TestOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   public messages = new Map<string, Message[]>()
-  private readonly queuedResponses: Array<string | { response: string; error?: string }>
+  private readonly queuedResponses: Array<string | { response: string; error?: string; messageContent?: string }>
   private sessionCounter = 0
 
-  constructor(responses: Array<string | { response: string; error?: string }>) {
+  constructor(responses: Array<string | { response: string; error?: string; messageContent?: string }>) {
     this.queuedResponses = [...responses]
   }
 
@@ -41,6 +41,7 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
   ): Promise<string> {
     const queued = this.queuedResponses.shift() ?? 'assistant response'
     const response = typeof queued === 'string' ? queued : queued.response
+    const messageContent = typeof queued === 'string' ? response : (queued.messageContent ?? response)
     const messages = this.messages.get(sessionId) ?? []
 
     for (const part of parts) {
@@ -55,7 +56,7 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     const assistantMessage: Message = {
       id: `msg-${sessionId}-${messages.length + 1}`,
       role: 'assistant',
-      content: response,
+      content: messageContent,
       timestamp: new Date().toISOString(),
       ...(typeof queued === 'string' || !queued.error
         ? {}
@@ -409,6 +410,52 @@ describe('draftPRD', () => {
     })
     expect(result.fullAnswers[0]?.content).toContain('prompt: Which workflow guardrails are mandatory?')
     expect(result.fullAnswers[0]?.content).not.toContain('Rewritten prompt that should be ignored')
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('uses the complete latest assistant message when the immediate full-answers response is a truncated prefix', async () => {
+    const fullAnswers = buildResolvedInterviewYaml('PROJ-18')
+    const adapter = new TestOpenCodeAdapter([
+      {
+        response: fullAnswers.slice(0, fullAnswers.indexOf('follow_up_rounds:')),
+        messageContent: fullAnswers,
+      },
+      buildPrdYaml('PROJ-18'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-18',
+        title: 'Prefer full assistant snapshot',
+        description: 'Use the latest assistant artifact when the immediate response is only a prefix.',
+        interview: buildInterviewYaml('PROJ-18'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-18',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      structuredOutput: {
+        autoRetryCount: 0,
+      },
+    })
+    expect(result.fullAnswers[0]?.content).toContain('follow_up_rounds: []')
+    expect(result.drafts[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      draftMetrics: {
+        epicCount: 1,
+        userStoryCount: 1,
+      },
+    })
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
 

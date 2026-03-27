@@ -69,6 +69,25 @@ function formatPromptText(parts: PromptPart[]): string {
     .join('\n\n')
 }
 
+function reconcileResponseWithLatestAssistant(
+  response: string,
+  latestAssistantResponse: string,
+  responseMeta: OpenCodeResponseMeta,
+): string {
+  if (responseMeta.latestAssistantWasStale || responseMeta.latestAssistantHasError) {
+    return response
+  }
+
+  const current = response.trim()
+  const latest = latestAssistantResponse.trim()
+  if (!latest) return response
+  if (!current) return latest
+  if (latest.length > current.length && latest.startsWith(current)) {
+    return latest
+  }
+  return response
+}
+
 export async function runOpenCodePrompt({
   adapter,
   projectPath,
@@ -217,12 +236,22 @@ export async function runOpenCodeSessionPrompt({
   }
 
   let messages: Message[] = []
+  let latestAssistantResponse = ''
+  let responseMeta: OpenCodeResponseMeta = {
+    hasAssistantMessage: false,
+    latestAssistantWasEmpty: true,
+    latestAssistantHasError: false,
+    latestAssistantWasStale: false,
+  }
   try {
     messages = await adapter.getSessionMessages(resolvedSession.id)
+    const latestAssistant = analyzeAssistantMessages(messages)
+    latestAssistantResponse = latestAssistant.responseText
+    responseMeta = latestAssistant.responseMeta
   } catch {
     messages = []
   }
-  const responseMeta = analyzeAssistantMessages(messages).responseMeta
+  response = reconcileResponseWithLatestAssistant(response, latestAssistantResponse, responseMeta)
 
   return {
     session: resolvedSession,
