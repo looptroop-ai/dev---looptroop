@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
-import { ChevronRight, ChevronLeft } from 'lucide-react'
+import { ChevronRight, ChevronLeft, Copy, Check } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
@@ -149,6 +149,20 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
   const filteredLogs = filterEntries(phaseLogs, effectiveTab)
   const showModelNameInLogTags = effectiveTab === 'ALL' || effectiveTab === 'AI'
   const hasLogs = filteredLogs.length > 0
+
+  const [copied, setCopied] = useState(false)
+  const handleCopyLogs = useCallback(() => {
+    if (!filteredLogs.length) return
+    const textToCopy = filteredLogs.map((entry) => {
+      const ts = entry.timestamp ? `[${entry.timestamp}] ` : ''
+      return `${ts}${entry.line}`
+    }).join('\n')
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(err => console.error('Failed to copy logs:', err))
+  }, [filteredLogs])
+
   const visibleLogTail = useMemo(() => {
     const lastEntry = filteredLogs.at(-1)
     if (!lastEntry) return null
@@ -246,7 +260,17 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
             </button>
           )
         })}
-        <span className="ml-auto text-xs text-muted-foreground pl-2">{filteredLogs.length} entries</span>
+        <div className="ml-auto flex items-center pl-2 gap-2 text-xs text-muted-foreground">
+          <span>{filteredLogs.length} entries</span>
+          <button
+            onClick={handleCopyLogs}
+            disabled={!hasLogs}
+            title="Copy all logs"
+            className="flex items-center justify-center p-1 rounded hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+        </div>
       </div>
       <ScrollArea className="flex-1 min-h-0" viewportRef={viewportRef}>
         <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
