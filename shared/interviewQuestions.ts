@@ -23,7 +23,7 @@ export type InterviewQuestionChangeAttributionStatus =
 export interface InspirationSource {
   draftIndex: number
   memberId: string
-  question: ParsedInterviewQuestion
+  question: InterviewQuestionPreview
 }
 
 export interface InterviewQuestionChange {
@@ -645,4 +645,3 @@ export function formatInterviewQuestionPreview(
     ...(remainingCount > 0 ? [`... ${remainingCount} more ${remainingCount === 1 ? 'question' : 'questions'}`] : []),
   ].join('\n')
 }
-

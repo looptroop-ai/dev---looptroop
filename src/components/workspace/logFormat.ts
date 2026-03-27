@@ -5,6 +5,8 @@ export function getEntryColor(entry: LogEntry): string {
   if (entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
   if (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
   if (entry.kind === 'reasoning') return 'text-purple-400'
+  if (entry.kind === 'prompt') return 'text-blue-500'
+  if (entry.kind === 'text') return 'text-emerald-600'
   if (entry.audience === 'ai' || entry.source === 'opencode' || entry.source.startsWith('model:')) return 'text-green-500'
   return 'text-foreground'
 }

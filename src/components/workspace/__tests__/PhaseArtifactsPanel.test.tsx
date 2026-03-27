@@ -828,6 +828,124 @@ describe('PhaseArtifactsPanel', () => {
     expect(getByTextContent('Refined winner question?')).toBeInTheDocument()
   })
 
+  it('restores interview inspiration indicators from the separate ui diff artifact', () => {
+    const voteArtifact: DBartifact = {
+      id: 41,
+      ticketId: 'ticket-1',
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      filePath: null,
+      createdAt: '2026-03-12T11:48:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: [
+              'questions:',
+              '  - id: Q02',
+              '    phase: structure',
+              '    question: "Replacement source question?"',
+            ].join('\n'),
+          },
+        ],
+      }),
+    }
+
+    const compiledArtifact: DBartifact = {
+      id: 42,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        refinedContent: [
+          'questions:',
+          '  - id: Q03',
+          '    phase: structure',
+          '    question: "Replacement target question?"',
+        ].join('\n'),
+      }),
+    }
+
+    const compiledCompanionArtifact: DBartifact = {
+      id: 43,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'ui_artifact_companion:interview_compiled',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:32.000Z',
+      content: JSON.stringify({
+        baseArtifactType: 'interview_compiled',
+        generatedAt: '2026-03-12T11:49:32.000Z',
+        payload: {
+          winnerId: 'openai/gpt-5.2',
+          questions: [{ id: 'Q03', phase: 'Structure', question: 'Replacement target question?' }],
+          questionCount: 1,
+        },
+      }),
+    }
+
+    const winnerArtifact: DBartifact = {
+      id: 44,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_winner',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:33.000Z',
+      content: JSON.stringify({ winnerId: 'openai/gpt-5.2' }),
+    }
+
+    const uiDiffArtifact: DBartifact = {
+      id: 45,
+      ticketId: 'ticket-1',
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'ui_refinement_diff:interview',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:34.000Z',
+      content: JSON.stringify({
+        domain: 'interview',
+        winnerId: 'openai/gpt-5.2',
+        generatedAt: '2026-03-12T11:49:34.000Z',
+        entries: [
+          {
+            key: 'Q03:replaced:0',
+            changeType: 'replaced',
+            itemKind: 'question',
+            label: 'Q03',
+            beforeId: 'Q02',
+            afterId: 'Q03',
+            beforeText: 'Replacement source question?',
+            afterText: 'Replacement target question?',
+            inspiration: {
+              memberId: 'openai/gpt-5.1-codex',
+              sourceId: 'Q07',
+              sourceLabel: 'Q07',
+              sourceText: 'Alternative draft replacement question?',
+            },
+            attributionStatus: 'inspired',
+          },
+        ],
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_INTERVIEW_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[voteArtifact, compiledArtifact, compiledCompanionArtifact, winnerArtifact, uiDiffArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
+
+    expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
+    expect(document.querySelector('.lucide-lightbulb')).not.toBeNull()
+  })
+
   it('prefers the canonical interview result in later interview phases when coverage input is available', () => {
     const compiledArtifact: DBartifact = {
       id: 6,

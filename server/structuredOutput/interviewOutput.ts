@@ -1,5 +1,9 @@
 import { parseInterviewQuestions, type ParsedInterviewQuestion } from '../phases/interview/questions'
-import type { InterviewQuestionChangeAttributionStatus, InterviewQuestionChangeType } from '@shared/interviewQuestions'
+import type {
+  InterviewQuestionChangeAttributionStatus,
+  InterviewQuestionChangeType,
+  InterviewQuestionPreview,
+} from '@shared/interviewQuestions'
 import { MAX_SINGLE_CHOICE_OPTIONS, MAX_MULTIPLE_CHOICE_OPTIONS } from '../lib/constants'
 import { looksLikePromptEcho } from '../lib/promptEcho'
 import type {
@@ -22,6 +26,7 @@ import {
   toStringArray,
   toOptionalString,
   toInteger,
+  toOrdinalInteger,
   toBoolean,
   getValueByAliases,
   getNestedRecord,
@@ -52,7 +57,7 @@ interface NormalizedInterviewQuestion {
 interface NormalizedInspirationSource {
   draftIndex: number
   memberId: string
-  question: NormalizedInterviewQuestion
+  question: InterviewQuestionPreview
 }
 
 interface NormalizedInterviewRefinementChange {
@@ -217,6 +222,88 @@ function normalizeInterviewChangeQuestion(value: unknown, label: string): Normal
   return { id, phase, question }
 }
 
+function normalizeInterviewInspirationQuestion(value: unknown, label: string): InterviewQuestionPreview {
+  if (typeof value === 'string') {
+    const question = value.trim()
+    if (!question) {
+      throw new Error(`${label} question must not be empty`)
+    }
+    return { question }
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object or string`)
+  }
+
+  const question = getRequiredString(value, ['question', 'prompt', 'text', 'content'], `${label} question`).trim()
+  if (!question) {
+    throw new Error(`${label} question must not be empty`)
+  }
+
+  const id = toOptionalString(getValueByAliases(value, ['id']))
+  const rawPhase = toOptionalString(getValueByAliases(value, ['phase', 'category', 'stage', 'section']))
+  let phase: NormalizedInterviewQuestion['phase'] | undefined
+  if (rawPhase) {
+    try {
+      phase = normalizeInterviewPhase(rawPhase)
+    } catch {
+      phase = undefined
+    }
+  }
+
+  return {
+    ...(id ? { id: normalizeInterviewId(id) } : {}),
+    ...(phase ? { phase } : {}),
+    question,
+  }
+}
+
+function normalizeInterviewQuestionMatchText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function hydrateInterviewInspirationQuestion(
+  question: InterviewQuestionPreview,
+  draftQuestions: NormalizedInterviewQuestion[],
+): InterviewQuestionPreview {
+  const questionText = normalizeInterviewQuestionMatchText(question.question)
+  if (!questionText) return question
+
+  const normalizedId = question.id ? normalizeInterviewId(question.id) : undefined
+  let normalizedPhase: NormalizedInterviewQuestion['phase'] | undefined
+  if (question.phase) {
+    try {
+      normalizedPhase = normalizeInterviewPhase(question.phase)
+    } catch {
+      normalizedPhase = undefined
+    }
+  }
+
+  const matches = draftQuestions.filter((candidate) => {
+    if (normalizeInterviewQuestionMatchText(candidate.question) !== questionText) return false
+    if (normalizedId && candidate.id !== normalizedId) return false
+    if (normalizedPhase && candidate.phase !== normalizedPhase) return false
+    return true
+  })
+
+  if (matches.length === 1) {
+    return matches[0]!
+  }
+
+  if (normalizedId || normalizedPhase) {
+    const metadataMatches = draftQuestions.filter((candidate) => {
+      if (normalizedId && candidate.id !== normalizedId) return false
+      if (normalizedPhase && candidate.phase !== normalizedPhase) return false
+      return true
+    })
+    if (metadataMatches.length === 1) {
+      return metadataMatches[0]!
+    }
+  }
+
+  return question
+}
+
 function parseInterviewRefinementChangeEntry(
   value: unknown,
   index: number,
@@ -252,11 +339,11 @@ function parseInterviewRefinementChangeEntry(
     inspiration = undefined
   } else if (isRecord(rawInspiration)) {
     try {
-      const altDraft = toInteger(getValueByAliases(rawInspiration, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index']))
+      const altDraft = toOrdinalInteger(getValueByAliases(rawInspiration, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index']))
       const rawInspirationQuestion = getValueByAliases(rawInspiration, ['question', 'item'])
-      if (altDraft != null && isRecord(rawInspirationQuestion)) {
+      if (altDraft != null && rawInspirationQuestion !== undefined) {
         const draftIndex = altDraft - 1
-        const question = normalizeInterviewChangeQuestion(
+        const question = normalizeInterviewInspirationQuestion(
           rawInspirationQuestion,
           `Interview refinement change.inspiration.question at index ${index}`,
         )
@@ -1273,9 +1360,26 @@ export function normalizeInterviewRefinementOutput(
 
         // Resolve inspiration memberIds from losingDraftMeta
         if (losingDraftMeta) {
+          const normalizedLosingDraftQuestions = new Map<number, NormalizedInterviewQuestion[]>()
           for (const change of changes) {
             if (change.inspiration && change.inspiration.draftIndex >= 0 && change.inspiration.draftIndex < losingDraftMeta.length) {
-              change.inspiration.memberId = losingDraftMeta[change.inspiration.draftIndex]!.memberId
+              const losingDraftIndex = change.inspiration.draftIndex
+              change.inspiration.memberId = losingDraftMeta[losingDraftIndex]!.memberId
+              if (!normalizedLosingDraftQuestions.has(losingDraftIndex)) {
+                try {
+                  const parsedLosingDraft = normalizeParsedInterviewQuestionList(
+                    parseInterviewQuestions(losingDraftMeta[losingDraftIndex]!.content),
+                    0,
+                  )
+                  normalizedLosingDraftQuestions.set(losingDraftIndex, parsedLosingDraft.questions)
+                } catch {
+                  normalizedLosingDraftQuestions.set(losingDraftIndex, [])
+                }
+              }
+              change.inspiration.question = hydrateInterviewInspirationQuestion(
+                change.inspiration.question,
+                normalizedLosingDraftQuestions.get(losingDraftIndex) ?? [],
+              )
             } else if (change.inspiration && change.inspiration.draftIndex >= 0) {
               repairApplied = true
               repairWarnings.push(

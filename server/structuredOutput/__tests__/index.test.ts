@@ -202,6 +202,135 @@ describe('structured output normalization', () => {
     ])
   })
 
+  it('accepts labeled alternative-draft references in interview refinement inspiration', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+      '    inspiration:',
+      '      alternative_draft: Alternative Draft 2',
+      '      question:',
+      '        id: Q09',
+      '        phase: foundation',
+      '        question: "What constraints matter most?"',
+    ].join('\n'), winnerDraft, 10, [
+      { memberId: 'openai/gpt-5-mini', content: 'questions: []' },
+      { memberId: 'openai/gpt-5.4', content: 'questions: []' },
+    ])
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+        inspiration: {
+          draftIndex: 1,
+          memberId: 'openai/gpt-5.4',
+          question: {
+            id: 'Q09',
+            phase: 'foundation',
+            question: 'What constraints matter most?',
+          },
+        },
+        attributionStatus: 'inspired',
+      },
+    ])
+  })
+
+  it('hydrates scalar interview inspiration questions from the referenced alternative draft', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What problem are we solving?"',
+    ].join('\n')
+
+    const losingDraft = [
+      'questions:',
+      '  - id: Q07',
+      '    phase: structure',
+      '    question: "What constraints matter most?"',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: "What user problem are we solving?"',
+      'changes:',
+      '  - type: modified',
+      '    before:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What problem are we solving?"',
+      '    after:',
+      '      id: Q01',
+      '      phase: foundation',
+      '      question: "What user problem are we solving?"',
+      '    inspiration:',
+      '      alternative_draft: 1',
+      '      question: "What constraints matter most?"',
+    ].join('\n'), winnerDraft, 10, [
+      { memberId: 'openai/gpt-5.4', content: losingDraft },
+    ])
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.changes).toEqual([
+      {
+        type: 'modified',
+        before: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What problem are we solving?',
+        },
+        after: {
+          id: 'Q01',
+          phase: 'foundation',
+          question: 'What user problem are we solving?',
+        },
+        inspiration: {
+          draftIndex: 0,
+          memberId: 'openai/gpt-5.4',
+          question: {
+            id: 'Q07',
+            phase: 'structure',
+            question: 'What constraints matter most?',
+          },
+        },
+        attributionStatus: 'inspired',
+      },
+    ])
+  })
+
   it('accepts PROM3 refinement output without a changes list and keeps the normalized artifact clean', () => {
     const winnerDraft = [
       'questions:',
@@ -1473,6 +1602,61 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value[0]?.id).toBe('bead-1')
     expect(result.normalizedContent).toContain('beads:')
+  })
+
+  it('accepts labeled alternative-draft references in bead refinement inspiration', () => {
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Build shared repair layer',
+      '    prdRefs: [EPIC-1 / US-1]',
+      '    description: Normalize structured model output before validation.',
+      '    contextGuidance: Keep repairs deterministic.',
+      '    acceptanceCriteria:',
+      '      - Repair only formatting issues',
+      '    tests:',
+      '      - Shared validator tests cover fences and wrappers',
+      '    testCommands:',
+      '      - npm run test:server',
+      'changes:',
+      '  - type: added',
+      '    item_type: bead',
+      '    before: null',
+      '    after:',
+      '      id: bead-1',
+      '      title: Build shared repair layer',
+      '    inspiration:',
+      '      alternative_draft: Alternative Draft 2',
+      '      item:',
+      '        id: bead-9',
+      '        title: Validate refinement attribution',
+    ].join('\n'), [
+      { memberId: 'openai/gpt-5-mini' },
+      { memberId: 'openai/gpt-5.4' },
+    ])
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.changes).toEqual([
+      {
+        type: 'added',
+        itemType: 'bead',
+        before: null,
+        after: {
+          id: 'bead-1',
+          label: 'Build shared repair layer',
+        },
+        inspiration: {
+          draftIndex: 1,
+          memberId: 'openai/gpt-5.4',
+          item: {
+            id: 'bead-9',
+            label: 'Validate refinement attribution',
+          },
+        },
+        attributionStatus: 'inspired',
+      },
+    ])
   })
 
   it('accepts bead JSON arrays and rejects invalid dependencies', () => {

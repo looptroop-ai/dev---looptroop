@@ -61,6 +61,35 @@ function CopyablePathRow({ label, path }: { label: string; path: string }) {
   )
 }
 
+function CopyableDescription({ description }: { description: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    navigator.clipboard.writeText(description).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
+    })
+  }
+
+  return (
+    <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
+      <div className="flex items-center justify-between group">
+        <span className="text-xs font-medium text-muted-foreground">Description</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
+          title="Copy description"
+        >
+          {copied ? <CheckIcon className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+        </button>
+      </div>
+      <div className="mt-1 rounded-md border border-border/50 bg-muted/30 p-3">
+        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-muted-foreground">{description}</p>
+      </div>
+    </div>
+  )
+}
+
 export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const { dispatch } = useUI()
   const { mutate: performAction, isPending } = useTicketAction()
@@ -347,12 +376,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               </div>
             )}
             {ticket.description && (
-              <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
-                <span className="text-xs font-medium text-muted-foreground">Description</span>
-                <div className="mt-1 rounded-md border border-border/50 bg-muted/30 p-3">
-                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-muted-foreground">{ticket.description}</p>
-                </div>
-              </div>
+              <CopyableDescription description={ticket.description} />
             )}
           </div>
           {showBottomFade && (

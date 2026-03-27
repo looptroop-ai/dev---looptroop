@@ -233,8 +233,8 @@ function RawContentWithCopy({ content }: { content: string }) {
 
 function renderQuestionDiffSegments(segments: QuestionDiffSegment[], tone: 'added' | 'removed') {
   const highlightClassName = tone === 'removed'
-    ? 'rounded-[0.2rem] bg-red-100/60 px-0.5 text-inherit dark:bg-red-500/10'
-    : 'rounded-[0.2rem] bg-green-100/60 px-0.5 text-inherit dark:bg-green-500/10'
+    ? 'rounded-[0.2rem] bg-red-300/80 px-0.5 text-inherit dark:bg-red-500/40'
+    : 'rounded-[0.2rem] bg-green-300/80 px-0.5 text-inherit dark:bg-green-500/40'
 
   return segments.map((segment, index) => (
     segment.changed && segment.text.trim()
@@ -487,7 +487,7 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
           >
             <div className="space-y-3">
               {diff.beforeText && (
-                <div className="rounded-md border border-red-100 bg-red-50/40 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/10">
+                <div className="rounded-md border border-red-200 bg-red-100/80 px-3 py-2 dark:border-red-800/60 dark:bg-red-900/30">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
                   <div className="text-xs leading-5 text-red-950 dark:text-red-100 whitespace-pre-wrap">
                     {diff.beforeId && <span className="font-mono mr-1">{diff.beforeId}:</span>}
@@ -496,7 +496,7 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
                 </div>
               )}
               {diff.afterText && (
-                <div className="rounded-md border border-green-100 bg-green-50/40 px-3 py-2 dark:border-green-900/40 dark:bg-green-950/10">
+                <div className="rounded-md border border-green-200 bg-green-100/80 px-3 py-2 dark:border-green-800/60 dark:bg-green-900/30">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
                   <div className="text-xs leading-5 text-green-950 dark:text-green-100 whitespace-pre-wrap">
                     {diff.afterId && <span className="font-mono mr-1">{diff.afterId}:</span>}
@@ -582,7 +582,7 @@ function InterviewDraftDiffView({ content }: { content: string }) {
               >
                 <div className="space-y-3">
                   {diff.before && (
-                    <div className="rounded-md border border-red-100 bg-red-50/40 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/10">
+                    <div className="rounded-md border border-red-200 bg-red-100/80 px-3 py-2 dark:border-red-800/60 dark:bg-red-900/30">
                       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
                       <div className="text-xs leading-5 text-red-950 dark:text-red-100">
                         {renderQuestionDiffSegments(questionDiff.before, 'removed')}
@@ -590,7 +590,7 @@ function InterviewDraftDiffView({ content }: { content: string }) {
                     </div>
                   )}
                   {diff.after && (
-                    <div className="rounded-md border border-green-100 bg-green-50/40 px-3 py-2 dark:border-green-900/40 dark:bg-green-950/10">
+                    <div className="rounded-md border border-green-200 bg-green-100/80 px-3 py-2 dark:border-green-800/60 dark:bg-green-900/30">
                       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
                       <div className="text-xs leading-5 text-green-950 dark:text-green-100">
                         {renderQuestionDiffSegments(questionDiff.after, 'added')}

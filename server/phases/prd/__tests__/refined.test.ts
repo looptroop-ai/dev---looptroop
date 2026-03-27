@@ -313,6 +313,44 @@ describe('PRD refined artifacts', () => {
     })
   })
 
+  it('accepts labeled alternative-draft inspiration references', () => {
+    const ticketId = 'PROJ-11B'
+    const interviewContent = buildInterviewYaml(ticketId)
+    const result = validatePrdRefinementOutput(buildPrdContent(ticketId, {
+      includeStoryThree: true,
+      changes: [
+        {
+          type: 'added',
+          item_type: 'user_story',
+          before: null,
+          after: { id: 'US-3', title: 'Surface retry metadata' },
+          inspiration: {
+            alternative_draft: 'Alternative Draft 1',
+            item: { id: 'US-8', title: 'Expose retry telemetry' },
+          },
+        },
+      ],
+    }), {
+      ticketId,
+      interviewContent,
+      winnerDraftContent: buildPrdContent(ticketId, { includeStoryThree: false }),
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    })
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0]).toMatchObject({
+      inspiration: {
+        draftIndex: 0,
+        memberId: 'openai/gpt-5-mini',
+        item: {
+          id: 'US-8',
+          label: 'Expose retry telemetry',
+        },
+      },
+      attributionStatus: 'inspired',
+    })
+  })
+
   it('defaults uninspired edits to model_unattributed', () => {
     const ticketId = 'PROJ-12'
     const interviewContent = buildInterviewYaml(ticketId)

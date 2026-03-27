@@ -32,8 +32,12 @@ import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { normalizeInterviewRefinementOutput } from '../../structuredOutput'
+import type { InterviewQuestionChange } from '@shared/interviewQuestions'
 import type { InterviewSessionSnapshot } from '@shared/interviewSession'
-import { buildInterviewUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import {
+  buildInterviewUiRefinementDiffArtifact,
+  buildInterviewUiRefinementDiffArtifactFromChanges,
+} from '@shared/refinementDiffArtifacts'
 import { calculateFollowUpLimit } from '../../phases/interview/followUpBudget'
 import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
@@ -753,6 +757,7 @@ export async function handleInterviewCompile(
 
   if (signal.aborted) throw new CancelledError(ticketId)
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+  let parsedRefinementChanges: InterviewQuestionChange[] = []
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
@@ -824,6 +829,7 @@ export async function handleInterviewCompile(
         repairWarnings: result.repairWarnings,
         autoRetryCount: structuredMeta.autoRetryCount,
       })
+      parsedRefinementChanges = result.value.changes
       return { normalizedContent: result.normalizedContent }
     },
     PROM3.outputFormat,
@@ -845,12 +851,17 @@ export async function handleInterviewCompile(
       resolveInterviewDraftSettings(context).maxInitialQuestions,
       losingDraftMeta,
     )
-    const uiDiffArtifact = buildInterviewUiRefinementDiffArtifact({
-      winnerId: intermediate.winnerId,
-      winnerDraftContent: winnerDraft.content,
-      refinedContent: compiledArtifact.refinedContent,
-      losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
-    })
+    const uiDiffArtifact = parsedRefinementChanges.length > 0
+      ? buildInterviewUiRefinementDiffArtifactFromChanges({
+          winnerId: intermediate.winnerId,
+          changes: parsedRefinementChanges,
+        })
+      : buildInterviewUiRefinementDiffArtifact({
+          winnerId: intermediate.winnerId,
+          winnerDraftContent: winnerDraft.content,
+          refinedContent: compiledArtifact.refinedContent,
+          losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+        })
 
     insertPhaseArtifact(ticketId, {
       phase: 'COMPILING_INTERVIEW',

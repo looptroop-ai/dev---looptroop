@@ -395,6 +395,25 @@ export function toInteger(value: unknown): number | null {
   return null
 }
 
+export function toOrdinalInteger(value: unknown): number | null {
+  const direct = toInteger(value)
+  if (direct != null) return direct
+
+  const normalized = toOptionalString(value)
+  if (!normalized) return null
+
+  const labeledMatch = normalized.match(/(?:^|[^a-z0-9])(?:alternative\s*draft|draft)(?:\s*#?\s*|[^0-9]+)(\d+)(?:$|[^a-z0-9])/i)
+  if (labeledMatch?.[1]) {
+    const parsed = Number(labeledMatch[1])
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null
+  }
+
+  const fallbackMatch = normalized.match(/\b(\d+)\b/)
+  if (!fallbackMatch?.[1]) return null
+  const parsed = Number(fallbackMatch[1])
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null
+}
+
 export function toBoolean(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value
   if (typeof value === 'number') return value === 1 ? true : value === 0 ? false : null

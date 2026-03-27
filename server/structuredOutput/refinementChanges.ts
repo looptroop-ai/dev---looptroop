@@ -5,7 +5,7 @@ import type {
   RefinementChangeItem,
   RefinementChangeType,
 } from '@shared/refinementChanges'
-import { isRecord, normalizeKey, getValueByAliases, toInteger, toOptionalString } from './yamlUtils'
+import { isRecord, normalizeKey, getValueByAliases, toOrdinalInteger, toOptionalString } from './yamlUtils'
 
 function normalizeRefinementChangeType(value: unknown): RefinementChangeType | null {
   const raw = toOptionalString(value)
@@ -32,7 +32,7 @@ function normalizeRefinementInspiration(
 ): RefinementChangeInspiration | null {
   if (!isRecord(value)) return null
 
-  const altDraft = toInteger(getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index', 'draftindex']))
+  const altDraft = toOrdinalInteger(getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index', 'draftindex']))
   const rawItem = getValueByAliases(value, ['item', 'bead', 'epic', 'story'])
   const item = normalizeRefinementChangeItem(rawItem)
 

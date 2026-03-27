@@ -1,5 +1,6 @@
 import jsYaml from 'js-yaml'
 import type {
+  InterviewQuestionChange,
   InterviewQuestionChangeAttributionStatus,
   ParsedInterviewQuestion,
 } from './interviewQuestions'
@@ -367,6 +368,58 @@ export function buildInterviewUiRefinementDiffArtifact(params: {
       ),
     )
   }
+
+  return {
+    domain: 'interview',
+    winnerId: params.winnerId.trim(),
+    generatedAt: params.generatedAt ?? new Date().toISOString(),
+    entries,
+  }
+}
+
+export function buildInterviewUiRefinementDiffArtifactFromChanges(params: {
+  winnerId: string
+  changes: InterviewQuestionChange[]
+  generatedAt?: string
+}): UiRefinementDiffArtifact {
+  const entries = params.changes.flatMap((change, index) => {
+    const changeType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
+    if (
+      changeType !== 'modified'
+      && changeType !== 'replaced'
+      && changeType !== 'added'
+      && changeType !== 'removed'
+    ) {
+      return []
+    }
+
+    const before = change.before ?? null
+    const after = change.after ?? null
+    const label = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
+    const inspiration = change.inspiration
+      ? {
+          memberId: change.inspiration.memberId ?? '',
+          ...(change.inspiration.question?.id ? { sourceId: change.inspiration.question.id } : {}),
+          sourceLabel: change.inspiration.question?.id ?? change.inspiration.question?.question ?? label,
+          ...(change.inspiration.question?.question
+            ? { sourceText: change.inspiration.question.question }
+            : {}),
+        }
+      : null
+
+    return [{
+      key: `${label}:${changeType}:${index}`,
+      changeType,
+      itemKind: 'question',
+      label,
+      ...(before?.id ? { beforeId: before.id } : {}),
+      ...(after?.id ? { afterId: after.id } : {}),
+      ...(before?.question ? { beforeText: before.question } : {}),
+      ...(after?.question ? { afterText: after.question } : {}),
+      inspiration,
+      attributionStatus: change.attributionStatus ?? (inspiration ? 'inspired' : 'model_unattributed'),
+    } satisfies UiRefinementDiffEntry]
+  })
 
   return {
     domain: 'interview',
