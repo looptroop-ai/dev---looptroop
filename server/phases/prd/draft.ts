@@ -131,6 +131,11 @@ function buildFullAnswersRetryPrompt(
         '## Full Answers Structured Output Retry',
         `Your previous response failed machine validation: ${options.validationError}`,
         'Return only a corrected full interview YAML artifact.',
+        'Do not use tools.',
+        'Keep every generated free_text answer concise, ideally 1-2 sentences.',
+        'For single_choice and multiple_choice questions, use only the existing canonical selected_option_ids and keep free_text empty unless a short explanation is explicitly required.',
+        'If length is a concern, shorten generated answers instead of omitting later questions or trailing sections.',
+        'Stop immediately after the final approval block. Do not append status text, fences, tool notes, or stray terminal characters.',
         `Only these skipped question answers may change: ${skippedLabel}`,
         'Allowed edits:',
         '- Only `questions[*].answer` for the skipped question IDs listed above.',
@@ -384,6 +389,7 @@ async function executeStructuredStep(
         validationError: lastValidationError,
         rawResponse,
         schemaReminder: options.schemaReminder,
+        doNotUseTools: true,
       })
     }
   }

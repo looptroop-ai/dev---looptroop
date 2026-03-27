@@ -48,7 +48,6 @@ import { adapter, interviewQASessions, phaseIntermediate, SKIP_ALL_INTERVIEW_COV
 import {
   emitPhaseLog,
   emitAiMilestone,
-  emitAiDetail,
   emitOpenCodeSessionLogs,
   emitOpenCodeStreamEvent,
   emitOpenCodePromptLog,
@@ -60,13 +59,11 @@ import {
   loadTicketDirContext,
   formatCouncilResolutionLog,
   formatDraftRoundSummary,
-  formatDraftFailureDetail,
   summarizeDraftOutcomes,
   createPendingDrafts,
   upsertCouncilDraftArtifact,
   upsertCouncilVoteArtifact,
   emitCouncilDecisionLogs,
-  tryBuildInterviewQuestionPreview,
   buildStructuredMetadata,
   mapCouncilStageToStatus,
 } from './helpers'
@@ -412,6 +409,8 @@ export async function handleInterviewDeliberate(
     signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('interview', entry.stage)
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -421,6 +420,7 @@ export async function handleInterviewDeliberate(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -461,32 +461,6 @@ export async function handleInterviewDeliberate(
         questionCount: entry.questionCount,
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'interview_drafts', liveDrafts)
-
-      if (entry.outcome !== 'completed') return
-
-      const questionPreview = tryBuildInterviewQuestionPreview(
-        `Questions received from ${entry.memberId}`,
-        entry.content,
-      )
-      if (!questionPreview) return
-
-      emitAiDetail(
-        ticketId,
-        context.externalId,
-        phase,
-        'model_output',
-        questionPreview,
-        {
-          entryId: `${entry.sessionId ?? `${phase}:${entry.memberId}`}:questions-preview`,
-          audience: 'ai',
-          kind: 'text',
-          op: 'append',
-          source: `model:${entry.memberId}`,
-          modelId: entry.memberId,
-          sessionId: entry.sessionId,
-          streaming: false,
-        },
-      )
     },
   )
 
@@ -516,35 +490,6 @@ export async function handleInterviewDeliberate(
     quorum,
     nextStatus,
   )
-
-  for (const draft of result.drafts) {
-    const detail = draft.outcome === 'timed_out'
-      ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
-      : draft.outcome === 'invalid_output' || draft.outcome === 'failed'
-        ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
-        : `proposed ${draft.questionCount ?? 0} questions`
-    emitAiDetail(
-      ticketId,
-      context.externalId,
-      'COUNCIL_DELIBERATING',
-      'model_output',
-      `${draft.memberId} ${detail}.`,
-      {
-        entryId: `draft-summary:${draft.memberId}`,
-        audience: 'ai',
-        kind: draft.outcome === 'completed' ? 'text' : 'error',
-        op: 'append',
-        source: `model:${draft.memberId}`,
-        modelId: draft.memberId,
-        sessionId: undefined,
-        streaming: false,
-        outcome: draft.outcome,
-        duration: draft.duration,
-        ...(draft.questionCount !== undefined ? { questionCount: draft.questionCount } : {}),
-        ...(draft.error ? { error: draft.error } : {}),
-      },
-    )
-  }
 
   upsertCouncilDraftArtifact(ticketId, phase, 'interview_drafts', result.drafts, result.memberOutcomes, true)
   emitPhaseLog(
@@ -616,6 +561,8 @@ export async function handleInterviewVote(
     councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -625,6 +572,7 @@ export async function handleInterviewVote(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -767,6 +715,8 @@ export async function handleInterviewCompile(
     councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -776,6 +726,7 @@ export async function handleInterviewCompile(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -893,28 +844,6 @@ export async function handleInterviewCompile(
       'info',
       `Compiled final interview from winner ${intermediate.winnerId}. Validated ${compiledArtifact.questionCount} normalized questions.`,
     )
-    const compiledQuestionPreview = tryBuildInterviewQuestionPreview(
-      `Compiled interview questions from ${intermediate.winnerId}`,
-      compiledArtifact.refinedContent,
-    )
-    if (compiledQuestionPreview) {
-      emitAiDetail(
-        ticketId,
-        context.externalId,
-        'COMPILING_INTERVIEW',
-        'model_output',
-        compiledQuestionPreview,
-        {
-          entryId: `compiled-questions:${intermediate.winnerId}`,
-          audience: 'ai',
-          kind: 'text',
-          op: 'append',
-          source: `model:${intermediate.winnerId}`,
-          modelId: intermediate.winnerId,
-          streaming: false,
-        },
-      )
-    }
 
     sendEvent({ type: 'READY' })
     broadcaster.broadcast(ticketId, 'needs_input', {

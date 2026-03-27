@@ -134,6 +134,7 @@ export async function refineDraft(
         validationError,
         rawResponse: refined,
         schemaReminder,
+        doNotUseTools: true,
       })
     }
   }

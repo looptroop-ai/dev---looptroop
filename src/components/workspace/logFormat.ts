@@ -1,6 +1,68 @@
 import type { LogEntry } from '@/context/LogContext'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 
+function getModelKey(entry: LogEntry): string | null {
+  if (entry.modelId) return entry.modelId
+  return entry.source.startsWith('model:') ? entry.source : null
+}
+
+function getPhaseModelKey(entry: LogEntry): string | null {
+  const modelKey = getModelKey(entry)
+  return modelKey ? `${entry.status}:${modelKey}` : null
+}
+
+function isLegacyTranscriptSummary(entry: LogEntry): boolean {
+  return entry.entryId.endsWith(':transcript-summary')
+}
+
+function isLegacyDerivedSummary(entry: LogEntry): boolean {
+  if (entry.kind !== 'text') return false
+
+  if (
+    entry.entryId.endsWith(':questions-preview')
+    || entry.entryId.startsWith('compiled-questions:')
+    || entry.entryId.startsWith('draft-summary:')
+    || entry.entryId.startsWith('prd-draft-summary:')
+    || entry.entryId.startsWith('prd-full-answers-summary:')
+    || entry.entryId.startsWith('beads-draft-summary:')
+    || entry.entryId.startsWith('refined-prd:')
+  ) {
+    return true
+  }
+
+  return entry.line.includes('Questions received from')
+    || entry.line.includes('Compiled interview questions from')
+}
+
+function isCanonicalAiTextEntry(entry: LogEntry): boolean {
+  return entry.audience === 'ai'
+    && entry.kind === 'text'
+    && !isLegacyTranscriptSummary(entry)
+    && !isLegacyDerivedSummary(entry)
+}
+
+export function getCanonicalLogEntries(entries: LogEntry[]): LogEntry[] {
+  const canonicalSessions = new Set<string>()
+  const canonicalPhaseModels = new Set<string>()
+
+  for (const entry of entries) {
+    if (!isCanonicalAiTextEntry(entry)) continue
+    if (entry.sessionId) canonicalSessions.add(entry.sessionId)
+    const phaseModelKey = getPhaseModelKey(entry)
+    if (phaseModelKey) canonicalPhaseModels.add(phaseModelKey)
+  }
+
+  return entries.filter((entry) => {
+    if (isLegacyTranscriptSummary(entry)) {
+      return entry.sessionId ? !canonicalSessions.has(entry.sessionId) : true
+    }
+
+    if (!isLegacyDerivedSummary(entry)) return true
+    const phaseModelKey = getPhaseModelKey(entry)
+    return phaseModelKey ? !canonicalPhaseModels.has(phaseModelKey) : true
+  })
+}
+
 export function getEntryColor(entry: LogEntry): string {
   if (entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')) return 'text-amber-600'
   if (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) return 'text-red-500'
@@ -42,6 +104,7 @@ export function formatVisibleTag(tag: string, entry: LogEntry, showModelName: bo
 }
 
 export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
+  const canonicalEntries = getCanonicalLogEntries(entries)
   const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
   const isError = (entry: LogEntry) => entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')
   const isPrompt = (entry: LogEntry) => entry.kind === 'prompt'
@@ -52,24 +115,22 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     Boolean(entry.modelId) ||
     Boolean(entry.sessionId)
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
-  const isImportantAiSummary = (entry: LogEntry) =>
-    entry.entryId?.endsWith(':transcript-summary') ||
-    entry.line.includes('Questions received from') ||
-    entry.line.includes('Compiled interview questions from')
+  const isOverviewAiEntry = (entry: LogEntry) =>
+    entry.audience === 'ai' && (entry.kind === 'text' || isLegacyTranscriptSummary(entry))
 
   switch (tab) {
     case 'ALL':
-      return entries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isImportantAiSummary(entry)) && !isDebug(entry))
+      return canonicalEntries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry))
     case 'SYS':
-      return entries.filter(e => isSystem(e) && !isDebug(e))
+      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':
-      return entries.filter(isFromOpenCode)
+      return canonicalEntries.filter(isFromOpenCode)
     case 'ERROR':
-      return entries.filter(isError)
+      return canonicalEntries.filter(isError)
     case 'DEBUG':
-      return entries.filter(isDebug)
+      return canonicalEntries.filter(isDebug)
     default:
-      return entries.filter(entry => entry.modelId === tab)
+      return canonicalEntries.filter(entry => entry.modelId === tab)
   }
 }
 

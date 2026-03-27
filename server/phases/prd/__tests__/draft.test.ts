@@ -670,6 +670,7 @@ describe('draftPRD', () => {
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
+    expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Do not use tools.'))).toBe(true)
   })
 
   it('keeps full answers structured retries inside the same session while starting PRD drafting in a fresh one', async () => {
@@ -737,6 +738,10 @@ describe('draftPRD', () => {
     expect(fullAnswerRetryMessages[0]?.content).toContain('Only these skipped question answers may change: Q01')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Canonical approved interview artifact')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Which workflow guardrails are mandatory?')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Do not use tools.')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Keep every generated free_text answer concise')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('use only the existing canonical selected_option_ids')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Stop immediately after the final approval block')
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
 

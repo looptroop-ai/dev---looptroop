@@ -214,6 +214,7 @@ export async function handleRelevantFilesScan(
       'relevant_files_scan',
       result.response,
       result.messages,
+      streamState,
     )
 
     let normalized = validateRelevantFilesScanResponse(result.response)
@@ -278,6 +279,7 @@ export async function handleRelevantFilesScan(
           'relevant_files_scan',
           retryResult.response,
           retryResult.messages,
+          streamState,
         )
 
         finalResponse = retryResult.response
@@ -339,6 +341,7 @@ export async function handleRelevantFilesScan(
           'relevant_files_scan',
           freshResult.response,
           freshResult.messages,
+          streamState,
         )
 
         finalResponse = freshResult.response
@@ -677,6 +680,7 @@ export async function handleCoverageVerification(
       'coverage',
       response,
       runResult.messages,
+      streamState,
     )
 
     coverageEnvelope = normalizeCoverageResultOutput(response)
@@ -711,6 +715,7 @@ export async function handleCoverageVerification(
           validationError: interviewCoverageResolution.validationError,
           rawResponse: response,
           schemaReminder: promptTemplate.outputFormat,
+          doNotUseTools: true,
         })
         continue
       }
@@ -742,6 +747,7 @@ export async function handleCoverageVerification(
       validationError: coverageEnvelope.error,
       rawResponse: response,
       schemaReminder: promptTemplate.outputFormat,
+      doNotUseTools: true,
     })
   }
 

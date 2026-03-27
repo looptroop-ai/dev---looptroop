@@ -71,24 +71,31 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   const [isOverflowing, setIsOverflowing] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   
-  // Fast multiline check
+  // Fast multiline check to predict if truncation is needed
   const isMultiline = useMemo(() => {
+    if (entry.streaming) {
+      return entry.line.split('\n').length > 6;
+    }
+    
     let count = 0;
-    let pos = entry.line.indexOf('\n');
+    const trimmed = entry.line.trimEnd();
+    let pos = trimmed.indexOf('\n');
     while (pos !== -1) {
       count++;
       if (count >= 5) return true;
-      pos = entry.line.indexOf('\n', pos + 1);
+      pos = trimmed.indexOf('\n', pos + 1);
     }
     return false;
-  }, [entry.line]);
+  }, [entry.line, entry.streaming]);
 
   useEffect(() => {
     const el = contentRef.current
     if (!el || isExpanded || isMultiline) return
 
     const observer = new ResizeObserver(() => {
-      setIsOverflowing(el.scrollHeight > el.clientHeight)
+      // Add a 4px tolerance to prevent false positives from sub-pixel rendering 
+      // or minor line-height discrepancies when content fits perfectly in 5 lines.
+      setIsOverflowing(el.scrollHeight > el.clientHeight + 4)
     })
     observer.observe(el)
     return () => observer.disconnect()

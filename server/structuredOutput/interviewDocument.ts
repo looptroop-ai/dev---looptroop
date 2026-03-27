@@ -386,7 +386,10 @@ export function buildInterviewDocumentYaml(document: InterviewDocument): string 
 
 export function normalizeInterviewDocumentOutput(
   rawContent: string,
-  options?: { ticketId?: string },
+  options?: {
+    ticketId?: string
+    allowTrailingTerminalNoise?: boolean
+  },
 ): StructuredOutputResult<InterviewDocument> {
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['schema_version', 'ticket_id', 'artifact', 'questions'],
@@ -398,6 +401,8 @@ export function normalizeInterviewDocumentOutput(
       const warnings: string[] = []
       const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_DOCUMENT_NESTED_MAPPING_CHILDREN,
+        allowTrailingTerminalNoise: options?.allowTrailingTerminalNoise,
+        repairWarnings: warnings,
       }), [
         'interview',
         'output',
@@ -532,6 +537,7 @@ export function normalizeResolvedInterviewDocumentOutput(
   for (const candidateContent of candidates) {
     const candidateResult = normalizeInterviewDocumentOutput(candidateContent, {
       ticketId: options.ticketId,
+      allowTrailingTerminalNoise: true,
     })
     if (!candidateResult.ok) {
       lastError = candidateResult.error

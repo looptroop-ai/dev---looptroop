@@ -51,6 +51,7 @@ describe('generateFinalTests', () => {
 
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
+    expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Do not use tools.'))).toBe(false)
   })
 
   it('restarts final test generation in a fresh session after an empty response', async () => {

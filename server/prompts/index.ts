@@ -37,6 +37,7 @@ function buildStrictVoteOutputInstruction(categories: string[]): string {
 
 const STRICT_VOTE_OUTPUT_FORMAT = 'YAML with top-level `draft_scores` mapping keyed by exact draft labels. Each draft: rubric integer fields plus `total_score`. No other fields.'
 const STRUCTURED_SELF_CHECK = 'Final Self-Check: before responding, verify that you are returning only the artifact, using the exact required top-level shape, with no prose, no markdown fences, no commentary, and no extra wrapper keys.'
+const DO_NOT_USE_TOOLS_RULE = 'Do not use tools.'
 const COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. `follow_up_questions` must be a YAML list (empty when status is `clean`).'
 const INTERVIEW_COVERAGE_OUTPUT_FORMAT = 'YAML with exactly these top-level keys: `status`, `gaps`, `follow_up_questions`. `status` must be `clean` or `gaps`. `gaps` must be a YAML list of double-quoted strings. Quote every `gaps` item even when it contains code identifiers, file paths, flags, backticks, or punctuation. When `status` is `clean`, `follow_up_questions` must be `[]`. When `status` is `gaps`, `follow_up_questions` must be a YAML list of objects with these fields: `id`, `question`, `phase`, `priority`, `rationale`, `answer_type` (required: free_text|single_choice|multiple_choice|yes_no), and optionally `options` (list of {id, label}) when answer_type is single_choice or multiple_choice. Do not return plain strings in `follow_up_questions`.'
 const PRD_OUTPUT_FORMAT = [
@@ -145,6 +146,7 @@ export const PROM1: PromptTemplate = {
         phase: structure
         question: "Another question?"
     \`\`\``,
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML with top-level `questions` list. Each item: {id, phase, question}. No other fields.',
@@ -161,6 +163,7 @@ export const PROM2: PromptTemplate = {
     'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_INTERVIEW.map(item => item.category)),
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
@@ -186,6 +189,7 @@ export const PROM3: PromptTemplate = {
     'Optional Inspiration Attribution: When a change was directly inspired by an alternative draft, include `inspiration` with `alternative_draft` and the inspiring `question`. If a change was not directly inspired by a losing draft, omit `inspiration` or set it to null.',
     INTERVIEW_PHASE_ORDER_RULE,
     'Formatting: Output the final refined draft and the top-level `changes` list using the exact structural format required for this phase. Output only this single artifact.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML with top-level `questions` list and top-level `changes` list. Each `questions` item: {id, phase, question}. Each `changes` item: {type, before, after, inspiration?}. `type` must be one of {modified, replaced, added, removed}. `before` and `after` use the same question shape or null when appropriate. Optional `inspiration` uses {alternative_draft, question}. No extra wrapper object.',
@@ -274,6 +278,7 @@ export const PROM4: PromptTemplate = {
     PROM4_FINAL_INTERVIEW_SCHEMA,
     'Output Discipline: For intermediate turns, return exactly one <INTERVIEW_BATCH> block and nothing else outside it. For the final turn, return exactly one <INTERVIEW_COMPLETE> block and nothing else outside it.',
     'Formatting Discipline: Do not place markdown fences inside either tag block. Keep YAML indentation valid so every question field stays nested under its list item.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — complete interview results file with schema_version, ticket_id, artifact, status, generated_by, questions, follow_up_rounds, summary, approval',
@@ -295,6 +300,7 @@ export const PROM5: PromptTemplate = {
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     `Gap Triggering: Use \`status: gaps\` only when at least one real unresolved gap remains. When \`status: gaps\`, \`follow_up_questions\` must be a YAML list of question objects with these fields: \`id\`, \`question\`, \`phase\`, \`priority\`, \`rationale\`, and \`answer_type\` (REQUIRED — choose the best type for each question: "free_text" for open-ended, "single_choice" for mutually-exclusive finite sets with 2-10 options, "multiple_choice" for select-all-that-apply with 2-15 options, "yes_no" for simple boolean questions without options). When answer_type is single_choice or multiple_choice, include an \`options\` list with \`id\` and \`label\` fields. Do not return plain strings in \`follow_up_questions\`.`,
     'Do not output rewritten interview results, summaries, or any extra keys.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: INTERVIEW_COVERAGE_OUTPUT_FORMAT,
@@ -318,7 +324,9 @@ export const PROM09D: PromptTemplate = {
     'Artifact Status: Output the completed interview artifact as `status: draft` with empty approval fields, because these AI-filled answers are not user-approved.',
     'Self-Check: Before responding, verify that the output contains the exact same number of questions and the exact same canonical question IDs as the approved interview artifact.',
     'Completeness Rule: Return the entire interview artifact from `schema_version` through the final `approval` block. Do not stop early, emit only a prefix, or omit trailing question blocks.',
+    'Clean Stop Rule: Stop immediately after the final `approval` block. Do not append status text, markdown fences, tool notes, or stray terminal characters.',
     'Output Discipline: Return exactly one complete interview artifact and nothing else. No prose, no PRD content, no wrappers, no markdown fences, and no extra keys.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PROM4_FINAL_INTERVIEW_SCHEMA,
@@ -337,6 +345,7 @@ export const PROM10: PromptTemplate = {
     'Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, explicit non-goals.',
     'Schema Contract: Follow the exact PRD YAML schema in the Expected Output Format section, including all required top-level keys and nested fields.',
     'Output Format: Output a single, comprehensive PRD document covering all of the above in one artifact.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: PRD_OUTPUT_FORMAT,
@@ -354,6 +363,7 @@ export const PROM11: PromptTemplate = {
     'Draft Provenance: Some PRD drafts may reflect model-specific AI-filled answers for questions the user originally skipped. Score the draft quality and requirement coverage as presented, not the identity of the model that filled those gaps.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of requirements. 2) Correctness / feasibility. 3) Testability. 4) Minimal complexity / good decomposition. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_PRD.map(item => item.category)),
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
@@ -378,6 +388,7 @@ export const PROM12: PromptTemplate = {
     'Formatting: Output only this single refined PRD artifact with its top-level `changes` list.',
     'Schema Preservation: keep the same PRD schema, required top-level sections, and nested field structure. Do not wrap the PRD in another object.',
     'ID Stability: Preserve existing epic IDs and user story IDs from the winning draft unless you are adding a genuinely new epic or story.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: `${PRD_OUTPUT_FORMAT}\nAlso include a top-level \`changes\` list. Each change item: {type, item_type, before, after, inspiration?}. \`type\` must be one of {modified, added, removed}. \`item_type\` must be \`epic\` or \`user_story\`. \`before\` and \`after\` use {id, label, detail?} or null when appropriate. Optional \`inspiration\` uses {alternative_draft, item}. Keep everything in one YAML artifact.`,
@@ -398,6 +409,7 @@ export const PROM13: PromptTemplate = {
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     'Gap Triggering: For PRD coverage, `follow_up_questions` should normally be an empty list. Use `status: gaps` plus concrete `gaps` entries to trigger another refinement pass.',
     'Do not output a rewritten PRD, PRD patch, or any extra keys.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: COVERAGE_OUTPUT_FORMAT,
@@ -415,6 +427,7 @@ export const PROM20: PromptTemplate = {
     'Granularity: Each bead must be the smallest independently-completable unit of work — small enough that a single AI agent call can implement it with its defined tests, but complete enough to be meaningful.',
     'Draft Bead Structure: Each bead in this draft phase must include only: id, Title, PRD references, Description, Context & Architectural Guidance (patterns + anti_patterns), Acceptance criteria, Bead-scoped tests, Test commands.',
     'Output Format: Output a structured Beads workspace definition containing all beads in dependency order.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: BEAD_SUBSET_OUTPUT_FORMAT,
@@ -431,6 +444,7 @@ export const PROM21: PromptTemplate = {
     'Anti-anchoring: Drafts are presented in randomized order per evaluator.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of PRD requirements. 2) Correctness / feasibility of technical approach. 3) Quality and isolation of bead-scoped tests. 4) Minimal complexity / good dependency management. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_BEADS.map(item => item.category)),
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: STRICT_VOTE_OUTPUT_FORMAT,
@@ -452,6 +466,7 @@ export const PROM22: PromptTemplate = {
     'Optional Inspiration Attribution: When a change was directly inspired by an alternative draft, include `inspiration` with `alternative_draft` and the inspiring `item`. If a change was not directly inspired by a losing draft, omit `inspiration` or set it to null.',
     'Formatting: Output only this single refined Beads artifact with its top-level `changes` list.',
     'Schema Preservation: keep the same bead subset schema and output a single top-level `beads` list. Do not wrap it in prose or additional objects.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: `${BEAD_SUBSET_OUTPUT_FORMAT} Also include a top-level \`changes\` list. Each change item: {type, item_type, before, after, inspiration?}. \`type\` must be one of {modified, added, removed}. \`item_type\` must be \`bead\`. \`before\` and \`after\` use {id, label, detail?} or null when appropriate. Optional \`inspiration\` uses {alternative_draft, item}. Keep everything in one YAML artifact.`,
@@ -486,6 +501,7 @@ export const PROM24: PromptTemplate = {
     'Resolution: Use concrete gap strings to describe the additions or modifications still needed. Ensure each in-scope PRD requirement maps to at least one bead with explicit verification. If no gaps exist, confirm ready for Execution.',
     'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. For beads coverage, `follow_up_questions` should usually be an empty list; use `status: gaps` plus concrete gap strings to trigger another refinement pass.',
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
+    DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: COVERAGE_OUTPUT_FORMAT,

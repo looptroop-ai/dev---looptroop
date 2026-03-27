@@ -60,6 +60,7 @@ function buildStructuredRetryPrompt(
         '## Structured Output Retry',
         `Your previous response failed machine validation: ${validationError}`,
         'Return only a corrected artifact in the required structured format.',
+        'Do not use tools.',
         schemaReminder ? `Schema reminder:\n${schemaReminder}` : '',
         'Previous invalid response:',
         '```',

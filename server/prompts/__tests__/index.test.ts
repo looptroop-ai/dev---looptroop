@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { PROM1, PROM3, PROM4, PROM5, PROM09D, PROM10, PROM12, PROM13, PROM20, PROM22, PROM24, PROM52, buildPromptFromTemplate } from '../index'
+import {
+  PROM0,
+  PROM1,
+  PROM2,
+  PROM3,
+  PROM4,
+  PROM5,
+  PROM09D,
+  PROM10,
+  PROM11,
+  PROM12,
+  PROM13,
+  PROM20,
+  PROM21,
+  PROM22,
+  PROM23,
+  PROM24,
+  PROM51,
+  PROM52,
+  buildPromptFromTemplate,
+} from '../index'
 
 describe('structured prompt hardening', () => {
   it('keeps the interview refinement prompt explicit about phase order and self-checks', () => {
@@ -32,6 +52,31 @@ describe('structured prompt hardening', () => {
     }
   })
 
+  it('adds the no-tool rule only to in-scope non-execution prompts', () => {
+    for (const prompt of [
+      PROM1,
+      PROM2,
+      PROM3,
+      PROM4,
+      PROM5,
+      PROM09D,
+      PROM10,
+      PROM11,
+      PROM12,
+      PROM13,
+      PROM20,
+      PROM21,
+      PROM22,
+      PROM24,
+    ]) {
+      expect(buildPromptFromTemplate(prompt, [])).toContain('Do not use tools.')
+    }
+
+    for (const prompt of [PROM0, PROM23, PROM51, PROM52]) {
+      expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
+    }
+  })
+
   it('defines an explicit shared PRD schema contract for draft and refine prompts', () => {
     expect(PROM12.outputFormat).toContain(PROM10.outputFormat)
     expect(PROM12.outputFormat).toContain('top-level `changes` list')
@@ -56,6 +101,10 @@ describe('structured prompt hardening', () => {
     const gapPrompt = buildPromptFromTemplate(PROM09D, [])
     expect(gapPrompt).toContain('The approved Interview Results artifact is already included in the prompt')
     expect(gapPrompt).toContain('Preserve every existing non-skipped answer exactly as-is')
+    expect(gapPrompt).toContain('use the existing canonical `selected_option_ids`')
+    expect(gapPrompt).toContain('Keep each generated `free_text` answer concise')
+    expect(gapPrompt).toContain('If length is becoming a concern, shorten individual generated answers')
+    expect(gapPrompt).toContain('Stop immediately after the final `approval` block')
     expect(gapPrompt).toContain('answered_by: ai_skip')
     expect(gapPrompt).toContain('status: draft')
     expect(gapPrompt).toContain('Return the entire interview artifact from `schema_version` through the final `approval` block')

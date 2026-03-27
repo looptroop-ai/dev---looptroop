@@ -128,7 +128,7 @@ beforeEach(() => {
 })
 
 describe('PhaseLogPanel', () => {
-  it('shows important AI summary lines in ALL while keeping generic AI details in the AI tab', () => {
+  it('shows canonical raw AI output in ALL while suppressing transcript and summary duplicates', () => {
     const logs: LogEntry[] = [
       {
         id: 'sys-1',
@@ -144,20 +144,49 @@ describe('PhaseLogPanel', () => {
       },
       {
         id: 'ai-1',
-        entryId: 'ai-1',
-        line: '[MODEL] Questions received from openai/gpt-5-mini (2 total):\n- [foundation] What problem are we solving?\n- [structure] Which users should be supported first?',
+        entryId: 'ses-1:msg-1:text',
+        line: '[MODEL] questions:\n  - id: Q01\n    phase: foundation\n    question: "Confidence in timing?"',
         source: 'model:openai/gpt-5-mini',
         status: 'COUNCIL_DELIBERATING',
         timestamp: '2026-03-10T10:00:01.000Z',
         audience: 'ai',
         kind: 'text',
         modelId: 'openai/gpt-5-mini',
+        sessionId: 'ses-1',
         streaming: false,
         op: 'append',
       },
       {
         id: 'ai-2',
-        entryId: 'ai-2',
+        entryId: 'ses-1:transcript-summary',
+        line: '[MODEL] [assistant] [2026-03-10T10:00:01.000Z] questions:\n  - id: Q01\n    phase: foundation\n    question: "Confidence in timing?"',
+        source: 'model:openai/gpt-5-mini',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:01.100Z',
+        audience: 'ai',
+        kind: 'session',
+        modelId: 'openai/gpt-5-mini',
+        sessionId: 'ses-1',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'ai-3',
+        entryId: 'ses-1:questions-preview',
+        line: '[MODEL] Questions received from openai/gpt-5-mini (1 total):\n- [foundation] Timing confidence first?',
+        source: 'model:openai/gpt-5-mini',
+        status: 'COUNCIL_DELIBERATING',
+        timestamp: '2026-03-10T10:00:01.200Z',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5-mini',
+        sessionId: 'ses-1',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'ai-4',
+        entryId: 'ses-1:status',
         line: '[MODEL] Session status: running.',
         source: 'model:openai/gpt-5-mini',
         status: 'COUNCIL_DELIBERATING',
@@ -165,6 +194,7 @@ describe('PhaseLogPanel', () => {
         audience: 'ai',
         kind: 'session',
         modelId: 'openai/gpt-5-mini',
+        sessionId: 'ses-1',
         streaming: false,
         op: 'append',
       },
@@ -185,18 +215,64 @@ describe('PhaseLogPanel', () => {
     render(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
 
     expect(screen.getByText(/Interview council drafting started/i)).toBeInTheDocument()
-    expect(screen.getByText(/Questions received from openai\/gpt-5-mini/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Confidence in timing\?/i)).toHaveLength(1)
+    expect(screen.queryByText(/\[assistant\]/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Questions received from openai\/gpt-5-mini/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Session status: running/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/raw provider payload/i)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
 
     expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
-    expect(screen.getByText(/Questions received from openai\/gpt-5-mini/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Confidence in timing\?/i)).toHaveLength(1)
+    expect(screen.queryByText(/\[assistant\]/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Questions received from openai\/gpt-5-mini/i)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'DEBUG' }))
 
     expect(screen.getByText(/raw provider payload/i)).toBeInTheDocument()
+  })
+
+  it('keeps AI error rows visible when legacy summary entry ids are reused for failures', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'ai-text',
+        entryId: 'ses-9:msg-1:text',
+        line: '[MODEL] prd:\n  title: Canonical PRD',
+        source: 'model:openai/gpt-5-codex',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-03-10T10:00:01.000Z',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5-codex',
+        sessionId: 'ses-9',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'ai-error',
+        entryId: 'prd-full-answers-summary:openai/gpt-5-codex',
+        line: '[ERROR] openai/gpt-5-codex failed to produce Full Answers.',
+        source: 'model:openai/gpt-5-codex',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-03-10T10:00:02.000Z',
+        audience: 'ai',
+        kind: 'error',
+        modelId: 'openai/gpt-5-codex',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    render(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
+
+    expect(screen.getByText(/Canonical PRD/i)).toBeInTheDocument()
+    expect(screen.getByText(/failed to produce Full Answers/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(screen.getByText(/Canonical PRD/i)).toBeInTheDocument()
+    expect(screen.getByText(/failed to produce Full Answers/i)).toBeInTheDocument()
   })
 
   it('shows model-aware MODEL and THINKING tags in aggregated log tabs', () => {

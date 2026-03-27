@@ -117,7 +117,10 @@ export function normalizeVoteScorecardOutput(
     for (const variant of candidateVariants) {
       try {
         const variantWarnings = [...variant.repairWarnings]
-        const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(variant.content), [
+        const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(variant.content, {
+          allowTrailingTerminalNoise: true,
+          repairWarnings: variantWarnings,
+        }), [
           'draftscores',
           'draft_scores',
           'scores',

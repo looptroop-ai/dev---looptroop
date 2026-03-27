@@ -125,6 +125,7 @@ describe('PROM4 interview session parsing', () => {
 
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
+    expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Do not use tools.'))).toBe(true)
   })
 
   it('restarts the initial PROM4 session after an empty response', async () => {

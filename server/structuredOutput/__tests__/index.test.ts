@@ -1020,6 +1020,37 @@ describe('structured output normalization', () => {
     expect(repaired.value.draftScores['Draft 4']?.total_score).toBe(61)
   })
 
+  it('trims trailing terminal noise from complete vote scorecard JSON output', () => {
+    const repaired = normalizeVoteScorecardOutput(
+      `${JSON.stringify({
+        draft_scores: {
+          'Draft 1': {
+            'Coverage of requirements': 18,
+            'Correctness / feasibility': 17,
+            Testability: 16,
+            'Minimal complexity / good decomposition': 15,
+            'Risks / edge cases addressed': 18,
+            total_score: 84,
+          },
+        },
+      })}[e~[`,
+      ['Draft 1'],
+      [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ],
+    )
+
+    expect(repaired.ok).toBe(true)
+    if (!repaired.ok) return
+    expect(repaired.repairApplied).toBe(true)
+    expect(repaired.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
+  })
+
   it('keeps unknown vote scorecards strict', () => {
     const result = normalizeVoteScorecardOutput(
       [
@@ -1505,6 +1536,103 @@ describe('structured output normalization', () => {
     expect(result.value.epics.flatMap((epic) => epic.user_stories.map((story) => story.id))).toEqual(['US-1', 'US-2-1'])
     expect(result.repairWarnings.join('\n')).toContain('Epic at index 1 was missing id')
     expect(result.repairWarnings.join('\n')).toContain('duplicate user story id US-1')
+  })
+
+  it('trims trailing terminal noise from complete PRD JSON output', () => {
+    const interviewContent = [
+      'schema_version: 1',
+      'ticket_id: "LINLO-12"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5"',
+      '  generated_at: "2026-03-20T10:00:00.000Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What problem are we solving?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: "Ship a deterministic planning pipeline."',
+      '      answered_by: "user"',
+      '      answered_at: "2026-03-20T10:05:00.000Z"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-20T10:10:00.000Z"',
+    ].join('\n')
+
+    const result = normalizePrdYamlOutput(`${JSON.stringify({
+      schema_version: 1,
+      ticket_id: 'LINLO-12',
+      artifact: 'prd',
+      status: 'draft',
+      source_interview: {
+        content_sha256: 'stale-hash',
+      },
+      product: {
+        problem_statement: 'Ship a deterministic planning pipeline.',
+        target_users: ['Maintainers'],
+      },
+      scope: {
+        in_scope: ['Prompt hardening'],
+        out_of_scope: ['Execution changes'],
+      },
+      technical_requirements: {
+        architecture_constraints: ['Shared validator layer'],
+        data_model: [],
+        api_contracts: [],
+        security_constraints: [],
+        performance_constraints: [],
+        reliability_constraints: [],
+        error_handling_rules: [],
+        tooling_assumptions: [],
+      },
+      epics: [
+        {
+          id: 'EPIC-1',
+          title: 'Harden structured output',
+          objective: 'Prevent format-only model mistakes from blocking tickets.',
+          implementation_steps: ['Add validators'],
+          user_stories: [
+            {
+              id: 'US-1',
+              title: 'Validate interview and PRD artifacts',
+              acceptance_criteria: ['Structured artifacts are normalized before save'],
+              implementation_steps: ['Reuse shared repair helpers'],
+              verification: {
+                required_commands: ['npm run test:server'],
+              },
+            },
+          ],
+        },
+      ],
+      risks: ['Permissive repairs could hide semantic issues'],
+      approval: {
+        approved_by: '',
+        approved_at: '',
+      },
+    })}[e~[`, {
+      ticketId: 'LINLO-12',
+      interviewContent,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(result.value.epics[0]?.id).toBe('EPIC-1')
+    expect(result.value.epics[0]?.user_stories[0]?.id).toBe('US-1')
   })
 
   it('accepts PRD normalization even when the source interview contains skipped questions', () => {
@@ -3003,5 +3131,196 @@ describe('structured output normalization', () => {
       approved_by: 'user',
       approved_at: '2026-03-20T10:25:00.000Z',
     })
+  })
+
+  it('trims trailing terminal noise from complete resolved interview JSON output', () => {
+    const canonicalInterview = [
+      'schema_version: 1',
+      'ticket_id: "PROJ-42"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5.4"',
+      '  generated_at: "2026-03-25T18:18:55.102Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What primary problem should the new phase solve?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: "ai_skip"',
+      '      answered_at: ""',
+      '  - id: "Q02"',
+      '    phase: "Foundation"',
+      '    prompt: "Who should consume the strategy?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "single_choice"',
+      '    options:',
+      '      - id: "opt1"',
+      '        label: "Workflow engine"',
+      '      - id: "opt2"',
+      '        label: "Beads generation"',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: ["opt1"]',
+      '      free_text: ""',
+      '      answered_by: "user"',
+      '      answered_at: "2026-03-25T18:19:00.000Z"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-25T18:19:30.000Z"',
+    ].join('\n')
+
+    const result = normalizeResolvedInterviewDocumentOutput(`${JSON.stringify({
+      schema_version: 1,
+      ticket_id: 'PROJ-42',
+      artifact: 'interview',
+      status: 'draft',
+      generated_by: {
+        winner_model: 'nvidia/z-ai/glm5',
+        generated_at: '2026-03-25T18:20:00.000Z',
+        canonicalization: 'server_normalized',
+      },
+      questions: [
+        {
+          id: 'Q01',
+          phase: 'Foundation',
+          prompt: 'What primary problem should the new phase solve?',
+          source: 'compiled',
+          follow_up_round: null,
+          answer_type: 'free_text',
+          options: [],
+          answer: {
+            skipped: false,
+            selected_option_ids: [],
+            free_text: 'Introduce a deterministic, risk-first planning checkpoint.',
+            answered_by: 'ai_skip',
+            answered_at: '2026-03-25T18:20:00.000Z',
+          },
+        },
+        {
+          id: 'Q02',
+          phase: 'Foundation',
+          prompt: 'Who should consume the strategy?',
+          source: 'compiled',
+          follow_up_round: null,
+          answer_type: 'single_choice',
+          options: [
+            { id: 'opt1', label: 'Workflow engine' },
+            { id: 'opt2', label: 'Beads generation' },
+          ],
+          answer: {
+            skipped: false,
+            selected_option_ids: ['opt1'],
+            free_text: '',
+            answered_by: 'user',
+            answered_at: '2026-03-25T18:19:00.000Z',
+          },
+        },
+      ],
+      follow_up_rounds: [],
+      summary: {
+        goals: [],
+        constraints: [],
+        non_goals: [],
+        final_free_form_answer: '',
+      },
+      approval: {
+        approved_by: '',
+        approved_at: '',
+      },
+    })}[e~[`, {
+      ticketId: 'PROJ-42',
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/z-ai/glm5',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(result.value.questions).toHaveLength(2)
+    expect(result.value.questions[1]?.id).toBe('Q02')
+    expect(result.value.questions[0]?.answer.free_text).toContain('risk-first planning checkpoint')
+  })
+
+  it('keeps truncated resolved interview artifacts invalid', () => {
+    const canonicalInterview = [
+      'schema_version: 1',
+      'ticket_id: "PROJ-42"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5.4"',
+      '  generated_at: "2026-03-25T18:18:55.102Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What primary problem should the new phase solve?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: "ai_skip"',
+      '      answered_at: ""',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-25T18:19:30.000Z"',
+    ].join('\n')
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      'schema_version: 1',
+      'ticket_id: PROJ-42',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: nvidia/z-ai/glm5',
+      '  generated_at: 2026-03-25T18:20:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: What primary problem should the new phase solve?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Introduce a deterministic, risk-first planning checkpoint.',
+      '      answered_by: ai_skip',
+      '      answered',
+    ].join('\n'), {
+      ticketId: 'PROJ-42',
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/z-ai/glm5',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toBeTruthy()
   })
 })

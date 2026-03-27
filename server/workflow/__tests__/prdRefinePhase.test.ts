@@ -368,6 +368,7 @@ describe('handlePrdRefine', () => {
       }) ?? []
       const retryPromptText = retryPrompt.map((part) => part.content).join('\n')
       expect(retryPromptText).toContain('PRD Refinement Structured Output Retry')
+      expect(retryPromptText).toContain('Do not use tools.')
       expect(retryPromptText).not.toContain('\nchanges:')
 
       return validateResponse?.(validOutput).normalizedContent ?? validOutput

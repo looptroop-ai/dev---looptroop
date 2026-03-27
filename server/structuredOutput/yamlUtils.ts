@@ -120,6 +120,135 @@ export function stripSpuriousXmlTags(content: string): string {
 
 interface ParseYamlOrJsonCandidateOptions {
   nestedMappingChildren?: Record<string, readonly string[]>
+  allowTrailingTerminalNoise?: boolean
+  repairWarnings?: string[]
+}
+
+const TERMINAL_NOISE_WARNING = 'Trimmed trailing terminal noise after the complete structured artifact.'
+const TERMINAL_NOISE_FRAGMENT_PATTERN = /(?:\u001b\[[0-9;?]*[ -/]*[@-~]|\[(?:200|201|[A-Za-z])~\[?)/u
+const TERMINAL_NOISE_ONLY_PATTERN = /^(?:\s|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]|(?:\u001b\[[0-9;?]*[ -/]*[@-~])|(?:\[(?:200|201|[A-Za-z])~\[?))+$/u
+
+function findBalancedJsonRootEnd(content: string): number | null {
+  let index = 0
+  while (index < content.length && /\s/.test(content[index] ?? '')) {
+    index += 1
+  }
+
+  if (index >= content.length) return null
+
+  const start = content[index]!
+  if (start === '{' || start === '[') {
+    let depth = 0
+    let inString = false
+    let escaped = false
+
+    for (let cursor = index; cursor < content.length; cursor += 1) {
+      const char = content[cursor]!
+      if (inString) {
+        if (escaped) {
+          escaped = false
+          continue
+        }
+        if (char === '\\') {
+          escaped = true
+          continue
+        }
+        if (char === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (char === '"') {
+        inString = true
+        continue
+      }
+      if (char === '{' || char === '[') {
+        depth += 1
+        continue
+      }
+      if (char === '}' || char === ']') {
+        depth -= 1
+        if (depth === 0) {
+          return cursor + 1
+        }
+      }
+    }
+    return null
+  }
+
+  if (start === '"') {
+    let escaped = false
+    for (let cursor = index + 1; cursor < content.length; cursor += 1) {
+      const char = content[cursor]!
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === '\\') {
+        escaped = true
+        continue
+      }
+      if (char === '"') {
+        return cursor + 1
+      }
+    }
+    return null
+  }
+
+  const primitiveMatch = content.slice(index).match(/^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/)
+  if (!primitiveMatch?.[0]) return null
+  return index + primitiveMatch[0].length
+}
+
+function stripTrailingTerminalNoiseFromBalancedJson(content: string): string | null {
+  const rootEnd = findBalancedJsonRootEnd(content)
+  if (rootEnd === null || rootEnd >= content.length) return null
+
+  const remainder = content.slice(rootEnd)
+  if (!TERMINAL_NOISE_ONLY_PATTERN.test(remainder)) return null
+
+  return content.slice(0, rootEnd).trimEnd()
+}
+
+function stripTrailingTerminalNoiseLines(content: string): string | null {
+  const lines = content.split('\n')
+  let end = lines.length
+
+  while (end > 0 && lines[end - 1]?.trim() === '') {
+    end -= 1
+  }
+
+  let cursor = end
+  while (cursor > 0) {
+    const trimmed = lines[cursor - 1]?.trim() ?? ''
+    if (!trimmed || !TERMINAL_NOISE_FRAGMENT_PATTERN.test(trimmed) || !TERMINAL_NOISE_ONLY_PATTERN.test(trimmed)) {
+      break
+    }
+    cursor -= 1
+  }
+
+  if (cursor === end) return null
+
+  const stripped = lines.slice(0, cursor).join('\n').trimEnd()
+  return stripped || null
+}
+
+function buildTrailingTerminalNoiseVariants(content: string): string[] {
+  const variants: string[] = []
+  const seen = new Set<string>()
+
+  const addVariant = (value: string | null) => {
+    const normalized = value?.trim()
+    if (!normalized || normalized === content || seen.has(normalized)) return
+    seen.add(normalized)
+    variants.push(normalized)
+  }
+
+  addVariant(stripTrailingTerminalNoiseFromBalancedJson(content))
+  addVariant(stripTrailingTerminalNoiseLines(content))
+
+  return variants
 }
 
 export function parseYamlOrJsonCandidate(
@@ -129,12 +258,44 @@ export function parseYamlOrJsonCandidate(
   const applyNestedMappingRepair = (value: string): string => options?.nestedMappingChildren
     ? repairYamlNestedMappingChildren(value, options.nestedMappingChildren)
     : value
+  const parseTrailingNoiseVariants = (value: string): unknown | undefined => {
+    if (!options?.allowTrailingTerminalNoise) return undefined
+
+    for (const variant of buildTrailingTerminalNoiseVariants(value)) {
+      try {
+        const parsed = JSON.parse(variant)
+        options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
+        return parsed
+      } catch {
+        const repairedVariant = applyNestedMappingRepair(variant)
+        if (repairedVariant !== variant) {
+          try {
+            const parsed = jsYaml.load(repairedVariant)
+            options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
+            return parsed
+          } catch { /* fall through to the raw variant */ }
+        }
+        try {
+          const parsed = jsYaml.load(variant)
+          options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
+          return parsed
+        } catch { /* try the next repair variant */ }
+      }
+    }
+
+    return undefined
+  }
   const trimmed = content.trim()
   if (!trimmed) return null
 
   try {
     return JSON.parse(trimmed)
   } catch {
+    const trailingNoiseParsed = parseTrailingNoiseVariants(trimmed)
+    if (trailingNoiseParsed !== undefined) {
+      return trailingNoiseParsed
+    }
+
     const repairedTrimmed = applyNestedMappingRepair(trimmed)
     if (repairedTrimmed !== trimmed) {
       try {
@@ -150,6 +311,11 @@ export function parseYamlOrJsonCandidate(
       const effectiveBase = defenced !== trimmed ? defenced.trim() : trimmed
 
       if (effectiveBase !== trimmed) {
+        const defencedTrailingNoiseParsed = parseTrailingNoiseVariants(effectiveBase)
+        if (defencedTrailingNoiseParsed !== undefined) {
+          return defencedTrailingNoiseParsed
+        }
+
         const repairedDefenced = applyNestedMappingRepair(effectiveBase)
         try {
           return JSON.parse(effectiveBase)
@@ -463,6 +629,7 @@ export function buildStructuredRetryPrompt(
     validationError: string
     rawResponse: string
     schemaReminder?: string
+    doNotUseTools?: boolean
   },
 ): PromptPart[] {
   return [
@@ -473,6 +640,7 @@ export function buildStructuredRetryPrompt(
         '## Structured Output Retry',
         `Your previous response failed machine validation: ${options.validationError}`,
         'Return only a corrected artifact in the required structured format.',
+        options.doNotUseTools ? 'Do not use tools.' : '',
         options.schemaReminder ? `Schema reminder:\n${options.schemaReminder}` : '',
         'Previous invalid response:',
         '```',

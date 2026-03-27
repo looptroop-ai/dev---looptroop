@@ -19,7 +19,6 @@ import { buildBeadsUiRefinementDiffArtifact } from '@shared/refinementDiffArtifa
 import { adapter, phaseIntermediate } from './state'
 import {
   emitPhaseLog,
-  emitAiDetail,
   emitOpenCodeSessionLogs,
   emitOpenCodeStreamEvent,
   emitOpenCodePromptLog,
@@ -30,7 +29,6 @@ import {
   loadTicketDirContext,
   formatCouncilResolutionLog,
   formatDraftRoundSummary,
-  formatDraftFailureDetail,
   summarizeDraftOutcomes,
   createPendingDrafts,
   upsertCouncilDraftArtifact,
@@ -100,6 +98,8 @@ export async function handleBeadsDraft(
     signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('beads', entry.stage)
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -109,6 +109,7 @@ export async function handleBeadsDraft(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -179,27 +180,6 @@ export async function handleBeadsDraft(
     nextStatus,
   )
 
-  for (const draft of result.drafts) {
-    const detail = draft.outcome === 'timed_out'
-      ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
-      : draft.outcome === 'invalid_output' || draft.outcome === 'failed'
-        ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
-        : `drafted beads (${draft.content.length} chars)`
-    emitAiDetail(ticketId, context.externalId, 'DRAFTING_BEADS', 'model_output',
-      `${draft.memberId} ${detail}.`,
-      {
-        entryId: `beads-draft-summary:${draft.memberId}`,
-        audience: 'ai',
-        kind: draft.outcome === 'completed' ? 'text' : 'error',
-        op: 'append',
-        source: `model:${draft.memberId}`,
-        modelId: draft.memberId,
-        streaming: false,
-        outcome: draft.outcome,
-        duration: draft.duration,
-      })
-  }
-
   upsertCouncilDraftArtifact(ticketId, phase, 'beads_drafts', result.drafts, result.memberOutcomes, true)
   emitPhaseLog(
     ticketId,
@@ -263,6 +243,8 @@ export async function handleBeadsVote(
     councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -272,6 +254,7 @@ export async function handleBeadsVote(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -402,6 +385,8 @@ export async function handleBeadsRefine(
     councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -411,6 +396,7 @@ export async function handleBeadsRefine(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {

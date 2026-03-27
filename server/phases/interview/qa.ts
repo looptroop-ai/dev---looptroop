@@ -489,6 +489,7 @@ async function parseBatchResponseWithRetry(input: {
     validationError: normalized.error,
     rawResponse: input.response,
     schemaReminder: PROM4_SCHEMA_REMINDER,
+    doNotUseTools: true,
   })
 
   let retryResult: Awaited<ReturnType<typeof runOpenCodeSessionPrompt>>

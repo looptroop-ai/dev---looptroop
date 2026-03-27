@@ -217,6 +217,8 @@ export function normalizePrdYamlOutput(
     try {
       const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: PRD_NESTED_MAPPING_CHILDREN,
+        allowTrailingTerminalNoise: true,
+        repairWarnings,
       }), [
         'prd',
         'document',

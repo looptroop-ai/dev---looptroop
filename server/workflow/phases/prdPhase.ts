@@ -63,36 +63,6 @@ function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalI
   return interview
 }
 
-function formatPrdDraftMetrics(draft: {
-  content?: string
-  draftMetrics?: {
-    epicCount?: number
-    userStoryCount?: number
-  }
-}): string {
-  const epicCount = draft.draftMetrics?.epicCount
-  const userStoryCount = draft.draftMetrics?.userStoryCount
-
-  if (typeof epicCount === 'number' || typeof userStoryCount === 'number') {
-    return [
-      `${epicCount ?? 0} epics`,
-      `${userStoryCount ?? 0} user stories`,
-    ].join(' · ')
-  }
-
-  const lineCount = draft.content?.split('\n').filter((line) => line.trim()).length ?? 0
-  return lineCount > 0 ? `${lineCount} lines` : 'empty draft'
-}
-
-function formatFullAnswersMetrics(draft: DraftResult): string {
-  if (typeof draft.questionCount === 'number' && draft.questionCount > 0) {
-    return `${draft.questionCount} answered questions`
-  }
-
-  const lineCount = draft.content?.split('\n').filter((line) => line.trim()).length ?? 0
-  return lineCount > 0 ? `${lineCount} lines` : 'empty artifact'
-}
-
 function findWinnerFullAnswers(fullAnswers: DraftResult[], winnerId: string): DraftResult | undefined {
   return fullAnswers.find((draft) => draft.memberId === winnerId && draft.outcome === 'completed' && draft.content)
 }
@@ -354,6 +324,8 @@ export async function handlePrdDraft(
     signal,
     (entry) => {
       const targetStatus = mapCouncilStageToStatus('prd', entry.stage)
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -363,6 +335,7 @@ export async function handlePrdDraft(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -522,39 +495,19 @@ export async function handlePrdDraft(
     nextStatus,
   )
 
-  for (const draft of result.drafts) {
-    const detail = draft.outcome === 'timed_out'
-      ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
-      : draft.outcome === 'invalid_output' || draft.outcome === 'failed'
-        ? formatDraftFailureDetail(draft.outcome, draft.error, draft.structuredOutput?.failureClass)
-        : `drafted PRD (${formatPrdDraftMetrics(draft)})`
-    emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
-      `${draft.memberId} ${detail}.`,
-      {
-        entryId: `prd-draft-summary:${draft.memberId}`,
-        audience: 'ai',
-        kind: draft.outcome === 'completed' ? 'text' : 'error',
-        op: 'append',
-        source: `model:${draft.memberId}`,
-        modelId: draft.memberId,
-        streaming: false,
-        outcome: draft.outcome,
-        duration: draft.duration,
-      })
-  }
-
   for (const fullAnswers of result.fullAnswers) {
+    if (fullAnswers.outcome === 'completed') continue
     const detail = fullAnswers.outcome === 'timed_out'
       ? formatDraftFailureDetail(fullAnswers.outcome, fullAnswers.error, fullAnswers.structuredOutput?.failureClass)
       : fullAnswers.outcome === 'invalid_output' || fullAnswers.outcome === 'failed'
         ? formatDraftFailureDetail(fullAnswers.outcome, fullAnswers.error, fullAnswers.structuredOutput?.failureClass)
-        : `produced Full Answers (${formatFullAnswersMetrics(fullAnswers)})`
+        : 'failed'
     emitAiDetail(ticketId, context.externalId, 'DRAFTING_PRD', 'model_output',
       `${fullAnswers.memberId} ${detail}.`,
       {
         entryId: `prd-full-answers-summary:${fullAnswers.memberId}`,
         audience: 'ai',
-        kind: fullAnswers.outcome === 'completed' ? 'text' : 'error',
+        kind: 'error',
         op: 'append',
         source: `model:${fullAnswers.memberId}`,
         modelId: fullAnswers.memberId,
@@ -650,6 +603,8 @@ export async function handlePrdVote(
     councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -659,6 +614,7 @@ export async function handlePrdVote(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -801,6 +757,8 @@ export async function handlePrdRefine(
     councilSettings.draftTimeoutMs,
     signal,
     (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
       emitOpenCodeSessionLogs(
         ticketId,
         context.externalId,
@@ -810,6 +768,7 @@ export async function handlePrdRefine(
         entry.stage,
         entry.response,
         entry.messages,
+        streamState,
       )
     },
     (entry) => {
@@ -948,31 +907,6 @@ export async function handlePrdRefine(
   )
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
     `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
-
-  // Emit AI detail log with refined PRD summary
-  const changeCount = uiDiffArtifact.entries.length
-  const metricsLabel = `${refinedArtifact.draftMetrics.epicCount} epics, ${refinedArtifact.draftMetrics.userStoryCount} user stories`
-  const summaryParts = [
-    `Refined PRD from ${intermediate.winnerId}`,
-    metricsLabel,
-    ...(changeCount > 0 ? [`${changeCount} change${changeCount === 1 ? '' : 's'} from alternative drafts`] : []),
-  ]
-  emitAiDetail(
-    ticketId,
-    context.externalId,
-    'REFINING_PRD',
-    'model_output',
-    summaryParts.join('. ') + '.',
-    {
-      entryId: `refined-prd:${intermediate.winnerId}`,
-      audience: 'ai',
-      kind: 'text',
-      op: 'append',
-      source: `model:${intermediate.winnerId}`,
-      modelId: intermediate.winnerId,
-      streaming: false,
-    },
-  )
 
   sendEvent({ type: 'REFINED' })
 }

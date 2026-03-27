@@ -514,6 +514,7 @@ export function buildPrdRefinementRetryPrompt(
         `Your previous response failed validation: ${params.validationError}`,
         '',
         'Return only one corrected YAML artifact.',
+        'Do not use tools.',
         'Requirements:',
         '- Use the exact PROM10 PRD schema.',
         '- Preserve epic IDs and user story IDs unless the final draft contains a genuinely new item.',

@@ -2,6 +2,7 @@ import { broadcaster } from '../../sse/broadcaster'
 import { appendLogEvent } from '../../log/executionLog'
 import type { LogEventType, LogSource } from '../../log/types'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
+import { analyzeAssistantMessages } from '../../opencode/assistantMessageAnalysis'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { PROM5, PROM13, PROM24 } from '../../prompts/index'
 import type { DraftProgressEvent, DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
@@ -143,7 +144,80 @@ export function stringifyForLog(value: unknown): string {
 }
 
 export function createOpenCodeStreamState(): OpenCodeStreamState {
-  return { seenFirstActivity: false, liveKinds: new Map(), liveContents: new Map() }
+  return {
+    seenFirstActivity: false,
+    liveKinds: new Map(),
+    liveContents: new Map(),
+    liveTextMessages: new Map(),
+    textPartToMessageIds: new Map(),
+    finalizedTextEntryIds: new Set(),
+  }
+}
+
+function getTextMessageEntryId(sessionId: string, messageId: string): string {
+  return `${sessionId}:${messageId}:text`
+}
+
+function getOrCreateLiveTextMessage(
+  state: OpenCodeStreamState,
+  sessionId: string,
+  messageId: string,
+) {
+  const existing = state.liveTextMessages.get(messageId)
+  if (existing) return existing
+
+  const created = {
+    entryId: getTextMessageEntryId(sessionId, messageId),
+    partOrder: [] as string[],
+    partTexts: new Map<string, string>(),
+  }
+  state.liveTextMessages.set(messageId, created)
+  return created
+}
+
+function buildLiveTextMessageContent(message: {
+  partOrder: string[]
+  partTexts: Map<string, string>
+}): string {
+  return message.partOrder.map((partId) => message.partTexts.get(partId) ?? '').join('')
+}
+
+function upsertLiveTextMessage(
+  state: OpenCodeStreamState,
+  sessionId: string,
+  messageId: string,
+  partId: string,
+  text: string,
+) {
+  const message = getOrCreateLiveTextMessage(state, sessionId, messageId)
+  if (!message.partTexts.has(partId)) {
+    message.partOrder.push(partId)
+  }
+  message.partTexts.set(partId, text)
+  state.textPartToMessageIds.set(partId, messageId)
+  return message
+}
+
+function removeLiveTextPart(
+  state: OpenCodeStreamState,
+  partId: string,
+) {
+  const messageId = state.textPartToMessageIds.get(partId)
+  if (!messageId) return
+
+  const message = state.liveTextMessages.get(messageId)
+  if (!message) {
+    state.textPartToMessageIds.delete(partId)
+    return
+  }
+
+  message.partTexts.delete(partId)
+  message.partOrder = message.partOrder.filter((candidate) => candidate !== partId)
+  state.textPartToMessageIds.delete(partId)
+
+  if (message.partOrder.length === 0) {
+    state.liveTextMessages.delete(messageId)
+  }
 }
 
 export function formatToolState(event: Extract<StreamEvent, { type: 'tool' }>): string {
@@ -254,6 +328,30 @@ export function finalizeOpenCodeParts(
   state: OpenCodeStreamState,
 ) {
   const source = memberId ? `model:${memberId}` : 'opencode'
+  for (const [, message] of state.liveTextMessages.entries()) {
+    const content = buildLiveTextMessageContent(message)
+    if (content.length > 0) {
+      emitAiDetail(
+        ticketId,
+        ticketExternalId,
+        phase,
+        'model_output',
+        content,
+        {
+          entryId: message.entryId,
+          audience: 'ai',
+          kind: 'text',
+          op: 'finalize',
+          source,
+          modelId: memberId || undefined,
+          sessionId,
+          streaming: false,
+        },
+      )
+      state.finalizedTextEntryIds.add(message.entryId)
+    }
+  }
+
   for (const [partId, kind] of state.liveKinds.entries()) {
     const content = state.liveContents.get(partId)
       ?? (kind === 'tool' ? 'Tool event finalized.' : kind === 'step' ? 'Step finalized.' : '')
@@ -275,6 +373,8 @@ export function finalizeOpenCodeParts(
       },
     )
   }
+  state.liveTextMessages.clear()
+  state.textPartToMessageIds.clear()
   state.liveKinds.clear()
   state.liveContents.clear()
 }
@@ -305,10 +405,10 @@ export function emitOpenCodeStreamEvent(
     )
   }
 
-  if (event.type === 'reasoning' || event.type === 'text') {
+  if (event.type === 'reasoning') {
     emitFirstActivity()
     const partId = event.partId ?? event.messageId ?? event.type
-    const kind = event.type === 'reasoning' ? 'reasoning' : 'text'
+    const kind = 'reasoning'
     state.liveKinds.set(partId, kind)
     state.liveContents.set(partId, event.text)
     emitAiDetail(
@@ -331,6 +431,35 @@ export function emitOpenCodeStreamEvent(
     if (event.complete) {
       state.liveKinds.delete(partId)
       state.liveContents.delete(partId)
+    }
+    return
+  }
+
+  if (event.type === 'text') {
+    emitFirstActivity()
+    const messageId = event.messageId ?? event.partId ?? event.type
+    const partId = event.partId ?? messageId
+    const message = upsertLiveTextMessage(state, sessionId, messageId, partId, event.text)
+    const content = buildLiveTextMessageContent(message)
+
+    if (content.length > 0) {
+      emitAiDetail(
+        ticketId,
+        ticketExternalId,
+        phase,
+        'model_output',
+        content,
+        {
+          entryId: message.entryId,
+          audience: 'ai',
+          kind: 'text',
+          op: 'upsert',
+          source,
+          modelId: memberId || undefined,
+          sessionId,
+          streaming: true,
+        },
+      )
     }
     return
   }
@@ -476,6 +605,7 @@ export function emitOpenCodeStreamEvent(
   if (event.type === 'part_removed') {
     const partId = event.partId
     if (partId) {
+      removeLiveTextPart(state, partId)
       state.liveKinds.delete(partId)
       state.liveContents.delete(partId)
     }
@@ -497,54 +627,6 @@ export function emitOpenCodeStreamEvent(
   }
 }
 
-export function extractOpenCodeMessageLines(messages: Message[]): string[] {
-  const lines: string[] = []
-
-  for (const message of messages) {
-    const directRole = message.role
-    const directContent = message.content
-    const directTimestamp = message.timestamp
-
-    if (directContent) {
-      lines.push(`[${directRole ?? 'message'}]${directTimestamp ? ` [${directTimestamp}]` : ''} ${directContent}`)
-      continue
-    }
-
-    const info = message.info ?? null
-    const role = info && typeof info.sender === 'string'
-      ? info.sender
-      : info && typeof info.role === 'string'
-        ? info.role
-        : info && typeof info.author === 'string'
-          ? info.author
-          : 'message'
-    const timestamp = info && typeof info.timestamp === 'string' ? info.timestamp : undefined
-
-    const parts = message.parts ?? []
-    if (parts.length === 0) {
-      lines.push(`[${role}]${timestamp ? ` [${timestamp}]` : ''} ${stringifyForLog(message)}`)
-      continue
-    }
-
-    for (const part of parts) {
-      const partType = part.type ?? 'part'
-      const text = 'text' in part && typeof part.text === 'string'
-        ? part.text
-        : 'content' in part && typeof part.content === 'string'
-          ? part.content
-          : 'output' in part && typeof part.output === 'string'
-            ? part.output
-            : 'value' in part && typeof part.value === 'string'
-              ? part.value
-              : stringifyForLog(part)
-
-      lines.push(`[${role}/${partType}]${timestamp ? ` [${timestamp}]` : ''} ${text}`)
-    }
-  }
-
-  return lines
-}
-
 export function emitOpenCodeSessionLogs(
   ticketId: string,
   ticketExternalId: string,
@@ -554,6 +636,7 @@ export function emitOpenCodeSessionLogs(
   stage: 'draft' | 'vote' | 'refine' | 'coverage' | 'relevant_files_scan',
   response: string,
   messages: Message[],
+  state?: OpenCodeStreamState,
 ) {
   emitPhaseLog(
     ticketId,
@@ -562,19 +645,30 @@ export function emitOpenCodeSessionLogs(
     'info',
     `OpenCode ${stage}: ${memberId} session=${sessionId}, messages=${messages.length}, responseChars=${response.length}.`,
   )
-  const transcriptLines = extractOpenCodeMessageLines(messages)
-  const transcriptPreview = transcriptLines[transcriptLines.length - 1] ?? response
-  if (transcriptPreview) {
+  const { responseText, responseMeta } = analyzeAssistantMessages(messages)
+  const latestAssistantMessageId = responseMeta.latestAssistantMessageId
+  const latestTextEntryId = latestAssistantMessageId
+    ? getTextMessageEntryId(sessionId, latestAssistantMessageId)
+    : undefined
+  const fallbackContent = response.trim() || responseText.trim()
+  const hasCanonicalStreamedText = latestTextEntryId
+    ? state?.finalizedTextEntryIds.has(latestTextEntryId) ?? false
+    : false
+
+  if (fallbackContent && !hasCanonicalStreamedText) {
+    const entryId = latestTextEntryId
+      ? latestTextEntryId
+      : `${sessionId}:response-fallback`
     emitAiDetail(
       ticketId,
       ticketExternalId,
       phase,
       'model_output',
-      transcriptPreview,
+      fallbackContent,
       {
-        entryId: `${sessionId}:transcript-summary`,
+        entryId,
         audience: 'ai',
-        kind: 'session',
+        kind: 'text',
         op: 'append',
         source: `model:${memberId}`,
         modelId: memberId,
@@ -582,6 +676,9 @@ export function emitOpenCodeSessionLogs(
         streaming: false,
       },
     )
+    if (latestTextEntryId) {
+      state?.finalizedTextEntryIds.add(latestTextEntryId)
+    }
   }
 
   emitDebugLog(ticketId, phase, `opencode.${stage}.response`, { memberId, response })

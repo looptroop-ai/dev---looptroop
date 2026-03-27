@@ -79,5 +79,8 @@ describe('conductVoting', () => {
 
     expect(result.memberOutcomes).toEqual({ 'model-a': 'completed' })
     expect(result.votes).toHaveLength(2)
+    expect(
+      adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Do not use tools.')),
+    ).toBe(true)
   })
 })

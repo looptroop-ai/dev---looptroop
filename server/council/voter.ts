@@ -291,6 +291,7 @@ export async function conductVoting(
           validationError: scorecardResult.error,
           rawResponse: response,
           schemaReminder: buildStrictVoteSchemaReminder(rubric),
+          doNotUseTools: true,
         })
       }
 

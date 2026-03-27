@@ -25,7 +25,7 @@ const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 const BOTTOM_THRESHOLD = 50
 
 const TAB_TOOLTIPS: Record<string, string> = {
-  ALL: 'Shows system milestones, prompts, errors, and important summaries. Not strictly "all" logs; filters out detailed AI reasoning and tool calls to keep the timeline clean.',
+  ALL: 'Shows system milestones, prompts, errors, and canonical AI outputs. Not strictly "all" logs; filters out detailed AI reasoning and tool calls to keep the timeline clean.',
   SYS: 'System background events and milestones for the orchestrator.',
   AI: 'Raw inputs (prompts), outputs, reasoning, and tool executions from AI models.',
   ERROR: 'Errors and exceptions encountered during execution.',

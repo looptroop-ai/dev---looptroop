@@ -158,6 +158,9 @@ describe('handleRelevantFilesScan', () => {
         content: expect.stringContaining('## Structured Output Retry'),
       }),
     ]))
+    expect(
+      runOpenCodeSessionPromptMock.mock.calls[0]?.[0]?.parts.some((part: { content?: string }) => part.content?.includes('Do not use tools.') ?? false),
+    ).toBe(false)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'RELEVANT_FILES_READY' })
 
     const relevantFilesPath = `${paths.ticketDir}/relevant-files.yaml`
