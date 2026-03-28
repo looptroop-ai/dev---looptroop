@@ -117,7 +117,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'VERIFYING_INTERVIEW_COVERAGE',
     label: 'Coverage Check (Interview)',
-    description: 'Coverage check for interview completeness.',
+    description: 'Coverage check for interview completeness; may add targeted follow-up questions before approval.',
     kanbanPhase: 'in_progress',
     groupId: 'interview',
     uiView: 'council',
@@ -128,7 +128,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_INTERVIEW_APPROVAL',
     label: 'Approving Interview',
-    description: 'Waiting for your approval of interview results.',
+    description: 'Waiting for your approval of interview results before PRD drafting.',
     kanbanPhase: 'needs_input',
     groupId: 'interview',
     uiView: 'approval',

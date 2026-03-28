@@ -374,7 +374,7 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
   })
 
-  it('keeps streamed AI text out of ALL until the finalized output arrives', () => {
+  it('shows Drafting PRD part 1 output in ALL once the final response is received', () => {
     const systemLog = makeLog('sys-1', '[SYS] PRD drafting started.', {
       status: 'DRAFTING_PRD',
       timestamp: '2026-03-10T10:00:00.000Z',
@@ -392,6 +392,11 @@ describe('PhaseLogPanel', () => {
       sessionId: 'ses-7',
       streaming: true,
       op: 'upsert',
+    }
+    const appendReceivedAiLog: LogEntry = {
+      ...streamingAiLog,
+      timestamp: '2026-03-10T10:00:01.500Z',
+      op: 'append',
     }
     const finalizedAiLog: LogEntry = {
       ...streamingAiLog,
@@ -412,6 +417,10 @@ describe('PhaseLogPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ALL' }))
 
     expect(screen.queryByText(/Final PRD Title/i)).not.toBeInTheDocument()
+
+    rerender(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, appendReceivedAiLog]} />)
+
+    expect(screen.getByText(/Final PRD Title/i)).toBeInTheDocument()
 
     rerender(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, finalizedAiLog]} />)
 

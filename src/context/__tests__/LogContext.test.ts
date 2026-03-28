@@ -1,7 +1,7 @@
 import { createElement, useEffect } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatLogLine } from '@/context/logUtils'
+import { formatLogLine, mergeEntry, type LogEntry } from '@/context/logUtils'
 import { LogProvider } from '@/context/LogContext'
 import { useLogs } from '@/context/useLogContext'
 
@@ -113,5 +113,41 @@ describe('LogProvider', () => {
       vi.clearAllTimers()
       vi.useRealTimers()
     }
+  })
+})
+
+describe('mergeEntry', () => {
+  it('preserves fallback append receipts for streaming AI text rows', () => {
+    const streamingUpsert: LogEntry = {
+      id: 'ses-1:msg-1:text',
+      entryId: 'ses-1:msg-1:text',
+      line: '[MODEL] artifact: interview',
+      source: 'model:openai/gpt-5-mini',
+      status: 'DRAFTING_PRD',
+      timestamp: '2026-03-13T10:00:00.000Z',
+      audience: 'ai',
+      kind: 'text',
+      modelId: 'openai/gpt-5-mini',
+      sessionId: 'ses-1',
+      streaming: true,
+      op: 'upsert',
+    }
+    const fallbackAppend: LogEntry = {
+      ...streamingUpsert,
+      timestamp: '2026-03-13T10:00:01.000Z',
+      streaming: false,
+      op: 'append',
+    }
+
+    const merged = mergeEntry([streamingUpsert], fallbackAppend)
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        entryId: 'ses-1:msg-1:text',
+        op: 'append',
+        streaming: true,
+        timestamp: '2026-03-13T10:00:01.000Z',
+      }),
+    ])
   })
 })

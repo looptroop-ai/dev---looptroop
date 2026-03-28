@@ -136,6 +136,8 @@ describe('structured prompt hardening', () => {
     expect(coveragePrompt).toContain('`id`, `question`, `phase`, `priority`, `rationale`')
     expect(coveragePrompt).toContain('Do not return plain strings in `follow_up_questions`')
     expect(coveragePrompt).toContain('Do not output rewritten interview results')
+    expect(coveragePrompt).toContain('ready for interview approval')
+    expect(coveragePrompt).toContain('PRD generation begins only after that approval step')
   })
 
   it('keeps beads coverage explicit about quoted gap strings', () => {
@@ -166,6 +168,9 @@ describe('structured prompt hardening', () => {
     expect(interviewPrompt).toContain('preserve its original compiled question ID whenever possible')
     expect(interviewPrompt).toContain('when a prior answer fully resolves that question')
     expect(interviewPrompt).toContain('Do not move to the final free-form question just because coverage feels good enough')
+    expect(interviewPrompt).toContain("Keep the question anchored to 'Anything else to add before PRD generation?'")
+    expect(interviewPrompt).toContain('coverage check may still create targeted follow-up questions')
+    expect(interviewPrompt).toContain('interview approval step before PRD drafting begins')
     expect(interviewPrompt).toContain('Output Discipline')
     expect(interviewPrompt).toContain('Formatting Discipline')
     expect(interviewPrompt).toContain('schema_version: 1')

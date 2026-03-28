@@ -737,8 +737,97 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Modified 2')).toBeInTheDocument()
     expect(screen.getAllByText('No source recorded')).toHaveLength(2)
     expect(screen.getByText(leafTextMatcher('Original PRD review'))).toBeInTheDocument()
-    expect(screen.getByText(leafTextMatcher('Refined PRD review'))).toBeInTheDocument()
-    expect(screen.getByText(leafTextMatcher('Inspect refined PRD sections'))).toBeInTheDocument()
+    expect(screen.getAllByText(leafTextMatcher('Refined PRD review')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(leafTextMatcher('Inspect refined PRD sections')).length).toBeGreaterThan(0)
+  })
+
+  it('shows a friendly cleanup notice when only no-op refinement warnings were repaired', () => {
+    const refinedArtifact: DBartifact = {
+      id: 331,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Original PRD review',
+          storyTitle: 'Inspect original PRD sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: [
+            'Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.',
+            'Dropped no-op PRD refinement modified change at index 1 because the winning and final records are identical.',
+          ],
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+
+    expect(screen.getByText('We cleaned up the AI\'s change list.')).toBeInTheDocument()
+    expect(screen.getByText(/Some items the AI marked as changed were actually unchanged/i)).toBeInTheDocument()
+    expect(screen.getByText('Ignored 2 invalid change notes that turned out to be no-ops.')).toBeInTheDocument()
+    expect(screen.queryByText('This artifact needed repair.')).not.toBeInTheDocument()
+  })
+
+  it('keeps the broader repair notice for non-no-op refinement repairs', () => {
+    const refinedArtifact: DBartifact = {
+      id: 332,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Original PRD review',
+          storyTitle: 'Inspect original PRD sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: [
+            'Inferred missing PRD refinement item_type at index 0 as epic.',
+          ],
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+
+    expect(screen.getByText('This artifact needed repair.')).toBeInTheDocument()
+    expect(screen.getByText(/Some diff entries may be auto-detected or may have corrected attribution/i)).toBeInTheDocument()
+    expect(screen.getByText('Inferred missing PRD refinement item_type at index 0 as epic.')).toBeInTheDocument()
+    expect(screen.queryByText('We cleaned up the AI\'s change list.')).not.toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {
@@ -769,6 +858,10 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Final Interview Results')).toBeInTheDocument()
     expect(screen.getByText('gpt-5.2 · 48 questions')).toBeInTheDocument()
     expect(screen.queryByText('Interview Draft Diff')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
+    expect(screen.getByRole('button', { name: /Final Questions/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
   })
 
   it('keeps the final interview diff tab available in later interview review phases', () => {

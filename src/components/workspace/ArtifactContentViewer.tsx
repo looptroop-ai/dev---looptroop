@@ -414,6 +414,31 @@ function ChangeAttributionBadge({ status }: { status: DiffAttributionStatus }) {
   )
 }
 
+function isNoOpRefinementRepairWarning(warning: string): boolean {
+  return /^Dropped no-op .* refinement .* because .* identical\.$/i.test(warning.trim())
+}
+
+function getStructuredRepairNoticeCopy(repairWarnings: string[]): {
+  title: string
+  body: string
+  detail?: string
+} {
+  if (repairWarnings.length > 0 && repairWarnings.every(isNoOpRefinementRepairWarning)) {
+    const ignoredCount = repairWarnings.length
+    return {
+      title: 'We cleaned up the AI\'s change list.',
+      body: 'Some items the AI marked as changed were actually unchanged, so LoopTroop ignored those bad change notes. The diff below still shows the real differences between the original artifact and the refined artifact.',
+      detail: `Ignored ${ignoredCount} invalid change note${ignoredCount === 1 ? '' : 's'} that turned out to be no-ops.`,
+    }
+  }
+
+  return {
+    title: 'This artifact needed repair.',
+    body: 'Some diff entries may be auto-detected or may have corrected attribution because the stored artifact needed validation repairs.',
+    detail: repairWarnings[0],
+  }
+}
+
 function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: ArtifactStructuredOutputData }) {
   const repairWarnings = (structuredOutput?.repairWarnings ?? []).filter(
     (warning): warning is string => typeof warning === 'string' && warning.trim().length > 0,
@@ -423,14 +448,16 @@ function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: Artif
     return null
   }
 
+  const copy = getStructuredRepairNoticeCopy(repairWarnings)
+
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100">
-      <div className="font-medium">Normalization repaired this artifact.</div>
+      <div className="font-medium">{copy.title}</div>
       <div className="mt-1 leading-5">
-        Some diff entries may be auto-detected or have cleared attribution because the stored artifact needed validation repairs.
+        {copy.body}
       </div>
-      {repairWarnings[0] && (
-        <div className="mt-1 text-[11px] opacity-90 leading-5">{repairWarnings[0]}</div>
+      {copy.detail && (
+        <div className="mt-1 text-[11px] opacity-90 leading-5">{copy.detail}</div>
       )}
     </div>
   )
@@ -467,8 +494,11 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
             defaultOpen
             title={(
               <span className="flex items-center gap-2">
-                <span className="text-muted-foreground text-[10px] uppercase">{diff.itemKind}</span>
-                <span>{diff.afterId || diff.beforeId || diff.label}</span>
+                <span className="text-muted-foreground text-[10px] uppercase">{formatRefinementDiffItemKind(diff.itemKind)}</span>
+                <span>{diff.label || diff.afterId || diff.beforeId || formatRefinementDiffItemKind(diff.itemKind)}</span>
+                {(diff.afterId || diff.beforeId) && diff.label !== (diff.afterId || diff.beforeId) && (
+                  <span className="font-mono text-[10px] text-muted-foreground">{diff.afterId || diff.beforeId}</span>
+                )}
                 <span className={diff.changeType === 'added'
                   ? 'text-green-600 dark:text-green-400'
                   : diff.changeType === 'removed'
@@ -510,6 +540,21 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
       </div>
     </div>
   )
+}
+
+function formatRefinementDiffItemKind(itemKind: string): string {
+  if (!itemKind) return 'Item'
+  if (itemKind === 'epic') return 'Epic'
+  if (itemKind === 'user_story') return 'User Story'
+  if (itemKind === 'bead') return 'Bead'
+  if (itemKind === 'risks') return 'Risks'
+  if (itemKind.startsWith('technical_requirements.')) return 'Technical Requirements'
+  if (itemKind.startsWith('product.')) return 'Product'
+  if (itemKind.startsWith('scope.')) return 'Scope'
+
+  return itemKind
+    .replace(/[._]+/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
 function InterviewDraftDiffView({ content }: { content: string }) {
@@ -607,7 +652,17 @@ function InterviewDraftDiffView({ content }: { content: string }) {
   )
 }
 
-function FinalInterviewArtifactView({ content, header, hideAiAnswerBadge }: { content: string; header?: React.ReactNode; hideAiAnswerBadge?: boolean }) {
+function FinalInterviewArtifactView({
+  content,
+  header,
+  hideAiAnswerBadge,
+  showDiffTab = true,
+}: {
+  content: string
+  header?: React.ReactNode
+  hideAiAnswerBadge?: boolean
+  showDiffTab?: boolean
+}) {
   const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
   const parsedContent = tryParseStructuredContent(content)
   if (parsedContent && typeof parsedContent === 'object') {
@@ -631,7 +686,7 @@ function FinalInterviewArtifactView({ content, header, hideAiAnswerBadge }: { co
   if (!refinedContent) return <RawContentWithCopy content={content} />
 
   const diffEntries = buildInterviewDiffEntries(content)
-  const hasDiffTab = Boolean(parsed?.originalContent)
+  const hasDiffTab = showDiffTab && Boolean(parsed?.originalContent)
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
 
   const tabButtonClass = (tab: string) =>
@@ -1560,7 +1615,14 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   if (artifactId === 'final-interview') {
     const isCanonicalInterviewPhase = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
     const header = <div className="text-xs font-semibold px-1">{isCanonicalInterviewPhase ? 'Interview Results' : 'Final Interview'}</div>
-    return <FinalInterviewArtifactView content={content} header={header} hideAiAnswerBadge={isCanonicalInterviewPhase} />
+    return (
+      <FinalInterviewArtifactView
+        content={content}
+        header={header}
+        hideAiAnswerBadge={isCanonicalInterviewPhase}
+        showDiffTab={phase !== 'WAITING_INTERVIEW_ANSWERS'}
+      />
+    )
   }
   if (artifactId === 'final-prd-draft') {
     const header = <div className="text-xs font-semibold px-1">Final PRD Draft</div>

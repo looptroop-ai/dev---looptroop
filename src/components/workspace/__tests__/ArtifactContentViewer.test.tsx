@@ -44,10 +44,12 @@ function buildPrdDocumentContent({
   epicTitle = 'Restore rich PRD views',
   storyTitle = 'Review PRD drafts',
   acceptanceCriterion = 'Show epics and user stories in the structured view.',
+  architectureConstraint = 'UI-only change',
 }: {
   epicTitle?: string
   storyTitle?: string
   acceptanceCriterion?: string
+  architectureConstraint?: string
 } = {}) {
   return [
     'schema_version: 1',
@@ -67,7 +69,7 @@ function buildPrdDocumentContent({
     '    - "Workflow logic"',
     'technical_requirements:',
     '  architecture_constraints:',
-    '    - "UI-only change"',
+    `    - "${architectureConstraint}"`,
     '  data_model: []',
     '  api_contracts: []',
     '  security_constraints: []',
@@ -92,6 +94,10 @@ function buildPrdDocumentContent({
 
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
+}
+
+function hasExactTextContent(text: string) {
+  return (_content: string, element: Element | null) => element?.textContent === text
 }
 
 describe('ArtifactContentViewer', () => {
@@ -352,6 +358,30 @@ describe('ArtifactContentViewer', () => {
 
     expect(screen.getByText('Inspect refined stories')).toBeInTheDocument()
     expect(screen.getByText('Keep the PRD viewer structured after refinement.')).toBeInTheDocument()
+  })
+
+  it('shows friendly labels for nested PRD technical requirement diffs', () => {
+    render(
+      <ArtifactContent
+        artifactId="refined-prd"
+        phase="WAITING_PRD_APPROVAL"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          winnerDraftContent: buildPrdDocumentContent({
+            architectureConstraint: 'Keep the old pipeline intact.',
+          }),
+          refinedContent: buildPrdDocumentContent({
+            architectureConstraint: 'Keep the diff UI aligned with the final PRD labels.',
+          }),
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Technical Requirements')).toBeInTheDocument()
+    expect(screen.getByText('Architecture Constraints')).toBeInTheDocument()
+    expect(screen.queryByText('technical_requirements.architecture_constraints')).not.toBeInTheDocument()
+    expect(screen.getByText(hasExactTextContent('- Keep the old pipeline intact.'))).toBeInTheDocument()
+    expect(screen.getByText(hasExactTextContent('- Keep the diff UI aligned with the final PRD labels.'))).toBeInTheDocument()
   })
 
   it('falls back to raw content for unparseable PRD drafts', () => {

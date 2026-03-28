@@ -428,7 +428,7 @@ The primary panel displays the main content for the ticket's current phase. When
 | **2. IN PROGRESS** | 02 | COUNCIL_DELIBERATING | AI Council Thinking | AI | Models generate initial questions and debate approach. | Questions generated. |
 | | 03 | COUNCIL_VOTING_INTERVIEW | Selecting Best Questions | AI | Models vote on best interview questions. | Winner selected. |
 | | 04 | COMPILING_INTERVIEW | Preparing Interview | AI | Winner consolidates questions into interview set/results. | Interview starts → Move to 05. |
-| | 06 | VERIFYING_INTERVIEW_COVERAGE | Coverage Check (Interview) | AIC winner | Winning model verifies ticket description + answers are fully covered in Interview Results. | If gaps: 05. If clean: 07. |
+| | 06 | VERIFYING_INTERVIEW_COVERAGE | Coverage Check (Interview) | AIC winner | Winning model verifies ticket description + answers are fully covered in Interview Results and may create targeted follow-up questions when gaps remain. | If gaps: 05. If clean: 07. |
 | | 08 | DRAFTING_PRD | Drafting Specs | AI | Models generate competing PRD versions. | Drafts ready. |
 | | 09 | COUNCIL_VOTING_PRD | Voting on Specs | AI | Models vote on best PRD version. | Winner selected. |
 | | 10 | REFINING_PRD | Refining Specs | AI | Winner incorporates missing details from others. | Candidate PRD ready → Move to 11. |
@@ -443,7 +443,7 @@ The primary panel displays the main content for the ticket's current phase. When
 | | 21 | INTEGRATING_CHANGES | Finalizing Code | AI | Post-test squash/finalization and release candidate preparation on the ticket branch (only after final test pass). | Candidate ready → Move to 22. |
 | | 23 | CLEANING_ENV | Cleaning Up | AI | (Conditional) Removing ticket worktree and temporary resources. | Cleanup complete → Move to 24. |
 | **3. NEEDS INPUT** | 05 | WAITING_INTERVIEW_ANSWERS | Interviewing (Q X/Y) | User | Waiting for user to answer questions in the adaptive interview loop. | User submits/skip batch → 06. |
-| | 07 | WAITING_INTERVIEW_APPROVAL | Approving Interview | User | Waiting for user to review/edit and approve Interview Results. | User approves → 08. |
+| | 07 | WAITING_INTERVIEW_APPROVAL | Approving Interview | User | Waiting for user to review/edit and approve Interview Results before PRD drafting begins. | User approves → 08. |
 | | 12 | WAITING_PRD_APPROVAL | Approving Specs | User | Waiting for user to approve/edit PRD. | User approves → 13. |
 | | 17 | WAITING_BEADS_APPROVAL | Approving Blueprint | User | Waiting for user to confirm beads breakdown. | User approves → 18. |
 | | 22 | WAITING_MANUAL_VERIFICATION | Ready for Review | User | Waiting for user to manually verify. | User clicks "Complete" → final merge to `main`, then 23 or 24. |
@@ -1314,7 +1314,7 @@ PROM4:
     - "Batching and Progress: Present batches of 1-3 questions. You MUST vary the batch size — do NOT always use 3. Choose batch size dynamically: use 1 for complex/open-ended/high-priority questions that need focused attention; use 2 for moderately related questions or when the user gave brief/unclear previous answers; use 3 only for simple/clear-cut/factual questions that are tightly related. If in doubt, prefer smaller batches. Show progress (e.g., question 12/50), and wait for the user to answer all questions in that batch."
     - "Adaptive Iteration: After each batch, analyze answers and adjust only upcoming questions when needed. Add follow-up questions only to resolve ambiguities (max follow-ups in total: 20% of `max_initial_questions`), update/delete now-redundant questions, and accept skipped answers without re-asking unless the missing answer is critical to resolve a later ambiguity. Repeat until all questions are answered or skipped."
     - "User Adaptation: Adapt question phrasing to the user's background and expertise level. Use plain language and real-world analogies for non-technical users; use precise technical terminology for experts. Never simplify in a way that loses precision for technical users. Optional, only if the user background option is enabled."
-    - "Final Free-Form Question: After all questions from the set are answered or skipped and no major ambiguity remains, present one final free-form question: 'Anything else to add before PRD generation?' Allow the user to provide any additional context, requirements, or corrections before closing the interview."
+    - "Final Free-Form Question: After all questions from the set are answered or skipped and no major ambiguity remains, present one final free-form question anchored to: 'Anything else to add before PRD generation?' Make it explicit that the next step is interview coverage check, that coverage check may still create targeted follow-up questions if gaps are found, and that there is still an interview approval step before PRD drafting begins. Allow the user to provide any additional context, requirements, or corrections before closing the interview."
     - "Final Output: After the final free-form question is answered or skipped, output the final interview results file in a strict machine-readable format, with all questions, user answers, the final free-form response, and any follow-up questions added during the process."
   output_format: "YAML — complete interview results file matching PROM5.output_file schema"
 
@@ -1327,7 +1327,7 @@ PROM5:
   instructions:
     - "Coverage Check: Detect unresolved ambiguity, missing constraints, missing edge cases, missing non-goals, and inconsistent answers."
     - "Identify Gaps: List any specific gaps or discrepancies found between the source material and the Interview Results."
-    - "Follow-up: If gaps exist, generate targeted follow-up questions to resolve them (no more than 20% of `max_initial_questions`). If no gaps exist, confirm that the Interview Results are complete and ready for PRD generation."
+    - "Follow-up: If gaps exist, generate targeted follow-up questions to resolve them (no more than 20% of `max_initial_questions`). If no gaps exist, confirm that the Interview Results are complete and ready for interview approval, and make clear that PRD generation starts only after that approval step."
   output_format: "YAML"
   output_file:
     path: "<worktree>/.ticket/interview.yaml"

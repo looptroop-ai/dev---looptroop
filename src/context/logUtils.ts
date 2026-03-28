@@ -220,7 +220,31 @@ export function compareTimestamps(a?: string, b?: string): number {
 }
 
 export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
+  const existingIndex = bucket.findIndex(existing => existing.entryId === entry.entryId)
+
   if (entry.op === 'append') {
+    if (existingIndex >= 0) {
+      const existing = bucket[existingIndex]!
+      const isTextFallbackForStreamingEntry =
+        existing.kind === 'text'
+        && entry.kind === 'text'
+        && existing.source === entry.source
+        && existing.status === entry.status
+        && existing.line === entry.line
+        && existing.streaming
+
+      if (isTextFallbackForStreamingEntry) {
+        const next = [...bucket]
+        next[existingIndex] = {
+          ...existing,
+          ...entry,
+          // Keep the AI tab's stream state unchanged until an explicit finalize arrives.
+          streaming: true,
+        }
+        return next
+      }
+    }
+
     const duplicate = bucket.some(existing =>
       existing.line === entry.line
       && existing.source === entry.source
@@ -233,12 +257,11 @@ export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
     return [...bucket, entry]
   }
 
-  const index = bucket.findIndex(existing => existing.entryId === entry.entryId)
-  if (index === -1) return [...bucket, entry]
+  if (existingIndex === -1) return [...bucket, entry]
 
   const next = [...bucket]
-  next[index] = {
-    ...next[index],
+  next[existingIndex] = {
+    ...next[existingIndex],
     ...entry,
     streaming: entry.op === 'finalize' ? false : entry.streaming,
   }

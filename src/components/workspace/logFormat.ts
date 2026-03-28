@@ -117,7 +117,7 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
   const isOverviewAiEntry = (entry: LogEntry) =>
     entry.audience === 'ai'
-    && ((entry.kind === 'text' && !entry.streaming) || isLegacyTranscriptSummary(entry))
+    && ((entry.kind === 'text' && (!entry.streaming || entry.op === 'append')) || isLegacyTranscriptSummary(entry))
 
   switch (tab) {
     case 'ALL':
@@ -142,8 +142,8 @@ export const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   COUNCIL_VOTING_INTERVIEW: 'Council members vote on all interview drafts using weighted scoring rubric.',
   COMPILING_INTERVIEW: 'Winning model incorporates best ideas from other drafts into a final normalized question set.',
   WAITING_INTERVIEW_ANSWERS: 'Interview questions presented to user for answers.',
-  VERIFYING_INTERVIEW_COVERAGE: 'AI analyzes answers for coverage gaps and completeness.',
-  WAITING_INTERVIEW_APPROVAL: 'Interview results ready for user review and approval.',
+  VERIFYING_INTERVIEW_COVERAGE: 'AI analyzes answers for coverage gaps, may add follow-up questions, and checks interview completeness.',
+  WAITING_INTERVIEW_APPROVAL: 'Interview results ready for user review and approval before PRD drafting.',
   DRAFTING_PRD: 'Each council model generates an independent PRD draft with epics and user stories.',
   COUNCIL_VOTING_PRD: 'Council members vote on all PRD drafts using weighted scoring rubric.',
   REFINING_PRD: 'Winning model incorporates relevant ideas from other PRD proposals.',
