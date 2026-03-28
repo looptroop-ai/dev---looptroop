@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { DraftView } from '@/components/workspace/DraftView'
 import { CouncilView } from '@/components/workspace/CouncilView'
 import { InterviewQAView } from '@/components/workspace/InterviewQAView'
@@ -9,10 +10,12 @@ import { CanceledView } from '@/components/workspace/CanceledView'
 import { PhaseReviewView } from '@/components/workspace/PhaseReviewView'
 import type { Ticket } from '@/hooks/useTickets'
 import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
+import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
 
 interface ActiveWorkspaceProps {
   ticket: Ticket
   selectedPhase: string
+  selectedErrorOccurrenceId?: string | null
   previousStatus?: string
   reviewCutoffStatus?: string
 }
@@ -21,14 +24,11 @@ function isReviewablePhase(
   phase: string,
   currentStatus: string,
   phaseOrder: string[],
-  previousStatus?: string,
+  _previousStatus?: string,
   reviewCutoffStatus?: string,
 ): boolean {
   const phaseIndex = phaseOrder.indexOf(phase)
   if (currentStatus === 'CANCELED') {
-    if (previousStatus === 'BLOCKED_ERROR' && phase === 'BLOCKED_ERROR') {
-      return true
-    }
     if (!reviewCutoffStatus) return false
     const cutoffIndex = phaseOrder.indexOf(reviewCutoffStatus)
     return phaseIndex >= 0 && cutoffIndex >= 0 && phaseIndex <= cutoffIndex
@@ -37,11 +37,29 @@ function isReviewablePhase(
   return phaseIndex >= 0 && currentIndex >= 0 && phaseIndex < currentIndex
 }
 
-export function ActiveWorkspace({ ticket, selectedPhase, previousStatus, reviewCutoffStatus }: ActiveWorkspaceProps) {
+export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus, reviewCutoffStatus }: ActiveWorkspaceProps) {
   const { phases, phaseMap } = useWorkflowMeta()
   const phaseOrder = phases.map((phase) => phase.id)
   const phaseMeta = phaseMap[selectedPhase]
+  const errorOccurrences = useMemo(() => getTicketErrorOccurrences(ticket), [ticket])
+  const explicitErrorOccurrence = selectedErrorOccurrenceId != null
+    ? errorOccurrences.find((occurrence) => occurrence.id === selectedErrorOccurrenceId) ?? null
+    : null
+  const liveErrorOccurrence = ticket.status === 'BLOCKED_ERROR' && selectedPhase === ticket.status
+    ? getActiveErrorOccurrence(ticket)
+    : null
+  const activeErrorOccurrence = explicitErrorOccurrence ?? liveErrorOccurrence
   const isViewingPast = isReviewablePhase(selectedPhase, ticket.status, phaseOrder, previousStatus, reviewCutoffStatus)
+  const isLiveErrorOccurrence = Boolean(
+    activeErrorOccurrence
+    && liveErrorOccurrence
+    && activeErrorOccurrence.id === liveErrorOccurrence.id
+    && activeErrorOccurrence.resolvedAt === null,
+  )
+
+  if (activeErrorOccurrence) {
+    return <ErrorView ticket={ticket} occurrence={activeErrorOccurrence} readOnly={!isLiveErrorOccurrence} />
+  }
 
   // If viewing a past/completed phase, show the review view with logs + artifacts
   if (isViewingPast) {

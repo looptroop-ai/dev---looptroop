@@ -125,8 +125,80 @@ interface ParseYamlOrJsonCandidateOptions {
 }
 
 const TERMINAL_NOISE_WARNING = 'Trimmed trailing terminal noise after the complete structured artifact.'
-const TERMINAL_NOISE_FRAGMENT_PATTERN = /(?:\u001b\[[0-9;?]*[ -/]*[@-~]|\[(?:200|201|[A-Za-z])~\[?)/u
-const TERMINAL_NOISE_ONLY_PATTERN = /^(?:\s|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]|(?:\u001b\[[0-9;?]*[ -/]*[@-~])|(?:\[(?:200|201|[A-Za-z])~\[?))+$/u
+
+function isControlNoiseChar(code: number) {
+  return (code >= 0 && code <= 8)
+    || code === 11
+    || code === 12
+    || (code >= 14 && code <= 31)
+    || code === 127
+}
+
+function readAnsiEscapeSequence(text: string, start: number): number | null {
+  if (text.charCodeAt(start) !== 27 || text[start + 1] !== '[') return null
+  let cursor = start + 2
+  while (cursor < text.length) {
+    const code = text.charCodeAt(cursor)
+    if (code >= 0x40 && code <= 0x7e) {
+      return cursor + 1
+    }
+    if (!((code >= 0x20 && code <= 0x2f) || (code >= 0x30 && code <= 0x3f))) {
+      return null
+    }
+    cursor += 1
+  }
+  return null
+}
+
+function readBracketedPasteSequence(text: string, start: number): number | null {
+  if (text[start] !== '[') return null
+
+  for (const token of ['200', '201']) {
+    const prefix = `[${token}~`
+    if (text.startsWith(prefix, start)) {
+      const end = start + prefix.length
+      return text[end] === '[' ? end + 1 : end
+    }
+  }
+
+  const marker = text[start + 1]
+  if (!marker || !/[A-Za-z]/.test(marker)) return null
+  if (text[start + 2] !== '~') return null
+
+  const end = start + 3
+  return text[end] === '[' ? end + 1 : end
+}
+
+function isTerminalNoiseText(text: string): boolean {
+  if (!text) return false
+
+  let cursor = 0
+  while (cursor < text.length) {
+    const escapeEnd = readAnsiEscapeSequence(text, cursor)
+    if (escapeEnd !== null) {
+      cursor = escapeEnd
+      continue
+    }
+
+    if (readBracketedPasteSequence(text, cursor) !== null) {
+      const bracketEnd = readBracketedPasteSequence(text, cursor)!
+      cursor = bracketEnd
+      continue
+    }
+
+    if (isControlNoiseChar(text.charCodeAt(cursor))) {
+      cursor += 1
+      continue
+    }
+
+    if (!/\s/.test(text[cursor] ?? '')) {
+      return false
+    }
+    cursor += 1
+  }
+
+  return true
+}
 
 function findBalancedJsonRootEnd(content: string): number | null {
   let index = 0
@@ -206,7 +278,7 @@ function stripTrailingTerminalNoiseFromBalancedJson(content: string): string | n
   if (rootEnd === null || rootEnd >= content.length) return null
 
   const remainder = content.slice(rootEnd)
-  if (!TERMINAL_NOISE_ONLY_PATTERN.test(remainder)) return null
+  if (!isTerminalNoiseText(remainder)) return null
 
   return content.slice(0, rootEnd).trimEnd()
 }
@@ -222,7 +294,7 @@ function stripTrailingTerminalNoiseLines(content: string): string | null {
   let cursor = end
   while (cursor > 0) {
     const trimmed = lines[cursor - 1]?.trim() ?? ''
-    if (!trimmed || !TERMINAL_NOISE_FRAGMENT_PATTERN.test(trimmed) || !TERMINAL_NOISE_ONLY_PATTERN.test(trimmed)) {
+    if (!trimmed || !isTerminalNoiseText(trimmed)) {
       break
     }
     cursor -= 1
@@ -235,13 +307,12 @@ function stripTrailingTerminalNoiseLines(content: string): string | null {
 }
 
 function stripTrailingInlineTerminalNoise(content: string): string | null {
-  const matches = [...content.matchAll(new RegExp(TERMINAL_NOISE_FRAGMENT_PATTERN.source, 'gu'))]
-  for (let index = matches.length - 1; index >= 0; index -= 1) {
-    const start = matches[index]?.index
-    if (start == null) continue
+  for (let start = content.length - 1; start >= 0; start -= 1) {
+    const code = content.charCodeAt(start)
+    if (!isControlNoiseChar(code) && code !== 27 && content[start] !== '[') continue
 
     const suffix = content.slice(start)
-    if (!TERMINAL_NOISE_ONLY_PATTERN.test(suffix)) continue
+    if (!isTerminalNoiseText(suffix)) continue
 
     const stripped = content.slice(0, start).trimEnd()
     if (!stripped) continue

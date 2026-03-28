@@ -12,6 +12,7 @@ import { Menu, X } from 'lucide-react'
 import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
 import { MAX_RAW_OUTPUT_LENGTH } from '@/lib/constants'
 import { WORKFLOW_PHASE_IDS } from '@shared/workflowMeta'
+import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
 
 function toDebugJson(data: Record<string, unknown>) {
   if (import.meta.env.PROD) return '[debug]'
@@ -155,6 +156,10 @@ export function TicketDashboard() {
     ticketId: null,
     phase: null,
   })
+  const [errorSelection, setErrorSelection] = useState<{ ticketId: string | null; occurrenceId: string | null }>({
+    ticketId: null,
+    occurrenceId: null,
+  })
   const [livePhase, setLivePhase] = useState<{
     ticketId: string | null
     phase: string | null
@@ -176,8 +181,6 @@ export function TicketDashboard() {
     () => ticket?.reviewCutoffStatus ?? undefined,
     [ticket?.reviewCutoffStatus],
   )
-
-  const errorSignature = ticket ? getErrorTicketSignature(ticket) : null
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
   // When a React Query refetch returns a status that is further along in the
@@ -208,11 +211,47 @@ export function TicketDashboard() {
     : null
   const previousStatus = livePhaseMeta?.previousStatus ?? snapshotPreviousStatus
   const reviewCutoffStatus = livePhaseMeta?.reviewCutoffStatus ?? snapshotReviewCutoffStatus
+  const effectiveTicket = useMemo(() => {
+    if (!ticket) return null
+    if (currentStatus === ticket.status) return ticket
+    return {
+      ...ticket,
+      status: currentStatus,
+      previousStatus: previousStatus ?? ticket.previousStatus,
+      reviewCutoffStatus: reviewCutoffStatus ?? ticket.reviewCutoffStatus,
+    }
+  }, [currentStatus, previousStatus, reviewCutoffStatus, ticket])
+  const errorSignature = effectiveTicket ? getErrorTicketSignature(effectiveTicket) : null
+  const ticketErrorOccurrences = useMemo(() => (effectiveTicket ? getTicketErrorOccurrences(effectiveTicket) : []), [effectiveTicket])
+  const selectedErrorOccurrenceId = errorSelection.ticketId === ticketId ? errorSelection.occurrenceId : null
+  const selectedErrorOccurrence = useMemo(
+    () => selectedErrorOccurrenceId != null
+      ? ticketErrorOccurrences.find((occurrence) => occurrence.id === selectedErrorOccurrenceId) ?? null
+      : null,
+    [selectedErrorOccurrenceId, ticketErrorOccurrences],
+  )
   const selectedPhase = phaseSelection.ticketId === ticketId && phaseSelection.phase !== currentStatus
     ? phaseSelection.phase
     : null
+  const selectedPhaseForWorkspace = selectedPhase ?? currentStatus
+  const liveErrorOccurrence = useMemo(() => {
+    if (!effectiveTicket) return null
+    if (selectedPhase && selectedPhase !== currentStatus) return null
+    if (selectedErrorOccurrence) return selectedErrorOccurrence
+    return currentStatus === 'BLOCKED_ERROR' ? getActiveErrorOccurrence(effectiveTicket) : null
+  }, [currentStatus, effectiveTicket, selectedErrorOccurrence, selectedPhase])
+  const contextPhase = selectedErrorOccurrence?.blockedFromStatus
+    ?? liveErrorOccurrence?.blockedFromStatus
+    ?? selectedPhaseForWorkspace
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
+    setErrorSelection({ ticketId: null, occurrenceId: null })
+  }, [ticketId])
+  const handleSelectErrorOccurrence = useCallback((occurrenceId: string | null) => {
+    setErrorSelection({ ticketId, occurrenceId })
+    if (occurrenceId != null) {
+      setPhaseSelection({ ticketId: null, phase: null })
+    }
   }, [ticketId])
   const handleLiveStatusChange = useCallback(({ status, previousStatus }: { status: string; previousStatus?: string }) => {
     setLivePhase((current) => {
@@ -254,6 +293,9 @@ export function TicketDashboard() {
     })
     setPhaseSelection((current) => {
       if (current.ticketId === ticketId && current.phase === status) {
+        return { ticketId, phase: null }
+      }
+      if (status !== 'BLOCKED_ERROR' && current.ticketId === ticketId && current.phase === 'BLOCKED_ERROR') {
         return { ticketId, phase: null }
       }
       return current
@@ -329,10 +371,10 @@ export function TicketDashboard() {
     </div>
   )
 
-  const effectiveTicket = currentStatus === ticket.status
-    ? ticket
-    : { ...ticket, status: currentStatus }
+  if (!effectiveTicket) return null
+
   const activePhase = selectedPhase ?? currentStatus
+  const activeErrorOccurrenceId = liveErrorOccurrence?.id ?? selectedErrorOccurrenceId
 
   return (
     <LogProvider key={ticketId} ticketId={ticketId} currentStatus={currentStatus}>
@@ -368,14 +410,21 @@ export function TicketDashboard() {
               <div className="flex-1 overflow-hidden">
                 <NavigatorPanel
                   ticketId={ticket.id}
+                  ticket={effectiveTicket}
                   currentStatus={currentStatus}
                   selectedPhase={activePhase}
+                  selectedErrorOccurrenceId={selectedErrorOccurrenceId}
                   reviewCutoffStatus={reviewCutoffStatus}
                   previousStatus={previousStatus}
                   onSelectPhase={(phase) => {
                     handleSelectPhase(phase)
                     setMobileNavOpen(false)
                   }}
+                  onSelectErrorOccurrence={(occurrenceId) => {
+                    handleSelectErrorOccurrence(occurrenceId)
+                    setMobileNavOpen(false)
+                  }}
+                  contextPhase={contextPhase}
                 />
               </div>
             </div>
@@ -390,11 +439,15 @@ export function TicketDashboard() {
           >
             <NavigatorPanel
               ticketId={ticket.id}
+              ticket={effectiveTicket}
               currentStatus={currentStatus}
               selectedPhase={activePhase}
+              selectedErrorOccurrenceId={selectedErrorOccurrenceId}
               reviewCutoffStatus={reviewCutoffStatus}
               previousStatus={previousStatus}
               onSelectPhase={handleSelectPhase}
+              onSelectErrorOccurrence={handleSelectErrorOccurrence}
+              contextPhase={contextPhase}
             />
           </div>
           <ResizeHandle onResize={setNavWidth} />
@@ -403,6 +456,7 @@ export function TicketDashboard() {
             <ActiveWorkspace
               ticket={effectiveTicket}
               selectedPhase={activePhase}
+              selectedErrorOccurrenceId={activeErrorOccurrenceId}
               previousStatus={previousStatus}
               reviewCutoffStatus={reviewCutoffStatus}
             />

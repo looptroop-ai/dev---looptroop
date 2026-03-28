@@ -1,9 +1,15 @@
+import { getActiveErrorOccurrence, type TicketErrorOccurrence } from './errorOccurrences'
+
 const seenErrorTickets = new Map<string, string>()
 
 interface ErrorTicketSnapshot {
+  id: string
   status: string
   updatedAt: string
-  errorMessage?: string | null
+  errorMessage?: string | null | undefined
+  activeErrorOccurrenceId?: string | number | null
+  errorOccurrences?: TicketErrorOccurrence[]
+  previousStatus?: string | null
 }
 
 function getErrorSeenStorageKey(ticketId: string): string {
@@ -12,6 +18,20 @@ function getErrorSeenStorageKey(ticketId: string): string {
 
 export function getErrorTicketSignature(ticket: ErrorTicketSnapshot): string | null {
   if (ticket.status !== 'BLOCKED_ERROR') return null
+  const activeOccurrence = getActiveErrorOccurrence({
+    ...ticket,
+    errorMessage: ticket.errorMessage ?? null,
+    errorOccurrences: ticket.errorOccurrences ?? [],
+    activeErrorOccurrenceId: ticket.activeErrorOccurrenceId == null ? null : String(ticket.activeErrorOccurrenceId),
+  })
+  if (activeOccurrence) {
+    return [
+      ticket.status,
+      activeOccurrence.id,
+      activeOccurrence.occurredAt,
+      activeOccurrence.errorMessage ?? '',
+    ].join('|')
+  }
   return [ticket.status, ticket.updatedAt, ticket.errorMessage ?? ''].join('|')
 }
 
@@ -57,5 +77,3 @@ export function clearErrorTicketSeen(ticketId: string): void {
     // Ignore storage cleanup failures.
   }
 }
-
-

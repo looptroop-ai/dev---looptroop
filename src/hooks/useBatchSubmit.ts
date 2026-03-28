@@ -44,6 +44,7 @@ export function useBatchSubmit(ticketId: string) {
   const [submittedBatchKey, setSubmittedBatchKey] = useState<string | null>(null)
   const [sseBatch, setSseBatch] = useState<PersistedInterviewBatch | null>(null)
   const [processingError, setProcessingError] = useState<string | null>(null)
+  const [draftsRestoreTick, setDraftsRestoreTick] = useState(0)
 
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
@@ -78,6 +79,7 @@ export function useBatchSubmit(ticketId: string) {
       }
       lastSavedSnapshotRef.current = JSON.stringify(snapshot)
       restoredDraftRef.current = true
+      setDraftsRestoreTick((current) => current + 1)
     })
     return () => cancelAnimationFrame(frame)
   }, [persistedDrafts])
@@ -127,7 +129,7 @@ export function useBatchSubmit(ticketId: string) {
     }, DRAFT_SAVE_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timer)
-  }, [draftAnswers, skippedQuestions, batchSelectedOptions, saveUiState, ticketId])
+  }, [draftAnswers, skippedQuestions, batchSelectedOptions, draftsRestoreTick, saveUiState, ticketId])
 
   const handleBatchAnswer = useCallback((currentBatchKey: string | null, questionId: string, value: string) => {
     if (!currentBatchKey) return

@@ -1,13 +1,17 @@
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { existsSync, mkdirSync, rmSync } from 'fs'
 import { resolve } from 'path'
 import { execFileSync } from 'child_process'
 import { getProjectContextById } from './projects'
-import { opencodeSessions, phaseArtifacts, projects, ticketStatusHistory, tickets } from '../db/schema'
+import { opencodeSessions, phaseArtifacts, projects, ticketErrorOccurrences, ticketStatusHistory, tickets } from '../db/schema'
 import { getTicketDir, getTicketWorktreePath } from './paths'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { lockTicketModelSelection, resolveTicketBaseBranch } from '../ticket/metadata'
-import type { PublicTicket } from './ticketQueries'
+import type {
+  PublicTicket,
+  TicketErrorOccurrence,
+  TicketErrorResolutionStatus,
+} from './ticketQueries'
 import {
   getTicketContext,
   toPublicTicket,
@@ -18,6 +22,122 @@ import {
 } from './ticketQueries'
 
 type LocalTicketRow = typeof tickets.$inferSelect
+
+function parseErrorCodes(values: string[] | null | undefined): string {
+  return JSON.stringify((values ?? []).filter((value) => typeof value === 'string' && value.trim().length > 0))
+}
+
+function hydrateErrorOccurrence(row: {
+  id: number
+  ticketId: number
+  occurrenceNumber: number
+  blockedFromStatus: string
+  errorMessage: string | null
+  errorCodes: string | null
+  occurredAt: string
+  resolvedAt: string | null
+  resolutionStatus: string | null
+  resumedToStatus: string | null
+}): TicketErrorOccurrence {
+  return {
+    id: row.id,
+    ticketId: row.ticketId,
+    occurrenceNumber: row.occurrenceNumber,
+    blockedFromStatus: row.blockedFromStatus,
+    errorMessage: row.errorMessage,
+    errorCodes: parseJsonArray(row.errorCodes),
+    occurredAt: row.occurredAt,
+    resolvedAt: row.resolvedAt,
+    resolutionStatus: row.resolutionStatus as TicketErrorResolutionStatus | null,
+    resumedToStatus: row.resumedToStatus,
+  }
+}
+
+export function recordTicketErrorOccurrence(
+  ticketRef: string,
+  input: {
+    blockedFromStatus: string
+    errorMessage: string | null
+    errorCodes?: string[] | null
+    occurredAt?: string
+  },
+): TicketErrorOccurrence | undefined {
+  const context = getTicketContext(ticketRef)
+  if (!context) return undefined
+
+  const latestOccurrence = context.projectDb.select({
+    occurrenceNumber: ticketErrorOccurrences.occurrenceNumber,
+  })
+    .from(ticketErrorOccurrences)
+    .where(eq(ticketErrorOccurrences.ticketId, context.localTicketId))
+    .orderBy(desc(ticketErrorOccurrences.occurrenceNumber))
+    .get()
+
+  const inserted = context.projectDb.insert(ticketErrorOccurrences)
+    .values({
+      ticketId: context.localTicketId,
+      occurrenceNumber: (latestOccurrence?.occurrenceNumber ?? 0) + 1,
+      blockedFromStatus: input.blockedFromStatus,
+      errorMessage: input.errorMessage,
+      errorCodes: parseErrorCodes(input.errorCodes),
+      occurredAt: input.occurredAt ?? new Date().toISOString(),
+    })
+    .returning()
+    .get()
+
+  return inserted ? hydrateErrorOccurrence(inserted) : undefined
+}
+
+export function resolveLatestTicketErrorOccurrence(
+  ticketRef: string,
+  input: {
+    resolutionStatus: TicketErrorResolutionStatus
+    resumedToStatus: string | null
+    resolvedAt?: string
+  },
+): TicketErrorOccurrence | undefined {
+  const context = getTicketContext(ticketRef)
+  if (!context) return undefined
+
+  const latestOpenOccurrence = context.projectDb.select({
+    id: ticketErrorOccurrences.id,
+    ticketId: ticketErrorOccurrences.ticketId,
+    occurrenceNumber: ticketErrorOccurrences.occurrenceNumber,
+    blockedFromStatus: ticketErrorOccurrences.blockedFromStatus,
+    errorMessage: ticketErrorOccurrences.errorMessage,
+    errorCodes: ticketErrorOccurrences.errorCodes,
+    occurredAt: ticketErrorOccurrences.occurredAt,
+    resolvedAt: ticketErrorOccurrences.resolvedAt,
+    resolutionStatus: ticketErrorOccurrences.resolutionStatus,
+    resumedToStatus: ticketErrorOccurrences.resumedToStatus,
+  })
+    .from(ticketErrorOccurrences)
+    .where(and(
+      eq(ticketErrorOccurrences.ticketId, context.localTicketId),
+      isNull(ticketErrorOccurrences.resolvedAt),
+    ))
+    .orderBy(desc(ticketErrorOccurrences.occurrenceNumber))
+    .get()
+
+  if (!latestOpenOccurrence) return undefined
+
+  const resolvedAt = input.resolvedAt ?? new Date().toISOString()
+  context.projectDb.update(ticketErrorOccurrences)
+    .set({
+      resolvedAt,
+      resolutionStatus: input.resolutionStatus,
+      resumedToStatus: input.resumedToStatus,
+    })
+    .where(eq(ticketErrorOccurrences.id, latestOpenOccurrence.id))
+    .run()
+
+  return hydrateErrorOccurrence({
+    ...latestOpenOccurrence,
+    resolvedAt,
+    resolutionStatus: input.resolutionStatus,
+    resumedToStatus: input.resumedToStatus,
+  })
+}
 
 function assertLockedModelConfigurationMutable(
   ticket: LocalTicketRow,
@@ -239,6 +359,7 @@ export function deleteTicket(ticketRef: string): boolean {
   projectDb.transaction((tx) => {
     tx.delete(phaseArtifacts).where(eq(phaseArtifacts.ticketId, localTicketId)).run()
     tx.delete(opencodeSessions).where(eq(opencodeSessions.ticketId, localTicketId)).run()
+    tx.delete(ticketErrorOccurrences).where(eq(ticketErrorOccurrences.ticketId, localTicketId)).run()
     tx.delete(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, localTicketId)).run()
     tx.delete(tickets).where(eq(tickets.id, localTicketId)).run()
   })

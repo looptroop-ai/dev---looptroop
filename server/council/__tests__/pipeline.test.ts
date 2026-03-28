@@ -563,7 +563,8 @@ describe('Council Pipeline', () => {
       'Return only YAML.',
     )
 
-    expect(result).toContain('changes: []')
+    expect(result).toContain('questions:')
+    expect(result).not.toContain('changes:')
     expect(validator).toHaveBeenCalledTimes(1)
     expect(adapter.sessions).toHaveLength(1)
   })

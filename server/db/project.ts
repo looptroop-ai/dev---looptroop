@@ -116,10 +116,27 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       changed_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS ticket_error_occurrences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+      occurrence_number INTEGER NOT NULL,
+      blocked_from_status TEXT NOT NULL,
+      error_message TEXT,
+      error_codes TEXT,
+      occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      resolution_status TEXT,
+      resumed_to_status TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_project_tickets_status ON tickets(status);
     CREATE INDEX IF NOT EXISTS idx_project_tickets_external_id ON tickets(external_id);
     CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket ON phase_artifacts(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase ON opencode_sessions(ticket_id, phase, state);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_error_occurrences_ticket_sequence
+      ON ticket_error_occurrences(ticket_id, occurrence_number);
+    CREATE INDEX IF NOT EXISTS idx_ticket_error_occurrences_open
+      ON ticket_error_occurrences(ticket_id, resolved_at, occurrence_number);
   `)
 
   ensureColumn(sqlite, 'tickets', 'locked_interview_questions', 'INTEGER')

@@ -105,3 +105,16 @@ export const ticketStatusHistory = sqliteTable('ticket_status_history', {
   reason: text('reason'),
   changedAt: text('changed_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
+
+export const ticketErrorOccurrences = sqliteTable('ticket_error_occurrences', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticketId: integer('ticket_id').notNull().references(() => tickets.id),
+  occurrenceNumber: integer('occurrence_number').notNull(),
+  blockedFromStatus: text('blocked_from_status').notNull(),
+  errorMessage: text('error_message'),
+  errorCodes: text('error_codes'),
+  occurredAt: text('occurred_at').notNull().$defaultFn(() => new Date().toISOString()),
+  resolvedAt: text('resolved_at'),
+  resolutionStatus: text('resolution_status'),
+  resumedToStatus: text('resumed_to_status'),
+})

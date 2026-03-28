@@ -13,6 +13,7 @@ interface PhaseTimelineProps {
   previousStatus?: string
   onSelectPhase?: (phase: string) => void
   selectedPhase?: string | null
+  showBlockedErrorPhase?: boolean
 }
 
 type PhaseIndicatorStatus = 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled'
@@ -101,28 +102,42 @@ function getPhaseTooltip(phaseId: string): string {
   return STATUS_DESCRIPTIONS[phaseId] ?? phaseId.replace(/_/g, ' ')
 }
 
-export function PhaseTimeline({ currentStatus, reviewCutoffStatus, previousStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
+export function PhaseTimeline({
+  currentStatus,
+  reviewCutoffStatus,
+  previousStatus,
+  onSelectPhase,
+  selectedPhase,
+  showBlockedErrorPhase = currentStatus === 'BLOCKED_ERROR',
+}: PhaseTimelineProps) {
   const { groups, phases } = useWorkflowMeta()
+  const visiblePhases = useMemo(
+    () => phases.filter((phase) => showBlockedErrorPhase || phase.id !== 'BLOCKED_ERROR'),
+    [phases, showBlockedErrorPhase],
+  )
+  const currentTimelineStatus = useMemo(() => {
+    if (showBlockedErrorPhase || currentStatus !== 'BLOCKED_ERROR') return currentStatus
+    return previousStatus ?? currentStatus
+  }, [currentStatus, previousStatus, showBlockedErrorPhase])
   const phaseGroups = useMemo(() => groups.map((group) => ({
     id: group.id,
     label: group.label,
-    phases: phases.filter((phase) => phase.groupId === group.id).map((phase) => ({ id: phase.id })),
-  })), [groups, phases])
-  const phaseOrder = useMemo(() => phases.map((phase) => phase.id), [phases])
+    phases: visiblePhases.filter((phase) => phase.groupId === group.id).map((phase) => ({ id: phase.id })),
+  })), [groups, visiblePhases])
+  const phaseOrder = useMemo(() => visiblePhases.map((phase) => phase.id), [visiblePhases])
   const activeGroupIndex = useMemo(() => {
-    return phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentStatus))
-  }, [currentStatus, phaseGroups])
+    return phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentTimelineStatus))
+  }, [currentTimelineStatus, phaseGroups])
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set([Math.max(0, activeGroupIndex)]))
 
   // Auto-collapse previous group and expand new active group when status changes
   useEffect(() => {
-    const newActiveGroupIndex = phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentStatus))
+    const newActiveGroupIndex = phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentTimelineStatus))
     if (newActiveGroupIndex >= 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpandedGroups(new Set([newActiveGroupIndex]))
     }
-  }, [currentStatus, phaseGroups])
+  }, [currentTimelineStatus, phaseGroups])
 
   const toggleGroup = (idx: number) => {
     setExpandedGroups(prev => {

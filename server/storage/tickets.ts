@@ -1,5 +1,11 @@
 // Barrel re-exports – all public API from sub-modules
-export type { PublicTicket, PublicPhaseArtifactRow, TicketContext } from './ticketQueries'
+export type {
+  PublicTicket,
+  PublicPhaseArtifactRow,
+  TicketContext,
+  TicketErrorOccurrence,
+  TicketErrorResolutionStatus,
+} from './ticketQueries'
 export {
   buildTicketRef,
   parseTicketRef,
@@ -16,6 +22,8 @@ export {
   createTicket,
   updateTicket,
   patchTicket,
+  recordTicketErrorOccurrence,
+  resolveLatestTicketErrorOccurrence,
   lockTicketStartConfiguration,
   deleteTicket,
 } from './ticketMutations'

@@ -65,17 +65,26 @@ vi.mock('../NavigatorPanel', () => ({
   NavigatorPanel: ({
     currentStatus,
     selectedPhase,
+    selectedErrorOccurrenceId,
     onSelectPhase,
+    onSelectErrorOccurrence,
+    contextPhase,
   }: {
     currentStatus: string
     selectedPhase: string
+    selectedErrorOccurrenceId?: string | null
     onSelectPhase: (phase: string | null) => void
+    onSelectErrorOccurrence: (occurrenceId: string | null) => void
+    contextPhase: string
   }) => (
     <div>
       <div data-testid="navigator-current">{currentStatus}</div>
       <div data-testid="navigator-selected">{selectedPhase}</div>
+      <div data-testid="navigator-error">{selectedErrorOccurrenceId ?? ''}</div>
+      <div data-testid="navigator-context">{contextPhase}</div>
       <button onClick={() => onSelectPhase('DRAFTING_PRD')}>Select drafting</button>
-      {selectedPhase !== currentStatus && (
+      <button onClick={() => onSelectErrorOccurrence('error-1')}>Select error</button>
+      {(selectedPhase !== currentStatus || Boolean(selectedErrorOccurrenceId)) && (
         <button onClick={() => onSelectPhase(null)}>Back to live</button>
       )}
     </div>
@@ -100,6 +109,9 @@ function makeTicket(status: string): Ticket {
     percentComplete: null,
     errorMessage: null,
     errorSeenSignature: null,
+    errorOccurrences: [],
+    activeErrorOccurrenceId: null,
+    hasPastErrors: false,
     lockedMainImplementer: null,
     lockedCouncilMembers: ['openai/gpt-5-codex', 'openai/gpt-5-mini'],
     availableActions: [],
@@ -208,7 +220,7 @@ describe('TicketDashboard', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — PRD Drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('DRAFTING_PRD')
     })
 
     await waitFor(() => {
@@ -227,11 +239,9 @@ describe('TicketDashboard', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — PRD Refining')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('REFINING_PRD')
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('REFINING_PRD')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('REFINING_PRD')
-      expect(screen.getByText(/Transition: DRAFTING_PRD -> REFINING_PRD/)).toBeInTheDocument()
-      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('REFINING_PRD')
     })
   })
 
@@ -257,7 +267,7 @@ describe('TicketDashboard', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — Interview Drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_DELIBERATING')
     })
 
     await waitFor(() => {
@@ -276,11 +286,9 @@ describe('TicketDashboard', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — Interview Voting')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_VOTING_INTERVIEW')
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('COUNCIL_VOTING_INTERVIEW')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('COUNCIL_VOTING_INTERVIEW')
-      expect(screen.getByText(/Transition: COUNCIL_DELIBERATING -> COUNCIL_VOTING_INTERVIEW/)).toBeInTheDocument()
-      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_VOTING_INTERVIEW')
     })
   })
 
@@ -306,7 +314,7 @@ describe('TicketDashboard', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — PRD Voting')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_VOTING_PRD')
     })
 
     await waitFor(() => {
@@ -316,7 +324,6 @@ describe('TicketDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select drafting' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Completed')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Back to live' })).toBeInTheDocument()
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('DRAFTING_PRD')
     })
@@ -333,7 +340,6 @@ describe('TicketDashboard', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Drafting Specs')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Back to live' })).toBeInTheDocument()
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('REFINING_PRD')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('DRAFTING_PRD')
@@ -363,7 +369,7 @@ describe('TicketDashboard', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — PRD Voting')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_VOTING_PRD')
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Select drafting' }))
@@ -378,7 +384,7 @@ describe('TicketDashboard', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — PRD Drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('DRAFTING_PRD')
       expect(screen.queryByRole('button', { name: 'Back to live' })).not.toBeInTheDocument()
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('DRAFTING_PRD')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('DRAFTING_PRD')
@@ -389,11 +395,10 @@ describe('TicketDashboard', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — PRD Refining')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('REFINING_PRD')
       expect(screen.queryByRole('button', { name: 'Back to live' })).not.toBeInTheDocument()
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('REFINING_PRD')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('REFINING_PRD')
-      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('REFINING_PRD')
     })
   })
 
@@ -421,7 +426,7 @@ describe('TicketDashboard', () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('AI Council — Relevant Files Scanning')).toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-header')).toHaveTextContent('SCANNING_RELEVANT_FILES')
     })
 
     await waitFor(() => {

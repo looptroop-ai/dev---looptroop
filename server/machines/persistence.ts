@@ -10,6 +10,8 @@ import {
   getTicketContext,
   listNonTerminalTickets,
   patchTicket,
+  recordTicketErrorOccurrence,
+  resolveLatestTicketErrorOccurrence,
 } from '../storage/tickets'
 
 const activeActors = new Map<string, ReturnType<typeof createActor<typeof ticketMachine>>>()
@@ -145,12 +147,18 @@ function persistSnapshot(
   const errorMessage = typeof currentSnapshot.context.error === 'string' && currentSnapshot.context.error.trim().length > 0
     ? currentSnapshot.context.error
     : null
+  const errorCodes = Array.isArray(currentSnapshot.context.errorCodes)
+    ? currentSnapshot.context.errorCodes.filter((code): code is string => typeof code === 'string' && code.trim().length > 0)
+    : []
+  const transitionAt = new Date().toISOString()
 
-  patchTicket(resolvedTicketRef, {
+  const updated = patchTicket(resolvedTicketRef, {
     xstateSnapshot: JSON.stringify(snapshot),
     status: stateValue,
     errorMessage,
   })
+
+  if (!updated) return
 
   if (previousStatus !== stateValue) {
     const payload = {
@@ -170,17 +178,31 @@ function persistSnapshot(
       { audience: 'all', kind: 'milestone', op: 'append', streaming: false },
     )
 
-    if (stateValue === 'BLOCKED_ERROR' && errorMessage) {
+    if (stateValue === 'BLOCKED_ERROR') {
+      const blockedMessage = errorMessage ?? 'Unknown error'
+      recordTicketErrorOccurrence(resolvedTicketRef, {
+        blockedFromStatus: payload.from,
+        errorMessage,
+        errorCodes,
+        occurredAt: transitionAt,
+      })
       emitAppErrorLog(
         resolvedTicketRef,
         stateValue,
-        `[SYS] Blocked in ${payload.from}: ${errorMessage}`,
+        `[SYS] Blocked in ${payload.from}: ${blockedMessage}`,
         {
-          message: errorMessage,
+          message: blockedMessage,
           blockedFrom: payload.from,
           blockedTo: payload.to,
+          errorCodes,
         },
       )
+    } else if (previousStatus === 'BLOCKED_ERROR') {
+      resolveLatestTicketErrorOccurrence(resolvedTicketRef, {
+        resolutionStatus: stateValue === 'CANCELED' ? 'CANCELED' : 'RETRIED',
+        resumedToStatus: stateValue === 'CANCELED' ? null : stateValue,
+        resolvedAt: transitionAt,
+      })
     }
   }
 }
@@ -341,5 +363,3 @@ export function stopActor(ticketRef: string | number) {
   activeActors.delete(resolvedTicketRef)
   return true
 }
-
-

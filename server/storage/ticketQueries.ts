@@ -1,6 +1,6 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { getProjectContextById, getProjectById, listProjects } from './projects'
-import { phaseArtifacts, projects, ticketStatusHistory, tickets } from '../db/schema'
+import { phaseArtifacts, projects, ticketErrorOccurrences, tickets } from '../db/schema'
 import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { readJsonl } from '../io/jsonl'
 import { getAvailableWorkflowActions } from '@shared/workflowMeta'
@@ -10,6 +10,21 @@ import type { ArtifactSnapshot } from '../sse/eventTypes'
 type LocalTicketRow = typeof tickets.$inferSelect
 type LocalProjectRow = typeof projects.$inferSelect
 
+export type TicketErrorResolutionStatus = 'RETRIED' | 'CANCELED'
+
+export interface TicketErrorOccurrence {
+  id: number
+  ticketId: number
+  occurrenceNumber: number
+  blockedFromStatus: string
+  errorMessage: string | null
+  errorCodes: string[]
+  occurredAt: string
+  resolvedAt: string | null
+  resolutionStatus: TicketErrorResolutionStatus | null
+  resumedToStatus: string | null
+}
+
 export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncilMembers' | 'lockedCouncilMemberVariants'> {
   id: string
   projectId: number
@@ -18,6 +33,9 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
   availableActions: string[]
   previousStatus: string | null
   reviewCutoffStatus: string | null
+  errorOccurrences: TicketErrorOccurrence[]
+  activeErrorOccurrenceId: number | null
+  hasPastErrors: boolean
   errorSeenSignature: string | null
   runtime: {
     baseBranch: string
@@ -111,6 +129,60 @@ function parseJsonObject<T>(raw: string | null | undefined): T | null {
   }
 }
 
+function parseTicketErrorCodes(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  const parsed = parseJsonObject<unknown>(raw)
+  return Array.isArray(parsed)
+    ? parsed.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : []
+}
+
+function readTicketErrorOccurrences(
+  projectContext: NonNullable<ReturnType<typeof getProjectContextById>> | null | undefined,
+  localTicketId: number,
+): TicketErrorOccurrence[] {
+  if (!projectContext) return []
+
+  const rows = projectContext.projectDb.select({
+    id: ticketErrorOccurrences.id,
+    ticketId: ticketErrorOccurrences.ticketId,
+    occurrenceNumber: ticketErrorOccurrences.occurrenceNumber,
+    blockedFromStatus: ticketErrorOccurrences.blockedFromStatus,
+    errorMessage: ticketErrorOccurrences.errorMessage,
+    errorCodes: ticketErrorOccurrences.errorCodes,
+    occurredAt: ticketErrorOccurrences.occurredAt,
+    resolvedAt: ticketErrorOccurrences.resolvedAt,
+    resolutionStatus: ticketErrorOccurrences.resolutionStatus,
+    resumedToStatus: ticketErrorOccurrences.resumedToStatus,
+  })
+    .from(ticketErrorOccurrences)
+    .where(eq(ticketErrorOccurrences.ticketId, localTicketId))
+    .orderBy(asc(ticketErrorOccurrences.occurrenceNumber))
+    .all()
+
+  return rows.map((row) => ({
+    id: row.id,
+    ticketId: row.ticketId,
+    occurrenceNumber: row.occurrenceNumber,
+    blockedFromStatus: row.blockedFromStatus,
+    errorMessage: row.errorMessage,
+    errorCodes: parseTicketErrorCodes(row.errorCodes),
+    occurredAt: row.occurredAt,
+    resolvedAt: row.resolvedAt,
+    resolutionStatus: row.resolutionStatus as TicketErrorResolutionStatus | null,
+    resumedToStatus: row.resumedToStatus,
+  }))
+}
+
+function readActiveErrorOccurrenceId(errorOccurrences: TicketErrorOccurrence[]): number | null {
+  for (let index = errorOccurrences.length - 1; index >= 0; index -= 1) {
+    const occurrence = errorOccurrences[index]
+    if (!occurrence) continue
+    if (!occurrence.resolvedAt) return occurrence.id
+  }
+  return null
+}
+
 function readErrorSeenSignature(projectContext: NonNullable<ReturnType<typeof getProjectContextById>>, localTicketId: number): string | null {
   const artifact = projectContext.projectDb.select().from(phaseArtifacts)
     .where(and(
@@ -148,21 +220,12 @@ export function resolveReviewCutoffStatus(
 }
 
 function readReviewCutoffStatus(
-  projectContext: NonNullable<ReturnType<typeof getProjectContextById>> | null | undefined,
   ticket: LocalTicketRow,
   previousStatus: string | null,
+  errorOccurrences: TicketErrorOccurrence[],
 ): string | null {
-  const latestBlockedErrorPreviousStatus = previousStatus === 'BLOCKED_ERROR' && projectContext
-    ? projectContext.projectDb.select({
-      previousStatus: ticketStatusHistory.previousStatus,
-    })
-      .from(ticketStatusHistory)
-      .where(and(
-        eq(ticketStatusHistory.ticketId, ticket.id),
-        eq(ticketStatusHistory.newStatus, 'BLOCKED_ERROR'),
-      ))
-      .orderBy(desc(ticketStatusHistory.id))
-      .get()?.previousStatus ?? null
+  const latestBlockedErrorPreviousStatus = previousStatus === 'BLOCKED_ERROR'
+    ? errorOccurrences.at(-1)?.blockedFromStatus ?? null
     : null
 
   return resolveReviewCutoffStatus(ticket.status, previousStatus, latestBlockedErrorPreviousStatus)
@@ -177,8 +240,12 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     ? parseJsonObject<Record<string, string>>(ticket.lockedCouncilMemberVariants)
     : null
   const snapshot = parseJsonObject<{ context?: { previousStatus?: unknown } }>(ticket.xstateSnapshot)
-  const previousStatus = typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null
-  const reviewCutoffStatus = readReviewCutoffStatus(projectContext, ticket, previousStatus)
+  const errorOccurrences = readTicketErrorOccurrences(projectContext, ticket.id)
+  const activeErrorOccurrenceId = readActiveErrorOccurrenceId(errorOccurrences)
+  const previousStatusFromSnapshot = typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null
+  const previousStatus = previousStatusFromSnapshot
+    ?? (ticket.status === 'BLOCKED_ERROR' ? errorOccurrences.at(-1)?.blockedFromStatus ?? null : null)
+  const reviewCutoffStatus = readReviewCutoffStatus(ticket, previousStatus, errorOccurrences)
   const errorSeenSignature = projectContext ? readErrorSeenSignature(projectContext, ticket.id) : null
   const runtime = project ? buildRuntime(projectId, project.folderPath, ticket, baseBranch) : {
     baseBranch,
@@ -204,6 +271,9 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     availableActions: getAvailableWorkflowActions(ticket.status),
     previousStatus,
     reviewCutoffStatus,
+    errorOccurrences,
+    activeErrorOccurrenceId,
+    hasPastErrors: errorOccurrences.some((occurrence) => occurrence.resolvedAt !== null),
     errorSeenSignature,
     runtime,
   }

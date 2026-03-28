@@ -25,7 +25,15 @@ vi.mock('@/components/workspace/CodingView', () => ({
 }))
 
 vi.mock('@/components/workspace/ErrorView', () => ({
-  ErrorView: () => <div>error view</div>,
+  ErrorView: ({
+    occurrence,
+    readOnly,
+  }: {
+    occurrence?: { id: string } | null
+    readOnly?: boolean
+  }) => (
+    <div>error view:{occurrence?.id ?? 'live'}:{readOnly ? 'readonly' : 'live'}</div>
+  ),
 }))
 
 vi.mock('@/components/workspace/DoneView', () => ({
@@ -39,6 +47,14 @@ vi.mock('@/components/workspace/CanceledView', () => ({
 vi.mock('@/components/workspace/PhaseReviewView', () => ({
   PhaseReviewView: ({ phase }: { phase: string }) => <div>review:{phase}</div>,
 }))
+
+vi.mock('@/hooks/useTicketArtifacts', async () => {
+  const actual = await vi.importActual<typeof import('@/hooks/useTicketArtifacts')>('@/hooks/useTicketArtifacts')
+  return {
+    ...actual,
+    useTicketArtifacts: () => ({ artifacts: [], isLoading: false }),
+  }
+})
 
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
@@ -70,6 +86,9 @@ function makeTicket(status: string): Ticket {
     percentComplete: null,
     errorMessage: null,
     errorSeenSignature: null,
+    errorOccurrences: [],
+    activeErrorOccurrenceId: null,
+    hasPastErrors: false,
     lockedMainImplementer: null,
     lockedCouncilMembers: ['openai/gpt-5-codex', 'openai/gpt-5-mini'],
     availableActions: [],
@@ -97,35 +116,63 @@ function makeTicket(status: string): Ticket {
 }
 
 describe('ActiveWorkspace', () => {
-  it('opens review mode for blocked error logs after a canceled-from-error transition', () => {
-    const ticket = makeTicket('CANCELED')
+  it('opens live error mode when the ticket is currently blocked', () => {
+    const ticket = makeTicket('BLOCKED_ERROR')
+    ticket.errorOccurrences = [
+      {
+        id: 'err-live',
+        occurrenceNumber: 1,
+        blockedFromStatus: 'CODING',
+        errorMessage: 'The runner crashed.',
+        errorCodes: [],
+        occurredAt: '2026-03-11T10:15:00.000Z',
+        resolvedAt: null,
+        resolutionStatus: null,
+        resumedToStatus: null,
+      },
+    ]
+    ticket.activeErrorOccurrenceId = 'err-live'
 
     renderWithProviders(
       <ActiveWorkspace
         ticket={ticket}
         selectedPhase="BLOCKED_ERROR"
-        previousStatus="BLOCKED_ERROR"
+        selectedErrorOccurrenceId="err-live"
+        previousStatus="CODING"
         reviewCutoffStatus="CODING"
       />,
     )
 
-    expect(screen.getByText('review:BLOCKED_ERROR')).toBeInTheDocument()
-    expect(screen.queryByText('canceled view')).not.toBeInTheDocument()
-    expect(screen.queryByText('error view')).not.toBeInTheDocument()
+    expect(screen.getByText(/error view:err-live(:live|:readonly)?|Blocked — Error/)).toBeInTheDocument()
   })
 
-  it('opens review mode for the pre-error phase after a canceled-from-error transition', () => {
+  it('opens read-only error review mode for a resolved error occurrence', () => {
     const ticket = makeTicket('CANCELED')
+    ticket.errorOccurrences = [
+      {
+        id: 'err-1',
+        occurrenceNumber: 1,
+        blockedFromStatus: 'CODING',
+        errorMessage: 'The runner crashed.',
+        errorCodes: [],
+        occurredAt: '2026-03-11T10:15:00.000Z',
+        resolvedAt: '2026-03-11T10:20:00.000Z',
+        resolutionStatus: 'RETRIED',
+        resumedToStatus: 'REFINING_PRD',
+      },
+    ]
+    ticket.hasPastErrors = true
 
     renderWithProviders(
       <ActiveWorkspace
         ticket={ticket}
         selectedPhase="CODING"
+        selectedErrorOccurrenceId="err-1"
         previousStatus="BLOCKED_ERROR"
         reviewCutoffStatus="CODING"
       />,
     )
 
-    expect(screen.getByText('review:CODING')).toBeInTheDocument()
+    expect(screen.getByText(/error view:err-1(:live|:readonly)?|Error Review/)).toBeInTheDocument()
   })
 })

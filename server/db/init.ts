@@ -13,12 +13,27 @@ function listColumns(table: string): string[] {
     .flatMap((entry) => typeof entry.name === 'string' ? [entry.name] : [])
 }
 
+function selectLegacyProfileColumn(columns: Set<string>, column: string): string {
+  return columns.has(column) ? column : 'NULL'
+}
+
+function selectLegacyProfileValue(columns: Set<string>, column: string, defaultValue: number): string {
+  if (!columns.has(column)) return String(defaultValue)
+  return `COALESCE(${column}, ${defaultValue})`
+}
+
+function selectLegacyProfileExpression(columns: Set<string>, column: string, defaultSql: string): string {
+  if (!columns.has(column)) return defaultSql
+  return `COALESCE(${column}, ${defaultSql})`
+}
+
 function migrateLegacyProfilesTable() {
   const columns = listColumns('profiles')
   if (columns.length === 0) return
 
   const hasLegacyProfileFields = ['username', 'icon', 'background'].some((column) => columns.includes(column))
   if (!hasLegacyProfileFields) return
+  const columnSet = new Set(columns)
 
   const migrate = sqlite.transaction(() => {
     sqlite.exec(`
@@ -53,17 +68,17 @@ function migrateLegacyProfilesTable() {
       )
       SELECT
         id,
-        main_implementer,
-        council_members,
-        COALESCE(min_council_quorum, ${PROFILE_DEFAULTS.minCouncilQuorum}),
-        COALESCE(per_iteration_timeout, ${PROFILE_DEFAULTS.perIterationTimeout}),
-        COALESCE(council_response_timeout, ${PROFILE_DEFAULTS.councilResponseTimeout}),
-        COALESCE(interview_questions, ${PROFILE_DEFAULTS.interviewQuestions}),
-        COALESCE(coverage_follow_up_budget_percent, ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent}),
-        COALESCE(max_coverage_passes, ${PROFILE_DEFAULTS.maxCoveragePasses}),
-        COALESCE(max_iterations, ${PROFILE_DEFAULTS.maxIterations}),
-        COALESCE(created_at, datetime('now')),
-        COALESCE(updated_at, datetime('now'))
+        ${selectLegacyProfileColumn(columnSet, 'main_implementer')},
+        ${selectLegacyProfileColumn(columnSet, 'council_members')},
+        ${selectLegacyProfileValue(columnSet, 'min_council_quorum', PROFILE_DEFAULTS.minCouncilQuorum)},
+        ${selectLegacyProfileValue(columnSet, 'per_iteration_timeout', PROFILE_DEFAULTS.perIterationTimeout)},
+        ${selectLegacyProfileValue(columnSet, 'council_response_timeout', PROFILE_DEFAULTS.councilResponseTimeout)},
+        ${selectLegacyProfileValue(columnSet, 'interview_questions', PROFILE_DEFAULTS.interviewQuestions)},
+        ${selectLegacyProfileValue(columnSet, 'coverage_follow_up_budget_percent', PROFILE_DEFAULTS.coverageFollowUpBudgetPercent)},
+        ${selectLegacyProfileValue(columnSet, 'max_coverage_passes', PROFILE_DEFAULTS.maxCoveragePasses)},
+        ${selectLegacyProfileValue(columnSet, 'max_iterations', PROFILE_DEFAULTS.maxIterations)},
+        ${selectLegacyProfileExpression(columnSet, 'created_at', "datetime('now')")},
+        ${selectLegacyProfileExpression(columnSet, 'updated_at', "datetime('now')")}
       FROM profiles;
 
       DROP TABLE profiles;

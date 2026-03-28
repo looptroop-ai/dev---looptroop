@@ -468,11 +468,6 @@ describe('handlePrdDraft', () => {
         questionCount?: number
       }>
     } | undefined
-    const artifact = JSON.parse(artifactRow!.content) as {
-      drafts?: Array<{
-        content?: string
-      }>
-    }
     const artifactCompanion = parseUiArtifactCompanionArtifact(artifactCompanionRow!.content)?.payload as {
       draftDetails?: Array<{
         draftMetrics?: { epicCount?: number; userStoryCount?: number }

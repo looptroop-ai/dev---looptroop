@@ -5,6 +5,7 @@ import { mergeTicketInCache, patchTicketStatusInCache } from './ticketStatusCach
 import type { WorkflowAction } from '@shared/workflowMeta'
 import type { InterviewSessionSnapshot, InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
 import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
+import type { TicketErrorOccurrence } from '@/lib/errorOccurrences'
 
 interface TicketRuntime {
   baseBranch: string
@@ -41,6 +42,9 @@ export interface Ticket {
   percentComplete: number | null
   errorMessage: string | null
   errorSeenSignature?: string | null
+  errorOccurrences?: TicketErrorOccurrence[]
+  activeErrorOccurrenceId?: string | null
+  hasPastErrors?: boolean
   lockedMainImplementer: string | null
   lockedMainImplementerVariant?: string | null
   lockedInterviewQuestions?: number | null
