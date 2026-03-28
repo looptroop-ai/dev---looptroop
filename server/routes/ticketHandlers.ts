@@ -47,6 +47,11 @@ import {
   saveInterviewAnswerUpdates,
   saveInterviewRawContent,
 } from '../phases/interview/finalDocument'
+import {
+  approvePrdDocument,
+  savePrdRawContent,
+} from '../phases/prd/document'
+import { buildYamlDocument } from '../structuredOutput/yamlUtils'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -94,6 +99,10 @@ const interviewApprovalAnswerSchema = z.object({
 })
 
 const rawInterviewSaveSchema = z.object({
+  content: z.string(),
+})
+
+const rawPrdSaveSchema = z.object({
   content: z.string(),
 })
 
@@ -757,6 +766,34 @@ export async function handlePutInterview(c: Context) {
   }
 }
 
+export async function handlePutPrd(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_PRD_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for PRD approval' }, 409)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = rawPrdSaveSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid PRD document payload', details: parsed.error.flatten() }, 400)
+  }
+
+  try {
+    const { document } = savePrdRawContent(ticketId, parsed.data.content)
+    return c.json({
+      success: true,
+      content: buildYamlDocument(document),
+    })
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save PRD document',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+}
+
 export function handleApproveInterview(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
@@ -788,15 +825,33 @@ export function handleApproveInterview(c: Context) {
 }
 
 export function handleApprovePrd(c: Context) {
-  const result = approveSpecific(
-    getTicketParam(c),
-    'WAITING_PRD_APPROVAL',
-    'Ticket is not waiting for PRD approval',
-    'PRD approved',
-  )
   const ticketId = getTicketParam(c)
-  if (result.type === 'response') return c.json(result.body, result.status)
-  return respondWithState(c, ticketId, result.message)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_PRD_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for PRD approval' }, 409)
+  }
+
+  try {
+    approvePrdDocument(ticketId)
+    ensureActorForTicket(ticketId)
+
+    const phase = 'WAITING_PRD_APPROVAL'
+    const message = '[SYS] PRD approved by user.'
+    const timestamp = new Date().toISOString()
+    broadcaster.broadcast(ticketId, 'log', { ticketId, phase, type: 'info', content: message, timestamp, source: 'system' })
+    appendLogEvent(ticketId, 'info', phase, message, { ticketId, timestamp }, 'system', phase, { audience: 'all', kind: 'milestone', op: 'append', streaming: false })
+
+    sendTicketEvent(ticketId, { type: 'APPROVE' })
+  } catch (err) {
+    console.error(`[tickets] Failed to approve PRD for ${ticketId}:`, err)
+    return c.json({
+      error: 'Failed to approve PRD',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
+
+  return respondWithState(c, ticketId, 'PRD approved')
 }
 
 export function handleApproveBeads(c: Context) {

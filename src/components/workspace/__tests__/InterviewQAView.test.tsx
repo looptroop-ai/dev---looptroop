@@ -392,19 +392,16 @@ describe('InterviewQAView', () => {
       expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
     })
 
-    vi.useFakeTimers()
-
     const textareas = screen.getAllByRole('textbox')
     fireEvent.change(textareas[0]!, { target: { value: 'My draft answer' } })
 
     // Should not have saved immediately
     expect(savedUiState).toBeNull()
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500)
-    })
-
-    expect(savedUiState).not.toBeNull()
+    // Wait for debounce (350ms) + React Query mutation to complete
+    await waitFor(() => {
+      expect(savedUiState).not.toBeNull()
+    }, { timeout: 5000 })
 
     const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
     expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
@@ -423,19 +420,16 @@ describe('InterviewQAView', () => {
       expect((screen.getAllByRole('textbox')[0] as HTMLTextAreaElement).value).toBe('Pre-filled answer')
     })
 
-    vi.useFakeTimers()
-
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /submit batch/i }))
     })
 
     expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' }, selectedOptions: {} })
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500)
-    })
-
-    expect(savedUiState).not.toBeNull()
+    // Wait for debounce (350ms) + React Query mutation to complete
+    await waitFor(() => {
+      expect(savedUiState).not.toBeNull()
+    }, { timeout: 5000 })
 
     const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
     expect(data.draftAnswers[batchKey]).toBeUndefined()
