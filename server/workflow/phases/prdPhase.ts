@@ -19,7 +19,10 @@ import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import { normalizeInterviewDocumentOutput, normalizePrdYamlOutput, getPrdDraftMetrics } from '../../structuredOutput'
 import { buildPromptFromTemplate, PROM11, PROM12 } from '../../prompts/index'
-import { buildPrdUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import {
+  buildPrdUiRefinementDiffArtifact,
+  buildPrdUiRefinementDiffArtifactFromChanges,
+} from '@shared/refinementDiffArtifacts'
 import { clearContextCache } from '../../opencode/contextBuilder'
 
 import { adapter, phaseIntermediate } from './state'
@@ -849,12 +852,20 @@ export async function handlePrdRefine(
     currentValidatedRefinement,
     structuredMeta,
   )
-  const uiDiffArtifact = buildPrdUiRefinementDiffArtifact({
-    winnerId: intermediate.winnerId,
-    winnerDraftContent: currentValidatedRefinement.winnerDraftContent,
-    refinedContent: currentValidatedRefinement.refinedContent,
-    losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
-  })
+  const uiDiffArtifact = currentValidatedRefinement.changes.length > 0
+    ? buildPrdUiRefinementDiffArtifactFromChanges({
+        winnerId: intermediate.winnerId,
+        changes: currentValidatedRefinement.changes,
+        winnerDraftContent: currentValidatedRefinement.winnerDraftContent,
+        refinedContent: currentValidatedRefinement.refinedContent,
+        losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+      })
+    : buildPrdUiRefinementDiffArtifact({
+        winnerId: intermediate.winnerId,
+        winnerDraftContent: currentValidatedRefinement.winnerDraftContent,
+        refinedContent: currentValidatedRefinement.refinedContent,
+        losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+      })
 
   if (currentValidatedRefinement.repairWarnings.length > 0) {
     emitPhaseLog(

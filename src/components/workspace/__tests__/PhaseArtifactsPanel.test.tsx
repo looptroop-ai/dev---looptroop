@@ -108,6 +108,29 @@ function buildPrdDocumentContent({
   ].join('\n')
 }
 
+function buildBeadsDocumentContent(
+  beads: Array<{ id: string; title: string; description?: string }> = [
+    { id: 'bead-1', title: 'Validate refinement attribution' },
+  ],
+) {
+  return [
+    'beads:',
+    ...beads.flatMap((bead) => [
+      `  - id: "${bead.id}"`,
+      `    title: "${bead.title}"`,
+      '    prdRefs: ["EPIC-1 / US-1"]',
+      `    description: "${bead.description ?? `Deliver ${bead.title.toLowerCase()}.`}"`,
+      '    contextGuidance: "Keep attribution deterministic."',
+      '    acceptanceCriteria:',
+      `      - "Validate ${bead.title.toLowerCase()}"`,
+      '    tests:',
+      `      - "Test ${bead.title.toLowerCase()}"`,
+      '    testCommands:',
+      '      - "npm run test:server"',
+    ]),
+  ].join('\n')
+}
+
 describe('PhaseArtifactsPanel', () => {
   it('collapses interview voting artifacts into a winning draft card plus shared voting details', () => {
     const voteArtifact: DBartifact = {
@@ -1149,6 +1172,132 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
+    expect(document.querySelector('.lucide-lightbulb')).not.toBeNull()
+  })
+
+  it('shows PRD inspiration indicators from the separate ui diff artifact', () => {
+    const refinedArtifact: DBartifact = {
+      id: 46,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+      }),
+    }
+
+    const uiDiffArtifact: DBartifact = {
+      id: 47,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'ui_refinement_diff:prd',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:34.000Z',
+      content: JSON.stringify({
+        domain: 'prd',
+        winnerId: 'openai/gpt-5.2',
+        generatedAt: '2026-03-12T11:49:34.000Z',
+        entries: [
+          {
+            key: 'user_story:US-3',
+            changeType: 'added',
+            itemKind: 'user_story',
+            label: 'Surface retry metadata',
+            afterId: 'US-3',
+            afterText: 'Title: Surface retry metadata',
+            inspiration: {
+              memberId: 'openai/gpt-5-mini',
+              sourceId: 'US-8',
+              sourceLabel: 'Expose retry telemetry',
+              sourceText: 'Title: Expose retry telemetry',
+            },
+            attributionStatus: 'inspired',
+          },
+        ],
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+
+    expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
+    expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
+    expect(document.querySelector('.lucide-lightbulb')).not.toBeNull()
+  })
+
+  it('shows Beads inspiration indicators from the separate ui diff artifact', () => {
+    const refinedArtifact: DBartifact = {
+      id: 48,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_refined',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Validate refinement attribution' },
+          { id: 'bead-2', title: 'Surface retry metadata' },
+        ]),
+      }),
+    }
+
+    const uiDiffArtifact: DBartifact = {
+      id: 49,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_BEADS',
+      artifactType: 'ui_refinement_diff:beads',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:34.000Z',
+      content: JSON.stringify({
+        domain: 'beads',
+        winnerId: 'openai/gpt-5.2',
+        generatedAt: '2026-03-12T11:49:34.000Z',
+        entries: [
+          {
+            key: 'bead:bead-2',
+            changeType: 'added',
+            itemKind: 'bead',
+            label: 'Surface retry metadata',
+            afterId: 'bead-2',
+            afterText: 'Title: Surface retry metadata',
+            inspiration: {
+              memberId: 'openai/gpt-5-mini',
+              sourceId: 'bead-9',
+              sourceLabel: 'Adopt losing-draft telemetry',
+              sourceText: 'Title: Adopt losing-draft telemetry',
+            },
+            attributionStatus: 'inspired',
+          },
+        ],
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_BEADS_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+
+    expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
+    expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
     expect(document.querySelector('.lucide-lightbulb')).not.toBeNull()
   })
 

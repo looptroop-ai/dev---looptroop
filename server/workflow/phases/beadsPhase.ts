@@ -14,7 +14,11 @@ import { normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../
 import { PROM22 } from '../../prompts/index'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
-import { buildBeadsUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import type { RefinementChange } from '@shared/refinementChanges'
+import {
+  buildBeadsUiRefinementDiffArtifact,
+  buildBeadsUiRefinementDiffArtifactFromChanges,
+} from '@shared/refinementDiffArtifacts'
 
 import { adapter, phaseIntermediate } from './state'
 import {
@@ -376,6 +380,7 @@ export async function handleBeadsRefine(
 
   if (signal.aborted) throw new CancelledError(ticketId)
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+  let validatedChanges: RefinementChange[] = []
   const refinedContent = await refineDraft(
     adapter,
     winnerDraft,
@@ -440,6 +445,7 @@ export async function handleBeadsRefine(
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
       })
+      validatedChanges = Array.isArray(result.value.changes) ? result.value.changes : []
       return { normalizedContent: result.normalizedContent }
     },
     PROM22.outputFormat,
@@ -462,12 +468,20 @@ export async function handleBeadsRefine(
     throw new Error(`Expanded bead graph failed validation: ${beadsJsonlResult.error}`)
   }
 
-  const uiDiffArtifact = buildBeadsUiRefinementDiffArtifact({
-    winnerId: intermediate.winnerId,
-    winnerDraftContent: winnerDraft.content,
-    refinedContent,
-    losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
-  })
+  const uiDiffArtifact = validatedChanges.length > 0
+    ? buildBeadsUiRefinementDiffArtifactFromChanges({
+        winnerId: intermediate.winnerId,
+        changes: validatedChanges,
+        winnerDraftContent: winnerDraft.content,
+        refinedContent,
+        losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+      })
+    : buildBeadsUiRefinementDiffArtifact({
+        winnerId: intermediate.winnerId,
+        winnerDraftContent: winnerDraft.content,
+        refinedContent,
+        losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+      })
 
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',

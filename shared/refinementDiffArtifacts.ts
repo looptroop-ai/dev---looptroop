@@ -5,7 +5,7 @@ import type {
   ParsedInterviewQuestion,
 } from './interviewQuestions'
 import { extractInterviewQuestionPreviews } from './interviewQuestions'
-import type { RefinementChangeAttributionStatus } from './refinementChanges'
+import type { RefinementChange, RefinementChangeAttributionStatus } from './refinementChanges'
 
 export type UiRefinementDiffDomain = 'interview' | 'prd' | 'beads'
 export type UiRefinementDiffChangeType = 'modified' | 'replaced' | 'added' | 'removed'
@@ -213,6 +213,139 @@ function findDeterministicInspiration(
     ...(match.id ? { sourceId: match.id } : {}),
     sourceLabel: match.label,
     sourceText: match.text,
+  }
+}
+
+function findSourceCandidateByIdentity(
+  target: { memberId?: string; itemKind: string; id?: string; label?: string },
+  candidates: DiffSourceCandidate[],
+): DiffSourceCandidate | null {
+  const memberScopedCandidates = candidates.filter((candidate) =>
+    candidate.itemKind === target.itemKind
+    && (!target.memberId || candidate.memberId === target.memberId),
+  )
+
+  const idMatches = target.id
+    ? uniqueByKey(
+        memberScopedCandidates.filter((candidate) => candidate.id === target.id),
+        (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`,
+      )
+    : []
+  if (idMatches.length === 1) return idMatches[0]!
+
+  const labelMatches = target.label
+    ? uniqueByKey(
+        memberScopedCandidates.filter((candidate) => candidate.label === target.label),
+        (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`,
+      )
+    : []
+  return labelMatches.length === 1 ? labelMatches[0]! : null
+}
+
+function buildExplicitRefinementInspiration(
+  itemKind: string,
+  inspiration: NonNullable<RefinementChange['inspiration']>,
+  sourceCandidates: DiffSourceCandidate[],
+): UiRefinementDiffInspiration {
+  const sourceCandidate = findSourceCandidateByIdentity(
+    {
+      memberId: inspiration.memberId,
+      itemKind,
+      id: inspiration.item.id,
+      label: inspiration.item.label,
+    },
+    sourceCandidates,
+  )
+
+  return {
+    memberId: sourceCandidate?.memberId ?? inspiration.memberId ?? '',
+    sourceId: inspiration.item.id,
+    sourceLabel: inspiration.item.label,
+    ...(sourceCandidate?.text ? { sourceText: sourceCandidate.text } : {}),
+  }
+}
+
+function normalizeRefinementAttributionStatus(
+  status: RefinementChangeAttributionStatus | undefined,
+  inspiration: RefinementChange['inspiration'] | null,
+): RefinementChangeAttributionStatus {
+  if (
+    status === 'inspired'
+    || status === 'model_unattributed'
+    || status === 'synthesized_unattributed'
+    || status === 'invalid_unattributed'
+  ) {
+    return status
+  }
+
+  return inspiration ? 'inspired' : 'model_unattributed'
+}
+
+function buildFallbackRefinementItemText(
+  item: NonNullable<RefinementChange['before'] | RefinementChange['after']> | null | undefined,
+): string | undefined {
+  const label = item?.label?.trim()
+  if (!label) return undefined
+  const detail = item?.detail?.trim()
+  return detail ? `${label}\n\n${detail}` : label
+}
+
+function buildBlockIdentityLookup(blocks: DiffCandidateBlock[]): Map<string, DiffCandidateBlock> {
+  const lookup = new Map<string, DiffCandidateBlock>()
+  for (const block of blocks) {
+    if (!block.id) continue
+    lookup.set(`${block.itemKind}\u241f${block.id}`, block)
+  }
+  return lookup
+}
+
+function resolveRefinementChangeInspiration(params: {
+  change: RefinementChange
+  itemKind: string
+  afterText?: string
+  sourceCandidates: DiffSourceCandidate[]
+}): {
+  inspiration: UiRefinementDiffInspiration | null
+  attributionStatus: RefinementChangeAttributionStatus
+} {
+  const attributionStatus = normalizeRefinementAttributionStatus(
+    params.change.attributionStatus,
+    params.change.inspiration ?? null,
+  )
+
+  if (params.change.inspiration) {
+    return {
+      inspiration: buildExplicitRefinementInspiration(
+        params.itemKind,
+        params.change.inspiration,
+        params.sourceCandidates,
+      ),
+      attributionStatus: 'inspired',
+    }
+  }
+
+  if (
+    params.change.type === 'removed'
+    || attributionStatus === 'invalid_unattributed'
+    || attributionStatus === 'synthesized_unattributed'
+  ) {
+    return {
+      inspiration: null,
+      attributionStatus,
+    }
+  }
+
+  const deterministicInspiration = findDeterministicInspiration(
+    {
+      itemKind: params.itemKind,
+      text: params.afterText ?? null,
+    },
+    params.sourceCandidates,
+  )
+
+  return {
+    inspiration: deterministicInspiration,
+    attributionStatus: deterministicInspiration ? 'inspired' : attributionStatus,
   }
 }
 
@@ -429,6 +562,66 @@ export function buildInterviewUiRefinementDiffArtifactFromChanges(params: {
   }
 }
 
+function buildRefinementUiRefinementDiffArtifactFromChanges(params: {
+  domain: 'prd' | 'beads'
+  winnerId: string
+  changes: RefinementChange[]
+  winnerBlocks: DiffCandidateBlock[]
+  refinedBlocks: DiffCandidateBlock[]
+  sourceCandidates: DiffSourceCandidate[]
+  generatedAt?: string
+}): UiRefinementDiffArtifact {
+  const winnerLookup = buildBlockIdentityLookup(params.winnerBlocks)
+  const refinedLookup = buildBlockIdentityLookup(params.refinedBlocks)
+
+  const entries = params.changes.flatMap((change, index) => {
+    const changeType = typeof change?.type === 'string' ? change.type.toLowerCase() : ''
+    if (changeType !== 'modified' && changeType !== 'added' && changeType !== 'removed') {
+      return []
+    }
+
+    const itemKind = typeof change.itemType === 'string' && change.itemType.trim()
+      ? change.itemType.trim()
+      : 'item'
+    const before = change.before ?? null
+    const after = change.after ?? null
+    const beforeBlock = before?.id ? winnerLookup.get(`${itemKind}\u241f${before.id}`) : undefined
+    const afterBlock = after?.id ? refinedLookup.get(`${itemKind}\u241f${after.id}`) : undefined
+    const beforeText = beforeBlock?.text ?? buildFallbackRefinementItemText(before)
+    const afterText = afterBlock?.text ?? buildFallbackRefinementItemText(after)
+    const { inspiration, attributionStatus } = resolveRefinementChangeInspiration({
+      change,
+      itemKind,
+      afterText,
+      sourceCandidates: params.sourceCandidates,
+    })
+    const fallbackId = after?.id ?? before?.id ?? `${index + 1}`
+    const key = afterBlock?.key
+      ?? beforeBlock?.key
+      ?? `${itemKind}:${fallbackId}:${changeType}:${index}`
+
+    return [{
+      key,
+      changeType,
+      itemKind,
+      label: afterBlock?.label ?? beforeBlock?.label ?? after?.label ?? before?.label ?? fallbackId,
+      ...(beforeBlock?.id ?? before?.id ? { beforeId: beforeBlock?.id ?? before?.id } : {}),
+      ...(afterBlock?.id ?? after?.id ? { afterId: afterBlock?.id ?? after?.id } : {}),
+      ...(beforeText ? { beforeText } : {}),
+      ...(afterText ? { afterText } : {}),
+      inspiration,
+      attributionStatus,
+    } satisfies UiRefinementDiffEntry]
+  })
+
+  return {
+    domain: params.domain,
+    winnerId: params.winnerId.trim(),
+    generatedAt: params.generatedAt ?? new Date().toISOString(),
+    entries,
+  }
+}
+
 function parsePrdDocument(content: string): ParsedPrdDocument | null {
   return readYamlRecord<ParsedPrdDocument>(content)
 }
@@ -627,6 +820,29 @@ export function buildPrdUiRefinementDiffArtifact(params: {
   }
 }
 
+export function buildPrdUiRefinementDiffArtifactFromChanges(params: {
+  winnerId: string
+  changes: RefinementChange[]
+  winnerDraftContent: string
+  refinedContent: string
+  losingDrafts?: Array<{ memberId: string; content: string }>
+  generatedAt?: string
+}): UiRefinementDiffArtifact {
+  const winnerBlocks = buildPrdBlocks(params.winnerDraftContent)
+  const refinedBlocks = buildPrdBlocks(params.refinedContent)
+  const sourceCandidates = buildSourceCandidates(params.losingDrafts ?? [], buildPrdBlocks)
+
+  return buildRefinementUiRefinementDiffArtifactFromChanges({
+    domain: 'prd',
+    winnerId: params.winnerId,
+    changes: params.changes,
+    winnerBlocks,
+    refinedBlocks,
+    sourceCandidates,
+    generatedAt: params.generatedAt,
+  })
+}
+
 function parseBeadSubsetContent(content: string): ParsedBeadSubset[] {
   const parsed = readYamlArray<ParsedBeadSubset>(content)
   return Array.isArray(parsed) ? parsed : []
@@ -681,6 +897,29 @@ export function buildBeadsUiRefinementDiffArtifact(params: {
     generatedAt: params.generatedAt ?? new Date().toISOString(),
     entries: buildBlockDiffEntries(winnerBlocks, refinedBlocks, sourceCandidates),
   }
+}
+
+export function buildBeadsUiRefinementDiffArtifactFromChanges(params: {
+  winnerId: string
+  changes: RefinementChange[]
+  winnerDraftContent: string
+  refinedContent: string
+  losingDrafts?: Array<{ memberId: string; content: string }>
+  generatedAt?: string
+}): UiRefinementDiffArtifact {
+  const winnerBlocks = buildBeadBlocks(params.winnerDraftContent)
+  const refinedBlocks = buildBeadBlocks(params.refinedContent)
+  const sourceCandidates = buildSourceCandidates(params.losingDrafts ?? [], buildBeadBlocks)
+
+  return buildRefinementUiRefinementDiffArtifactFromChanges({
+    domain: 'beads',
+    winnerId: params.winnerId,
+    changes: params.changes,
+    winnerBlocks,
+    refinedBlocks,
+    sourceCandidates,
+    generatedAt: params.generatedAt,
+  })
 }
 
 export function parseUiRefinementDiffArtifact(content: string | null | undefined): UiRefinementDiffArtifact | null {

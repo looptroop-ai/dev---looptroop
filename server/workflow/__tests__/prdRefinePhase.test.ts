@@ -408,7 +408,25 @@ describe('handlePrdRefine', () => {
     })
     expect(refinedCompanion?.structuredOutput?.validationError).toBeUndefined()
     expect(refinedCompanion?.structuredOutput?.repairWarnings?.join('\n')).toContain('Inferred missing PRD refinement item_type')
-    expect(getLatestPhaseArtifact(ticket.id, 'ui_refinement_diff:prd', 'REFINING_PRD')).toBeDefined()
+    const uiDiffArtifact = getLatestPhaseArtifact(ticket.id, 'ui_refinement_diff:prd', 'REFINING_PRD')
+    expect(uiDiffArtifact).toBeDefined()
+    expect(JSON.parse(uiDiffArtifact!.content)).toMatchObject({
+      domain: 'prd',
+      winnerId,
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          changeType: 'added',
+          itemKind: 'user_story',
+          afterId: 'US-3',
+          inspiration: expect.objectContaining({
+            memberId: 'openai/gpt-5-mini',
+            sourceId: 'US-8',
+            sourceLabel: 'Expose retry telemetry',
+          }),
+          attributionStatus: 'inspired',
+        }),
+      ]),
+    })
 
     expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8').trim()).toBe(parsed.refinedContent.trim())
     expect(getLatestPhaseArtifact(ticket.id, 'prd_winner', 'REFINING_PRD')).toBeDefined()
