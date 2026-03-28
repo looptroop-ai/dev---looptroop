@@ -30,7 +30,7 @@ function SSELogConnector({
 }: {
   ticketId: string | null
   currentStatus: string
-  onStateChange?: (status: string) => void
+  onStateChange?: (payload: { status: string; previousStatus?: string }) => void
 }) {
   const logCtx = useLogs()
 
@@ -39,7 +39,10 @@ function SSELogConnector({
       const from = String(event.data.from ?? '')
       const to = String(event.data.to ?? '')
       if (to) {
-        onStateChange?.(to)
+        onStateChange?.({
+          status: to,
+          ...(from ? { previousStatus: from } : {}),
+        })
         logCtx?.setActivePhase(to)
         logCtx?.addLog(
           to,
@@ -152,15 +155,26 @@ export function TicketDashboard() {
     ticketId: null,
     phase: null,
   })
-  const [livePhase, setLivePhase] = useState<{ ticketId: string | null; phase: string | null }>({
+  const [livePhase, setLivePhase] = useState<{
+    ticketId: string | null
+    phase: string | null
+    previousStatus: string | null
+    reviewCutoffStatus: string | null
+  }>({
     ticketId: null,
     phase: null,
+    previousStatus: null,
+    reviewCutoffStatus: null,
   })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const snapshotPreviousStatus = useMemo(
     () => ticket?.previousStatus ?? undefined,
     [ticket?.previousStatus],
+  )
+  const snapshotReviewCutoffStatus = useMemo(
+    () => ticket?.reviewCutoffStatus ?? undefined,
+    [ticket?.reviewCutoffStatus],
   )
 
   const errorSignature = ticket ? getErrorTicketSignature(ticket) : null
@@ -176,7 +190,12 @@ export function TicketDashboard() {
     const liveIdx = WORKFLOW_PHASE_IDS.indexOf(livePhase.phase)
     const dbIdx = WORKFLOW_PHASE_IDS.indexOf(dbStatus)
     if (liveIdx >= 0 && dbIdx >= 0 && dbIdx > liveIdx) {
-      setLivePhase({ ticketId, phase: dbStatus })
+      setLivePhase({
+        ticketId,
+        phase: dbStatus,
+        previousStatus: null,
+        reviewCutoffStatus: null,
+      })
     }
   }
 
@@ -184,24 +203,62 @@ export function TicketDashboard() {
     ? livePhase.phase
     : null
   const currentStatus = liveStatus ?? ticket?.status ?? ''
+  const livePhaseMeta = livePhase.ticketId === ticketId && livePhase.phase === currentStatus
+    ? livePhase
+    : null
+  const previousStatus = livePhaseMeta?.previousStatus ?? snapshotPreviousStatus
+  const reviewCutoffStatus = livePhaseMeta?.reviewCutoffStatus ?? snapshotReviewCutoffStatus
   const selectedPhase = phaseSelection.ticketId === ticketId && phaseSelection.phase !== currentStatus
     ? phaseSelection.phase
     : null
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
   }, [ticketId])
-  const handleLiveStatusChange = useCallback((phase: string) => {
+  const handleLiveStatusChange = useCallback(({ status, previousStatus }: { status: string; previousStatus?: string }) => {
     setLivePhase((current) => {
-      if (current.ticketId === ticketId && current.phase === phase) return current
-      return { ticketId, phase }
+      const nextPreviousStatus = previousStatus ?? null
+      let nextReviewCutoffStatus: string | null = null
+
+      if (status === 'BLOCKED_ERROR') {
+        nextReviewCutoffStatus = nextPreviousStatus
+          ?? current.reviewCutoffStatus
+          ?? snapshotReviewCutoffStatus
+          ?? snapshotPreviousStatus
+          ?? null
+      } else if (status === 'CANCELED') {
+        if (nextPreviousStatus === 'BLOCKED_ERROR') {
+          nextReviewCutoffStatus = current.phase === 'BLOCKED_ERROR'
+            ? current.reviewCutoffStatus
+            : snapshotReviewCutoffStatus
+              ?? (ticket?.status === 'BLOCKED_ERROR' ? snapshotPreviousStatus ?? null : null)
+        } else {
+          nextReviewCutoffStatus = nextPreviousStatus ?? snapshotReviewCutoffStatus ?? null
+        }
+      }
+
+      if (
+        current.ticketId === ticketId
+        && current.phase === status
+        && current.previousStatus === nextPreviousStatus
+        && current.reviewCutoffStatus === nextReviewCutoffStatus
+      ) {
+        return current
+      }
+
+      return {
+        ticketId,
+        phase: status,
+        previousStatus: nextPreviousStatus,
+        reviewCutoffStatus: nextReviewCutoffStatus,
+      }
     })
     setPhaseSelection((current) => {
-      if (current.ticketId === ticketId && current.phase === phase) {
+      if (current.ticketId === ticketId && current.phase === status) {
         return { ticketId, phase: null }
       }
       return current
     })
-  }, [ticketId])
+  }, [ticket?.status, ticketId, snapshotPreviousStatus, snapshotReviewCutoffStatus])
 
   useEffect(() => {
     if (!ticket) return
@@ -275,8 +332,6 @@ export function TicketDashboard() {
   const effectiveTicket = currentStatus === ticket.status
     ? ticket
     : { ...ticket, status: currentStatus }
-  const canceledFromStatus = currentStatus === 'CANCELED' ? snapshotPreviousStatus : undefined
-  const previousStatus = currentStatus === 'BLOCKED_ERROR' ? snapshotPreviousStatus : undefined
   const activePhase = selectedPhase ?? currentStatus
 
   return (
@@ -315,7 +370,7 @@ export function TicketDashboard() {
                   ticketId={ticket.id}
                   currentStatus={currentStatus}
                   selectedPhase={activePhase}
-                  canceledFromStatus={canceledFromStatus}
+                  reviewCutoffStatus={reviewCutoffStatus}
                   previousStatus={previousStatus}
                   onSelectPhase={(phase) => {
                     handleSelectPhase(phase)
@@ -337,7 +392,7 @@ export function TicketDashboard() {
               ticketId={ticket.id}
               currentStatus={currentStatus}
               selectedPhase={activePhase}
-              canceledFromStatus={canceledFromStatus}
+              reviewCutoffStatus={reviewCutoffStatus}
               previousStatus={previousStatus}
               onSelectPhase={handleSelectPhase}
             />
@@ -345,7 +400,12 @@ export function TicketDashboard() {
           <ResizeHandle onResize={setNavWidth} />
           {/* Active Workspace */}
           <div className="flex flex-col flex-1 overflow-hidden">
-            <ActiveWorkspace ticket={effectiveTicket} selectedPhase={activePhase} canceledFromStatus={canceledFromStatus} />
+            <ActiveWorkspace
+              ticket={effectiveTicket}
+              selectedPhase={activePhase}
+              previousStatus={previousStatus}
+              reviewCutoffStatus={reviewCutoffStatus}
+            />
           </div>
         </div>
       </div>

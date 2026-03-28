@@ -104,6 +104,7 @@ function makeTicket(status: string): Ticket {
     lockedCouncilMembers: ['openai/gpt-5-codex', 'openai/gpt-5-mini'],
     availableActions: [],
     previousStatus: null,
+    reviewCutoffStatus: null,
     runtime: {
       baseBranch: 'main',
       currentBead: 0,

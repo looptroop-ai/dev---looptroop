@@ -9,7 +9,7 @@ import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 
 interface PhaseTimelineProps {
   currentStatus: string
-  canceledFromStatus?: string
+  reviewCutoffStatus?: string
   previousStatus?: string
   onSelectPhase?: (phase: string) => void
   selectedPhase?: string | null
@@ -21,7 +21,7 @@ function getPhaseIndicatorStatus(
   phaseId: string,
   currentStatus: string,
   phaseOrder: string[],
-  canceledFromStatus?: string,
+  reviewCutoffStatus?: string,
   previousStatus?: string,
 ): PhaseIndicatorStatus {
   if (currentStatus === 'BLOCKED_ERROR') {
@@ -43,8 +43,20 @@ function getPhaseIndicatorStatus(
 
   if (currentStatus === 'CANCELED') {
     if (phaseId === 'CANCELED') return 'canceled'
-    if (canceledFromStatus && canceledFromStatus !== 'BLOCKED_ERROR') {
-      const cutoffIndex = phaseOrder.indexOf(canceledFromStatus)
+    if (previousStatus === 'BLOCKED_ERROR') {
+      if (phaseId === 'BLOCKED_ERROR') return 'error'
+      if (reviewCutoffStatus) {
+        const cutoffIndex = phaseOrder.indexOf(reviewCutoffStatus)
+        const phaseIndex = phaseOrder.indexOf(phaseId)
+        if (cutoffIndex >= 0 && phaseIndex >= 0) {
+          if (phaseId === reviewCutoffStatus) return 'error'
+          if (phaseIndex < cutoffIndex) return 'completed'
+        }
+      }
+      return 'pending'
+    }
+    if (reviewCutoffStatus) {
+      const cutoffIndex = phaseOrder.indexOf(reviewCutoffStatus)
       const phaseIndex = phaseOrder.indexOf(phaseId)
       if (cutoffIndex >= 0 && phaseIndex >= 0 && phaseIndex <= cutoffIndex) {
         return 'completed'
@@ -67,10 +79,10 @@ function getGroupStatus(
   group: { id: string; phases: Array<{ id: string }> },
   currentStatus: string,
   phaseOrder: string[],
-  canceledFromStatus?: string,
+  reviewCutoffStatus?: string,
   previousStatus?: string,
 ): PhaseIndicatorStatus {
-  const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus, phaseOrder, canceledFromStatus, previousStatus))
+  const statuses = group.phases.map(p => getPhaseIndicatorStatus(p.id, currentStatus, phaseOrder, reviewCutoffStatus, previousStatus))
 
   if (group.id === 'todo' && currentStatus === 'DRAFT') {
     return 'pending'
@@ -89,7 +101,7 @@ function getPhaseTooltip(phaseId: string): string {
   return STATUS_DESCRIPTIONS[phaseId] ?? phaseId.replace(/_/g, ' ')
 }
 
-export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
+export function PhaseTimeline({ currentStatus, reviewCutoffStatus, previousStatus, onSelectPhase, selectedPhase }: PhaseTimelineProps) {
   const { groups, phases } = useWorkflowMeta()
   const phaseGroups = useMemo(() => groups.map((group) => ({
     id: group.id,
@@ -125,7 +137,7 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatu
     <ScrollArea className="h-full">
       <div className="p-2 space-y-1">
         {phaseGroups.map((group, gi) => {
-          const groupStatus = getGroupStatus(group, currentStatus, phaseOrder, canceledFromStatus, previousStatus)
+          const groupStatus = getGroupStatus(group, currentStatus, phaseOrder, reviewCutoffStatus, previousStatus)
           const isExpanded = expandedGroups.has(gi)
 
           return (
@@ -150,7 +162,7 @@ export function PhaseTimeline({ currentStatus, canceledFromStatus, previousStatu
               {isExpanded && (
                 <div className="ml-3 space-y-0.5 mt-0.5">
                   {group.phases.map(phase => {
-                    const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus, phaseOrder, canceledFromStatus, previousStatus)
+                    const indicatorStatus = getPhaseIndicatorStatus(phase.id, currentStatus, phaseOrder, reviewCutoffStatus, previousStatus)
                     const isSelected = selectedPhase === phase.id
                     const isPast = indicatorStatus === 'completed'
                     const isFuture = indicatorStatus === 'pending'

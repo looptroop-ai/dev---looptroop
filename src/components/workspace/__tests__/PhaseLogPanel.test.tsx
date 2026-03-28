@@ -374,6 +374,50 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
   })
 
+  it('keeps streamed AI text out of ALL until the finalized output arrives', () => {
+    const systemLog = makeLog('sys-1', '[SYS] PRD drafting started.', {
+      status: 'DRAFTING_PRD',
+      timestamp: '2026-03-10T10:00:00.000Z',
+    })
+    const streamingAiLog: LogEntry = {
+      id: 'ses-7:msg-1:text',
+      entryId: 'ses-7:msg-1:text',
+      line: '[MODEL] prd:\n  title: Final PRD Title',
+      source: 'model:openai/gpt-5-codex',
+      status: 'DRAFTING_PRD',
+      timestamp: '2026-03-10T10:00:01.000Z',
+      audience: 'ai',
+      kind: 'text',
+      modelId: 'openai/gpt-5-codex',
+      sessionId: 'ses-7',
+      streaming: true,
+      op: 'upsert',
+    }
+    const finalizedAiLog: LogEntry = {
+      ...streamingAiLog,
+      streaming: false,
+      op: 'finalize',
+      timestamp: '2026-03-10T10:00:02.000Z',
+    }
+
+    const { rerender } = render(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, streamingAiLog]} />)
+
+    expect(screen.getByText(/PRD drafting started/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Final PRD Title/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(screen.getByText(/Final PRD Title/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ALL' }))
+
+    expect(screen.queryByText(/Final PRD Title/i)).not.toBeInTheDocument()
+
+    rerender(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, finalizedAiLog]} />)
+
+    expect(screen.getByText(/Final PRD Title/i)).toBeInTheDocument()
+  })
+
   it('pins the viewport to the latest logs by default and follows new visible entries', () => {
     const firstLog = makeLog('log-1', '[SYS] First visible log line')
     const secondLog = makeLog('log-2', '[SYS] Second visible log line', {

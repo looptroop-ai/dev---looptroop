@@ -15,7 +15,7 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   interview_qa: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
   // PROM5: "Ticket description + collected answers + current Interview Results"
   interview_coverage: ['ticket_details', 'user_answers', 'interview'],
-  // PROM09d + PROM10: "Relevant files + ticket details + final Interview Results / Full Answers"
+  // PROM10a + PROM10b: "Relevant files + ticket details + final Interview Results / Full Answers"
   prd_draft: ['relevant_files', 'ticket_details', 'interview', 'full_answers'],
   // PROM11: "Relevant files + ticket details + final Interview Results + all PRD drafts"
   prd_vote: ['relevant_files', 'ticket_details', 'interview', 'drafts'],

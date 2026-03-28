@@ -12,7 +12,7 @@ import { classifyDraftFailure, isAbortError, isPhaseDeadlineError, PHASE_DEADLIN
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import type { Message, PromptPart, Session, StreamEvent } from '../../opencode/types'
 import { SessionManager } from '../../opencode/sessionManager'
-import { buildPromptFromTemplate, PROM09D, PROM10, PROM11, PROM12 } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM10a, PROM10b, PROM11, PROM12 } from '../../prompts/index'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt, normalizeInterviewDocumentOutput } from '../../structuredOutput'
@@ -106,7 +106,7 @@ export function buildPrdRefinePrompt(
   return [{ type: 'text', content: buildPromptFromTemplate(PROM12, refineContext) }]
 }
 
-function buildPromptParts(template: typeof PROM09D | typeof PROM10, contextParts: PromptPart[]): PromptPart[] {
+function buildPromptParts(template: typeof PROM10a | typeof PROM10b, contextParts: PromptPart[]): PromptPart[] {
   return [{ type: 'text', content: buildPromptFromTemplate(template, contextParts) }]
 }
 
@@ -555,7 +555,7 @@ export async function draftPRD(
       if (shouldResolveGaps) {
         onStepEvent?.({ memberId: member.modelId, step: 'full_answers', status: 'started' })
         const gapResolutionParts = buildPromptParts(
-          PROM09D,
+          PROM10a,
           buildMinimalContext('prd_draft', {
             ...ticketState,
             fullAnswers: undefined,
@@ -583,7 +583,7 @@ export async function draftPRD(
               repairWarnings: result.repairWarnings,
             }
           },
-          schemaReminder: PROM09D.outputFormat,
+          schemaReminder: PROM10a.outputFormat,
           buildRetryPrompt: ({ baseParts, validationError, rawResponse }) => buildFullAnswersRetryPrompt(baseParts, {
             validationError,
             rawResponse,
@@ -672,7 +672,7 @@ export async function draftPRD(
 
       onStepEvent?.({ memberId: member.modelId, step: 'prd_draft', status: 'started' })
       const prdPromptParts = buildPromptParts(
-        PROM10,
+        PROM10b,
         buildMinimalContext('prd_draft', {
           ...ticketState,
           interview: undefined,
@@ -700,7 +700,7 @@ export async function draftPRD(
             draftMetrics: result.metrics,
           }
         },
-        schemaReminder: PROM10.outputFormat,
+        schemaReminder: PROM10b.outputFormat,
         onOpenCodeSessionLog,
         onOpenCodeStreamEvent,
         onOpenCodePromptDispatched,

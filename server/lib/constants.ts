@@ -14,6 +14,8 @@ export const SQLITE_BUSY_TIMEOUT_MS = 5000
 export const DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
 /** Max SSE event buffer size */
 export const MAX_SSE_BUFFER_SIZE = 1000
+/** Max SSE replay buffer bytes per ticket */
+export const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024
 /** Max UI state payload size in bytes (2MB) */
 export const MAX_UI_STATE_BYTES = 2_097_152
 /** Max interview questions per batch */

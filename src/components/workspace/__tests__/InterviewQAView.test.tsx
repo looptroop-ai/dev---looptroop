@@ -71,6 +71,7 @@ function makeTicket(): Ticket {
     lockedCouncilMembers: ['openai/gpt-5'],
     availableActions: [],
     previousStatus: null,
+    reviewCutoffStatus: null,
     runtime: {
       baseBranch: 'main',
       currentBead: 0,

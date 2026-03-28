@@ -308,8 +308,8 @@ export const PROM5: PromptTemplate = {
 }
 
 // PRD Phase Prompts
-export const PROM09D: PromptTemplate = {
-  id: 'PROM09D',
+export const PROM10a: PromptTemplate = {
+  id: 'PROM10a',
   description: 'PRD Gap Resolution Prompt',
   systemRole: 'You are an expert Technical Product Manager and Software Architect.',
   task: 'Fill every skipped answer in the approved Interview Results and output one complete Full Answers interview artifact that preserves the original approved interview structure.',
@@ -333,8 +333,8 @@ export const PROM09D: PromptTemplate = {
   contextInputs: ['relevant_files', 'ticket_details', 'interview'],
 }
 
-export const PROM10: PromptTemplate = {
-  id: 'PROM10',
+export const PROM10b: PromptTemplate = {
+  id: 'PROM10b',
   description: 'PRD Draft Specification Prompt',
   systemRole: 'You are an expert Technical Product Manager and Software Architect.',
   task: 'Generate a complete Product Requirements Document (PRD) based on the provided Full Answers interview artifact. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity.',
@@ -603,8 +603,8 @@ export const ALL_PROMPTS = {
   PROM3,
   PROM4,
   PROM5,
-  PROM09D,
-  PROM10,
+  PROM10a,
+  PROM10b,
   PROM11,
   PROM12,
   PROM13,

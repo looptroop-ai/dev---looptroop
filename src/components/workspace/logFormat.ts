@@ -116,7 +116,8 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     Boolean(entry.sessionId)
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
   const isOverviewAiEntry = (entry: LogEntry) =>
-    entry.audience === 'ai' && (entry.kind === 'text' || isLegacyTranscriptSummary(entry))
+    entry.audience === 'ai'
+    && ((entry.kind === 'text' && !entry.streaming) || isLegacyTranscriptSummary(entry))
 
   switch (tab) {
     case 'ALL':

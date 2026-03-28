@@ -50,6 +50,7 @@ export interface Ticket {
   lockedCouncilMemberVariants?: Record<string, string> | null
   availableActions: WorkflowAction[]
   previousStatus?: string | null
+  reviewCutoffStatus: string | null
   runtime: TicketRuntime
   startedAt: string | null
   plannedDate: string | null

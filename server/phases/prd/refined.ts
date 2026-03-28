@@ -516,7 +516,7 @@ export function buildPrdRefinementRetryPrompt(
         'Return only one corrected YAML artifact.',
         'Do not use tools.',
         'Requirements:',
-        '- Use the exact PROM10 PRD schema.',
+        '- Use the exact PROM10b PRD schema.',
         '- Preserve epic IDs and user story IDs unless the final draft contains a genuinely new item.',
         '- Do not wrap the PRD in another object.',
         '- Do not include prose, commentary, markdown fences, or extra top-level keys.',

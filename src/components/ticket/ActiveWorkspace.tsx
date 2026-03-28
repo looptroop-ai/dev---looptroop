@@ -13,25 +13,35 @@ import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 interface ActiveWorkspaceProps {
   ticket: Ticket
   selectedPhase: string
-  canceledFromStatus?: string
+  previousStatus?: string
+  reviewCutoffStatus?: string
 }
 
-function isPastPhase(phase: string, currentStatus: string, phaseOrder: string[], canceledFromStatus?: string): boolean {
+function isReviewablePhase(
+  phase: string,
+  currentStatus: string,
+  phaseOrder: string[],
+  previousStatus?: string,
+  reviewCutoffStatus?: string,
+): boolean {
   const phaseIndex = phaseOrder.indexOf(phase)
   if (currentStatus === 'CANCELED') {
-    if (!canceledFromStatus || canceledFromStatus === 'BLOCKED_ERROR') return false
-    const cutoffIndex = phaseOrder.indexOf(canceledFromStatus)
+    if (previousStatus === 'BLOCKED_ERROR' && phase === 'BLOCKED_ERROR') {
+      return true
+    }
+    if (!reviewCutoffStatus) return false
+    const cutoffIndex = phaseOrder.indexOf(reviewCutoffStatus)
     return phaseIndex >= 0 && cutoffIndex >= 0 && phaseIndex <= cutoffIndex
   }
   const currentIndex = phaseOrder.indexOf(currentStatus)
   return phaseIndex >= 0 && currentIndex >= 0 && phaseIndex < currentIndex
 }
 
-export function ActiveWorkspace({ ticket, selectedPhase, canceledFromStatus }: ActiveWorkspaceProps) {
+export function ActiveWorkspace({ ticket, selectedPhase, previousStatus, reviewCutoffStatus }: ActiveWorkspaceProps) {
   const { phases, phaseMap } = useWorkflowMeta()
   const phaseOrder = phases.map((phase) => phase.id)
   const phaseMeta = phaseMap[selectedPhase]
-  const isViewingPast = isPastPhase(selectedPhase, ticket.status, phaseOrder, canceledFromStatus)
+  const isViewingPast = isReviewablePhase(selectedPhase, ticket.status, phaseOrder, previousStatus, reviewCutoffStatus)
 
   // If viewing a past/completed phase, show the review view with logs + artifacts
   if (isViewingPast) {

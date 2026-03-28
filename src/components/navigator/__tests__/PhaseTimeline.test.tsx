@@ -61,4 +61,69 @@ describe('PhaseTimeline', () => {
     expect(screen.getByText(/Implementing \(Bead \?\/\?\)/)).toBeInTheDocument()
     expect(screen.getByText('Self-Testing')).toBeInTheDocument()
   })
+
+  it('keeps the pre-error phase and BLOCKED_ERROR selectable after canceling from an error', () => {
+    const onSelect = vi.fn()
+    renderWithProviders(
+      <PhaseTimeline
+        currentStatus="CANCELED"
+        previousStatus="BLOCKED_ERROR"
+        reviewCutoffStatus="CODING"
+        onSelectPhase={onSelect}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Execution'))
+
+    const codingBtn = screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')
+    const blockedErrorBtn = screen.getByText('Error (reason)').closest('button')
+    const finalTestBtn = screen.getByText('Self-Testing').closest('button')
+
+    expect(codingBtn).not.toBeDisabled()
+    expect(blockedErrorBtn).not.toBeDisabled()
+    expect(finalTestBtn).toBeDisabled()
+
+    fireEvent.click(codingBtn!)
+    fireEvent.click(blockedErrorBtn!)
+
+    expect(onSelect).toHaveBeenCalledWith('CODING')
+    expect(onSelect).toHaveBeenCalledWith('BLOCKED_ERROR')
+  })
+
+  it('keeps ordinary canceled tickets reviewable through their last working phase', () => {
+    renderWithProviders(
+      <PhaseTimeline
+        currentStatus="CANCELED"
+        previousStatus="CODING"
+        reviewCutoffStatus="CODING"
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Execution'))
+
+    expect(screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')).not.toBeDisabled()
+    expect(screen.getByText('Self-Testing').closest('button')).toBeDisabled()
+  })
+
+  it('preserves live BLOCKED_ERROR phase review behavior', () => {
+    const onSelect = vi.fn()
+    renderWithProviders(
+      <PhaseTimeline
+        currentStatus="BLOCKED_ERROR"
+        previousStatus="CODING"
+        reviewCutoffStatus="CODING"
+        onSelectPhase={onSelect}
+      />,
+    )
+
+    // Execution group is auto-expanded since BLOCKED_ERROR belongs there.
+    const codingBtn = screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')
+    const finalTestBtn = screen.getByText('Self-Testing').closest('button')
+
+    expect(codingBtn).not.toBeDisabled()
+    expect(finalTestBtn).toBeDisabled()
+
+    fireEvent.click(codingBtn!)
+    expect(onSelect).toHaveBeenCalledWith('CODING')
+  })
 })

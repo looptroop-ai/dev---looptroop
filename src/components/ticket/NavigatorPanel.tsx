@@ -6,19 +6,19 @@ interface NavigatorPanelProps {
   ticketId: string
   currentStatus: string
   selectedPhase: string
-  canceledFromStatus?: string
+  reviewCutoffStatus?: string
   previousStatus?: string
   onSelectPhase: (phase: string | null) => void
 }
 
-export function NavigatorPanel({ ticketId, currentStatus, selectedPhase, canceledFromStatus, previousStatus, onSelectPhase }: NavigatorPanelProps) {
+export function NavigatorPanel({ ticketId, currentStatus, selectedPhase, reviewCutoffStatus, previousStatus, onSelectPhase }: NavigatorPanelProps) {
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex-1 overflow-hidden">
           <PhaseTimeline
             currentStatus={currentStatus}
-            canceledFromStatus={canceledFromStatus}
+            reviewCutoffStatus={reviewCutoffStatus}
             previousStatus={previousStatus}
             onSelectPhase={(phase) => onSelectPhase(phase === currentStatus ? null : phase)}
             selectedPhase={selectedPhase}

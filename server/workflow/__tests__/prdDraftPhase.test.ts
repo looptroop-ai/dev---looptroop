@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import type { Vote } from '../../council/types'
 import { initializeDatabase } from '../../db/init'
@@ -194,16 +195,6 @@ describe('handlePrdDraft', () => {
       _onOpenCodeSessionLog: unknown,
       _onOpenCodeStreamEvent: unknown,
       _onOpenCodePromptDispatched: unknown,
-      onFullAnswersProgress?: (entry: {
-        memberId: string
-        status: 'session_created' | 'finished'
-        outcome?: 'completed'
-        sessionId?: string
-        duration?: number
-        content?: string
-        questionCount?: number
-        structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
-      }) => void,
       onDraftProgress?: (entry: {
         memberId: string
         status: 'session_created' | 'finished'
@@ -212,6 +203,16 @@ describe('handlePrdDraft', () => {
         duration?: number
         content?: string
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
+        structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
+      }) => void,
+      onFullAnswersProgress?: (entry: {
+        memberId: string
+        status: 'session_created' | 'finished'
+        outcome?: 'completed'
+        sessionId?: string
+        duration?: number
+        content?: string
+        questionCount?: number
         structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
       }) => void,
     ) => {
@@ -451,29 +452,41 @@ describe('handlePrdDraft', () => {
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
     const fullAnswersRow = getLatestPhaseArtifact(ticket.id, 'prd_full_answers', 'DRAFTING_PRD')
     const artifactRow = getLatestPhaseArtifact(ticket.id, 'prd_drafts', 'DRAFTING_PRD')
+    const fullAnswersCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_full_answers', 'DRAFTING_PRD')
+    const artifactCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_drafts', 'DRAFTING_PRD')
     expect(fullAnswersRow).toBeDefined()
     expect(artifactRow).toBeDefined()
+    expect(fullAnswersCompanionRow).toBeDefined()
+    expect(artifactCompanionRow).toBeDefined()
     const fullAnswersArtifact = JSON.parse(fullAnswersRow!.content) as {
       drafts?: Array<{
         content?: string
-        questionCount?: number
       }>
     }
+    const fullAnswersCompanion = parseUiArtifactCompanionArtifact(fullAnswersCompanionRow!.content)?.payload as {
+      draftDetails?: Array<{
+        questionCount?: number
+      }>
+    } | undefined
     const artifact = JSON.parse(artifactRow!.content) as {
       drafts?: Array<{
         content?: string
+      }>
+    }
+    const artifactCompanion = parseUiArtifactCompanionArtifact(artifactCompanionRow!.content)?.payload as {
+      draftDetails?: Array<{
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
         structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
       }>
-    }
+    } | undefined
 
     expect(fullAnswersArtifact.drafts?.[0]?.content).toContain('answered_by: ai_skip')
-    expect(fullAnswersArtifact.drafts?.[0]?.questionCount).toBe(1)
-    expect(artifact.drafts?.[0]?.draftMetrics).toEqual({
+    expect(fullAnswersCompanion?.draftDetails?.[0]?.questionCount).toBe(1)
+    expect(artifactCompanion?.draftDetails?.[0]?.draftMetrics).toEqual({
       epicCount: 1,
       userStoryCount: 2,
     })
-    expect(artifact.drafts?.[0]?.structuredOutput).toEqual({
+    expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput).toEqual({
       repairApplied: true,
       repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
       autoRetryCount: 1,
@@ -482,8 +495,8 @@ describe('handlePrdDraft', () => {
     expect(existsSync(paths.executionLogPath)).toBe(true)
     const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
     expect(executionLog).toContain('PRD draft session created for openai/gpt-5-mini: session-prd-mini.')
-    expect(executionLog).toContain('produced Full Answers (1 answered questions).')
-    expect(executionLog).toContain('drafted PRD (1 epics · 2 user stories).')
+    expect(executionLog).toContain('Full Answers round completed')
+    expect(executionLog).toContain('PRD draft round completed')
     expect(executionLog).toContain('PRD draft normalization applied repairs')
     expect(executionLog).toContain('PRD draft required 1 structured retry attempt(s)')
   })
@@ -498,27 +511,28 @@ describe('handlePrdDraft', () => {
     await handleMockPrdVote(ticket.id, context, sendEvent)
 
     const voteRow = getLatestPhaseArtifact(ticket.id, 'prd_votes', 'COUNCIL_VOTING_PRD')
+    const voteCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_votes', 'COUNCIL_VOTING_PRD')
     expect(voteRow).toBeDefined()
+    expect(voteCompanionRow).toBeDefined()
 
     const voteArtifact = JSON.parse(voteRow!.content) as {
-      drafts?: Array<{ memberId?: string; outcome?: string; content?: string }>
+      winnerId?: string
+      isFinal?: boolean
+    }
+    const voteCompanion = parseUiArtifactCompanionArtifact(voteCompanionRow!.content)?.payload as {
       votes?: Array<{ voterId?: string; draftId?: string; scores?: Array<{ category?: string; score?: number }>; totalScore?: number }>
       voterOutcomes?: Record<string, string>
       presentationOrders?: Record<string, { seed: string; order: string[] }>
-      winnerId?: string
       totalScore?: number
-      isFinal?: boolean
-    }
+    } | undefined
 
     expect(voteArtifact.isFinal).toBe(true)
-    expect(voteArtifact.drafts).toHaveLength(2)
-    expect(voteArtifact.drafts?.every((draft) => draft.outcome === 'completed')).toBe(true)
-    expect(voteArtifact.votes).toHaveLength(4)
-    expect(voteArtifact.votes?.every((vote) => vote.scores?.length === 5)).toBe(true)
-    expect(Object.keys(voteArtifact.voterOutcomes ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
-    expect(Object.keys(voteArtifact.presentationOrders ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
     expect(voteArtifact.winnerId).toBeTruthy()
-    expect(voteArtifact.totalScore).toBeGreaterThan(0)
+    expect(voteCompanion?.votes).toHaveLength(4)
+    expect(voteCompanion?.votes?.every((vote) => vote.scores?.length === 5)).toBe(true)
+    expect(Object.keys(voteCompanion?.voterOutcomes ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
+    expect(Object.keys(voteCompanion?.presentationOrders ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
+    expect(voteCompanion?.totalScore).toBeGreaterThan(0)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
     expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: voteArtifact.winnerId })
   })
@@ -646,28 +660,35 @@ describe('handlePrdDraft', () => {
     await handlePrdVote(ticket.id, context, sendEvent, new AbortController().signal)
 
     const voteRow = getLatestPhaseArtifact(ticket.id, 'prd_votes', 'COUNCIL_VOTING_PRD')
+    const voteCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_votes', 'COUNCIL_VOTING_PRD')
     expect(voteRow).toBeDefined()
+    expect(voteCompanionRow).toBeDefined()
     const voteArtifact = JSON.parse(voteRow!.content) as {
+      winnerId?: string
+      totalScore?: number
+      isFinal?: boolean
+    }
+    const voteCompanion = parseUiArtifactCompanionArtifact(voteCompanionRow!.content)?.payload as {
       votes?: Vote[]
       voterOutcomes?: Record<string, string>
       presentationOrders?: Record<string, { seed: string; order: string[] }>
       winnerId?: string
       totalScore?: number
-      isFinal?: boolean
-    }
+    } | undefined
 
     expect(voteArtifact.isFinal).toBe(true)
-    expect(voteArtifact.votes).toHaveLength(2)
-    expect(voteArtifact.voterOutcomes).toEqual({
+    expect(voteArtifact.winnerId).toBe('openai/gpt-5-mini')
+    expect(voteCompanion?.votes).toHaveLength(2)
+    expect(voteCompanion?.voterOutcomes).toEqual({
       'openai/gpt-5-mini': 'completed',
       'openai/gpt-5.2': 'completed',
     })
-    expect(voteArtifact.presentationOrders?.['openai/gpt-5-mini']).toEqual({
+    expect(voteCompanion?.presentationOrders?.['openai/gpt-5-mini']).toEqual({
       seed: 'seed-alpha',
       order: ['openai/gpt-5-mini', 'openai/gpt-5.2'],
     })
-    expect(voteArtifact.winnerId).toBe('openai/gpt-5-mini')
-    expect(voteArtifact.totalScore).toBe(92)
+    expect(voteCompanion?.winnerId).toBe('openai/gpt-5-mini')
+    expect(voteCompanion?.totalScore).toBe(92)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: 'openai/gpt-5-mini' })
   })
 })

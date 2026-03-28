@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { getProjectContextById, getProjectById, listProjects } from './projects'
-import { phaseArtifacts, projects, tickets } from '../db/schema'
+import { phaseArtifacts, projects, ticketStatusHistory, tickets } from '../db/schema'
 import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { readJsonl } from '../io/jsonl'
 import { getAvailableWorkflowActions } from '@shared/workflowMeta'
@@ -17,6 +17,7 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
   lockedCouncilMemberVariants: Record<string, string> | null
   availableActions: string[]
   previousStatus: string | null
+  reviewCutoffStatus: string | null
   errorSeenSignature: string | null
   runtime: {
     baseBranch: string
@@ -126,6 +127,47 @@ function readErrorSeenSignature(projectContext: NonNullable<ReturnType<typeof ge
   return typeof parsed?.data?.seenSignature === 'string' ? parsed.data.seenSignature : null
 }
 
+export function resolveReviewCutoffStatus(
+  ticketStatus: string,
+  previousStatus: string | null,
+  latestBlockedErrorPreviousStatus: string | null = null,
+): string | null {
+  if (ticketStatus === 'BLOCKED_ERROR') {
+    return previousStatus
+  }
+
+  if (ticketStatus !== 'CANCELED') {
+    return null
+  }
+
+  if (previousStatus !== 'BLOCKED_ERROR') {
+    return previousStatus
+  }
+
+  return latestBlockedErrorPreviousStatus ?? null
+}
+
+function readReviewCutoffStatus(
+  projectContext: NonNullable<ReturnType<typeof getProjectContextById>> | null | undefined,
+  ticket: LocalTicketRow,
+  previousStatus: string | null,
+): string | null {
+  const latestBlockedErrorPreviousStatus = previousStatus === 'BLOCKED_ERROR' && projectContext
+    ? projectContext.projectDb.select({
+      previousStatus: ticketStatusHistory.previousStatus,
+    })
+      .from(ticketStatusHistory)
+      .where(and(
+        eq(ticketStatusHistory.ticketId, ticket.id),
+        eq(ticketStatusHistory.newStatus, 'BLOCKED_ERROR'),
+      ))
+      .orderBy(desc(ticketStatusHistory.id))
+      .get()?.previousStatus ?? null
+    : null
+
+  return resolveReviewCutoffStatus(ticket.status, previousStatus, latestBlockedErrorPreviousStatus)
+}
+
 export function toPublicTicket(projectId: number, ticket: LocalTicketRow): PublicTicket {
   const project = getProjectById(projectId)
   const projectContext = getProjectContextById(projectId)
@@ -135,6 +177,8 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     ? parseJsonObject<Record<string, string>>(ticket.lockedCouncilMemberVariants)
     : null
   const snapshot = parseJsonObject<{ context?: { previousStatus?: unknown } }>(ticket.xstateSnapshot)
+  const previousStatus = typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null
+  const reviewCutoffStatus = readReviewCutoffStatus(projectContext, ticket, previousStatus)
   const errorSeenSignature = projectContext ? readErrorSeenSignature(projectContext, ticket.id) : null
   const runtime = project ? buildRuntime(projectId, project.folderPath, ticket, baseBranch) : {
     baseBranch,
@@ -158,7 +202,8 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     lockedCouncilMembers,
     lockedCouncilMemberVariants,
     availableActions: getAvailableWorkflowActions(ticket.status),
-    previousStatus: typeof snapshot?.context?.previousStatus === 'string' ? snapshot.context.previousStatus : null,
+    previousStatus,
+    reviewCutoffStatus,
     errorSeenSignature,
     runtime,
   }

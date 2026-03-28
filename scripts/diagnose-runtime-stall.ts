@@ -93,6 +93,33 @@ interface ProcessIoSnapshot {
   error?: string
 }
 
+interface ProcessRecord {
+  pid: number
+  ppid: number | null
+  elapsed: string | null
+  pcpu: number | null
+  pmem: number | null
+  rssKb: number | null
+  args: string
+}
+
+interface ProcessMemorySnapshot {
+  pid: number
+  name: string | null
+  state: string | null
+  vmRssKb: number | null
+  vmHwmKb: number | null
+  vmSizeKb: number | null
+  vmPeakKb: number | null
+  threads: number | null
+  fdSize: number | null
+  voluntaryCtxtSwitches: number | null
+  nonvoluntaryCtxtSwitches: number | null
+  oomScore: number | null
+  oomScoreAdj: number | null
+  error?: string
+}
+
 interface CorrelationSample {
   at: string
   healthOk: boolean
@@ -263,11 +290,14 @@ Optional flags:
 
 What it checks:
   - Frontend, backend, and OpenCode endpoint responsiveness
-  - Relevant running processes and backend listener details
+  - Relevant running processes, backend listener details, and fallback watcher/candidate detection
   - Backend thread wait states when available
+  - Per-process memory snapshots from /proc (RSS/HWM/threads/OOM score)
   - System load, memory, and Linux pressure stall metrics
   - Mount type, disk space, and inode usage for app/project paths
   - Per-process I/O counters from /proc/<pid>/io
+  - Workspace mount/watcher risk checks for WSL mounted drives
+  - Best-effort kernel OOM scan from dmesg
   - App DB attached projects
   - Project DB ticket/session state
   - Git responsiveness for attached projects
@@ -625,6 +655,102 @@ function readProcessIo(pid: number): ProcessIoSnapshot {
       pid,
       values: {},
       raw: '',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function listProcessRecords(): ProcessRecord[] {
+  const result = runShell(`ps -eo pid=,ppid=,etime=,pcpu=,pmem=,rss=,args= --sort=pid`, 5000)
+  if (result.exitCode !== 0 || !result.stdout.trim()) return []
+
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      const parts = line.split(/\s+/, 7)
+      if (parts.length < 7) return []
+
+      const [pidRaw, ppidRaw, elapsedRaw, pcpuRaw, pmemRaw, rssRaw, argsRaw] = parts
+      const pid = Number(pidRaw)
+      if (!Number.isInteger(pid) || pid <= 0) return []
+
+      return [{
+        pid,
+        ppid: parseInteger(ppidRaw),
+        elapsed: elapsedRaw || null,
+        pcpu: parseInteger(pcpuRaw),
+        pmem: parseInteger(pmemRaw),
+        rssKb: parseInteger(rssRaw),
+        args: argsRaw ?? '',
+      }]
+    })
+}
+
+function findFirstProcessMatch(processes: ProcessRecord[], patterns: RegExp[]): ProcessRecord | null {
+  for (const pattern of patterns) {
+    const match = processes.find((process) => pattern.test(process.args))
+    if (match) return match
+  }
+
+  return null
+}
+
+function readProcessMemorySnapshot(pid: number): ProcessMemorySnapshot {
+  const statusPath = `/proc/${pid}/status`
+
+  try {
+    const raw = readFileSync(statusPath, 'utf8')
+    const values = Object.fromEntries(
+      raw
+        .split('\n')
+        .map((line) => {
+          const separator = line.indexOf(':')
+          if (separator <= 0) return ['', '']
+          return [line.slice(0, separator), line.slice(separator + 1).trim()]
+        })
+        .filter(([key]) => key.length > 0),
+    ) as Record<string, string>
+
+    const readProcNumber = (path: string): number | null => {
+      try {
+        return parseInteger(readFileSync(path, 'utf8').trim())
+      } catch {
+        return null
+      }
+    }
+
+    return {
+      pid,
+      name: values.Name ?? null,
+      state: values.State ?? null,
+      vmRssKb: parseInteger(values.VmRSS?.split(/\s+/)[0]),
+      vmHwmKb: parseInteger(values.VmHWM?.split(/\s+/)[0]),
+      vmSizeKb: parseInteger(values.VmSize?.split(/\s+/)[0]),
+      vmPeakKb: parseInteger(values.VmPeak?.split(/\s+/)[0]),
+      threads: parseInteger(values.Threads),
+      fdSize: parseInteger(values.FDSize),
+      voluntaryCtxtSwitches: parseInteger(values.voluntary_ctxt_switches),
+      nonvoluntaryCtxtSwitches: parseInteger(values.nonvoluntary_ctxt_switches),
+      oomScore: readProcNumber(`/proc/${pid}/oom_score`),
+      oomScoreAdj: readProcNumber(`/proc/${pid}/oom_score_adj`),
+    }
+  } catch (error) {
+    return {
+      pid,
+      name: null,
+      state: null,
+      vmRssKb: null,
+      vmHwmKb: null,
+      vmSizeKb: null,
+      vmPeakKb: null,
+      threads: null,
+      fdSize: null,
+      voluntaryCtxtSwitches: null,
+      nonvoluntaryCtxtSwitches: null,
+      oomScore: null,
+      oomScoreAdj: null,
       error: error instanceof Error ? error.message : String(error),
     }
   }
@@ -1120,6 +1246,49 @@ function printProcessIoSnapshot(title: string, snapshot: ProcessIoSnapshot) {
   }
 }
 
+function printProcessCandidate(title: string, process: ProcessRecord | null) {
+  heading(title)
+  if (!process) {
+    print('(not found)')
+    return
+  }
+
+  kv('PID', process.pid)
+  kv('PPID', process.ppid)
+  kv('Elapsed', process.elapsed)
+  kv('CPU %', process.pcpu)
+  kv('MEM %', process.pmem)
+  kv('RSS KB', process.rssKb)
+  kv('Args', process.args)
+}
+
+function printProcessMemorySnapshot(title: string, snapshot: ProcessMemorySnapshot | null) {
+  heading(title)
+  if (!snapshot) {
+    print('(not available)')
+    return
+  }
+
+  kv('PID', snapshot.pid)
+  if (snapshot.error) {
+    kv('Error', snapshot.error)
+    return
+  }
+
+  kv('Name', snapshot.name)
+  kv('State', snapshot.state)
+  kv('VmRSS KB', snapshot.vmRssKb)
+  kv('VmHWM KB', snapshot.vmHwmKb)
+  kv('VmSize KB', snapshot.vmSizeKb)
+  kv('VmPeak KB', snapshot.vmPeakKb)
+  kv('Threads', snapshot.threads)
+  kv('FDSize', snapshot.fdSize)
+  kv('voluntary_ctxt_switches', snapshot.voluntaryCtxtSwitches)
+  kv('nonvoluntary_ctxt_switches', snapshot.nonvoluntaryCtxtSwitches)
+  kv('oom_score', snapshot.oomScore)
+  kv('oom_score_adj', snapshot.oomScoreAdj)
+}
+
 function printCorrelationSamples(title: string, samples: CorrelationSample[]) {
   heading(title)
   if (samples.length === 0) {
@@ -1207,6 +1376,11 @@ function printProjectSnapshot(project: ProjectSnapshot) {
 
 function buildHeuristics(input: {
   backendPid: number | null
+  backendInspectPid: number | null
+  backendCandidate: ProcessRecord | null
+  backendMemory: ProcessMemorySnapshot | null
+  backendCwd: string | null
+  backendEnv: Record<string, string>
   backendThreadDump: string
   frontendProbe: HttpProbeResult
   healthProbe: HttpProbeResult
@@ -1217,6 +1391,7 @@ function buildHeuristics(input: {
   ioPressure: PressureSnapshot
   backendIo: ProcessIoSnapshot | null
   correlationSamples: CorrelationSample[]
+  workspaceMount: MountSnapshot
 }): string[] {
   const messages: string[] = []
   const totalTickets = input.projectSnapshots.reduce((sum, project) => sum + project.ticketCount, 0)
@@ -1242,9 +1417,20 @@ function buildHeuristics(input: {
   ).length
   const allCorrelatedSamples = input.correlationSamples.length > 0
     && correlatedP9Timeouts === input.correlationSamples.length
+  const backendWatcherOnMountedDrive = Boolean(
+    input.backendCandidate?.args.includes('tsx watch server/index.ts')
+    && (input.backendCwd?.startsWith('/mnt/') || input.workspaceMount.fstype === '9p'),
+  )
+  const backendPollingEnabled = input.backendEnv.CHOKIDAR_USEPOLLING === '1'
+  const backendVmRssKb = input.backendMemory?.vmRssKb ?? 0
+  const backendVmHwmKb = input.backendMemory?.vmHwmKb ?? 0
 
   if (input.backendPid === null) {
     messages.push('No backend listener was found on the configured backend port. If the UI is empty in this case, the backend may simply be down.')
+  }
+
+  if (input.backendPid === null && input.backendCandidate) {
+    messages.push(`A backend candidate process was still alive (pid=${input.backendCandidate.pid}, args=${input.backendCandidate.args}). That usually means the watch wrapper survived after the actual backend server stopped listening or crashed.`)
   }
 
   if (input.attachedProjects.length === 0) {
@@ -1263,6 +1449,14 @@ function buildHeuristics(input: {
     messages.push('At least one attached project lives under /mnt/. Even when the app is healthy, that keeps WSL mounted-drive latency in play as a recurring risk factor for future stalls.')
   }
 
+  if (backendWatcherOnMountedDrive && backendPollingEnabled) {
+    messages.push('The backend is being watched via tsx/chokidar polling on a mounted-drive path under /mnt/. That combination is expensive in WSL and can turn normal file activity into high CPU, latency spikes, or apparent hangs.')
+  }
+
+  if (input.workspaceMount.fstype === '9p') {
+    messages.push('The current LoopTroop workspace itself is running from a 9p-mounted path. Even before attached projects are considered, the dev watcher stack is paying WSL mounted-drive penalties here.')
+  }
+
   if (mountedVia9p) {
     messages.push('At least one attached project is mounted through a 9p filesystem. That is the typical WSL bridge for Windows drives and is a frequent cause of metadata-heavy stalls.')
   }
@@ -1279,6 +1473,10 @@ function buildHeuristics(input: {
 
   if (totalActiveSessions > 0) {
     messages.push(`There were ${totalActiveSessions} active OpenCode session(s). Heavy active workflow phases can increase the chance of a temporary stall becoming user-visible.`)
+  }
+
+  if (backendVmRssKb >= 1_250_000 || backendVmHwmKb >= 1_500_000) {
+    messages.push(`The backend candidate process had high resident/high-water memory (VmRSS=${backendVmRssKb} KB, VmHWM=${backendVmHwmKb} KB). That is consistent with a Node heap-growth problem rather than a pure network outage.`)
   }
 
   if (!backendTimedOut && opencodeTimedOut) {
@@ -1351,8 +1549,26 @@ async function main() {
   const backendPort = cli.backendPort
     ?? Number(process.env.LOOPTROOP_BACKEND_PORT || 3000)
 
+  const processRecords = listProcessRecords()
   const backendPid = findListeningPid(backendPort)
-  const backendEnv = backendPid ? readProcessEnv(backendPid) : {}
+  const backendCandidate = findFirstProcessMatch(processRecords, [
+    /tsx watch server\/index\.ts/,
+    /node .*tsx.*watch server\/index\.ts/,
+    /npm run dev:backend/,
+    /server\/index\.ts/,
+  ])
+  const frontendCandidate = findFirstProcessMatch(processRecords, [
+    /node .*\/vite\b/,
+    /\b vite\b/,
+    /npm run dev:frontend/,
+  ])
+  const opencodeCandidate = findFirstProcessMatch(processRecords, [
+    /\bopencode serve\b/,
+    /tsx scripts\/dev-opencode\.ts/,
+    /npm run dev:opencode/,
+  ])
+  const backendInspectPid = backendPid ?? backendCandidate?.pid ?? null
+  const backendEnv = backendInspectPid ? readProcessEnv(backendInspectPid) : {}
   const effectiveEnv = { ...defaultEnv, ...backendEnv }
   const effectiveBackendPort = cli.backendPort
     ?? Number(backendEnv.LOOPTROOP_BACKEND_PORT || process.env.LOOPTROOP_BACKEND_PORT || 3000)
@@ -1367,6 +1583,17 @@ async function main() {
   const frontendPid = findListeningPid(effectiveFrontendPort)
   const opencodePort = parseLocalPortFromUrl(effectiveOpenCodeUrl)
   const opencodePid = opencodePort ? findListeningPid(opencodePort) : null
+  const frontendInspectPid = frontendPid ?? frontendCandidate?.pid ?? null
+  const opencodeInspectPid = opencodePid ?? opencodeCandidate?.pid ?? null
+  const backendCwd = backendInspectPid ? readProcessCwd(backendInspectPid) : null
+  const frontendCwd = frontendInspectPid ? readProcessCwd(frontendInspectPid) : null
+  const opencodeCwd = opencodeInspectPid ? readProcessCwd(opencodeInspectPid) : null
+  const backendMemorySnapshot = backendInspectPid ? readProcessMemorySnapshot(backendInspectPid) : null
+  const frontendMemorySnapshot = frontendInspectPid ? readProcessMemorySnapshot(frontendInspectPid) : null
+  const opencodeMemorySnapshot = opencodeInspectPid ? readProcessMemorySnapshot(opencodeInspectPid) : null
+  const workspaceMount = inspectMount(process.cwd())
+  const workspaceDiskUsage = inspectDiskUsage(process.cwd())
+  const workspaceInodeUsage = inspectInodeUsage(process.cwd())
   const appDbMount = inspectMount(appDbPath)
   const appDbDiskUsage = inspectDiskUsage(appDbPath)
   const appDbInodeUsage = inspectInodeUsage(appDbPath)
@@ -1389,10 +1616,18 @@ async function main() {
   kv('Frontend port', effectiveFrontendPort)
   kv('OpenCode URL', effectiveOpenCodeUrl)
   kv('HTTP probe timeout', timeoutMs)
-  kv('Detected backend PID', backendPid)
-  kv('Detected frontend PID', frontendPid)
-  kv('Detected OpenCode PID', opencodePid)
-  kv('Detected backend cwd', backendPid ? readProcessCwd(backendPid) : 'n/a')
+  kv('Detected backend listener PID', backendPid)
+  kv('Detected backend candidate PID', backendCandidate?.pid ?? 'n/a')
+  kv('Backend inspect PID', backendInspectPid)
+  kv('Detected frontend listener PID', frontendPid)
+  kv('Detected frontend candidate PID', frontendCandidate?.pid ?? 'n/a')
+  kv('Frontend inspect PID', frontendInspectPid)
+  kv('Detected OpenCode listener PID', opencodePid)
+  kv('Detected OpenCode candidate PID', opencodeCandidate?.pid ?? 'n/a')
+  kv('OpenCode inspect PID', opencodeInspectPid)
+  kv('Detected backend cwd', backendCwd ?? 'n/a')
+  kv('Detected frontend cwd', frontendCwd ?? 'n/a')
+  kv('Detected OpenCode cwd', opencodeCwd ?? 'n/a')
   kv('Resolved app DB path', appDbPath)
 
   heading('Backend Environment Snapshot')
@@ -1409,10 +1644,20 @@ async function main() {
       'LOOPTROOP_FRONTEND_ORIGIN',
       'LOOPTROOP_OPENCODE_BASE_URL',
       'LOOPTROOP_OPENCODE_MODE',
+      'CHOKIDAR_USEPOLLING',
+      'NODE_OPTIONS',
+      'npm_lifecycle_script',
     ]) {
       kv(key, backendEnv[key] ?? 'n/a')
     }
   }
+
+  printProcessCandidate('Backend Candidate Process', backendCandidate)
+  printProcessCandidate('Frontend Candidate Process', frontendCandidate)
+  printProcessCandidate('OpenCode Candidate Process', opencodeCandidate)
+  printProcessMemorySnapshot('Backend Memory Snapshot', backendMemorySnapshot)
+  printProcessMemorySnapshot('Frontend Memory Snapshot', frontendMemorySnapshot)
+  printProcessMemorySnapshot('OpenCode Memory Snapshot', opencodeMemorySnapshot)
 
   const frontendUrl = `http://localhost:${effectiveFrontendPort}`
   const backendHealthUrl = `http://localhost:${effectiveBackendPort}/api/health`
@@ -1424,7 +1669,7 @@ async function main() {
   const ticketsProbe = await probeHttp('tickets list', ticketsUrl, timeoutMs)
   const opencodeProbe = await probeHttp('backend OpenCode health', opencodeHealthUrl, timeoutMs)
   const correlationSamples = await sampleRuntimeCorrelation({
-    backendPid,
+    backendPid: backendInspectPid,
     backendHealthUrl,
     ticketsUrl,
     iterations: 5,
@@ -1442,6 +1687,9 @@ async function main() {
   printPressureSnapshot('Memory Pressure Snapshot', memoryPressure)
   printPressureSnapshot('CPU Pressure Snapshot', cpuPressure)
 
+  printMountSnapshot('Workspace Mount Snapshot', workspaceMount)
+  printDiskUsageSnapshot('Workspace Disk Usage', workspaceDiskUsage)
+  printInodeUsageSnapshot('Workspace Inode Usage', workspaceInodeUsage)
   printMountSnapshot('App DB Mount Snapshot', appDbMount)
   printDiskUsageSnapshot('App DB Disk Usage', appDbDiskUsage)
   printInodeUsageSnapshot('App DB Inode Usage', appDbInodeUsage)
@@ -1458,6 +1706,11 @@ async function main() {
 
   const meminfoResult = runShell(`grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree|Dirty|Writeback|Cached' /proc/meminfo || true`, 2000)
   printCommandResult('Key /proc/meminfo Fields', meminfoResult)
+
+  if (commandExists('dmesg')) {
+    const dmesgOomResult = runShell(`dmesg -T 2>/dev/null | grep -Ei 'out of memory|killed process|oom' | tail -n 40 || true`, 5000)
+    printCommandResult('Kernel OOM Scan', dmesgOomResult)
+  }
 
   if (commandExists('vmstat')) {
     const vmstatResult = runShell('vmstat 1 2', 4000)
@@ -1478,29 +1731,29 @@ async function main() {
   )
   printCommandResult('Relevant Process List', relevantProcessList)
 
-  if (backendPid) {
-    const backendPs = runShell(`ps -p ${backendPid} -o pid,ppid,etime,pcpu,pmem,stat,wchan:32,args`, 5000)
-    printCommandResult(`Backend Process ${backendPid}`, backendPs)
+  if (backendInspectPid) {
+    const backendPs = runShell(`ps -p ${backendInspectPid} -o pid,ppid,etime,pcpu,pmem,stat,wchan:32,args`, 5000)
+    printCommandResult(`Backend Process ${backendInspectPid}`, backendPs)
 
-    const backendThreads = runShell(`ps -L -p ${backendPid} -o pid,tid,pcpu,stat,wchan:32,comm`, 5000)
-    printCommandResult(`Backend Threads ${backendPid}`, backendThreads)
-    printProcessIoSnapshot(`Backend /proc/${backendPid}/io`, readProcessIo(backendPid))
+    const backendThreads = runShell(`ps -L -p ${backendInspectPid} -o pid,tid,pcpu,stat,wchan:32,comm`, 5000)
+    printCommandResult(`Backend Threads ${backendInspectPid}`, backendThreads)
+    printProcessIoSnapshot(`Backend /proc/${backendInspectPid}/io`, readProcessIo(backendInspectPid))
 
     if (commandExists('lsof')) {
       const backendFiles = runShell(
-        `lsof -p ${backendPid} | grep -E "app\\.sqlite|db\\.sqlite|sqlite|looptroop|\\.git|wal|shm" || true`,
+        `lsof -p ${backendInspectPid} | grep -E "app\\.sqlite|db\\.sqlite|sqlite|looptroop|\\.git|wal|shm" || true`,
         5000,
       )
-      printCommandResult(`Backend Open Files ${backendPid}`, backendFiles)
+      printCommandResult(`Backend Open Files ${backendInspectPid}`, backendFiles)
     }
   }
 
-  if (frontendPid) {
-    printProcessIoSnapshot(`Frontend /proc/${frontendPid}/io`, readProcessIo(frontendPid))
+  if (frontendInspectPid) {
+    printProcessIoSnapshot(`Frontend /proc/${frontendInspectPid}/io`, readProcessIo(frontendInspectPid))
   }
 
-  if (opencodePid) {
-    printProcessIoSnapshot(`OpenCode /proc/${opencodePid}/io`, readProcessIo(opencodePid))
+  if (opencodeInspectPid) {
+    printProcessIoSnapshot(`OpenCode /proc/${opencodeInspectPid}/io`, readProcessIo(opencodeInspectPid))
   }
 
   if (commandExists('ss')) {
@@ -1558,7 +1811,12 @@ async function main() {
 
   const heuristics = buildHeuristics({
     backendPid,
-    backendThreadDump: backendPid ? runShell(`ps -L -p ${backendPid} -o pid,tid,pcpu,stat,wchan:32,comm`, 5000).stdout : '',
+    backendInspectPid,
+    backendCandidate,
+    backendMemory: backendMemorySnapshot,
+    backendCwd,
+    backendEnv,
+    backendThreadDump: backendInspectPid ? runShell(`ps -L -p ${backendInspectPid} -o pid,tid,pcpu,stat,wchan:32,comm`, 5000).stdout : '',
     frontendProbe,
     healthProbe,
     ticketsProbe,
@@ -1566,8 +1824,9 @@ async function main() {
     attachedProjects: appDbInspection.attachedProjects,
     projectSnapshots,
     ioPressure,
-    backendIo: backendPid ? readProcessIo(backendPid) : null,
+    backendIo: backendInspectPid ? readProcessIo(backendInspectPid) : null,
     correlationSamples,
+    workspaceMount,
   })
 
   heading('Likely Causes')
@@ -1582,7 +1841,7 @@ async function main() {
   kv('Path', reportPath)
   kv('Finished at', new Date().toISOString())
   print()
-  print('Run this again during the next outage and compare the "Likely Causes" plus the backend process/thread sections.')
+  print('Run this again during the next outage and compare the "Likely Causes" plus the backend candidate/memory/thread sections.')
 }
 
 function shellQuote(value: string): string {

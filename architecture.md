@@ -341,9 +341,9 @@ The primary panel displays the main content for the ticket's current phase. When
 
 #### II. PRD Phase (Product Requirements Document)
 
-*   **Generation:** Context is refreshed. If the approved Interview Results contain skipped answers, each model first runs a `full_answers` pass in its own fresh session to fill only those gaps. If there are no skipped answers, that pass is skipped entirely. The PRD draft then runs in a separate fresh session where each model gets the codebase map, ticket details, and the complete Full Answers interview artifact. A complete PRD is created by each council member using PROM10. (AIC)
+*   **Generation:** Context is refreshed. If the approved Interview Results contain skipped answers, each model first runs a `full_answers` pass in its own fresh session to fill only those gaps using PROM10a. If there are no skipped answers, that pass is skipped entirely. The PRD draft then runs in a separate fresh session where each model gets the codebase map, ticket details, and the complete Full Answers interview artifact. A complete PRD is created by each council member using PROM10b. (AIC)
 *   **Comparison:** SYS anonymizes and randomizes draft order per voter before voting. Context is refreshed; now each model gets the codebase map, ticket details, the final Interview Results, and each PRD draft. Models/critics compare PRD versions and vote/decide which version is best using PROM11. (AIC). Winning model is decided by SYS based on the highest score.
-*   **Refinement:** Context is refreshed, now winning AIC gets codebase map, ticket details, the final Interview Results and all PRD drafts. The winning model incorporates relevant missing elements from other proposals into its winning draft using PROM12. (winning AIC)
+*   **Refinement:** Context is refreshed, now winning AIC gets the codebase map, ticket details, all Full Answers artifacts, and all PRD drafts. The winning model incorporates relevant missing elements from other proposals into its winning draft using PROM12. (winning AIC)
 *   **Coverage Verification Pass (winning AIC):**
     *   Compare Interview Results against final PRD using PROM13.
     *   Do not continue to Beads until coverage gaps are resolved.
@@ -1363,16 +1363,29 @@ PROM5:
 ### PRD Prompts
 
 ```yaml
-PROM10:
-  description: "PRD Draft Specification Prompt"
-  context_input: "Codebase map + ticket details + final Interview Results"
+PROM10a:
+  description: "PRD Gap Resolution Prompt"
+  context_input: "Codebase map + ticket details + approved Interview Results"
   system_role: "You are an expert Technical Product Manager and Software Architect."
-  task: "Generate a complete Product Requirements Document (PRD) based on the provided Interview Results. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity."
+  task: "Fill every skipped answer in the approved Interview Results and output one complete Full Answers interview artifact that preserves the original approved interview structure."
   instructions:
-    - "Skipped Questions: For each question the user skipped during the interview, decide the best approach based on available context, codebase analysis, and best practices. Document your decision and reasoning in the PRD."
+    - "Source Of Truth: Treat the approved Interview Results as canonical for question order, IDs, prompts, phases, options, and every non-skipped user answer."
+    - "Allowed Edits Only: Change only `questions[*].answer` for entries marked `skipped: true`."
+    - "Gap Resolution Rule: Use ticket details, relevant files, and the rest of the interview to infer the strongest concrete answer for each skipped question."
+    - "Artifact Status: Output the completed interview artifact as `status: draft` with empty approval fields because AI-filled answers are not user-approved."
+    - "Output Discipline: Return the entire interview artifact and nothing else."
+  output_format: "YAML — complete Full Answers interview artifact using the Interview Results schema"
+
+PROM10b:
+  description: "PRD Draft Specification Prompt"
+  context_input: "Codebase map + ticket details + complete Full Answers interview artifact"
+  system_role: "You are an expert Technical Product Manager and Software Architect."
+  task: "Generate a complete Product Requirements Document (PRD) based on the provided Full Answers interview artifact. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity."
+  instructions:
+    - "Complete Interview Input: Treat the provided Full Answers interview artifact as the complete requirement source, including any AI-resolved answers for questions the user originally skipped."
     - "Product Scope: Include epics, user stories, and acceptance criteria. Every in-scope feature from the Interview Results must map to at least one user story."
     - "Implementation Steps: For each user story, include detailed technical implementation steps decomposed as far as possible — data flows, state changes, component interactions, and integration points."
-    - "Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, explicit non-goals and anything relevant based on the Interview Results and project context."
+    - "Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, and explicit non-goals."
     - "Output Format: Output a single, comprehensive PRD document covering all of the above in one artifact."
   output_format: "YAML — complete PRD matching the schema defined in PROM13.output_file"
 
@@ -1396,14 +1409,14 @@ PROM11:
 
 PROM12:
   description: "PRD Winner Refinement Prompt"
-  context_input: "Codebase map + ticket details + final Interview Results + all PRD drafts"
+  context_input: "Codebase map + ticket details + all Full Answers artifacts + all PRD drafts"
   system_role: "You are the Lead Architect and the winner of the AI Council's PRD drafting phase."
   task: "Create the final, definitive version of your PRD by reviewing the alternative (losing) drafts. Extract any superior ideas, missing edge cases, or better technical constraints they contain, and integrate them seamlessly into your winning foundation."
   instructions:
     - "Analyze Alternatives: Carefully review the alternative drafts. Look specifically for unhandled edge cases, error states, risks you missed, better testing strategies, cleaner architectural decomposition, or missing constraints."
     - "Selective Integration: Incorporate these improvements into your winning draft. DO NOT rewrite your entire draft — remember, you had the best draft; keep it mostly unchanged, only add what you consider necessary. DO surgically add the missing pieces to make your draft bulletproof."
     - "Formatting: Output the final refined PRD. Output only the final artifact."
-  output_format: "YAML — same PRD format as PROM10 output, matching PROM13.output_file schema"
+  output_format: "YAML — same PRD format as PROM10b output, matching PROM13.output_file schema"
 
 PROM13:
   description: "PRD Coverage Verification Prompt"

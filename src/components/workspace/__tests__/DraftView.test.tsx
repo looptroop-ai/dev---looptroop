@@ -54,6 +54,7 @@ function makeTicket(): Ticket {
     lockedCouncilMembers: [],
     availableActions: ['start', 'cancel'],
     previousStatus: null,
+    reviewCutoffStatus: null,
     runtime: {
       baseBranch: 'main',
       currentBead: 0,

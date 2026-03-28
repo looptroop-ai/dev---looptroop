@@ -6,8 +6,8 @@ import {
   PROM3,
   PROM4,
   PROM5,
-  PROM09D,
-  PROM10,
+  PROM10a,
+  PROM10b,
   PROM11,
   PROM12,
   PROM13,
@@ -59,8 +59,8 @@ describe('structured prompt hardening', () => {
       PROM3,
       PROM4,
       PROM5,
-      PROM09D,
-      PROM10,
+      PROM10a,
+      PROM10b,
       PROM11,
       PROM12,
       PROM13,
@@ -78,15 +78,15 @@ describe('structured prompt hardening', () => {
   })
 
   it('defines an explicit shared PRD schema contract for draft and refine prompts', () => {
-    expect(PROM12.outputFormat).toContain(PROM10.outputFormat)
+    expect(PROM12.outputFormat).toContain(PROM10b.outputFormat)
     expect(PROM12.outputFormat).toContain('top-level `changes` list')
     expect(PROM12.outputFormat).toContain('inspiration')
-    expect(PROM10.outputFormat).toContain('schema_version')
-    expect(PROM10.outputFormat).toContain('technical_requirements')
-    expect(PROM10.outputFormat).toContain('required_commands')
-    expect(PROM10.outputFormat).not.toContain('PROM13.output_file')
+    expect(PROM10b.outputFormat).toContain('schema_version')
+    expect(PROM10b.outputFormat).toContain('technical_requirements')
+    expect(PROM10b.outputFormat).toContain('required_commands')
+    expect(PROM10b.outputFormat).not.toContain('PROM13.output_file')
 
-    const draftPrompt = buildPromptFromTemplate(PROM10, [])
+    const draftPrompt = buildPromptFromTemplate(PROM10b, [])
     expect(draftPrompt).toContain('Schema Contract')
     expect(draftPrompt).toContain('Complete Interview Input')
     expect(draftPrompt).toContain('artifact: "prd"')
@@ -97,13 +97,13 @@ describe('structured prompt hardening', () => {
     expect(refinePrompt).toContain('Do not split the refined PRD and change metadata')
   })
 
-  it('keeps PROM09d strict about preserving user answers and outputting only a full interview artifact', () => {
-    const gapPrompt = buildPromptFromTemplate(PROM09D, [])
+  it('keeps PROM10a strict about preserving user answers and outputting only a full interview artifact', () => {
+    const gapPrompt = buildPromptFromTemplate(PROM10a, [])
     expect(gapPrompt).toContain('The approved Interview Results artifact is already included in the prompt')
     expect(gapPrompt).toContain('Preserve every existing non-skipped answer exactly as-is')
-    expect(gapPrompt).toContain('use the existing canonical `selected_option_ids`')
-    expect(gapPrompt).toContain('Keep each generated `free_text` answer concise')
-    expect(gapPrompt).toContain('If length is becoming a concern, shorten individual generated answers')
+    expect(gapPrompt).toContain('The only fields you may change are `questions[*].answer`')
+    expect(gapPrompt).toContain('provide a concrete `free_text` and/or `selected_option_ids`')
+    expect(gapPrompt).toContain('set a non-empty ISO-8601 `answered_at` timestamp')
     expect(gapPrompt).toContain('Stop immediately after the final `approval` block')
     expect(gapPrompt).toContain('answered_by: ai_skip')
     expect(gapPrompt).toContain('status: draft')
