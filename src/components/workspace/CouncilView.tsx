@@ -35,23 +35,12 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   const isDrafting = step === 'Drafting'
   const isVoting = step === 'Voting'
   const isVerifying = step === 'Verifying Coverage'
-  const { artifacts: phaseArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticket.id)
+  const { artifacts: phaseArtifacts } = useTicketArtifacts(ticket.id)
   const councilMemberNames = useMemo(
     () => ticket.lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0),
     [ticket.lockedCouncilMembers],
   )
   const councilMemberCount = councilMemberNames.length || 3
-
-  if (isLoadingArtifacts) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">Loading phase data…</p>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
