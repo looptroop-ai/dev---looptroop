@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getBackendOrigin } from '@shared/appConfig'
 
 describe('devApi', () => {
   beforeEach(() => {
@@ -13,9 +12,9 @@ describe('devApi', () => {
     expect(getApiUrl('/api/stream', { directInDevelopment: true })).toBe(`${window.location.origin}/api/stream`)
   })
 
-  it('builds direct backend URLs for the readiness probe helper', async () => {
+  it('builds same-origin readiness probe URLs for development', async () => {
     const { __devApiForTests } = await import('../devApi')
 
-    expect(__devApiForTests.getDirectDevApiUrl('/api/health')).toBe(`${getBackendOrigin()}/api/health`)
+    expect(__devApiForTests.getDevReadyProbeUrl('/api/health')).toBe(`${window.location.origin}/api/health`)
   })
 })

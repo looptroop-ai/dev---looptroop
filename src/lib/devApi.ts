@@ -52,8 +52,8 @@ function isFrontendApiUrl(url: URL) {
   return url.origin === window.location.origin && (url.pathname === '/api' || url.pathname.startsWith('/api/'))
 }
 
-function getDirectDevApiUrl(path: string) {
-  return new URL(path, __LOOPTROOP_DEV_BACKEND_ORIGIN__).toString()
+function getDevReadyProbeUrl(path: string) {
+  return new URL(path, window.location.origin).toString()
 }
 
 async function pingDevBackend() {
@@ -61,7 +61,7 @@ async function pingDevBackend() {
   const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS)
 
   try {
-    const response = await nativeFetch(getDirectDevApiUrl(DEV_BACKEND_HEALTH_PATH), {
+    const response = await nativeFetch(getDevReadyProbeUrl(DEV_BACKEND_HEALTH_PATH), {
       cache: 'no-store',
       signal: controller.signal,
     })
@@ -130,14 +130,14 @@ export function getApiUrl(path: string, options?: { directInDevelopment?: boolea
   if (typeof window === 'undefined') return path
 
   if (isDevelopmentRuntime() && options?.directInDevelopment) {
-    return getDirectDevApiUrl(path)
+    return getDevReadyProbeUrl(path)
   }
 
   return new URL(path, window.location.origin).toString()
 }
 
 export const __devApiForTests = {
-  getDirectDevApiUrl,
+  getDevReadyProbeUrl,
 }
 
 export function installDevApiGuard() {
