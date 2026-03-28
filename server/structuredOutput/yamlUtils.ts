@@ -234,6 +234,27 @@ function stripTrailingTerminalNoiseLines(content: string): string | null {
   return stripped || null
 }
 
+function stripTrailingInlineTerminalNoise(content: string): string | null {
+  const matches = [...content.matchAll(new RegExp(TERMINAL_NOISE_FRAGMENT_PATTERN.source, 'gu'))]
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const start = matches[index]?.index
+    if (start == null) continue
+
+    const suffix = content.slice(start)
+    if (!TERMINAL_NOISE_ONLY_PATTERN.test(suffix)) continue
+
+    const stripped = content.slice(0, start).trimEnd()
+    if (!stripped) continue
+
+    const lastChar = stripped[stripped.length - 1]
+    if (!lastChar || !['"', "'", '}', ']'].includes(lastChar)) continue
+
+    return stripped
+  }
+
+  return null
+}
+
 function buildTrailingTerminalNoiseVariants(content: string): string[] {
   const variants: string[] = []
   const seen = new Set<string>()
@@ -246,6 +267,7 @@ function buildTrailingTerminalNoiseVariants(content: string): string[] {
   }
 
   addVariant(stripTrailingTerminalNoiseFromBalancedJson(content))
+  addVariant(stripTrailingInlineTerminalNoise(content))
   addVariant(stripTrailingTerminalNoiseLines(content))
 
   return variants

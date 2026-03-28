@@ -303,6 +303,275 @@ function buildNearMissResolvedInterviewYaml(ticketId: string, memberId = 'model-
   ].join('\n')
 }
 
+function buildUnansweredResolvedInterviewYaml(ticketId: string, memberId = 'model-a'): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: ${ticketId}`,
+    'artifact: interview',
+    'status: draft',
+    'generated_by:',
+    `  winner_model: ${memberId}`,
+    '  generated_at: 2026-03-23T09:10:00.000Z',
+    'questions:',
+    '  - id: Q01',
+    '    phase: Foundation',
+    '    prompt: Which workflow guardrails are mandatory?',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: free_text',
+    '    options: []',
+    '    answer:',
+    '      skipped: true',
+    '      selected_option_ids: []',
+    '      free_text: ""',
+    '      answered_by: ai_skip',
+    '      answered_at: ""',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: [Harden DRAFTING_PRD]',
+    '  constraints: [Preserve council mechanics]',
+    '  non_goals: [Touch PRD approval]',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
+function buildTwoQuestionInterviewYaml(ticketId: string): string {
+  const document: InterviewDocument = {
+    schema_version: 1,
+    ticket_id: ticketId,
+    artifact: 'interview',
+    status: 'approved',
+    generated_by: {
+      winner_model: 'openai/gpt-5',
+      generated_at: '2026-03-23T09:00:00.000Z',
+    },
+    questions: [
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        prompt: 'Which workflow guardrails are mandatory?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: true,
+          selected_option_ids: [],
+          free_text: '',
+          answered_by: 'ai_skip',
+          answered_at: '',
+        },
+      },
+      {
+        id: 'Q02',
+        phase: 'Structure',
+        prompt: 'Which session isolation guarantees are mandatory?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'free_text',
+        options: [],
+        answer: {
+          skipped: true,
+          selected_option_ids: [],
+          free_text: '',
+          answered_by: 'ai_skip',
+          answered_at: '',
+        },
+      },
+    ],
+    follow_up_rounds: [],
+    summary: {
+      goals: ['Harden DRAFTING_PRD'],
+      constraints: ['Preserve council mechanics'],
+      non_goals: ['Touch PRD approval'],
+      final_free_form_answer: '',
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+
+  return buildInterviewDocumentYaml(document)
+}
+
+function buildTwoQuestionResolvedInterviewYaml(ticketId: string, memberId = 'model-a'): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: ${ticketId}`,
+    'artifact: interview',
+    'status: draft',
+    'generated_by:',
+    `  winner_model: ${memberId}`,
+    '  generated_at: 2026-03-23T09:10:00.000Z',
+    'questions:',
+    '  - id: Q01',
+    '    phase: Foundation',
+    '    prompt: Which workflow guardrails are mandatory?',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: free_text',
+    '    options: []',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: Preserve council retry behavior and strict validation.',
+    '      answered_by: ai_skip',
+    '      answered_at: 2026-03-23T09:11:00.000Z',
+    '  - id: Q02',
+    '    phase: Structure',
+    '    prompt: Which session isolation guarantees are mandatory?',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: free_text',
+    '    options: []',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: Fresh-session retries must not inherit drifting context from invalid artifacts.',
+    '      answered_by: ai_skip',
+    '      answered_at: 2026-03-23T09:11:30.000Z',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: [Harden DRAFTING_PRD]',
+    '  constraints: [Preserve council mechanics]',
+    '  non_goals: [Touch PRD approval]',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
+function buildChoiceInterviewYaml(ticketId: string): string {
+  const document: InterviewDocument = {
+    schema_version: 1,
+    ticket_id: ticketId,
+    artifact: 'interview',
+    status: 'approved',
+    generated_by: {
+      winner_model: 'openai/gpt-5',
+      generated_at: '2026-03-23T09:00:00.000Z',
+    },
+    questions: [
+      {
+        id: 'Q01',
+        phase: 'Foundation',
+        prompt: 'Who should consume the strategy?',
+        source: 'compiled',
+        follow_up_round: null,
+        answer_type: 'single_choice',
+        options: [
+          { id: 'opt1', label: 'Workflow engine' },
+          { id: 'opt2', label: 'Beads generation' },
+        ],
+        answer: {
+          skipped: true,
+          selected_option_ids: [],
+          free_text: '',
+          answered_by: 'ai_skip',
+          answered_at: '',
+        },
+      },
+    ],
+    follow_up_rounds: [],
+    summary: {
+      goals: ['Harden DRAFTING_PRD'],
+      constraints: ['Preserve council mechanics'],
+      non_goals: ['Touch PRD approval'],
+      final_free_form_answer: '',
+    },
+    approval: {
+      approved_by: '',
+      approved_at: '',
+    },
+  }
+
+  return buildInterviewDocumentYaml(document)
+}
+
+function buildChoiceNearMissResolvedInterviewYaml(ticketId: string, memberId = 'model-a'): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: ${ticketId}`,
+    'artifact: interview',
+    'status: draft',
+    'generated_by:',
+    `  winner_model: ${memberId}`,
+    '  generated_at: 2026-03-23T09:10:00.000Z',
+    'questions:',
+    '  - id: Q01',
+    '    phase: Foundation',
+    '    prompt: Who should consume the strategy?',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: single_choice',
+    '    options:',
+    '      - id: opt1',
+    '        label: Workflow engine',
+    '      - id: opt2',
+    '        label: Beads generation',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids: []',
+    '      free_text: Workflow engines',
+    '      answered_by: ai_skip',
+    '      answered_at: 2026-03-23T09:11:00.000Z',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: [Harden DRAFTING_PRD]',
+    '  constraints: [Preserve council mechanics]',
+    '  non_goals: [Touch PRD approval]',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
+function buildChoiceResolvedInterviewYaml(ticketId: string, memberId = 'model-a'): string {
+  return [
+    'schema_version: 1',
+    `ticket_id: ${ticketId}`,
+    'artifact: interview',
+    'status: draft',
+    'generated_by:',
+    `  winner_model: ${memberId}`,
+    '  generated_at: 2026-03-23T09:10:00.000Z',
+    'questions:',
+    '  - id: Q01',
+    '    phase: Foundation',
+    '    prompt: Who should consume the strategy?',
+    '    source: compiled',
+    '    follow_up_round: null',
+    '    answer_type: single_choice',
+    '    options:',
+    '      - id: opt1',
+    '        label: Workflow engine',
+    '      - id: opt2',
+    '        label: Beads generation',
+    '    answer:',
+    '      skipped: false',
+    '      selected_option_ids:',
+    '        - opt1',
+    '      free_text: ""',
+    '      answered_by: ai_skip',
+    '      answered_at: 2026-03-23T09:11:00.000Z',
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: [Harden DRAFTING_PRD]',
+    '  constraints: [Preserve council mechanics]',
+    '  non_goals: [Touch PRD approval]',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
+
 function buildPrdYaml(ticketId: string): string {
   return [
     'schema_version: 1',
@@ -742,6 +1011,120 @@ describe('draftPRD', () => {
     expect(fullAnswerRetryMessages[0]?.content).toContain('Keep every generated free_text answer concise')
     expect(fullAnswerRetryMessages[0]?.content).toContain('use only the existing canonical selected_option_ids')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Stop immediately after the final approval block')
+    expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('restarts full answers in a fresh session when the model leaves skipped questions unanswered', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      buildUnansweredResolvedInterviewYaml('PROJ-19'),
+      buildResolvedInterviewYaml('PROJ-19'),
+      buildPrdYaml('PROJ-19'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-19',
+        title: 'Restart unanswered full answers',
+        description: 'Incomplete semantic full-answers artifacts should restart cleanly.',
+        interview: buildInterviewYaml('PROJ-19'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-19',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      structuredOutput: {
+        autoRetryCount: 1,
+      },
+    })
+    expect(result.drafts[0]?.outcome).toBe('completed')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2', 'mock-session-3'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+    expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('restarts full answers in a fresh session when the model omits canonical questions', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      buildResolvedInterviewYaml('PROJ-20'),
+      buildTwoQuestionResolvedInterviewYaml('PROJ-20'),
+      buildPrdYaml('PROJ-20'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-20',
+        title: 'Restart missing-question full answers',
+        description: 'Missing canonical questions should force a clean retry session.',
+        interview: buildTwoQuestionInterviewYaml('PROJ-20'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-20',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      questionCount: 2,
+      structuredOutput: {
+        autoRetryCount: 1,
+      },
+    })
+    expect(result.drafts[0]?.outcome).toBe('completed')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2', 'mock-session-3'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+    expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('keeps choice-mapping near misses on the same-session structured retry path', async () => {
+    const adapter = new TestOpenCodeAdapter([
+      buildChoiceNearMissResolvedInterviewYaml('PROJ-21'),
+      buildChoiceResolvedInterviewYaml('PROJ-21'),
+      buildPrdYaml('PROJ-21'),
+    ])
+
+    const result = await draftPRD(
+      adapter,
+      [{ modelId: 'model-a', name: 'Model A' }],
+      {
+        ticketId: 'PROJ-21',
+        title: 'Retry choice near misses in place',
+        description: 'Exact option-ID mismatches should stay on the structured retry path.',
+        interview: buildChoiceInterviewYaml('PROJ-21'),
+      },
+      '/tmp/test',
+      {
+        draftTimeoutMs: 1_000,
+        minQuorum: 1,
+        ticketExternalId: 'PROJ-21',
+      },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      structuredOutput: {
+        autoRetryCount: 1,
+      },
+    })
+    expect(result.drafts[0]?.outcome).toBe('completed')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    const fullAnswerRetryMessages = adapter.messages.get('mock-session-1')?.filter((message) => typeof message.content === 'string' && message.content.includes('Full Answers Structured Output Retry')) ?? []
+    expect(fullAnswerRetryMessages).toHaveLength(1)
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Only these skipped question answers may change: Q01')
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
 

@@ -213,6 +213,20 @@ function buildCompletedDraft(
   }
 }
 
+function shouldRestartFullAnswersInFreshSession(validationError: string): boolean {
+  const normalized = validationError.trim()
+  if (!normalized) return false
+
+  return [
+    /^No resolved interview document content found$/i,
+    /^Resolved interview must preserve all \d+ canonical questions$/i,
+    /^Resolved interview must preserve canonical question ids\b/i,
+    /^Resolved interview is missing canonical question\b/i,
+    /^Resolved interview left skipped question unanswered\b/i,
+    /^Resolved interview is missing answered_at for AI-filled question\b/i,
+  ].some((pattern) => pattern.test(normalized))
+}
+
 async function executeStructuredStep(
   adapter: OpenCodeAdapter,
   member: CouncilMember,
@@ -360,7 +374,16 @@ async function executeStructuredStep(
       }
     } catch (error) {
       lastValidationError = error instanceof Error ? error.message : String(error)
-      const retryDecision = getStructuredRetryDecision(rawResponse, result.responseMeta)
+      const baseRetryDecision = getStructuredRetryDecision(rawResponse, result.responseMeta)
+      const retryDecision = options.step === 'full_answers'
+        && baseRetryDecision.failureClass === 'validation_error'
+        && shouldRestartFullAnswersInFreshSession(lastValidationError)
+        ? {
+            ...baseRetryDecision,
+            reuseSession: false,
+            useStructuredRetryPrompt: false,
+          }
+        : baseRetryDecision
       if (attemptCount >= 1) {
         throw new StructuredStepError(
           lastValidationError,
