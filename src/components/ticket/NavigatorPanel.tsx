@@ -1,6 +1,7 @@
 import { Separator } from '@/components/ui/separator'
 import { PhaseTimeline } from '@/components/navigator/PhaseTimeline'
 import { ContextTree } from '@/components/navigator/ContextTree'
+import { ApprovalNavigator } from '@/components/navigator/ApprovalNavigator'
 import { ErrorOccurrencesPanel } from '@/components/navigator/ErrorOccurrencesPanel'
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -29,6 +30,8 @@ export function NavigatorPanel({
   onSelectErrorOccurrence,
   contextPhase,
 }: NavigatorPanelProps) {
+  const isApprovalNavigatorPhase = contextPhase === 'WAITING_INTERVIEW_APPROVAL' || contextPhase === 'WAITING_PRD_APPROVAL'
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -46,6 +49,9 @@ export function NavigatorPanel({
             selectedPhase={selectedPhase}
             showBlockedErrorPhase={false}
           />
+          {isApprovalNavigatorPhase ? (
+            <ApprovalNavigator ticketId={ticketId} phase={contextPhase} />
+          ) : null}
         </div>
         {(selectedPhase !== currentStatus || Boolean(selectedErrorOccurrenceId)) && (
           <div className="sticky bottom-0 border-t border-border bg-background p-2">

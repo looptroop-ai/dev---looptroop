@@ -13,6 +13,9 @@ import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } fr
 import { MAX_RAW_OUTPUT_LENGTH } from '@/lib/constants'
 import { WORKFLOW_PHASE_IDS } from '@shared/workflowMeta'
 import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
+import { INTERVIEW_APPROVAL_FOCUS_EVENT } from '@/lib/interviewDocument'
+import { PRD_APPROVAL_FOCUS_EVENT } from '@/lib/prdDocument'
+import { WORKSPACE_PHASE_NAVIGATE_EVENT, type WorkspacePhaseNavigateDetail } from '@/lib/workspaceNavigation'
 
 function toDebugJson(data: Record<string, unknown>) {
   if (import.meta.env.PROD) return '[debug]'
@@ -160,6 +163,11 @@ export function TicketDashboard() {
     ticketId: null,
     occurrenceId: null,
   })
+  const [pendingWorkspaceNavigation, setPendingWorkspaceNavigation] = useState<{
+    ticketId: string
+    phase: string
+    anchorId?: string
+  } | null>(null)
   const [livePhase, setLivePhase] = useState<{
     ticketId: string | null
     phase: string | null
@@ -301,6 +309,53 @@ export function TicketDashboard() {
       return current
     })
   }, [ticket?.status, ticketId, snapshotPreviousStatus, snapshotReviewCutoffStatus])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePhaseNavigateDetail>).detail
+      if (!detail?.ticketId || detail.ticketId !== ticketId || !detail.phase) return
+
+      setPhaseSelection({
+        ticketId,
+        phase: detail.phase === currentStatus ? null : detail.phase,
+      })
+      setErrorSelection({ ticketId: null, occurrenceId: null })
+      if (detail.phase === 'WAITING_INTERVIEW_APPROVAL' || detail.phase === 'WAITING_PRD_APPROVAL') {
+        setPendingWorkspaceNavigation(detail)
+      } else {
+        setPendingWorkspaceNavigation(null)
+      }
+      closeMobileNav()
+    }
+
+    window.addEventListener(WORKSPACE_PHASE_NAVIGATE_EVENT, handler as EventListener)
+    return () => window.removeEventListener(WORKSPACE_PHASE_NAVIGATE_EVENT, handler as EventListener)
+  }, [closeMobileNav, currentStatus, ticketId])
+
+  useEffect(() => {
+    if (!pendingWorkspaceNavigation?.anchorId || pendingWorkspaceNavigation.ticketId !== ticketId) return
+    if (selectedPhaseForWorkspace !== pendingWorkspaceNavigation.phase) return
+
+    const focusEventType = pendingWorkspaceNavigation.phase === 'WAITING_INTERVIEW_APPROVAL'
+      ? INTERVIEW_APPROVAL_FOCUS_EVENT
+      : pendingWorkspaceNavigation.phase === 'WAITING_PRD_APPROVAL'
+        ? PRD_APPROVAL_FOCUS_EVENT
+        : null
+
+    if (!focusEventType) return
+
+    const frame = window.requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent(focusEventType, {
+        detail: {
+          ticketId,
+          anchorId: pendingWorkspaceNavigation.anchorId,
+        },
+      }))
+      setPendingWorkspaceNavigation(null)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [pendingWorkspaceNavigation, selectedPhaseForWorkspace, ticketId])
 
   useEffect(() => {
     if (!ticket) return

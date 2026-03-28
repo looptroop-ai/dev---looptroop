@@ -290,6 +290,10 @@ export function getInterviewGroupAnchorId(groupId: string): string {
   return `interview-group-${slugify(groupId) || 'section'}`
 }
 
+export function getInterviewPhaseGroupAnchorId(phase: string): string {
+  return getInterviewGroupAnchorId(`phase-${slugify(phase || 'foundation') || 'foundation'}`)
+}
+
 export function getInterviewQuestionAnchorId(questionId: string): string {
   return `interview-question-${slugify(questionId) || 'question'}`
 }

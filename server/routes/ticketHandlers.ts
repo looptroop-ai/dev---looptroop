@@ -49,9 +49,10 @@ import {
 } from '../phases/interview/finalDocument'
 import {
   approvePrdDocument,
+  savePrdStructuredContent,
   savePrdRawContent,
 } from '../phases/prd/document'
-import { buildYamlDocument } from '../structuredOutput/yamlUtils'
+import type { PrdDocument } from '../structuredOutput/types'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -104,6 +105,12 @@ const rawInterviewSaveSchema = z.object({
 
 const rawPrdSaveSchema = z.object({
   content: z.string(),
+})
+
+const structuredPrdSaveSchema = z.object({
+  document: z.custom<PrdDocument>((value) => Boolean(value) && typeof value === 'object', {
+    message: 'document must be an object',
+  }),
 })
 
 import { MAX_UI_STATE_BYTES } from '../lib/constants'
@@ -775,16 +782,32 @@ export async function handlePutPrd(c: Context) {
   }
 
   const body = await c.req.json().catch(() => ({}))
-  const parsed = rawPrdSaveSchema.safeParse(body)
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid PRD document payload', details: parsed.error.flatten() }, 400)
+  const rawParsed = rawPrdSaveSchema.safeParse(body)
+  if (rawParsed.success) {
+    try {
+      const { raw } = savePrdRawContent(ticketId, rawParsed.data.content)
+      return c.json({
+        success: true,
+        content: raw,
+      })
+    } catch (err) {
+      return c.json({
+        error: 'Failed to save PRD document',
+        details: err instanceof Error ? err.message : String(err),
+      }, 400)
+    }
+  }
+
+  const structuredParsed = structuredPrdSaveSchema.safeParse(body)
+  if (!structuredParsed.success) {
+    return c.json({ error: 'Invalid PRD document payload', details: structuredParsed.error.flatten() }, 400)
   }
 
   try {
-    const { document } = savePrdRawContent(ticketId, parsed.data.content)
+    const { raw } = savePrdStructuredContent(ticketId, structuredParsed.data.document)
     return c.json({
       success: true,
-      content: buildYamlDocument(document),
+      content: raw,
     })
   } catch (err) {
     return c.json({

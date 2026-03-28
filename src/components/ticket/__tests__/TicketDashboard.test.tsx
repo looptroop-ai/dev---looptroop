@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { queryClient } from '@/lib/queryClient'
 import { patchTicketStatusInCache } from '@/hooks/ticketStatusCache'
 import type { Ticket } from '@/hooks/useTickets'
+import { WORKSPACE_PHASE_NAVIGATE_EVENT } from '@/lib/workspaceNavigation'
 
 const selectedTicketId = '1:T-42'
 const dispatchMock = vi.fn()
@@ -59,6 +60,10 @@ vi.mock('../DashboardHeader', () => ({
 
 vi.mock('../ResizeHandle', () => ({
   ResizeHandle: () => <div data-testid="resize-handle" />,
+}))
+
+vi.mock('../ActiveWorkspace', () => ({
+  ActiveWorkspace: ({ selectedPhase }: { selectedPhase: string }) => <div data-testid="active-workspace">{selectedPhase}</div>,
 }))
 
 vi.mock('../NavigatorPanel', () => ({
@@ -181,6 +186,18 @@ beforeAll(() => {
     configurable: true,
     writable: true,
     value: vi.fn(),
+  })
+
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
+  })
+
+  Object.defineProperty(window, 'cancelAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (handle: number) => window.clearTimeout(handle),
   })
 })
 
@@ -455,6 +472,58 @@ describe('TicketDashboard', () => {
     await waitFor(() => {
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('COUNCIL_DELIBERATING')
       expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_DELIBERATING')
+    })
+  })
+
+  it('switches to interview approval and forwards workspace navigation focus', async () => {
+    const initialTicket = makeTicket('WAITING_PRD_APPROVAL')
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        return createJsonResponse(initialTicket)
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('navigator-current')).toHaveTextContent('WAITING_PRD_APPROVAL')
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_PHASE_NAVIGATE_EVENT, {
+        detail: {
+          ticketId: selectedTicketId,
+          phase: 'WAITING_INTERVIEW_APPROVAL',
+          anchorId: 'interview-group-phase-foundation',
+        },
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('navigator-selected')).toHaveTextContent('WAITING_INTERVIEW_APPROVAL')
+      expect(screen.getByTestId('active-workspace')).toHaveTextContent('WAITING_INTERVIEW_APPROVAL')
+    })
+
+    const focusEvent = dispatchSpy.mock.calls
+      .map(([event]) => event)
+      .find((event) => event.type === 'looptroop:interview-approval-focus') as CustomEvent<{ ticketId: string; anchorId: string }> | undefined
+
+    expect(focusEvent?.detail).toEqual({
+      ticketId: selectedTicketId,
+      anchorId: 'interview-group-phase-foundation',
     })
   })
 })

@@ -1,25 +1,17 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
-import { PhaseArtifactsPanel, PrdDraftView } from './PhaseArtifactsPanel'
+import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
-
-import { StructuredViewer } from '@/components/editor/StructuredViewer'
 import { YamlEditor } from '@/components/editor/YamlEditor'
-import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import type { Ticket } from '@/hooks/useTickets'
-import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 import { InterviewApprovalPane } from './InterviewApprovalPane'
+import { PrdApprovalPane } from './PrdApprovalPane'
 
 interface ApprovalViewProps {
   ticket: Ticket
   artifactType: 'interview' | 'prd' | 'beads'
-}
-
-const LABELS: Record<string, { title: string; description: string }> = {
-  prd: { title: 'Product Requirements Document', description: 'Review the generated PRD with epics and user stories.' },
-  beads: { title: 'Beads Breakdown', description: 'Review the implementation beads with tests and dependencies.' },
 }
 
 function beadsArrayToJsonl(beads: unknown[]): string {
@@ -57,16 +49,11 @@ function BeadsStructuredView({ content }: { content: string }) {
   )
 }
 
-function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifactType: 'prd' | 'beads' }) {
+function GenericApprovalView({ ticket }: { ticket: Ticket }) {
   const queryClient = useQueryClient()
   const { mutate: performAction, isPending } = useTicketAction()
   const { mutate: saveUiState } = useSaveTicketUIState()
-  const config = LABELS[artifactType] ?? { title: 'Review', description: '' }
-  const uiStateScope = `approval_${artifactType}`
-  const cascadeWarningMessage = useMemo(
-    () => getCascadeEditWarningMessage(ticket.status, artifactType),
-    [ticket.status, artifactType],
-  )
+  const uiStateScope = 'approval_beads'
   const { data: persistedUiState } = useTicketUIState<{
     editMode?: boolean
     editedContent?: string
@@ -78,17 +65,12 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
   const councilMemberCount = councilMemberNames.length || 3
 
   const { data: fetchedContent, isLoading } = useQuery({
-    queryKey: ['artifact', ticket.id, artifactType],
+    queryKey: ['artifact', ticket.id, 'beads'],
     queryFn: async () => {
-      const url = artifactType === 'beads'
-        ? `/api/tickets/${ticket.id}/beads`
-        : `/api/files/${ticket.id}/${artifactType}`
-      const r = await fetch(url)
+      const r = await fetch(`/api/tickets/${ticket.id}/beads`)
       if (!r.ok) throw new Error('Failed to load')
       const data = await r.json()
-      return artifactType === 'beads'
-        ? (Array.isArray(data) ? beadsArrayToJsonl(data) : '')
-        : (data.content ?? '')
+      return Array.isArray(data) ? beadsArrayToJsonl(data) : ''
     },
     staleTime: 5 * 60 * 1000, // 5 minutes cache to prevent flashes
   })
@@ -98,7 +80,6 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [showCascadeWarning, setShowCascadeWarning] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
@@ -106,7 +87,7 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
   useEffect(() => {
     restoredDraftRef.current = false
     lastSavedSnapshotRef.current = ''
-  }, [ticket.id, artifactType])
+  }, [ticket.id])
 
   useEffect(() => {
     if (isLoading || restoredDraftRef.current || fetchedContent === undefined) return
@@ -133,46 +114,28 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
       setEditMode(false)
       return
     }
-    if (cascadeWarningMessage) {
-      setShowCascadeWarning(true)
-    } else {
-      setEditMode(true)
-    }
-  }, [editMode, fileContent, cascadeWarningMessage])
-
-  const handleCascadeConfirm = useCallback(() => {
-    setShowCascadeWarning(false)
     setEditMode(true)
-  }, [])
+  }, [editMode, fileContent])
 
   const handleSave = useCallback(async () => {
     setSaving(true)
     setSaveError(null)
     try {
-      if (artifactType === 'beads') {
-        const beadsArray = jsonlToBeadsArray(editedContent)
-        const res = await fetch(`/api/tickets/${ticket.id}/beads`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(beadsArray),
-        })
-        if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
-      } else {
-        const res = await fetch(`/api/files/${ticket.id}/${artifactType}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: editedContent }),
-        })
-        if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
-      }
-      queryClient.setQueryData(['artifact', ticket.id, artifactType], editedContent)
+      const beadsArray = jsonlToBeadsArray(editedContent)
+      const res = await fetch(`/api/tickets/${ticket.id}/beads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(beadsArray),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
+      queryClient.setQueryData(['artifact', ticket.id, 'beads'], editedContent)
       setEditMode(false)
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
-  }, [editedContent, ticket.id, artifactType, queryClient])
+  }, [editedContent, ticket.id, queryClient])
 
   const hasChanges = editedContent !== fileContent
 
@@ -197,17 +160,10 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
 
   return (
     <div ref={containerRef} className="h-full flex flex-col overflow-hidden">
-      <CascadeWarning
-        message={cascadeWarningMessage ?? ''}
-        open={showCascadeWarning}
-        onConfirm={handleCascadeConfirm}
-        onCancel={() => setShowCascadeWarning(false)}
-      />
-
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold">{config.title}</span>
-          <span className="text-xs text-muted-foreground">— {config.description}</span>
+          <span className="font-semibold">Beads Breakdown</span>
+          <span className="text-xs text-muted-foreground">— Review the implementation beads with tests and dependencies.</span>
         </div>
 
         <PhaseArtifactsPanel
@@ -256,9 +212,7 @@ function GenericApprovalView({ ticket, artifactType }: { ticket: Ticket; artifac
         ) : editMode ? (
           <YamlEditor value={editedContent} onChange={setEditedContent} className="border rounded-md" />
         ) : fileContent ? (
-          artifactType === 'beads' ? <BeadsStructuredView content={fileContent} /> :
-            artifactType === 'prd' ? <PrdDraftView content={fileContent} /> :
-              <StructuredViewer content={fileContent} />
+          <BeadsStructuredView content={fileContent} />
         ) : null}
       </div>
 
@@ -279,5 +233,9 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
     return <InterviewApprovalPane ticket={ticket} />
   }
 
-  return <GenericApprovalView ticket={ticket} artifactType={artifactType} />
+  if (artifactType === 'prd') {
+    return <PrdApprovalPane ticket={ticket} />
+  }
+
+  return <GenericApprovalView ticket={ticket} />
 }

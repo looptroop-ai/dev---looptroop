@@ -192,3 +192,14 @@ export function savePrdRawContent(
   const invalidation = invalidateDownstreamBeadsArtifacts(ticketId)
   return { raw, document, invalidation }
 }
+
+export function savePrdStructuredContent(
+  ticketId: string,
+  document: PrdDocument,
+): {
+  raw: string
+  document: PrdDocument
+  invalidation: { removedArtifacts: number; removedFiles: string[] }
+} {
+  return savePrdRawContent(ticketId, buildYamlDocument(document))
+}

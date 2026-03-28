@@ -27,7 +27,10 @@ vi.mock('../PhaseArtifactsPanel', () => ({
   PhaseArtifactsPanel: ({ prefixElement }: { prefixElement?: React.ReactNode }) => (
     <div data-testid="phase-artifacts-panel">{prefixElement}</div>
   ),
-  PrdDraftView: ({ content }: { content: string }) => <div data-testid="prd-draft-view">{content}</div>,
+}))
+
+vi.mock('../PrdApprovalPane', () => ({
+  PrdApprovalPane: ({ ticket }: { ticket: Ticket }) => <div data-testid="prd-approval-pane">{ticket.id}</div>,
 }))
 
 vi.mock('../PhaseLogPanel', () => ({
@@ -85,9 +88,9 @@ function renderWithProviders(ui: React.ReactElement) {
   )
 }
 
-async function renderApprovalView(ticket: Ticket) {
+async function renderApprovalView(ticket: Ticket, artifactType: 'interview' | 'prd' | 'beads' = 'interview') {
   const { ApprovalView } = await import('../ApprovalView')
-  return renderWithProviders(<ApprovalView ticket={ticket} artifactType="interview" />)
+  return renderWithProviders(<ApprovalView ticket={ticket} artifactType={artifactType} />)
 }
 
 function makeTicket(): Ticket {
@@ -298,6 +301,12 @@ describe('Interview approval UI', () => {
     })
     expect(mockClearTicketArtifactsCache).toHaveBeenCalledWith('1:PROJ-42')
   }, 30_000)
+
+  it('routes PRD approvals to the dedicated pane', async () => {
+    await renderApprovalView({ ...makeTicket(), status: 'WAITING_PRD_APPROVAL' }, 'prd')
+
+    expect(screen.getByTestId('prd-approval-pane')).toBeInTheDocument()
+  })
 
   it('confirms before switching from dirty answer edits to the YAML tab and resets to the last saved artifact', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {

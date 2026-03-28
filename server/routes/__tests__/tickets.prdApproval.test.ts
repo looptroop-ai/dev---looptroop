@@ -318,6 +318,42 @@ describe('ticketRouter PRD approval routes', () => {
     expect(savedRaw).toContain("approved_at: ''")
   })
 
+  it('accepts structured PRD saves, canonicalizes them, and clears approval metadata', async () => {
+    const { app, ticket, paths } = setupPrdApprovalTicket()
+
+    const structuredDocument: PrdDocument = {
+      ...buildPrdDocument(ticket.externalId, '0000000000000000000000000000000000000000000000000000000000000000'),
+      ticket_id: 'WRONG-ID',
+      status: 'approved',
+      approval: {
+        approved_by: 'user',
+        approved_at: '2026-03-20T10:10:00.000Z',
+      },
+    }
+
+    const response = await app.request(`/api/files/${ticket.id}/prd`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        document: structuredDocument,
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { success: boolean; content: string }
+    expect(payload.success).toBe(true)
+    expect(payload.content).toContain(`ticket_id: ${ticket.externalId}`)
+    expect(payload.content).toContain('status: draft')
+    expect(payload.content).toContain("approved_by: ''")
+    expect(payload.content).toContain("approved_at: ''")
+
+    const savedRaw = readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')
+    expect(savedRaw).toContain(`ticket_id: ${ticket.externalId}`)
+    expect(savedRaw).toContain('status: draft')
+    expect(savedRaw).toContain("approved_by: ''")
+    expect(savedRaw).toContain("approved_at: ''")
+  })
+
   it('rejects invalid raw PRD YAML without overwriting the current artifact', async () => {
     const { app, ticket, prdRaw, paths } = setupPrdApprovalTicket()
 
@@ -326,6 +362,22 @@ describe('ticketRouter PRD approval routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: 'artifact: prd\nepics: [',
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    const savedRaw = readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')
+    expect(savedRaw).toBe(prdRaw)
+  })
+
+  it('rejects invalid structured PRD documents without overwriting the current artifact', async () => {
+    const { app, ticket, prdRaw, paths } = setupPrdApprovalTicket()
+
+    const response = await app.request(`/api/files/${ticket.id}/prd`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        document: {},
       }),
     })
 
@@ -402,6 +454,25 @@ describe('ticketRouter PRD approval routes', () => {
     expect(existsSync(beadsDir)).toBe(false)
     expect(getLatestPhaseArtifact(ticket.id, 'beads', 'DRAFTING_BEADS')).toBeUndefined()
     expect(getLatestPhaseArtifact(ticket.id, 'ui_state:approval_beads', 'UI_STATE')).toBeUndefined()
+  })
+
+  it('does not stamp PRD approval metadata through the generic approve route', async () => {
+    const { app, ticket, paths } = setupPrdApprovalTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { message?: string; status?: string }
+    expect(payload.message).toBe('Approve action accepted')
+    expect(payload.status).toBe('DRAFTING_BEADS')
+
+    const savedRaw = readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')
+    expect(savedRaw).toContain('status: draft')
+    expect(savedRaw).toContain("approved_by: ''")
+    expect(savedRaw).toContain("approved_at: ''")
+    expect(savedRaw).not.toContain('approved_by: user')
   })
 
   it('rejects approval when ticket is not in WAITING_PRD_APPROVAL status', async () => {
