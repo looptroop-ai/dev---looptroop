@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import jsYaml from 'js-yaml'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
@@ -476,13 +476,312 @@ describe('handlePrdRefine', () => {
     const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
     expect(coverageInput).toBeDefined()
     const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {
+      prd?: string
       refinedContent?: string
       changes?: unknown[]
     } | undefined
     if (!parsedCoverageInput) throw new Error('Expected PRD coverage-input companion payload')
-    expect(parsedCoverageInput.refinedContent).toBe(refinement.refinedContent)
+    expect(parsedCoverageInput.prd?.trim()).toBe(refinement.refinedContent.trim())
+    expect(parsedCoverageInput.refinedContent?.trim()).toBe(refinement.refinedContent.trim())
     expect(parsedCoverageInput.changes).toBeUndefined()
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+  })
+
+  it('restores a missing prd.yaml from the refined PRD artifact before PRD coverage runs', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const winnerId = 'openai/gpt-5.2'
+    const interviewContent = buildInterviewYaml(ticket.externalId)
+    const winnerDraftContent = buildPrdContent(ticket.externalId)
+    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticket.externalId), {
+      ticketId: ticket.externalId,
+      interviewContent,
+      winnerDraftContent,
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    })
+
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, interviewContent, 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      content: JSON.stringify({
+        drafts: [
+          { memberId: winnerId, outcome: 'completed', content: interviewContent },
+        ],
+      }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify(buildPrdRefinedArtifact(
+        winnerId,
+        refinement.winnerDraftContent,
+        refinement,
+        {
+          repairApplied: refinement.repairApplied,
+          repairWarnings: refinement.repairWarnings,
+          autoRetryCount: 0,
+        },
+      )),
+    })
+
+    runOpenCodePromptMock.mockImplementationOnce(async ({ parts }: { parts: Array<{ content: string }> }) => {
+      const promptText = parts.map((part) => part.content).join('\n')
+      expect(promptText).toContain('Prompt hardening and refinement safety')
+      expect(promptText).toContain('Validate PRD refinement exactly')
+      return {
+        session: { id: 'coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      }
+    })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
+
+    const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
+    expect(coverageInput).toBeDefined()
+    const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {
+      prd?: string
+      refinedContent?: string
+    } | undefined
+    if (!parsedCoverageInput) throw new Error('Expected PRD coverage-input companion payload')
+    expect(parsedCoverageInput.prd?.trim()).toBe(refinement.refinedContent.trim())
+    expect(parsedCoverageInput.refinedContent?.trim()).toBe(refinement.refinedContent.trim())
+    expect(existsSync(`${paths.ticketDir}/prd.yaml`)).toBe(true)
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+  })
+
+  it('uses the on-disk PRD as the effective PRD coverage input when it differs from the refined artifact', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const winnerId = 'openai/gpt-5.2'
+    const interviewContent = buildInterviewYaml(ticket.externalId)
+    const winnerDraftContent = buildPrdContent(ticket.externalId)
+    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticket.externalId), {
+      ticketId: ticket.externalId,
+      interviewContent,
+      winnerDraftContent,
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    })
+    const diskPrdContent = buildPrdContent(ticket.externalId, {
+      epicTitle: 'Disk PRD source of truth',
+      storyOneTitle: 'Inspect the saved PRD exactly',
+    })
+
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, interviewContent, 'utf-8')
+    writeFileSync(`${paths.ticketDir}/prd.yaml`, diskPrdContent, 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      content: JSON.stringify({
+        drafts: [
+          { memberId: winnerId, outcome: 'completed', content: interviewContent },
+        ],
+      }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify(buildPrdRefinedArtifact(
+        winnerId,
+        refinement.winnerDraftContent,
+        refinement,
+        {
+          repairApplied: refinement.repairApplied,
+          repairWarnings: refinement.repairWarnings,
+          autoRetryCount: 0,
+        },
+      )),
+    })
+
+    runOpenCodePromptMock.mockImplementationOnce(async ({ parts }: { parts: Array<{ content: string }> }) => {
+      const promptText = parts.map((part) => part.content).join('\n')
+      expect(promptText).toContain('Disk PRD source of truth')
+      expect(promptText).toContain('Inspect the saved PRD exactly')
+      expect(promptText).not.toContain('Prompt hardening and refinement safety')
+
+      return {
+        session: { id: 'coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      }
+    })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
+
+    const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
+    expect(coverageInput).toBeDefined()
+    const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {
+      prd?: string
+      refinedContent?: string
+    } | undefined
+    if (!parsedCoverageInput) throw new Error('Expected PRD coverage-input companion payload')
+    expect(parsedCoverageInput.prd?.trim()).toBe(diskPrdContent.trim())
+    expect(parsedCoverageInput.refinedContent?.trim()).toBe(diskPrdContent.trim())
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+  })
+
+  it('retries PRD coverage once when the first semantic result contradicts itself', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const winnerId = 'openai/gpt-5.2'
+    const interviewContent = buildInterviewYaml(ticket.externalId)
+    const winnerDraftContent = buildPrdContent(ticket.externalId)
+    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticket.externalId), {
+      ticketId: ticket.externalId,
+      interviewContent,
+      winnerDraftContent,
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    })
+
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, interviewContent, 'utf-8')
+    writeFileSync(`${paths.ticketDir}/prd.yaml`, refinement.refinedContent, 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      content: JSON.stringify({
+        drafts: [
+          { memberId: winnerId, outcome: 'completed', content: interviewContent },
+        ],
+      }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify(buildPrdRefinedArtifact(
+        winnerId,
+        refinement.winnerDraftContent,
+        refinement,
+        {
+          repairApplied: refinement.repairApplied,
+          repairWarnings: refinement.repairWarnings,
+          autoRetryCount: 0,
+        },
+      )),
+    })
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps:',
+          '  - "Missing acceptance criteria."',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-2', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(2)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+  })
+
+  it('routes final PRD coverage gaps to approval instead of Beads when the retry cap is reached', async () => {
+    const { ticket, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const winnerId = 'openai/gpt-5.2'
+    const interviewContent = buildInterviewYaml(ticket.externalId)
+    const winnerDraftContent = buildPrdContent(ticket.externalId)
+    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticket.externalId), {
+      ticketId: ticket.externalId,
+      interviewContent,
+      winnerDraftContent,
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    })
+
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, interviewContent, 'utf-8')
+    writeFileSync(`${paths.ticketDir}/prd.yaml`, refinement.refinedContent, 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      content: JSON.stringify({
+        drafts: [
+          { memberId: winnerId, outcome: 'completed', content: interviewContent },
+        ],
+      }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify(buildPrdRefinedArtifact(
+        winnerId,
+        refinement.winnerDraftContent,
+        refinement,
+        {
+          repairApplied: refinement.repairApplied,
+          repairWarnings: refinement.repairWarnings,
+          autoRetryCount: 0,
+        },
+      )),
+    })
+
+    runOpenCodePromptMock.mockResolvedValueOnce({
+      session: { id: 'coverage-session-1', projectPath: paths.worktreePath },
+      response: [
+        'status: gaps',
+        'gaps:',
+        '  - "Missing out-of-scope guidance."',
+        'follow_up_questions: []',
+      ].join('\n'),
+      messages: [],
+    })
+
+    await handleCoverageVerification(
+      ticket.id,
+      buildTicketContext(ticket, { lockedMaxCoveragePasses: 1 }),
+      sendEvent,
+      'prd',
+      new AbortController().signal,
+    )
+
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_LIMIT_REACHED' })
+    expect(sendEvent).not.toHaveBeenCalledWith({ type: 'GAPS_FOUND' })
+    expect(sendEvent).not.toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
   })
 })

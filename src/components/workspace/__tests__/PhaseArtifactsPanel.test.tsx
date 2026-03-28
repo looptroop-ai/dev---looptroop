@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
@@ -684,6 +684,119 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByText('Refined PRD review').closest('button')!)
 
     expect(screen.getByText('Inspect refined PRD sections')).toBeInTheDocument()
+  })
+
+  it('prefers the effective PRD coverage input when rendering the refined PRD view', () => {
+    const refinedArtifact: DBartifact = {
+      id: 34,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined artifact PRD',
+          storyTitle: 'Inspect refined artifact sections',
+        }),
+      }),
+    }
+
+    const coverageInputArtifact: DBartifact = {
+      id: 35,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_input',
+      filePath: null,
+      createdAt: '2026-03-25T10:16:31.000Z',
+      content: JSON.stringify({
+        interview: buildInterviewDocumentContent(),
+        fullAnswers: buildInterviewDocumentContent(),
+        prd: buildPrdDocumentContent({
+          epicTitle: 'Coverage input PRD',
+          storyTitle: 'Inspect coverage input sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Coverage input under verification',
+          storyTitle: 'Inspect the exact PRD sent to coverage',
+        }),
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, coverageInputArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+
+    expect(screen.getByText('Coverage input PRD')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Coverage input PRD').closest('button')!)
+    expect(screen.getByText('Inspect coverage input sections')).toBeInTheDocument()
+    expect(screen.getByText('Coverage input under verification')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Coverage input under verification').closest('button')!)
+    expect(screen.getByText('Inspect the exact PRD sent to coverage')).toBeInTheDocument()
+    expect(screen.queryByText('Refined artifact PRD')).not.toBeInTheDocument()
+    expect(screen.queryByText('Inspect refined artifact sections')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the effective PRD coverage input when refinedContent is absent', () => {
+    const refinedArtifact: DBartifact = {
+      id: 36,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Artifact fallback PRD',
+          storyTitle: 'Inspect artifact fallback sections',
+        }),
+      }),
+    }
+
+    const coverageInputArtifact: DBartifact = {
+      id: 37,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_input',
+      filePath: null,
+      createdAt: '2026-03-25T10:16:31.000Z',
+      content: JSON.stringify({
+        interview: buildInterviewDocumentContent(),
+        fullAnswers: buildInterviewDocumentContent(),
+        prd: buildPrdDocumentContent({
+          epicTitle: 'Coverage input PRD only',
+          storyTitle: 'Inspect the exact saved PRD',
+        }),
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, coverageInputArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+
+    const dialog = screen.getByRole('dialog')
+    const [coverageInputPrdButton] = within(dialog).getAllByRole('button', { name: /Coverage input PRD only/i })
+    if (!coverageInputPrdButton) {
+      throw new Error('Expected PRD coverage input button to exist')
+    }
+    fireEvent.click(coverageInputPrdButton)
+    expect(screen.getByText('Inspect the exact saved PRD')).toBeInTheDocument()
+    expect(screen.queryByText('Artifact fallback PRD')).not.toBeInTheDocument()
+    expect(screen.queryByText('Inspect artifact fallback sections')).not.toBeInTheDocument()
   })
 
   it('shows no-source badges in generic refinement diff views', () => {

@@ -1389,7 +1389,7 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
   )
 }
 
-function CoverageResultView({ content, header }: { content: string; header?: React.ReactNode }) {
+function CoverageResultView({ content, header, phase }: { content: string; header?: React.ReactNode; phase?: string }) {
   const coverageResult = parseCoverageArtifact(content)
   if (!coverageResult) {
     return (
@@ -1400,12 +1400,15 @@ function CoverageResultView({ content, header }: { content: string; header?: Rea
     )
   }
 
+  const isPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL'
   const status = coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
   const gaps = Array.isArray(coverageResult.parsed?.gaps) ? coverageResult.parsed.gaps : []
-  const followUpQuestions = normalizeCoverageFollowUpArtifacts(
-    coverageResult.parsed?.followUpQuestions ?? coverageResult.parsed?.follow_up_questions,
-  )
-  const hasStructuredCoverage = gaps.length > 0 || followUpQuestions.length > 0 || status === 'clean'
+  const followUpQuestions = isPrdCoverage
+    ? []
+    : normalizeCoverageFollowUpArtifacts(
+        coverageResult.parsed?.followUpQuestions ?? coverageResult.parsed?.follow_up_questions,
+    )
+  const hasStructuredCoverage = gaps.length > 0 || status === 'clean' || (!isPrdCoverage && followUpQuestions.length > 0)
   const terminationSummary = coverageResult.terminationReason === 'coverage_pass_limit_reached'
     ? 'Retry cap reached; moving to approval with unresolved gaps.'
     : coverageResult.terminationReason === 'follow_up_budget_exhausted'
@@ -1455,7 +1458,7 @@ function CoverageResultView({ content, header }: { content: string; header?: Rea
             </div>
           )}
 
-          {followUpQuestions.length > 0 && (
+          {!isPrdCoverage && followUpQuestions.length > 0 && (
             <div className="space-y-2">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Follow-up Questions</div>
               <div className="space-y-2">
@@ -1658,7 +1661,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
     return (
       <WithRawTab content={content} structuredLabel="Coverage" header={header}>
-        <CoverageResultView content={content} />
+        <CoverageResultView content={content} phase={phase} />
       </WithRawTab>
     )
   }

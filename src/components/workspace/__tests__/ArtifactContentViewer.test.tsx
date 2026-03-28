@@ -360,6 +360,51 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Keep the PRD viewer structured after refinement.')).toBeInTheDocument()
   })
 
+  it('hides PRD coverage follow-up questions while preserving gap and termination summaries', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-coverage-result"
+        phase="VERIFYING_PRD_COVERAGE"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          response: [
+            'status: gaps',
+            'gaps:',
+            '  - "Missing PRD approval sequencing."',
+            'follow_up_questions:',
+            '  - id: FU01',
+            '    question: "Which approval step should trigger Beads?"',
+            '    phase: PRD',
+          ].join('\n'),
+          hasGaps: true,
+          coverageRunNumber: 2,
+          maxCoveragePasses: 2,
+          limitReached: true,
+          terminationReason: 'coverage_pass_limit_reached',
+          parsed: {
+            status: 'gaps',
+            gaps: ['Missing PRD approval sequencing.'],
+            followUpQuestions: [
+              {
+                id: 'FU01',
+                question: 'Which approval step should trigger Beads?',
+                phase: 'PRD',
+                priority: 'high',
+                rationale: 'PRD coverage should stay diagnostic-only.',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Coverage gaps found')).toBeInTheDocument()
+    expect(screen.getByText('Retry cap reached; moving to approval with unresolved gaps.')).toBeInTheDocument()
+    expect(screen.getByText('Missing PRD approval sequencing.')).toBeInTheDocument()
+    expect(screen.queryByText('Follow-up Questions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Which approval step should trigger Beads?')).not.toBeInTheDocument()
+  })
+
   it('shows friendly labels for nested PRD technical requirement diffs', () => {
     render(
       <ArtifactContent

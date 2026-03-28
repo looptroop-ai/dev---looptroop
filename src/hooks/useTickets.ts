@@ -164,8 +164,9 @@ async function saveTicketUIState(
   ticketId: string,
   scope: string,
   data: unknown,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ success: boolean; scope: string; updatedAt: string }> {
-  const res = await fetch(`/api/tickets/${ticketId}/ui-state`, {
+  const res = await fetchImpl(`/api/tickets/${ticketId}/ui-state`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scope, data }),
@@ -283,9 +284,10 @@ export function useTicketUIState<T = unknown>(ticketId: string, scope: string, e
 
 export function useSaveTicketUIState() {
   const queryClient = useQueryClient()
+  const fetchImpl = globalThis.fetch
   return useMutation({
     mutationFn: ({ ticketId, scope, data }: { ticketId: string; scope: string; data: unknown }) =>
-      saveTicketUIState(ticketId, scope, data),
+      saveTicketUIState(ticketId, scope, data, fetchImpl),
     onSuccess: (result, variables) => {
       queryClient.setQueryData<TicketUIStateResponse<unknown>>(
         ['ticket-ui-state', variables.ticketId, variables.scope],

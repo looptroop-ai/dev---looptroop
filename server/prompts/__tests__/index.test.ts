@@ -123,6 +123,8 @@ describe('structured prompt hardening', () => {
     expect(coveragePrompt).toContain('return only YAML with top-level `status`, `gaps`, and `follow_up_questions`')
     expect(coveragePrompt).toContain('max_coverage_passes')
     expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
+    expect(coveragePrompt).toContain('`follow_up_questions` is always `[]` for PRD coverage')
+    expect(coveragePrompt).toContain('`follow_up_questions` must always be `[]`')
     expect(coveragePrompt).toContain('Do not output a rewritten PRD')
     expect(coveragePrompt).not.toContain('Provide the necessary additions or modifications to the PRD')
   })

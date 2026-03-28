@@ -698,6 +698,8 @@ export function buildFinalRefinementArtifactContent(
 
   const nextRefinedContent = typeof coverageRecord?.refinedContent === 'string'
     ? coverageRecord.refinedContent
+    : typeof coverageRecord?.prd === 'string'
+      ? coverageRecord.prd
     : refinedArtifact?.refinedContent ?? ''
   if (!nextRefinedContent.trim()) return null
 

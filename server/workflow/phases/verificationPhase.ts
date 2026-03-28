@@ -13,9 +13,11 @@ import {
   normalizeRelevantFilesOutput,
   normalizeCoverageResultOutput,
   buildStructuredRetryPrompt,
+  type CoverageResultEnvelope,
   type RelevantFilesOutputPayload,
   type StructuredOutputResult,
 } from '../../structuredOutput'
+import { buildYamlDocument } from '../../structuredOutput/yamlUtils'
 import { isMockOpenCodeMode } from '../../opencode/factory'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
@@ -28,6 +30,7 @@ import { resolveInterviewCoverageFollowUpResolution } from '../interviewCoverage
 import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../coverageControl'
 import { calculateFollowUpLimit } from '../../phases/interview/followUpBudget'
 import { parsePrdRefinedArtifact } from '../../phases/prd/refined'
+import { clearContextCache } from '../../opencode/contextBuilder'
 import {
   countCoverageFollowUpQuestions,
   buildCoverageFollowUpBatch,
@@ -123,6 +126,81 @@ function loadWinnerPrdFullAnswers(ticketId: string, winnerId: string): string | 
     return winnerDraft?.content
   } catch {
     return undefined
+  }
+}
+
+function loadRecoveredPrdCoverageContent(ticketId: string) {
+  const artifact = getLatestPhaseArtifact(ticketId, 'prd_refined', 'REFINING_PRD')
+  if (!artifact) return null
+
+  try {
+    const parsed = parsePrdRefinedArtifact(artifact.content)
+    return parsed.refinedContent
+  } catch {
+    return null
+  }
+}
+
+function normalizePrdCoverageEnvelope(envelope: CoverageResultEnvelope): {
+  envelope: CoverageResultEnvelope
+  repairWarnings: string[]
+  validationError?: string
+} {
+  const repairWarnings: string[] = []
+  const sanitizedFollowUpQuestions: CoverageResultEnvelope['followUpQuestions'] = []
+
+  if (envelope.followUpQuestions.length > 0) {
+    repairWarnings.push('PRD coverage follow_up_questions were ignored because PRD coverage is envelope-only.')
+  }
+
+  const sanitizedGaps = envelope.gaps.map(gap => gap.trim()).filter((gap): gap is string => gap.length > 0)
+
+  if (envelope.status === 'clean') {
+    if (sanitizedGaps.length > 0) {
+      return {
+        envelope: {
+          status: 'clean',
+          gaps: sanitizedGaps,
+          followUpQuestions: sanitizedFollowUpQuestions,
+        },
+        repairWarnings,
+        validationError: 'PRD coverage reported status clean but also returned gaps. Return status gaps for unresolved coverage and keep gaps empty when status is clean.',
+      }
+    }
+
+    return {
+      envelope: {
+        status: 'clean',
+        gaps: [],
+        followUpQuestions: sanitizedFollowUpQuestions,
+      },
+      repairWarnings,
+    }
+  }
+
+  if (sanitizedGaps.length === 0) {
+    return {
+      envelope: {
+        status: 'gaps',
+        gaps: [],
+        followUpQuestions: sanitizedFollowUpQuestions,
+      },
+      repairWarnings,
+      validationError: 'PRD coverage reported status gaps but did not return any non-empty gap strings. Return at least one concrete gap string.',
+    }
+  }
+
+  if (sanitizedGaps.length !== envelope.gaps.length) {
+    repairWarnings.push('Trimmed empty PRD coverage gap strings before persisting the normalized result.')
+  }
+
+  return {
+    envelope: {
+      status: 'gaps',
+      gaps: sanitizedGaps,
+      followUpQuestions: sanitizedFollowUpQuestions,
+    },
+    repairWarnings,
   }
 }
 
@@ -495,7 +573,9 @@ export async function handleCoverageVerification(
         refinedContent = phase === 'prd'
           ? parsePrdRefinedArtifact(compiledArtifact.content).refinedContent
           : (JSON.parse(compiledArtifact.content) as { refinedContent?: string }).refinedContent
-      } catch { /* ignore */ }
+      } catch {
+        // Ignore malformed refinement artifacts and fall back to other sources.
+      }
     }
   }
 
@@ -505,6 +585,7 @@ export async function handleCoverageVerification(
   let canonicalInterview = phase === 'interview' || phase === 'prd'
     ? loadCanonicalInterview(ticketDir)
     : undefined
+  let effectivePrdContent: string | undefined
 
   if (phase === 'interview' && !canonicalInterview) {
     if (!interviewSnapshot) {
@@ -525,6 +606,44 @@ export async function handleCoverageVerification(
     }
   }
 
+  if (phase === 'prd') {
+    const prdPath = resolve(ticketDir, 'prd.yaml')
+    const diskPrdContent = existsSync(prdPath) ? readFileSync(prdPath, 'utf-8').trim() : ''
+    if (diskPrdContent.length > 0) {
+      effectivePrdContent = diskPrdContent
+    } else if (refinedContent?.trim()) {
+      effectivePrdContent = refinedContent.trim()
+      try {
+        safeAtomicWrite(prdPath, refinedContent)
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', `Recovered missing prd.yaml from the validated refined PRD artifact before coverage.`)
+      } catch (err) {
+        const msg = `Failed to restore prd.yaml from the validated refined PRD artifact before coverage: ${err instanceof Error ? err.message : String(err)}`
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+    } else {
+      const recoveredPrdContent = loadRecoveredPrdCoverageContent(ticketId)
+      if (!recoveredPrdContent) {
+        const msg = 'PRD coverage requires a canonical prd.yaml or recovered prd_refined artifact, but neither was available.'
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+
+      effectivePrdContent = recoveredPrdContent.trim()
+      try {
+        safeAtomicWrite(prdPath, recoveredPrdContent)
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', `Recovered missing prd.yaml from the validated refined PRD artifact before coverage.`)
+      } catch (err) {
+        const msg = `Failed to restore prd.yaml from the validated refined PRD artifact before coverage: ${err instanceof Error ? err.message : String(err)}`
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+    }
+  }
+
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
@@ -540,6 +659,9 @@ export async function handleCoverageVerification(
           const winnerFullAnswers = loadWinnerPrdFullAnswers(ticketId, winnerId)
           return winnerFullAnswers ? { fullAnswers: [winnerFullAnswers] } : {}
         })()
+      : {}),
+    ...(phase === 'prd' && effectivePrdContent
+      ? { prd: effectivePrdContent }
       : {}),
     ...(phase === 'interview'
       ? { userAnswers: buildInterviewAnswerSummary(interviewSnapshot) }
@@ -561,13 +683,6 @@ export async function handleCoverageVerification(
       })()
     : null
 
-  // Load additional artifacts from disk for PRD/beads coverage phases
-  if (phase === 'prd' || phase === 'beads') {
-    const prdPath = resolve(ticketDir, 'prd.yaml')
-    if (existsSync(prdPath)) {
-      try { ticketState.prd = readFileSync(prdPath, 'utf-8') } catch { /* ignore */ }
-    }
-  }
   if (phase === 'beads' && paths) {
     const beadsPath = paths.beadsPath
     if (beadsPath && existsSync(beadsPath)) {
@@ -575,6 +690,7 @@ export async function handleCoverageVerification(
     }
   }
 
+  clearContextCache(context.externalId)
   const coverageContext = buildMinimalContext(contextPhase, ticketState)
   const coveragePromptConfiguration = buildCoveragePromptConfiguration({
     phase,
@@ -689,6 +805,53 @@ export async function handleCoverageVerification(
         repairApplied: coverageEnvelope.repairApplied,
         repairWarnings: coverageEnvelope.repairWarnings,
       })
+
+      if (phase === 'prd') {
+        const prdCoverageNormalization = normalizePrdCoverageEnvelope(coverageEnvelope.value)
+        if (prdCoverageNormalization.repairWarnings.length > 0) {
+          structuredMeta = buildStructuredMetadata(structuredMeta, {
+            repairWarnings: prdCoverageNormalization.repairWarnings,
+          })
+        }
+
+        if (prdCoverageNormalization.validationError) {
+          if (attempt === 1) {
+            structuredMeta = buildStructuredMetadata(structuredMeta, {
+              autoRetryCount: 1,
+              validationError: prdCoverageNormalization.validationError,
+            })
+            const msg = `PRD coverage output failed semantic validation after retry: ${prdCoverageNormalization.validationError}`
+            emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+            sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+            return
+          }
+
+          structuredMeta = buildStructuredMetadata(structuredMeta, {
+            autoRetryCount: 1,
+            validationError: prdCoverageNormalization.validationError,
+          })
+          promptParts = buildStructuredRetryPrompt([{ type: 'text', content: promptContent }], {
+            validationError: prdCoverageNormalization.validationError,
+            rawResponse: response,
+            schemaReminder: promptTemplate.outputFormat,
+            doNotUseTools: true,
+          })
+          continue
+        }
+
+        coverageEnvelope = {
+          ...coverageEnvelope,
+          value: prdCoverageNormalization.envelope,
+          normalizedContent: buildYamlDocument({
+            status: prdCoverageNormalization.envelope.status,
+            gaps: prdCoverageNormalization.envelope.gaps,
+            follow_up_questions: prdCoverageNormalization.envelope.followUpQuestions,
+          }),
+          repairApplied: coverageEnvelope.repairApplied || prdCoverageNormalization.repairWarnings.length > 0,
+          repairWarnings: [...coverageEnvelope.repairWarnings, ...prdCoverageNormalization.repairWarnings],
+        }
+      }
+
       interviewCoverageResolution = phase === 'interview' && interviewSnapshot
         ? resolveInterviewCoverageFollowUpResolution({
             status: coverageEnvelope.value.status,
@@ -771,7 +934,7 @@ export async function handleCoverageVerification(
         ? {
             ...(ticketState.interview ? { interview: ticketState.interview } : {}),
             ...(ticketState.fullAnswers?.[0] ? { fullAnswers: ticketState.fullAnswers[0] } : {}),
-            ...(refinedContent ? { refinedContent } : {}),
+            ...(effectivePrdContent ? { prd: effectivePrdContent, refinedContent: effectivePrdContent } : {}),
           }
         : {
             ...(ticketState.beads ? { beads: ticketState.beads } : {}),

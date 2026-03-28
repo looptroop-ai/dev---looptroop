@@ -20,6 +20,7 @@ import jsYaml from 'js-yaml'
 import { normalizeInterviewDocumentOutput, normalizePrdYamlOutput, getPrdDraftMetrics } from '../../structuredOutput'
 import { buildPromptFromTemplate, PROM11, PROM12 } from '../../prompts/index'
 import { buildPrdUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import { clearContextCache } from '../../opencode/contextBuilder'
 
 import { adapter, phaseIntermediate } from './state'
 import {
@@ -897,6 +898,7 @@ export async function handlePrdRefine(
 
   // Save refined PRD to disk
   safeAtomicWrite(prdPath, refinedContent)
+  clearContextCache(context.externalId)
 
   emitPhaseLog(
     ticketId,
@@ -1046,6 +1048,7 @@ export async function handleMockPrdRefine(ticketId: string, context: TicketConte
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_PRD', paths.ticketDir, uiDiffArtifact)
   safeAtomicWrite(resolve(paths.ticketDir, 'prd.yaml'), normalizedPrd.normalizedContent)
+  clearContextCache(context.externalId)
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info', 'Mock PRD written to disk.')
   sendEvent({ type: 'REFINED' })
 }

@@ -410,6 +410,7 @@ export const PROM13: PromptTemplate = {
     'Identify Gaps: List any specific gaps or discrepancies found between the Interview Results, the winner Full Answers artifact, and the PRD.',
     'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
     'If no gaps exist, confirm that the PRD is complete and ready for PRD approval, and make clear that Beads breakdown begins only after that approval step.',
+    'PRD Follow-Up Rule: `follow_up_questions` is always `[]` for PRD coverage. Do not invent new PRD questions; use `gaps` only.',
     'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     'Gap Triggering: Use `status: gaps` only when at least one real unresolved gap remains. For PRD coverage, `follow_up_questions` should normally be an empty list. Use `status: gaps` plus concrete `gaps` entries to trigger another refinement pass.',
@@ -417,7 +418,7 @@ export const PROM13: PromptTemplate = {
     DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],
-  outputFormat: COVERAGE_OUTPUT_FORMAT,
+  outputFormat: `${COVERAGE_OUTPUT_FORMAT} For PRD coverage, \`follow_up_questions\` must always be \`[]\`.`,
   contextInputs: ['interview', 'full_answers', 'prd'],
 }
 

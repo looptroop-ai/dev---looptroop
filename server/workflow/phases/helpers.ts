@@ -822,6 +822,11 @@ export function buildCoveragePromptConfiguration(input: {
         ? 'If gaps remain and follow_up_budget_remaining is 0, you MUST return `status: gaps`, concrete `gaps`, and `follow_up_questions: []`.'
         : 'If gaps remain, generate only the targeted follow-up questions that fit within follow_up_budget_remaining.',
     )
+  } else if (input.phase === 'prd') {
+    lines.push(
+      'PRD coverage is envelope-only: return `follow_up_questions: []` and do not invent PRD follow-up questions.',
+      'If you need to flag more work, use concrete `gaps` entries only.',
+    )
   }
 
   return {
