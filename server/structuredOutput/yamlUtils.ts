@@ -125,6 +125,7 @@ interface ParseYamlOrJsonCandidateOptions {
 }
 
 const TERMINAL_NOISE_WARNING = 'Trimmed trailing terminal noise after the complete structured artifact.'
+const ORPHAN_CLOSING_CODE_FENCE_WARNING = 'Trimmed orphan trailing closing code fence after the structured artifact.'
 
 function isControlNoiseChar(code: number) {
   return (code >= 0 && code <= 8)
@@ -344,6 +345,29 @@ function buildTrailingTerminalNoiseVariants(content: string): string[] {
   return variants
 }
 
+function stripTrailingClosingCodeFenceLine(content: string): string | null {
+  const lines = content.split('\n')
+  let end = lines.length
+
+  while (end > 0 && lines[end - 1]?.trim() === '') {
+    end -= 1
+  }
+
+  if (end === 0) return null
+
+  const lastLine = lines[end - 1]?.trim() ?? ''
+  if (!/^```$/.test(lastLine)) return null
+
+  for (let index = 0; index < end - 1; index += 1) {
+    if (/^```(?:yaml|yml|json|jsonl)?\s*$/i.test(lines[index]?.trim() ?? '')) {
+      return null
+    }
+  }
+
+  const stripped = lines.slice(0, end - 1).join('\n').trimEnd()
+  return stripped || null
+}
+
 export function parseYamlOrJsonCandidate(
   content: string,
   options?: ParseYamlOrJsonCandidateOptions,
@@ -381,132 +405,152 @@ export function parseYamlOrJsonCandidate(
   const trimmed = content.trim()
   if (!trimmed) return null
 
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    const trailingNoiseParsed = parseTrailingNoiseVariants(trimmed)
-    if (trailingNoiseParsed !== undefined) {
-      return trailingNoiseParsed
-    }
-
-    const repairedTrimmed = applyNestedMappingRepair(trimmed)
-    if (repairedTrimmed !== trimmed) {
-      try {
-        return jsYaml.load(repairedTrimmed)
-      } catch { /* fall through to the original input and later repairs */ }
-    }
-
+  const tryParseCandidate = (candidate: string): unknown => {
     try {
-      return jsYaml.load(trimmed)
+      return JSON.parse(candidate)
     } catch {
-      // First repair: strip markdown code fences if present
-      const defenced = stripCodeFences(trimmed)
-      const effectiveBase = defenced !== trimmed ? defenced.trim() : trimmed
+      const trailingNoiseParsed = parseTrailingNoiseVariants(candidate)
+      if (trailingNoiseParsed !== undefined) {
+        return trailingNoiseParsed
+      }
 
-      if (effectiveBase !== trimmed) {
-        const defencedTrailingNoiseParsed = parseTrailingNoiseVariants(effectiveBase)
-        if (defencedTrailingNoiseParsed !== undefined) {
-          return defencedTrailingNoiseParsed
+      const repairedTrimmed = applyNestedMappingRepair(candidate)
+      if (repairedTrimmed !== candidate) {
+        try {
+          return jsYaml.load(repairedTrimmed)
+        } catch { /* fall through to the original input and later repairs */ }
+      }
+
+      try {
+        return jsYaml.load(candidate)
+      } catch {
+        // First repair: strip markdown code fences if present
+        const defenced = stripCodeFences(candidate)
+        const effectiveBase = defenced !== candidate ? defenced.trim() : candidate
+
+        if (effectiveBase !== candidate) {
+          const defencedTrailingNoiseParsed = parseTrailingNoiseVariants(effectiveBase)
+          if (defencedTrailingNoiseParsed !== undefined) {
+            return defencedTrailingNoiseParsed
+          }
+
+          const repairedDefenced = applyNestedMappingRepair(effectiveBase)
+          try {
+            return JSON.parse(effectiveBase)
+          } catch {
+            if (repairedDefenced !== effectiveBase) {
+              try {
+                return jsYaml.load(repairedDefenced)
+              } catch { /* fall through to the original defenced input */ }
+            }
+            try {
+              return jsYaml.load(effectiveBase)
+            } catch { /* fall through to further repairs */ }
+          }
         }
 
-        const repairedDefenced = applyNestedMappingRepair(effectiveBase)
-        try {
-          return JSON.parse(effectiveBase)
-        } catch {
-          if (repairedDefenced !== effectiveBase) {
+        // Earliest repair: split inline keys onto separate lines (prerequisite for all other repairs)
+        const inlineRepaired = repairYamlInlineKeys(effectiveBase)
+        if (inlineRepaired !== effectiveBase) {
+          const nestedInlineRepaired = applyNestedMappingRepair(inlineRepaired)
+          if (nestedInlineRepaired !== inlineRepaired) {
             try {
-              return jsYaml.load(repairedDefenced)
-            } catch { /* fall through to the original defenced input */ }
+              return jsYaml.load(nestedInlineRepaired)
+            } catch { /* fall through — later repairs may still be needed */ }
           }
           try {
-            return jsYaml.load(effectiveBase)
-          } catch { /* fall through to further repairs */ }
+            return jsYaml.load(inlineRepaired)
+          } catch { /* fall through — lines split but further repairs may be needed */ }
         }
-      }
+        const afterInline = inlineRepaired !== effectiveBase ? inlineRepaired : effectiveBase
 
-      // Earliest repair: split inline keys onto separate lines (prerequisite for all other repairs)
-      const inlineRepaired = repairYamlInlineKeys(effectiveBase)
-      if (inlineRepaired !== effectiveBase) {
-        const nestedInlineRepaired = applyNestedMappingRepair(inlineRepaired)
-        if (nestedInlineRepaired !== inlineRepaired) {
+        // Pre-processing: strip XML tags, quote fragile free_text values, remove duplicate keys, fix missing list-dash space
+        const xmlStripped = stripSpuriousXmlTags(afterInline)
+        const freeTextQuoted = repairYamlFreeTextScalars(xmlStripped)
+        const dashFixed = repairYamlListDashSpace(freeTextQuoted)
+        const deduped = repairYamlDuplicateKeys(dashFixed)
+        const base = applyNestedMappingRepair(deduped)
+
+        // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)
+        if (base !== afterInline) {
           try {
-            return jsYaml.load(nestedInlineRepaired)
-          } catch { /* fall through — later repairs may still be needed */ }
+            return jsYaml.load(base)
+          } catch { /* fall through to targeted repairs */ }
         }
-        try {
-          return jsYaml.load(inlineRepaired)
-        } catch { /* fall through — lines split but further repairs may be needed */ }
-      }
-      const afterInline = inlineRepaired !== effectiveBase ? inlineRepaired : effectiveBase
 
-      // Pre-processing: strip XML tags, quote fragile free_text values, remove duplicate keys, fix missing list-dash space
-      const xmlStripped = stripSpuriousXmlTags(afterInline)
-      const freeTextQuoted = repairYamlFreeTextScalars(xmlStripped)
-      const dashFixed = repairYamlListDashSpace(freeTextQuoted)
-      const deduped = repairYamlDuplicateKeys(dashFixed)
-      const base = applyNestedMappingRepair(deduped)
-
-      // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)
-      if (base !== afterInline) {
-        try {
-          return jsYaml.load(base)
-        } catch { /* fall through to targeted repairs */ }
-      }
-
-      // Try unclosed-quote repair
-      const quoteRepaired = repairYamlUnclosedQuotes(base)
-      if (quoteRepaired !== base) {
-        try {
-          return jsYaml.load(quoteRepaired)
-        } catch {
-          // Try combined: unclosed-quote + indentation repair
+        // Try unclosed-quote repair
+        const quoteRepaired = repairYamlUnclosedQuotes(base)
+        if (quoteRepaired !== base) {
           try {
-            return jsYaml.load(repairYamlIndentation(quoteRepaired))
-          } catch { /* fall through */ }
+            return jsYaml.load(quoteRepaired)
+          } catch {
+            // Try combined: unclosed-quote + indentation repair
+            try {
+              return jsYaml.load(repairYamlIndentation(quoteRepaired))
+            } catch { /* fall through */ }
+          }
         }
-      }
 
-      const unionRepaired = repairYamlTypeUnionScalars(base)
-      if (unionRepaired !== base) {
-        try {
-          return jsYaml.load(unionRepaired)
-        } catch {
+        const unionRepaired = repairYamlTypeUnionScalars(base)
+        if (unionRepaired !== base) {
           try {
-            return jsYaml.load(repairYamlIndentation(unionRepaired))
-          } catch { /* fall through */ }
+            return jsYaml.load(unionRepaired)
+          } catch {
+            try {
+              return jsYaml.load(repairYamlIndentation(unionRepaired))
+            } catch { /* fall through */ }
+          }
         }
-      }
 
-      // Try colon-in-scalar repair (most targeted fix)
-      const colonRepaired = repairYamlPlainScalarColons(base)
-      if (colonRepaired !== base) {
-        try {
-          return jsYaml.load(colonRepaired)
-        } catch {
-          // Try combined: colon repair + indentation repair
+        // Try colon-in-scalar repair (most targeted fix)
+        const colonRepaired = repairYamlPlainScalarColons(base)
+        if (colonRepaired !== base) {
           try {
-            return jsYaml.load(repairYamlIndentation(colonRepaired))
-          } catch { /* fall through */ }
+            return jsYaml.load(colonRepaired)
+          } catch {
+            // Try combined: colon repair + indentation repair
+            try {
+              return jsYaml.load(repairYamlIndentation(colonRepaired))
+            } catch { /* fall through */ }
+          }
         }
-      }
 
-      // Try sequence-entry indent repair (fixes dashes drifted after block scalars)
-      const seqRepaired = repairYamlSequenceEntryIndent(base)
-      if (seqRepaired !== base) {
-        try {
-          return jsYaml.load(seqRepaired)
-        } catch {
-          // Try combined: sequence entry + property indentation repair
+        // Try sequence-entry indent repair (fixes dashes drifted after block scalars)
+        const seqRepaired = repairYamlSequenceEntryIndent(base)
+        if (seqRepaired !== base) {
           try {
-            return jsYaml.load(repairYamlIndentation(seqRepaired))
-          } catch { /* fall through */ }
+            return jsYaml.load(seqRepaired)
+          } catch {
+            // Try combined: sequence entry + property indentation repair
+            try {
+              return jsYaml.load(repairYamlIndentation(seqRepaired))
+            } catch { /* fall through */ }
+          }
         }
-      }
 
-      const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(base))
-      return jsYaml.load(repaired)
+        const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(base))
+        return jsYaml.load(repaired)
+      }
     }
   }
+
+  const orphanClosingFenceStripped = stripTrailingClosingCodeFenceLine(trimmed)
+  const variants = orphanClosingFenceStripped ? [trimmed, orphanClosingFenceStripped] : [trimmed]
+  let lastError: unknown = null
+
+  for (let index = 0; index < variants.length; index += 1) {
+    try {
+      const parsed = tryParseCandidate(variants[index]!)
+      if (index > 0) {
+        options?.repairWarnings?.push(ORPHAN_CLOSING_CODE_FENCE_WARNING)
+      }
+      return parsed
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to parse structured artifact candidate')
 }
 
 function quoteYamlDoubleQuotedScalar(value: string): string {

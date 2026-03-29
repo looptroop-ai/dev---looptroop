@@ -380,6 +380,22 @@ function syncFinalFreeFormSummary(document: InterviewDocument): InterviewDocumen
   }
 }
 
+function unwrapInterviewArtifactObjectWrapper(value: unknown): unknown {
+  if (!isRecord(value)) return value
+
+  const artifact = getValueByAliases(value, ['artifact'])
+  if (!isRecord(artifact)) return value
+
+  const nestedInterview = getValueByAliases(artifact, ['interview'])
+  if (!isRecord(nestedInterview)) return value
+
+  return {
+    ...value,
+    ...nestedInterview,
+    artifact: 'interview',
+  }
+}
+
 export function buildInterviewDocumentYaml(document: InterviewDocument): string {
   return buildYamlDocument(document)
 }
@@ -399,7 +415,7 @@ export function normalizeInterviewDocumentOutput(
   for (const candidate of candidates) {
     try {
       const warnings: string[] = []
-      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
+      const parsed = unwrapInterviewArtifactObjectWrapper(unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_DOCUMENT_NESTED_MAPPING_CHILDREN,
         allowTrailingTerminalNoise: options?.allowTrailingTerminalNoise,
         repairWarnings: warnings,
@@ -408,7 +424,7 @@ export function normalizeInterviewDocumentOutput(
         'output',
         'result',
         'data',
-      ])
+      ]))
       if (!isRecord(parsed)) {
         throw new Error('Interview document is not a YAML/JSON object')
       }

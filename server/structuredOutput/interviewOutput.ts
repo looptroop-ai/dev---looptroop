@@ -1506,7 +1506,10 @@ function parseCoverageResultCandidate(candidate: string): {
   value: CoverageResultEnvelope
   repairWarnings: string[]
 } {
-  const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate), [
+  const parseRepairWarnings: string[] = []
+  const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate, {
+    repairWarnings: parseRepairWarnings,
+  }), [
     'coverage',
     'result',
     'output',
@@ -1543,7 +1546,7 @@ function parseCoverageResultCandidate(candidate: string): {
       gaps,
       followUpQuestions,
     },
-    repairWarnings: normalizedFollowUps.repairWarnings,
+    repairWarnings: [...parseRepairWarnings, ...normalizedFollowUps.repairWarnings],
   }
 }
 

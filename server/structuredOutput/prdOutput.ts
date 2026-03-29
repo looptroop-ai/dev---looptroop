@@ -182,6 +182,22 @@ function ensureInterviewArtifactForPrd(
   return result.normalizedContent
 }
 
+function unwrapPrdArtifactObjectWrapper(value: unknown): unknown {
+  if (!isRecord(value)) return value
+
+  const artifact = getValueByAliases(value, ['artifact'])
+  if (!isRecord(artifact)) return value
+
+  const nestedPrd = getValueByAliases(artifact, ['prd'])
+  if (!isRecord(nestedPrd)) return value
+
+  return {
+    ...value,
+    ...nestedPrd,
+    artifact: 'prd',
+  }
+}
+
 export function getPrdDraftMetrics(document: Pick<PrdDocument, 'epics'>): PrdDraftMetrics {
   return {
     epicCount: document.epics.length,
@@ -215,7 +231,7 @@ export function normalizePrdYamlOutput(
     const repairWarnings: string[] = []
 
     try {
-      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
+      const parsed = unwrapPrdArtifactObjectWrapper(unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: PRD_NESTED_MAPPING_CHILDREN,
         allowTrailingTerminalNoise: true,
         repairWarnings,
@@ -225,7 +241,7 @@ export function normalizePrdYamlOutput(
         'output',
         'result',
         'data',
-      ])
+      ]))
       if (!isRecord(parsed)) throw new Error('PRD output is not a YAML/JSON object')
 
       // Extract changes before PRD validation (changes is not part of the PRD schema)

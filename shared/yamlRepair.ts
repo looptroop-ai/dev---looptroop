@@ -139,6 +139,40 @@ function replaceLineIndent(line: string, indent: number): string {
   return `${' '.repeat(indent)}${line.trimStart()}`
 }
 
+function replaceLineWithBareMappingKey(line: string, key: string): string {
+  return `${' '.repeat(getLineIndent(line))}${key}:`
+}
+
+function hasFollowingWhitelistedSiblingChild(
+  lines: string[],
+  startIndex: number,
+  parentIndent: number,
+  allowedChildren: ReadonlySet<string>,
+): boolean {
+  for (let cursor = startIndex; cursor < lines.length; cursor += 1) {
+    const currentLine = lines[cursor]!
+    const currentTrimmed = currentLine.trim()
+
+    if (!currentTrimmed || currentTrimmed.startsWith('#')) {
+      continue
+    }
+
+    const currentIndent = getLineIndent(currentLine)
+    if (currentIndent > parentIndent) {
+      continue
+    }
+
+    const currentMatch = currentTrimmed.match(/^([A-Za-z_][\w-]*)\s*:(.*)$/)
+    if (!currentMatch) {
+      return false
+    }
+
+    return allowedChildren.has(normalizeYamlRepairKey(currentMatch[1]!))
+  }
+
+  return false
+}
+
 /**
  * Repair known nested mapping children that were emitted at the parent indent.
  *
@@ -176,10 +210,16 @@ export function repairYamlNestedMappingChildren(
     const line = lines[index]!
     const trimmed = line.trim()
 
-    const parentMatch = trimmed.match(/^([A-Za-z_][\w-]*)\s*:\s*$/)
-    const allowedChildren = parentMatch
-      ? normalizedConfig.get(normalizeYamlRepairKey(parentMatch[1]!))
-      : undefined
+    const bareParentMatch = trimmed.match(/^([A-Za-z_][\w-]*)\s*:\s*$/)
+    const inlinePlaceholderParentMatch = trimmed.match(/^([A-Za-z_][\w-]*)\s*:\s*([A-Za-z_][\w-]*)\s*$/)
+    const bareParentKey = bareParentMatch?.[1]
+    const inlineParentKey = inlinePlaceholderParentMatch?.[1]
+    const inlinePlaceholderChild = inlinePlaceholderParentMatch?.[2]
+    const allowedChildren = bareParentKey
+      ? normalizedConfig.get(normalizeYamlRepairKey(bareParentKey))
+      : inlineParentKey
+        ? normalizedConfig.get(normalizeYamlRepairKey(inlineParentKey))
+        : undefined
 
     if (!allowedChildren) {
       result.push(line)
@@ -187,7 +227,23 @@ export function repairYamlNestedMappingChildren(
     }
 
     const parentIndent = getLineIndent(line)
-    result.push(line)
+    const shouldRepairInlinePlaceholder = Boolean(
+      inlineParentKey
+      && inlinePlaceholderChild
+      && allowedChildren.has(normalizeYamlRepairKey(inlinePlaceholderChild))
+      && hasFollowingWhitelistedSiblingChild(lines, index + 1, parentIndent, allowedChildren),
+    )
+
+    if (!bareParentKey && !shouldRepairInlinePlaceholder) {
+      result.push(line)
+      continue
+    }
+
+    result.push(
+      shouldRepairInlinePlaceholder
+        ? replaceLineWithBareMappingKey(line, inlineParentKey!)
+        : line,
+    )
 
     let cursor = index + 1
     while (cursor < lines.length) {

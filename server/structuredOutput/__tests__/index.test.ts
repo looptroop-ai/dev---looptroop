@@ -1051,6 +1051,37 @@ describe('structured output normalization', () => {
     expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
   })
 
+  it('trims orphan trailing closing fences from vote scorecards recovered via top-level hints', () => {
+    const repaired = normalizeVoteScorecardOutput(
+      [
+        'Corrected scorecard:',
+        'draft_scores:',
+        '  Draft 1:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 17',
+        '    Testability: 16',
+        '    Minimal complexity / good decomposition: 15',
+        '    Risks / edge cases addressed: 18',
+        '    total_score: 84',
+        '```',
+      ].join('\n'),
+      ['Draft 1'],
+      [
+        'Coverage of requirements',
+        'Correctness / feasibility',
+        'Testability',
+        'Minimal complexity / good decomposition',
+        'Risks / edge cases addressed',
+      ],
+    )
+
+    expect(repaired.ok).toBe(true)
+    if (!repaired.ok) return
+    expect(repaired.repairApplied).toBe(true)
+    expect(repaired.repairWarnings.join('\n')).toContain('orphan trailing closing code fence')
+    expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
+  })
+
   it('keeps unknown vote scorecards strict', () => {
     const result = normalizeVoteScorecardOutput(
       [
@@ -1253,6 +1284,101 @@ describe('structured output normalization', () => {
     expect(result.value.ticket_id).toBe('LOOTR-1')
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
+  })
+
+  it('unwraps artifact.prd object wrappers without relaxing PRD validation', () => {
+    const interviewContent = [
+      'schema_version: 1',
+      'ticket_id: "LOOTR-2"',
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5"',
+      '  generated_at: "2026-03-20T10:00:00.000Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What problem are we solving?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: "Ship a deterministic planning pipeline."',
+      '      answered_by: "user"',
+      '      answered_at: "2026-03-20T10:05:00.000Z"',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'follow_up_rounds: []',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-20T10:10:00.000Z"',
+    ].join('\n')
+
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      'ticket_id: "LOOTR-2"',
+      'artifact:',
+      '  prd:',
+      '    status: "draft"',
+      '    source_interview:',
+      '      content_sha256: "stale-hash"',
+      '    product:',
+      '      problem_statement: "Ship a deterministic planning pipeline."',
+      '      target_users:',
+      '        - "Maintainers"',
+      '    scope:',
+      '      in_scope:',
+      '        - "Prompt hardening"',
+      '      out_of_scope:',
+      '        - "Execution changes"',
+      '    technical_requirements:',
+      '      architecture_constraints:',
+      '        - "Shared validator layer"',
+      '      data_model: []',
+      '      api_contracts: []',
+      '      security_constraints: []',
+      '      performance_constraints: []',
+      '      reliability_constraints: []',
+      '      error_handling_rules: []',
+      '      tooling_assumptions: []',
+      '    epics:',
+      '      - id: "EPIC-1"',
+      '        title: "Harden structured output"',
+      '        objective: "Prevent format-only model mistakes from blocking tickets."',
+      '        implementation_steps:',
+      '          - "Add validators"',
+      '        user_stories:',
+      '          - id: "US-1"',
+      '            title: "Validate interview and PRD artifacts"',
+      '            acceptance_criteria:',
+      '              - "Structured artifacts are normalized before save"',
+      '            implementation_steps:',
+      '              - "Reuse shared repair helpers"',
+      '            verification:',
+      '              required_commands:',
+      '                - "npm run test:server"',
+      '    risks:',
+      '      - "Permissive repairs could hide semantic issues"',
+      '    approval:',
+      '      approved_by: ""',
+      '      approved_at: ""',
+    ].join('\n'), {
+      ticketId: 'LOOTR-2',
+      interviewContent,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.ticket_id).toBe('LOOTR-2')
+    expect(result.value.artifact).toBe('prd')
+    expect(result.value.epics).toHaveLength(1)
+    expect(result.value.epics[0]?.user_stories[0]?.id).toBe('US-1')
   })
 
   it('repairs dedented PRD nested wrapper mappings without relaxing schema checks', () => {
@@ -2004,6 +2130,27 @@ describe('structured output normalization', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.status).toBe('gaps')
+    expect(result.value.followUpQuestions[0]?.id).toBe('FU1')
+  })
+
+  it('trims orphan trailing closing fences from coverage results recovered via top-level hints', () => {
+    const result = normalizeCoverageResultOutput([
+      'Coverage result:',
+      'status: gaps',
+      'gaps:',
+      '  - Missing rollback behavior',
+      'follow_up_questions:',
+      '  - id: FU1',
+      '    question: What should happen when validation fails?',
+      '    phase: Assembly',
+      '    priority: high',
+      '```',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('orphan trailing closing code fence')
     expect(result.value.followUpQuestions[0]?.id).toBe('FU1')
   })
 
@@ -3087,6 +3234,53 @@ describe('structured output normalization', () => {
     expect(result.repairApplied).toBe(true)
   })
 
+  it('trims orphan trailing closing fences from interview documents recovered via top-level hints', () => {
+    const result = normalizeInterviewDocumentOutput([
+      'Corrected interview artifact:',
+      'schema_version: 1',
+      'ticket_id: PROJ-42',
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-20T10:00:00.000Z',
+      '  canonicalization: server_normalized',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which constraints are fixed?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Keep imports stable.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-20T10:05:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+      '```',
+    ].join('\n'), {
+      ticketId: 'PROJ-42',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('orphan trailing closing code fence')
+    expect(result.value.ticket_id).toBe('PROJ-42')
+    expect(result.value.questions[0]?.id).toBe('Q01')
+  })
+
   it('repairs GLM-style dedented interview wrappers and still canonicalizes the resolved interview', () => {
     const canonicalInterview = [
       'schema_version: 1',
@@ -3203,6 +3397,391 @@ describe('structured output normalization', () => {
     expect(result.value.questions[0]?.answer.free_text).toContain('risk-first planning checkpoint')
     expect(result.repairApplied).toBe(true)
     expect(result.repairWarnings.join('\n')).toContain('Canonicalized generated_by.winner_model')
+  })
+
+  it('normalizes the Mistral-shaped full answers artifact by repairing structure without relaxing semantics', () => {
+    const canonicalInterview = [
+      'schema_version: 1',
+      'ticket_id: LINLO-20',
+      'artifact: interview',
+      'status: approved',
+      'generated_by:',
+      '  winner_model: openai/gpt-5.4',
+      '  generated_at: "2026-03-29T13:24:16.543Z"',
+      '  canonicalization: server_normalized',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Should the pink theme be a new selectable theme option, or should it replace the current light theme styling?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: New selectable theme',
+      '      - id: opt2',
+      '        label: Replace light theme',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q02',
+      '    phase: Foundation',
+      '    prompt: What is the main goal of this test ticket?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: Proof of support only',
+      '      - id: opt2',
+      '        label: User-facing polished theme',
+      '      - id: opt3',
+      '        label: Somewhere in between',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q03',
+      '    phase: Structure',
+      '    prompt: >-',
+      '      What exact minimal scope should this ticket include: pink theme tokens only, adding a `Pink` option in the',
+      '      existing theme switcher, persisted theme state, and checking key shared UI like buttons, dropdowns, and tooltips?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q05',
+      '    phase: Assembly',
+      '    prompt: >-',
+      '      What acceptance criteria define done for this minimal ticket: use a provided pink palette or a proposed default,',
+      '      keep core UI readable with acceptable contrast, and, if pink is selectable, make it visible in the theme switcher',
+      '      and persist across reloads?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: user',
+      '  approved_at: "2026-03-29T13:25:29.634Z"',
+    ].join('\n')
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      '```yaml',
+      'schema_version: 1',
+      'ticket_id: LINLO-20',
+      'artifact:',
+      '  interview:',
+      '    status: draft',
+      '    generated_by: winner_model',
+      '    winner_model: mistralai/mistral-large-3-675b-instruct-2512',
+      '    generated_at: "2026-03-29T12:00:00Z"',
+      '    canonicalization:',
+      '      server_normalized: true',
+      '    questions:',
+      '      - id: Q01',
+      '        phase: Foundation',
+      '        prompt: Should the pink theme be a new selectable theme option, or should it replace the current light theme styling?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: single_choice',
+      '        options:',
+      '          - id: opt1',
+      '            label: New selectable theme',
+      '          - id: opt2',
+      '            label: Replace light theme',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: [opt1]',
+      '          free_text: ""',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '      - id: Q02',
+      '        phase: Foundation',
+      '        prompt: What is the main goal of this test ticket?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: single_choice',
+      '        options:',
+      '          - id: opt1',
+      '            label: Proof of support only',
+      '          - id: opt2',
+      '            label: User-facing polished theme',
+      '          - id: opt3',
+      '            label: Somewhere in between',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: [opt1]',
+      '          free_text: ""',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '      - id: Q03',
+      '        phase: Structure',
+      '        prompt: >-',
+      '          What exact minimal scope should this ticket include: pink theme tokens only, adding a `Pink` option in the existing theme switcher, persisted theme state, and checking key shared UI like buttons, dropdowns, and tooltips?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: free_text',
+      '        options: []',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: []',
+      '          free_text: "Minimal scope includes adding pink theme tokens, a `Pink` option in the theme switcher, ensuring persisted theme state, and verifying key UI elements like buttons, dropdowns, and tooltips."',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '      - id: Q05',
+      '        phase: Assembly',
+      '        prompt: >-',
+      '          What acceptance criteria define done for this minimal ticket: use a provided pink palette or a proposed default, keep core UI readable with acceptable contrast, and, if pink is selectable, make it visible in the theme switcher and persist across reloads?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: free_text',
+      '        options: []',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: []',
+      '          free_text: "Acceptance criteria: use a default pink palette, ensure UI readability and contrast, make the pink theme visible in the switcher, and persist the theme across reloads."',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '        follow_up_rounds: []',
+      '        summary:',
+      '          goals: []',
+      '          constraints: []',
+      '          non_goals: []',
+      '          final_free_form_answer: ""',
+      '    approval:',
+      '      approved_by: ""',
+      '      approved_at: ""',
+      '```',
+    ].join('\n'), {
+      ticketId: 'LINLO-20',
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/mistralai/mistral-large-3-675b-instruct-2512',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized generated_by.winner_model')
+    expect(result.value.generated_by.winner_model).toBe('nvidia/mistralai/mistral-large-3-675b-instruct-2512')
+    expect(result.value.generated_by.canonicalization).toBe('server_normalized')
+    expect(result.value.questions.map((question) => question.id)).toEqual(['Q01', 'Q02', 'Q03', 'Q05'])
+    expect(result.value.questions.map((question) => question.answer.skipped)).toEqual([false, false, false, false])
+    expect(result.value.questions[0]?.answer.selected_option_ids).toEqual(['opt1'])
+    expect(result.value.questions[1]?.answer.selected_option_ids).toEqual(['opt1'])
+    expect(result.value.questions[2]?.answer.free_text).toContain('pink theme tokens')
+    expect(result.value.summary).toEqual({
+      goals: [],
+      constraints: [],
+      non_goals: [],
+      final_free_form_answer: '',
+    })
+    expect(result.value.approval).toEqual({
+      approved_by: '',
+      approved_at: '',
+    })
+  })
+
+  it('keeps repaired Mistral-shaped full answers strict when canonical option ids are invented', () => {
+    const canonicalInterview = [
+      'schema_version: 1',
+      'ticket_id: LINLO-20',
+      'artifact: interview',
+      'status: approved',
+      'generated_by:',
+      '  winner_model: openai/gpt-5.4',
+      '  generated_at: "2026-03-29T13:24:16.543Z"',
+      '  canonicalization: server_normalized',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Should the pink theme be a new selectable theme option, or should it replace the current light theme styling?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: New selectable theme',
+      '      - id: opt2',
+      '        label: Replace light theme',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q02',
+      '    phase: Foundation',
+      '    prompt: What is the main goal of this test ticket?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: single_choice',
+      '    options:',
+      '      - id: opt1',
+      '        label: Proof of support only',
+      '      - id: opt2',
+      '        label: User-facing polished theme',
+      '      - id: opt3',
+      '        label: Somewhere in between',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q03',
+      '    phase: Structure',
+      '    prompt: Scope?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      '  - id: Q05',
+      '    phase: Assembly',
+      '    prompt: Done criteria?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: user',
+      '  approved_at: "2026-03-29T13:25:29.634Z"',
+    ].join('\n')
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      '```yaml',
+      'schema_version: 1',
+      'ticket_id: LINLO-20',
+      'artifact:',
+      '  interview:',
+      '    status: draft',
+      '    generated_by: winner_model',
+      '    winner_model: mistralai/mistral-large-3-675b-instruct-2512',
+      '    generated_at: "2026-03-29T12:00:00Z"',
+      '    canonicalization:',
+      '      server_normalized: true',
+      '    questions:',
+      '      - id: Q01',
+      '        phase: Foundation',
+      '        prompt: Should the pink theme be a new selectable theme option, or should it replace the current light theme styling?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: single_choice',
+      '        options:',
+      '          - id: opt1',
+      '            label: New selectable theme',
+      '          - id: opt2',
+      '            label: Replace light theme',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: [opt_new_selectable]',
+      '          free_text: ""',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '      - id: Q02',
+      '        phase: Foundation',
+      '        prompt: What is the main goal of this test ticket?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: single_choice',
+      '        options:',
+      '          - id: opt1',
+      '            label: Proof of support only',
+      '          - id: opt2',
+      '            label: User-facing polished theme',
+      '          - id: opt3',
+      '            label: Somewhere in between',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: [opt1]',
+      '          free_text: ""',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '      - id: Q03',
+      '        phase: Structure',
+      '        prompt: Scope?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: free_text',
+      '        options: []',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: []',
+      '          free_text: "Pink tokens, selectable theme, persistence, and key shared UI checks."',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '      - id: Q05',
+      '        phase: Assembly',
+      '        prompt: Done criteria?',
+      '        source: compiled',
+      '        follow_up_round: null',
+      '        answer_type: free_text',
+      '        options: []',
+      '        answer:',
+      '          skipped: false',
+      '          selected_option_ids: []',
+      '          free_text: "Readable contrast, visible switcher option, and persisted selection."',
+      '          answered_by: ai_skip',
+      '          answered_at: "2026-03-29T12:00:00Z"',
+      '        follow_up_rounds: []',
+      '        summary:',
+      '          goals: []',
+      '          constraints: []',
+      '          non_goals: []',
+      '          final_free_form_answer: ""',
+      '    approval:',
+      '      approved_by: ""',
+      '      approved_at: ""',
+      '```',
+    ].join('\n'), {
+      ticketId: 'LINLO-20',
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/mistralai/mistral-large-3-675b-instruct-2512',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('unknown option id "opt_new_selectable"')
   })
 
   it('updates interview answers as draft edits and stamps approval separately', () => {
