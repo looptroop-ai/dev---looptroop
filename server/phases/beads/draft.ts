@@ -65,6 +65,11 @@ export async function draftBeads(
         normalizedContent: result.normalizedContent,
         repairApplied: result.repairApplied,
         repairWarnings: result.repairWarnings,
+        draftMetrics: {
+          beadCount: result.value.length,
+          totalTestCount: result.value.reduce((sum: number, s: { tests: string[] }) => sum + s.tests.length, 0),
+          totalAcceptanceCriteriaCount: result.value.reduce((sum: number, s: { acceptanceCriteria: string[] }) => sum + s.acceptanceCriteria.length, 0),
+        },
       }
     },
     {

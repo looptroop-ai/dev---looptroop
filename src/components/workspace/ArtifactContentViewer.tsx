@@ -1849,8 +1849,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   } catch { /* not json */ }
 
   if (parsedCoverageInput && artifactId === 'refined-beads') {
-    const isPrd = artifactId === 'refined-prd'
-    const diffEntries = buildRefinementDiffEntries(content, isPrd ? 'prd' : 'beads')
+    const diffEntries = buildRefinementDiffEntries(content, 'beads')
     const hasChanges = diffEntries.length > 0 || Boolean(parseRefinementArtifact(content)?.winnerDraftContent)
     return (
       <RefinedArtifactTabs
@@ -1884,13 +1883,13 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
             )}
             {parsedCoverageInput.refinedContent && (
               <div className="border-t border-border pt-4">
-                <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification ({isPrd ? 'PRD' : 'Beads'})</div>
-                {isPrd ? <PrdDraftView content={parsedCoverageInput.refinedContent} /> : <BeadsDraftView content={parsedCoverageInput.refinedContent} />}
+                <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification (Beads)</div>
+                {<BeadsDraftView content={parsedCoverageInput.refinedContent} />}
               </div>
             )}
           </div>
         )}
-        diffContent={hasChanges ? <RefinementDiffView content={content} domain={isPrd ? 'prd' : 'beads'} /> : undefined}
+        diffContent={hasChanges ? <RefinementDiffView content={content} domain={'beads'} /> : undefined}
       />
     )
   }

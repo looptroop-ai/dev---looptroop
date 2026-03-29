@@ -1391,51 +1391,7 @@ export async function handleCoverageVerification(
         repairWarnings: coverageEnvelope.repairWarnings,
       })
 
-      if (phase === 'prd') {
-        const prdCoverageNormalization = normalizePrdCoverageEnvelope(coverageEnvelope.value)
-        if (prdCoverageNormalization.repairWarnings.length > 0) {
-          structuredMeta = buildStructuredMetadata(structuredMeta, {
-            repairWarnings: prdCoverageNormalization.repairWarnings,
-          })
-        }
-
-        if (prdCoverageNormalization.validationError) {
-          if (attempt === 1) {
-            structuredMeta = buildStructuredMetadata(structuredMeta, {
-              autoRetryCount: 1,
-              validationError: prdCoverageNormalization.validationError,
-            })
-            const msg = `PRD coverage output failed semantic validation after retry: ${prdCoverageNormalization.validationError}`
-            emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-            sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-            return
-          }
-
-          structuredMeta = buildStructuredMetadata(structuredMeta, {
-            autoRetryCount: 1,
-            validationError: prdCoverageNormalization.validationError,
-          })
-          promptParts = buildStructuredRetryPrompt([{ type: 'text', content: promptContent }], {
-            validationError: prdCoverageNormalization.validationError,
-            rawResponse: response,
-            schemaReminder: promptTemplate.outputFormat,
-            doNotUseTools: true,
-          })
-          continue
-        }
-
-        coverageEnvelope = {
-          ...coverageEnvelope,
-          value: prdCoverageNormalization.envelope,
-          normalizedContent: buildYamlDocument({
-            status: prdCoverageNormalization.envelope.status,
-            gaps: prdCoverageNormalization.envelope.gaps,
-            follow_up_questions: prdCoverageNormalization.envelope.followUpQuestions,
-          }),
-          repairApplied: coverageEnvelope.repairApplied || prdCoverageNormalization.repairWarnings.length > 0,
-          repairWarnings: [...coverageEnvelope.repairWarnings, ...prdCoverageNormalization.repairWarnings],
-        }
-      }
+      // PRD coverage is handled by handlePrdCoverageVerificationLoop (returns early above)
 
       interviewCoverageResolution = phase === 'interview' && interviewSnapshot
         ? resolveInterviewCoverageFollowUpResolution({
@@ -1515,16 +1471,10 @@ export async function handleCoverageVerification(
           ...(ticketState.interview ? { interview: ticketState.interview } : {}),
           ...(ticketState.userAnswers ? { userAnswers: ticketState.userAnswers } : {}),
         }
-      : phase === 'prd'
-        ? {
-            ...(ticketState.interview ? { interview: ticketState.interview } : {}),
-            ...(ticketState.fullAnswers?.[0] ? { fullAnswers: ticketState.fullAnswers[0] } : {}),
-            ...(effectivePrdContent ? { prd: effectivePrdContent, refinedContent: effectivePrdContent } : {}),
-          }
-        : {
-            ...(ticketState.beads ? { beads: ticketState.beads } : {}),
-            ...(refinedContent ? { refinedContent } : {}),
-          },
+      : {
+          ...(ticketState.beads ? { beads: ticketState.beads } : {}),
+          ...(refinedContent ? { refinedContent } : {}),
+        },
   )
   const detectedGaps = coverageEnvelope.value.status === 'gaps'
   const followUpQuestions = interviewCoverageResolution?.followUpQuestions ?? []

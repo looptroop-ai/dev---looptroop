@@ -19,6 +19,9 @@ export interface DraftMetrics {
   questionCount?: number
   epicCount?: number
   userStoryCount?: number
+  beadCount?: number
+  totalTestCount?: number
+  totalAcceptanceCriteriaCount?: number
 }
 
 export interface DraftStructuredOutputMeta {

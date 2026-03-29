@@ -6,20 +6,19 @@ vi.mock('../../sse/broadcaster', () => ({
   },
 }))
 
-vi.mock('../../storage/tickets', () => ({
-  getLatestPhaseArtifact: vi.fn(),
-  getTicketContext: vi.fn(),
-  getTicketPaths: vi.fn(() => ({
-    executionLogPath: '/tmp/test-execution-log.jsonl',
-  })),
-  upsertLatestPhaseArtifact: vi.fn(),
-}))
+import * as ticketsModule from '../../storage/tickets'
+import * as atomicAppendModule from '../../io/atomicAppend'
 
-vi.mock('../../io/atomicAppend', () => ({
-  safeAtomicAppend: vi.fn(),
-}))
+vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
+  executionLogPath: '/tmp/test-execution-log.jsonl',
+  worktreePath: '/tmp/test-worktree',
+  ticketDir: '/tmp/test-ticket-dir',
+  baseBranch: 'main',
+  beadsPath: '/tmp/test-beads.jsonl',
+})
 
-import { safeAtomicAppend } from '../../io/atomicAppend'
+const mockAppend = vi.spyOn(atomicAppendModule, 'safeAtomicAppend').mockImplementation(() => {})
+
 import {
   createOpenCodeStreamState,
   emitOpenCodeSessionLogs,
@@ -27,7 +26,7 @@ import {
 } from '../phases/helpers'
 
 function getPersistedEntries() {
-  return vi.mocked(safeAtomicAppend).mock.calls.map(([, payload]) => JSON.parse(payload))
+  return mockAppend.mock.calls.map(([, payload]) => JSON.parse(payload))
 }
 
 function getPersistedTextEntries() {
@@ -36,7 +35,7 @@ function getPersistedTextEntries() {
 
 describe('OpenCode log canonicalization', () => {
   beforeEach(() => {
-    vi.mocked(safeAtomicAppend).mockClear()
+    mockAppend.mockClear()
   })
 
   it('persists a single canonical text row for a single text-part assistant response', () => {

@@ -149,8 +149,8 @@ describe('structured prompt hardening', () => {
   })
 
   it('requires the bead subset schema consistently in draft and refine prompts', () => {
-    expect(PROM20.outputFormat).toContain('top-level `beads` list')
-    expect(PROM20.outputFormat).toContain('`id`')
+    expect(PROM20.outputFormat).toContain('top-level `beads` key')
+    expect(PROM20.outputFormat).toContain('id:')
     expect(PROM22.outputFormat).toContain(PROM20.outputFormat)
     expect(PROM22.outputFormat).toContain('top-level `changes` list')
     expect(PROM22.outputFormat).toContain('inspiration')

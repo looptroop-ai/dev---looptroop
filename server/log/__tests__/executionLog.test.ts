@@ -1,17 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createLogEvent, appendLogEvent } from '../executionLog'
+import * as ticketsModule from '../../storage/tickets'
+import * as atomicAppendModule from '../../io/atomicAppend'
 
-vi.mock('../../storage/tickets', () => ({
-  getTicketPaths: () => ({
-    executionLogPath: '/tmp/test-execution-log.jsonl',
-  }),
-}))
+const mockGetTicketPaths = vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
+  executionLogPath: '/tmp/test-execution-log.jsonl',
+  worktreePath: '/tmp/test-worktree',
+  ticketDir: '/tmp/test-ticket-dir',
+  baseBranch: 'main',
+  beadsPath: '/tmp/test-beads.jsonl',
+})
 
-vi.mock('../../io/atomicAppend', () => ({
-  safeAtomicAppend: vi.fn(),
-}))
-
-import { safeAtomicAppend } from '../../io/atomicAppend'
+const mockAppend = vi.spyOn(atomicAppendModule, 'safeAtomicAppend').mockImplementation(() => {})
 
 describe('createLogEvent', () => {
   it('preserves a provided timestamp so live and persisted log entries stay aligned', () => {
@@ -32,10 +32,12 @@ describe('createLogEvent', () => {
 })
 
 describe('appendLogEvent', () => {
-  it('does not persist streaming upserts to disk', () => {
-    const mockAppend = vi.mocked(safeAtomicAppend)
+  beforeEach(() => {
     mockAppend.mockClear()
+    mockGetTicketPaths.mockClear()
+  })
 
+  it('does not persist streaming upserts to disk', () => {
     appendLogEvent(
       '1:T-42',
       'model_output',
@@ -51,8 +53,6 @@ describe('appendLogEvent', () => {
   })
 
   it('persists finalize events to disk', () => {
-    const mockAppend = vi.mocked(safeAtomicAppend)
-    mockAppend.mockClear()
 
     appendLogEvent(
       '1:T-42',
@@ -72,8 +72,6 @@ describe('appendLogEvent', () => {
   })
 
   it('strips redundant structured fields and internal flags from persisted data', () => {
-    const mockAppend = vi.mocked(safeAtomicAppend)
-    mockAppend.mockClear()
 
     appendLogEvent(
       '1:T-42',
@@ -113,8 +111,6 @@ describe('appendLogEvent', () => {
   })
 
   it('persists normal append events', () => {
-    const mockAppend = vi.mocked(safeAtomicAppend)
-    mockAppend.mockClear()
 
     appendLogEvent(
       '1:T-42',

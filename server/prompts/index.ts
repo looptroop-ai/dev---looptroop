@@ -98,7 +98,27 @@ const PRD_OUTPUT_FORMAT = [
   '```',
 ].join('\n')
 const INTERVIEW_PHASE_ORDER_RULE = 'Phase Order Is Mandatory: all `foundation` questions first, then all `structure` questions, then all `assembly` questions. Never go backwards to an earlier phase once you have entered a later phase.'
-const BEAD_SUBSET_OUTPUT_FORMAT = 'YAML with top-level `beads` list. Each bead item must include exactly: `id`, `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, `testCommands`.'
+const BEAD_SUBSET_OUTPUT_FORMAT = [
+  'YAML with a single top-level `beads` key containing a list.',
+  'Each bead item must include exactly these fields:',
+  '```yaml',
+  'beads:',
+  '  - id: "setup-db-schema"',
+  '    title: "Create database schema"',
+  '    prdRefs:',
+  '      - "EPIC-1"',
+  '      - "US-1-1"',
+  '    description: "Detailed technical implementation steps for this bead."',
+  '    contextGuidance: "Patterns: use Drizzle ORM migrations. Anti-patterns: avoid raw SQL."',
+  '    acceptanceCriteria:',
+  '      - "Schema file exists and migrations run cleanly."',
+  '    tests:',
+  '      - "Unit test verifies table creation."',
+  '    testCommands:',
+  '      - "npm run test -- server/db"',
+  '```',
+  'No other top-level keys. No prose before or after the YAML.',
+].join('\n')
 const BEADS_JSONL_OUTPUT_FORMAT = 'JSONL only. One JSON object per line. No markdown fences, no surrounding array, no prose, and no wrapper object.'
 
 // Relevant Files Context Extraction Prompt
@@ -452,10 +472,17 @@ export const PROM20: PromptTemplate = {
   systemRole: 'You are an expert Software Architect.',
   task: 'Create a Beads breakdown (architecture/task graph) based on the final PRD.',
   instructions: [
-    'Decomposition: Split each user story into one or more beads using phased modular decomposition appropriate to the feature domain to keep flow logical and dependencies minimal.',
-    'Granularity: Each bead must be the smallest independently-completable unit of work — small enough that a single AI agent call can implement it with its defined tests, but complete enough to be meaningful.',
-    'Draft Bead Structure: Each bead in this draft phase must include only: id, Title, PRD references, Description, Context & Architectural Guidance (patterns + anti_patterns), Acceptance criteria, Bead-scoped tests, Test commands.',
-    'Output Format: Output a structured Beads workspace definition containing all beads in dependency order.',
+    'Decomposition: Split each user story into one or more beads using phased modular decomposition (e.g., data layer → business logic → API/integration → presentation) to keep flow logical and dependencies minimal.',
+    'Granularity: Each bead must be the smallest independently-completable unit of work — small enough that a single AI agent call can implement it with its defined tests, but complete enough to be meaningful. Split further if a bead would touch too many files or concepts.',
+    'Draft Bead Structure: Each bead in this draft phase must include only: id, title, prdRefs, description, contextGuidance (with patterns AND anti_patterns), acceptanceCriteria, tests, testCommands.',
+    'ID Format: Use concise, descriptive kebab-case IDs (e.g., `setup-db-schema`, `user-auth-middleware`). Each ID must be unique across the entire beads list.',
+    'Dependency Ordering: List beads in dependency order — if bead B depends on bead A, A must appear before B. Do not create circular dependencies or self-references.',
+    'PRD Coverage: Every in-scope PRD requirement must map to at least one bead. Each bead\'s `prdRefs` must reference valid PRD epic or user-story IDs (e.g., EPIC-1, US-1-1).',
+    'Context Guidance Completeness: Each bead\'s `contextGuidance` must include at least one architectural pattern to follow AND at least one anti-pattern to avoid.',
+    'Test Specificity: Each bead\'s `tests` must verify that bead alone — not the entire feature. Each bead must have at least one entry in `testCommands` with the exact command to run.',
+    'Single Response Completeness: Return one complete final `beads` list in a single response. Do not stop mid-list or emit partial subsets.',
+    'Length Safety: If total output risks being cut off, shorten description text instead of omitting later beads. Every planned bead must appear in the output.',
+    'Boundary Rule: Begin output at the `beads:` key. End after the last bead item. No prose, markdown fences, or commentary before or after the YAML.',
     DO_NOT_USE_TOOLS_RULE,
     STRUCTURED_SELF_CHECK,
   ],

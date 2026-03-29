@@ -7,7 +7,7 @@ import { checkMemberResponseQuorum, checkQuorum } from '../../council/quorum'
 import { draftBeads, buildBeadsContextBuilder } from '../../phases/beads/draft'
 import { expandBeads } from '../../phases/beads/expand'
 import type { Bead, BeadSubset } from '../../phases/beads/types'
-import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
+import { buildMinimalContext, clearContextCache, type TicketState } from '../../opencode/contextBuilder'
 import { getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
 import { normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
@@ -503,6 +503,13 @@ export async function handleBeadsRefine(
 
   // Save expanded beads to disk as JSONL
   writeJsonl(beadsPath, beadsJsonlResult.value)
+
+  clearContextCache(context.externalId)
+  patchTicket(ticketId, {
+    totalBeads: expandedBeads.length,
+    currentBead: 0,
+    percentComplete: 0,
+  })
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
     `Refined and expanded ${expandedBeads.length} beads from winner ${intermediate.winnerId}. Saved to ${beadsPath}.`)

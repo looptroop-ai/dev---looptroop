@@ -40,6 +40,7 @@ export {
   normalizeBeadsJsonlOutput,
   normalizeRelevantFilesOutput,
 } from './beadsOutput'
+export type { BeadDraftMetrics } from './beadsOutput'
 
 export { normalizeVoteScorecardOutput } from './voteOutput'
 

@@ -16,6 +16,12 @@ import {
 } from './yamlUtils'
 import { parseRefinementChanges } from './refinementChanges'
 
+export interface BeadDraftMetrics {
+  beadCount: number
+  totalTestCount: number
+  totalAcceptanceCriteriaCount: number
+}
+
 function normalizeBeadSubsetEntry(value: unknown, index: number): BeadSubset {
   if (!isRecord(value)) throw new Error(`Bead at index ${index} is not an object`)
 
@@ -94,6 +100,27 @@ export function normalizeBeadSubsetYamlOutput(
       }
 
       const subsets = entries.map((entry, index) => normalizeBeadSubsetEntry(entry, index))
+
+      // Detect and repair duplicate bead IDs
+      const seenIds = new Set<string>()
+      for (const subset of subsets) {
+        if (seenIds.has(subset.id)) {
+          const originalId = subset.id
+          let counter = 2
+          while (seenIds.has(`${originalId}-${counter}`)) counter++
+          subset.id = `${originalId}-${counter}`
+          repairWarnings.push(`Renumbered duplicate bead id "${originalId}" to "${subset.id}".`)
+        }
+        seenIds.add(subset.id)
+      }
+
+      // Warn about beads with empty prdRefs
+      for (const subset of subsets) {
+        if (subset.prdRefs.length === 0) {
+          repairWarnings.push(`Bead "${subset.id}" has no PRD references (prdRefs is empty).`)
+        }
+      }
+
       const normalizedContent = buildYamlDocument({ beads: subsets })
       const valueWithChanges = parsedRefinementChanges.changes.length > 0
         ? Object.assign(subsets, { changes: parsedRefinementChanges.changes })
