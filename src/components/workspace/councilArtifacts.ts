@@ -431,8 +431,8 @@ function makeWinnerViewer(
   if (domain === 'prd') {
     return {
       id: 'refined-prd',
-      label: 'Refined PRD',
-      description: 'Winning draft with improvements',
+      label: 'PRD Candidate v1',
+      description: 'Initial PRD candidate consolidated from the winning draft',
       content,
     }
   }

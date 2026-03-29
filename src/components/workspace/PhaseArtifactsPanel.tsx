@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { encode } from 'gpt-tokenizer'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Loader2 } from 'lucide-react'
+import { FileText, Loader2 } from 'lucide-react'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { normalizeTicketArtifact, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
@@ -19,6 +19,7 @@ import {
   extractCanonicalInterviewDetail,
   buildFinalInterviewArtifactContent,
   buildFinalRefinementArtifactContent,
+  buildCoverageArtifactContent,
   getArtifactTargetPhases,
   parseRefinementArtifact,
   resolveStaticArtifact,
@@ -103,25 +104,24 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   )
   const action = getCouncilAction(phase)
   const collapseVotingMemberArtifacts = shouldCollapseVotingMemberArtifacts(phase)
-  const prominentSupplementalArtifacts = collapseVotingMemberArtifacts ? supplementalArtifacts : []
-  const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : supplementalArtifacts
+  const targetPhases = useMemo(() => getArtifactTargetPhases(phase), [phase])
+  const findExactArtifact = useCallback((artifactType: string, phases: string[] = targetPhases) => (
+    reversedArtifacts.find((artifact) => phases.includes(artifact.phase) && artifact.artifactType === artifactType)
+  ), [reversedArtifacts, targetPhases])
+  const findCompanionArtifact = useCallback((baseArtifactType: string, phases: string[] = targetPhases) => (
+    reversedArtifacts.find((artifact) => (
+      phases.includes(artifact.phase)
+      && artifact.artifactType === buildUiArtifactCompanionArtifactType(baseArtifactType)
+    ))
+      ?? reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType(baseArtifactType))
+  ), [reversedArtifacts, targetPhases])
 
   const findDbContent = useCallback((artifactDef: ArtifactDef): string | null => {
-    const targetPhases = getArtifactTargetPhases(phase)
-    const findExactType = (artifactType: string) =>
-      reversedArtifacts.find((artifact) => targetPhases.includes(artifact.phase) && artifact.artifactType === artifactType)
-    const findCompanion = (baseArtifactType: string) =>
-      reversedArtifacts.find((artifact) => (
-        targetPhases.includes(artifact.phase)
-        && artifact.artifactType === buildUiArtifactCompanionArtifactType(baseArtifactType)
-      ))
-        ?? reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType(baseArtifactType))
-
     if (artifactDef.id === 'winner-draft') {
-      const voteArtifact = findExactType('interview_votes')
-      const voteCompanion = findCompanion('interview_votes')
-      const draftArtifact = findExactType('interview_drafts')
-      const draftCompanion = findCompanion('interview_drafts')
+      const voteArtifact = findExactArtifact('interview_votes')
+      const voteCompanion = findCompanionArtifact('interview_votes')
+      const draftArtifact = findExactArtifact('interview_drafts')
+      const draftCompanion = findCompanionArtifact('interview_drafts')
       const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
       return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
         ?? voteArtifact?.content
@@ -129,10 +129,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifactDef.id === 'winner-prd-draft') {
-      const voteArtifact = findExactType('prd_votes')
-      const voteCompanion = findCompanion('prd_votes')
-      const draftArtifact = findExactType('prd_drafts')
-      const draftCompanion = findCompanion('prd_drafts')
+      const voteArtifact = findExactArtifact('prd_votes')
+      const voteCompanion = findCompanionArtifact('prd_votes')
+      const draftArtifact = findExactArtifact('prd_drafts')
+      const draftCompanion = findCompanionArtifact('prd_drafts')
       const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
       return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
         ?? voteArtifact?.content
@@ -140,10 +140,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifactDef.id === 'winner-beads-draft') {
-      const voteArtifact = findExactType('beads_votes')
-      const voteCompanion = findCompanion('beads_votes')
-      const draftArtifact = findExactType('beads_drafts')
-      const draftCompanion = findCompanion('beads_drafts')
+      const voteArtifact = findExactArtifact('beads_votes')
+      const voteCompanion = findCompanionArtifact('beads_votes')
+      const draftArtifact = findExactArtifact('beads_drafts')
+      const draftCompanion = findCompanionArtifact('beads_drafts')
       const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
       return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
         ?? voteArtifact?.content
@@ -161,10 +161,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         : phase.includes('BEADS')
           ? 'beads_drafts'
           : 'interview_drafts'
-      const voteArtifact = findExactType(baseArtifactType)
-      const voteCompanion = findCompanion(baseArtifactType)
-      const draftArtifact = findExactType(draftArtifactType)
-      const draftCompanion = findCompanion(draftArtifactType)
+      const voteArtifact = findExactArtifact(baseArtifactType)
+      const voteCompanion = findCompanionArtifact(baseArtifactType)
+      const draftArtifact = findExactArtifact(draftArtifactType)
+      const draftCompanion = findCompanionArtifact(draftArtifactType)
       const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
       return mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
         ?? voteArtifact?.content
@@ -173,8 +173,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
 
     if (artifactDef.id === 'final-interview') {
       if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
-        const coverageInputArtifact = findExactType('interview_coverage_input')
-        const coverageInputCompanion = findCompanion('interview_coverage_input')
+        const coverageInputArtifact = findExactArtifact('interview_coverage_input')
+        const coverageInputCompanion = findCompanionArtifact('interview_coverage_input')
         const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageInputCompanion?.content, 'interview_coverage_input')
           ?? coverageInputArtifact?.content
         if (coverageInputContent) {
@@ -201,31 +201,37 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifactDef.id === 'refined-prd') {
-      const coverageArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_coverage_input')
-      const coverageCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('prd_coverage_input'))
-      const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_refined')
-      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('prd_refined'))
-      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_winner')
-      const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:prd')
+      const coverageArtifact = findExactArtifact('prd_coverage_input')
+      const coverageCompanion = findCompanionArtifact('prd_coverage_input')
+      const revisionArtifact = findExactArtifact('prd_coverage_revision')
+      const revisionCompanion = findCompanionArtifact('prd_coverage_revision')
+      const refinedArtifact = findExactArtifact('prd_refined')
+      const refinedCompanion = findCompanionArtifact('prd_refined')
+      const winnerArtifact = findExactArtifact('prd_winner')
+      const uiDiffArtifact = findExactArtifact('ui_refinement_diff:prd')
       const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'prd_coverage_input')
         ?? coverageArtifact?.content
+      const latestRevisionContent = unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'prd_coverage_revision')
+        ?? revisionArtifact?.content
       return buildFinalRefinementArtifactContent(
         refinedArtifact?.content,
         uiDiffArtifact?.content,
         coverageInputContent,
         refinedCompanion?.content,
         winnerArtifact?.content,
+        latestRevisionContent,
       )
+        ?? latestRevisionContent
         ?? coverageInputContent
         ?? refinedArtifact?.content
         ?? null
     }
 
     if (artifactDef.id === 'final-prd-draft') {
-      const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_refined')
-      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('prd_refined'))
-      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'prd_winner')
-      const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:prd')
+      const refinedArtifact = findExactArtifact('prd_refined')
+      const refinedCompanion = findCompanionArtifact('prd_refined')
+      const winnerArtifact = findExactArtifact('prd_winner')
+      const uiDiffArtifact = findExactArtifact('ui_refinement_diff:prd')
       return buildFinalRefinementArtifactContent(
         refinedArtifact?.content,
         uiDiffArtifact?.content,
@@ -237,13 +243,29 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ?? null
     }
 
+    if (artifactDef.id === 'coverage-review') {
+      const coverageArtifact = findExactArtifact('prd_coverage')
+      const coverageCompanion = findCompanionArtifact('prd_coverage')
+      return buildCoverageArtifactContent(coverageArtifact?.content, coverageCompanion?.content)
+        ?? coverageArtifact?.content
+        ?? null
+    }
+
+    if (artifactDef.id === 'coverage-changes' || artifactDef.id === 'coverage-resolution-notes') {
+      const revisionArtifact = findExactArtifact('prd_coverage_revision')
+      const revisionCompanion = findCompanionArtifact('prd_coverage_revision')
+      return unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'prd_coverage_revision')
+        ?? revisionArtifact?.content
+        ?? null
+    }
+
     if (artifactDef.id === 'refined-beads') {
-      const coverageArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_coverage_input')
-      const coverageCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('beads_coverage_input'))
-      const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_refined')
-      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('beads_refined'))
-      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_winner')
-      const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:beads')
+      const coverageArtifact = findExactArtifact('beads_coverage_input')
+      const coverageCompanion = findCompanionArtifact('beads_coverage_input')
+      const refinedArtifact = findExactArtifact('beads_refined')
+      const refinedCompanion = findCompanionArtifact('beads_refined')
+      const winnerArtifact = findExactArtifact('beads_winner')
+      const uiDiffArtifact = findExactArtifact('ui_refinement_diff:beads')
       const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'beads_coverage_input')
         ?? coverageArtifact?.content
       return buildFinalRefinementArtifactContent(
@@ -259,10 +281,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifactDef.id === 'final-beads-draft') {
-      const refinedArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_refined')
-      const refinedCompanion = reversedArtifacts.find((artifact) => artifact.artifactType === buildUiArtifactCompanionArtifactType('beads_refined'))
-      const winnerArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'beads_winner')
-      const uiDiffArtifact = reversedArtifacts.find((artifact) => artifact.artifactType === 'ui_refinement_diff:beads')
+      const refinedArtifact = findExactArtifact('beads_refined')
+      const refinedCompanion = findCompanionArtifact('beads_refined')
+      const winnerArtifact = findExactArtifact('beads_winner')
+      const uiDiffArtifact = findExactArtifact('ui_refinement_diff:beads')
       return buildFinalRefinementArtifactContent(
         refinedArtifact?.content,
         uiDiffArtifact?.content,
@@ -275,7 +297,82 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
     const match = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
     return match?.content ?? null
-  }, [phase, reversedArtifacts])
+  }, [findCompanionArtifact, findExactArtifact, phase, reversedArtifacts])
+
+  const displayedSupplementalArtifacts = useMemo(() => {
+    const baseArtifacts = supplementalArtifacts.map((artifact) => {
+      if (artifact.id === 'final-prd-draft') {
+        return {
+          ...artifact,
+          label: 'PRD Candidate v1',
+          description: 'Initial PRD candidate consolidated from the winning draft',
+        }
+      }
+
+      if (artifact.id === 'refined-prd') {
+        const content = findDbContent(artifact)
+        const candidateVersion = content ? parseRefinementArtifact(content)?.candidateVersion ?? 1 : 1
+        return {
+          ...artifact,
+          label: `PRD Candidate v${candidateVersion}`,
+          description: phase === 'VERIFYING_PRD_COVERAGE'
+            ? 'Current PRD candidate being audited and revised in coverage'
+            : 'Latest PRD candidate awaiting approval',
+        }
+      }
+
+      return artifact
+    })
+
+    if (phase !== 'VERIFYING_PRD_COVERAGE' && phase !== 'WAITING_PRD_APPROVAL') {
+      return baseArtifacts
+    }
+
+    const reviewContent = findDbContent({
+      id: 'coverage-review',
+      label: 'Coverage Review',
+      description: '',
+      icon: <FileText className="h-3.5 w-3.5" />,
+    })
+    const revisionContent = findDbContent({
+      id: 'coverage-changes',
+      label: 'Coverage Changes',
+      description: '',
+      icon: <FileText className="h-3.5 w-3.5" />,
+    })
+    const revisionPayload = revisionContent ? parseRefinementArtifact(revisionContent) : null
+
+    return [
+      ...baseArtifacts,
+      ...(reviewContent
+        ? [{
+            id: 'coverage-review',
+            label: 'Coverage Review',
+            description: 'Latest PRD coverage audit result',
+            icon: <FileText className="h-3.5 w-3.5" />,
+          } satisfies ArtifactDef]
+        : []),
+      ...(revisionPayload
+        ? [{
+            id: 'coverage-changes',
+            label: 'Coverage Changes',
+            description: 'Diff between the prior PRD candidate and the coverage-revised candidate',
+            icon: <FileText className="h-3.5 w-3.5" />,
+          } satisfies ArtifactDef]
+        : []),
+      ...(revisionPayload?.gapResolutions?.length
+        ? [{
+            id: 'coverage-resolution-notes',
+            label: 'Coverage Resolution Notes',
+            description: 'How each coverage gap was handled in the latest PRD candidate revision',
+            icon: <FileText className="h-3.5 w-3.5" />,
+          } satisfies ArtifactDef]
+        : []),
+    ]
+  }, [findDbContent, phase, supplementalArtifacts])
+
+  const prominentSupplementalArtifacts = collapseVotingMemberArtifacts ? displayedSupplementalArtifacts : []
+  const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : displayedSupplementalArtifacts
 
   function getArtifactState(artifact: ArtifactDef): { outcome?: CouncilOutcome; detail?: string } {
     const content = findDbContent(artifact)
@@ -337,7 +434,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ?? null
     }
 
-    const artifact = supplementalArtifacts.find((item) => item.id === viewingSelection.id)
+    const artifact = displayedSupplementalArtifacts.find((item) => item.id === viewingSelection.id)
     if (!artifact) return null
 
     return {
@@ -347,7 +444,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       content: findDbContent(artifact) ?? '',
       icon: artifact.icon,
     }
-  }, [findDbContent, fullAnswerArtifacts, memberArtifacts, supplementalArtifacts, viewingSelection])
+  }, [displayedSupplementalArtifacts, findDbContent, fullAnswerArtifacts, memberArtifacts, viewingSelection])
 
   const visibleMemberArtifacts = collapseVotingMemberArtifacts ? [] : memberArtifacts
   const compactInterviewArtifacts = phase === 'COMPILING_INTERVIEW'

@@ -919,7 +919,7 @@ export async function handlePrdRefine(
     `Validated refined PRD from winner ${intermediate.winnerId} (${refinedArtifact.draftMetrics.epicCount} epics, ${refinedArtifact.draftMetrics.userStoryCount} user stories).`,
   )
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
-    `Refined PRD from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
+    `PRD Candidate v1 from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
 
   sendEvent({ type: 'REFINED' })
 }

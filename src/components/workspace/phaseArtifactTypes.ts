@@ -62,6 +62,20 @@ export interface CoverageInputData {
   beads?: string
   refinedContent?: string
   changes?: RefinementChange[]
+  candidateVersion?: number
+}
+
+export interface CoverageGapResolutionItemData {
+  itemType: 'epic' | 'user_story'
+  id: string
+  label: string
+}
+
+export interface CoverageGapResolutionData {
+  gap: string
+  action: 'updated_prd' | 'already_covered' | 'left_unresolved'
+  rationale: string
+  affectedItems: CoverageGapResolutionItemData[]
 }
 
 export interface CoverageFollowUpArtifactQuestion {
@@ -173,6 +187,8 @@ export interface RefinementDiffArtifactData {
     userStoryCount: number
   }
   structuredOutput?: ArtifactStructuredOutputData
+  candidateVersion?: number
+  gapResolutions?: CoverageGapResolutionData[]
 }
 
 export interface RefinementDiffEntry {
@@ -394,6 +410,51 @@ export function normalizeRefinementDraftMetrics(
   return { epicCount, userStoryCount }
 }
 
+function normalizeCandidateVersion(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : undefined
+}
+
+function normalizeCoverageGapResolutionItem(value: unknown): CoverageGapResolutionItemData | null {
+  if (!isRecord(value)) return null
+  const itemType = value.itemType === 'epic' || value.itemType === 'user_story'
+    ? value.itemType
+    : value.item_type === 'epic' || value.item_type === 'user_story'
+      ? value.item_type
+      : null
+  const id = typeof value.id === 'string' ? value.id.trim() : ''
+  const label = typeof value.label === 'string' ? value.label.trim() : ''
+  if (!itemType || !id || !label) return null
+  return { itemType, id, label }
+}
+
+function normalizeCoverageGapResolutions(value: unknown): CoverageGapResolutionData[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return []
+    const gap = typeof entry.gap === 'string' ? entry.gap.trim() : ''
+    const action = entry.action === 'updated_prd' || entry.action === 'already_covered' || entry.action === 'left_unresolved'
+      ? entry.action
+      : null
+    const rationale = typeof entry.rationale === 'string' ? entry.rationale.trim() : ''
+    if (!gap || !action || !rationale) return []
+    const rawItems = Array.isArray(entry.affectedItems)
+      ? entry.affectedItems
+      : Array.isArray(entry.affected_items)
+        ? entry.affected_items
+        : []
+    return [{
+      gap,
+      action,
+      rationale,
+      affectedItems: rawItems
+        .map((item) => normalizeCoverageGapResolutionItem(item))
+        .filter((item): item is CoverageGapResolutionItemData => Boolean(item)),
+    }]
+  })
+}
+
 export function parseRefinementArtifact(content: string): RefinementDiffArtifactData | null {
   const parsed = tryParseStructuredContent(content)
   if (!isRecord(parsed)) return null
@@ -409,6 +470,8 @@ export function parseRefinementArtifact(content: string): RefinementDiffArtifact
     uiRefinementDiff: normalizeUiRefinementDiff(parsed.uiRefinementDiff),
     draftMetrics: normalizeRefinementDraftMetrics(parsed.draftMetrics),
     structuredOutput: normalizeArtifactStructuredOutput(parsed.structuredOutput),
+    candidateVersion: normalizeCandidateVersion(parsed.candidateVersion),
+    gapResolutions: normalizeCoverageGapResolutions(parsed.gapResolutions ?? parsed.gap_resolutions),
   }
 }
 
@@ -690,29 +753,38 @@ export function buildFinalRefinementArtifactContent(
   coverageInputContent?: string | null | undefined,
   refinedCompanionContent?: string | null | undefined,
   winnerArtifactContent?: string | null | undefined,
+  latestRevisionContent?: string | null | undefined,
 ): string | null {
   const refinedArtifact = refinedContent ? parseRefinementArtifact(refinedContent) : null
+  const latestRevisionArtifact = latestRevisionContent ? parseRefinementArtifact(latestRevisionContent) : null
   const coverageInput = coverageInputContent ? tryParseStructuredContent(coverageInputContent) : null
   const coverageRecord = isRecord(coverageInput) ? coverageInput : null
   const refinedCompanion = parseArtifactCompanionPayload(refinedCompanionContent)
+  const sourceArtifact = latestRevisionArtifact ?? refinedArtifact
 
-  const nextRefinedContent = typeof coverageRecord?.refinedContent === 'string'
-    ? coverageRecord.refinedContent
-    : typeof coverageRecord?.prd === 'string'
-      ? coverageRecord.prd
-    : refinedArtifact?.refinedContent ?? ''
+  const nextRefinedContent = latestRevisionArtifact?.refinedContent
+    ?? (typeof coverageRecord?.refinedContent === 'string'
+      ? coverageRecord.refinedContent
+      : typeof coverageRecord?.prd === 'string'
+        ? coverageRecord.prd
+        : sourceArtifact?.refinedContent ?? '')
   if (!nextRefinedContent.trim()) return null
 
   const payload: RefinementDiffArtifactData & CoverageInputData = {
     ...(coverageRecord ? coverageRecord as CoverageInputData : {}),
-    winnerId: refinedArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
+    winnerId: sourceArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
     refinedContent: nextRefinedContent,
-    winnerDraftContent: refinedArtifact?.winnerDraftContent
+    winnerDraftContent: sourceArtifact?.winnerDraftContent
       ?? (typeof refinedCompanion?.winnerDraftContent === 'string' ? refinedCompanion.winnerDraftContent : undefined),
-    changes: refinedArtifact?.changes,
-    uiRefinementDiff: refinedArtifact?.uiRefinementDiff ?? normalizeUiRefinementDiff(uiDiffContent),
-    draftMetrics: refinedArtifact?.draftMetrics ?? normalizeRefinementDraftMetrics(refinedCompanion?.draftMetrics),
-    structuredOutput: refinedArtifact?.structuredOutput ?? normalizeArtifactStructuredOutput(refinedCompanion?.structuredOutput),
+    changes: sourceArtifact?.changes,
+    uiRefinementDiff: sourceArtifact?.uiRefinementDiff ?? normalizeUiRefinementDiff(uiDiffContent),
+    draftMetrics: sourceArtifact?.draftMetrics ?? normalizeRefinementDraftMetrics(refinedCompanion?.draftMetrics),
+    structuredOutput: sourceArtifact?.structuredOutput ?? normalizeArtifactStructuredOutput(refinedCompanion?.structuredOutput),
+    candidateVersion: latestRevisionArtifact?.candidateVersion
+      ?? (typeof coverageRecord?.candidateVersion === 'number'
+        ? coverageRecord.candidateVersion
+        : sourceArtifact?.candidateVersion),
+    gapResolutions: sourceArtifact?.gapResolutions,
   }
 
   return JSON.stringify(payload)
@@ -826,9 +898,14 @@ export function resolveStaticArtifact(
       }
       return findExactType('interview_session')
     case 'refined-prd':
-      return findExactType('prd_coverage_input') ?? findExactType('prd_refined')
+      return findExactType('prd_coverage_revision') ?? findExactType('prd_coverage_input') ?? findExactType('prd_refined')
     case 'final-prd-draft':
       return findExactType('prd_refined')
+    case 'coverage-review':
+      return findExactType('prd_coverage')
+    case 'coverage-changes':
+    case 'coverage-resolution-notes':
+      return findExactType('prd_coverage_revision')
     case 'refined-beads':
       return findExactType('beads_coverage_input') ?? findExactType('beads_refined')
     case 'final-beads-draft':

@@ -162,7 +162,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'REFINING_PRD',
     label: 'Refining Specs',
-    description: 'Winner incorporates valuable details from other drafts.',
+    description: 'Winning draft is consolidated into PRD Candidate v1 using useful ideas from the losing drafts.',
     kanbanPhase: 'in_progress',
     groupId: 'prd',
     uiView: 'council',
@@ -173,7 +173,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'VERIFYING_PRD_COVERAGE',
     label: 'Coverage Check (PRD)',
-    description: 'Coverage check for PRD vs interview.',
+    description: 'Coverage audits the current PRD candidate against the approved interview and may revise the candidate in-place before approval.',
     kanbanPhase: 'in_progress',
     groupId: 'prd',
     uiView: 'council',
@@ -184,7 +184,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_PRD_APPROVAL',
     label: 'Approving Specs',
-    description: 'Waiting for your PRD approval.',
+    description: 'Waiting for your approval of the latest PRD candidate.',
     kanbanPhase: 'needs_input',
     groupId: 'prd',
     uiView: 'approval',

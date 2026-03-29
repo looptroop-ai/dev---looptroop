@@ -27,13 +27,13 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     ]
   }
   if (phase === 'REFINING_PRD') {
-    return [{ id: 'final-prd-draft', label: 'Final PRD Draft', description: 'Final refined PRD from the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'final-prd-draft', label: 'PRD Candidate v1', description: 'Initial PRD candidate consolidated from the winning draft', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'DRAFTING_PRD') {
     return []
   }
   if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
-    return [{ id: 'refined-prd', label: 'Refined PRD', description: 'Winning draft with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'refined-prd', label: 'PRD Candidate', description: 'Latest PRD candidate under coverage review', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'REFINING_BEADS') {
     return [{ id: 'final-beads-draft', label: 'Final Blueprint Draft', description: 'Final refined blueprint from the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]

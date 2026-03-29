@@ -100,6 +100,10 @@ function hasExactTextContent(text: string) {
   return (_content: string, element: Element | null) => element?.textContent === text
 }
 
+function hasTextContent(text: string) {
+  return (_content: string, element: Element | null) => element?.textContent?.includes(text) ?? false
+}
+
 describe('ArtifactContentViewer', () => {
   it('uses the interview results header for approval-phase canonical interviews', () => {
     render(
@@ -360,6 +364,75 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Keep the PRD viewer structured after refinement.')).toBeInTheDocument()
   })
 
+  it('renders coverage change artifacts with the PRD diff view by default', () => {
+    render(
+      <ArtifactContent
+        artifactId="coverage-changes"
+        phase="WAITING_PRD_APPROVAL"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          candidateVersion: 2,
+          winnerDraftContent: buildPrdDocumentContent({
+            epicTitle: 'Audit input candidate',
+            storyTitle: 'Inspect the audit input',
+            acceptanceCriterion: 'Keep the original audit candidate visible.',
+          }),
+          refinedContent: buildPrdDocumentContent({
+            epicTitle: 'Coverage revised candidate',
+            storyTitle: 'Inspect the revised candidate',
+            acceptanceCriterion: 'Show the coverage revised candidate by default.',
+          }),
+          changes: [
+            {
+              type: 'modified',
+              itemType: 'epic',
+              before: { id: 'EPIC-1', label: 'Audit input candidate' },
+              after: { id: 'EPIC-1', label: 'Coverage revised candidate' },
+              inspiration: null,
+              attributionStatus: 'model_unattributed',
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+    expect(screen.getAllByText(hasTextContent('Audit input candidate')).length).toBeGreaterThan(0)
+    expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
+  })
+
+  it('renders coverage resolution notes from the latest PRD candidate revision', () => {
+    render(
+      <ArtifactContent
+        artifactId="coverage-resolution-notes"
+        phase="WAITING_PRD_APPROVAL"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          candidateVersion: 2,
+          refinedContent: buildPrdDocumentContent({
+            epicTitle: 'Coverage revised candidate',
+            storyTitle: 'Inspect the revised candidate',
+          }),
+          gapResolutions: [
+            {
+              gap: 'Missing retry-cap approval behavior.',
+              action: 'updated_prd',
+              rationale: 'Added explicit approval handling when unresolved gaps remain after the retry cap.',
+              affectedItems: [
+                { itemType: 'epic', id: 'EPIC-1', label: 'Coverage revised candidate' },
+              ],
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Coverage Resolution Notes')).toBeInTheDocument()
+    expect(screen.getByText('Missing retry-cap approval behavior.')).toBeInTheDocument()
+    expect(screen.getByText(/Added explicit approval handling when unresolved gaps remain after the retry cap/i)).toBeInTheDocument()
+    expect(screen.getByText('Epic EPIC-1: Coverage revised candidate')).toBeInTheDocument()
+  })
+
   it('hides PRD coverage follow-up questions while preserving gap and termination summaries', () => {
     render(
       <ArtifactContent
@@ -421,6 +494,8 @@ describe('ArtifactContentViewer', () => {
         })}
       />,
     )
+
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.getByText('Technical Requirements')).toBeInTheDocument()
     expect(screen.getByText('Architecture Constraints')).toBeInTheDocument()

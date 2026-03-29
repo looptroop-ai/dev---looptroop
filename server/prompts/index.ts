@@ -411,6 +411,7 @@ export const PROM13: PromptTemplate = {
     'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
     'If no gaps exist, confirm that the PRD is complete and ready for PRD approval, and make clear that Beads breakdown begins only after that approval step.',
     'PRD Follow-Up Rule: `follow_up_questions` is always `[]` for PRD coverage. Do not invent new PRD questions; use `gaps` only.',
+    'Audit-Only Contract: This prompt only audits the current PRD candidate. Do not rewrite the PRD, propose changes, or include resolution notes in this response.',
     'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
     'Gap Triggering: Use `status: gaps` only when at least one real unresolved gap remains. For PRD coverage, `follow_up_questions` should normally be an empty list. Use `status: gaps` plus concrete `gaps` entries to trigger another refinement pass.',
@@ -420,6 +421,28 @@ export const PROM13: PromptTemplate = {
   ],
   outputFormat: `${COVERAGE_OUTPUT_FORMAT} For PRD coverage, \`follow_up_questions\` must always be \`[]\`.`,
   contextInputs: ['interview', 'full_answers', 'prd'],
+}
+
+export const PROM13b: PromptTemplate = {
+  id: 'PROM13b',
+  description: 'PRD Coverage Resolution Prompt',
+  systemRole: 'You are a meticulous Technical Product Manager resolving concrete PRD coverage gaps.',
+  task: 'Revise the current PRD candidate to address the provided coverage gaps while preserving the candidate as the baseline. Return one updated PRD artifact plus machine-readable change and gap-resolution metadata.',
+  instructions: [
+    'Primary Truth: Treat the approved Interview Results as primary user truth. Use the winner Full Answers artifact only as adopted context for skipped questions.',
+    'Baseline Rule: Treat the provided current PRD candidate as the baseline. Do not rewrite from scratch.',
+    'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
+    'Preservation Rule: Keep existing epic IDs and user story IDs unless the revised candidate requires a genuinely new item.',
+    'Change Accounting: Include a top-level `changes` list that fully and exactly accounts for the diff between the current PRD candidate and the revised PRD candidate.',
+    'Gap Resolution Accounting: Include a top-level `gap_resolutions` list with exactly one entry per provided gap.',
+    'Gap Resolution Actions: Each `gap_resolutions` entry must include `gap`, `action`, `rationale`, and `affected_items`. `action` must be one of `updated_prd`, `already_covered`, or `left_unresolved`.',
+    'Affected Items: `affected_items` must be a YAML list of `{ item_type, id, label }` entries referencing epic or user_story items. Use an empty list when no epic/story reference applies.',
+    'Output Discipline: Return only one PRD YAML artifact using the normal PRD schema, plus top-level `changes` and `gap_resolutions`. Do not add wrappers or prose.',
+    DO_NOT_USE_TOOLS_RULE,
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: `${PRD_OUTPUT_FORMAT}\nAlso include top-level \`changes\` and \`gap_resolutions\` lists. \`changes\` uses the same shape as PROM12 refinement output. Each \`gap_resolutions\` item: {gap, action, rationale, affected_items}. \`action\` must be one of {updated_prd, already_covered, left_unresolved}. Each \`affected_items\` entry: {item_type, id, label}.`,
+  contextInputs: ['interview', 'full_answers', 'prd', 'coverage_gaps'],
 }
 
 // Beads Phase Prompts
@@ -614,6 +637,7 @@ export const ALL_PROMPTS = {
   PROM11,
   PROM12,
   PROM13,
+  PROM13b,
   PROM20,
   PROM21,
   PROM22,

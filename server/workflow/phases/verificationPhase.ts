@@ -4,7 +4,7 @@ import type { PromptPart } from '../../opencode/types'
 import { CancelledError, throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
-import { buildPromptFromTemplate, PROM0 } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM0, PROM13b } from '../../prompts/index'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts } from '../../storage/tickets'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../runOpenCodePrompt'
 import { safeAtomicWrite } from '../../io/atomicWrite'
@@ -30,6 +30,12 @@ import { resolveInterviewCoverageFollowUpResolution } from '../interviewCoverage
 import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../coverageControl'
 import { calculateFollowUpLimit } from '../../phases/interview/followUpBudget'
 import { parsePrdRefinedArtifact } from '../../phases/prd/refined'
+import {
+  buildPrdCoverageRevisionArtifact,
+  buildPrdCoverageRevisionRetryPrompt,
+  buildPrdCoverageRevisionUiDiff,
+  validatePrdCoverageRevisionOutput,
+} from '../../phases/prd/coverageRevision'
 import { clearContextCache } from '../../opencode/contextBuilder'
 import {
   countCoverageFollowUpQuestions,
@@ -201,6 +207,559 @@ function normalizePrdCoverageEnvelope(envelope: CoverageResultEnvelope): {
       followUpQuestions: sanitizedFollowUpQuestions,
     },
     repairWarnings,
+  }
+}
+
+async function runPrdCoverageAuditPrompt(params: {
+  ticketId: string
+  externalId: string
+  stateLabel: string
+  winnerId: string
+  worktreePath: string
+  promptContent: string
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  coverageRunNumber: number
+  maxCoveragePasses: number
+  signal: AbortSignal
+}): Promise<{
+  response: string
+  envelope: CoverageResultEnvelope
+  normalizedContent: string
+  structuredMeta: ReturnType<typeof buildStructuredMetadata>
+}> {
+  throwIfAborted(params.signal, params.ticketId)
+
+  const streamState = createOpenCodeStreamState()
+  let sessionId = ''
+  let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>> | undefined
+  let response = ''
+  let coverageEnvelope: ReturnType<typeof normalizeCoverageResultOutput> | null = null
+  let promptParts: PromptPart[] = [{ type: 'text', content: params.promptContent }]
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
+    try {
+      runResult = await runOpenCodePrompt({
+        adapter,
+        projectPath: params.worktreePath,
+        parts: promptParts,
+        signal: params.signal,
+        timeoutMs: params.councilSettings.draftTimeoutMs,
+        model: params.winnerId,
+        variant: 'coverage',
+        sessionOwnership: {
+          ticketId: params.ticketId,
+          phase: params.stateLabel,
+          memberId: params.winnerId,
+        },
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          emitAiMilestone(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            `OpenCode coverage: sending prd verification prompt to ${params.winnerId} (session=${session.id}).`,
+            `${params.stateLabel}:${session.id}:prd-coverage-audit-created`,
+            {
+              modelId: params.winnerId,
+              sessionId: session.id,
+              source: `model:${params.winnerId}`,
+            },
+          )
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          emitOpenCodeStreamEvent(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            sessionId,
+            event,
+            streamState,
+          )
+        },
+        onPromptDispatched: (event) => {
+          emitOpenCodePromptLog(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            event,
+          )
+        },
+      })
+    } catch (error) {
+      if (error instanceof CancelledError) throw error
+      if (error instanceof Error && error.message === 'Timeout') {
+        throw new Error('Coverage verification failed: Timeout')
+      }
+      throwIfCancelled(error, params.signal, params.ticketId)
+      throw error
+    }
+
+    throwIfAborted(params.signal, params.ticketId)
+    response = runResult.response
+
+    emitOpenCodeSessionLogs(
+      params.ticketId,
+      params.externalId,
+      params.stateLabel,
+      params.winnerId,
+      runResult.session.id,
+      'coverage',
+      response,
+      runResult.messages,
+      streamState,
+    )
+
+    coverageEnvelope = normalizeCoverageResultOutput(response)
+    if (coverageEnvelope.ok) {
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: coverageEnvelope.repairApplied,
+        repairWarnings: coverageEnvelope.repairWarnings,
+      })
+
+      const prdCoverageNormalization = normalizePrdCoverageEnvelope(coverageEnvelope.value)
+      if (prdCoverageNormalization.repairWarnings.length > 0) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          repairWarnings: prdCoverageNormalization.repairWarnings,
+        })
+      }
+
+      if (prdCoverageNormalization.validationError) {
+        if (attempt === 1) {
+          structuredMeta = buildStructuredMetadata(structuredMeta, {
+            autoRetryCount: 1,
+            validationError: prdCoverageNormalization.validationError,
+          })
+          throw new Error(`PRD coverage output failed semantic validation after retry: ${prdCoverageNormalization.validationError}`)
+        }
+
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError: prdCoverageNormalization.validationError,
+        })
+        promptParts = buildStructuredRetryPrompt([{ type: 'text', content: params.promptContent }], {
+          validationError: prdCoverageNormalization.validationError,
+          rawResponse: response,
+          schemaReminder: getCoveragePromptTemplate('prd').outputFormat,
+          doNotUseTools: true,
+        })
+        continue
+      }
+
+      coverageEnvelope = {
+        ...coverageEnvelope,
+        value: prdCoverageNormalization.envelope,
+        normalizedContent: buildYamlDocument({
+          status: prdCoverageNormalization.envelope.status,
+          gaps: prdCoverageNormalization.envelope.gaps,
+          follow_up_questions: prdCoverageNormalization.envelope.followUpQuestions,
+        }),
+        repairApplied: coverageEnvelope.repairApplied || prdCoverageNormalization.repairWarnings.length > 0,
+        repairWarnings: [...coverageEnvelope.repairWarnings, ...prdCoverageNormalization.repairWarnings],
+      }
+      break
+    }
+
+    if (attempt === 1) {
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError: coverageEnvelope.error,
+      })
+      throw new Error(`Coverage output failed validation after retry: ${coverageEnvelope.error}`)
+    }
+
+    structuredMeta = buildStructuredMetadata(structuredMeta, {
+      autoRetryCount: 1,
+      validationError: coverageEnvelope.error,
+    })
+    promptParts = buildStructuredRetryPrompt([{ type: 'text', content: params.promptContent }], {
+      validationError: coverageEnvelope.error,
+      rawResponse: response,
+      schemaReminder: getCoveragePromptTemplate('prd').outputFormat,
+      doNotUseTools: true,
+    })
+  }
+
+  if (!coverageEnvelope?.ok || !runResult) {
+    throw new Error('Coverage verification finished without a parseable structured result.')
+  }
+
+  return {
+    response,
+    envelope: coverageEnvelope.value,
+    normalizedContent: coverageEnvelope.normalizedContent,
+    structuredMeta,
+  }
+}
+
+async function runPrdCoverageResolutionPrompt(params: {
+  ticketId: string
+  externalId: string
+  stateLabel: string
+  winnerId: string
+  worktreePath: string
+  promptContent: string
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  signal: AbortSignal
+  interviewContent: string
+  currentCandidateContent: string
+  coverageGaps: string[]
+}): Promise<{
+  response: string
+  revision: ReturnType<typeof validatePrdCoverageRevisionOutput>
+  structuredMeta: ReturnType<typeof buildStructuredMetadata>
+}> {
+  throwIfAborted(params.signal, params.ticketId)
+
+  const streamState = createOpenCodeStreamState()
+  let sessionId = ''
+  let response = ''
+  let promptParts: PromptPart[] = [{ type: 'text', content: params.promptContent }]
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
+    let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>>
+    try {
+      runResult = await runOpenCodePrompt({
+        adapter,
+        projectPath: params.worktreePath,
+        parts: promptParts,
+        signal: params.signal,
+        timeoutMs: params.councilSettings.draftTimeoutMs,
+        model: params.winnerId,
+        variant: 'coverage',
+        sessionOwnership: {
+          ticketId: params.ticketId,
+          phase: params.stateLabel,
+          memberId: params.winnerId,
+        },
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          emitAiMilestone(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            `OpenCode coverage: sending PRD coverage resolution prompt to ${params.winnerId} (session=${session.id}).`,
+            `${params.stateLabel}:${session.id}:prd-coverage-resolution-created`,
+            {
+              modelId: params.winnerId,
+              sessionId: session.id,
+              source: `model:${params.winnerId}`,
+            },
+          )
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          emitOpenCodeStreamEvent(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            sessionId,
+            event,
+            streamState,
+          )
+        },
+        onPromptDispatched: (event) => {
+          emitOpenCodePromptLog(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            event,
+          )
+        },
+      })
+    } catch (error) {
+      if (error instanceof CancelledError) throw error
+      if (error instanceof Error && error.message === 'Timeout') {
+        throw new Error('PRD coverage resolution failed: Timeout')
+      }
+      throwIfCancelled(error, params.signal, params.ticketId)
+      throw error
+    }
+
+    throwIfAborted(params.signal, params.ticketId)
+    response = runResult.response
+
+    emitOpenCodeSessionLogs(
+      params.ticketId,
+      params.externalId,
+      params.stateLabel,
+      params.winnerId,
+      runResult.session.id,
+      'coverage',
+      response,
+      runResult.messages,
+      streamState,
+    )
+
+    try {
+      const revision = validatePrdCoverageRevisionOutput(response, {
+        ticketId: params.externalId,
+        interviewContent: params.interviewContent,
+        currentCandidateContent: params.currentCandidateContent,
+        coverageGaps: params.coverageGaps,
+      })
+
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: revision.repairApplied,
+        repairWarnings: revision.repairWarnings,
+      })
+
+      return { response, revision, structuredMeta }
+    } catch (error) {
+      const validationError = error instanceof Error ? error.message : String(error)
+      if (attempt === 1) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError,
+        })
+        throw new Error(`PRD coverage resolution output failed validation after retry: ${validationError}`)
+      }
+
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError,
+      })
+      promptParts = buildPrdCoverageRevisionRetryPrompt([{ type: 'text', content: params.promptContent }], {
+        validationError,
+        rawResponse: response,
+      })
+    }
+  }
+
+  throw new Error('PRD coverage resolution finished without a validated structured result.')
+}
+
+async function handlePrdCoverageVerificationLoop(params: {
+  ticketId: string
+  context: TicketContext
+  sendEvent: (event: TicketEvent) => void
+  signal: AbortSignal
+  worktreePath: string
+  ticketDir: string
+  winnerId: string
+  stateLabel: string
+  ticketState: TicketState
+  effectivePrdContent: string
+  interviewContent: string
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  coverageSettings: ReturnType<typeof resolveCoverageRuntimeSettings>
+}) {
+  const prdPath = resolve(params.ticketDir, 'prd.yaml')
+  let currentCandidateContent = params.effectivePrdContent.trim()
+  let currentCandidateVersion = countPhaseArtifacts(params.ticketId, 'prd_coverage_revision', params.stateLabel) + 1
+
+  while (true) {
+    const completedCoveragePasses = countPhaseArtifacts(params.ticketId, 'prd_coverage', params.stateLabel)
+    const coverageRunState = resolveCoverageRunState(completedCoveragePasses, params.coverageSettings.maxCoveragePasses)
+    if (coverageRunState.limitAlreadyReached) {
+      emitPhaseLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `Coverage retry cap already reached for prd (${completedCoveragePasses}/${params.coverageSettings.maxCoveragePasses}). Routing to approval without another coverage execution.`,
+      )
+      params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
+      return
+    }
+
+    const { coverageRunNumber, isFinalAllowedRun } = coverageRunState
+    params.ticketState.prd = currentCandidateContent
+    clearContextCache(params.context.externalId)
+
+    const coverageContext = buildMinimalContext('prd_coverage', params.ticketState)
+    const coveragePromptConfiguration = buildCoveragePromptConfiguration({
+      phase: 'prd',
+      coverageRunNumber,
+      maxCoveragePasses: params.coverageSettings.maxCoveragePasses,
+      isFinalAllowedRun,
+    })
+    const auditPromptContent = buildPromptFromTemplate(
+      getCoveragePromptTemplate('prd'),
+      [...coverageContext, coveragePromptConfiguration],
+    )
+
+    const auditResult = await runPrdCoverageAuditPrompt({
+      ticketId: params.ticketId,
+      externalId: params.context.externalId,
+      stateLabel: params.stateLabel,
+      winnerId: params.winnerId,
+      worktreePath: params.worktreePath,
+      promptContent: auditPromptContent,
+      councilSettings: params.councilSettings,
+      coverageRunNumber,
+      maxCoveragePasses: params.coverageSettings.maxCoveragePasses,
+      signal: params.signal,
+    })
+
+    insertPhaseArtifact(params.ticketId, {
+      phase: params.stateLabel,
+      artifactType: 'prd_coverage_input',
+      content: JSON.stringify({
+        candidateVersion: currentCandidateVersion,
+        refinedContent: currentCandidateContent,
+      }),
+    })
+    persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'prd_coverage_input', {
+      interview: params.interviewContent,
+      ...(params.ticketState.fullAnswers?.[0] ? { fullAnswers: params.ticketState.fullAnswers[0] } : {}),
+      prd: currentCandidateContent,
+      refinedContent: currentCandidateContent,
+      candidateVersion: currentCandidateVersion,
+    })
+
+    const detectedGaps = auditResult.envelope.status === 'gaps'
+    const gapDisposition = resolveCoverageGapDisposition({
+      phase: 'prd',
+      hasGaps: detectedGaps,
+      isFinalAllowedRun,
+      hasFollowUpQuestions: false,
+      remainingInterviewBudget: undefined,
+    })
+
+    insertPhaseArtifact(params.ticketId, {
+      phase: params.stateLabel,
+      artifactType: 'prd_coverage',
+      content: JSON.stringify({
+        winnerId: params.winnerId,
+        hasGaps: detectedGaps,
+        coverageRunNumber,
+        maxCoveragePasses: params.coverageSettings.maxCoveragePasses,
+        limitReached: gapDisposition.limitReached,
+        terminationReason: gapDisposition.terminationReason,
+      }),
+    })
+
+    persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'prd_coverage', {
+      response: auditResult.response,
+      normalizedContent: auditResult.normalizedContent,
+      parsed: auditResult.envelope,
+      structuredOutput: auditResult.structuredMeta,
+    })
+
+    if (!detectedGaps) {
+      emitPhaseLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `Coverage verification passed (winning model: ${params.winnerId}) for PRD Candidate v${currentCandidateVersion}.`,
+      )
+      params.sendEvent({ type: 'COVERAGE_CLEAN' })
+      return
+    }
+
+    if (!gapDisposition.shouldLoopBack) {
+      const reviewReason = `Coverage gaps detected by winning model ${params.winnerId}, but ${describeCoverageTerminationReason(gapDisposition.terminationReason)}. Routing to approval with unresolved gaps for manual review.`
+      emitPhaseLog(params.ticketId, params.context.externalId, params.stateLabel, 'info', reviewReason)
+      params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
+      return
+    }
+
+    emitPhaseLog(
+      params.ticketId,
+      params.context.externalId,
+      params.stateLabel,
+      'info',
+      `Coverage found ${auditResult.envelope.gaps.length} gap(s) in PRD Candidate v${currentCandidateVersion}. Revising candidate before the next audit pass.`,
+    )
+
+    params.ticketState.prd = currentCandidateContent
+    clearContextCache(params.context.externalId)
+    const revisionContext = buildMinimalContext('prd_coverage', params.ticketState)
+    const revisionPromptContent = buildPromptFromTemplate(PROM13b, [
+      ...revisionContext,
+      {
+        type: 'text',
+        source: 'coverage_gaps',
+        content: buildYamlDocument({ gaps: auditResult.envelope.gaps }),
+      },
+    ])
+
+    const revisionRun = await runPrdCoverageResolutionPrompt({
+      ticketId: params.ticketId,
+      externalId: params.context.externalId,
+      stateLabel: params.stateLabel,
+      winnerId: params.winnerId,
+      worktreePath: params.worktreePath,
+      promptContent: revisionPromptContent,
+      councilSettings: params.councilSettings,
+      signal: params.signal,
+      interviewContent: params.interviewContent,
+      currentCandidateContent,
+      coverageGaps: auditResult.envelope.gaps,
+    })
+
+    const nextCandidateVersion = currentCandidateVersion + 1
+    const revisionArtifact = buildPrdCoverageRevisionArtifact(
+      params.winnerId,
+      nextCandidateVersion,
+      revisionRun.revision,
+      revisionRun.structuredMeta,
+    )
+    const uiDiffArtifact = buildPrdCoverageRevisionUiDiff(revisionArtifact)
+
+    insertPhaseArtifact(params.ticketId, {
+      phase: params.stateLabel,
+      artifactType: 'prd_coverage_revision',
+      content: JSON.stringify({
+        winnerId: revisionArtifact.winnerId,
+        refinedContent: revisionArtifact.refinedContent,
+        candidateVersion: revisionArtifact.candidateVersion,
+      }),
+    })
+    persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'prd_coverage_revision', {
+      winnerId: revisionArtifact.winnerId,
+      candidateVersion: revisionArtifact.candidateVersion,
+      beforeContent: revisionArtifact.winnerDraftContent,
+      afterContent: revisionArtifact.refinedContent,
+      winnerDraftContent: revisionArtifact.winnerDraftContent,
+      refinedContent: revisionArtifact.refinedContent,
+      changes: revisionArtifact.changes,
+      gapResolutions: revisionArtifact.gapResolutions,
+      draftMetrics: revisionArtifact.draftMetrics,
+      structuredOutput: revisionArtifact.structuredOutput ?? null,
+      uiRefinementDiff: uiDiffArtifact,
+    })
+
+    safeAtomicWrite(prdPath, revisionArtifact.refinedContent)
+    clearContextCache(params.context.externalId)
+
+    if (revisionRun.revision.repairWarnings.length > 0) {
+      emitPhaseLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `PRD coverage resolution normalization applied repairs: ${revisionRun.revision.repairWarnings.join(' | ')}`,
+      )
+    }
+    if ((revisionRun.structuredMeta.autoRetryCount ?? 0) > 0 && revisionRun.structuredMeta.validationError) {
+      emitPhaseLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `PRD coverage resolution required ${revisionRun.structuredMeta.autoRetryCount} structured retry attempt(s): ${revisionRun.structuredMeta.validationError}`,
+      )
+    }
+
+    emitPhaseLog(
+      params.ticketId,
+      params.context.externalId,
+      params.stateLabel,
+      'info',
+      `Revised PRD Candidate v${currentCandidateVersion} into PRD Candidate v${nextCandidateVersion} and saved it to ${prdPath}.`,
+    )
+
+    currentCandidateContent = revisionArtifact.refinedContent
+    currentCandidateVersion = nextCandidateVersion
   }
 }
 
@@ -607,6 +1166,13 @@ export async function handleCoverageVerification(
   }
 
   if (phase === 'prd') {
+    if (!canonicalInterview?.trim()) {
+      const msg = 'PRD coverage requires an approved canonical interview, but interview.yaml was not available.'
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+
     const prdPath = resolve(ticketDir, 'prd.yaml')
     const diskPrdContent = existsSync(prdPath) ? readFileSync(prdPath, 'utf-8').trim() : ''
     if (diskPrdContent.length > 0) {
@@ -688,6 +1254,25 @@ export async function handleCoverageVerification(
     if (beadsPath && existsSync(beadsPath)) {
       try { ticketState.beads = readFileSync(beadsPath, 'utf-8') } catch { /* ignore */ }
     }
+  }
+
+  if (phase === 'prd') {
+    await handlePrdCoverageVerificationLoop({
+      ticketId,
+      context,
+      sendEvent,
+      signal,
+      worktreePath,
+      ticketDir,
+      winnerId,
+      stateLabel,
+      ticketState,
+      effectivePrdContent: effectivePrdContent ?? '',
+      interviewContent: canonicalInterview ?? '',
+      councilSettings,
+      coverageSettings,
+    })
+    return
   }
 
   clearContextCache(context.externalId)

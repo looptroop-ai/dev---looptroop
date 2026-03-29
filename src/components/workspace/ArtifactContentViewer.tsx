@@ -6,6 +6,7 @@ import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadg
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import type {
   ArtifactStructuredOutputData,
+  CoverageGapResolutionData,
   InterviewArtifactData,
   InterviewArtifactQuestion,
   InterviewDiffArtifactData,
@@ -726,8 +727,20 @@ function FinalInterviewArtifactView({
   )
 }
 
-function FinalPrdDraftView({ content, header, isBeads }: { content: string; header?: React.ReactNode; isBeads?: boolean }) {
-  const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
+function FinalPrdDraftView({
+  content,
+  header,
+  isBeads,
+  defaultTab = 'final',
+  finalLabel,
+}: {
+  content: string
+  header?: React.ReactNode
+  isBeads?: boolean
+  defaultTab?: 'final' | 'diff' | 'raw'
+  finalLabel?: string
+}) {
+  const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>(defaultTab)
 
   const parsed = parseRefinementArtifact(content)
   if (!parsed) return <RawContentWithCopy content={content} />
@@ -751,7 +764,7 @@ function FinalPrdDraftView({ content, header, isBeads }: { content: string; head
         {header && <div className="flex-1 min-w-0">{header}</div>}
         <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${header ? 'ml-auto' : ''}`}>
           <button onClick={() => setActiveTab('final')} className={tabButtonClass('final')}>
-            Final {isBeads ? 'Blueprint' : 'PRD'}
+            {finalLabel ?? `Final ${isBeads ? 'Blueprint' : 'PRD'}`}
           </button>
           {hasDiffTab && (
             <button onClick={() => setActiveTab('diff')} className={tabButtonClass('diff')}>
@@ -774,6 +787,75 @@ function FinalPrdDraftView({ content, header, isBeads }: { content: string; head
         ? (isBeads ? <BeadsDraftView content={refinedContent} /> : <PrdDraftView content={refinedContent} />)
         : <RefinementDiffView content={content} domain={domain} />}
     </div>
+  )
+}
+
+function formatCoverageResolutionAction(action: CoverageGapResolutionData['action']): string {
+  if (action === 'updated_prd') return 'Updated PRD'
+  if (action === 'already_covered') return 'Already Covered'
+  return 'Left Unresolved'
+}
+
+function getCoverageResolutionTone(action: CoverageGapResolutionData['action']): string {
+  if (action === 'updated_prd') return 'border-green-200 bg-green-100/70 text-green-800 dark:border-green-800/60 dark:bg-green-900/30 dark:text-green-200'
+  if (action === 'already_covered') return 'border-blue-200 bg-blue-100/70 text-blue-800 dark:border-blue-800/60 dark:bg-blue-900/30 dark:text-blue-200'
+  return 'border-amber-200 bg-amber-100/70 text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/30 dark:text-amber-200'
+}
+
+function CoverageResolutionNotesView({ content }: { content: string }) {
+  const parsed = parseRefinementArtifact(content)
+  const gapResolutions = parsed?.gapResolutions ?? []
+  if (!gapResolutions.length) return <RawContentWithCopy content={content} />
+
+  const candidateVersionLabel = parsed?.candidateVersion ? `PRD Candidate v${parsed.candidateVersion}` : 'PRD Candidate'
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Resolution Notes"
+      header={<div className="text-xs font-semibold px-1">Coverage Resolution Notes</div>}
+    >
+      <div className="space-y-3">
+        <div className="text-xs text-muted-foreground">
+          Latest coverage-driven resolution notes for {candidateVersionLabel}.
+        </div>
+        {gapResolutions.map((resolution, index) => (
+          <CollapsibleSection
+            key={`${resolution.gap}:${index}`}
+            defaultOpen
+            title={(
+              <span className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium">{resolution.gap}</span>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${getCoverageResolutionTone(resolution.action)}`}>
+                  {formatCoverageResolutionAction(resolution.action)}
+                </span>
+              </span>
+            )}
+          >
+            <div className="space-y-3">
+              <div className="text-xs leading-5">{resolution.rationale}</div>
+              <div>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Affected Items</div>
+                {resolution.affectedItems.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {resolution.affectedItems.map((item) => (
+                      <span
+                        key={`${resolution.gap}:${item.itemType}:${item.id}`}
+                        className="rounded-full border border-border bg-background px-2 py-1 text-[10px] text-foreground"
+                      >
+                        {item.itemType === 'epic' ? 'Epic' : 'User Story'} {item.id}: {item.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">No epic or user story was directly mapped for this resolution.</div>
+                )}
+              </div>
+            </div>
+          </CollapsibleSection>
+        ))}
+      </div>
+    </WithRawTab>
   )
 }
 
@@ -1628,8 +1710,23 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     )
   }
   if (artifactId === 'final-prd-draft') {
-    const header = <div className="text-xs font-semibold px-1">Final PRD Draft</div>
-    return <FinalPrdDraftView content={content} header={header} />
+    const header = <div className="text-xs font-semibold px-1">PRD Candidate v1</div>
+    return <FinalPrdDraftView content={content} header={header} finalLabel="PRD Candidate v1" />
+  }
+  if (artifactId === 'refined-prd') {
+    const candidateVersion = parseRefinementArtifact(content)?.candidateVersion ?? 1
+    const label = `PRD Candidate v${candidateVersion}`
+    const header = <div className="text-xs font-semibold px-1">{label}</div>
+    return <FinalPrdDraftView content={content} header={header} finalLabel={label} />
+  }
+  if (artifactId === 'coverage-changes') {
+    const candidateVersion = parseRefinementArtifact(content)?.candidateVersion
+    const finalLabel = candidateVersion ? `PRD Candidate v${candidateVersion}` : 'PRD Candidate'
+    const header = <div className="text-xs font-semibold px-1">Coverage Changes</div>
+    return <FinalPrdDraftView content={content} header={header} defaultTab="diff" finalLabel={finalLabel} />
+  }
+  if (artifactId === 'coverage-resolution-notes') {
+    return <CoverageResolutionNotesView content={content} />
   }
   if (artifactId === 'final-beads-draft') {
     const header = <div className="text-xs font-semibold px-1">Final Blueprint Draft</div>
@@ -1643,7 +1740,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
       </WithRawTab>
     )
   }
-  if (artifactId?.endsWith('coverage-result')) {
+  if (artifactId?.endsWith('coverage-result') || artifactId === 'coverage-review') {
     const coverageResult = parseCoverageArtifact(content)
     const header = coverageResult?.winnerId ? (
       <ModelBadge modelId={coverageResult.winnerId} active className="px-3 py-2 h-auto flex-1 justify-start">
@@ -1674,7 +1771,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     }
   } catch { /* not json */ }
 
-  if (parsedCoverageInput && (artifactId === 'refined-prd' || artifactId === 'refined-beads')) {
+  if (parsedCoverageInput && artifactId === 'refined-beads') {
     const isPrd = artifactId === 'refined-prd'
     const diffEntries = buildRefinementDiffEntries(content, isPrd ? 'prd' : 'beads')
     const hasChanges = diffEntries.length > 0 || Boolean(parseRefinementArtifact(content)?.winnerDraftContent)

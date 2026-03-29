@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
@@ -698,7 +698,7 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
 
     expect(screen.getByText('Epics (1)')).toBeInTheDocument()
     expect(screen.getByText('Refined PRD review')).toBeInTheDocument()
@@ -709,7 +709,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Inspect refined PRD sections')).toBeInTheDocument()
   })
 
-  it('prefers the effective PRD coverage input when rendering the refined PRD view', () => {
+  it('prefers the effective PRD coverage input when rendering the PRD candidate view', () => {
     const refinedArtifact: DBartifact = {
       id: 34,
       ticketId: 'ticket-1',
@@ -755,14 +755,12 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
 
-    expect(screen.getByText('Coverage input PRD')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Coverage input PRD').closest('button')!)
-    expect(screen.getByText('Inspect coverage input sections')).toBeInTheDocument()
     expect(screen.getByText('Coverage input under verification')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Coverage input under verification').closest('button')!)
     expect(screen.getByText('Inspect the exact PRD sent to coverage')).toBeInTheDocument()
+    expect(screen.queryByText('Coverage input PRD')).not.toBeInTheDocument()
     expect(screen.queryByText('Refined artifact PRD')).not.toBeInTheDocument()
     expect(screen.queryByText('Inspect refined artifact sections')).not.toBeInTheDocument()
   })
@@ -809,17 +807,169 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
 
-    const dialog = screen.getByRole('dialog')
-    const [coverageInputPrdButton] = within(dialog).getAllByRole('button', { name: /Coverage input PRD only/i })
-    if (!coverageInputPrdButton) {
-      throw new Error('Expected PRD coverage input button to exist')
-    }
-    fireEvent.click(coverageInputPrdButton)
+    fireEvent.click(screen.getByText('Coverage input PRD only').closest('button')!)
     expect(screen.getByText('Inspect the exact saved PRD')).toBeInTheDocument()
     expect(screen.queryByText('Artifact fallback PRD')).not.toBeInTheDocument()
     expect(screen.queryByText('Inspect artifact fallback sections')).not.toBeInTheDocument()
+  })
+
+  it('prefers the latest coverage revision and exposes review, diff, and resolution artifacts in approval', async () => {
+    const refinedArtifact: DBartifact = {
+      id: 38,
+      ticketId: 'ticket-1',
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      filePath: null,
+      createdAt: '2026-03-25T10:15:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Initial refined PRD',
+          storyTitle: 'Inspect the initial candidate',
+        }),
+      }),
+    }
+
+    const coverageInputArtifact: DBartifact = {
+      id: 39,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'ui_artifact_companion:prd_coverage_input',
+      filePath: null,
+      createdAt: '2026-03-25T10:16:31.000Z',
+      content: JSON.stringify({
+        baseArtifactType: 'prd_coverage_input',
+        generatedAt: '2026-03-25T10:16:31.000Z',
+        payload: {
+          interview: buildInterviewDocumentContent(),
+          fullAnswers: buildInterviewDocumentContent(),
+          prd: buildPrdDocumentContent({
+            epicTitle: 'Audit input candidate',
+            storyTitle: 'Inspect the audit input',
+          }),
+          refinedContent: buildPrdDocumentContent({
+            epicTitle: 'Audit input candidate',
+            storyTitle: 'Inspect the audit input',
+          }),
+          candidateVersion: 1,
+        },
+      }),
+    }
+
+    const coverageArtifact: DBartifact = {
+      id: 40,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage',
+      filePath: null,
+      createdAt: '2026-03-25T10:17:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        hasGaps: false,
+        coverageRunNumber: 2,
+        maxCoveragePasses: 3,
+        limitReached: false,
+      }),
+    }
+
+    const coverageRevisionArtifact: DBartifact = {
+      id: 41,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_revision',
+      filePath: null,
+      createdAt: '2026-03-25T10:18:31.000Z',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Coverage revised candidate',
+          storyTitle: 'Inspect the revised candidate',
+        }),
+        candidateVersion: 2,
+      }),
+    }
+
+    const coverageRevisionCompanionArtifact: DBartifact = {
+      id: 42,
+      ticketId: 'ticket-1',
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'ui_artifact_companion:prd_coverage_revision',
+      filePath: null,
+      createdAt: '2026-03-25T10:18:32.000Z',
+      content: JSON.stringify({
+        baseArtifactType: 'prd_coverage_revision',
+        generatedAt: '2026-03-25T10:18:32.000Z',
+        payload: {
+          winnerId: 'openai/gpt-5.2',
+          candidateVersion: 2,
+          winnerDraftContent: buildPrdDocumentContent({
+            epicTitle: 'Audit input candidate',
+            storyTitle: 'Inspect the audit input',
+          }),
+          refinedContent: buildPrdDocumentContent({
+            epicTitle: 'Coverage revised candidate',
+            storyTitle: 'Inspect the revised candidate',
+          }),
+          changes: [
+            {
+              type: 'modified',
+              itemType: 'epic',
+              before: { id: 'EPIC-1', label: 'Audit input candidate' },
+              after: { id: 'EPIC-1', label: 'Coverage revised candidate' },
+              inspiration: null,
+              attributionStatus: 'model_unattributed',
+            },
+          ],
+          gapResolutions: [
+            {
+              gap: 'Missing retry-cap approval behavior.',
+              action: 'updated_prd',
+              rationale: 'Added explicit approval handling when unresolved gaps remain after the retry cap.',
+              affectedItems: [
+                { itemType: 'epic', id: 'EPIC-1', label: 'Coverage revised candidate' },
+              ],
+            },
+          ],
+        },
+      }),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[
+          refinedArtifact,
+          coverageInputArtifact,
+          coverageArtifact,
+          coverageRevisionArtifact,
+          coverageRevisionCompanionArtifact,
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /PRD Candidate v2/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Coverage Review/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Coverage Changes/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Coverage Resolution Notes/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v2/i }))
+    expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
+    expect(screen.queryByText('Audit input candidate')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Coverage Changes/i }))
+    expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+    expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Coverage Resolution Notes/i }))
+    expect(screen.getByText('Missing retry-cap approval behavior.')).toBeInTheDocument()
+    expect(screen.getByText(/Added explicit approval handling when unresolved gaps remain after the retry cap/i)).toBeInTheDocument()
   })
 
   it('shows no-source badges in generic refinement diff views', () => {
@@ -861,8 +1011,8 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     const leafTextMatcher = (text: string) => (_content: string, node: Element | null) => {
       const hasText = (candidate: Element | null) => candidate?.textContent?.includes(text) ?? false
@@ -913,8 +1063,8 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.getByText('We cleaned up the AI\'s change list.')).toBeInTheDocument()
     expect(screen.getByText(/Some items the AI marked as changed were actually unchanged/i)).toBeInTheDocument()
@@ -957,8 +1107,8 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.getByText('This artifact needed repair.')).toBeInTheDocument()
     expect(screen.getByText(/Some diff entries may be auto-detected or may have corrected attribution/i)).toBeInTheDocument()
@@ -1230,8 +1380,8 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined PRD/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
@@ -1294,7 +1444,7 @@ describe('PhaseArtifactsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()

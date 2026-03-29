@@ -231,6 +231,41 @@ function buildValidRefinementOutput(ticketId: string, options: { omitStoryItemTy
   })
 }
 
+function buildValidCoverageRevisionOutput(ticketId: string, coverageGap: string): string {
+  const parsed = jsYaml.load(buildPrdContent(ticketId, {
+    epicTitle: 'Prompt hardening and approval safety',
+    storyOneTitle: 'Validate PRD refinement exactly',
+    includeStoryTwo: false,
+    includeStoryThree: true,
+    changes: [
+      {
+        type: 'modified',
+        item_type: 'epic',
+        before: { id: 'EPIC-1', title: 'Prompt hardening and refinement safety' },
+        after: { id: 'EPIC-1', title: 'Prompt hardening and approval safety' },
+        inspiration: null,
+      },
+    ],
+  })) as Record<string, unknown>
+
+  parsed.gap_resolutions = [
+    {
+      gap: coverageGap,
+      action: 'updated_prd',
+      rationale: 'Added explicit approval handling when coverage retries are exhausted.',
+      affected_items: [
+        {
+          item_type: 'epic',
+          id: 'EPIC-1',
+          label: 'Prompt hardening and approval safety',
+        },
+      ],
+    },
+  ]
+
+  return jsYaml.dump(parsed, { lineWidth: 120, noRefs: true }) as string
+}
+
 function buildTicketContext(ticket: ReturnType<typeof createTicket>, overrides: Partial<MachineTicketContext> = {}): MachineTicketContext {
   return {
     ticketId: ticket.id,
@@ -732,6 +767,125 @@ describe('handlePrdRefine', () => {
 
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(2)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+  })
+
+  it('revises the PRD in-place during coverage and re-audits the new candidate', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const winnerId = 'openai/gpt-5.2'
+    const interviewContent = buildInterviewYaml(ticket.externalId)
+    const winnerDraftContent = buildPrdContent(ticket.externalId)
+    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticket.externalId), {
+      ticketId: ticket.externalId,
+      interviewContent,
+      winnerDraftContent,
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    })
+    const coverageGap = 'Missing retry-cap approval behavior.'
+
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, interviewContent, 'utf-8')
+    writeFileSync(`${paths.ticketDir}/prd.yaml`, refinement.refinedContent, 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'DRAFTING_PRD',
+      artifactType: 'prd_full_answers',
+      content: JSON.stringify({
+        drafts: [
+          { memberId: winnerId, outcome: 'completed', content: interviewContent },
+        ],
+      }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify(buildPrdRefinedArtifact(
+        winnerId,
+        refinement.winnerDraftContent,
+        refinement,
+        {
+          repairApplied: refinement.repairApplied,
+          repairWarnings: refinement.repairWarnings,
+          autoRetryCount: 0,
+        },
+      )),
+    })
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockImplementationOnce(async ({ parts }: { parts: Array<{ content: string }> }) => {
+        const promptText = parts.map((part) => part.content).join('\n')
+        expect(promptText).toContain('### coverage_gaps')
+        expect(promptText).toContain(coverageGap)
+        expect(promptText).toContain('Prompt hardening and refinement safety')
+        return {
+          session: { id: 'coverage-session-2', projectPath: paths.worktreePath },
+          response: buildValidCoverageRevisionOutput(ticket.externalId, coverageGap),
+          messages: [],
+        }
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-3', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(3)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+
+    const coverageRevision = getLatestPhaseArtifact(ticket.id, 'prd_coverage_revision', 'VERIFYING_PRD_COVERAGE')
+    expect(coverageRevision).toBeDefined()
+    expect(JSON.parse(coverageRevision!.content)).toMatchObject({
+      winnerId,
+      candidateVersion: 2,
+      refinedContent: expect.stringContaining('Prompt hardening and approval safety'),
+    })
+
+    const coverageRevisionCompanion = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_revision', 'VERIFYING_PRD_COVERAGE')
+    const parsedCoverageRevision = parseUiArtifactCompanionArtifact(coverageRevisionCompanion!.content)?.payload as {
+      candidateVersion?: number
+      refinedContent?: string
+      gapResolutions?: Array<{ gap?: string; action?: string }>
+    } | undefined
+    expect(parsedCoverageRevision).toBeDefined()
+    expect(parsedCoverageRevision?.candidateVersion).toBe(2)
+    expect(parsedCoverageRevision?.refinedContent).toContain('Prompt hardening and approval safety')
+    expect(parsedCoverageRevision?.gapResolutions).toEqual([
+      expect.objectContaining({
+        gap: coverageGap,
+        action: 'updated_prd',
+      }),
+    ])
+
+    const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
+    const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {
+      prd?: string
+      refinedContent?: string
+      candidateVersion?: number
+    } | undefined
+    expect(parsedCoverageInput?.candidateVersion).toBe(2)
+    expect(parsedCoverageInput?.prd).toContain('Prompt hardening and approval safety')
+    expect(parsedCoverageInput?.refinedContent).toContain('Prompt hardening and approval safety')
+    expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')).toContain('Prompt hardening and approval safety')
   })
 
   it('routes final PRD coverage gaps to approval instead of Beads when the retry cap is reached', async () => {
