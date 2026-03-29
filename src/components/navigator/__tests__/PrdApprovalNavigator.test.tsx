@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { buildPrdDocumentYaml, getPrdUserStoryAnchorId, type PrdDocument } from '@/lib/prdDocument'
-import { getInterviewSummaryAnchorId } from '@/lib/interviewDocument'
 import { PrdApprovalNavigator } from '../PrdApprovalNavigator'
 
 function buildPrdDocument(): PrdDocument {
@@ -73,7 +72,7 @@ function renderWithProviders(ui: React.ReactElement, content: string) {
 }
 
 describe('PrdApprovalNavigator', () => {
-  it('renders the PRD outline and dispatches PRD and interview navigation events', async () => {
+  it('renders the PRD outline, removes interview shortcuts, and dispatches PRD focus events', async () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
     const content = buildPrdDocumentYaml(buildPrdDocument())
 
@@ -85,6 +84,9 @@ describe('PrdApprovalNavigator', () => {
 
     expect(screen.getByText('EPIC-1 · Retry orchestration')).toBeInTheDocument()
     expect(screen.getByText('US-1-1 · As an operator, I can inspect retry state.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Interview summary/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Foundation$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Structure$/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Product').closest('button')!)
 
@@ -95,18 +97,6 @@ describe('PrdApprovalNavigator', () => {
     expect(prdFocusEvent?.detail).toEqual({
       ticketId: '1:PROJ-42',
       anchorId: 'prd-product',
-    })
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Interview summary' })[0]!)
-
-    const workspaceNavigationEvent = dispatchSpy.mock.calls
-      .map(([event]) => event)
-      .find((event) => event.type === 'looptroop:workspace-phase-navigate') as CustomEvent<{ ticketId: string; phase: string; anchorId?: string }> | undefined
-
-    expect(workspaceNavigationEvent?.detail).toEqual({
-      ticketId: '1:PROJ-42',
-      phase: 'WAITING_INTERVIEW_APPROVAL',
-      anchorId: getInterviewSummaryAnchorId(),
     })
 
     fireEvent.click(screen.getByText('US-1-1 · As an operator, I can inspect retry state.').closest('button')!)

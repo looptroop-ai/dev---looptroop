@@ -1,40 +1,11 @@
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useQuery } from '@tanstack/react-query'
-import { getInterviewPhaseGroupAnchorId, getInterviewSummaryAnchorId } from '@/lib/interviewDocument'
 import { dispatchPrdApprovalFocus, buildPrdApprovalOutline, parsePrdDocument } from '@/lib/prdDocument'
-import { requestWorkspacePhaseNavigation } from '@/lib/workspaceNavigation'
 
 function focusPrdAnchor(ticketId: string, anchorId: string) {
   dispatchPrdApprovalFocus(ticketId, anchorId)
-}
-
-function JumpToInterviewButton({
-  ticketId,
-  anchorId,
-  label,
-}: {
-  ticketId: string
-  anchorId: string
-  label: string
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-6 rounded-full px-2.5 text-[10px] uppercase tracking-wider"
-      onClick={() => requestWorkspacePhaseNavigation({
-        ticketId,
-        phase: 'WAITING_INTERVIEW_APPROVAL',
-        anchorId,
-      })}
-    >
-      {label}
-    </Button>
-  )
 }
 
 function OutlineCard({
@@ -42,31 +13,26 @@ function OutlineCard({
   anchorId,
   title,
   description,
-  interviewButton,
   children,
 }: {
   ticketId: string
   anchorId: string
   title: string
   description?: string
-  interviewButton?: ReactNode
   children?: ReactNode
 }) {
   return (
     <div className="rounded-md border border-border/70 bg-background px-2 py-2 transition-colors hover:bg-accent/30">
-      <div className="flex items-start gap-2">
-        <button
-          type="button"
-          onClick={() => focusPrdAnchor(ticketId, anchorId)}
-          className="min-w-0 flex-1 text-left"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-foreground">{title}</span>
-            {description ? <span className="text-[11px] text-muted-foreground">{description}</span> : null}
-          </div>
-        </button>
-        {interviewButton}
-      </div>
+      <button
+        type="button"
+        onClick={() => focusPrdAnchor(ticketId, anchorId)}
+        className="min-w-0 w-full text-left"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-foreground">{title}</span>
+          {description ? <span className="text-[11px] text-muted-foreground">{description}</span> : null}
+        </div>
+      </button>
       {children ? <div className="mt-2 space-y-1.5 pl-3">{children}</div> : null}
     </div>
   )
@@ -105,7 +71,6 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.product.anchorId}
                 title={outline.product.label}
                 description={outline.product.description}
-                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview summary" />}
               />
 
               <OutlineCard
@@ -113,7 +78,6 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.scope.anchorId}
                 title={outline.scope.label}
                 description={outline.scope.description}
-                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation" />}
               />
 
               <OutlineCard
@@ -121,7 +85,6 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.technicalRequirements.anchorId}
                 title={outline.technicalRequirements.label}
                 description={outline.technicalRequirements.description}
-                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Structure')} label="Structure" />}
               />
 
               <OutlineCard
@@ -129,7 +92,6 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.risks.anchorId}
                 title={outline.risks.label}
                 description={outline.risks.description}
-                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview summary" />}
               />
 
               <div className="space-y-2 rounded-md border border-border/70 bg-background px-2 py-2">

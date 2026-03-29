@@ -426,7 +426,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
             )}
           </div>
         ) : prdDocument ? (
-          <PrdDocumentView document={prdDocument as PrdDocument} ticketId={ticket.id} />
+          <PrdDocumentView document={prdDocument as PrdDocument} />
         ) : rawContent ? (
           <div className="rounded-xl border border-border bg-background p-4">
             <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawContent}</pre>

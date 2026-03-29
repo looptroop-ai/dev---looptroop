@@ -242,6 +242,10 @@ describe('PrdApprovalPane', () => {
     await waitFor(() => {
       expect(document.getElementById('prd-product')).not.toBeNull()
     })
+
+    expect(screen.queryByRole('button', { name: /Interview Summary/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Foundation Answers/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Structure Answers/i })).not.toBeInTheDocument()
   })
 
   it('lets approval summary sections collapse and re-open', async () => {

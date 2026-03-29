@@ -1,5 +1,4 @@
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   type PrdDocument,
@@ -12,11 +11,6 @@ import {
   getPrdTechnicalRequirementAnchorId,
   getPrdTechnicalRequirementsAnchorId,
 } from '@/lib/prdDocument'
-import {
-  getInterviewPhaseGroupAnchorId,
-  getInterviewSummaryAnchorId,
-} from '@/lib/interviewDocument'
-import { requestWorkspacePhaseNavigation } from '@/lib/workspaceNavigation'
 import { CollapsibleSection } from './ArtifactContentViewer'
 
 function MetaPill({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -24,32 +18,6 @@ function MetaPill({ children, className }: { children: React.ReactNode; classNam
     <span className={cn('rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-wider text-foreground', className)}>
       {children}
     </span>
-  )
-}
-
-function InterviewJumpButton({
-  ticketId,
-  anchorId,
-  label,
-}: {
-  ticketId: string
-  anchorId: string
-  label: string
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-6 rounded-full px-2.5 text-[10px] uppercase tracking-wider"
-      onClick={() => requestWorkspacePhaseNavigation({
-        ticketId,
-        phase: 'WAITING_INTERVIEW_APPROVAL',
-        anchorId,
-      })}
-    >
-      {label}
-    </Button>
   )
 }
 
@@ -72,11 +40,9 @@ function StringList({ items, emptyLabel }: { items: string[]; emptyLabel: string
 
 export function PrdDocumentView({
   document,
-  ticketId,
   className,
 }: {
   document: PrdDocument
-  ticketId: string
   className?: string
 }) {
   const technicalSections = PRD_TECHNICAL_SECTION_CONFIG
@@ -99,12 +65,6 @@ export function PrdDocumentView({
               <MetaPill>Status: {document.status}</MetaPill>
               {document.source_interview.content_sha256 ? <MetaPill>Interview-linked</MetaPill> : null}
             </div>
-          )}
-          headerActions={(
-            <>
-              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview Summary" />
-              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation Answers" />
-            </>
           )}
           defaultOpen
           className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 shadow-sm"
@@ -138,12 +98,6 @@ export function PrdDocumentView({
               <div className="text-sm font-semibold text-foreground">Scope</div>
             </div>
           )}
-          headerActions={(
-            <>
-              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Summary" />
-              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation Answers" />
-            </>
-          )}
           defaultOpen
           className="rounded-2xl border border-border bg-background/80 shadow-sm"
           triggerClassName="px-4 py-4"
@@ -176,7 +130,6 @@ export function PrdDocumentView({
               <div className="text-sm font-semibold text-foreground">Technical Requirements</div>
             </div>
           )}
-          headerActions={<InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Structure')} label="Structure Answers" />}
           defaultOpen
           className="rounded-2xl border border-border bg-background/80 shadow-sm"
           triggerClassName="px-4 py-4"
@@ -191,11 +144,6 @@ export function PrdDocumentView({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{section.label}</div>
-                  <InterviewJumpButton
-                    ticketId={ticketId}
-                    anchorId={getInterviewPhaseGroupAnchorId(section.interviewPhase)}
-                    label={`${section.interviewPhase} Answers`}
-                  />
                 </div>
                 <div className="mt-2">
                   <StringList items={section.values} emptyLabel="No requirements recorded." />
@@ -218,7 +166,6 @@ export function PrdDocumentView({
               <div className="text-sm font-semibold text-foreground">Risks</div>
             </div>
           )}
-          headerActions={<InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview Summary" />}
           defaultOpen
           className="rounded-2xl border border-border bg-background/80 shadow-sm"
           triggerClassName="px-4 py-4"
