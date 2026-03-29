@@ -1,0 +1,332 @@
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { writeFileSync } from 'node:fs'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
+import { initializeDatabase } from '../../db/init'
+import { sqlite } from '../../db/index'
+import { clearProjectDatabaseCache } from '../../db/project'
+import { attachProject } from '../../storage/projects'
+import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
+import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import { initializeTicket } from '../../ticket/initialize'
+import type { TicketContext as MachineTicketContext } from '../../machines/types'
+import { phaseIntermediate, phaseResults } from '../phases/state'
+
+const { draftBeadsMock } = vi.hoisted(() => ({
+  draftBeadsMock: vi.fn(),
+}))
+
+vi.mock('../../opencode/factory', () => ({
+  getOpenCodeAdapter: () => ({}),
+  isMockOpenCodeMode: () => false,
+}))
+
+vi.mock('../../phases/beads/draft', async () => {
+  const actual = await vi.importActual<typeof import('../../phases/beads/draft')>('../../phases/beads/draft')
+  return {
+    ...actual,
+    draftBeads: draftBeadsMock,
+  }
+})
+
+import { handleBeadsDraft } from '../phases/beadsPhase'
+
+const repoManager = createFixtureRepoManager({
+  templatePrefix: 'looptroop-beads-draft-',
+  files: {
+    'README.md': '# Beads Draft Phase Test\n',
+    'src/main.ts': 'export const main = true\n',
+  },
+})
+
+function buildTicketContext(ticket: ReturnType<typeof createTicket>, overrides: Partial<MachineTicketContext> = {}): MachineTicketContext {
+  return {
+    ticketId: ticket.id,
+    projectId: ticket.projectId,
+    externalId: ticket.externalId,
+    title: ticket.title,
+    status: ticket.status,
+    lockedMainImplementer: 'openai/gpt-5-codex',
+    lockedMainImplementerVariant: null,
+    lockedCouncilMembers: ['openai/gpt-5.2', 'openai/gpt-5-mini'],
+    lockedCouncilMemberVariants: null,
+    lockedInterviewQuestions: null,
+    lockedCoverageFollowUpBudgetPercent: null,
+    lockedMaxCoveragePasses: null,
+    previousStatus: null,
+    error: null,
+    errorCodes: [],
+    beadProgress: { total: 0, completed: 0, current: null },
+    iterationCount: 0,
+    maxIterations: 5,
+    councilResults: null,
+    createdAt: ticket.createdAt,
+    updatedAt: ticket.updatedAt,
+    ...overrides,
+  }
+}
+
+function createInitializedTicket() {
+  const repoDir = repoManager.createRepo()
+  const project = attachProject({
+    folderPath: repoDir,
+    name: 'LoopTroop',
+    shortname: 'LOOP',
+  })
+  const ticket = createTicket({
+    projectId: project.id,
+    title: 'Harden DRAFTING_BEADS',
+    description: 'Keep beads draft context and companion artifacts strict.',
+  })
+
+  initializeTicket({
+    projectFolder: repoDir,
+    externalId: ticket.externalId,
+  })
+
+  const paths = getTicketPaths(ticket.id)
+  if (!paths) throw new Error('Expected ticket paths after initialization')
+
+  writeFileSync(
+    `${paths.ticketDir}/relevant-files.yaml`,
+    [
+      'file_count: 1',
+      'files:',
+      '  - path: server/phases/beads/draft.ts',
+      '    rationale: The drafting prompt needs the beads phase source.',
+      '    relevance: high',
+      '    likely_action: read',
+      '    content_preview: |',
+      '      export function draftBeads(...)',
+    ].join('\n'),
+    'utf-8',
+  )
+  writeFileSync(
+    `${paths.ticketDir}/prd.yaml`,
+    [
+      'schema_version: 1',
+      `ticket_id: "${ticket.externalId}"`,
+      'artifact: "prd"',
+      'status: "approved"',
+      'source_interview:',
+      '  content_sha256: "prd-sha"',
+      'product:',
+      '  problem_statement: "Harden beads drafting"',
+      '  target_users:',
+      '    - "LoopTroop maintainers"',
+      'scope:',
+      '  in_scope:',
+      '    - "Generate a strong beads breakdown"',
+      '  out_of_scope:',
+      '    - "Execution"',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Keep context loading deterministic"',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'epics:',
+      '  - id: "EPIC-1"',
+      '    title: "Beads"',
+      '    objective: "Break the PRD into beads."',
+      '    implementation_steps:',
+      '      - "Draft beads"',
+      '    user_stories:',
+      '      - id: "US-1-1"',
+      '        title: "Split work into beads"',
+      '        acceptance_criteria:',
+      '          - "Each bead has tests"',
+      '        implementation_steps:',
+      '          - "Write beads"',
+      '        verification:',
+      '          required_commands:',
+      '            - "npm run test:server"',
+      'risks:',
+      '  - "Bead context may drift"',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-29T10:00:00.000Z"',
+    ].join('\n'),
+    'utf-8',
+  )
+
+  return {
+    ticket,
+    context: buildTicketContext(ticket),
+    paths,
+  }
+}
+
+describe('handleBeadsDraft', () => {
+  beforeEach(() => {
+    clearProjectDatabaseCache()
+    initializeDatabase()
+    sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
+    phaseIntermediate.clear()
+    phaseResults.clear()
+    draftBeadsMock.mockReset()
+  })
+
+  afterAll(() => {
+    clearProjectDatabaseCache()
+    repoManager.cleanup()
+  })
+
+  it('loads PRD and relevant-files context, then persists structured draft metrics in the companion artifact', async () => {
+    const { ticket, context, paths } = createInitializedTicket()
+    const sendEvent = vi.fn()
+    const receivedContexts: string[] = []
+
+    draftBeadsMock.mockImplementationOnce(async (
+      _adapter: unknown,
+      _members: unknown,
+      ticketContext: Array<{ source?: string; content?: string }>,
+      _worktreePath: unknown,
+      _options: unknown,
+      _signal: unknown,
+      _onOpenCodeSessionLog: unknown,
+      _onOpenCodeStreamEvent: unknown,
+      _onOpenCodePromptDispatched: unknown,
+      _onDraftProgress: unknown,
+    ) => {
+      receivedContexts.push(ticketContext.map((part) => `${part.source ?? 'text'}:${part.content ?? ''}`).join('\n'))
+      return {
+        phase: 'beads_draft',
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            duration: 42,
+            draftMetrics: {
+              beadCount: 3,
+              totalTestCount: 6,
+              totalAcceptanceCriteriaCount: 9,
+            },
+            content: [
+              'beads:',
+              '  - id: bead-1',
+              '    title: Harden beads drafting',
+              '    prdRefs: [EPIC-1, US-1-1]',
+              '    description: Keep beads drafting strict and deterministic.',
+              '    contextGuidance:',
+              '      patterns:',
+              '        - Load codebase map, ticket details, and final PRD.',
+              '      anti_patterns:',
+              '        - Do not omit later beads when the output gets long.',
+              '    acceptanceCriteria:',
+              '      - Draft is complete.',
+              '    tests:',
+              '      - Server test covers PROM20 output.',
+              '    testCommands:',
+              '      - npm run test:server',
+            ].join('\n'),
+            structuredOutput: {
+              repairApplied: true,
+              repairWarnings: ['Recovered object-form context guidance.'],
+              autoRetryCount: 1,
+              validationError: 'contextGuidance missing anti-patterns',
+            },
+          },
+          {
+            memberId: 'openai/gpt-5-mini',
+            outcome: 'completed',
+            duration: 31,
+            draftMetrics: {
+              beadCount: 3,
+              totalTestCount: 5,
+              totalAcceptanceCriteriaCount: 7,
+            },
+            content: [
+              'beads:',
+              '  - id: bead-1',
+              '    title: Harden beads drafting',
+              '    prdRefs: [EPIC-1, US-1-1]',
+              '    description: Keep beads drafting strict and deterministic.',
+              '    contextGuidance:',
+              '      Patterns:',
+              '        - Load codebase map, ticket details, and final PRD.',
+              '      Anti-patterns:',
+              '        - Do not omit later beads when the output gets long.',
+              '    acceptanceCriteria:',
+              '      - Draft is complete.',
+              '    tests:',
+              '      - Server test covers PROM20 output.',
+              '    testCommands:',
+              '      - npm run test:server',
+            ].join('\n'),
+            structuredOutput: {
+              repairApplied: false,
+              repairWarnings: [],
+              autoRetryCount: 0,
+            },
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+          'openai/gpt-5-mini': 'completed',
+        },
+        deadlineReached: false,
+      }
+    })
+
+    await handleBeadsDraft(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(receivedContexts).toHaveLength(1)
+    expect(receivedContexts[0]).toContain('prd:') // PRD content loaded from disk
+    expect(receivedContexts[0]).toContain('Harden beads drafting')
+    expect(receivedContexts[0]).toContain('relevant_files:')
+    expect(receivedContexts[0]).toContain('server/phases/beads/draft.ts')
+
+    const draftsArtifact = getLatestPhaseArtifact(ticket.id, 'beads_drafts', 'DRAFTING_BEADS')
+    expect(draftsArtifact).toBeDefined()
+    const draftsArtifactContent = JSON.parse(draftsArtifact!.content) as {
+      drafts?: Array<{ memberId?: string; outcome?: string; content?: string }>
+      memberOutcomes?: Record<string, string>
+      isFinal?: boolean
+    }
+    expect(draftsArtifactContent.isFinal).toBe(true)
+    expect(draftsArtifactContent.memberOutcomes).toEqual({
+      'openai/gpt-5.2': 'completed',
+      'openai/gpt-5-mini': 'completed',
+    })
+
+    const companionArtifact = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:beads_drafts', 'DRAFTING_BEADS')
+    expect(companionArtifact).toBeDefined()
+    const companionPayload = parseUiArtifactCompanionArtifact(companionArtifact!.content)?.payload as {
+      draftDetails?: Array<{
+        memberId?: string
+        duration?: number
+        draftMetrics?: {
+          beadCount?: number
+          totalTestCount?: number
+          totalAcceptanceCriteriaCount?: number
+        }
+        structuredOutput?: {
+          repairApplied?: boolean
+          repairWarnings?: string[]
+          autoRetryCount?: number
+          validationError?: string
+        }
+      }>
+    } | undefined
+    expect(companionPayload?.draftDetails).toHaveLength(2)
+    expect(companionPayload?.draftDetails?.[0]?.duration).toBe(42)
+    expect(companionPayload?.draftDetails?.[0]?.draftMetrics).toEqual({
+      beadCount: 3,
+      totalTestCount: 6,
+      totalAcceptanceCriteriaCount: 9,
+    })
+    expect(companionPayload?.draftDetails?.[0]?.structuredOutput).toMatchObject({
+      repairApplied: true,
+      autoRetryCount: 1,
+      validationError: 'contextGuidance missing anti-patterns',
+    })
+    expect(companionPayload?.draftDetails?.[0]?.structuredOutput?.repairWarnings).toContain('Recovered object-form context guidance.')
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
+    expect(phaseIntermediate.get(`${ticket.id}:beads`)).toBeDefined()
+    expect(paths.ticketDir).toContain('.ticket')
+  })
+})

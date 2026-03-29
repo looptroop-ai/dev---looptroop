@@ -39,10 +39,11 @@ describe('Interview Q&A', () => {
 describe('Beads Coverage', () => {
   const validBead: Bead = {
     id: 'b1', title: 'Bead 1', prdRefs: ['e1'], description: 'desc',
-    contextGuidance: '', acceptanceCriteria: ['ac1'], tests: ['test1'],
+    contextGuidance: 'Patterns:\n- Reuse the existing bead planning flow.\nAnti-patterns:\n- Do not invent extra runtime state.',
+    acceptanceCriteria: ['ac1'], tests: ['test1'],
     testCommands: ['npm test'], priority: 1, status: 'pending',
     labels: [], dependencies: [], targetFiles: [], notes: [],
-    iteration: 0, createdAt: '', updatedAt: '', beadStartCommit: null,
+    iteration: 1, createdAt: '', updatedAt: '', beadStartCommit: null,
     estimatedComplexity: 'moderate', epicId: 'e1', storyId: 's1',
   }
 
@@ -82,14 +83,15 @@ describe('Beads Coverage', () => {
 describe('Beads Expansion', () => {
   it('expands subset beads to full fields', () => {
     const subsets: BeadSubset[] = [
-      { id: 'b1', title: 'T1', prdRefs: [], description: 'd', contextGuidance: '',
+      { id: 'b1', title: 'T1', prdRefs: [], description: 'd',
+        contextGuidance: 'Patterns:\n- Keep the draft aligned with PRD refs.\nAnti-patterns:\n- Do not drop later beads when output is long.',
         acceptanceCriteria: ['ac'], tests: ['t'], testCommands: ['cmd'] },
     ]
     const expanded = expandBeads(subsets)
     expect(expanded.length).toBe(1)
     expect(expanded[0]!.priority).toBe(1)
     expect(expanded[0]!.status).toBe('pending')
-    expect(expanded[0]!.iteration).toBe(0)
+    expect(expanded[0]!.iteration).toBe(1)
     expect(expanded[0]!.beadStartCommit).toBeNull()
   })
 })

@@ -39,6 +39,9 @@ interface DraftLike {
     questionCount?: number
     epicCount?: number
     userStoryCount?: number
+    beadCount?: number
+    totalTestCount?: number
+    totalAcceptanceCriteriaCount?: number
   }
 }
 
@@ -342,6 +345,22 @@ function formatPrdDraftMetrics(draft: DraftLike): string | null {
   ].join(' · ')
 }
 
+function formatBeadsDraftMetrics(draft: DraftLike): string | null {
+  const beadCount = draft.draftMetrics?.beadCount
+  const totalTestCount = draft.draftMetrics?.totalTestCount
+  const totalAcceptanceCriteriaCount = draft.draftMetrics?.totalAcceptanceCriteriaCount
+
+  if (typeof beadCount !== 'number' && typeof totalTestCount !== 'number' && typeof totalAcceptanceCriteriaCount !== 'number') {
+    return null
+  }
+
+  const parts: string[] = []
+  if (typeof beadCount === 'number') parts.push(`${beadCount} beads`)
+  if (typeof totalTestCount === 'number') parts.push(`${totalTestCount} tests`)
+  if (typeof totalAcceptanceCriteriaCount === 'number') parts.push(`${totalAcceptanceCriteriaCount} criteria`)
+  return parts.join(' · ')
+}
+
 function getDraftDetail(domain: Domain, draft: DraftLike | undefined): string {
   if (!draft) return 'waiting for response'
   if (draft.outcome === 'pending') return 'waiting for response'
@@ -362,6 +381,10 @@ function getDraftCompletionDetail(domain: Domain, draft: DraftLike | undefined):
   if (!draft?.content) return ''
   if (domain === 'prd') {
     const metricsLabel = formatPrdDraftMetrics(draft)
+    if (metricsLabel) return metricsLabel
+  }
+  if (domain === 'beads') {
+    const metricsLabel = formatBeadsDraftMetrics(draft)
     if (metricsLabel) return metricsLabel
   }
   const questionCount = typeof draft.questionCount === 'number'

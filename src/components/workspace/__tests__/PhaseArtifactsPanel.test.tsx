@@ -131,6 +131,26 @@ function buildBeadsDocumentContent(
   ].join('\n')
 }
 
+function buildBeadsDraftCompanionContent() {
+  return JSON.stringify({
+    baseArtifactType: 'beads_drafts',
+    generatedAt: '2026-03-12T11:49:31.000Z',
+    payload: {
+      draftDetails: [
+        {
+          memberId: 'openai/gpt-5.2',
+          duration: 42,
+          draftMetrics: {
+            beadCount: 2,
+            totalTestCount: 5,
+            totalAcceptanceCriteriaCount: 6,
+          },
+        },
+      ],
+    },
+  })
+}
+
 describe('PhaseArtifactsPanel', () => {
   it('collapses interview voting artifacts into a winning draft card plus shared voting details', () => {
     const voteArtifact: DBartifact = {
@@ -1449,6 +1469,56 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
     expect(document.querySelector('.lucide-lightbulb')).not.toBeNull()
+  })
+
+  it('shows beads draft metrics on the council cards during DRAFTING_BEADS', () => {
+    const draftArtifact: DBartifact = {
+      id: 50,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_BEADS',
+      artifactType: 'beads_drafts',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:31.000Z',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildBeadsDocumentContent([
+              { id: 'bead-1', title: 'Validate refinement attribution' },
+              { id: 'bead-2', title: 'Surface retry metadata' },
+            ]),
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+        },
+        isFinal: true,
+      }),
+    }
+
+    const companionArtifact: DBartifact = {
+      id: 51,
+      ticketId: 'ticket-1',
+      phase: 'DRAFTING_BEADS',
+      artifactType: 'ui_artifact_companion:beads_drafts',
+      filePath: null,
+      createdAt: '2026-03-12T11:49:32.000Z',
+      content: buildBeadsDraftCompanionContent(),
+    }
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_BEADS"
+        isCompleted={false}
+        councilMemberCount={1}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[draftArtifact, companionArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('2 beads · 5 tests · 6 criteria')).toBeInTheDocument()
+    expect(screen.getByText(/Finished/)).toBeInTheDocument()
   })
 
   it('prefers the canonical interview result in later interview phases when coverage input is available', () => {

@@ -22,7 +22,61 @@ export interface BeadDraftMetrics {
   totalAcceptanceCriteriaCount: number
 }
 
-function normalizeBeadSubsetEntry(value: unknown, index: number): BeadSubset {
+function cleanString(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function normalizeGuidanceItems(value: unknown, label: string): string[] {
+  const items = toStringArray(value).map(cleanString).filter(Boolean)
+  if (items.length === 0) {
+    throw new Error(`Bead context guidance is missing ${label}`)
+  }
+  return items
+}
+
+function renderContextGuidance(
+  value: unknown,
+  index: number,
+  repairWarnings: string[],
+): string {
+  if (typeof value === 'string') {
+    const guidance = value.trim()
+    if (!guidance) {
+      throw new Error(`Bead context guidance at index ${index} is empty`)
+    }
+
+    const hasPatterns = /^\s*patterns\s*:/im.test(guidance)
+    const hasAntiPatterns = /^\s*anti[-\s_]*patterns\s*:/im.test(guidance)
+    if (!hasPatterns || !hasAntiPatterns) {
+      throw new Error(`Bead context guidance at index ${index} must include both Patterns and Anti-patterns sections`)
+    }
+
+    return guidance
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`Bead context guidance at index ${index} must be a string or object`)
+  }
+
+  const patterns = normalizeGuidanceItems(
+    getValueByAliases(value, ['patterns', 'pattern']),
+    'patterns',
+  )
+  const antiPatterns = normalizeGuidanceItems(
+    getValueByAliases(value, ['antipatterns', 'anti_patterns', 'anti-patterns', 'anti_patterns_list']),
+    'anti-patterns',
+  )
+  repairWarnings.push(`Canonicalized object-form context guidance at index ${index} into Patterns and Anti-patterns sections.`)
+
+  return [
+    'Patterns:',
+    ...patterns.map((item) => `- ${item}`),
+    'Anti-patterns:',
+    ...antiPatterns.map((item) => `- ${item}`),
+  ].join('\n')
+}
+
+function normalizeBeadSubsetEntry(value: unknown, index: number, repairWarnings: string[]): BeadSubset {
   if (!isRecord(value)) throw new Error(`Bead at index ${index} is not an object`)
 
   const idValue = getValueByAliases(value, ['id', 'beadid', 'bead_id'])
@@ -35,7 +89,11 @@ function normalizeBeadSubsetEntry(value: unknown, index: number): BeadSubset {
     title: getRequiredString(value, ['title', 'name'], `bead title at index ${index}`),
     prdRefs: toStringArray(getValueByAliases(value, ['prdrefs', 'prd_refs', 'prdreferences', 'prd_references'])),
     description: getRequiredString(value, ['description', 'details'], `bead description at index ${index}`),
-    contextGuidance: getRequiredString(value, ['contextguidance', 'context_guidance', 'architecturalguidance', 'guidance'], `bead context guidance at index ${index}`),
+    contextGuidance: renderContextGuidance(
+      getValueByAliases(value, ['contextguidance', 'context_guidance', 'architecturalguidance', 'guidance']),
+      index,
+      repairWarnings,
+    ),
     acceptanceCriteria: toStringArray(getValueByAliases(value, ['acceptancecriteria', 'acceptance_criteria'])),
     tests: toStringArray(getValueByAliases(value, ['tests', 'testcases', 'test_cases'])),
     testCommands: toStringArray(getValueByAliases(value, ['testcommands', 'test_commands', 'commands'])),
@@ -99,7 +157,7 @@ export function normalizeBeadSubsetYamlOutput(
         throw new Error('Bead subset output is empty')
       }
 
-      const subsets = entries.map((entry, index) => normalizeBeadSubsetEntry(entry, index))
+      const subsets = entries.map((entry, index) => normalizeBeadSubsetEntry(entry, index, repairWarnings))
 
       // Detect and repair duplicate bead IDs
       const seenIds = new Set<string>()
@@ -118,6 +176,9 @@ export function normalizeBeadSubsetYamlOutput(
       for (const subset of subsets) {
         if (subset.prdRefs.length === 0) {
           repairWarnings.push(`Bead "${subset.id}" has no PRD references (prdRefs is empty).`)
+        }
+        if (!/\bpatterns\s*:/i.test(subset.contextGuidance) || !/\banti[-\s_]*patterns\s*:/i.test(subset.contextGuidance)) {
+          throw new Error(`Bead "${subset.id}" contextGuidance must include both Patterns and Anti-patterns sections`)
         }
       }
 
@@ -163,21 +224,26 @@ function parseJsonLines(content: string): unknown[] {
     .map((line) => JSON.parse(line))
 }
 
-function normalizeBeadRecord(value: unknown, index: number): Bead {
+function normalizeBeadRecord(value: unknown, index: number, repairWarnings: string[]): Bead {
   if (!isRecord(value)) throw new Error(`Bead JSONL entry at index ${index} is not an object`)
 
   const dependenciesValue = getValueByAliases(value, ['dependencies'])
   const blockedBy = isRecord(dependenciesValue)
     ? toStringArray(getValueByAliases(dependenciesValue, ['blockedby', 'blocked_by']))
     : toStringArray(dependenciesValue)
+
+  const normalizedContextGuidance = renderContextGuidance(
+    getValueByAliases(value, ['contextguidance', 'context_guidance']),
+    index,
+    repairWarnings,
+  )
+
   const bead: Bead = {
     id: getRequiredString(value, ['id'], `bead id at index ${index}`),
     title: getRequiredString(value, ['title'], `bead title at index ${index}`),
     prdRefs: toStringArray(getValueByAliases(value, ['prdrefs', 'prd_refs', 'prdreferences', 'prd_references'])),
     description: getRequiredString(value, ['description'], `bead description at index ${index}`),
-    contextGuidance: typeof getValueByAliases(value, ['contextguidance', 'context_guidance']) === 'string'
-      ? String(getValueByAliases(value, ['contextguidance', 'context_guidance'])).trim()
-      : '',
+    contextGuidance: normalizedContextGuidance,
     acceptanceCriteria: toStringArray(getValueByAliases(value, ['acceptancecriteria', 'acceptance_criteria'])),
     tests: toStringArray(getValueByAliases(value, ['tests'])),
     testCommands: toStringArray(getValueByAliases(value, ['testcommands', 'test_commands'])),
@@ -233,7 +299,7 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
       const parsedEntries = parseJsonLines(candidate)
       if (parsedEntries.length === 0) throw new Error('Beads JSONL output is empty')
 
-      const beads = parsedEntries.map((entry, index) => normalizeBeadRecord(entry, index))
+      const beads = parsedEntries.map((entry, index) => normalizeBeadRecord(entry, index, repairWarnings))
       const beadIds = new Set<string>()
       for (const bead of beads) {
         if (beadIds.has(bead.id)) throw new Error(`Duplicate bead id: ${bead.id}`)
@@ -245,6 +311,12 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
           if (!beadIds.has(dependency) && !beads.some((candidateBead) => candidateBead.id === dependency)) {
             throw new Error(`Bead ${bead.id} depends on unknown bead ${dependency}`)
           }
+        }
+      }
+
+      for (const bead of beads) {
+        if (!/\bpatterns\s*:/i.test(bead.contextGuidance) || !/\banti[-\s_]*patterns\s*:/i.test(bead.contextGuidance)) {
+          throw new Error(`Bead ${bead.id} contextGuidance must include both Patterns and Anti-patterns sections`)
         }
       }
 

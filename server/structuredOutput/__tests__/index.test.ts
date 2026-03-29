@@ -1811,7 +1811,11 @@ describe('structured output normalization', () => {
       '  - title: Build shared repair layer',
       '    prdRefs: [EPIC-1 / US-1]',
       '    description: Normalize structured model output before validation.',
-      '    contextGuidance: Keep repairs deterministic.',
+      '    contextGuidance:',
+      '      Patterns:',
+      '        - Keep repairs deterministic.',
+      '      Anti-patterns:',
+      '        - Do not widen the retry scope unnecessarily.',
       '    acceptanceCriteria:',
       '      - Repair only formatting issues',
       '    tests:',
@@ -1826,6 +1830,36 @@ describe('structured output normalization', () => {
     expect(result.normalizedContent).toContain('beads:')
   })
 
+  it('canonicalizes object-form bead context guidance into the runtime string format', () => {
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Harden retry repair flow',
+      '    prdRefs: [EPIC-1, US-1-1]',
+      '    description: Keep retry repairs deterministic.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Prefer structured retry prompts before widening context.',
+      '        - Keep retry metadata attached to the companion artifact.',
+      '      anti_patterns:',
+      '        - Do not rewrite the whole artifact when a localized repair is enough.',
+      '    acceptanceCriteria:',
+      '      - Retry metadata survives normalization.',
+      '    tests:',
+      '      - Normalizer accepts repaired object-form guidance.',
+      '    testCommands:',
+      '      - npm run test:server',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.value[0]?.contextGuidance).toContain('Patterns:')
+    expect(result.value[0]?.contextGuidance).toContain('Anti-patterns:')
+    expect(result.normalizedContent).toContain('Patterns:')
+    expect(result.normalizedContent).toContain('Anti-patterns:')
+  })
+
   it('accepts labeled alternative-draft references in bead refinement inspiration', () => {
     const result = normalizeBeadSubsetYamlOutput([
       'beads:',
@@ -1833,7 +1867,11 @@ describe('structured output normalization', () => {
       '    title: Build shared repair layer',
       '    prdRefs: [EPIC-1 / US-1]',
       '    description: Normalize structured model output before validation.',
-      '    contextGuidance: Keep repairs deterministic.',
+      '    contextGuidance:',
+      '      Patterns:',
+      '        - Keep repairs deterministic.',
+      '      Anti-patterns:',
+      '        - Do not collapse distinct bead dependencies.',
       '    acceptanceCriteria:',
       '      - Repair only formatting issues',
       '    tests:',
@@ -1888,7 +1926,12 @@ describe('structured output normalization', () => {
         title: 'First bead',
         prdRefs: ['EPIC-1 / US-1'],
         description: 'Do the first step.',
-        contextGuidance: '',
+        contextGuidance: [
+          'Patterns:',
+          '- Keep the bead narrowly scoped.',
+          'Anti-patterns:',
+          '- Do not depend on unrelated files.',
+        ].join('\n'),
         acceptanceCriteria: ['done'],
         tests: ['test'],
         testCommands: ['npm run test'],
@@ -1916,7 +1959,12 @@ describe('structured output normalization', () => {
         title: 'Broken bead',
         prdRefs: ['EPIC-1 / US-1'],
         description: 'Bad dependencies.',
-        contextGuidance: '',
+        contextGuidance: [
+          'Patterns:',
+          '- Keep the bead narrowly scoped.',
+          'Anti-patterns:',
+          '- Do not depend on unrelated files.',
+        ].join('\n'),
         acceptanceCriteria: ['done'],
         tests: ['test'],
         testCommands: ['npm run test'],
