@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { TEST } from '../../test/factories'
 import { buildMinimalContext } from '../contextBuilder'
 
 describe('contextBuilder interview_qa context', () => {
   it('keeps PROM4 ticket details focused on the ticket requirement', () => {
     const parts = buildMinimalContext('interview_qa', {
-      ticketId: 'PROJ-42',
+      ticketId: TEST.externalId,
       title: 'Stabilize webhook retries',
       description: 'The sync webhook needs a clear retry and failure-handling strategy.',
       relevantFiles: '# Relevant Files',

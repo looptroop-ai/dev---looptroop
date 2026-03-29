@@ -3,12 +3,15 @@ import { createActor } from 'xstate'
 import { existsSync, readFileSync } from 'node:fs'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
-import { clearProjectDatabaseCache } from '../../db/project'
 import { ticketMachine } from '../../machines/ticketMachine'
-import type { TicketContext as MachineTicketContext } from '../../machines/types'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import {
+  TEST,
+  makeTicketContextFromTicket,
+  resetTestDb,
+} from '../../test/factories'
 import { initializeTicket } from '../../ticket/initialize'
 
 const { runOpenCodePromptMock, runOpenCodeSessionPromptMock } = vi.hoisted(() => ({
@@ -37,33 +40,6 @@ const repoManager = createFixtureRepoManager({
   },
 })
 
-function buildTicketContext(ticket: ReturnType<typeof createTicket>, overrides: Partial<MachineTicketContext> = {}): MachineTicketContext {
-  return {
-    ticketId: ticket.id,
-    projectId: ticket.projectId,
-    externalId: ticket.externalId,
-    title: ticket.title,
-    status: ticket.status,
-    lockedMainImplementer: 'openai/gpt-5-codex',
-    lockedMainImplementerVariant: null,
-    lockedCouncilMembers: null,
-    lockedCouncilMemberVariants: null,
-    lockedInterviewQuestions: null,
-    lockedCoverageFollowUpBudgetPercent: null,
-    lockedMaxCoveragePasses: null,
-    previousStatus: null,
-    error: null,
-    errorCodes: [],
-    beadProgress: { total: 0, completed: 0, current: null },
-    iterationCount: 0,
-    maxIterations: 5,
-    councilResults: null,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
-    ...overrides,
-  }
-}
-
 function createInitializedTicket() {
   const repoDir = repoManager.createRepo()
   const project = attachProject({
@@ -87,22 +63,19 @@ function createInitializedTicket() {
 
   return {
     ticket,
-    context: buildTicketContext(ticket),
+    context: makeTicketContextFromTicket(ticket),
     paths,
   }
 }
 
 describe('handleRelevantFilesScan', () => {
   beforeEach(() => {
-    clearProjectDatabaseCache()
-    initializeDatabase()
-    sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
+    resetTestDb()
     runOpenCodePromptMock.mockReset()
     runOpenCodeSessionPromptMock.mockReset()
   })
 
   afterAll(() => {
-    clearProjectDatabaseCache()
     repoManager.cleanup()
   })
 
@@ -150,7 +123,7 @@ describe('handleRelevantFilesScan', () => {
     expect(runOpenCodeSessionPromptMock).toHaveBeenCalledTimes(1)
     expect(runOpenCodeSessionPromptMock.mock.calls[0]?.[0]).toMatchObject({
       session: { id: 'ses-1' },
-      model: 'openai/gpt-5-codex',
+      model: TEST.implementer,
     })
     expect(runOpenCodeSessionPromptMock.mock.calls[0]?.[0]?.parts).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -267,7 +240,7 @@ describe('handleRelevantFilesScan', () => {
 
     await handleRelevantFilesScan(
       ticket.id,
-      buildTicketContext(ticket, { lockedMainImplementer: null }),
+      makeTicketContextFromTicket(ticket, { lockedMainImplementer: null }),
       sendEvent,
       new AbortController().signal,
     )
@@ -331,11 +304,11 @@ describe('handleRelevantFilesScan', () => {
 
   it('transitions scan errors to BLOCKED_ERROR in the ticket machine', () => {
     const actor = createActor(ticketMachine, {
-      input: buildTicketContext(createInitializedTicket().ticket),
+      input: makeTicketContextFromTicket(createInitializedTicket().ticket),
     })
 
     actor.start()
-    actor.send({ type: 'START', lockedMainImplementer: 'openai/gpt-5-codex' })
+    actor.send({ type: 'START', lockedMainImplementer: TEST.implementer })
     expect(actor.getSnapshot().value).toBe('SCANNING_RELEVANT_FILES')
 
     actor.send({ type: 'ERROR', message: 'Relevant files scan failed', codes: ['RELEVANT_FILES_SCAN_FAILED'] })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TEST } from '../../test/factories'
 import { buildFormattedBatchAnswers } from '../phases/interviewPhase'
 import { OpenCodeSDKAdapter, type OpenCodeAdapter } from '../../opencode/adapter'
 import type {
@@ -564,7 +565,7 @@ describe('runOpenCodePrompt', () => {
   it('prefers the complete latest assistant message when the immediate response is only a strict prefix', async () => {
     const fullMessage = [
       'schema_version: 1',
-      'ticket_id: PROJ-22',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: draft',
       'questions:',

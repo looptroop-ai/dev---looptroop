@@ -126,7 +126,7 @@ function buildStandardPrdYaml(opts: {
 
 const CANONICAL_RESOLVED_INTERVIEW = [
   'schema_version: 1',
-  'ticket_id: "PROJ-42"',
+  `ticket_id: "${TICKET_ID}"`,
   'artifact: "interview"',
   'status: "approved"',
   'generated_by:',
@@ -2838,13 +2838,13 @@ describe('structured output normalization', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(result.value.ticket_id).toBe('PROJ-42')
+    expect(result.value.ticket_id).toBe(TICKET_ID)
     expect(result.value.artifact).toBe('interview')
     expect(result.value.questions[0]?.answer_type).toBe('single_choice')
     expect(result.value.questions[0]?.options).toEqual([
@@ -2859,7 +2859,7 @@ describe('structured output normalization', () => {
     const result = normalizeInterviewDocumentOutput([
       'Corrected interview artifact:',
       'schema_version: 1',
-      'ticket_id: PROJ-42',
+      `ticket_id: ${TICKET_ID}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -2891,21 +2891,21 @@ describe('structured output normalization', () => {
       '  approved_at: ""',
       '```',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.repairApplied).toBe(true)
     expect(result.repairWarnings.join('\n')).toContain('orphan trailing closing code fence')
-    expect(result.value.ticket_id).toBe('PROJ-42')
+    expect(result.value.ticket_id).toBe(TICKET_ID)
     expect(result.value.questions[0]?.id).toBe('Q01')
   })
 
   it('repairs GLM-style dedented interview wrappers and still canonicalizes the resolved interview', () => {
     const canonicalInterview = [
       'schema_version: 1',
-      'ticket_id: "PROJ-42"',
+      `ticket_id: "${TICKET_ID}"`,
       'artifact: "interview"',
       'status: "approved"',
       'generated_by:',
@@ -2957,7 +2957,7 @@ describe('structured output normalization', () => {
 
     const result = normalizeResolvedInterviewDocumentOutput([
       'schema_version: 1',
-      'ticket_id: PROJ-42',
+      `ticket_id: ${TICKET_ID}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -3007,7 +3007,7 @@ describe('structured output normalization', () => {
       'approved_by: ""',
       'approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
       canonicalInterviewContent: canonicalInterview,
       memberId: 'nvidia/z-ai/glm5',
     })
@@ -3408,7 +3408,7 @@ describe('structured output normalization', () => {
   it('updates interview answers as draft edits and stamps approval separately', () => {
     const normalized = normalizeInterviewDocumentOutput([
       'schema_version: 1',
-      'ticket_id: PROJ-42',
+      `ticket_id: ${TICKET_ID}`,
       'artifact: interview',
       'status: approved',
       'generated_by:',
@@ -3480,7 +3480,7 @@ describe('structured output normalization', () => {
 
     const result = normalizeResolvedInterviewDocumentOutput(`${JSON.stringify({
       schema_version: 1,
-      ticket_id: 'PROJ-42',
+      ticket_id: TICKET_ID,
       artifact: 'interview',
       status: 'draft',
       generated_by: {
@@ -3537,7 +3537,7 @@ describe('structured output normalization', () => {
         approved_at: '',
       },
     })}[e~[`, {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
       canonicalInterviewContent: canonicalInterview,
       memberId: 'nvidia/z-ai/glm5',
     })
@@ -3556,7 +3556,7 @@ describe('structured output normalization', () => {
 
     const result = normalizeResolvedInterviewDocumentOutput([
       'schema_version: 1',
-      'ticket_id: "PROJ-42"',
+      `ticket_id: "${TICKET_ID}"`,
       'artifact: "interview"',
       'status: "draft"',
       'generated_by:',
@@ -3605,7 +3605,7 @@ describe('structured output normalization', () => {
       '  approved_by: ""',
       '  approved_at: ""[e~[',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
       canonicalInterviewContent: canonicalInterview,
       memberId: 'nvidia/z-ai/glm5',
     })
@@ -3622,7 +3622,7 @@ describe('structured output normalization', () => {
   it('keeps resolved interview artifacts with missing canonical questions invalid', () => {
     const canonicalInterview = [
       'schema_version: 1',
-      'ticket_id: "PROJ-42"',
+      `ticket_id: "${TICKET_ID}"`,
       'artifact: "interview"',
       'status: "approved"',
       'generated_by:',
@@ -3672,7 +3672,7 @@ describe('structured output normalization', () => {
 
     const result = normalizeResolvedInterviewDocumentOutput([
       'schema_version: 1',
-      'ticket_id: PROJ-42',
+      `ticket_id: ${TICKET_ID}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -3702,7 +3702,7 @@ describe('structured output normalization', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
       canonicalInterviewContent: canonicalInterview,
       memberId: 'nvidia/z-ai/glm5',
     })
@@ -3715,7 +3715,7 @@ describe('structured output normalization', () => {
   it('keeps truncated resolved interview artifacts invalid', () => {
     const canonicalInterview = [
       'schema_version: 1',
-      'ticket_id: "PROJ-42"',
+      `ticket_id: "${TICKET_ID}"`,
       'artifact: "interview"',
       'status: "approved"',
       'generated_by:',
@@ -3748,7 +3748,7 @@ describe('structured output normalization', () => {
 
     const result = normalizeResolvedInterviewDocumentOutput([
       'schema_version: 1',
-      'ticket_id: PROJ-42',
+      `ticket_id: ${TICKET_ID}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -3769,7 +3769,7 @@ describe('structured output normalization', () => {
       '      answered_by: ai_skip',
       '      answered',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
       canonicalInterviewContent: canonicalInterview,
       memberId: 'nvidia/z-ai/glm5',
     })

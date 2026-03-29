@@ -7,6 +7,8 @@ import {
   buildPrdUiRefinementDiffArtifactFromChanges,
 } from '../refinementDiffArtifacts'
 
+const TICKET_ID = 'TEST-1'
+
 function buildPrdDocument(options: {
   epicTitle?: string
   stories: Array<{ id: string; title: string; acceptanceCriterion?: string }>
@@ -25,7 +27,7 @@ function buildPrdDocument(options: {
 
   return [
     'schema_version: 1',
-    'ticket_id: PROJ-42',
+    `ticket_id: ${TICKET_ID}`,
     'artifact: prd',
     'status: draft',
     'source_interview:',
