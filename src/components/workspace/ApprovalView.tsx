@@ -8,6 +8,7 @@ import { YamlEditor } from '@/components/editor/YamlEditor'
 import type { Ticket } from '@/hooks/useTickets'
 import { InterviewApprovalPane } from './InterviewApprovalPane'
 import { PrdApprovalPane } from './PrdApprovalPane'
+import { CollapsibleSection } from './ArtifactContentViewer'
 
 interface ApprovalViewProps {
   ticket: Ticket
@@ -30,20 +31,24 @@ function BeadsStructuredView({ content }: { content: string }) {
     <div className="bg-muted rounded-md p-3 font-mono text-xs space-y-2">
       <div className="text-xs text-muted-foreground mb-2">{beads.length} beads</div>
       {beads.map((bead, i) => (
-        <details key={String(bead.id ?? i)} className="border border-border rounded-md">
-          <summary className="px-3 py-2 cursor-pointer hover:bg-accent/50 text-xs font-medium flex items-center gap-2">
-            <span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">#{bead.priority != null ? String(bead.priority) : String(i + 1)}</span>
-            <span>{String(bead.title ?? `Bead ${i + 1}`)}</span>
-            {bead.status ? <span className="ml-auto text-muted-foreground text-[10px]">{String(bead.status)}</span> : null}
-          </summary>
-          <div className="px-3 pb-3 text-xs space-y-1">
+        <CollapsibleSection
+          key={String(bead.id ?? i)}
+          title={(
+            <span className="flex items-center gap-2 min-w-0 w-full">
+              <span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">#{bead.priority != null ? String(bead.priority) : String(i + 1)}</span>
+              <span className="min-w-0 truncate">{String(bead.title ?? `Bead ${i + 1}`)}</span>
+              {bead.status ? <span className="ml-auto text-muted-foreground text-[10px]">{String(bead.status)}</span> : null}
+            </span>
+          )}
+        >
+          <div className="space-y-1">
             {bead.description ? <div><span className="text-blue-600 dark:text-blue-400">description</span>: {String(bead.description)}</div> : null}
             {bead.acceptance_criteria ? <div><span className="text-blue-600 dark:text-blue-400">acceptance_criteria</span>: {String(bead.acceptance_criteria)}</div> : null}
             {bead.prd_references ? <div><span className="text-blue-600 dark:text-blue-400">prd_references</span>: {String(bead.prd_references)}</div> : null}
             {Array.isArray(bead.target_files) && <div><span className="text-blue-600 dark:text-blue-400">target_files</span>: {(bead.target_files as string[]).join(', ')}</div>}
             {Array.isArray(bead.tests) && <div><span className="text-blue-600 dark:text-blue-400">tests</span>: {(bead.tests as string[]).join('; ')}</div>}
           </div>
-        </details>
+        </CollapsibleSection>
       ))}
     </div>
   )

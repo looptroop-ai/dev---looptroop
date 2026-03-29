@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import jsYaml from 'js-yaml'
 import { encode } from 'gpt-tokenizer'
 import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
+import { cn } from '@/lib/utils'
 import type {
   ArtifactStructuredOutputData,
   CoverageGapResolutionData,
@@ -40,15 +41,59 @@ import {
   getCouncilStatusLabel,
 } from './councilArtifacts'
 
-export function CollapsibleSection({ title, defaultOpen = false, children }: { title: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
+export function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  children,
+  className,
+  headerActions,
+  headerClassName,
+  triggerClassName,
+  contentClassName,
+  scrollOnOpen = true,
+}: {
+  title: React.ReactNode
+  defaultOpen?: boolean
+  children: React.ReactNode
+  className?: string
+  headerActions?: React.ReactNode
+  headerClassName?: string
+  triggerClassName?: string
+  contentClassName?: string
+  scrollOnOpen?: boolean
+}) {
   const [open, setOpen] = useState(defaultOpen)
+  const sectionRef = useRef<HTMLDivElement>(null)
+  const previousOpenRef = useRef(open)
+
+  useEffect(() => {
+    if (scrollOnOpen && !previousOpenRef.current && open) {
+      sectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    }
+    previousOpenRef.current = open
+  }, [open, scrollOnOpen])
+
   return (
-    <div className="border border-border rounded-md overflow-hidden flex flex-col min-w-0 w-full">
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 w-full px-3 py-2 text-xs font-medium hover:bg-accent/50 transition-colors text-left min-w-0">
-        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-        <span className="min-w-0 flex-1 flex items-center">{title}</span>
-      </button>
-      {open && <div className="px-3 pb-3 text-xs overflow-x-auto w-full">{children}</div>}
+    <div
+      ref={sectionRef}
+      className={cn('border border-border rounded-md overflow-hidden flex flex-col min-w-0 w-full', className)}
+    >
+      <div className={cn('flex flex-wrap items-start gap-2 min-w-0', headerClassName)}>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+          className={cn(
+            'flex items-center gap-1.5 flex-1 min-w-0 px-3 py-2 text-xs font-medium hover:bg-accent/50 transition-colors text-left',
+            triggerClassName,
+          )}
+        >
+          {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+          <span className="min-w-0 flex-1 flex items-center">{title}</span>
+        </button>
+        {headerActions ? <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">{headerActions}</div> : null}
+      </div>
+      {open && <div className={cn('px-3 pb-3 text-xs overflow-x-auto w-full', contentClassName)}>{children}</div>}
     </div>
   )
 }
@@ -1483,6 +1528,8 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
   }
 
   const isPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL'
+  const isInterviewCoverage = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
+  const isBeadsCoverage = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
   const status = coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
   const gaps = Array.isArray(coverageResult.parsed?.gaps) ? coverageResult.parsed.gaps : []
   const followUpQuestions = isPrdCoverage
@@ -1491,6 +1538,25 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
         coverageResult.parsed?.followUpQuestions ?? coverageResult.parsed?.follow_up_questions,
     )
   const hasStructuredCoverage = gaps.length > 0 || status === 'clean' || (!isPrdCoverage && followUpQuestions.length > 0)
+  const reviewedArtifact = isPrdCoverage
+    ? 'current PRD candidate'
+    : isInterviewCoverage
+      ? 'compiled interview'
+      : isBeadsCoverage
+        ? 'current implementation plan'
+        : 'current draft'
+  const reviewedAgainst = isPrdCoverage
+    ? 'approved interview'
+    : isInterviewCoverage
+      ? 'submitted answers'
+      : isBeadsCoverage
+        ? 'approved PRD'
+        : 'source material'
+  const summaryText = status === 'gaps'
+    ? gaps.length > 0
+      ? `This pass found ${gaps.length === 1 ? '1 gap' : `${gaps.length} gaps`} between the ${reviewedArtifact} and the ${reviewedAgainst}.`
+      : `This pass found coverage gaps between the ${reviewedArtifact} and the ${reviewedAgainst}.`
+    : `The ${reviewedArtifact} covers the ${reviewedAgainst}. No gaps were flagged in this pass.`
   const terminationSummary = coverageResult.terminationReason === 'coverage_pass_limit_reached'
     ? 'Retry cap reached; moving to approval with unresolved gaps.'
     : coverageResult.terminationReason === 'follow_up_budget_exhausted'
@@ -1508,7 +1574,11 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
           ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
           : 'border-green-300 bg-green-50 text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200'
       }`}>
-        {status === 'gaps' ? 'Coverage gaps found' : 'Coverage complete'}
+        {status === 'gaps' ? 'Coverage review found gaps' : 'No coverage gaps found'}
+      </div>
+
+      <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+        {summaryText}
       </div>
 
       {terminationSummary && (
@@ -1529,7 +1599,7 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
         <div className="space-y-3">
           {gaps.length > 0 && (
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Coverage Gaps</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Open Coverage Gaps</div>
               <div className="space-y-2">
                 {gaps.map((gap, index) => (
                   <div key={`${gap}-${index}`} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
@@ -1542,7 +1612,7 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
 
           {!isPrdCoverage && followUpQuestions.length > 0 && (
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Follow-up Questions</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Suggested Follow-up Questions</div>
               <div className="space-y-2">
                 {followUpQuestions.map((question, index) => (
                   <div key={`${question.id ?? 'follow-up'}-${index}`} className="rounded-md border border-border bg-background px-3 py-2 space-y-1">
@@ -1562,7 +1632,7 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
       )}
 
       {(coverageResult.response || coverageResult.normalizedContent) && (
-        <CollapsibleSection title="Audit Output">
+        <CollapsibleSection title="Technical Details">
           <RawContentView content={coverageResult.response || coverageResult.normalizedContent || ''} />
         </CollapsibleSection>
       )}
@@ -1742,14 +1812,21 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   }
   if (artifactId?.endsWith('coverage-result') || artifactId === 'coverage-review') {
     const coverageResult = parseCoverageArtifact(content)
+    const reviewLabel = phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL'
+      ? 'Coverage review of the current PRD candidate'
+      : phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
+        ? 'Coverage review of the compiled interview'
+        : phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
+          ? 'Coverage review of the current implementation plan'
+          : 'Coverage review'
     const header = coverageResult?.winnerId ? (
       <ModelBadge modelId={coverageResult.winnerId} active className="px-3 py-2 h-auto flex-1 justify-start">
         <div className="text-left">
           <div className="text-xs font-medium">{getModelDisplayName(coverageResult.winnerId)}</div>
           <div className="text-[10px] opacity-80 mt-0.5">
-            Winner-only coverage verification
+            {reviewLabel}
             {(coverageResult.coverageRunNumber && coverageResult.maxCoveragePasses)
-              ? ` · pass ${coverageResult.coverageRunNumber}/${coverageResult.maxCoveragePasses}`
+              ? ` · pass ${coverageResult.coverageRunNumber} of ${coverageResult.maxCoveragePasses}`
               : ''}
           </div>
         </div>
@@ -1757,7 +1834,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     ) : <div className="text-xs font-semibold px-1">Coverage Audit</div>
 
     return (
-      <WithRawTab content={content} structuredLabel="Coverage" header={header}>
+      <WithRawTab content={content} structuredLabel="Summary" header={header}>
         <CoverageResultView content={content} phase={phase} />
       </WithRawTab>
     )

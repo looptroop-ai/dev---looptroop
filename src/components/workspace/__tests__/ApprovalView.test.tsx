@@ -247,6 +247,11 @@ describe('Interview approval UI', () => {
     })
     mockSaveUiState.mockReset()
     mockClearTicketArtifactsCache.mockReset()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
   })
 
   afterEach(() => {
@@ -306,6 +311,26 @@ describe('Interview approval UI', () => {
     await renderApprovalView({ ...makeTicket(), status: 'WAITING_PRD_APPROVAL' }, 'prd')
 
     expect(screen.getByTestId('prd-approval-pane')).toBeInTheDocument()
+  })
+
+  it('lets the interview summary collapse and reopen in approval view', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url === '/api/tickets/1:PROJ-42/artifacts') {
+        return createJsonResponse([])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    await renderApprovalView(makeTicket())
+
+    expect(screen.getByText('Final Free-Form Answer')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Summary/i }))
+    expect(screen.queryByText('Final Free-Form Answer')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Summary/i }))
+    expect(screen.getByText('Final Free-Form Answer')).toBeInTheDocument()
   })
 
   it('confirms before switching from dirty answer edits to the YAML tab and resets to the last saved artifact', async () => {

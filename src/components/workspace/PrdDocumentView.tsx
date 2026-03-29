@@ -90,41 +90,65 @@ export function PrdDocumentView({
     <div className={cn('space-y-5', className)}>
       <section
         id={getPrdProductAnchorId()}
-        className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 p-4 shadow-sm scroll-mt-6"
+        className="scroll-mt-6"
       >
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">Product</div>
-            <MetaPill>Status: {document.status}</MetaPill>
-            {document.source_interview.content_sha256 ? <MetaPill>Interview-linked</MetaPill> : null}
-            <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview Summary" />
-            <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation Answers" />
-          </div>
-          <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Problem Statement</div>
-            <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
-              {document.product.problem_statement || 'No problem statement recorded.'}
+        <CollapsibleSection
+          title={(
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-foreground">Product</div>
+              <MetaPill>Status: {document.status}</MetaPill>
+              {document.source_interview.content_sha256 ? <MetaPill>Interview-linked</MetaPill> : null}
+            </div>
+          )}
+          headerActions={(
+            <>
+              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview Summary" />
+              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation Answers" />
+            </>
+          )}
+          defaultOpen
+          className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 shadow-sm"
+          triggerClassName="px-4 py-4"
+          contentClassName="px-4 pb-4"
+        >
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Problem Statement</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
+                {document.product.problem_statement || 'No problem statement recorded.'}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Target Users</div>
+              <div className="mt-2">
+                <StringList items={document.product.target_users} emptyLabel="No target users recorded." />
+              </div>
             </div>
           </div>
-          <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Target Users</div>
-            <div className="mt-2">
-              <StringList items={document.product.target_users} emptyLabel="No target users recorded." />
-            </div>
-          </div>
-        </div>
+        </CollapsibleSection>
       </section>
 
       <section
         id={getPrdScopeAnchorId()}
-        className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
+        className="scroll-mt-6"
       >
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">Scope</div>
-            <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Summary" />
-            <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation Answers" />
-          </div>
+        <CollapsibleSection
+          title={(
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-foreground">Scope</div>
+            </div>
+          )}
+          headerActions={(
+            <>
+              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Summary" />
+              <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation Answers" />
+            </>
+          )}
+          defaultOpen
+          className="rounded-2xl border border-border bg-background/80 shadow-sm"
+          triggerClassName="px-4 py-4"
+          contentClassName="px-4 pb-4"
+        >
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-xl border border-border/70 bg-background/70 p-3">
               <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">In Scope</div>
@@ -139,18 +163,25 @@ export function PrdDocumentView({
               </div>
             </div>
           </div>
-        </div>
+        </CollapsibleSection>
       </section>
 
       <section
         id={getPrdTechnicalRequirementsAnchorId()}
-        className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
+        className="scroll-mt-6"
       >
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">Technical Requirements</div>
-            <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Structure')} label="Structure Answers" />
-          </div>
+        <CollapsibleSection
+          title={(
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-foreground">Technical Requirements</div>
+            </div>
+          )}
+          headerActions={<InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Structure')} label="Structure Answers" />}
+          defaultOpen
+          className="rounded-2xl border border-border bg-background/80 shadow-sm"
+          triggerClassName="px-4 py-4"
+          contentClassName="px-4 pb-4"
+        >
           <div className="grid gap-3 md:grid-cols-2">
             {technicalSections.length > 0 ? technicalSections.map((section) => (
               <div
@@ -174,20 +205,27 @@ export function PrdDocumentView({
               <div className="text-xs text-muted-foreground">No technical requirements recorded.</div>
             )}
           </div>
-        </div>
+        </CollapsibleSection>
       </section>
 
       <section
         id={getPrdRisksAnchorId()}
-        className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
+        className="scroll-mt-6"
       >
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-foreground">Risks</div>
-            <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview Summary" />
-          </div>
+        <CollapsibleSection
+          title={(
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-foreground">Risks</div>
+            </div>
+          )}
+          headerActions={<InterviewJumpButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview Summary" />}
+          defaultOpen
+          className="rounded-2xl border border-border bg-background/80 shadow-sm"
+          triggerClassName="px-4 py-4"
+          contentClassName="px-4 pb-4"
+        >
           <StringList items={document.risks} emptyLabel="No explicit risks recorded." />
-        </div>
+        </CollapsibleSection>
       </section>
 
       <section className="space-y-3">
@@ -197,7 +235,6 @@ export function PrdDocumentView({
           <MetaPill>
             {document.epics.reduce((sum, epic) => sum + epic.user_stories.length, 0)} user stor{document.epics.reduce((sum, epic) => sum + epic.user_stories.length, 0) === 1 ? 'y' : 'ies'}
           </MetaPill>
-          <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Assembly')} label="Assembly Answers" />
         </div>
 
         {document.epics.map((epic) => (
@@ -216,9 +253,6 @@ export function PrdDocumentView({
               defaultOpen={false}
             >
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Assembly')} label="Assembly Answers" />
-                </div>
                 <div className="rounded-xl border border-border/70 bg-background/70 p-3">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Objective</div>
                   <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
@@ -244,7 +278,6 @@ export function PrdDocumentView({
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className="font-mono text-[10px]">{story.id}</Badge>
                           <div className="text-sm font-medium text-foreground">{story.title}</div>
-                          <InterviewJumpButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Assembly')} label="Assembly Answers" />
                         </div>
                         <div className="grid gap-3 md:grid-cols-3">
                           <div className="rounded-xl border border-border/70 bg-muted/20 p-3 md:col-span-1">

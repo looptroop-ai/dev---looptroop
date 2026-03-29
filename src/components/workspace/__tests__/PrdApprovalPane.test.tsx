@@ -244,6 +244,21 @@ describe('PrdApprovalPane', () => {
     })
   })
 
+  it('lets approval summary sections collapse and re-open', async () => {
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Product/i }))
+    expect(screen.queryByText('Protect imports from duplicate processing.')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Product/i }))
+    expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+  })
+
   it('defaults to structured editing, saves through the PRD route, and approves through approve-prd', async () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket()} />)
 

@@ -3,7 +3,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useQuery } from '@tanstack/react-query'
-import { dispatchPrdApprovalFocus, buildPrdApprovalOutline, getPrdInterviewJumpTargetForSection, parsePrdDocument } from '@/lib/prdDocument'
+import { getInterviewPhaseGroupAnchorId, getInterviewSummaryAnchorId } from '@/lib/interviewDocument'
+import { dispatchPrdApprovalFocus, buildPrdApprovalOutline, parsePrdDocument } from '@/lib/prdDocument'
 import { requestWorkspacePhaseNavigation } from '@/lib/workspaceNavigation'
 
 function focusPrdAnchor(ticketId: string, anchorId: string) {
@@ -12,15 +13,13 @@ function focusPrdAnchor(ticketId: string, anchorId: string) {
 
 function JumpToInterviewButton({
   ticketId,
-  section,
+  anchorId,
   label,
 }: {
   ticketId: string
-  section: 'product' | 'scope' | 'technical_requirements' | 'risks' | 'epic' | 'user_story'
+  anchorId: string
   label: string
 }) {
-  const target = getPrdInterviewJumpTargetForSection(section)
-
   return (
     <Button
       type="button"
@@ -29,8 +28,8 @@ function JumpToInterviewButton({
       className="h-6 rounded-full px-2.5 text-[10px] uppercase tracking-wider"
       onClick={() => requestWorkspacePhaseNavigation({
         ticketId,
-        phase: target.phase,
-        anchorId: target.anchorId,
+        phase: 'WAITING_INTERVIEW_APPROVAL',
+        anchorId,
       })}
     >
       {label}
@@ -43,16 +42,14 @@ function OutlineCard({
   anchorId,
   title,
   description,
-  interviewLabel,
-  interviewSection,
+  interviewButton,
   children,
 }: {
   ticketId: string
   anchorId: string
   title: string
   description?: string
-  interviewLabel?: string
-  interviewSection?: 'product' | 'scope' | 'technical_requirements' | 'risks' | 'epic' | 'user_story'
+  interviewButton?: ReactNode
   children?: ReactNode
 }) {
   return (
@@ -68,13 +65,7 @@ function OutlineCard({
             {description ? <span className="text-[11px] text-muted-foreground">{description}</span> : null}
           </div>
         </button>
-        {interviewSection ? (
-          <JumpToInterviewButton
-            ticketId={ticketId}
-            section={interviewSection}
-            label={interviewLabel ?? 'Interview'}
-          />
-        ) : null}
+        {interviewButton}
       </div>
       {children ? <div className="mt-2 space-y-1.5 pl-3">{children}</div> : null}
     </div>
@@ -114,8 +105,7 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.product.anchorId}
                 title={outline.product.label}
                 description={outline.product.description}
-                interviewLabel="Interview summary"
-                interviewSection="product"
+                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview summary" />}
               />
 
               <OutlineCard
@@ -123,8 +113,7 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.scope.anchorId}
                 title={outline.scope.label}
                 description={outline.scope.description}
-                interviewLabel="Foundation"
-                interviewSection="scope"
+                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Foundation')} label="Foundation" />}
               />
 
               <OutlineCard
@@ -132,8 +121,7 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.technicalRequirements.anchorId}
                 title={outline.technicalRequirements.label}
                 description={outline.technicalRequirements.description}
-                interviewLabel="Structure"
-                interviewSection="technical_requirements"
+                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewPhaseGroupAnchorId('Structure')} label="Structure" />}
               />
 
               <OutlineCard
@@ -141,15 +129,13 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                 anchorId={outline.risks.anchorId}
                 title={outline.risks.label}
                 description={outline.risks.description}
-                interviewLabel="Interview summary"
-                interviewSection="risks"
+                interviewButton={<JumpToInterviewButton ticketId={ticketId} anchorId={getInterviewSummaryAnchorId()} label="Interview summary" />}
               />
 
               <div className="space-y-2 rounded-md border border-border/70 bg-background px-2 py-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-medium text-foreground">Epics</span>
                   <Badge variant="outline" className="h-4 text-[10px]">{outline.epics.length}</Badge>
-                  <JumpToInterviewButton ticketId={ticketId} section="epic" label="Assembly" />
                 </div>
 
                 <div className="space-y-2">
@@ -160,8 +146,6 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                       anchorId={epic.anchorId}
                       title={`${epic.id} · ${epic.label}`}
                       description={epic.description || undefined}
-                      interviewLabel="Assembly"
-                      interviewSection="epic"
                     >
                       {epic.userStories.map((story) => (
                         <OutlineCard
@@ -169,8 +153,6 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
                           ticketId={ticketId}
                           anchorId={story.anchorId}
                           title={`${story.id} · ${story.title}`}
-                          interviewLabel="Assembly"
-                          interviewSection="user_story"
                         />
                       ))}
                     </OutlineCard>

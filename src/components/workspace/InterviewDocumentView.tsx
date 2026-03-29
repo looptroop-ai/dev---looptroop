@@ -139,27 +139,36 @@ export function InterviewDocumentView({
       {showSummary && (
         <section
           id={getInterviewSummaryAnchorId()}
-          className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 p-4 shadow-sm scroll-mt-6"
+          className="scroll-mt-6"
         >
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="text-sm font-semibold text-foreground">Interview Summary</div>
-              <MetaPill>Status: {document.status}</MetaPill>
-              {document.generated_by.winner_model ? <MetaPill>{document.generated_by.winner_model}</MetaPill> : null}
-              {document.generated_by.generated_at ? <MetaPill>{document.generated_by.generated_at}</MetaPill> : null}
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <SummaryList title="Goals" items={document.summary.goals} />
-              <SummaryList title="Constraints" items={document.summary.constraints} />
-              <SummaryList title="Non-goals" items={document.summary.non_goals} />
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Final Free-Form Answer</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
-                {document.summary.final_free_form_answer || 'No final free-form answer recorded.'}
+          <CollapsibleSection
+            title={(
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-sm font-semibold text-foreground">Interview Summary</div>
+                <MetaPill>Status: {document.status}</MetaPill>
+                {document.generated_by.winner_model ? <MetaPill>{document.generated_by.winner_model}</MetaPill> : null}
+                {document.generated_by.generated_at ? <MetaPill>{document.generated_by.generated_at}</MetaPill> : null}
+              </div>
+            )}
+            defaultOpen
+            className="rounded-2xl border border-border bg-gradient-to-br from-background via-background to-muted/40 shadow-sm"
+            triggerClassName="px-4 py-4"
+            contentClassName="px-4 pb-4"
+          >
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <SummaryList title="Goals" items={document.summary.goals} />
+                <SummaryList title="Constraints" items={document.summary.constraints} />
+                <SummaryList title="Non-goals" items={document.summary.non_goals} />
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Final Free-Form Answer</div>
+                <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
+                  {document.summary.final_free_form_answer || 'No final free-form answer recorded.'}
+                </div>
               </div>
             </div>
-          </div>
+          </CollapsibleSection>
         </section>
       )}
 
@@ -191,10 +200,15 @@ export function InterviewDocumentView({
       {document.follow_up_rounds.length > 0 ? (
         <section
           id={getInterviewFollowUpsAnchorId()}
-          className="rounded-2xl border border-border bg-background/80 p-4 shadow-sm scroll-mt-6"
+          className="scroll-mt-6"
         >
-          <div className="space-y-3">
-            <div className="text-sm font-semibold text-foreground">Follow-up Rounds</div>
+          <CollapsibleSection
+            title={<div className="text-sm font-semibold text-foreground">Follow-up Rounds</div>}
+            defaultOpen
+            className="rounded-2xl border border-border bg-background/80 shadow-sm"
+            triggerClassName="px-4 py-4"
+            contentClassName="px-4 pb-4"
+          >
             <div className="grid gap-3 md:grid-cols-2">
               {document.follow_up_rounds.map((round) => (
                 <div key={`${round.source}-${round.round_number}`} className="rounded-xl border border-border/70 bg-muted/30 p-3">
@@ -208,7 +222,7 @@ export function InterviewDocumentView({
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
         </section>
       ) : null}
 

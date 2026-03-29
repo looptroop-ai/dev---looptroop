@@ -383,15 +383,15 @@ function getVotingDetail(outcome: CouncilOutcome, voteCount: number): string {
 }
 
 function getCoverageDetail(result: CoverageResultLike | null): string {
-  if (!result) return 'waiting for coverage result'
+  if (!result) return 'waiting for review'
   if (result.hasGaps === true) {
-    if (result.terminationReason === 'coverage_pass_limit_reached') return 'coverage gaps found; retry cap reached'
-    if (result.terminationReason === 'follow_up_budget_exhausted') return 'coverage gaps found; follow-up budget exhausted'
-    if (result.terminationReason === 'follow_up_generation_failed') return 'coverage gaps found; manual review required'
-    return 'coverage gaps found'
+    if (result.terminationReason === 'coverage_pass_limit_reached') return 'gaps found; retry cap reached'
+    if (result.terminationReason === 'follow_up_budget_exhausted') return 'gaps found; follow-up budget exhausted'
+    if (result.terminationReason === 'follow_up_generation_failed') return 'gaps found; manual review required'
+    return 'gaps found'
   }
-  if (result.hasGaps === false) return 'coverage complete'
-  return 'coverage result available'
+  if (result.hasGaps === false) return 'no gaps found'
+  return 'review available'
 }
 
 function makeDraftViewer(domain: Domain, modelId: string, content: string): CouncilViewerArtifact {
@@ -447,8 +447,8 @@ function makeWinnerViewer(
 function makeCoverageViewer(domain: Domain, content: string): CouncilViewerArtifact {
   return {
     id: `${domain}-coverage-result`,
-    label: `${getDomainLabel(domain)} Coverage Result`,
-    description: 'Coverage verification result from the winning model',
+    label: `${getDomainLabel(domain)} Coverage Review`,
+    description: 'Coverage review of the current candidate by the winning model',
     content,
   }
 }

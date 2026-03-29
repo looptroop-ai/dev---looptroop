@@ -1,6 +1,6 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { ArtifactContent, InterviewAnswersView } from '../ArtifactContentViewer'
+import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
 
 function buildCanonicalInterviewContent(questions: Array<Record<string, unknown>>) {
   return JSON.stringify({
@@ -105,6 +105,31 @@ function hasTextContent(text: string) {
 }
 
 describe('ArtifactContentViewer', () => {
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('scrolls a section into view when it is expanded', () => {
+    render(
+      <CollapsibleSection title="Expandable">
+        <div>Expanded body</div>
+      </CollapsibleSection>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Expandable/i }))
+
+    expect(screen.getByText('Expanded body')).toBeInTheDocument()
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+  })
+
   it('uses the interview results header for approval-phase canonical interviews', () => {
     render(
       <ArtifactContent
@@ -471,11 +496,40 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
-    expect(screen.getByText('Coverage gaps found')).toBeInTheDocument()
+    expect(screen.getByText('Coverage review found gaps')).toBeInTheDocument()
+    expect(screen.getByText('This pass found 1 gap between the current PRD candidate and the approved interview.')).toBeInTheDocument()
     expect(screen.getByText('Retry cap reached; moving to approval with unresolved gaps.')).toBeInTheDocument()
     expect(screen.getByText('Missing PRD approval sequencing.')).toBeInTheDocument()
     expect(screen.queryByText('Follow-up Questions')).not.toBeInTheDocument()
     expect(screen.queryByText('Which approval step should trigger Beads?')).not.toBeInTheDocument()
+  })
+
+  it('shows a friendly clean summary for PRD coverage results', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-coverage-result"
+        phase="VERIFYING_PRD_COVERAGE"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.4',
+          response: 'status: clean\ngaps: []\nfollow_up_questions: []',
+          hasGaps: false,
+          coverageRunNumber: 1,
+          maxCoveragePasses: 2,
+          limitReached: false,
+          terminationReason: 'clean',
+          parsed: {
+            status: 'clean',
+            gaps: [],
+            followUpQuestions: [],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('No coverage gaps found')).toBeInTheDocument()
+    expect(screen.getByText('The current PRD candidate covers the approved interview. No gaps were flagged in this pass.')).toBeInTheDocument()
+    expect(screen.getByText(/Coverage review of the current PRD candidate · pass 1 of 2/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Technical Details/i })).toBeInTheDocument()
   })
 
   it('shows friendly labels for nested PRD technical requirement diffs', () => {

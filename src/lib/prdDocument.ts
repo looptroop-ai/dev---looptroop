@@ -1,5 +1,4 @@
 import jsYaml from 'js-yaml'
-import { getInterviewPhaseGroupAnchorId, getInterviewSummaryAnchorId } from '@/lib/interviewDocument'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -127,11 +126,6 @@ export interface PrdApprovalOutline {
   technicalRequirements: PrdApprovalOutlineSection
   risks: PrdApprovalOutlineSection
   epics: PrdApprovalOutlineEpic[]
-}
-
-export interface PrdInterviewJumpTarget {
-  phase: 'WAITING_INTERVIEW_APPROVAL'
-  anchorId: string
 }
 
 export const PRD_APPROVAL_FOCUS_EVENT = 'looptroop:prd-approval-focus'
@@ -449,23 +443,5 @@ export function buildPrdApprovalOutline(document: PrdDocument): PrdApprovalOutli
         anchorId: getPrdUserStoryAnchorId(epic.id, story.id),
       })),
     })),
-  }
-}
-
-export function getPrdInterviewJumpTargetForSection(
-  section: 'product' | 'scope' | 'technical_requirements' | 'risks' | 'epic' | 'user_story',
-): PrdInterviewJumpTarget {
-  switch (section) {
-    case 'scope':
-      return { phase: 'WAITING_INTERVIEW_APPROVAL', anchorId: getInterviewPhaseGroupAnchorId('Foundation') }
-    case 'technical_requirements':
-      return { phase: 'WAITING_INTERVIEW_APPROVAL', anchorId: getInterviewPhaseGroupAnchorId('Structure') }
-    case 'epic':
-    case 'user_story':
-      return { phase: 'WAITING_INTERVIEW_APPROVAL', anchorId: getInterviewPhaseGroupAnchorId('Assembly') }
-    case 'product':
-    case 'risks':
-    default:
-      return { phase: 'WAITING_INTERVIEW_APPROVAL', anchorId: getInterviewSummaryAnchorId() }
   }
 }
