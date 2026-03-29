@@ -388,6 +388,8 @@ function InterviewInspirationTooltip({ inspiration }: { inspiration: Inspiration
 
 function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId: string; sourceId?: string; sourceLabel: string; sourceText?: string } }) {
   const modelName = inspiration.memberId ? getModelDisplayName(inspiration.memberId) : 'Unknown model'
+  const displayText = inspiration.sourceText?.trim() || inspiration.sourceLabel?.trim() || ''
+  const showSourceIdPrefix = Boolean(inspiration.sourceId && displayText && displayText !== inspiration.sourceId)
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
@@ -399,10 +401,10 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
         <TooltipContent side="top" className="max-w-xs">
           <div className="space-y-1">
             <div className="font-medium">Inspired by {modelName}</div>
-            {inspiration.sourceLabel && (
+            {displayText && (
               <div className="text-[11px] opacity-90 leading-snug">
-                {inspiration.sourceId && <span className="font-mono">{inspiration.sourceId}: </span>}
-                {inspiration.sourceText ?? inspiration.sourceLabel}
+                {showSourceIdPrefix && <span className="font-mono">{inspiration.sourceId}: </span>}
+                {displayText}
               </div>
             )}
           </div>
