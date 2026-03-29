@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@radix-ui/react-tooltip'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Ticket } from '@/hooks/useTickets'
 import type { InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
+import { makeTicket, TEST } from '@/test/factories'
 import { InterviewQAView } from '../InterviewQAView'
 
 let submittedBody: { answers?: Record<string, string>; selectedOptions?: Record<string, string[]> } | null = null
@@ -34,9 +34,9 @@ function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
   })
-  queryClient.setQueryData(['interview', '1:PROJ-42'], interviewData)
+  queryClient.setQueryData(['interview', TEST.ticketId], interviewData)
   queryClient.setQueryData(
-    ['ticket-ui-state', '1:PROJ-42', 'interview-drafts'],
+    ['ticket-ui-state', TEST.ticketId, 'interview-drafts'],
     preSeededDrafts
       ? { scope: 'interview-drafts', exists: true, data: preSeededDrafts, updatedAt: '2026-03-12T10:10:00.000Z' }
       : emptyUiState(),
@@ -49,48 +49,6 @@ function renderWithProviders(ui: React.ReactElement) {
       </TooltipProvider>
     </QueryClientProvider>,
   )
-}
-
-function makeTicket(): Ticket {
-  return {
-    id: '1:PROJ-42',
-    externalId: 'PROJ-42',
-    projectId: 1,
-    title: 'Retry strategy',
-    description: 'Clarify webhook retry behavior.',
-    priority: 3,
-    status: 'WAITING_INTERVIEW_ANSWERS',
-    xstateSnapshot: null,
-    branchName: null,
-    currentBead: null,
-    totalBeads: null,
-    percentComplete: null,
-    errorMessage: null,
-    errorSeenSignature: null,
-    lockedMainImplementer: null,
-    lockedCouncilMembers: ['openai/gpt-5'],
-    availableActions: [],
-    previousStatus: null,
-    reviewCutoffStatus: null,
-    runtime: {
-      baseBranch: 'main',
-      currentBead: 0,
-      completedBeads: 0,
-      totalBeads: 0,
-      percentComplete: 0,
-      iterationCount: 0,
-      maxIterations: null,
-      artifactRoot: '/tmp/ticket',
-      beads: [],
-      candidateCommitSha: null,
-      preSquashHead: null,
-      finalTestStatus: 'pending',
-    },
-    startedAt: null,
-    plannedDate: null,
-    createdAt: '2026-03-12T10:00:00.000Z',
-    updatedAt: '2026-03-12T10:00:00.000Z',
-  }
 }
 
 function makeBatch(overrides: Partial<PersistedInterviewBatch> = {}): PersistedInterviewBatch {
@@ -248,15 +206,15 @@ describe('InterviewQAView', () => {
 
     vi.stubGlobal('fetch', vi.fn(async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/api/tickets/1:PROJ-42/answer-batch')) {
+      if (url.endsWith(`/api/tickets/${TEST.ticketId}/answer-batch`)) {
         submittedBody = init?.body ? JSON.parse(String(init.body)) as { answers?: Record<string, string> } : null
         return createJsonResponse(makeBatch())
       }
-      if (url.endsWith('/api/tickets/1:PROJ-42/skip')) {
+      if (url.endsWith(`/api/tickets/${TEST.ticketId}/skip`)) {
         skippedBody = init?.body ? JSON.parse(String(init.body)) as { answers?: Record<string, string> } : null
         return createJsonResponse({
           message: 'Remaining interview questions skipped',
-          ticketId: '1:PROJ-42',
+          ticketId: TEST.ticketId,
           status: 'WAITING_INTERVIEW_APPROVAL',
           state: 'WAITING_INTERVIEW_APPROVAL',
           ticket: {
@@ -265,10 +223,10 @@ describe('InterviewQAView', () => {
           },
         })
       }
-      if (url.endsWith('/api/tickets/1:PROJ-42/interview')) {
+      if (url.endsWith(`/api/tickets/${TEST.ticketId}/interview`)) {
         return createJsonResponse(interviewData)
       }
-      if (url.includes('/api/tickets/1:PROJ-42/ui-state')) {
+      if (url.includes(`/api/tickets/${TEST.ticketId}/ui-state`)) {
         if (init?.method === 'PUT') {
           savedUiState = init.body ? JSON.parse(String(init.body)) as { scope?: string; data?: unknown } : null
           return createJsonResponse({ success: true, scope: 'interview-drafts', updatedAt: new Date().toISOString() })
@@ -286,7 +244,7 @@ describe('InterviewQAView', () => {
   })
 
   it('renders interview history, restores skip-all actions, and submits batch answers', async () => {
-    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+    renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     // Wait for data to load and history toggle to appear
     await waitFor(() => {
@@ -321,7 +279,7 @@ describe('InterviewQAView', () => {
   })
 
   it('confirms and skips all remaining interview questions while preserving drafted answers', async () => {
-    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+    renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
@@ -347,7 +305,7 @@ describe('InterviewQAView', () => {
   })
 
   it('responds to navigator focus events by revealing and focusing the target question', async () => {
-    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+    renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
@@ -358,7 +316,7 @@ describe('InterviewQAView', () => {
 
     await act(async () => {
       window.dispatchEvent(new CustomEvent('looptroop:interview-focus', {
-        detail: { ticketId: '1:PROJ-42', questionId: 'QF01' },
+        detail: { ticketId: TEST.ticketId, questionId: 'QF01' },
       }))
     })
 
@@ -375,7 +333,7 @@ describe('InterviewQAView', () => {
       skippedQuestions: {},
     }
 
-    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+    renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
@@ -385,8 +343,8 @@ describe('InterviewQAView', () => {
     expect((textareas[0] as HTMLTextAreaElement).value).toBe('Restored draft answer')
   })
 
-  it('auto-saves drafts after debounce', { timeout: 15000 }, async () => {
-    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+  it('auto-saves drafts after debounce', { timeout: 5000 }, async () => {
+    renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
@@ -407,14 +365,14 @@ describe('InterviewQAView', () => {
     expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
   })
 
-  it('clears persisted drafts after batch submission', { timeout: 15000 }, async () => {
+  it('clears persisted drafts after batch submission', { timeout: 5000 }, async () => {
     const batchKey = 'prom4:0:2'
     preSeededDrafts = {
       draftAnswers: { [batchKey]: { QF01: 'Pre-filled answer' } },
       skippedQuestions: {},
     }
 
-    renderWithProviders(<InterviewQAView ticket={makeTicket()} />)
+    renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     await waitFor(() => {
       expect((screen.getAllByRole('textbox')[0] as HTMLTextAreaElement).value).toBe('Pre-filled answer')

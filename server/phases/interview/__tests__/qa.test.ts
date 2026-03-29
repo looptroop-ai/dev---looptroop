@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
 import { startInterviewSession, submitBatchToSession } from '../qa'
 import { buildPersistedBatch, createInterviewSessionSnapshot, recordBatchAnswers, recordPreparedBatch } from '../sessionState'
+import { TEST } from '../../../test/factories'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
@@ -52,7 +53,7 @@ describe('PROM4 interview session parsing', () => {
         '    question: What problem are we solving?',
       ].join('\n'),
       {
-        ticketId: 'T-1',
+        ticketId: TEST.externalId,
         title: 'Checklist framing',
         description: 'Ensure the compiled interview set stays foregrounded.',
         relevantFiles: '',
@@ -99,7 +100,7 @@ describe('PROM4 interview session parsing', () => {
         '    question: What problem are we solving?',
       ].join('\n'),
       {
-        ticketId: 'T-1',
+        ticketId: TEST.externalId,
         title: 'Retry PROM4 parsing',
         description: 'Ensure malformed batch output is corrected before blocking.',
         relevantFiles: '',
@@ -160,7 +161,7 @@ describe('PROM4 interview session parsing', () => {
         '    question: What problem are we solving?',
       ].join('\n'),
       {
-        ticketId: 'T-1',
+        ticketId: TEST.externalId,
         title: 'Restart PROM4 session',
         description: 'Blank output should restart the session.',
         relevantFiles: '',
@@ -245,7 +246,7 @@ describe('PROM4 interview session parsing', () => {
       {
         projectPath: '/tmp/test',
         ticketState: {
-          ticketId: 'T-1',
+          ticketId: TEST.externalId,
           title: 'Resume PROM4 session',
           description: 'Restart from normalized interview state.',
           interview: 'questions:\n  - id: Q01\n    phase: Foundation\n    question: What problem are we solving?\n',

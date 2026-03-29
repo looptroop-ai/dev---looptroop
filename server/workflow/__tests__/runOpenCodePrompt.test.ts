@@ -136,6 +136,30 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
 }
 
 describe('runOpenCodePrompt', () => {
+  function createFakeSdkClient(overrides: {
+    prompt?: (...args: unknown[]) => Promise<unknown>
+    messages?: () => Promise<unknown>
+    subscribe?: (...args: unknown[]) => Promise<{ stream: AsyncIterable<unknown> }>
+    get?: () => Promise<unknown>
+  } = {}) {
+    return {
+      session: {
+        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        prompt: overrides.prompt ?? (async () => ({ data: { parts: [] } })),
+        messages: overrides.messages ?? (async () => ({ data: [] })),
+        abort: async () => ({ data: {} }),
+        ...(overrides.get ? { get: overrides.get } : {}),
+      },
+      event: {
+        subscribe: overrides.subscribe ?? (async () => ({
+          stream: (async function* () {
+            yield { type: 'session.idle', properties: { info: { id: 'ses-1' } } }
+          })(),
+        })),
+      },
+    }
+  }
+
   it('dispatches prompt metadata before the prompt completes', async () => {
     const deferredResponse = createDeferred<string>()
     const adapter = new TestOpenCodeAdapter([deferredResponse])
@@ -249,40 +273,26 @@ describe('runOpenCodePrompt', () => {
 
   it('returns snapshot content when stream done arrives before SDK prompt resolves', async () => {
     const deferredPrompt = createDeferred<{ data?: { parts?: Array<{ type: string; text: string }> } }>()
-    const fakeClient = {
-      session: {
-        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
-        prompt: async () => deferredPrompt.promise,
-        messages: async () => ({
-          data: [
-            {
-              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
-              parts: [
-                {
-                  id: 'part-1',
-                  type: 'text',
-                  text: 'stream snapshot response',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                  time: { end: Date.now() },
-                },
-              ],
-            },
-          ],
-        }),
-        abort: async () => ({ data: {} }),
-      },
-      event: {
-        subscribe: async () => ({
-          stream: (async function* () {
-            yield {
-              type: 'session.idle',
-              properties: { info: { id: 'ses-1' } },
-            }
-          })(),
-        }),
-      },
-    }
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => deferredPrompt.promise,
+      messages: async () => ({
+        data: [
+          {
+            info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+            parts: [
+              {
+                id: 'part-1',
+                type: 'text',
+                text: 'stream snapshot response',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                time: { end: Date.now() },
+              },
+            ],
+          },
+        ],
+      }),
+    })
     const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 
     const runPromise = runOpenCodePrompt({
@@ -310,60 +320,54 @@ describe('runOpenCodePrompt', () => {
   })
 
   it('falls back to streamed text when the final snapshot text is empty', async () => {
-    const fakeClient = {
-      session: {
-        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
-        prompt: async () => ({
-          data: {
-            info: { id: 'msg-1' },
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => ({
+        data: {
+          info: { id: 'msg-1' },
+          parts: [
+            { type: 'text', text: '' },
+          ],
+        },
+      }),
+      messages: async () => ({
+        data: [
+          {
+            info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
             parts: [
-              { type: 'text', text: '' },
+              {
+                id: 'part-1',
+                type: 'text',
+                text: '',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                time: { end: Date.now() },
+              },
             ],
           },
-        }),
-        messages: async () => ({
-          data: [
-            {
-              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
-              parts: [
-                {
-                  id: 'part-1',
-                  type: 'text',
-                  text: '',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                  time: { end: Date.now() },
-                },
-              ],
-            },
-          ],
-        }),
-        abort: async () => ({ data: {} }),
-      },
-      event: {
-        subscribe: async () => ({
-          stream: (async function* () {
-            yield {
-              type: 'message.part.updated',
-              properties: {
-                part: {
-                  id: 'part-1',
-                  type: 'text',
-                  text: '<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                  time: { end: Date.now() },
-                },
+        ],
+      }),
+      subscribe: async () => ({
+        stream: (async function* () {
+          yield {
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part-1',
+                type: 'text',
+                text: '<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                time: { end: Date.now() },
               },
-            }
-            yield {
-              type: 'session.idle',
-              properties: { info: { id: 'ses-1' } },
-            }
-          })(),
-        }),
-      },
-    }
+            },
+          }
+          yield {
+            type: 'session.idle',
+            properties: { info: { id: 'ses-1' } },
+          }
+        })(),
+      }),
+    })
     const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 
     const result = await runOpenCodePrompt({
@@ -376,58 +380,44 @@ describe('runOpenCodePrompt', () => {
   })
 
   it('does not fall back to older assistant text when the latest assistant snapshot is empty', async () => {
-    const fakeClient = {
-      session: {
-        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
-        prompt: async () => ({
-          data: {
-            info: { id: 'msg-2' },
-            parts: [{ type: 'text', text: '' }],
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => ({
+        data: {
+          info: { id: 'msg-2' },
+          parts: [{ type: 'text', text: '' }],
+        },
+      }),
+      messages: async () => ({
+        data: [
+          {
+            info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() - 10 } },
+            parts: [
+              {
+                id: 'part-1',
+                type: 'text',
+                text: 'older assistant output',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                time: { end: Date.now() - 10 },
+              },
+            ],
           },
-        }),
-        messages: async () => ({
-          data: [
-            {
-              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() - 10 } },
-              parts: [
-                {
-                  id: 'part-1',
-                  type: 'text',
-                  text: 'older assistant output',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                  time: { end: Date.now() - 10 },
-                },
-              ],
-            },
-            {
-              info: { id: 'msg-2', role: 'assistant', time: { created: Date.now() } },
-              parts: [
-                {
-                  id: 'part-2',
-                  type: 'text',
-                  text: '',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-2',
-                  time: { end: Date.now() },
-                },
-              ],
-            },
-          ],
-        }),
-        abort: async () => ({ data: {} }),
-      },
-      event: {
-        subscribe: async () => ({
-          stream: (async function* () {
-            yield {
-              type: 'session.idle',
-              properties: { info: { id: 'ses-1' } },
-            }
-          })(),
-        }),
-      },
-    }
+          {
+            info: { id: 'msg-2', role: 'assistant', time: { created: Date.now() } },
+            parts: [
+              {
+                id: 'part-2',
+                type: 'text',
+                text: '',
+                sessionID: 'ses-1',
+                messageID: 'msg-2',
+                time: { end: Date.now() },
+              },
+            ],
+          },
+        ],
+      }),
+    })
     const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 
     const result = await runOpenCodePrompt({
@@ -446,54 +436,40 @@ describe('runOpenCodePrompt', () => {
   })
 
   it('surfaces provider metadata from the latest assistant snapshot instead of reusing stale text', async () => {
-    const fakeClient = {
-      session: {
-        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
-        prompt: async () => ({
-          data: {
-            info: { id: 'msg-2' },
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => ({
+        data: {
+          info: { id: 'msg-2' },
+          parts: [],
+        },
+      }),
+      messages: async () => ({
+        data: [
+          {
+            info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() - 10 } },
+            parts: [
+              {
+                id: 'part-1',
+                type: 'text',
+                text: 'older assistant output',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                time: { end: Date.now() - 10 },
+              },
+            ],
+          },
+          {
+            info: {
+              id: 'msg-2',
+              role: 'assistant',
+              error: "Provider returned error: The last message cannot have role 'assistant'",
+              time: { created: Date.now() },
+            },
             parts: [],
           },
-        }),
-        messages: async () => ({
-          data: [
-            {
-              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() - 10 } },
-              parts: [
-                {
-                  id: 'part-1',
-                  type: 'text',
-                  text: 'older assistant output',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                  time: { end: Date.now() - 10 },
-                },
-              ],
-            },
-            {
-              info: {
-                id: 'msg-2',
-                role: 'assistant',
-                error: "Provider returned error: The last message cannot have role 'assistant'",
-                time: { created: Date.now() },
-              },
-              parts: [],
-            },
-          ],
-        }),
-        abort: async () => ({ data: {} }),
-      },
-      event: {
-        subscribe: async () => ({
-          stream: (async function* () {
-            yield {
-              type: 'session.idle',
-              properties: { info: { id: 'ses-1' } },
-            }
-          })(),
-        }),
-      },
-    }
+        ],
+      }),
+    })
     const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 
     const result = await runOpenCodePrompt({
@@ -637,49 +613,43 @@ describe('runOpenCodePrompt', () => {
   })
 
   it('keeps timeout behavior when done would arrive after the timeout window', async () => {
-    const fakeClient = {
-      session: {
-        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
-        prompt: async () => new Promise<never>(() => {}),
-        messages: async () => ({
-          data: [
-            {
-              info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
-              parts: [
-                {
-                  id: 'part-1',
-                  type: 'text',
-                  text: 'late stream response',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                  time: { end: Date.now() },
-                },
-              ],
-            },
-          ],
-        }),
-        abort: async () => ({ data: {} }),
-      },
-      event: {
-        subscribe: async (_options?: unknown, requestOptions?: { signal?: AbortSignal }) => ({
-          stream: (async function* () {
-            await new Promise<void>((resolve, reject) => {
-              const timer = setTimeout(resolve, 80)
-              requestOptions?.signal?.addEventListener('abort', () => {
-                clearTimeout(timer)
-                const abortError = new Error('Aborted')
-                abortError.name = 'AbortError'
-                reject(abortError)
-              }, { once: true })
-            })
-            yield {
-              type: 'session.idle',
-              properties: { info: { id: 'ses-1' } },
-            }
-          })(),
-        }),
-      },
-    }
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => new Promise<never>(() => {}),
+      messages: async () => ({
+        data: [
+          {
+            info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+            parts: [
+              {
+                id: 'part-1',
+                type: 'text',
+                text: 'late stream response',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                time: { end: Date.now() },
+              },
+            ],
+          },
+        ],
+      }),
+      subscribe: async (_options?: unknown, requestOptions?: { signal?: AbortSignal }) => ({
+        stream: (async function* () {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 80)
+            requestOptions?.signal?.addEventListener('abort', () => {
+              clearTimeout(timer)
+              const abortError = new Error('Aborted')
+              abortError.name = 'AbortError'
+              reject(abortError)
+            }, { once: true })
+          })
+          yield {
+            type: 'session.idle',
+            properties: { info: { id: 'ses-1' } },
+          }
+        })(),
+      }),
+    })
     const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 
     await expect(runOpenCodePrompt({
@@ -692,31 +662,27 @@ describe('runOpenCodePrompt', () => {
 
   it('subscribeToEvents emits synthetic done after step-finish safety timeout', async () => {
     // Test the safety timeout directly on the adapter level with a small value
-    const fakeClient = {
-      session: {
-        get: async () => ({ data: { directory: '/tmp/project' } }),
-      },
-      event: {
-        subscribe: async () => ({
-          stream: (async function* () {
-            yield {
-              type: 'message.part.updated',
-              properties: {
-                part: {
-                  id: 'part-step-1',
-                  type: 'step-finish',
-                  reason: 'stop',
-                  sessionID: 'ses-1',
-                  messageID: 'msg-1',
-                },
+    const fakeClient = createFakeSdkClient({
+      get: async () => ({ data: { directory: '/tmp/project' } }),
+      subscribe: async () => ({
+        stream: (async function* () {
+          yield {
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part-step-1',
+                type: 'step-finish',
+                reason: 'stop',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
               },
-            }
-            // Hang indefinitely — simulating missing session.idle
-            await new Promise<void>(() => {})
-          })(),
-        }),
-      },
-    }
+            },
+          }
+          // Hang indefinitely — simulating missing session.idle
+          await new Promise<void>(() => {})
+        })(),
+      }),
+    })
     const sdkAdapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 
     const events: StreamEvent[] = []

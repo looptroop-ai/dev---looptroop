@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { TEST } from '@/test/factories'
 import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
 
 function buildCanonicalInterviewContent(questions: Array<Record<string, unknown>>) {
@@ -18,7 +19,7 @@ function buildInterviewDocumentContent({
 }) {
   return JSON.stringify({
     schema_version: 1,
-    ticket_id: 'PROJ-42',
+    ticket_id: TEST.externalId,
     artifact: 'interview',
     status: 'draft',
     generated_by: {
@@ -53,7 +54,7 @@ function buildPrdDocumentContent({
 } = {}) {
   return [
     'schema_version: 1',
-    'ticket_id: PROJ-42',
+    `ticket_id: ${TEST.externalId}`,
     'artifact: prd',
     'status: draft',
     'source_interview:',

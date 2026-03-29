@@ -3,12 +3,10 @@ import { readFileSync } from 'node:fs'
 import { parseUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
-import { clearProjectDatabaseCache } from '../../db/project'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
-import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import { TEST, makeTicketContextFromTicket as makeTicketContext, createTestRepoManager, resetTestDb } from '../../test/factories'
 import { initializeTicket } from '../../ticket/initialize'
-import type { TicketContext as MachineTicketContext } from '../../machines/types'
 import { phaseIntermediate } from '../phases/state'
 
 const { refineDraftMock } = vi.hoisted(() => ({
@@ -26,51 +24,17 @@ vi.mock('../../council/refiner', () => ({
 
 import { handleInterviewCompile } from '../phases/interviewPhase'
 
-const repoManager = createFixtureRepoManager({
-  templatePrefix: 'looptroop-interview-compile-',
-  files: {
-    'README.md': '# Interview Compile Phase Test\n',
-  },
-})
-
-function buildTicketContext(ticket: ReturnType<typeof createTicket>, overrides: Partial<MachineTicketContext> = {}): MachineTicketContext {
-  return {
-    ticketId: ticket.id,
-    projectId: ticket.projectId,
-    externalId: ticket.externalId,
-    title: ticket.title,
-    status: ticket.status,
-    lockedMainImplementer: 'openai/gpt-5-codex',
-    lockedMainImplementerVariant: null,
-    lockedCouncilMembers: ['openai/gpt-5.4', 'openai/gpt-5-mini'],
-    lockedCouncilMemberVariants: null,
-    lockedInterviewQuestions: 10,
-    lockedCoverageFollowUpBudgetPercent: 20,
-    lockedMaxCoveragePasses: 3,
-    previousStatus: null,
-    error: null,
-    errorCodes: [],
-    beadProgress: { total: 0, completed: 0, current: null },
-    iterationCount: 0,
-    maxIterations: 5,
-    councilResults: null,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
-    ...overrides,
-  }
-}
+const repoManager = createTestRepoManager('interview-compile')
 
 describe('handleInterviewCompile', () => {
   beforeEach(() => {
-    clearProjectDatabaseCache()
-    initializeDatabase()
-    sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
+    resetTestDb()
     phaseIntermediate.clear()
     refineDraftMock.mockReset()
   })
 
   afterAll(() => {
-    clearProjectDatabaseCache()
+    resetTestDb()
     repoManager.cleanup()
   })
 
@@ -154,24 +118,24 @@ describe('handleInterviewCompile', () => {
     phaseIntermediate.set(`${ticket.id}:interview`, {
       phase: 'interview',
       worktreePath: repoDir,
-      winnerId: 'openai/gpt-5.4',
+      winnerId: TEST.councilMembers[0],
       drafts: [
         {
-          memberId: 'openai/gpt-5.4',
+          memberId: TEST.councilMembers[0],
           content: winnerDraftContent,
           outcome: 'completed',
           duration: 1000,
         },
         {
-          memberId: 'openai/gpt-5-mini',
+          memberId: TEST.councilMembers[1],
           content: losingDraftContent,
           outcome: 'completed',
           duration: 1000,
         },
       ],
       memberOutcomes: {
-        'openai/gpt-5.4': 'completed',
-        'openai/gpt-5-mini': 'completed',
+        [TEST.councilMembers[0]]: 'completed',
+        [TEST.councilMembers[1]]: 'completed',
       },
       ticketState: {
         ticketId: ticket.externalId,
@@ -185,7 +149,14 @@ describe('handleInterviewCompile', () => {
 
     await handleInterviewCompile(
       ticket.id,
-      buildTicketContext(ticket, { status: 'COMPILING_INTERVIEW' }),
+      makeTicketContext(ticket, {
+        status: 'COMPILING_INTERVIEW',
+        lockedMainImplementer: TEST.implementer,
+        lockedCouncilMembers: [...TEST.councilMembers],
+        lockedInterviewQuestions: 10,
+        lockedCoverageFollowUpBudgetPercent: 20,
+        lockedMaxCoveragePasses: 3,
+      }),
       sendEvent,
       new AbortController().signal,
     )
@@ -201,7 +172,7 @@ describe('handleInterviewCompile', () => {
         beforeId: 'Q02',
         afterId: 'Q03',
         inspiration: expect.objectContaining({
-          memberId: 'openai/gpt-5-mini',
+          memberId: TEST.councilMembers[1],
           sourceId: 'Q07',
           sourceText: 'Alternative draft replacement question?',
         }),
@@ -286,24 +257,24 @@ describe('handleInterviewCompile', () => {
     phaseIntermediate.set(`${ticket.id}:interview`, {
       phase: 'interview',
       worktreePath: repoDir,
-      winnerId: 'openai/gpt-5.4',
+      winnerId: TEST.councilMembers[0],
       drafts: [
         {
-          memberId: 'openai/gpt-5.4',
+          memberId: TEST.councilMembers[0],
           content: winnerDraftContent,
           outcome: 'completed',
           duration: 1000,
         },
         {
-          memberId: 'openai/gpt-5-mini',
+          memberId: TEST.councilMembers[1],
           content: losingDraftContent,
           outcome: 'completed',
           duration: 1000,
         },
       ],
       memberOutcomes: {
-        'openai/gpt-5.4': 'completed',
-        'openai/gpt-5-mini': 'completed',
+        [TEST.councilMembers[0]]: 'completed',
+        [TEST.councilMembers[1]]: 'completed',
       },
       ticketState: {
         ticketId: ticket.externalId,
@@ -317,7 +288,14 @@ describe('handleInterviewCompile', () => {
 
     await handleInterviewCompile(
       ticket.id,
-      buildTicketContext(ticket, { status: 'COMPILING_INTERVIEW' }),
+      makeTicketContext(ticket, {
+        status: 'COMPILING_INTERVIEW',
+        lockedMainImplementer: TEST.implementer,
+        lockedCouncilMembers: [...TEST.councilMembers],
+        lockedInterviewQuestions: 10,
+        lockedCoverageFollowUpBudgetPercent: 20,
+        lockedMaxCoveragePasses: 3,
+      }),
       sendEvent,
       new AbortController().signal,
     )
@@ -332,7 +310,7 @@ describe('handleInterviewCompile', () => {
         beforeId: 'Q01',
         afterId: 'Q01',
         inspiration: expect.objectContaining({
-          memberId: 'openai/gpt-5-mini',
+          memberId: TEST.councilMembers[1],
           sourceId: 'Q07',
           sourceText: 'Alternative draft replacement question?',
         }),

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import jsYaml from 'js-yaml'
+import { TEST } from '../../../test/factories'
 import {
   buildCanonicalInterviewYaml,
   buildCoverageFollowUpBatch,
@@ -51,9 +52,9 @@ describe('interview session state', () => {
       Q01: 'Stabilize interview persistence.',
       Q02: '',
     })
-    const yaml = buildCanonicalInterviewYaml('1:T-100', answered)
+    const yaml = buildCanonicalInterviewYaml(TEST.ticketId, answered)
 
-    expect(yaml).toContain('ticket_id: 1:T-100')
+    expect(yaml).toContain(`ticket_id: ${TEST.ticketId}`)
     expect(yaml).toContain('winner_model: openai/gpt-5-mini')
     expect(yaml).toContain('free_text: Stabilize interview persistence.')
     expect(yaml).toContain('answered_by: user')
@@ -89,7 +90,7 @@ describe('interview session state', () => {
       base,
       [
         'schema_version: 1',
-        'ticket_id: "1:T-100"',
+        `ticket_id: "${TEST.ticketId}"`,
         'artifact: interview',
         'status: draft',
         'generated_by:',
@@ -113,7 +114,7 @@ describe('interview session state', () => {
       ].join('\n'),
     )
 
-    const yaml = buildCanonicalInterviewYaml('1:T-100', completed)
+    const yaml = buildCanonicalInterviewYaml(TEST.ticketId, completed)
     const parsed = jsYaml.load(yaml) as {
       summary?: {
         goals?: string[]
@@ -142,7 +143,7 @@ describe('interview session state', () => {
       base,
       [
         'schema_version: 1',
-        'ticket_id: "1:T-100"',
+        `ticket_id: "${TEST.ticketId}"`,
         'artifact: interview',
         'status: draft',
         'generated_by:',
@@ -167,7 +168,7 @@ describe('interview session state', () => {
       ].join('\n'),
     )
 
-    const yaml = buildCanonicalInterviewYaml('1:T-100', completed)
+    const yaml = buildCanonicalInterviewYaml(TEST.ticketId, completed)
     const parsed = jsYaml.load(yaml) as {
       summary?: {
         goals?: string[]
@@ -304,7 +305,7 @@ describe('interview session state', () => {
     const completed = completeInterviewBySkippingRemaining(activeSnapshot, {
       Q03: 'Exercise retries against a flaky upstream fake.',
     })
-    const yaml = buildCanonicalInterviewYaml('1:T-100', completed)
+    const yaml = buildCanonicalInterviewYaml(TEST.ticketId, completed)
 
     expect(completed.completedAt).toBe('2026-03-12T12:00:00.000Z')
     expect(completed.currentBatch).toBeNull()

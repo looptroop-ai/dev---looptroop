@@ -1,169 +1,65 @@
 import { describe, expect, it } from 'vitest'
-import type { InterviewDocument } from '@shared/interviewArtifact'
-import { buildInterviewDocumentYaml } from '../../../structuredOutput'
+import { TEST, makeInterviewYaml, makeInterviewQuestion } from '../../../test/factories'
 import { validatePrdDraft, validateResolvedInterview } from '../validation'
 
-function buildInterviewYaml(
-  ticketId: string,
-  options: {
-    skippedQuestionIds?: string[]
-  } = {},
-): string {
-  const skipped = new Set(options.skippedQuestionIds ?? [])
-  const document: InterviewDocument = {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status: 'approved',
-    generated_by: {
-      winner_model: 'openai/gpt-5',
-      generated_at: '2026-03-23T09:00:00.000Z',
-    },
-    questions: [
-      {
-        id: 'Q01',
-        phase: 'Foundation',
-        prompt: 'Which workflow guardrails are mandatory?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: skipped.has('Q01')
-          ? {
-              skipped: true,
-              selected_option_ids: [],
-              free_text: '',
-              answered_by: 'ai_skip',
-              answered_at: '',
-            }
-          : {
-              skipped: false,
-              selected_option_ids: [],
-              free_text: 'Keep the council flow intact.',
-              answered_by: 'user',
-              answered_at: '2026-03-23T09:03:00.000Z',
-            },
+const skippedInterviewYaml = makeInterviewYaml({
+  ticket_id: TEST.externalId,
+  questions: [
+    makeInterviewQuestion({
+      id: 'Q01',
+      prompt: 'Which workflow guardrails are mandatory?',
+    }),
+    makeInterviewQuestion({
+      id: 'Q02',
+      phase: 'Structure',
+      prompt: 'Which downstream phases are out of scope for this pass?',
+      answer: {
+        skipped: false, selected_option_ids: [], free_text: 'PRD approval and coverage stay out of scope.',
+        answered_by: 'user', answered_at: TEST.timestamp,
       },
-      {
-        id: 'Q02',
-        phase: 'Structure',
-        prompt: 'Which downstream phases are out of scope for this pass?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'PRD approval and coverage stay out of scope.',
-          answered_by: 'user',
-          answered_at: '2026-03-23T09:04:00.000Z',
-        },
-      },
-    ],
-    follow_up_rounds: [],
-    summary: {
-      goals: ['Harden DRAFTING_PRD'],
-      constraints: ['Preserve council mechanics'],
-      non_goals: ['Touch PRD approval'],
-      final_free_form_answer: '',
-    },
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
+    }),
+  ],
+})
 
-  return buildInterviewDocumentYaml(document)
-}
-
-function buildStructuredInterviewYaml(ticketId: string): string {
-  const document: InterviewDocument = {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status: 'approved',
-    generated_by: {
-      winner_model: 'openai/gpt-5',
-      generated_at: '2026-03-23T09:00:00.000Z',
-    },
-    questions: [
-      {
-        id: 'Q01',
-        phase: 'Foundation',
-        prompt: 'Which workflow guardrails are mandatory?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'Keep the council flow intact.',
-          answered_by: 'user',
-          answered_at: '2026-03-23T09:03:00.000Z',
-        },
+const structuredInterviewYaml = makeInterviewYaml({
+  ticket_id: TEST.externalId,
+  questions: [
+    makeInterviewQuestion({
+      id: 'Q01',
+      prompt: 'Which workflow guardrails are mandatory?',
+      answer: {
+        skipped: false, selected_option_ids: [], free_text: 'Keep the council flow intact.',
+        answered_by: 'user', answered_at: TEST.timestamp,
       },
-      {
-        id: 'Q02',
-        phase: 'Structure',
-        prompt: 'Which sharding mode should be the default?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'single_choice',
-        options: [
-          { id: 'opt1', label: 'Always sharded' },
-          { id: 'opt2', label: 'Automatic detection' },
-          { id: 'opt3', label: 'Manual flag only' },
-        ],
-        answer: {
-          skipped: true,
-          selected_option_ids: [],
-          free_text: '',
-          answered_by: 'ai_skip',
-          answered_at: '',
-        },
-      },
-      {
-        id: 'Q03',
-        phase: 'Assembly',
-        prompt: 'Who is affected by sharding?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'multiple_choice',
-        options: [
-          { id: 'opt1', label: 'Operators running the pipeline' },
-          { id: 'opt2', label: 'Council models' },
-          { id: 'opt3', label: 'Downstream consumers of issues.jsonl' },
-        ],
-        answer: {
-          skipped: true,
-          selected_option_ids: [],
-          free_text: '',
-          answered_by: 'ai_skip',
-          answered_at: '',
-        },
-      },
-    ],
-    follow_up_rounds: [],
-    summary: {
-      goals: ['Harden DRAFTING_PRD'],
-      constraints: ['Preserve council mechanics'],
-      non_goals: ['Touch PRD approval'],
-      final_free_form_answer: '',
-    },
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
-
-  return buildInterviewDocumentYaml(document)
-}
+    }),
+    makeInterviewQuestion({
+      id: 'Q02',
+      phase: 'Structure',
+      prompt: 'Which sharding mode should be the default?',
+      answer_type: 'single_choice',
+      options: [
+        { id: 'opt1', label: 'Always sharded' },
+        { id: 'opt2', label: 'Automatic detection' },
+        { id: 'opt3', label: 'Manual flag only' },
+      ],
+    }),
+    makeInterviewQuestion({
+      id: 'Q03',
+      phase: 'Assembly',
+      prompt: 'Who is affected by sharding?',
+      answer_type: 'multiple_choice',
+      options: [
+        { id: 'opt1', label: 'Operators running the pipeline' },
+        { id: 'opt2', label: 'Council models' },
+        { id: 'opt3', label: 'Downstream consumers of issues.jsonl' },
+      ],
+    }),
+  ],
+})
 
 describe('validatePrdDraft', () => {
   it('accepts wrapped PRD YAML, repairs ids deterministically, and returns stable metrics', () => {
-    const interviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const interviewContent = skippedInterviewYaml
 
     const result = validatePrdDraft([
       '[MODEL] Here is the draft you asked for.',
@@ -217,7 +113,7 @@ describe('validatePrdDraft', () => {
       '```',
       '[SYS] Step finished: stop',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       interviewContent,
     })
 
@@ -225,7 +121,7 @@ describe('validatePrdDraft', () => {
       epicCount: 2,
       userStoryCount: 2,
     })
-    expect(result.document.ticket_id).toBe('PROJ-7')
+    expect(result.document.ticket_id).toBe(TEST.externalId)
     expect(result.document.status).toBe('draft')
     expect(result.document.epics.map((epic) => epic.id)).toEqual(['EPIC-1', 'EPIC-2'])
     expect(result.document.epics.flatMap((epic) => epic.user_stories.map((story) => story.id))).toEqual(['US-1-1', 'US-2-1'])
@@ -238,11 +134,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('repairs colon-bearing list item scalars in PRD drafts', () => {
-    const interviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const interviewContent = skippedInterviewYaml
 
     const result = validatePrdDraft([
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: prd',
       'status: draft',
       'source_interview:',
@@ -282,7 +178,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       interviewContent,
     })
 
@@ -291,11 +187,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('normalizes a resolved interview against the approved interview artifact', () => {
-    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const canonicalInterviewContent = skippedInterviewYaml
 
     const result = validateResolvedInterview([
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: approved',
       'generated_by:',
@@ -338,7 +234,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: user',
       '  approved_at: 2026-03-23T09:12:00.000Z',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })
@@ -353,11 +249,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('repairs malformed free_text scalars before normalizing a resolved interview', () => {
-    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const canonicalInterviewContent = skippedInterviewYaml
 
     const result = validateResolvedInterview([
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: approved',
       'generated_by:',
@@ -400,7 +296,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: user',
       '  approved_at: 2026-03-23T09:12:00.000Z',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })
@@ -411,11 +307,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('repairs malformed multiline single-quoted free_text before normalizing a resolved interview', () => {
-    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const canonicalInterviewContent = skippedInterviewYaml
 
     const result = validateResolvedInterview([
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -460,7 +356,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })
@@ -470,11 +366,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('restores canonical metadata, question order, and answered user questions instead of failing', () => {
-    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const canonicalInterviewContent = skippedInterviewYaml
 
     const result = validateResolvedInterview([
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -517,7 +413,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })
@@ -535,11 +431,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('maps exact canonical option labels for skipped structured questions', () => {
-    const canonicalInterviewContent = buildStructuredInterviewYaml('PROJ-8')
+    const canonicalInterviewContent = structuredInterviewYaml
 
     const result = validateResolvedInterview([
       'schema_version: 1',
-      'ticket_id: PROJ-8',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -597,7 +493,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-8',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })
@@ -608,7 +504,7 @@ describe('validatePrdDraft', () => {
   })
 
   it('skips echoed retry artifacts when a later resolved interview candidate is valid', () => {
-    const canonicalInterviewContent = buildInterviewYaml('PROJ-7', { skippedQuestionIds: ['Q01'] })
+    const canonicalInterviewContent = skippedInterviewYaml
 
     const result = validateResolvedInterview([
       '## Full Answers Structured Output Retry',
@@ -625,7 +521,7 @@ describe('validatePrdDraft', () => {
       '',
       '```yaml',
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -669,7 +565,7 @@ describe('validatePrdDraft', () => {
       '  approved_at: ""',
       '```',
     ].join('\n'), {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })
@@ -679,11 +575,11 @@ describe('validatePrdDraft', () => {
   })
 
   it('rejects ambiguous prose for skipped structured questions', () => {
-    const canonicalInterviewContent = buildStructuredInterviewYaml('PROJ-8')
+    const canonicalInterviewContent = structuredInterviewYaml
 
     expect(() => validateResolvedInterview([
       'schema_version: 1',
-      'ticket_id: PROJ-8',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: interview',
       'status: draft',
       'generated_by:',
@@ -739,7 +635,7 @@ describe('validatePrdDraft', () => {
       '  approved_by: ""',
       '  approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-8',
+      ticketId: TEST.externalId,
       canonicalInterviewContent,
       memberId: 'openai/gpt-5',
     })).toThrow('does not map exactly to canonical options')
@@ -748,7 +644,7 @@ describe('validatePrdDraft', () => {
   it('rejects PRD drafts when the canonical interview artifact is missing or invalid', () => {
     const prdContent = [
       'schema_version: 1',
-      'ticket_id: PROJ-7',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: prd',
       'status: draft',
       'source_interview:',
@@ -788,11 +684,11 @@ describe('validatePrdDraft', () => {
     ].join('\n')
 
     expect(() => validatePrdDraft(prdContent, {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
     })).toThrow('Canonical interview artifact is required for PRD normalization')
 
     expect(() => validatePrdDraft(prdContent, {
-      ticketId: 'PROJ-7',
+      ticketId: TEST.externalId,
       interviewContent: 'artifact: interview\nquestions: [',
     })).toThrow('Interview artifact is invalid')
   })

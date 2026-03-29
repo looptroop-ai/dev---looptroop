@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Ticket } from '@/hooks/useTickets'
+import { makeTicket, TEST } from '@/test/factories'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DraftView } from '../DraftView'
 
@@ -34,46 +34,49 @@ function renderWithProviders(ui: React.ReactElement) {
   )
 }
 
-function makeTicket(): Ticket {
-  return {
-    id: '6:LOOP-1',
-    externalId: 'LOOP-1',
-    projectId: 6,
-    title: 'pre-plan',
-    description: 'Add a planning gate before interview.',
-    priority: 3,
-    status: 'DRAFT',
-    xstateSnapshot: null,
-    branchName: null,
-    currentBead: null,
-    totalBeads: null,
-    percentComplete: null,
-    errorMessage: null,
-    errorSeenSignature: null,
-    lockedMainImplementer: null,
-    lockedCouncilMembers: [],
-    availableActions: ['start', 'cancel'],
-    previousStatus: null,
-    reviewCutoffStatus: null,
-    runtime: {
-      baseBranch: 'main',
-      currentBead: 0,
-      completedBeads: 0,
-      totalBeads: 0,
-      percentComplete: 0,
-      iterationCount: 0,
-      maxIterations: 5,
-      artifactRoot: '/tmp/ticket',
-      beads: [],
-      candidateCommitSha: null,
-      preSquashHead: null,
-      finalTestStatus: 'pending',
-    },
-    startedAt: null,
-    plannedDate: null,
-    createdAt: '2026-03-13T15:48:17.998Z',
-    updatedAt: '2026-03-13T15:48:17.998Z',
-  }
+const projectData = {
+  id: TEST.projectId,
+  name: 'looptroop',
+  shortname: 'LOOP',
+  icon: '🍂',
+  color: '#a855f7',
+  folderPath: '/mnt/d/TestLoopTroop',
+  profileId: null,
+  councilMembers: null,
+  maxIterations: null,
+  perIterationTimeout: null,
+  councilResponseTimeout: null,
+  minCouncilQuorum: null,
+  interviewQuestions: null,
+  ticketCounter: 1,
+  createdAt: '2026-03-13T15:47:26.973Z',
+  updatedAt: '2026-03-13T15:47:26.973Z',
+}
+
+const profileData = {
+  id: 1,
+  mainImplementer: 'openai/codex-mini-latest',
+  councilMembers: JSON.stringify([
+    'openai/codex-mini-latest',
+    'openai/gpt-5.3-codex',
+    'anthropic/claude-sonnet-4',
+  ]),
+  minCouncilQuorum: 2,
+  perIterationTimeout: 300000,
+  councilResponseTimeout: 300000,
+  interviewQuestions: 50,
+  maxIterations: 5,
+  createdAt: '2026-03-13T15:47:26.973Z',
+  updatedAt: '2026-03-13T15:47:26.973Z',
+}
+
+function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Response>) {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const url = String(input)
+    if (url === '/api/projects') return createJsonResponse([projectData])
+    if (url === '/api/profile') return createJsonResponse(profileData)
+    return handler(url, init as RequestInit | undefined)
+  })
 }
 
 describe('DraftView', () => {
@@ -86,60 +89,16 @@ describe('DraftView', () => {
   })
 
   it('shows the start error when the ticket cannot start', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input)
-      if (url === '/api/projects') {
-        return createJsonResponse([
-          {
-            id: 6,
-            name: 'looptroop',
-            shortname: 'LOOP',
-            icon: '🍂',
-            color: '#a855f7',
-            folderPath: '/mnt/d/TestLoopTroop',
-            profileId: null,
-            councilMembers: null,
-            maxIterations: null,
-            perIterationTimeout: null,
-            councilResponseTimeout: null,
-            minCouncilQuorum: null,
-            interviewQuestions: null,
-            ticketCounter: 1,
-            createdAt: '2026-03-13T15:47:26.973Z',
-            updatedAt: '2026-03-13T15:47:26.973Z',
-          },
-        ])
-      }
-
-      if (url === '/api/profile') {
-        return createJsonResponse({
-          id: 1,
-          mainImplementer: 'openai/codex-mini-latest',
-          councilMembers: JSON.stringify([
-            'openai/codex-mini-latest',
-            'openai/gpt-5.3-codex',
-            'anthropic/claude-sonnet-4',
-          ]),
-          minCouncilQuorum: 2,
-          perIterationTimeout: 300000,
-          councilResponseTimeout: 300000,
-          interviewQuestions: 50,
-          maxIterations: 5,
-          createdAt: '2026-03-13T15:47:26.973Z',
-          updatedAt: '2026-03-13T15:47:26.973Z',
-        })
-      }
-
-      if (url === '/api/tickets/6:LOOP-1/start') {
+    mockFetch((url) => {
+      if (url === `/api/tickets/${TEST.ticketId}/start`) {
         return createJsonResponse({
           error: 'Council member models are not configured in OpenCode: anthropic/claude-sonnet-4, google/gemini-2.5-pro',
         }, 400)
       }
-
       throw new Error(`Unhandled fetch: ${url}`)
     })
 
-    renderWithProviders(<DraftView ticket={makeTicket()} />)
+    renderWithProviders(<DraftView ticket={makeTicket({ description: 'Add a planning gate before interview.', availableActions: ['start', 'cancel'] })} />)
 
     expect(await screen.findByText('Current Council Members')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Council member info' })).toBeInTheDocument()
@@ -157,51 +116,8 @@ describe('DraftView', () => {
 
   it('lets users edit the description while the ticket is in backlog', async () => {
     const updatedDescription = 'Add a planning gate before interview and let users adjust the description before start.'
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-      const url = String(input)
-      if (url === '/api/projects') {
-        return createJsonResponse([
-          {
-            id: 6,
-            name: 'looptroop',
-            shortname: 'LOOP',
-            icon: '🍂',
-            color: '#a855f7',
-            folderPath: '/mnt/d/TestLoopTroop',
-            profileId: null,
-            councilMembers: null,
-            maxIterations: null,
-            perIterationTimeout: null,
-            councilResponseTimeout: null,
-            minCouncilQuorum: null,
-            interviewQuestions: null,
-            ticketCounter: 1,
-            createdAt: '2026-03-13T15:47:26.973Z',
-            updatedAt: '2026-03-13T15:47:26.973Z',
-          },
-        ])
-      }
-
-      if (url === '/api/profile') {
-        return createJsonResponse({
-          id: 1,
-          mainImplementer: 'openai/codex-mini-latest',
-          councilMembers: JSON.stringify([
-            'openai/codex-mini-latest',
-            'openai/gpt-5.3-codex',
-            'anthropic/claude-sonnet-4',
-          ]),
-          minCouncilQuorum: 2,
-          perIterationTimeout: 300000,
-          councilResponseTimeout: 300000,
-          interviewQuestions: 50,
-          maxIterations: 5,
-          createdAt: '2026-03-13T15:47:26.973Z',
-          updatedAt: '2026-03-13T15:47:26.973Z',
-        })
-      }
-
-      if (url === '/api/tickets/6:LOOP-1' && init?.method === 'PATCH') {
+    const fetchMock = mockFetch((url, init) => {
+      if (url === `/api/tickets/${TEST.ticketId}` && init?.method === 'PATCH') {
         expect(init.body).toBe(JSON.stringify({ description: updatedDescription }))
         return createJsonResponse({
           ...makeTicket(),
@@ -218,7 +134,7 @@ describe('DraftView', () => {
       throw new Error(`Unhandled fetch: ${url}`)
     })
 
-    renderWithProviders(<DraftView ticket={makeTicket()} />)
+    renderWithProviders(<DraftView ticket={makeTicket({ description: 'Add a planning gate before interview.', availableActions: ['start', 'cancel'] })} />)
 
     fireEvent.click(screen.getByRole('button', { name: /edit description/i }))
 
@@ -232,7 +148,7 @@ describe('DraftView', () => {
       expect(screen.getByText(updatedDescription)).toBeInTheDocument()
       expect(screen.queryByRole('textbox', { name: 'Ticket description' })).not.toBeInTheDocument()
     })
-    expect(fetchMock).toHaveBeenCalledWith('/api/tickets/6:LOOP-1', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith(`/api/tickets/${TEST.ticketId}`, expect.objectContaining({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: updatedDescription }),

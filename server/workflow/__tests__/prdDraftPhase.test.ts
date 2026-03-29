@@ -1,17 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
-import type { InterviewDocument } from '@shared/interviewArtifact'
 import type { Vote } from '../../council/types'
-import { initializeDatabase } from '../../db/init'
-import { sqlite } from '../../db/index'
 import { clearProjectDatabaseCache } from '../../db/project'
-import { attachProject } from '../../storage/projects'
-import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
-import { createFixtureRepoManager } from '../../test/fixtureRepo'
-import { initializeTicket } from '../../ticket/initialize'
-import { buildInterviewDocumentYaml } from '../../structuredOutput'
-import type { TicketContext as MachineTicketContext } from '../../machines/types'
+import { getLatestPhaseArtifact } from '../../storage/tickets'
+import { TEST, makeTicketContextFromTicket, makeInterviewYaml, makePrdYaml, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
 import { phaseIntermediate } from '../phases/state'
 
 const { draftPRDMock, conductVotingMock, selectWinnerMock } = vi.hoisted(() => ({
@@ -44,118 +37,11 @@ vi.mock('../../council/voter', async () => {
 
 import { handleMockPrdDraft, handleMockPrdVote, handlePrdDraft, handlePrdVote } from '../phases/prdPhase'
 
-const repoManager = createFixtureRepoManager({
-  templatePrefix: 'looptroop-prd-draft-',
-  files: {
-    'README.md': '# PRD Draft Phase Test\n',
-    'src/main.ts': 'export const main = true\n',
-  },
-})
-
-function buildInterviewYaml(ticketId: string): string {
-  const document: InterviewDocument = {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status: 'approved',
-    generated_by: {
-      winner_model: 'openai/gpt-5',
-      generated_at: '2026-03-23T09:00:00.000Z',
-    },
-    questions: [
-      {
-        id: 'Q01',
-        phase: 'Foundation',
-        prompt: 'Which workflow guardrails are mandatory?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: true,
-          selected_option_ids: [],
-          free_text: '',
-          answered_by: 'ai_skip',
-          answered_at: '',
-        },
-      },
-    ],
-    follow_up_rounds: [],
-    summary: {
-      goals: ['Harden DRAFTING_PRD'],
-      constraints: ['Preserve council mechanics'],
-      non_goals: ['Touch PRD approval'],
-      final_free_form_answer: '',
-    },
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
-
-  return buildInterviewDocumentYaml(document)
-}
-
-function buildTicketContext(ticket: ReturnType<typeof createTicket>, overrides: Partial<MachineTicketContext> = {}): MachineTicketContext {
-  return {
-    ticketId: ticket.id,
-    projectId: ticket.projectId,
-    externalId: ticket.externalId,
-    title: ticket.title,
-    status: ticket.status,
-    lockedMainImplementer: 'openai/gpt-5-codex',
-    lockedMainImplementerVariant: null,
-    lockedCouncilMembers: ['openai/gpt-5-mini', 'openai/gpt-5.2'],
-    lockedCouncilMemberVariants: null,
-    lockedInterviewQuestions: null,
-    lockedCoverageFollowUpBudgetPercent: null,
-    lockedMaxCoveragePasses: null,
-    previousStatus: null,
-    error: null,
-    errorCodes: [],
-    beadProgress: { total: 0, completed: 0, current: null },
-    iterationCount: 0,
-    maxIterations: 5,
-    councilResults: null,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
-    ...overrides,
-  }
-}
-
-function createInitializedTicket() {
-  const repoDir = repoManager.createRepo()
-  const project = attachProject({
-    folderPath: repoDir,
-    name: 'LoopTroop',
-    shortname: 'LOOP',
-  })
-  const ticket = createTicket({
-    projectId: project.id,
-    title: 'Harden PRD drafting',
-    description: 'Bring PRD drafting in line with interview council rigor.',
-  })
-
-  initializeTicket({
-    projectFolder: repoDir,
-    externalId: ticket.externalId,
-  })
-
-  const paths = getTicketPaths(ticket.id)
-  if (!paths) throw new Error('Expected ticket paths after initialization')
-
-  return {
-    ticket,
-    context: buildTicketContext(ticket),
-    paths,
-  }
-}
+const repoManager = createTestRepoManager('prd-draft-')
 
 describe('handlePrdDraft', () => {
   beforeEach(() => {
-    clearProjectDatabaseCache()
-    initializeDatabase()
-    sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
+    resetTestDb()
     phaseIntermediate.clear()
     draftPRDMock.mockReset()
     conductVotingMock.mockReset()
@@ -168,7 +54,7 @@ describe('handlePrdDraft', () => {
   })
 
   it('fails fast before drafting when the canonical interview artifact is missing', async () => {
-    const { ticket, context } = createInitializedTicket()
+    const { ticket, context } = createInitializedTestTicket(repoManager)
     const sendEvent = vi.fn()
 
     await expect(handlePrdDraft(ticket.id, context, sendEvent, new AbortController().signal))
@@ -180,10 +66,10 @@ describe('handlePrdDraft', () => {
   })
 
   it('persists normalized draft metadata and logs PRD-specific metrics', async () => {
-    const { ticket, context, paths } = createInitializedTicket()
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager)
     const sendEvent = vi.fn()
 
-    writeFileSync(`${paths.ticketDir}/interview.yaml`, buildInterviewYaml(ticket.externalId), 'utf-8')
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, makeInterviewYaml({ ticket_id: ticket.externalId }), 'utf-8')
     writeFileSync(`${paths.ticketDir}/relevant-files.yaml`, 'files:\n  - path: src/main.ts\n', 'utf-8')
     draftPRDMock.mockImplementationOnce(async (
       _adapter: unknown,
@@ -222,111 +108,39 @@ describe('handlePrdDraft', () => {
       expect(options.ticketId).toBe(ticket.id)
       expect(options.ticketExternalId).toBe(ticket.externalId)
 
-      const fullAnswersContent = [
-        'schema_version: 1',
-        `ticket_id: ${ticket.externalId}`,
-        'artifact: interview',
-        'status: draft',
-        'generated_by:',
-        '  winner_model: openai/gpt-5-mini',
-        '  generated_at: 2026-03-23T09:10:00.000Z',
-        '  canonicalization: server_normalized',
-        'questions:',
-        '  - id: Q01',
-        '    phase: Foundation',
-        '    prompt: Which workflow guardrails are mandatory?',
-        '    source: compiled',
-        '    follow_up_round: null',
-        '    answer_type: free_text',
-        '    options: []',
-        '    answer:',
-        '      skipped: false',
-        '      selected_option_ids: []',
-        '      free_text: Preserve council retry behavior and strict validation.',
-        '      answered_by: ai_skip',
-        '      answered_at: 2026-03-23T09:11:00.000Z',
-        'follow_up_rounds: []',
-        'summary:',
-        '  goals: [Harden DRAFTING_PRD]',
-        '  constraints: [Preserve council mechanics]',
-        '  non_goals: [Touch PRD approval]',
-        '  final_free_form_answer: ""',
-        'approval:',
-        '  approved_by: ""',
-        '  approved_at: ""',
-      ].join('\n')
+      const fullAnswersContent = makeInterviewYaml({
+        ticket_id: ticket.externalId,
+        status: 'draft',
+        generated_by: { winner_model: TEST.councilMembers[0], generated_at: '2026-03-23T09:10:00.000Z' },
+      })
 
-      const content = [
-        'schema_version: 1',
-        `ticket_id: ${ticket.externalId}`,
-        'artifact: prd',
-        'status: draft',
-        'source_interview:',
-        '  content_sha256: normalized',
-        'product:',
-        '  problem_statement: Keep PRD drafting resilient.',
-        '  target_users: [LoopTroop maintainers]',
-        'scope:',
-        '  in_scope: [Normalize council PRD drafts]',
-        '  out_of_scope: [PRD approval workflow]',
-        'technical_requirements:',
-        '  architecture_constraints: [Reuse council retry behavior]',
-        '  data_model: []',
-        '  api_contracts: []',
-        '  security_constraints: []',
-        '  performance_constraints: []',
-        '  reliability_constraints: [Fail fast without canonical interview]',
-        '  error_handling_rules: [Persist only normalized YAML]',
-        '  tooling_assumptions: [Vitest remains the test runner]',
-        'epics:',
-        '  - id: EPIC-1',
-        '    title: Draft parsing parity',
-        '    objective: Match interview council draft rigor.',
-        '    implementation_steps: [Normalize PRD drafts before persistence]',
-        '    user_stories:',
-        '      - id: US-1-1',
-        '        title: Repair ids deterministically',
-        '        acceptance_criteria: [Missing ids are repaired deterministically]',
-        '        implementation_steps: [Fill stable fallback ids]',
-        '        verification:',
-        '          required_commands: [npm run test:server]',
-        '      - id: US-1-2',
-        '        title: Preserve parser metadata',
-        '        acceptance_criteria: [Structured retry metadata is saved]',
-        '        implementation_steps: [Store repair warnings alongside the draft]',
-        '        verification:',
-        '          required_commands: [npm run test:server]',
-        'risks: []',
-        'approval:',
-        '  approved_by: ""',
-        '  approved_at: ""',
-      ].join('\n')
+      const content = makePrdYaml({ ticketId: ticket.externalId, storyCount: 2 })
 
       onFullAnswersProgress?.({
-        memberId: 'openai/gpt-5-mini',
+        memberId: TEST.councilMembers[0],
         status: 'session_created',
-        sessionId: 'session-full-answers-mini',
+        sessionId: 'session-full-answers-a',
       })
       onFullAnswersProgress?.({
-        memberId: 'openai/gpt-5-mini',
+        memberId: TEST.councilMembers[0],
         status: 'finished',
-        sessionId: 'session-full-answers-mini',
+        sessionId: 'session-full-answers-a',
         outcome: 'completed',
         duration: 95,
         content: fullAnswersContent,
         questionCount: 1,
         structuredOutput: {
           repairApplied: true,
-          repairWarnings: ['Canonicalized generated_by.winner_model from "wrong-model" to "openai/gpt-5-mini".'],
+          repairWarnings: ['Canonicalized generated_by.winner_model.'],
           autoRetryCount: 0,
         },
       })
       onFullAnswersProgress?.({
-        memberId: 'openai/gpt-5.2',
+        memberId: TEST.councilMembers[1],
         status: 'finished',
         outcome: 'completed',
         duration: 91,
-        content: fullAnswersContent.replace('openai/gpt-5-mini', 'openai/gpt-5.2'),
+        content: fullAnswersContent.replace(TEST.councilMembers[0], TEST.councilMembers[1]),
         questionCount: 1,
         structuredOutput: {
           repairApplied: false,
@@ -335,14 +149,14 @@ describe('handlePrdDraft', () => {
         },
       })
       onDraftProgress?.({
-        memberId: 'openai/gpt-5-mini',
+        memberId: TEST.councilMembers[0],
         status: 'session_created',
-        sessionId: 'session-prd-mini',
+        sessionId: 'session-prd-a',
       })
       onDraftProgress?.({
-        memberId: 'openai/gpt-5-mini',
+        memberId: TEST.councilMembers[0],
         status: 'finished',
-        sessionId: 'session-prd-mini',
+        sessionId: 'session-prd-a',
         outcome: 'completed',
         duration: 125,
         content,
@@ -358,7 +172,7 @@ describe('handlePrdDraft', () => {
         },
       })
       onDraftProgress?.({
-        memberId: 'openai/gpt-5.2',
+        memberId: TEST.councilMembers[1],
         status: 'finished',
         outcome: 'completed',
         duration: 118,
@@ -378,21 +192,21 @@ describe('handlePrdDraft', () => {
         phase: 'prd_draft',
         fullAnswers: [
           {
-            memberId: 'openai/gpt-5-mini',
+            memberId: TEST.councilMembers[0],
             outcome: 'completed',
             content: fullAnswersContent,
             duration: 95,
             questionCount: 1,
             structuredOutput: {
               repairApplied: true,
-              repairWarnings: ['Canonicalized generated_by.winner_model from "wrong-model" to "openai/gpt-5-mini".'],
+              repairWarnings: [`Canonicalized generated_by.winner_model from "wrong-model" to "${TEST.councilMembers[0]}".`],
               autoRetryCount: 0,
             },
           },
           {
-            memberId: 'openai/gpt-5.2',
+            memberId: TEST.councilMembers[1],
             outcome: 'completed',
-            content: fullAnswersContent.replace('openai/gpt-5-mini', 'openai/gpt-5.2'),
+            content: fullAnswersContent.replace(TEST.councilMembers[0], TEST.councilMembers[1]),
             duration: 91,
             questionCount: 1,
             structuredOutput: {
@@ -404,7 +218,7 @@ describe('handlePrdDraft', () => {
         ],
         drafts: [
           {
-            memberId: 'openai/gpt-5-mini',
+            memberId: TEST.councilMembers[0],
             outcome: 'completed',
             content,
             duration: 125,
@@ -420,7 +234,7 @@ describe('handlePrdDraft', () => {
             },
           },
           {
-            memberId: 'openai/gpt-5.2',
+            memberId: TEST.councilMembers[1],
             outcome: 'completed',
             content,
             duration: 118,
@@ -436,12 +250,12 @@ describe('handlePrdDraft', () => {
           },
         ],
         memberOutcomes: {
-          'openai/gpt-5-mini': 'completed',
-          'openai/gpt-5.2': 'completed',
+          [TEST.councilMembers[0]]: 'completed',
+          [TEST.councilMembers[1]]: 'completed',
         },
         fullAnswerOutcomes: {
-          'openai/gpt-5-mini': 'completed',
-          'openai/gpt-5.2': 'completed',
+          [TEST.councilMembers[0]]: 'completed',
+          [TEST.councilMembers[1]]: 'completed',
         },
         deadlineReached: false,
       }
@@ -489,7 +303,7 @@ describe('handlePrdDraft', () => {
     })
     expect(existsSync(paths.executionLogPath)).toBe(true)
     const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
-    expect(executionLog).toContain('PRD draft session created for openai/gpt-5-mini: session-prd-mini.')
+    expect(executionLog).toContain(`PRD draft session created for ${TEST.councilMembers[0]}: session-prd-a.`)
     expect(executionLog).toContain('Full Answers round completed')
     expect(executionLog).toContain('PRD draft round completed')
     expect(executionLog).toContain('PRD draft normalization applied repairs')
@@ -497,10 +311,10 @@ describe('handlePrdDraft', () => {
   })
 
   it('persists the full mock PRD vote artifact shape', async () => {
-    const { ticket, context, paths } = createInitializedTicket()
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager)
     const sendEvent = vi.fn()
 
-    writeFileSync(`${paths.ticketDir}/interview.yaml`, buildInterviewYaml(ticket.externalId), 'utf-8')
+    writeFileSync(`${paths.ticketDir}/interview.yaml`, makeInterviewYaml({ ticket_id: ticket.externalId }), 'utf-8')
 
     await handleMockPrdDraft(ticket.id, context, sendEvent)
     await handleMockPrdVote(ticket.id, context, sendEvent)
@@ -525,18 +339,18 @@ describe('handlePrdDraft', () => {
     expect(voteArtifact.winnerId).toBeTruthy()
     expect(voteCompanion?.votes).toHaveLength(4)
     expect(voteCompanion?.votes?.every((vote) => vote.scores?.length === 5)).toBe(true)
-    expect(Object.keys(voteCompanion?.voterOutcomes ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
-    expect(Object.keys(voteCompanion?.presentationOrders ?? {})).toEqual(expect.arrayContaining(['openai/gpt-5-mini', 'openai/gpt-5.2']))
+    expect(Object.keys(voteCompanion?.voterOutcomes ?? {})).toEqual(expect.arrayContaining([...TEST.councilMembers]))
+    expect(Object.keys(voteCompanion?.presentationOrders ?? {})).toEqual(expect.arrayContaining([...TEST.councilMembers]))
     expect(voteCompanion?.totalScore).toBeGreaterThan(0)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
     expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: voteArtifact.winnerId })
   })
 
   it('persists live and final PRD vote artifacts with winner metadata and presentation order', async () => {
-    const { ticket, context, paths } = createInitializedTicket()
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager)
     const sendEvent = vi.fn()
-    const draftA = buildMockVoteDraft('openai/gpt-5-mini', 'Alpha')
-    const draftB = buildMockVoteDraft('openai/gpt-5.2', 'Beta')
+    const draftA = buildMockVoteDraft(TEST.councilMembers[0], 'Alpha')
+    const draftB = buildMockVoteDraft(TEST.councilMembers[1], 'Beta')
 
     phaseIntermediate.set(`${ticket.id}:prd`, {
       drafts: [draftA, draftB],
@@ -551,7 +365,7 @@ describe('handlePrdDraft', () => {
         title: context.title,
         description: context.title,
         relevantFiles: 'files:\n  - path: src/main.ts',
-        interview: buildInterviewYaml(ticket.externalId),
+        interview: makeInterviewYaml({ ticket_id: ticket.externalId }),
       },
     })
 
@@ -578,7 +392,7 @@ describe('handlePrdDraft', () => {
       expect(buildPromptForVoter).toBeTypeOf('function')
 
       const prompt = buildPromptForVoter!({
-        voter: { modelId: 'openai/gpt-5-mini' },
+        voter: { modelId: TEST.councilMembers[0] },
         anonymizedDrafts: drafts.map((draft, index) => ({
           draftId: draft.memberId,
           content: `Draft ${index + 1}:\n${draft.content}`,
@@ -608,25 +422,25 @@ describe('handlePrdDraft', () => {
       expect(rendered).toContain('PRD fully addresses all Interview Results')
 
       const firstVote: Vote = {
-        voterId: 'openai/gpt-5-mini',
-        draftId: 'openai/gpt-5-mini',
+        voterId: TEST.councilMembers[0],
+        draftId: TEST.councilMembers[0],
         scores: buildVoteScores([19, 18, 19, 18, 18]),
         totalScore: 92,
       }
       const secondVote: Vote = {
-        voterId: 'openai/gpt-5.2',
-        draftId: 'openai/gpt-5.2',
+        voterId: TEST.councilMembers[1],
+        draftId: TEST.councilMembers[1],
         scores: buildVoteScores([18, 18, 18, 18, 18]),
         totalScore: 90,
       }
 
       onVoteProgress?.({
-        memberId: 'openai/gpt-5-mini',
+        memberId: TEST.councilMembers[0],
         outcome: 'completed',
         votes: [firstVote],
       })
       onVoteProgress?.({
-        memberId: 'openai/gpt-5.2',
+        memberId: TEST.councilMembers[1],
         outcome: 'completed',
         votes: [secondVote],
       })
@@ -634,23 +448,23 @@ describe('handlePrdDraft', () => {
       return {
         votes: [firstVote, secondVote],
         memberOutcomes: {
-          'openai/gpt-5-mini': 'completed',
-          'openai/gpt-5.2': 'completed',
+          [TEST.councilMembers[0]]: 'completed',
+          [TEST.councilMembers[1]]: 'completed',
         },
         deadlineReached: false,
         presentationOrders: {
-          'openai/gpt-5-mini': {
+          [TEST.councilMembers[0]]: {
             seed: 'seed-alpha',
-            order: ['openai/gpt-5-mini', 'openai/gpt-5.2'],
+            order: [TEST.councilMembers[0], TEST.councilMembers[1]],
           },
-          'openai/gpt-5.2': {
+          [TEST.councilMembers[1]]: {
             seed: 'seed-beta',
-            order: ['openai/gpt-5.2', 'openai/gpt-5-mini'],
+            order: [TEST.councilMembers[1], TEST.councilMembers[0]],
           },
         },
       }
     })
-    selectWinnerMock.mockReturnValueOnce({ winnerId: 'openai/gpt-5-mini', totalScore: 92 })
+    selectWinnerMock.mockReturnValueOnce({ winnerId: TEST.councilMembers[0], totalScore: 92 })
 
     await handlePrdVote(ticket.id, context, sendEvent, new AbortController().signal)
 
@@ -672,19 +486,19 @@ describe('handlePrdDraft', () => {
     } | undefined
 
     expect(voteArtifact.isFinal).toBe(true)
-    expect(voteArtifact.winnerId).toBe('openai/gpt-5-mini')
+    expect(voteArtifact.winnerId).toBe(TEST.councilMembers[0])
     expect(voteCompanion?.votes).toHaveLength(2)
     expect(voteCompanion?.voterOutcomes).toEqual({
-      'openai/gpt-5-mini': 'completed',
-      'openai/gpt-5.2': 'completed',
+      [TEST.councilMembers[0]]: 'completed',
+      [TEST.councilMembers[1]]: 'completed',
     })
-    expect(voteCompanion?.presentationOrders?.['openai/gpt-5-mini']).toEqual({
+    expect(voteCompanion?.presentationOrders?.[TEST.councilMembers[0]]).toEqual({
       seed: 'seed-alpha',
-      order: ['openai/gpt-5-mini', 'openai/gpt-5.2'],
+      order: [TEST.councilMembers[0], TEST.councilMembers[1]],
     })
-    expect(voteCompanion?.winnerId).toBe('openai/gpt-5-mini')
+    expect(voteCompanion?.winnerId).toBe(TEST.councilMembers[0])
     expect(voteCompanion?.totalScore).toBe(92)
-    expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: 'openai/gpt-5-mini' })
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: TEST.councilMembers[0] })
   })
 })
 
@@ -693,45 +507,7 @@ function buildMockVoteDraft(memberId: string, title: string) {
     memberId,
     outcome: 'completed' as const,
     duration: 1,
-    content: [
-      'schema_version: 1',
-      'ticket_id: "PROJ-42"',
-      'artifact: "prd"',
-      'status: "draft"',
-      'source_interview:',
-      '  content_sha256: "mock-sha"',
-      'product:',
-      `  problem_statement: "${title}"`,
-      '  target_users: ["Team"]',
-      'scope:',
-      '  in_scope: ["Voting on Specs"]',
-      '  out_of_scope: []',
-      'technical_requirements:',
-      '  architecture_constraints: []',
-      '  data_model: []',
-      '  api_contracts: []',
-      '  security_constraints: []',
-      '  performance_constraints: []',
-      '  reliability_constraints: []',
-      '  error_handling_rules: []',
-      '  tooling_assumptions: []',
-      'epics:',
-      '  - id: "EPIC-1"',
-      `    title: "${title}"`,
-      '    objective: "Test PRD voting"',
-      '    implementation_steps: ["Compare drafts"]',
-      '    user_stories:',
-      '      - id: "US-1"',
-      '        title: "Vote"',
-      '        acceptance_criteria: ["Pick a winner"]',
-      '        implementation_steps: ["Persist votes"]',
-      '        verification:',
-      '          required_commands: ["npm test"]',
-      'risks: []',
-      'approval:',
-      '  approved_by: ""',
-      '  approved_at: ""',
-    ].join('\n'),
+    content: makePrdYaml({ problemStatement: title }),
   }
 }
 

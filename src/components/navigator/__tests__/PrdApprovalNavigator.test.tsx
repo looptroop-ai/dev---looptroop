@@ -2,12 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { buildPrdDocumentYaml, getPrdUserStoryAnchorId, type PrdDocument } from '@/lib/prdDocument'
+import { TEST } from '@/test/factories'
 import { PrdApprovalNavigator } from '../PrdApprovalNavigator'
 
 function buildPrdDocument(): PrdDocument {
   return {
     schema_version: 1,
-    ticket_id: 'PROJ-42',
+    ticket_id: TEST.externalId,
     artifact: 'prd',
     status: 'draft',
     source_interview: {
@@ -62,7 +63,7 @@ function renderWithProviders(ui: React.ReactElement, content: string) {
       queries: { retry: false, staleTime: Infinity },
     },
   })
-  queryClient.setQueryData(['artifact', '1:PROJ-42', 'prd'], content)
+  queryClient.setQueryData(['artifact', TEST.ticketId, 'prd'], content)
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -76,7 +77,7 @@ describe('PrdApprovalNavigator', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
     const content = buildPrdDocumentYaml(buildPrdDocument())
 
-    renderWithProviders(<PrdApprovalNavigator ticketId="1:PROJ-42" />, content)
+    renderWithProviders(<PrdApprovalNavigator ticketId={TEST.ticketId} />, content)
 
     await waitFor(() => {
       expect(screen.getByText('Product')).toBeInTheDocument()
@@ -95,7 +96,7 @@ describe('PrdApprovalNavigator', () => {
       .find((event) => event.type === 'looptroop:prd-approval-focus') as CustomEvent<{ ticketId: string; anchorId: string }> | undefined
 
     expect(prdFocusEvent?.detail).toEqual({
-      ticketId: '1:PROJ-42',
+      ticketId: TEST.ticketId,
       anchorId: 'prd-product',
     })
 
@@ -106,7 +107,7 @@ describe('PrdApprovalNavigator', () => {
       .find((event) => event.type === 'looptroop:prd-approval-focus' && (event as CustomEvent<{ ticketId: string; anchorId: string }>).detail.anchorId !== 'prd-product') as CustomEvent<{ ticketId: string; anchorId: string }> | undefined
 
     expect(prdStoryFocusEvent?.detail).toEqual({
-      ticketId: '1:PROJ-42',
+      ticketId: TEST.ticketId,
       anchorId: getPrdUserStoryAnchorId('EPIC-1', 'US-1-1'),
     })
   })

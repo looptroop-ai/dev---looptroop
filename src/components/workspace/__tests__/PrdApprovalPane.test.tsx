@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Ticket } from '@/hooks/useTickets'
 import { buildPrdDocumentYaml, type PrdApprovalDraft, type PrdDocument } from '@/lib/prdDocument'
+import { makeTicket, TEST } from '@/test/factories'
 import { PrdApprovalPane } from '../PrdApprovalPane'
 
 const mockSaveUiState = vi.fn()
@@ -74,7 +74,7 @@ vi.mock('../CollapsiblePhaseLogSection', () => ({
 function buildPrdDocument(): PrdDocument {
   return {
     schema_version: 1,
-    ticket_id: 'PROJ-42',
+    ticket_id: TEST.externalId,
     artifact: 'prd',
     status: 'draft',
     source_interview: {
@@ -123,48 +123,6 @@ function buildPrdDocument(): PrdDocument {
   }
 }
 
-function makeTicket(status: string = 'WAITING_PRD_APPROVAL'): Ticket {
-  return {
-    id: '1:PROJ-42',
-    externalId: 'PROJ-42',
-    projectId: 1,
-    title: 'Retry strategy',
-    description: 'Clarify webhook retry behavior.',
-    priority: 3,
-    status,
-    xstateSnapshot: null,
-    branchName: null,
-    currentBead: null,
-    totalBeads: null,
-    percentComplete: null,
-    errorMessage: null,
-    errorSeenSignature: null,
-    lockedMainImplementer: null,
-    lockedCouncilMembers: ['openai/gpt-5'],
-    availableActions: [],
-    previousStatus: null,
-    reviewCutoffStatus: null,
-    runtime: {
-      baseBranch: 'main',
-      currentBead: 0,
-      completedBeads: 0,
-      totalBeads: 0,
-      percentComplete: 0,
-      iterationCount: 0,
-      maxIterations: null,
-      artifactRoot: '/tmp/ticket',
-      beads: [],
-      candidateCommitSha: null,
-      preSquashHead: null,
-      finalTestStatus: 'pending',
-    },
-    startedAt: null,
-    plannedDate: null,
-    createdAt: '2026-03-17T10:00:00.000Z',
-    updatedAt: '2026-03-17T10:00:00.000Z',
-  }
-}
-
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -191,7 +149,7 @@ describe('PrdApprovalPane', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = String(input)
 
-      if (url === '/api/files/1:PROJ-42/prd' && (!init || init.method === 'GET')) {
+      if (url === `/api/files/${TEST.ticketId}/prd` && (!init || init.method === 'GET')) {
         return Promise.resolve(
           new Response(JSON.stringify({ content: currentContent }), {
             status: 200,
@@ -200,7 +158,7 @@ describe('PrdApprovalPane', () => {
         )
       }
 
-      if (url === '/api/files/1:PROJ-42/prd' && init?.method === 'PUT') {
+      if (url === `/api/files/${TEST.ticketId}/prd` && init?.method === 'PUT') {
         const body = JSON.parse(String(init.body)) as { content?: string; document?: ReturnType<typeof buildPrdDocument> }
         currentContent = body.document ? buildPrdDocumentYaml(body.document) : body.content ?? currentContent
         return Promise.resolve(
@@ -211,7 +169,7 @@ describe('PrdApprovalPane', () => {
         )
       }
 
-      if (url === '/api/tickets/1:PROJ-42/approve-prd' && init?.method === 'POST') {
+      if (url === `/api/tickets/${TEST.ticketId}/approve-prd` && init?.method === 'POST') {
         return Promise.resolve(
           new Response(JSON.stringify({ success: true }), {
             status: 200,
@@ -237,7 +195,7 @@ describe('PrdApprovalPane', () => {
   })
 
   it('renders the dedicated PRD approval view and focuses PRD anchors on demand', async () => {
-    renderWithProviders(<PrdApprovalPane ticket={makeTicket()} />)
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
       expect(document.getElementById('prd-product')).not.toBeNull()
@@ -249,7 +207,7 @@ describe('PrdApprovalPane', () => {
   })
 
   it('lets approval summary sections collapse and re-open', async () => {
-    renderWithProviders(<PrdApprovalPane ticket={makeTicket()} />)
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
@@ -264,7 +222,7 @@ describe('PrdApprovalPane', () => {
   })
 
   it('defaults to structured editing, saves through the PRD route, and approves through approve-prd', async () => {
-    renderWithProviders(<PrdApprovalPane ticket={makeTicket()} />)
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('Product Requirements Document')).toBeInTheDocument()
@@ -284,7 +242,7 @@ describe('PrdApprovalPane', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/files/1:PROJ-42/prd',
+        `/api/files/${TEST.ticketId}/prd`,
         expect.objectContaining({ method: 'PUT' }),
       )
     })
@@ -297,14 +255,14 @@ describe('PrdApprovalPane', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/tickets/1:PROJ-42/approve-prd',
+        `/api/tickets/${TEST.ticketId}/approve-prd`,
         expect.objectContaining({ method: 'POST' }),
       )
     })
   })
 
   it('confirms before discarding dirty structured edits when switching to YAML', async () => {
-    renderWithProviders(<PrdApprovalPane ticket={makeTicket()} />)
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('Product Requirements Document')).toBeInTheDocument()

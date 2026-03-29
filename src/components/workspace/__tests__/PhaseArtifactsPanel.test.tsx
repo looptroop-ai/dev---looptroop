@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
+import { TEST } from '@/test/factories'
 import { PhaseArtifactsPanel } from '../PhaseArtifactsPanel'
 
 /** Find the innermost element whose full textContent (including children) matches exactly. */
@@ -43,7 +44,7 @@ function renderWithProviders(ui: React.ReactElement) {
 function buildInterviewDocumentContent() {
   return [
     'schema_version: 1',
-    'ticket_id: PROJ-42',
+    `ticket_id: ${TEST.externalId}`,
     'artifact: interview',
     'status: draft',
     'generated_by:',
@@ -85,7 +86,7 @@ function buildPrdDocumentContent({
 } = {}) {
   return [
     'schema_version: 1',
-    'ticket_id: PROJ-42',
+    `ticket_id: ${TEST.externalId}`,
     'artifact: prd',
     'status: draft',
     'source_interview:',
@@ -167,15 +168,26 @@ function buildBeadsDraftCompanionContent() {
   })
 }
 
+let nextArtifactId = 1
+function makeArtifact(overrides: Partial<DBartifact> & Pick<DBartifact, 'phase' | 'artifactType' | 'content'>): DBartifact {
+  return {
+    id: nextArtifactId++,
+    ticketId: TEST.ticketId,
+    filePath: null,
+    createdAt: TEST.timestamp,
+    ...overrides,
+  }
+}
+
 describe('PhaseArtifactsPanel', () => {
+  beforeEach(() => {
+    nextArtifactId = 1
+  })
+
   it('collapses interview voting artifacts into a winning draft card plus shared voting details', () => {
-    const voteArtifact: DBartifact = {
-      id: 1,
-      ticketId: 'ticket-1',
+    const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_INTERVIEW',
       artifactType: 'interview_votes',
-      filePath: null,
-      createdAt: '2026-03-12T11:48:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         drafts: [
@@ -209,7 +221,7 @@ describe('PhaseArtifactsPanel', () => {
           'opencode/big-pickle': 'completed',
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -239,13 +251,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('shows compact compiling interview draft chips and a separate final interview artifact', () => {
-    const voteArtifact: DBartifact = {
-      id: 1,
-      ticketId: 'ticket-1',
+    const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_INTERVIEW',
       artifactType: 'interview_votes',
-      filePath: null,
-      createdAt: '2026-03-12T11:48:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         drafts: [
@@ -258,15 +266,11 @@ describe('PhaseArtifactsPanel', () => {
           },
         ],
       }),
-    }
+    })
 
-    const compiledArtifact: DBartifact = {
-      id: 2,
-      ticketId: 'ticket-1',
+    const compiledArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"\n  - id: Q03\n    phase: structure\n    question: "Replacement target question?"\n  - id: Q04\n    phase: assembly\n    question: "Added question?"',
@@ -315,7 +319,7 @@ describe('PhaseArtifactsPanel', () => {
           ],
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -354,115 +358,91 @@ describe('PhaseArtifactsPanel', () => {
     expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(expect.arrayContaining(['Original', 'Refined']))
   })
 
-  it('shows PRD drafting chips with epic and story metrics', () => {
-    const draftArtifact: DBartifact = {
-      id: 21,
-      ticketId: 'ticket-1',
+  it.each([
+    {
+      scenario: 'shows chips with pending and completed members',
+      drafts: [
+        {
+          memberId: 'openai/gpt-5.2',
+          outcome: 'completed',
+          content: [
+            'schema_version: 1',
+            `ticket_id: ${TEST.externalId}`,
+            'artifact: prd',
+            'status: draft',
+          ].join('\n'),
+          draftMetrics: { epicCount: 3, userStoryCount: 9 },
+        },
+        { memberId: 'openai/gpt-5.1-codex', outcome: 'pending' },
+      ],
+      councilMemberNames: ['openai/gpt-5.2', 'openai/gpt-5.1-codex'],
+      expectedMetrics: ['3 epics · 9 user stories'],
+      expectedPending: true,
+      expectedParts: true,
+      notExpected: [] as string[],
+    },
+    {
+      scenario: 'shows chips with PRD-specific completion metrics',
+      drafts: [
+        {
+          memberId: 'openai/gpt-5.1-codex',
+          outcome: 'completed',
+          content: `schema_version: 1\nticket_id: ${TEST.externalId}\nartifact: prd\nstatus: draft\n`,
+          draftMetrics: { epicCount: 3, userStoryCount: 9 },
+        },
+        {
+          memberId: 'openai/gpt-5.2',
+          outcome: 'completed',
+          content: `schema_version: 1\nticket_id: ${TEST.externalId}\nartifact: prd\nstatus: draft\n`,
+          draftMetrics: { epicCount: 2, userStoryCount: 5 },
+        },
+      ],
+      councilMemberNames: ['openai/gpt-5.1-codex', 'openai/gpt-5.2'],
+      expectedMetrics: ['3 epics · 9 user stories', '2 epics · 5 user stories'],
+      expectedPending: false,
+      expectedParts: false,
+      notExpected: ['proposed 3 questions'],
+    },
+  ])('$scenario', ({ drafts, councilMemberNames, expectedMetrics, expectedPending, expectedParts, notExpected }) => {
+    const draftArtifact = makeArtifact({
       phase: 'DRAFTING_PRD',
       artifactType: 'prd_drafts',
-      filePath: null,
-      createdAt: '2026-03-23T10:12:31.000Z',
-      content: JSON.stringify({
-        drafts: [
-          {
-            memberId: 'openai/gpt-5.2',
-            outcome: 'completed',
-            content: [
-              'schema_version: 1',
-              'ticket_id: LOOP-1',
-              'artifact: prd',
-              'status: draft',
-            ].join('\n'),
-            draftMetrics: {
-              epicCount: 3,
-              userStoryCount: 9,
-            },
-          },
-          {
-            memberId: 'openai/gpt-5.1-codex',
-            outcome: 'pending',
-          },
-        ],
-      }),
-    }
+      content: JSON.stringify({ drafts }),
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
         phase="DRAFTING_PRD"
         isCompleted={false}
         councilMemberCount={2}
-        councilMemberNames={['openai/gpt-5.2', 'openai/gpt-5.1-codex']}
+        councilMemberNames={councilMemberNames}
         preloadedArtifacts={[draftArtifact]}
       />,
     )
 
-    // Model names appear in both Part 1 (full answers) and Part 2 (drafts)
-    expect(screen.queryAllByText('gpt-5.2').length).toBeGreaterThan(0)
-    expect(screen.queryAllByText('gpt-5.1-codex').length).toBeGreaterThan(0)
-    expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
-    expect(screen.queryAllByText('waiting for response').length).toBeGreaterThan(0)
-    expect(screen.getByText('Part 1')).toBeInTheDocument()
-    expect(screen.getByText('Part 2')).toBeInTheDocument()
-  })
-
-  it('shows PRD draft chips with PRD-specific completion metrics', () => {
-    const draftArtifact: DBartifact = {
-      id: 10,
-      ticketId: 'ticket-1',
-      phase: 'DRAFTING_PRD',
-      artifactType: 'prd_drafts',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
-      content: JSON.stringify({
-        drafts: [
-          {
-            memberId: 'openai/gpt-5.1-codex',
-            outcome: 'completed',
-            content: 'schema_version: 1\nticket_id: LOOP-1\nartifact: prd\nstatus: draft\n',
-            draftMetrics: {
-              epicCount: 3,
-              userStoryCount: 9,
-            },
-          },
-          {
-            memberId: 'openai/gpt-5.2',
-            outcome: 'completed',
-            content: 'schema_version: 1\nticket_id: LOOP-1\nartifact: prd\nstatus: draft\n',
-            draftMetrics: {
-              epicCount: 2,
-              userStoryCount: 5,
-            },
-          },
-        ],
-      }),
+    for (const name of councilMemberNames) {
+      const shortName = name.split('/').pop()!
+      expect(screen.queryAllByText(shortName).length).toBeGreaterThan(0)
     }
-
-    renderWithProviders(
-      <PhaseArtifactsPanel
-        phase="DRAFTING_PRD"
-        isCompleted={false}
-        councilMemberCount={2}
-        councilMemberNames={['openai/gpt-5.1-codex', 'openai/gpt-5.2']}
-        preloadedArtifacts={[draftArtifact]}
-      />,
-    )
-
-    // Model names appear in both Part 1 (full answers) and Part 2 (drafts)
-    expect(screen.queryAllByText('gpt-5.1-codex').length).toBeGreaterThan(0)
-    expect(screen.queryAllByText('gpt-5.2').length).toBeGreaterThan(0)
-    expect(screen.getByText('3 epics · 9 user stories')).toBeInTheDocument()
-    expect(screen.getByText('2 epics · 5 user stories')).toBeInTheDocument()
-    expect(screen.queryByText('proposed 3 questions')).not.toBeInTheDocument()
+    for (const metric of expectedMetrics) {
+      expect(screen.getByText(metric)).toBeInTheDocument()
+    }
+    if (expectedPending) {
+      expect(screen.queryAllByText('waiting for response').length).toBeGreaterThan(0)
+    }
+    if (expectedParts) {
+      expect(screen.getByText('Part 1')).toBeInTheDocument()
+      expect(screen.getByText('Part 2')).toBeInTheDocument()
+    }
+    for (const text of notExpected) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument()
+    }
   })
 
   it('opens Drafting PRD part 1 artifacts with the interview-style full answers viewer', () => {
-    const fullAnswersArtifact: DBartifact = {
-      id: 30,
-      ticketId: 'ticket-1',
+    const fullAnswersArtifact = makeArtifact({
       phase: 'DRAFTING_PRD',
       artifactType: 'prd_full_answers',
-      filePath: null,
-      createdAt: '2026-03-25T10:12:31.000Z',
       content: JSON.stringify({
         drafts: [
           {
@@ -476,7 +456,7 @@ describe('PhaseArtifactsPanel', () => {
           'openai/gpt-5.2': 'completed',
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -497,13 +477,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('shows the stored full-answer count in the Drafting PRD ticket chips', () => {
-    const fullAnswersArtifact: DBartifact = {
-      id: 35,
-      ticketId: 'ticket-1',
+    const fullAnswersArtifact = makeArtifact({
       phase: 'DRAFTING_PRD',
       artifactType: 'prd_full_answers',
-      filePath: null,
-      createdAt: '2026-03-25T10:17:31.000Z',
       content: JSON.stringify({
         drafts: [
           {
@@ -511,7 +487,7 @@ describe('PhaseArtifactsPanel', () => {
             outcome: 'completed',
             content: [
               'schema_version: 1',
-              'ticket_id: PROJ-42',
+              `ticket_id: ${TEST.externalId}`,
               'artifact: interview',
               'questions:',
               '  - id: Q01',
@@ -532,7 +508,7 @@ describe('PhaseArtifactsPanel', () => {
           'openai/gpt-5.2': 'completed',
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -549,13 +525,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('opens Drafting PRD part 2 artifacts with the structured PRD viewer', () => {
-    const draftArtifact: DBartifact = {
-      id: 31,
-      ticketId: 'ticket-1',
+    const draftArtifact = makeArtifact({
       phase: 'DRAFTING_PRD',
       artifactType: 'prd_drafts',
-      filePath: null,
-      createdAt: '2026-03-25T10:13:31.000Z',
       content: JSON.stringify({
         drafts: [
           {
@@ -572,7 +544,7 @@ describe('PhaseArtifactsPanel', () => {
           'openai/gpt-5.2': 'completed',
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -589,20 +561,15 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Epics (1)')).toBeInTheDocument()
     expect(screen.getByText('Restore rich PRD views')).toBeInTheDocument()
 
-    // Expand the epic section to reveal user stories
     fireEvent.click(screen.getByText('Restore rich PRD views').closest('button')!)
 
     expect(screen.getByText('Review PRD drafts')).toBeInTheDocument()
   })
 
-  it('keeps Voting on Specs winner artifacts on the structured PRD viewer', () => {
-    const voteArtifact: DBartifact = {
-      id: 32,
-      ticketId: 'ticket-1',
+  it('keeps Voting on Specs winner artifacts on the winning draft view', () => {
+    const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_PRD',
       artifactType: 'prd_votes',
-      filePath: null,
-      createdAt: '2026-03-25T10:14:31.000Z',
       content: JSON.stringify({
         drafts: [
           {
@@ -628,12 +595,10 @@ describe('PhaseArtifactsPanel', () => {
             ],
           },
         ],
-        voterOutcomes: {
-          'openai/gpt-5.2': 'completed',
-        },
+        voterOutcomes: { 'openai/gpt-5.2': 'completed' },
         winnerId: 'openai/gpt-5.2',
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -646,24 +611,16 @@ describe('PhaseArtifactsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Winning PRD Draft/i }))
-
     expect(screen.getByText('Epics (1)')).toBeInTheDocument()
     expect(screen.getByText('Winning PRD draft')).toBeInTheDocument()
-
-    // Expand the epic section to reveal user stories
     fireEvent.click(screen.getByText('Winning PRD draft').closest('button')!)
-
     expect(screen.getByText('Inspect the winning PRD')).toBeInTheDocument()
   })
 
   it('keeps Voting on Specs details on the voting results view', () => {
-    const voteArtifact: DBartifact = {
-      id: 34,
-      ticketId: 'ticket-1',
+    const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_PRD',
       artifactType: 'prd_votes',
-      filePath: null,
-      createdAt: '2026-03-25T10:16:31.000Z',
       content: JSON.stringify({
         drafts: [
           {
@@ -686,12 +643,10 @@ describe('PhaseArtifactsPanel', () => {
             ],
           },
         ],
-        voterOutcomes: {
-          'openai/gpt-5.2': 'completed',
-        },
+        voterOutcomes: { 'openai/gpt-5.2': 'completed' },
         winnerId: 'openai/gpt-5.2',
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -704,19 +659,14 @@ describe('PhaseArtifactsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Voting Details/i }))
-
     expect(screen.getByText('Rankings')).toBeInTheDocument()
     expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
   })
 
   it('keeps later PRD review phases on the structured refined PRD viewer', () => {
-    const refinedArtifact: DBartifact = {
-      id: 33,
-      ticketId: 'ticket-1',
+    const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: buildPrdDocumentContent({
@@ -724,7 +674,7 @@ describe('PhaseArtifactsPanel', () => {
           storyTitle: 'Inspect refined PRD sections',
         }),
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -739,37 +689,15 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Epics (1)')).toBeInTheDocument()
     expect(screen.getByText('Refined PRD review')).toBeInTheDocument()
 
-    // Expand the epic section to reveal user stories
     fireEvent.click(screen.getByText('Refined PRD review').closest('button')!)
 
     expect(screen.getByText('Inspect refined PRD sections')).toBeInTheDocument()
   })
 
-  it('prefers the effective PRD coverage input when rendering the PRD candidate view', () => {
-    const refinedArtifact: DBartifact = {
-      id: 34,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_PRD',
-      artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
-      content: JSON.stringify({
-        winnerId: 'openai/gpt-5.2',
-        refinedContent: buildPrdDocumentContent({
-          epicTitle: 'Refined artifact PRD',
-          storyTitle: 'Inspect refined artifact sections',
-        }),
-      }),
-    }
-
-    const coverageInputArtifact: DBartifact = {
-      id: 35,
-      ticketId: 'ticket-1',
-      phase: 'VERIFYING_PRD_COVERAGE',
-      artifactType: 'prd_coverage_input',
-      filePath: null,
-      createdAt: '2026-03-25T10:16:31.000Z',
-      content: JSON.stringify({
+  it.each([
+    {
+      scenario: 'prefers refinedContent when present',
+      coverageInputContent: {
         interview: buildInterviewDocumentContent(),
         fullAnswers: buildInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
@@ -780,60 +708,47 @@ describe('PhaseArtifactsPanel', () => {
           epicTitle: 'Coverage input under verification',
           storyTitle: 'Inspect the exact PRD sent to coverage',
         }),
-      }),
-    }
-
-    renderWithProviders(
-      <PhaseArtifactsPanel
-        phase="WAITING_PRD_APPROVAL"
-        isCompleted={false}
-        preloadedArtifacts={[refinedArtifact, coverageInputArtifact]}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
-
-    expect(screen.getByText('Coverage input under verification')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Coverage input under verification').closest('button')!)
-    expect(screen.getByText('Inspect the exact PRD sent to coverage')).toBeInTheDocument()
-    expect(screen.queryByText('Coverage input PRD')).not.toBeInTheDocument()
-    expect(screen.queryByText('Refined artifact PRD')).not.toBeInTheDocument()
-    expect(screen.queryByText('Inspect refined artifact sections')).not.toBeInTheDocument()
-  })
-
-  it('falls back to the effective PRD coverage input when refinedContent is absent', () => {
-    const refinedArtifact: DBartifact = {
-      id: 36,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_PRD',
-      artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
-      content: JSON.stringify({
-        winnerId: 'openai/gpt-5.2',
-        refinedContent: buildPrdDocumentContent({
-          epicTitle: 'Artifact fallback PRD',
-          storyTitle: 'Inspect artifact fallback sections',
-        }),
-      }),
-    }
-
-    const coverageInputArtifact: DBartifact = {
-      id: 37,
-      ticketId: 'ticket-1',
-      phase: 'VERIFYING_PRD_COVERAGE',
-      artifactType: 'prd_coverage_input',
-      filePath: null,
-      createdAt: '2026-03-25T10:16:31.000Z',
-      content: JSON.stringify({
+      },
+      refinedEpic: 'Refined artifact PRD',
+      refinedStory: 'Inspect refined artifact sections',
+      expectedEpic: 'Coverage input under verification',
+      expectedStory: 'Inspect the exact PRD sent to coverage',
+      notExpected: ['Coverage input PRD', 'Refined artifact PRD', 'Inspect refined artifact sections'],
+    },
+    {
+      scenario: 'falls back to prd when refinedContent is absent',
+      coverageInputContent: {
         interview: buildInterviewDocumentContent(),
         fullAnswers: buildInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Coverage input PRD only',
           storyTitle: 'Inspect the exact saved PRD',
         }),
+      },
+      refinedEpic: 'Artifact fallback PRD',
+      refinedStory: 'Inspect artifact fallback sections',
+      expectedEpic: 'Coverage input PRD only',
+      expectedStory: 'Inspect the exact saved PRD',
+      notExpected: ['Artifact fallback PRD', 'Inspect artifact fallback sections'],
+    },
+  ])('$scenario', ({ coverageInputContent, refinedEpic, refinedStory, expectedEpic, expectedStory, notExpected }) => {
+    const refinedArtifact = makeArtifact({
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: refinedEpic,
+          storyTitle: refinedStory,
+        }),
       }),
-    }
+    })
+
+    const coverageInputArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_input',
+      content: JSON.stringify(coverageInputContent),
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -845,20 +760,17 @@ describe('PhaseArtifactsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
 
-    fireEvent.click(screen.getByText('Coverage input PRD only').closest('button')!)
-    expect(screen.getByText('Inspect the exact saved PRD')).toBeInTheDocument()
-    expect(screen.queryByText('Artifact fallback PRD')).not.toBeInTheDocument()
-    expect(screen.queryByText('Inspect artifact fallback sections')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText(expectedEpic).closest('button')!)
+    expect(screen.getByText(expectedStory)).toBeInTheDocument()
+    for (const text of notExpected) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument()
+    }
   })
 
   it('prefers the latest coverage revision and exposes review, diff, and resolution artifacts in approval', async () => {
-    const refinedArtifact: DBartifact = {
-      id: 38,
-      ticketId: 'ticket-1',
+    const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: buildPrdDocumentContent({
@@ -866,15 +778,11 @@ describe('PhaseArtifactsPanel', () => {
           storyTitle: 'Inspect the initial candidate',
         }),
       }),
-    }
+    })
 
-    const coverageInputArtifact: DBartifact = {
-      id: 39,
-      ticketId: 'ticket-1',
+    const coverageInputArtifact = makeArtifact({
       phase: 'VERIFYING_PRD_COVERAGE',
       artifactType: 'ui_artifact_companion:prd_coverage_input',
-      filePath: null,
-      createdAt: '2026-03-25T10:16:31.000Z',
       content: JSON.stringify({
         baseArtifactType: 'prd_coverage_input',
         generatedAt: '2026-03-25T10:16:31.000Z',
@@ -892,15 +800,11 @@ describe('PhaseArtifactsPanel', () => {
           candidateVersion: 1,
         },
       }),
-    }
+    })
 
-    const coverageArtifact: DBartifact = {
-      id: 40,
-      ticketId: 'ticket-1',
+    const coverageArtifact = makeArtifact({
       phase: 'VERIFYING_PRD_COVERAGE',
       artifactType: 'prd_coverage',
-      filePath: null,
-      createdAt: '2026-03-25T10:17:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         hasGaps: false,
@@ -908,15 +812,11 @@ describe('PhaseArtifactsPanel', () => {
         maxCoveragePasses: 3,
         limitReached: false,
       }),
-    }
+    })
 
-    const coverageRevisionArtifact: DBartifact = {
-      id: 41,
-      ticketId: 'ticket-1',
+    const coverageRevisionArtifact = makeArtifact({
       phase: 'VERIFYING_PRD_COVERAGE',
       artifactType: 'prd_coverage_revision',
-      filePath: null,
-      createdAt: '2026-03-25T10:18:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: buildPrdDocumentContent({
@@ -925,15 +825,11 @@ describe('PhaseArtifactsPanel', () => {
         }),
         candidateVersion: 2,
       }),
-    }
+    })
 
-    const coverageRevisionCompanionArtifact: DBartifact = {
-      id: 42,
-      ticketId: 'ticket-1',
+    const coverageRevisionCompanionArtifact = makeArtifact({
       phase: 'VERIFYING_PRD_COVERAGE',
       artifactType: 'ui_artifact_companion:prd_coverage_revision',
-      filePath: null,
-      createdAt: '2026-03-25T10:18:32.000Z',
       content: JSON.stringify({
         baseArtifactType: 'prd_coverage_revision',
         generatedAt: '2026-03-25T10:18:32.000Z',
@@ -970,7 +866,7 @@ describe('PhaseArtifactsPanel', () => {
           ],
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1009,13 +905,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('shows no-source badges in generic refinement diff views', () => {
-    const refinedArtifact: DBartifact = {
-      id: 330,
-      ticketId: 'ticket-1',
+    const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         winnerDraftContent: buildPrdDocumentContent({
@@ -1037,7 +929,7 @@ describe('PhaseArtifactsPanel', () => {
           },
         ],
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1063,14 +955,32 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getAllByText(leafTextMatcher('Inspect refined PRD sections')).length).toBeGreaterThan(0)
   })
 
-  it('shows a friendly cleanup notice when only no-op refinement warnings were repaired', () => {
-    const refinedArtifact: DBartifact = {
-      id: 331,
-      ticketId: 'ticket-1',
+  it.each([
+    {
+      scenario: 'shows cleanup notice for no-op refinement warnings',
+      repairWarnings: [
+        'Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.',
+        'Dropped no-op PRD refinement modified change at index 1 because the winning and final records are identical.',
+      ],
+      expectedText: "We cleaned up the AI's change list.",
+      expectedDetail: /Some items the AI marked as changed were actually unchanged/i,
+      expectedCount: 'Ignored 2 invalid change notes that turned out to be no-ops.',
+      notExpected: 'This artifact needed repair.',
+    },
+    {
+      scenario: 'keeps the broader repair notice for non-no-op repairs',
+      repairWarnings: [
+        'Inferred missing PRD refinement item_type at index 0 as epic.',
+      ],
+      expectedText: 'This artifact needed repair.',
+      expectedDetail: /Some diff entries may be auto-detected or may have corrected attribution/i,
+      expectedCount: 'Inferred missing PRD refinement item_type at index 0 as epic.',
+      notExpected: "We cleaned up the AI's change list.",
+    },
+  ])('$scenario', ({ repairWarnings, expectedText, expectedDetail, expectedCount, notExpected }) => {
+    const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         winnerDraftContent: buildPrdDocumentContent({
@@ -1083,13 +993,10 @@ describe('PhaseArtifactsPanel', () => {
         }),
         structuredOutput: {
           repairApplied: true,
-          repairWarnings: [
-            'Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.',
-            'Dropped no-op PRD refinement modified change at index 1 because the winning and final records are identical.',
-          ],
+          repairWarnings,
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1102,71 +1009,23 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
-    expect(screen.getByText('We cleaned up the AI\'s change list.')).toBeInTheDocument()
-    expect(screen.getByText(/Some items the AI marked as changed were actually unchanged/i)).toBeInTheDocument()
-    expect(screen.getByText('Ignored 2 invalid change notes that turned out to be no-ops.')).toBeInTheDocument()
-    expect(screen.queryByText('This artifact needed repair.')).not.toBeInTheDocument()
-  })
-
-  it('keeps the broader repair notice for non-no-op refinement repairs', () => {
-    const refinedArtifact: DBartifact = {
-      id: 332,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_PRD',
-      artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-25T10:15:31.000Z',
-      content: JSON.stringify({
-        winnerId: 'openai/gpt-5.2',
-        winnerDraftContent: buildPrdDocumentContent({
-          epicTitle: 'Original PRD review',
-          storyTitle: 'Inspect original PRD sections',
-        }),
-        refinedContent: buildPrdDocumentContent({
-          epicTitle: 'Refined PRD review',
-          storyTitle: 'Inspect refined PRD sections',
-        }),
-        structuredOutput: {
-          repairApplied: true,
-          repairWarnings: [
-            'Inferred missing PRD refinement item_type at index 0 as epic.',
-          ],
-        },
-      }),
-    }
-
-    renderWithProviders(
-      <PhaseArtifactsPanel
-        phase="WAITING_PRD_APPROVAL"
-        isCompleted={false}
-        preloadedArtifacts={[refinedArtifact]}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
-
-    expect(screen.getByText('This artifact needed repair.')).toBeInTheDocument()
-    expect(screen.getByText(/Some diff entries may be auto-detected or may have corrected attribution/i)).toBeInTheDocument()
-    expect(screen.getByText('Inferred missing PRD refinement item_type at index 0 as epic.')).toBeInTheDocument()
-    expect(screen.queryByText('We cleaned up the AI\'s change list.')).not.toBeInTheDocument()
+    expect(screen.getByText(expectedText)).toBeInTheDocument()
+    expect(screen.getByText(expectedDetail)).toBeInTheDocument()
+    expect(screen.getByText(expectedCount)).toBeInTheDocument()
+    expect(screen.queryByText(notExpected)).not.toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {
-    const compiledArtifact: DBartifact = {
-      id: 3,
-      ticketId: 'ticket-1',
+    const compiledArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: 'questions:\n  - id: Q01\n    question: "Final?"',
         questions: [{ id: 'Q01', phase: 'Foundation', question: 'Final?' }],
         questionCount: 48,
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1187,13 +1046,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('keeps the final interview diff tab available in later interview review phases', () => {
-    const voteArtifact: DBartifact = {
-      id: 4,
-      ticketId: 'ticket-1',
+    const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_INTERVIEW',
       artifactType: 'interview_votes',
-      filePath: null,
-      createdAt: '2026-03-12T11:48:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         drafts: [
@@ -1205,22 +1060,18 @@ describe('PhaseArtifactsPanel', () => {
           },
         ],
       }),
-    }
+    })
 
-    const compiledArtifact: DBartifact = {
-      id: 5,
-      ticketId: 'ticket-1',
+    const compiledArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"',
         questions: [{ id: 'Q01', phase: 'Foundation', question: 'Refined winner question?' }],
         questionCount: 1,
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1244,13 +1095,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('restores interview inspiration indicators from the separate ui diff artifact', async () => {
-    const voteArtifact: DBartifact = {
-      id: 41,
-      ticketId: 'ticket-1',
+    const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_INTERVIEW',
       artifactType: 'interview_votes',
-      filePath: null,
-      createdAt: '2026-03-12T11:48:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         drafts: [
@@ -1266,15 +1113,11 @@ describe('PhaseArtifactsPanel', () => {
           },
         ],
       }),
-    }
+    })
 
-    const compiledArtifact: DBartifact = {
-      id: 42,
-      ticketId: 'ticket-1',
+    const compiledArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         refinedContent: [
           'questions:',
@@ -1283,15 +1126,11 @@ describe('PhaseArtifactsPanel', () => {
           '    question: "Replacement target question?"',
         ].join('\n'),
       }),
-    }
+    })
 
-    const compiledCompanionArtifact: DBartifact = {
-      id: 43,
-      ticketId: 'ticket-1',
+    const compiledCompanionArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'ui_artifact_companion:interview_compiled',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:32.000Z',
       content: JSON.stringify({
         baseArtifactType: 'interview_compiled',
         generatedAt: '2026-03-12T11:49:32.000Z',
@@ -1301,25 +1140,17 @@ describe('PhaseArtifactsPanel', () => {
           questionCount: 1,
         },
       }),
-    }
+    })
 
-    const winnerArtifact: DBartifact = {
-      id: 44,
-      ticketId: 'ticket-1',
+    const winnerArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_winner',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:33.000Z',
       content: JSON.stringify({ winnerId: 'openai/gpt-5.2' }),
-    }
+    })
 
-    const uiDiffArtifact: DBartifact = {
-      id: 45,
-      ticketId: 'ticket-1',
+    const uiDiffArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'ui_refinement_diff:interview',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:34.000Z',
       content: JSON.stringify({
         domain: 'interview',
         winnerId: 'openai/gpt-5.2',
@@ -1344,7 +1175,7 @@ describe('PhaseArtifactsPanel', () => {
           },
         ],
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1361,29 +1192,24 @@ describe('PhaseArtifactsPanel', () => {
     await expectFirstInspirationTooltip('Alternative draft replacement question?')
   })
 
-  it('shows PRD inspiration tooltip text from the separate ui diff artifact during approval', async () => {
-    const refinedArtifact: DBartifact = {
-      id: 46,
-      ticketId: 'ticket-1',
+  it.each([
+    { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate/i, sourceLabel: 'Expose retry telemetry' },
+    { phase: 'REFINING_PRD' as const, buttonName: /PRD Candidate v1/i, sourceLabel: '' },
+  ])('shows PRD inspiration tooltip text in $phase', async ({ phase, buttonName, sourceLabel }) => {
+    const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         refinedContent: buildPrdDocumentContent({
           epicTitle: 'Refined PRD review',
           storyTitle: 'Inspect refined PRD sections',
         }),
       }),
-    }
+    })
 
-    const uiDiffArtifact: DBartifact = {
-      id: 47,
-      ticketId: 'ticket-1',
+    const uiDiffArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'ui_refinement_diff:prd',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:34.000Z',
       content: JSON.stringify({
         domain: 'prd',
         winnerId: 'openai/gpt-5.2',
@@ -1399,24 +1225,24 @@ describe('PhaseArtifactsPanel', () => {
             inspiration: {
               memberId: 'openai/gpt-5-mini',
               sourceId: 'US-8',
-              sourceLabel: 'Expose retry telemetry',
+              sourceLabel,
               sourceText: 'Title: Expose retry telemetry',
             },
             attributionStatus: 'inspired',
           },
         ],
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase="WAITING_PRD_APPROVAL"
+        phase={phase}
         isCompleted={false}
         preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: buttonName }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
@@ -1424,92 +1250,24 @@ describe('PhaseArtifactsPanel', () => {
     await expectFirstInspirationTooltip('US-8: Title: Expose retry telemetry')
   })
 
-  it('shows PRD inspiration tooltip text during live refinement when only sourceText is available', async () => {
-    const refinedArtifact: DBartifact = {
-      id: 470,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_PRD',
-      artifactType: 'prd_refined',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
-      content: JSON.stringify({
-        refinedContent: buildPrdDocumentContent({
-          epicTitle: 'Refined PRD review',
-          storyTitle: 'Inspect refined PRD sections',
-        }),
-      }),
-    }
-
-    const uiDiffArtifact: DBartifact = {
-      id: 471,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_PRD',
-      artifactType: 'ui_refinement_diff:prd',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:34.000Z',
-      content: JSON.stringify({
-        domain: 'prd',
-        winnerId: 'openai/gpt-5.2',
-        generatedAt: '2026-03-12T11:49:34.000Z',
-        entries: [
-          {
-            key: 'user_story:US-3',
-            changeType: 'added',
-            itemKind: 'user_story',
-            label: 'Surface retry metadata',
-            afterId: 'US-3',
-            afterText: 'Title: Surface retry metadata',
-            inspiration: {
-              memberId: 'openai/gpt-5-mini',
-              sourceId: 'US-8',
-              sourceLabel: '',
-              sourceText: 'Title: Expose retry telemetry',
-            },
-            attributionStatus: 'inspired',
-          },
-        ],
-      }),
-    }
-
-    renderWithProviders(
-      <PhaseArtifactsPanel
-        phase="REFINING_PRD"
-        isCompleted={false}
-        preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
-
-    expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
-    expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
-    await expectFirstInspirationTooltip('US-8: Title: Expose retry telemetry')
-  })
-
-  it('shows Beads inspiration tooltip text from the separate ui diff artifact during approval', async () => {
-    const refinedArtifact: DBartifact = {
-      id: 48,
-      ticketId: 'ticket-1',
+  it.each([
+    { phase: 'WAITING_BEADS_APPROVAL' as const, buttonName: /Refined Beads/i },
+    { phase: 'REFINING_BEADS' as const, buttonName: /Final Blueprint Draft/i },
+  ])('shows Beads inspiration tooltip text in $phase', async ({ phase, buttonName }) => {
+    const refinedArtifact = makeArtifact({
       phase: 'REFINING_BEADS',
       artifactType: 'beads_refined',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         refinedContent: buildBeadsDocumentContent([
           { id: 'bead-1', title: 'Validate refinement attribution' },
           { id: 'bead-2', title: 'Surface retry metadata' },
         ]),
       }),
-    }
+    })
 
-    const uiDiffArtifact: DBartifact = {
-      id: 49,
-      ticketId: 'ticket-1',
+    const uiDiffArtifact = makeArtifact({
       phase: 'REFINING_BEADS',
       artifactType: 'ui_refinement_diff:beads',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:34.000Z',
       content: JSON.stringify({
         domain: 'beads',
         winnerId: 'openai/gpt-5.2',
@@ -1532,80 +1290,17 @@ describe('PhaseArtifactsPanel', () => {
           },
         ],
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase="WAITING_BEADS_APPROVAL"
+        phase={phase}
         isCompleted={false}
         preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
-
-    expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
-    expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
-    await expectFirstInspirationTooltip('bead-9: Title: Adopt losing-draft telemetry')
-  })
-
-  it('shows Beads inspiration tooltip text during live refinement', async () => {
-    const refinedArtifact: DBartifact = {
-      id: 490,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_BEADS',
-      artifactType: 'beads_refined',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
-      content: JSON.stringify({
-        refinedContent: buildBeadsDocumentContent([
-          { id: 'bead-1', title: 'Validate refinement attribution' },
-          { id: 'bead-2', title: 'Surface retry metadata' },
-        ]),
-      }),
-    }
-
-    const uiDiffArtifact: DBartifact = {
-      id: 491,
-      ticketId: 'ticket-1',
-      phase: 'REFINING_BEADS',
-      artifactType: 'ui_refinement_diff:beads',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:34.000Z',
-      content: JSON.stringify({
-        domain: 'beads',
-        winnerId: 'openai/gpt-5.2',
-        generatedAt: '2026-03-12T11:49:34.000Z',
-        entries: [
-          {
-            key: 'bead:bead-2',
-            changeType: 'added',
-            itemKind: 'bead',
-            label: 'Surface retry metadata',
-            afterId: 'bead-2',
-            afterText: 'Title: Surface retry metadata',
-            inspiration: {
-              memberId: 'openai/gpt-5-mini',
-              sourceId: 'bead-9',
-              sourceLabel: 'Adopt losing-draft telemetry',
-              sourceText: 'Title: Adopt losing-draft telemetry',
-            },
-            attributionStatus: 'inspired',
-          },
-        ],
-      }),
-    }
-
-    renderWithProviders(
-      <PhaseArtifactsPanel
-        phase="REFINING_BEADS"
-        isCompleted={false}
-        preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /Final Blueprint Draft/i }))
+    fireEvent.click(screen.getByRole('button', { name: buttonName }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
@@ -1614,13 +1309,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('shows beads draft metrics on the council cards during DRAFTING_BEADS', () => {
-    const draftArtifact: DBartifact = {
-      id: 50,
-      ticketId: 'ticket-1',
+    const draftArtifact = makeArtifact({
       phase: 'DRAFTING_BEADS',
       artifactType: 'beads_drafts',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         drafts: [
           {
@@ -1637,17 +1328,13 @@ describe('PhaseArtifactsPanel', () => {
         },
         isFinal: true,
       }),
-    }
+    })
 
-    const companionArtifact: DBartifact = {
-      id: 51,
-      ticketId: 'ticket-1',
+    const companionArtifact = makeArtifact({
       phase: 'DRAFTING_BEADS',
       artifactType: 'ui_artifact_companion:beads_drafts',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:32.000Z',
       content: buildBeadsDraftCompanionContent(),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1664,32 +1351,24 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('prefers the canonical interview result in later interview phases when coverage input is available', () => {
-    const compiledArtifact: DBartifact = {
-      id: 6,
-      ticketId: 'ticket-1',
+    const compiledArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
       artifactType: 'interview_compiled',
-      filePath: null,
-      createdAt: '2026-03-12T11:49:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Old compiled question?"',
         questions: [{ id: 'Q01', phase: 'Foundation', question: 'Old compiled question?' }],
         questionCount: 1,
       }),
-    }
+    })
 
-    const coverageInputArtifact: DBartifact = {
-      id: 7,
-      ticketId: 'ticket-1',
+    const coverageInputArtifact = makeArtifact({
       phase: 'VERIFYING_INTERVIEW_COVERAGE',
       artifactType: 'interview_coverage_input',
-      filePath: null,
-      createdAt: '2026-03-12T11:50:31.000Z',
       content: JSON.stringify({
         interview: [
           'schema_version: 1',
-          'ticket_id: LOOP-1',
+          `ticket_id: ${TEST.externalId}`,
           'artifact: interview',
           'status: approved',
           'generated_by:',
@@ -1719,7 +1398,7 @@ describe('PhaseArtifactsPanel', () => {
           '  approved_at: ""',
         ].join('\n'),
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1742,17 +1421,13 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('shows a single interview results artifact during coverage verification', () => {
-    const coverageInputArtifact: DBartifact = {
-      id: 9,
-      ticketId: 'ticket-1',
+    const coverageInputArtifact = makeArtifact({
       phase: 'VERIFYING_INTERVIEW_COVERAGE',
       artifactType: 'interview_coverage_input',
-      filePath: null,
-      createdAt: '2026-03-12T11:50:31.000Z',
       content: JSON.stringify({
         interview: [
           'schema_version: 1',
-          'ticket_id: LOOP-1',
+          `ticket_id: ${TEST.externalId}`,
           'artifact: interview',
           'status: approved',
           'generated_by:',
@@ -1782,7 +1457,7 @@ describe('PhaseArtifactsPanel', () => {
           '  approved_at: ""',
         ].join('\n'),
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel
@@ -1803,13 +1478,9 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it('renders parsed interview coverage gaps and follow-up questions before raw audit output', () => {
-    const coverageArtifact: DBartifact = {
-      id: 8,
-      ticketId: 'ticket-1',
+    const coverageArtifact = makeArtifact({
       phase: 'VERIFYING_INTERVIEW_COVERAGE',
       artifactType: 'interview_coverage',
-      filePath: null,
-      createdAt: '2026-03-12T11:51:31.000Z',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         response: 'status: gaps\nfollow_up_questions:\n  - id: FU01\n    question: "Which fallback should be used?"\n',
@@ -1836,7 +1507,7 @@ describe('PhaseArtifactsPanel', () => {
           ],
         },
       }),
-    }
+    })
 
     renderWithProviders(
       <PhaseArtifactsPanel

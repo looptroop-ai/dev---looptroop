@@ -1,7 +1,6 @@
 import jsYaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
-import type { InterviewDocument } from '@shared/interviewArtifact'
-import { buildInterviewDocumentYaml } from '../../../structuredOutput'
+import { TEST, makeInterviewYaml, makeInterviewQuestion } from '../../../test/factories'
 import {
   buildPrdRefinedArtifact,
   parsePrdRefinedArtifact,
@@ -9,132 +8,51 @@ import {
   validatePrdRefinementOutput,
 } from '../refined'
 
-function buildInterviewYaml(ticketId: string): string {
-  const document: InterviewDocument = {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status: 'approved',
-    generated_by: {
-      winner_model: 'openai/gpt-5',
-      generated_at: '2026-03-26T10:00:00.000Z',
-    },
-    questions: [
-      {
-        id: 'Q01',
-        phase: 'Foundation',
-        prompt: 'Which prompt hardening rules are required?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'Require strict output validation and exact retry handling.',
-          answered_by: 'user',
-          answered_at: '2026-03-26T10:01:00.000Z',
-        },
-      },
-    ],
-    follow_up_rounds: [],
-    summary: {
-      goals: ['Harden REFINING_PRD'],
-      constraints: ['Preserve winner-only refinement'],
-      non_goals: ['Change execution'],
-      final_free_form_answer: '',
-    },
-    approval: {
-      approved_by: 'user',
-      approved_at: '2026-03-26T10:02:00.000Z',
-    },
-  }
-
-  return buildInterviewDocumentYaml(document)
+function story(id: string, title: string, criteria: string, steps: string) {
+  return { id, title, acceptance_criteria: [criteria], implementation_steps: [steps], verification: { required_commands: ['npm run test'] } }
 }
 
-function buildPrdContent(
-  ticketId: string,
-  options: {
-    epicTitle?: string
-    storyOneTitle?: string
-    includeStoryTwo?: boolean
-    includeStoryThree?: boolean
-    changes?: unknown[]
-  } = {},
-): string {
+function buildPrdContent(options: {
+  epicTitle?: string; storyOneTitle?: string; includeStoryTwo?: boolean; includeStoryThree?: boolean; changes?: unknown[]
+} = {}): string {
   const document: Record<string, unknown> = {
     schema_version: 1,
-    ticket_id: ticketId,
+    ticket_id: TEST.externalId,
     artifact: 'prd',
     status: 'draft',
-    source_interview: {
-      content_sha256: 'stale-hash',
-    },
-    product: {
-      problem_statement: 'Keep PRD refinement strict and restart-safe.',
-      target_users: ['LoopTroop maintainers'],
-    },
-    scope: {
-      in_scope: ['PRD refinement validation', 'artifact parsing'],
-      out_of_scope: ['Execution pipeline changes'],
-    },
+    source_interview: { content_sha256: 'stale-hash' },
+    product: { problem_statement: 'Keep PRD refinement strict and restart-safe.', target_users: ['LoopTroop maintainers'] },
+    scope: { in_scope: ['PRD refinement validation', 'artifact parsing'], out_of_scope: ['Execution pipeline changes'] },
     technical_requirements: {
       architecture_constraints: ['Preserve the winner-only refinement flow.'],
-      data_model: [],
-      api_contracts: [],
-      security_constraints: [],
-      performance_constraints: [],
+      data_model: [], api_contracts: [], security_constraints: [], performance_constraints: [],
       reliability_constraints: ['Validated artifacts must survive restarts.'],
       error_handling_rules: ['Retry once on structured-output failures.'],
       tooling_assumptions: [],
     },
-    epics: [
-      {
-        id: 'EPIC-1',
-        title: options.epicTitle ?? 'Prompt hardening',
-        objective: 'Make PRD refinement exact and auditable.',
-        implementation_steps: ['Compare the winner draft against the final refined PRD.'],
-        user_stories: [
-          {
-            id: 'US-1',
-            title: options.storyOneTitle ?? 'Validate PRD refinement',
-            acceptance_criteria: ['Every winner-to-final diff is represented exactly once.'],
-            implementation_steps: ['Validate change coverage before persisting the artifact.'],
-            verification: {
-              required_commands: ['npm run test'],
-            },
-          },
-          ...(options.includeStoryTwo === false
-            ? []
-            : [{
-                id: 'US-2',
-                title: 'Record change attribution',
-                acceptance_criteria: ['Every adopted improvement records its source.'],
-                implementation_steps: ['Persist attribution status alongside each change.'],
-                verification: {
-                  required_commands: ['npm run test'],
-                },
-              }]),
-          ...(options.includeStoryThree
-            ? [{
-                id: 'US-3',
-                title: 'Surface retry metadata',
-                acceptance_criteria: ['Structured retry metadata is preserved for review.'],
-                implementation_steps: ['Expose retry metadata in the final artifact.'],
-                verification: {
-                  required_commands: ['npm run test'],
-                },
-              }]
-            : []),
-        ],
-      },
-    ],
+    epics: [{
+      id: 'EPIC-1',
+      title: options.epicTitle ?? 'Prompt hardening',
+      objective: 'Make PRD refinement exact and auditable.',
+      implementation_steps: ['Compare the winner draft against the final refined PRD.'],
+      user_stories: [
+        story('US-1', options.storyOneTitle ?? 'Validate PRD refinement',
+          'Every winner-to-final diff is represented exactly once.',
+          'Validate change coverage before persisting the artifact.'),
+        ...(options.includeStoryTwo === false ? [] : [
+          story('US-2', 'Record change attribution',
+            'Every adopted improvement records its source.',
+            'Persist attribution status alongside each change.'),
+        ]),
+        ...(options.includeStoryThree ? [
+          story('US-3', 'Surface retry metadata',
+            'Structured retry metadata is preserved for review.',
+            'Expose retry metadata in the final artifact.'),
+        ] : []),
+      ],
+    }],
     risks: ['Loose parsing could hide real refinement mistakes.'],
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
+    approval: { approved_by: '', approved_at: '' },
   }
 
   if (options.changes !== undefined) {
@@ -144,56 +62,50 @@ function buildPrdContent(
   return jsYaml.dump(document, { lineWidth: 120, noRefs: true }) as string
 }
 
-function buildValidRefinementOutput(ticketId: string, options: { omitStoryItemType?: boolean } = {}): string {
-  return buildPrdContent(ticketId, {
+function buildValidRefinementOutput(options: { omitStoryItemType?: boolean } = {}): string {
+  return buildPrdContent({
     epicTitle: 'Prompt hardening and refinement safety',
     storyOneTitle: 'Validate PRD refinement exactly',
     includeStoryTwo: false,
     includeStoryThree: true,
     changes: [
-      {
-        type: 'modified',
-        item_type: 'epic',
-        before: { id: 'EPIC-1', title: 'Prompt hardening' },
-        after: { id: 'EPIC-1', title: 'Prompt hardening and refinement safety' },
-        inspiration: null,
-      },
-      {
-        type: 'modified',
-        ...(options.omitStoryItemType ? {} : { item_type: 'user_story' }),
-        before: { id: 'US-1', title: 'Validate PRD refinement' },
-        after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
-        inspiration: null,
-      },
-      {
-        type: 'removed',
-        item_type: 'user_story',
-        before: { id: 'US-2', title: 'Record change attribution' },
-        after: null,
-        inspiration: null,
-      },
-      {
-        type: 'added',
-        item_type: 'user_story',
-        before: null,
-        after: { id: 'US-3', title: 'Surface retry metadata' },
-        inspiration: {
-          alternative_draft: 1,
-          item: { id: 'US-8', title: 'Expose retry telemetry' },
-        },
-      },
+      { type: 'modified', item_type: 'epic', before: { id: 'EPIC-1', title: 'Prompt hardening' }, after: { id: 'EPIC-1', title: 'Prompt hardening and refinement safety' }, inspiration: null },
+      { type: 'modified', ...(options.omitStoryItemType ? {} : { item_type: 'user_story' }), before: { id: 'US-1', title: 'Validate PRD refinement' }, after: { id: 'US-1', title: 'Validate PRD refinement exactly' }, inspiration: null },
+      { type: 'removed', item_type: 'user_story', before: { id: 'US-2', title: 'Record change attribution' }, after: null, inspiration: null },
+      { type: 'added', item_type: 'user_story', before: null, after: { id: 'US-3', title: 'Surface retry metadata' }, inspiration: { alternative_draft: 1, item: { id: 'US-8', title: 'Expose retry telemetry' } } },
     ],
   })
 }
 
+const interviewContent = makeInterviewYaml({
+  ticket_id: TEST.externalId,
+  questions: [makeInterviewQuestion({
+    prompt: 'Which prompt hardening rules are required?',
+    answer: {
+      skipped: false,
+      selected_option_ids: [],
+      free_text: 'Require strict output validation and exact retry handling.',
+      answered_by: 'user',
+      answered_at: TEST.timestamp,
+    },
+  })],
+  summary: {
+    goals: ['Harden REFINING_PRD'],
+    constraints: ['Preserve winner-only refinement'],
+    non_goals: ['Change execution'],
+    final_free_form_answer: '',
+  },
+  approval: { approved_by: 'user', approved_at: TEST.timestamp },
+})
+
+function validationContext(overrides: Record<string, unknown> = {}) {
+  return { ticketId: TEST.externalId, interviewContent, winnerDraftContent: buildPrdContent(), ...overrides }
+}
+
 describe('PRD refined artifacts', () => {
   it('validates a refined PRD only when changes fully and exactly cover the winner-to-final diff', () => {
-    const ticketId = 'PROJ-7'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const result = validatePrdRefinementOutput(buildValidRefinementOutput(ticketId), {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId),
+    const result = validatePrdRefinementOutput(buildValidRefinementOutput(), {
+      ...validationContext(),
       losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
     })
 
@@ -206,103 +118,56 @@ describe('PRD refined artifacts', () => {
   })
 
   it('drops no-op modified changes before validating diff coverage', () => {
-    const ticketId = 'PROJ-8'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const unchangedContent = buildPrdContent(ticketId, {
-      changes: [
-        {
-          type: 'modified',
-          item_type: 'user_story',
-          before: { id: 'US-1', title: 'Validate PRD refinement' },
-          after: { id: 'US-1', title: 'Validate PRD refinement' },
-          inspiration: null,
-        },
-      ],
+    const unchangedContent = buildPrdContent({
+      changes: [{
+        type: 'modified', item_type: 'user_story',
+        before: { id: 'US-1', title: 'Validate PRD refinement' },
+        after: { id: 'US-1', title: 'Validate PRD refinement' },
+        inspiration: null,
+      }],
     })
 
-    const result = validatePrdRefinementOutput(unchangedContent, {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId),
-    })
+    const result = validatePrdRefinementOutput(unchangedContent, validationContext())
 
     expect(result.changes).toEqual([])
     expect(result.repairWarnings.join('\n')).toContain('Dropped no-op PRD refinement modified change')
   })
 
   it('rejects changes that reference items outside the winning draft', () => {
-    const ticketId = 'PROJ-9'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const invalidOutput = buildPrdContent(ticketId, {
-      changes: [
-        {
-          type: 'removed',
-          item_type: 'user_story',
-          before: { id: 'US-99', title: 'Ghost story' },
-          after: null,
-          inspiration: null,
-        },
-      ],
+    const invalidOutput = buildPrdContent({
+      changes: [{
+        type: 'removed', item_type: 'user_story',
+        before: { id: 'US-99', title: 'Ghost story' }, after: null, inspiration: null,
+      }],
     })
 
-    expect(() => validatePrdRefinementOutput(invalidOutput, {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId),
-    })).toThrow('does not match any item from the winning draft')
+    expect(() => validatePrdRefinementOutput(invalidOutput, validationContext()))
+      .toThrow('does not match any item from the winning draft')
   })
 
   it('rejects duplicate before or after reuse across changes', () => {
-    const ticketId = 'PROJ-10'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const duplicateReuseOutput = buildPrdContent(ticketId, {
+    const duplicateReuseOutput = buildPrdContent({
       storyOneTitle: 'Validate PRD refinement exactly',
       changes: [
-        {
-          type: 'modified',
-          item_type: 'user_story',
-          before: { id: 'US-1', title: 'Validate PRD refinement' },
-          after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
-          inspiration: null,
-        },
-        {
-          type: 'removed',
-          item_type: 'user_story',
-          before: { id: 'US-1', title: 'Validate PRD refinement' },
-          after: null,
-          inspiration: null,
-        },
+        { type: 'modified', item_type: 'user_story', before: { id: 'US-1', title: 'Validate PRD refinement' }, after: { id: 'US-1', title: 'Validate PRD refinement exactly' }, inspiration: null },
+        { type: 'removed', item_type: 'user_story', before: { id: 'US-1', title: 'Validate PRD refinement' }, after: null, inspiration: null },
       ],
     })
 
-    expect(() => validatePrdRefinementOutput(duplicateReuseOutput, {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId),
-    })).toThrow('reuses a winning-draft item already referenced by another change')
+    expect(() => validatePrdRefinementOutput(duplicateReuseOutput, validationContext()))
+      .toThrow('reuses a winning-draft item already referenced by another change')
   })
 
   it('downgrades malformed inspiration to invalid_unattributed', () => {
-    const ticketId = 'PROJ-11'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const result = validatePrdRefinementOutput(buildPrdContent(ticketId, {
+    const result = validatePrdRefinementOutput(buildPrdContent({
       includeStoryThree: true,
-      changes: [
-        {
-          type: 'added',
-          item_type: 'user_story',
-          before: null,
-          after: { id: 'US-3', title: 'Surface retry metadata' },
-          inspiration: {
-            alternative_draft: 'oops',
-            item: { id: 'US-8', title: 'Expose retry telemetry' },
-          },
-        },
-      ],
+      changes: [{
+        type: 'added', item_type: 'user_story', before: null,
+        after: { id: 'US-3', title: 'Surface retry metadata' },
+        inspiration: { alternative_draft: 'oops', item: { id: 'US-8', title: 'Expose retry telemetry' } },
+      }],
     }), {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId),
+      ...validationContext(),
       losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
     })
 
@@ -314,26 +179,15 @@ describe('PRD refined artifacts', () => {
   })
 
   it('accepts labeled alternative-draft inspiration references', () => {
-    const ticketId = 'PROJ-11B'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const result = validatePrdRefinementOutput(buildPrdContent(ticketId, {
+    const result = validatePrdRefinementOutput(buildPrdContent({
       includeStoryThree: true,
-      changes: [
-        {
-          type: 'added',
-          item_type: 'user_story',
-          before: null,
-          after: { id: 'US-3', title: 'Surface retry metadata' },
-          inspiration: {
-            alternative_draft: 'Alternative Draft 1',
-            item: { id: 'US-8', title: 'Expose retry telemetry' },
-          },
-        },
-      ],
+      changes: [{
+        type: 'added', item_type: 'user_story', before: null,
+        after: { id: 'US-3', title: 'Surface retry metadata' },
+        inspiration: { alternative_draft: 'Alternative Draft 1', item: { id: 'US-8', title: 'Expose retry telemetry' } },
+      }],
     }), {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId, { includeStoryThree: false }),
+      ...validationContext({ winnerDraftContent: buildPrdContent({ includeStoryThree: false }) }),
       losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
     })
 
@@ -352,24 +206,15 @@ describe('PRD refined artifacts', () => {
   })
 
   it('defaults uninspired edits to model_unattributed', () => {
-    const ticketId = 'PROJ-12'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const result = validatePrdRefinementOutput(buildPrdContent(ticketId, {
+    const result = validatePrdRefinementOutput(buildPrdContent({
       storyOneTitle: 'Validate PRD refinement exactly',
       includeStoryTwo: false,
-      changes: [
-        {
-          type: 'modified',
-          item_type: 'user_story',
-          before: { id: 'US-1', title: 'Validate PRD refinement' },
-          after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
-        },
-      ],
-    }), {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId, { includeStoryTwo: false }),
-    })
+      changes: [{
+        type: 'modified', item_type: 'user_story',
+        before: { id: 'US-1', title: 'Validate PRD refinement' },
+        after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
+      }],
+    }), validationContext({ winnerDraftContent: buildPrdContent({ includeStoryTwo: false }) }))
 
     expect(result.changes).toHaveLength(1)
     expect(result.changes[0]).toMatchObject({
@@ -379,12 +224,8 @@ describe('PRD refined artifacts', () => {
   })
 
   it('round-trips parsed refined PRD artifacts and rejects missing persisted artifacts', () => {
-    const ticketId = 'PROJ-13'
-    const interviewContent = buildInterviewYaml(ticketId)
-    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticketId), {
-      ticketId,
-      interviewContent,
-      winnerDraftContent: buildPrdContent(ticketId),
+    const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(), {
+      ...validationContext(),
       losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
     })
 

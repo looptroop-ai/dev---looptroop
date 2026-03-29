@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { InterviewSessionView } from '@shared/interviewSession'
+import { TEST } from '@/test/factories'
 import { InterviewApprovalNavigator } from '../InterviewApprovalNavigator'
 
 function buildInterviewData(): InterviewSessionView {
@@ -10,7 +11,7 @@ function buildInterviewData(): InterviewSessionView {
     raw: null,
     document: {
       schema_version: 1,
-      ticket_id: 'PROJ-42',
+      ticket_id: TEST.externalId,
       artifact: 'interview',
       status: 'draft',
       generated_by: {
@@ -80,7 +81,7 @@ function renderWithProviders(ui: React.ReactElement, data: InterviewSessionView)
       queries: { retry: false, staleTime: Infinity },
     },
   })
-  queryClient.setQueryData(['interview', '1:PROJ-42'], data)
+  queryClient.setQueryData(['interview', TEST.ticketId], data)
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -93,7 +94,7 @@ describe('InterviewApprovalNavigator', () => {
   it('renders interview result sections and dispatches approval focus events', async () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
 
-    renderWithProviders(<InterviewApprovalNavigator ticketId="1:PROJ-42" />, buildInterviewData())
+    renderWithProviders(<InterviewApprovalNavigator ticketId={TEST.ticketId} />, buildInterviewData())
 
     await waitFor(() => {
       expect(screen.getByText('Summary')).toBeInTheDocument()
@@ -109,7 +110,7 @@ describe('InterviewApprovalNavigator', () => {
       .find((event) => event.type === 'looptroop:interview-approval-focus') as CustomEvent<{ ticketId: string; anchorId: string }> | undefined
 
     expect(focusEvent?.detail).toEqual({
-      ticketId: '1:PROJ-42',
+      ticketId: TEST.ticketId,
       anchorId: 'interview-question-cf01',
     })
   })
@@ -151,7 +152,7 @@ describe('InterviewApprovalNavigator', () => {
       },
     )
 
-    renderWithProviders(<InterviewApprovalNavigator ticketId="1:PROJ-42" />, data)
+    renderWithProviders(<InterviewApprovalNavigator ticketId={TEST.ticketId} />, data)
 
     await waitFor(() => {
       expect(screen.getByText('Structure')).toBeInTheDocument()
@@ -171,7 +172,7 @@ describe('InterviewApprovalNavigator', () => {
       final_free_form_answer: '',
     }
 
-    renderWithProviders(<InterviewApprovalNavigator ticketId="1:PROJ-42" />, data)
+    renderWithProviders(<InterviewApprovalNavigator ticketId={TEST.ticketId} />, data)
 
     await waitFor(() => {
       expect(screen.getByText('Foundation')).toBeInTheDocument()

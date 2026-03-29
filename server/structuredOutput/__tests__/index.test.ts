@@ -17,6 +17,163 @@ import {
 } from '../index'
 import { normalizeResolvedInterviewDocumentOutput } from '../interviewDocument'
 
+const TICKET_ID = 'TEST-1'
+
+const VOTE_CATEGORIES = [
+  'Coverage of requirements',
+  'Correctness / feasibility',
+  'Testability',
+  'Minimal complexity / good decomposition',
+  'Risks / edge cases addressed',
+]
+
+function buildInterviewContent(
+  ticketId: string,
+  opts: { skipped?: boolean; prompt?: string; answer?: string } = {},
+): string {
+  const {
+    skipped = false,
+    prompt = 'What problem are we solving?',
+    answer = 'Ship a deterministic planning pipeline.',
+  } = opts
+
+  const answeredBy = skipped ? 'ai_skip' : 'user'
+  const answeredAt = skipped ? '' : '2026-03-20T10:05:00.000Z'
+  const freeText = skipped ? '' : answer
+
+  return [
+    'schema_version: 1',
+    `ticket_id: "${ticketId}"`,
+    'artifact: "interview"',
+    'status: "approved"',
+    'generated_by:',
+    '  winner_model: "openai/gpt-5"',
+    '  generated_at: "2026-03-20T10:00:00.000Z"',
+    'questions:',
+    '  - id: "Q01"',
+    '    phase: "Foundation"',
+    `    prompt: "${prompt}"`,
+    '    source: "compiled"',
+    '    follow_up_round: null',
+    '    answer_type: "free_text"',
+    '    options: []',
+    '    answer:',
+    `      skipped: ${skipped}`,
+    '      selected_option_ids: []',
+    `      free_text: "${freeText}"`,
+    `      answered_by: "${answeredBy}"`,
+    `      answered_at: "${answeredAt}"`,
+    'follow_up_rounds: []',
+    'summary:',
+    '  goals: []',
+    '  constraints: []',
+    '  non_goals: []',
+    '  final_free_form_answer: ""',
+    'approval:',
+    '  approved_by: "user"',
+    '  approved_at: "2026-03-20T10:10:00.000Z"',
+  ].join('\n')
+}
+
+function buildStandardPrdYaml(opts: {
+  ticketId?: string; sourceHash?: string | false; storyTitle?: string
+  risksText?: string | false; outOfScope?: string[]; epicTitle?: string
+  epicObjective?: string; epicSteps?: string[]; storyAcceptanceCriteria?: string[]
+  storySteps?: string[]; storyVerificationCommands?: string[]
+  includeApproval?: boolean; suffix?: string
+} = {}): string {
+  const {
+    ticketId, sourceHash = 'stale-hash',
+    storyTitle = 'Validate interview and PRD artifacts',
+    risksText = 'Permissive repairs could hide semantic issues',
+    outOfScope = ['Execution changes'], epicTitle = 'Harden structured output',
+    epicObjective = 'Prevent format-only model mistakes from blocking tickets.',
+    epicSteps = ['Add validators'],
+    storyAcceptanceCriteria = ['Structured artifacts are normalized before save'],
+    storySteps = ['Reuse shared repair helpers'],
+    storyVerificationCommands = ['npm run test:server'],
+    includeApproval = true, suffix = '',
+  } = opts
+
+  const yamlList = (items: string[], indent: string) =>
+    items.length === 0 ? ' []' : '\n' + items.map((s) => `${indent}- "${s}"`).join('\n')
+
+  return [
+    'schema_version: 1',
+    ...(ticketId ? [`ticket_id: "${ticketId}"`] : []),
+    'artifact: "prd"', 'status: "draft"',
+    ...(sourceHash !== false ? ['source_interview:', `  content_sha256: "${sourceHash}"`] : []),
+    'product:', '  problem_statement: "Ship a deterministic planning pipeline."',
+    '  target_users:', '    - "Maintainers"',
+    'scope:', '  in_scope:', '    - "Prompt hardening"',
+    `  out_of_scope:${yamlList(outOfScope, '    ')}`,
+    'technical_requirements:', '  architecture_constraints:', '    - "Shared validator layer"',
+    '  data_model: []', '  api_contracts: []', '  security_constraints: []',
+    '  performance_constraints: []', '  reliability_constraints: []',
+    '  error_handling_rules: []', '  tooling_assumptions: []',
+    'epics:', '  - id: "EPIC-1"',
+    `    title: "${epicTitle}"`, `    objective: "${epicObjective}"`,
+    `    implementation_steps:${yamlList(epicSteps, '      ')}`,
+    '    user_stories:', '      - id: "US-1"', `        title: "${storyTitle}"`,
+    `        acceptance_criteria:${yamlList(storyAcceptanceCriteria, '          ')}`,
+    `        implementation_steps:${yamlList(storySteps, '          ')}`,
+    '        verification:',
+    `          required_commands:${yamlList(storyVerificationCommands, '            ')}`,
+    ...(risksText !== false ? ['risks:', `  - "${risksText}"`] : []),
+    ...(includeApproval ? ['approval:', '  approved_by: ""', '  approved_at: ""'] : []),
+  ].join('\n') + suffix
+}
+
+const CANONICAL_RESOLVED_INTERVIEW = [
+  'schema_version: 1',
+  'ticket_id: "PROJ-42"',
+  'artifact: "interview"',
+  'status: "approved"',
+  'generated_by:',
+  '  winner_model: "openai/gpt-5.4"',
+  '  generated_at: "2026-03-25T18:18:55.102Z"',
+  'questions:',
+  '  - id: "Q01"',
+  '    phase: "Foundation"',
+  '    prompt: "What primary problem should the new phase solve?"',
+  '    source: "compiled"',
+  '    follow_up_round: null',
+  '    answer_type: "free_text"',
+  '    options: []',
+  '    answer:',
+  '      skipped: true',
+  '      selected_option_ids: []',
+  '      free_text: ""',
+  '      answered_by: "ai_skip"',
+  '      answered_at: ""',
+  '  - id: "Q02"',
+  '    phase: "Foundation"',
+  '    prompt: "Who should consume the strategy?"',
+  '    source: "compiled"',
+  '    follow_up_round: null',
+  '    answer_type: "single_choice"',
+  '    options:',
+  '      - id: "opt1"',
+  '        label: "Workflow engine"',
+  '      - id: "opt2"',
+  '        label: "Beads generation"',
+  '    answer:',
+  '      skipped: false',
+  '      selected_option_ids: ["opt1"]',
+  '      free_text: ""',
+  '      answered_by: "user"',
+  '      answered_at: "2026-03-25T18:19:00.000Z"',
+  'follow_up_rounds: []',
+  'summary:',
+  '  goals: []',
+  '  constraints: []',
+  '  non_goals: []',
+  '  final_free_form_answer: ""',
+  'approval:',
+  '  approved_by: "user"',
+  '  approved_at: "2026-03-25T18:19:30.000Z"',
+].join('\n')
+
 describe('structured output normalization', () => {
   it('repairs interview phase ordering without changing within-phase order', () => {
     const result = normalizeInterviewQuestionsOutput([
@@ -885,13 +1042,7 @@ describe('structured output normalization', () => {
     const parsed = normalizeVoteScorecardOutput(
       wrapped,
       ['Draft 1', 'Draft 2'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(parsed.ok).toBe(true)
@@ -901,13 +1052,7 @@ describe('structured output normalization', () => {
     const repaired = normalizeVoteScorecardOutput(
       parsed.normalizedContent.replace('total_score: 84', 'total_score: 80'),
       ['Draft 1', 'Draft 2'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(repaired.ok).toBe(true)
@@ -929,13 +1074,7 @@ describe('structured output normalization', () => {
         '    Risks / edge cases addressed: 18',
       ].join('\n'),
       ['Draft 1'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(repaired.ok).toBe(true)
@@ -955,13 +1094,7 @@ describe('structured output normalization', () => {
         '    total_score: 84',
       ].join('\n'),
       ['Draft 1'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(invalid.ok).toBe(false)
@@ -1003,13 +1136,7 @@ describe('structured output normalization', () => {
         '    total_score: 61',
       ].join('\n'),
       ['Draft 1', 'Draft 2', 'Draft 3', 'Draft 4'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(repaired.ok).toBe(true)
@@ -1035,13 +1162,7 @@ describe('structured output normalization', () => {
         },
       })}[e~[`,
       ['Draft 1'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(repaired.ok).toBe(true)
@@ -1066,13 +1187,7 @@ describe('structured output normalization', () => {
         '```',
       ].join('\n'),
       ['Draft 1'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(repaired.ok).toBe(true)
@@ -1102,13 +1217,7 @@ describe('structured output normalization', () => {
         '    total_score: 50',
       ].join('\n'),
       ['Draft 1'],
-      [
-        'Coverage of requirements',
-        'Correctness / feasibility',
-        'Testability',
-        'Minimal complexity / good decomposition',
-        'Risks / edge cases addressed',
-      ],
+      VOTE_CATEGORIES,
     )
 
     expect(result.ok).toBe(false)
@@ -1117,38 +1226,7 @@ describe('structured output normalization', () => {
   })
 
   it('normalizes PRD YAML and fills deterministic metadata from runtime context', () => {
-    const interviewContent = [
-      'schema_version: 1',
-      'ticket_id: "K8S-17"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5"',
-      '  generated_at: "2026-03-20T10:00:00.000Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "Which fallback path should we use?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: true',
-      '      selected_option_ids: []',
-      '      free_text: ""',
-      '      answered_by: "ai_skip"',
-      '      answered_at: ""',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'follow_up_rounds: []',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-20T10:10:00.000Z"',
-    ].join('\n')
+    const interviewContent = buildInterviewContent(TICKET_ID, { skipped: true, prompt: 'Which fallback path should we use?' })
     const result = normalizePrdYamlOutput([
       'prd:',
       '  product:',
@@ -1182,147 +1260,43 @@ describe('structured output normalization', () => {
       '  risks:',
       '    - Retry loop could hide semantic mistakes if too permissive',
     ].join('\n'), {
-      ticketId: 'K8S-17',
+      ticketId: TICKET_ID,
       interviewContent,
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.ticket_id).toBe('K8S-17')
+    expect(result.value.ticket_id).toBe(TICKET_ID)
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
     expect(result.normalizedContent).toContain('schema_version: 1')
   })
 
   it('accepts a top-level PRD document with artifact field instead of unwrapping it', () => {
-    const interviewContent = [
-      'schema_version: 1',
-      'ticket_id: "LOOTR-1"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5"',
-      '  generated_at: "2026-03-20T10:00:00.000Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What problem are we solving?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: []',
-      '      free_text: "Ship a deterministic planning pipeline."',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-20T10:05:00.000Z"',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'follow_up_rounds: []',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-20T10:10:00.000Z"',
-    ].join('\n')
-    const result = normalizePrdYamlOutput([
-      'schema_version: 1',
-      'ticket_id: "LOOTR-1"',
-      'artifact: "prd"',
-      'status: "draft"',
-      'source_interview:',
-      '  content_sha256: "abc123"',
-      'product:',
-      '  problem_statement: "Ship a deterministic planning pipeline."',
-      '  target_users:',
-      '    - "Maintainers"',
-      'scope:',
-      '  in_scope:',
-      '    - "Prompt hardening"',
-      '  out_of_scope:',
-      '    - "Execution changes"',
-      'technical_requirements:',
-      '  architecture_constraints:',
-      '    - "Shared validator layer"',
-      '  data_model: []',
-      '  api_contracts: []',
-      '  security_constraints: []',
-      '  performance_constraints: []',
-      '  reliability_constraints: []',
-      '  error_handling_rules: []',
-      '  tooling_assumptions: []',
-      'epics:',
-      '  - id: EPIC-1',
-      '    title: Harden structured output',
-      '    objective: Prevent format-only model mistakes from blocking tickets.',
-      '    implementation_steps:',
-      '      - Add validators',
-      '    user_stories:',
-      '      - id: US-1',
-      '        title: Validate interview/PRD/beads artifacts',
-      '        acceptance_criteria:',
-      '          - Structured artifacts are normalized before save',
-      '        implementation_steps:',
-      '          - Reuse shared repair helpers',
-      '        verification:',
-      '          required_commands:',
-      '            - npm run test:server',
-      'risks:',
-      '  - "Retry loop could hide semantic mistakes if too permissive"',
-      'approval:',
-      '  approved_by: ""',
-      '  approved_at: ""',
-    ].join('\n'), {
-      ticketId: 'LOOTR-1',
+    const interviewContent = buildInterviewContent(TICKET_ID)
+    const result = normalizePrdYamlOutput(buildStandardPrdYaml({
+      ticketId: TICKET_ID,
+      sourceHash: 'abc123',
+      storyTitle: 'Validate interview/PRD/beads artifacts',
+      risksText: 'Retry loop could hide semantic mistakes if too permissive',
+    }), {
+      ticketId: TICKET_ID,
       interviewContent,
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.ticket_id).toBe('LOOTR-1')
+    expect(result.value.ticket_id).toBe(TICKET_ID)
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
   })
 
   it('unwraps artifact.prd object wrappers without relaxing PRD validation', () => {
-    const interviewContent = [
-      'schema_version: 1',
-      'ticket_id: "LOOTR-2"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5"',
-      '  generated_at: "2026-03-20T10:00:00.000Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What problem are we solving?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: []',
-      '      free_text: "Ship a deterministic planning pipeline."',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-20T10:05:00.000Z"',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'follow_up_rounds: []',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-20T10:10:00.000Z"',
-    ].join('\n')
+    const interviewContent = buildInterviewContent(TICKET_ID)
 
     const result = normalizePrdYamlOutput([
       'schema_version: 1',
-      'ticket_id: "LOOTR-2"',
+      `ticket_id: "${TICKET_ID}"`,
       'artifact:',
       '  prd:',
       '    status: "draft"',
@@ -1369,55 +1343,24 @@ describe('structured output normalization', () => {
       '      approved_by: ""',
       '      approved_at: ""',
     ].join('\n'), {
-      ticketId: 'LOOTR-2',
+      ticketId: TICKET_ID,
       interviewContent,
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.ticket_id).toBe('LOOTR-2')
+    expect(result.value.ticket_id).toBe(TICKET_ID)
     expect(result.value.artifact).toBe('prd')
     expect(result.value.epics).toHaveLength(1)
     expect(result.value.epics[0]?.user_stories[0]?.id).toBe('US-1')
   })
 
   it('repairs dedented PRD nested wrapper mappings without relaxing schema checks', () => {
-    const interviewContent = [
-      'schema_version: 1',
-      'ticket_id: "PROJ-42"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5"',
-      '  generated_at: "2026-03-20T10:00:00.000Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What problem are we solving?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: []',
-      '      free_text: "Ship a deterministic planning pipeline."',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-20T10:05:00.000Z"',
-      'follow_up_rounds: []',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-20T10:10:00.000Z"',
-    ].join('\n')
+    const interviewContent = buildInterviewContent(TICKET_ID)
 
     const result = normalizePrdYamlOutput([
       'schema_version: 1',
-      'ticket_id: "PROJ-42"',
+      `ticket_id: "${TICKET_ID}"`,
       'artifact: "prd"',
       'status: "draft"',
       'source_interview:',
@@ -1463,7 +1406,7 @@ describe('structured output normalization', () => {
       'approved_by: ""',
       'approved_at: ""',
     ].join('\n'), {
-      ticketId: 'PROJ-42',
+      ticketId: TICKET_ID,
       interviewContent,
     })
 
@@ -1478,39 +1421,8 @@ describe('structured output normalization', () => {
 
   it('rejects non-object PRD payloads', () => {
     const result = normalizePrdYamlOutput('"prd"', {
-      ticketId: 'K8S-17',
-      interviewContent: [
-        'schema_version: 1',
-        'ticket_id: "K8S-17"',
-        'artifact: "interview"',
-        'status: "approved"',
-        'generated_by:',
-        '  winner_model: "openai/gpt-5"',
-        '  generated_at: "2026-03-20T10:00:00.000Z"',
-        'questions:',
-        '  - id: "Q01"',
-        '    phase: "Foundation"',
-        '    prompt: "Which workflow guardrails are mandatory?"',
-        '    source: "compiled"',
-        '    follow_up_round: null',
-        '    answer_type: "free_text"',
-        '    options: []',
-        '    answer:',
-        '      skipped: false',
-        '      selected_option_ids: []',
-        '      free_text: "Keep the council flow intact."',
-        '      answered_by: "user"',
-        '      answered_at: "2026-03-20T10:05:00.000Z"',
-        'follow_up_rounds: []',
-        'summary:',
-        '  goals: []',
-        '  constraints: []',
-        '  non_goals: []',
-        '  final_free_form_answer: ""',
-        'approval:',
-        '  approved_by: "user"',
-        '  approved_at: "2026-03-20T10:10:00.000Z"',
-      ].join('\n'),
+      ticketId: TICKET_ID,
+      interviewContent: buildInterviewContent(TICKET_ID, { prompt: 'Which workflow guardrails are mandatory?', answer: 'Keep the council flow intact.' }),
     })
 
     expect(result.ok).toBe(false)
@@ -1533,38 +1445,8 @@ describe('structured output normalization', () => {
       'risks:',
       '  - "Incomplete plans can block delivery"',
     ].join('\n'), {
-      ticketId: 'K8S-17',
-      interviewContent: [
-        'schema_version: 1',
-        'ticket_id: "K8S-17"',
-        'artifact: "interview"',
-        'status: "approved"',
-        'generated_by:',
-        '  winner_model: "openai/gpt-5"',
-        '  generated_at: "2026-03-20T10:00:00.000Z"',
-        'questions:',
-        '  - id: "Q01"',
-        '    phase: "Foundation"',
-        '    prompt: "Which workflow guardrails are mandatory?"',
-        '    source: "compiled"',
-        '    answer_type: "free_text"',
-        '    options: []',
-        '    answer:',
-        '      skipped: false',
-        '      selected_option_ids: []',
-        '      free_text: "Keep the council flow intact."',
-        '      answered_by: "user"',
-        '      answered_at: "2026-03-20T10:05:00.000Z"',
-        'follow_up_rounds: []',
-        'summary:',
-        '  goals: []',
-        '  constraints: []',
-        '  non_goals: []',
-        '  final_free_form_answer: ""',
-        'approval:',
-        '  approved_by: "user"',
-        '  approved_at: "2026-03-20T10:10:00.000Z"',
-      ].join('\n'),
+      ticketId: TICKET_ID,
+      interviewContent: buildInterviewContent(TICKET_ID, { prompt: 'Which workflow guardrails are mandatory?', answer: 'Keep the council flow intact.' }),
     })
 
     expect(result.ok).toBe(false)
@@ -1620,39 +1502,8 @@ describe('structured output normalization', () => {
       '          required_commands: []',
       '```',
     ].join('\n'), {
-      ticketId: 'K8S-17',
-      interviewContent: [
-        'schema_version: 1',
-        'ticket_id: "K8S-17"',
-        'artifact: "interview"',
-        'status: "approved"',
-        'generated_by:',
-        '  winner_model: "openai/gpt-5"',
-        '  generated_at: "2026-03-20T10:00:00.000Z"',
-        'questions:',
-        '  - id: "Q01"',
-        '    phase: "Foundation"',
-        '    prompt: "Which workflow guardrails are mandatory?"',
-        '    source: "compiled"',
-        '    follow_up_round: null',
-        '    answer_type: "free_text"',
-        '    options: []',
-        '    answer:',
-        '      skipped: false',
-        '      selected_option_ids: []',
-        '      free_text: "Keep the council flow intact."',
-        '      answered_by: "user"',
-        '      answered_at: "2026-03-20T10:05:00.000Z"',
-        'follow_up_rounds: []',
-        'summary:',
-        '  goals: []',
-        '  constraints: []',
-        '  non_goals: []',
-        '  final_free_form_answer: ""',
-        'approval:',
-        '  approved_by: "user"',
-        '  approved_at: "2026-03-20T10:10:00.000Z"',
-      ].join('\n'),
+      ticketId: TICKET_ID,
+      interviewContent: buildInterviewContent(TICKET_ID, { prompt: 'Which workflow guardrails are mandatory?', answer: 'Keep the council flow intact.' }),
     })
 
     expect(result.ok).toBe(true)
@@ -1665,42 +1516,11 @@ describe('structured output normalization', () => {
   })
 
   it('trims trailing terminal noise from complete PRD JSON output', () => {
-    const interviewContent = [
-      'schema_version: 1',
-      'ticket_id: "LINLO-12"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5"',
-      '  generated_at: "2026-03-20T10:00:00.000Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What problem are we solving?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: []',
-      '      free_text: "Ship a deterministic planning pipeline."',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-20T10:05:00.000Z"',
-      'follow_up_rounds: []',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-20T10:10:00.000Z"',
-    ].join('\n')
+    const interviewContent = buildInterviewContent(TICKET_ID)
 
     const result = normalizePrdYamlOutput(`${JSON.stringify({
       schema_version: 1,
-      ticket_id: 'LINLO-12',
+      ticket_id: TICKET_ID,
       artifact: 'prd',
       status: 'draft',
       source_interview: {
@@ -1749,7 +1569,7 @@ describe('structured output normalization', () => {
         approved_at: '',
       },
     })}[e~[`, {
-      ticketId: 'LINLO-12',
+      ticketId: TICKET_ID,
       interviewContent,
     })
 
@@ -1762,88 +1582,13 @@ describe('structured output normalization', () => {
   })
 
   it('trims trailing terminal noise glued to the last scalar in PRD YAML output', () => {
-    const interviewContent = [
-      'schema_version: 1',
-      'ticket_id: "LINLO-12"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5"',
-      '  generated_at: "2026-03-20T10:00:00.000Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What should the planner do?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: []',
-      '      free_text: "Ship a deterministic planning pipeline."',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-20T10:05:00.000Z"',
-      'follow_up_rounds: []',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-20T10:10:00.000Z"',
-    ].join('\n')
+    const interviewContent = buildInterviewContent(TICKET_ID, { prompt: 'What should the planner do?' })
 
-    const result = normalizePrdYamlOutput([
-      'schema_version: 1',
-      'ticket_id: "LINLO-12"',
-      'artifact: "prd"',
-      'status: "draft"',
-      'source_interview:',
-      '  content_sha256: "stale-hash"',
-      'product:',
-      '  problem_statement: "Ship a deterministic planning pipeline."',
-      '  target_users:',
-      '    - "Maintainers"',
-      'scope:',
-      '  in_scope:',
-      '    - "Prompt hardening"',
-      '  out_of_scope:',
-      '    - "Execution changes"',
-      'technical_requirements:',
-      '  architecture_constraints:',
-      '    - "Shared validator layer"',
-      '  data_model: []',
-      '  api_contracts: []',
-      '  security_constraints: []',
-      '  performance_constraints: []',
-      '  reliability_constraints: []',
-      '  error_handling_rules: []',
-      '  tooling_assumptions: []',
-      'epics:',
-      '  - id: "EPIC-1"',
-      '    title: "Harden structured output"',
-      '    objective: "Prevent format-only model mistakes from blocking tickets."',
-      '    implementation_steps:',
-      '      - "Add validators"',
-      '    user_stories:',
-      '      - id: "US-1"',
-      '        title: "Validate interview and PRD artifacts"',
-      '        acceptance_criteria:',
-      '          - "Structured artifacts are normalized before save"',
-      '        implementation_steps:',
-      '          - "Reuse shared repair helpers"',
-      '        verification:',
-      '          required_commands:',
-      '            - "npm run test:server"',
-      'risks:',
-      '  - "Permissive repairs could hide semantic issues"',
-      'approval:',
-      '  approved_by: ""',
-      '  approved_at: ""[e~[',
-    ].join('\n'), {
-      ticketId: 'LINLO-12',
+    const result = normalizePrdYamlOutput(buildStandardPrdYaml({
+      ticketId: TICKET_ID,
+      suffix: '[e~[',
+    }), {
+      ticketId: TICKET_ID,
       interviewContent,
     })
 
@@ -1856,74 +1601,21 @@ describe('structured output normalization', () => {
   })
 
   it('accepts PRD normalization even when the source interview contains skipped questions', () => {
-    const result = normalizePrdYamlOutput([
-      'schema_version: 1',
-      'artifact: "prd"',
-      'status: "draft"',
-      'product:',
-      '  problem_statement: "Ship a deterministic planning pipeline."',
-      '  target_users:',
-      '    - "Maintainers"',
-      'scope:',
-      '  in_scope:',
-      '    - "Prompt hardening"',
-      '  out_of_scope: []',
-      'technical_requirements:',
-      '  architecture_constraints:',
-      '    - "Shared validator layer"',
-      '  data_model: []',
-      '  api_contracts: []',
-      '  security_constraints: []',
-      '  performance_constraints: []',
-      '  reliability_constraints: []',
-      '  error_handling_rules: []',
-      '  tooling_assumptions: []',
-      'epics:',
-      '  - id: "EPIC-1"',
-      '    title: "First epic"',
-      '    objective: "Cover the first slice."',
-      '    implementation_steps: []',
-      '    user_stories:',
-      '      - id: "US-1"',
-      '        title: "First story"',
-      '        acceptance_criteria: []',
-      '        implementation_steps: []',
-      '        verification:',
-      '          required_commands: []',
-    ].join('\n'), {
-      ticketId: 'K8S-17',
-      interviewContent: [
-        'schema_version: 1',
-        'ticket_id: "K8S-17"',
-        'artifact: "interview"',
-        'status: "approved"',
-        'generated_by:',
-        '  winner_model: "openai/gpt-5"',
-        '  generated_at: "2026-03-20T10:00:00.000Z"',
-        'questions:',
-        '  - id: "Q01"',
-        '    phase: "Foundation"',
-        '    prompt: "Which fallback path should we use?"',
-        '    source: "compiled"',
-        '    follow_up_round: null',
-        '    answer_type: "free_text"',
-        '    options: []',
-        '    answer:',
-        '      skipped: true',
-        '      selected_option_ids: []',
-        '      free_text: ""',
-        '      answered_by: "ai_skip"',
-        '      answered_at: ""',
-        'follow_up_rounds: []',
-        'summary:',
-        '  goals: []',
-        '  constraints: []',
-        '  non_goals: []',
-        '  final_free_form_answer: ""',
-        'approval:',
-        '  approved_by: "user"',
-        '  approved_at: "2026-03-20T10:10:00.000Z"',
-      ].join('\n'),
+    const result = normalizePrdYamlOutput(buildStandardPrdYaml({
+      sourceHash: false,
+      epicTitle: 'First epic',
+      epicObjective: 'Cover the first slice.',
+      epicSteps: [],
+      storyTitle: 'First story',
+      storyAcceptanceCriteria: [],
+      storySteps: [],
+      storyVerificationCommands: [],
+      outOfScope: [],
+      risksText: false,
+      includeApproval: false,
+    }), {
+      ticketId: TICKET_ID,
+      interviewContent: buildInterviewContent(TICKET_ID, { skipped: true, prompt: 'Which fallback path should we use?' }),
     })
 
     expect(result.ok).toBe(true)
@@ -2567,28 +2259,12 @@ describe('structured output normalization', () => {
     expect(result.value.files[0]?.content).toContain('export const routes = []')
   })
 
-  it('rejects relevant-files prompt echoes with a clear validation error', () => {
-    const result = normalizeRelevantFilesOutput([
-      'CRITICAL OUTPUT RULE:',
-      'Return strict machine-readable output.',
-      '',
-      'CONTEXT REFRESH:',
-      'Use the latest ticket context.',
-      '',
-      '## System Role',
-      'You are an expert software architect.',
-      '',
-      '## Instructions',
-      '1. Read the relevant files.',
-    ].join('\n'))
-
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error).toContain('echoed the prompt')
-  })
-
-  it('rejects final-test prompt echoes with a clear validation error', () => {
-    const result = normalizeFinalTestCommandsOutput([
+  it.each([
+    ['relevant-files', normalizeRelevantFilesOutput],
+    ['final-test', normalizeFinalTestCommandsOutput],
+    ['coverage', normalizeCoverageResultOutput],
+  ] as const)('rejects %s prompt echoes with a clear validation error', (_label, normalize) => {
+    const result = normalize([
       'CRITICAL OUTPUT RULE:',
       'Return strict machine-readable output.',
       '',
@@ -2598,24 +2274,6 @@ describe('structured output normalization', () => {
       '## System Role',
       'You are a senior test engineer.',
     ].join('\n'))
-
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.error).toContain('echoed the prompt')
-  })
-
-  it('rejects coverage prompt echoes with a clear validation error', () => {
-    const result = normalizeCoverageResultOutput([
-      'CRITICAL OUTPUT RULE:',
-      'Return strict machine-readable output.',
-      '',
-      'CONTEXT REFRESH:',
-      'Use the latest ticket context.',
-      '',
-      '## Instructions',
-      '1. Return a coverage result.',
-    ].join('\n'))
-
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toContain('echoed the prompt')
@@ -2815,8 +2473,8 @@ describe('structured output normalization', () => {
     expect(result.value.files[2]?.rationale).toContain('Also has key: value patterns')
   })
 
-  it('repairs interview questions with missing space after list dash', () => {
-    const result = normalizeInterviewQuestionsOutput([
+  it.each([
+    ['mixed correct and incorrect', [
       'questions:',
       '  -id: Q1',
       '    phase: foundation',
@@ -2827,18 +2485,8 @@ describe('structured output normalization', () => {
       '  -id: Q3',
       '    phase: structure',
       '    question: "What features are required?"',
-    ].join('\n'), 10)
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.value.questions).toHaveLength(3)
-    expect(result.value.questions[0]!.id).toBe('Q01')
-    expect(result.value.questions[1]!.id).toBe('Q02')
-    expect(result.value.questions[2]!.id).toBe('Q03')
-  })
-
-  it('repairs interview questions where all items have missing dash space', () => {
-    const result = normalizeInterviewQuestionsOutput([
+    ], 3],
+    ['all items missing dash space', [
       'questions:',
       '  -id: Q1',
       '    phase: foundation',
@@ -2846,13 +2494,12 @@ describe('structured output normalization', () => {
       '  -id: Q2',
       '    phase: structure',
       '    question: "What features are needed?"',
-    ].join('\n'), 10)
-
+    ], 2],
+  ] as const)('repairs interview questions with %s items', (_, lines, expectedCount) => {
+    const result = normalizeInterviewQuestionsOutput(lines.join('\n'), 10)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.questions).toHaveLength(2)
-    expect(result.value.questions[0]!.question).toBe('What problem are we solving?')
-    expect(result.value.questions[1]!.question).toBe('What features are needed?')
+    expect(result.value.questions).toHaveLength(expectedCount)
   })
 
   it('normalizes yes_no answer_type to single_choice with Yes/No options in batch questions', () => {
@@ -2886,8 +2533,11 @@ describe('structured output normalization', () => {
     ])
   })
 
-  it('truncates single_choice options exceeding the maximum of 10', () => {
-    const options = Array.from({ length: 12 }, (_, i) => `    - id: opt${i + 1}\n      label: "Option ${i + 1}"`)
+  it.each([
+    ['single_choice', 12, 10, 'Which database?', 'DB choice'],
+    ['multiple_choice', 18, 15, 'Which platforms?', 'Platform choice'],
+  ] as const)('truncates %s options exceeding the maximum of %d', (answerType, inputCount, maxCount, question, rationale) => {
+    const options = Array.from({ length: inputCount }, (_, i) => `    - id: opt${i + 1}\n      label: "Option ${i + 1}"`)
     const result = normalizeInterviewTurnOutput([
       '<INTERVIEW_BATCH>',
       'batch_number: 1',
@@ -2898,11 +2548,11 @@ describe('structured output normalization', () => {
       'ai_commentary: "Testing option limits"',
       'questions:',
       '  - id: Q01',
-      '    question: "Which database?"',
+      `    question: "${question}"`,
       '    phase: Foundation',
       '    priority: high',
-      '    rationale: "DB choice"',
-      '    answer_type: single_choice',
+      `    rationale: "${rationale}"`,
+      `    answer_type: ${answerType}`,
       '    options:',
       ...options,
       '</INTERVIEW_BATCH>',
@@ -2912,36 +2562,7 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value.kind).toBe('batch')
     if (result.value.kind !== 'batch') return
-    expect(result.value.batch.questions[0]!.options).toHaveLength(10)
-  })
-
-  it('truncates multiple_choice options exceeding the maximum of 15', () => {
-    const options = Array.from({ length: 18 }, (_, i) => `    - id: opt${i + 1}\n      label: "Option ${i + 1}"`)
-    const result = normalizeInterviewTurnOutput([
-      '<INTERVIEW_BATCH>',
-      'batch_number: 1',
-      'progress:',
-      '  current: 1',
-      '  total: 3',
-      'is_final_free_form: false',
-      'ai_commentary: "Testing option limits"',
-      'questions:',
-      '  - id: Q01',
-      '    question: "Which platforms?"',
-      '    phase: Foundation',
-      '    priority: high',
-      '    rationale: "Platform choice"',
-      '    answer_type: multiple_choice',
-      '    options:',
-      ...options,
-      '</INTERVIEW_BATCH>',
-    ].join('\n'))
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.value.kind).toBe('batch')
-    if (result.value.kind !== 'batch') return
-    expect(result.value.batch.questions[0]!.options).toHaveLength(15)
+    expect(result.value.batch.questions[0]!.options).toHaveLength(maxCount)
   })
 
   it('downgrades single_choice to free_text when no options are provided', () => {
@@ -3855,55 +3476,7 @@ describe('structured output normalization', () => {
   })
 
   it('trims trailing terminal noise from complete resolved interview JSON output', () => {
-    const canonicalInterview = [
-      'schema_version: 1',
-      'ticket_id: "PROJ-42"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5.4"',
-      '  generated_at: "2026-03-25T18:18:55.102Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What primary problem should the new phase solve?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: true',
-      '      selected_option_ids: []',
-      '      free_text: ""',
-      '      answered_by: "ai_skip"',
-      '      answered_at: ""',
-      '  - id: "Q02"',
-      '    phase: "Foundation"',
-      '    prompt: "Who should consume the strategy?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "single_choice"',
-      '    options:',
-      '      - id: "opt1"',
-      '        label: "Workflow engine"',
-      '      - id: "opt2"',
-      '        label: "Beads generation"',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: ["opt1"]',
-      '      free_text: ""',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-25T18:19:00.000Z"',
-      'follow_up_rounds: []',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-25T18:19:30.000Z"',
-    ].join('\n')
+    const canonicalInterview = CANONICAL_RESOLVED_INTERVIEW
 
     const result = normalizeResolvedInterviewDocumentOutput(`${JSON.stringify({
       schema_version: 1,
@@ -3979,55 +3552,7 @@ describe('structured output normalization', () => {
   })
 
   it('trims trailing terminal noise glued to the last scalar in resolved interview YAML output', () => {
-    const canonicalInterview = [
-      'schema_version: 1',
-      'ticket_id: "PROJ-42"',
-      'artifact: "interview"',
-      'status: "approved"',
-      'generated_by:',
-      '  winner_model: "openai/gpt-5.4"',
-      '  generated_at: "2026-03-25T18:18:55.102Z"',
-      'questions:',
-      '  - id: "Q01"',
-      '    phase: "Foundation"',
-      '    prompt: "What primary problem should the new phase solve?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "free_text"',
-      '    options: []',
-      '    answer:',
-      '      skipped: true',
-      '      selected_option_ids: []',
-      '      free_text: ""',
-      '      answered_by: "ai_skip"',
-      '      answered_at: ""',
-      '  - id: "Q02"',
-      '    phase: "Foundation"',
-      '    prompt: "Who should consume the strategy?"',
-      '    source: "compiled"',
-      '    follow_up_round: null',
-      '    answer_type: "single_choice"',
-      '    options:',
-      '      - id: "opt1"',
-      '        label: "Workflow engine"',
-      '      - id: "opt2"',
-      '        label: "Beads generation"',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: ["opt1"]',
-      '      free_text: ""',
-      '      answered_by: "user"',
-      '      answered_at: "2026-03-25T18:19:00.000Z"',
-      'follow_up_rounds: []',
-      'summary:',
-      '  goals: []',
-      '  constraints: []',
-      '  non_goals: []',
-      '  final_free_form_answer: ""',
-      'approval:',
-      '  approved_by: "user"',
-      '  approved_at: "2026-03-25T18:19:30.000Z"',
-    ].join('\n')
+    const canonicalInterview = CANONICAL_RESOLVED_INTERVIEW
 
     const result = normalizeResolvedInterviewDocumentOutput([
       'schema_version: 1',

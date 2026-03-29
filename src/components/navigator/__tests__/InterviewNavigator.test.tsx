@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InterviewSessionView } from '@shared/interviewSession'
+import { TEST } from '@/test/factories'
 import { InterviewNavigator } from '../InterviewNavigator'
 
 let interviewData: InterviewSessionView = {
@@ -15,7 +16,7 @@ function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
-  queryClient.setQueryData(['interview', '1:PROJ-42'], interviewData)
+  queryClient.setQueryData(['interview', TEST.ticketId], interviewData)
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -179,7 +180,7 @@ describe('InterviewNavigator', () => {
   it('groups interview questions by stage and dispatches focus events with status labels', async () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
 
-    renderWithProviders(<InterviewNavigator ticketId="1:PROJ-42" />)
+    renderWithProviders(<InterviewNavigator ticketId={TEST.ticketId} />)
 
     await waitFor(() => {
       expect(screen.getByText('Foundation')).toBeInTheDocument()
@@ -201,7 +202,7 @@ describe('InterviewNavigator', () => {
       .find((event) => event.type === 'looptroop:interview-focus') as CustomEvent<{ ticketId: string; questionId: string }> | undefined
 
     expect(focusEvent?.detail).toEqual({
-      ticketId: '1:PROJ-42',
+      ticketId: TEST.ticketId,
       questionId: 'QF01',
     })
   })
