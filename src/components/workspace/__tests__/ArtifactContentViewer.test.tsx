@@ -713,6 +713,16 @@ describe('ArtifactContentViewer', () => {
     expect(copy?.detail).toContain('1 parser issue(s) repaired')
   })
 
+  it('suppresses parser notices when a bare repair flag has no details', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: [],
+      autoRetryCount: 0,
+    }, 'relevant-files')
+
+    expect(copy).toBeNull()
+  })
+
   it('shows a collapsed parser notice for council draft artifacts', () => {
     render(
       <ArtifactContent
@@ -809,6 +819,36 @@ describe('ArtifactContentViewer', () => {
     openNotice('LoopTroop repaired the relevant files scan.')
 
     expect(screen.getByText(/The relevant-files response needed cleanup before it matched the expected format/i)).toBeInTheDocument()
+  })
+
+  it('hides the relevant-files parser notice when there are no warnings or retries to explain', () => {
+    render(
+      <ArtifactContent
+        artifactId="relevant-files-scan"
+        phase="PREPARING_CONTEXT"
+        content={JSON.stringify({
+          fileCount: 1,
+          files: [
+            {
+              path: 'src/app.ts',
+              rationale: 'Main app entry point.',
+              relevance: 'high',
+              likely_action: 'modify',
+              contentPreview: 'export function app() {}',
+              contentLength: 25,
+            },
+          ],
+          structuredOutput: {
+            repairApplied: true,
+            repairWarnings: [],
+            autoRetryCount: 0,
+          },
+        })}
+      />,
+    )
+
+    expect(screen.queryByText('LoopTroop repaired the relevant files scan.')).not.toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop repaired this relevant files scan before showing it.')).not.toBeInTheDocument()
   })
 
   it('shows aggregate and per-voter parser notices for voting results', () => {

@@ -1077,7 +1077,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.queryByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).not.toBeInTheDocument()
   })
 
-  it('shows a generic interview diff repair notice when only a bare repair flag is present', () => {
+  it('hides the interview diff repair notice when only a bare repair flag is present', () => {
     const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_INTERVIEW',
       artifactType: 'interview_votes',
@@ -1130,14 +1130,9 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
 
-    const noticeButton = screen.getByText('LoopTroop repaired the diff data.').closest('button')!
-    expect(noticeButton).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop repaired this diff before showing it.')).toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop repaired the diff data.')).not.toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop repaired this diff before showing it.')).not.toBeInTheDocument()
     expect(screen.queryByText(/The saved diff metadata had problems/i)).not.toBeInTheDocument()
-
-    fireEvent.click(noticeButton)
-
-    expect(screen.getByText(/The saved diff metadata had problems/i)).toBeInTheDocument()
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
     expect(screen.getByText('Modified 1')).toBeInTheDocument()
   })

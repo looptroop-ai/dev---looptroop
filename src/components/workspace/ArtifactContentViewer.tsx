@@ -517,11 +517,11 @@ function getStructuredOutputWarnings(structuredOutput?: ArtifactStructuredOutput
 }
 
 function hasArtifactProcessingNotice(structuredOutput?: ArtifactStructuredOutputData): boolean {
+  const warningCount = getStructuredOutputWarnings(structuredOutput).length
   return Boolean(
     structuredOutput
     && (
-      structuredOutput.repairApplied
-      || getStructuredOutputWarnings(structuredOutput).length > 0
+      warningCount > 0
       || (structuredOutput.autoRetryCount ?? 0) > 0
       || structuredOutput.validationError
     ),
@@ -721,7 +721,7 @@ export function buildArtifactProcessingNoticeCopy(
   if (!hasArtifactProcessingNotice(structuredOutput)) return null
 
   const repairWarnings = getStructuredOutputWarnings(structuredOutput)
-  const hasRepair = Boolean(structuredOutput?.repairApplied || repairWarnings.length > 0)
+  const hasRepair = repairWarnings.length > 0
   const retryCount = structuredOutput?.autoRetryCount ?? 0
   const hasRetry = retryCount > 0 || Boolean(structuredOutput?.validationError)
   const strings = getArtifactProcessingStrings(kind, context)

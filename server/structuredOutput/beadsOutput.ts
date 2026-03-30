@@ -1,3 +1,4 @@
+import jsYaml from 'js-yaml'
 import type { RefinementChange } from '@shared/refinementChanges'
 import type { Bead, BeadSubset } from '../phases/beads/types'
 import { looksLikePromptEcho } from '../lib/promptEcho'
@@ -385,6 +386,31 @@ function truncateToCompleteFileEntries(content: string): string | null {
   return truncated || null
 }
 
+function isExactTaggedRelevantFilesEnvelope(rawContent: string, candidate: string): boolean {
+  const trimmed = rawContent.trim()
+  const match = trimmed.match(/^<RELEVANT_FILES_RESULT>\s*([\s\S]*?)\s*<\/RELEVANT_FILES_RESULT>$/)
+  if (!match) return false
+
+  return (match[1] ?? '').trim() === candidate.trim()
+}
+
+function parsesAsPlainYamlOrJson(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) return false
+
+  try {
+    JSON.parse(trimmed)
+    return true
+  } catch {
+    try {
+      jsYaml.load(trimmed)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
 export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutputResult<RelevantFilesOutputPayload> {
   const repairWarnings: string[] = []
   const candidates = collectTaggedCandidates(rawContent, 'RELEVANT_FILES_RESULT')
@@ -477,7 +503,10 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
         ok: true,
         value: payload,
         normalizedContent: buildYamlDocument(payload),
-        repairApplied: candidate !== rawContent.trim(),
+        repairApplied: repairWarnings.length > 0 || (
+          !parsesAsPlainYamlOrJson(candidate)
+          || (candidate !== rawContent.trim() && !isExactTaggedRelevantFilesEnvelope(rawContent, candidate))
+        ),
         repairWarnings,
       }
     } catch (error) {
