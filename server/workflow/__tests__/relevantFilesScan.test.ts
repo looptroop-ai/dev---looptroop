@@ -1,8 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createActor } from 'xstate'
 import { existsSync, readFileSync } from 'node:fs'
-import { initializeDatabase } from '../../db/init'
-import { sqlite } from '../../db/index'
 import { ticketMachine } from '../../machines/ticketMachine'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'

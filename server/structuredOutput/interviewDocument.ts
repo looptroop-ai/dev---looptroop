@@ -15,6 +15,7 @@ import type {
 import type { StructuredOutputResult } from './types'
 import {
   buildYamlDocument,
+  appendStructuredCandidateRecoveryWarning,
   collectStructuredCandidates,
   getNestedRecord,
   getRequiredString,
@@ -504,6 +505,7 @@ export function normalizeInterviewDocumentOutput(
           approved_at: toOptionalString(getValueByAliases(approval, ['approvedat', 'approved_at'])) ?? '',
         },
       })
+      appendStructuredCandidateRecoveryWarning(warnings, rawContent, candidate)
 
       return {
         ok: true,

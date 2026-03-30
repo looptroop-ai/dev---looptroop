@@ -1,4 +1,5 @@
 import type { StructuredFailureClass } from '../lib/structuredOutputRetry'
+import type { StructuredIntervention } from '@shared/structuredInterventions'
 
 /** Thrown when a ticket is canceled to distinguish from real errors. */
 export class CancelledError extends Error {
@@ -29,6 +30,7 @@ export interface DraftStructuredOutputMeta {
   repairWarnings: string[]
   autoRetryCount: number
   validationError?: string
+  interventions?: StructuredIntervention[]
   failureClass?: StructuredFailureClass
 }
 

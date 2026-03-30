@@ -14,6 +14,7 @@ import {
   getNestedRecord,
   getRequiredString,
   buildYamlDocument,
+  appendStructuredCandidateRecoveryWarning,
 } from './yamlUtils'
 import { parseRefinementChanges } from './refinementChanges'
 
@@ -320,6 +321,7 @@ export function normalizePrdYamlOutput(
       const valueWithChanges = parsedRefinementChanges.changes.length > 0
         ? { ...document, changes: parsedRefinementChanges.changes }
         : document
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,

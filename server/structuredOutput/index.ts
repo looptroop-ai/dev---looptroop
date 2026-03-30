@@ -18,6 +18,11 @@ export type {
 } from './types'
 
 export {
+  buildStructuredOutputMetadata,
+  normalizeStructuredOutputMetadata,
+} from './metadata'
+
+export {
   normalizeInterviewTurnOutput,
   normalizeInterviewQuestionsOutput,
   normalizeInterviewRefinementOutput,

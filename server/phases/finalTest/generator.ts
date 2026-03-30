@@ -10,6 +10,7 @@ import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { parseFinalTestCommands, type FinalTestCommandPlan } from './parser'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
+import { buildStructuredOutputMetadata } from '../../structuredOutput/metadata'
 import { SessionManager } from '../../opencode/sessionManager'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
@@ -21,22 +22,6 @@ const FINAL_TEST_SCHEMA_REMINDER = [
   'commands must contain executable shell commands. A single command string is acceptable only if it is the full command to run.',
   'summary is optional.',
 ].join('\n')
-
-function buildStructuredMetadata(
-  base: Partial<StructuredOutputMetadata> | null | undefined,
-  extra?: Partial<StructuredOutputMetadata>,
-): StructuredOutputMetadata {
-  return {
-    repairApplied: Boolean(base?.repairApplied || extra?.repairApplied),
-    repairWarnings: [...(base?.repairWarnings ?? []), ...(extra?.repairWarnings ?? [])],
-    autoRetryCount: Math.max(base?.autoRetryCount ?? 0, extra?.autoRetryCount ?? 0),
-    ...(extra?.validationError
-      ? { validationError: extra.validationError }
-      : base?.validationError
-        ? { validationError: base.validationError }
-        : {}),
-  }
-}
 
 export interface FinalTestGenerationResult {
   output: string
@@ -117,14 +102,14 @@ export async function generateFinalTests(
 
   let response = result.response
   let commandPlan = parseFinalTestCommands(response)
-  let structuredOutput = buildStructuredMetadata({
+  let structuredOutput = buildStructuredOutputMetadata({
     autoRetryCount: 0,
     repairApplied: Boolean(commandPlan.repairApplied),
     repairWarnings: commandPlan.repairWarnings ?? [],
     ...(commandPlan.validationError ? { validationError: commandPlan.validationError } : {}),
   })
   if (commandPlan.errors.length > 0) {
-    structuredOutput = buildStructuredMetadata(structuredOutput, {
+    structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
       autoRetryCount: 1,
       validationError: commandPlan.validationError,
     })
@@ -216,7 +201,7 @@ export async function generateFinalTests(
     }
 
     commandPlan = parseFinalTestCommands(response)
-    structuredOutput = buildStructuredMetadata(structuredOutput, {
+    structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
       repairApplied: Boolean(commandPlan.repairApplied),
       repairWarnings: commandPlan.repairWarnings ?? [],
       ...(commandPlan.validationError ? { validationError: commandPlan.validationError } : {}),

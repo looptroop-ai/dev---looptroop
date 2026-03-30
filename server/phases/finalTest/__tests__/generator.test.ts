@@ -45,15 +45,17 @@ describe('generateFinalTests', () => {
       summary: 'verify end-to-end ticket coverage',
       errors: [],
       repairApplied: true,
-      repairWarnings: [],
+      repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
     })
     expect(result.output).toContain('<FINAL_TEST_COMMANDS>')
-    expect(result.structuredOutput).toEqual({
+    expect(result.structuredOutput).toMatchObject({
       repairApplied: true,
-      repairWarnings: [],
+      repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
       autoRetryCount: 1,
       validationError: 'No final test command marker found',
     })
+    expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'parser_fix')).toBe(true)
+    expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'retry')).toBe(true)
 
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
@@ -83,15 +85,17 @@ describe('generateFinalTests', () => {
       summary: 'verify end-to-end ticket coverage',
       errors: [],
       repairApplied: true,
-      repairWarnings: [],
+      repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
     })
     expect(result.output).toContain('<FINAL_TEST_COMMANDS>')
-    expect(result.structuredOutput).toEqual({
+    expect(result.structuredOutput).toMatchObject({
       repairApplied: true,
-      repairWarnings: [],
+      repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
       autoRetryCount: 1,
       validationError: 'No final test command marker found',
     })
+    expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'parser_fix')).toBe(true)
+    expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'retry')).toBe(true)
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })

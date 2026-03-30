@@ -1,5 +1,6 @@
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
+import type { StructuredIntervention } from '@shared/structuredInterventions'
 import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 import {
   findLatestArtifact,
@@ -39,6 +40,7 @@ interface DraftLike {
     repairWarnings?: string[]
     autoRetryCount?: number
     validationError?: string
+    interventions?: StructuredIntervention[]
   }
   questionCount?: number
   draftMetrics?: {
@@ -71,6 +73,7 @@ interface CouncilResultLike {
       repairWarnings?: string[]
       autoRetryCount?: number
       validationError?: string
+      interventions?: StructuredIntervention[]
     }
   }>
 }

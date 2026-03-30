@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import jsYaml from 'js-yaml'
+import {
+  deriveStructuredInterventions,
+  mergeStructuredInterventions,
+  normalizeStructuredInterventions,
+  STRUCTURED_INTERVENTION_CATEGORY_ORDER,
+} from '@shared/structuredInterventions'
+import type {
+  StructuredIntervention,
+  StructuredInterventionCategory,
+  StructuredInterventionStage,
+} from '@shared/structuredInterventions'
 import { encode } from 'gpt-tokenizer'
 import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
@@ -498,10 +509,6 @@ function ChangeAttributionBadge({ status }: { status: DiffAttributionStatus }) {
   )
 }
 
-function isNoOpRefinementRepairWarning(warning: string): boolean {
-  return /^Dropped no-op .* refinement .* because .*?(?:identical|unchanged across the winning and final drafts)\.$/i.test(warning.trim())
-}
-
 type ArtifactProcessingKind =
   | 'artifact'
   | 'diff'
@@ -515,18 +522,21 @@ type ArtifactProcessingKind =
   | 'beads-draft'
   | 'full-answers'
   | 'final-test'
-type RepairBucket = 'no-op' | 'synthesized' | 'attribution' | 'formatting' | 'metadata' | 'generic'
+type ArtifactProcessingStatus = 'completed' | CouncilOutcome
 
 interface ArtifactProcessingNoticeContext {
   affectedCount?: number
   fullAnswersOrigin?: 'reused-approved-interview'
+  ownerInterventions?: Array<{ label: string; interventions: StructuredIntervention[] }>
+  status?: ArtifactProcessingStatus
 }
 
 interface ArtifactProcessingNoticeCopy {
   title: string
   summary: string
   body: string
-  detail?: string
+  badges: Array<{ label: string; count: number; className: string }>
+  interventions: StructuredIntervention[]
 }
 
 function getStructuredOutputWarnings(structuredOutput?: ArtifactStructuredOutputData): string[] {
@@ -535,16 +545,21 @@ function getStructuredOutputWarnings(structuredOutput?: ArtifactStructuredOutput
   )
 }
 
+function getStructuredOutputInterventions(structuredOutput?: ArtifactStructuredOutputData): StructuredIntervention[] {
+  const explicit = normalizeStructuredInterventions(structuredOutput?.interventions)
+  if (explicit.length > 0) {
+    return explicit
+  }
+
+  return deriveStructuredInterventions({
+    repairWarnings: getStructuredOutputWarnings(structuredOutput),
+    autoRetryCount: structuredOutput?.autoRetryCount ?? 0,
+    validationError: structuredOutput?.validationError,
+  })
+}
+
 function hasArtifactProcessingNotice(structuredOutput?: ArtifactStructuredOutputData): boolean {
-  const warningCount = getStructuredOutputWarnings(structuredOutput).length
-  return Boolean(
-    structuredOutput
-    && (
-      warningCount > 0
-      || (structuredOutput.autoRetryCount ?? 0) > 0
-      || structuredOutput.validationError
-    ),
-  )
+  return Boolean(structuredOutput && getStructuredOutputInterventions(structuredOutput).length > 0)
 }
 
 function mergeStructuredOutputMetadata(
@@ -557,6 +572,10 @@ function mergeStructuredOutputMetadata(
     repairApplied: Boolean(merged.repairApplied || output.repairApplied),
     repairWarnings: [...(merged.repairWarnings ?? []), ...getStructuredOutputWarnings(output)],
     autoRetryCount: Math.max(merged.autoRetryCount ?? 0, output.autoRetryCount ?? 0),
+    interventions: mergeStructuredInterventions(
+      normalizeStructuredInterventions(merged.interventions),
+      normalizeStructuredInterventions(output.interventions),
+    ),
     ...(output.validationError
       ? { validationError: output.validationError }
       : merged.validationError
@@ -574,12 +593,14 @@ function CollapsibleWarningNotice({
   summary,
   body,
   detail,
+  headerActions,
   defaultOpen = false,
 }: {
   title: React.ReactNode
   summary?: React.ReactNode
   body?: React.ReactNode
   detail?: React.ReactNode
+  headerActions?: React.ReactNode
   defaultOpen?: boolean
 }) {
   if (!summary && !body && !detail) {
@@ -601,6 +622,7 @@ function CollapsibleWarningNotice({
       defaultOpen={defaultOpen}
       scrollOnOpen={false}
       className="border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20"
+      headerActions={headerActions}
       triggerClassName="text-amber-950 hover:bg-amber-100/60 dark:text-amber-100 dark:hover:bg-amber-900/20"
       contentClassName="pt-0 text-amber-950 dark:text-amber-100"
     >
@@ -614,63 +636,87 @@ function CollapsibleWarningNotice({
   )
 }
 
-function classifyRepairWarning(warning: string): RepairBucket {
-  const normalized = warning.trim().toLowerCase()
-
-  if (isNoOpRefinementRepairWarning(warning)) return 'no-op'
-  if (/synthesi|auto-detected|rebuilt|reconstructed|missing .*change/i.test(normalized)) return 'synthesized'
-  if (/attribution|source label|source labels|source information|source info|inspiration/i.test(normalized)) return 'attribution'
-  if (/wrapper|code fence|markdown|tag|marker|trailing|leading|prefix|suffix|json|yaml/i.test(normalized)) return 'formatting'
-  if (/normaliz|canonical|dedup|duplicate|reorder|sort|item_type|phase|id\b|metadata|inferred|filled|trimmed empty|ignored because|approval/i.test(normalized)) return 'metadata'
-  return 'generic'
-}
-
-function buildRepairBreakdownDetail(repairWarnings: string[]): string | undefined {
-  if (repairWarnings.length === 0) return undefined
-
-  const counts = repairWarnings.reduce<Record<RepairBucket, number>>((acc, warning) => {
-    const bucket = classifyRepairWarning(warning)
-    acc[bucket] = (acc[bucket] ?? 0) + 1
-    return acc
-  }, {
-    'no-op': 0,
-    synthesized: 0,
-    attribution: 0,
-    formatting: 0,
-    metadata: 0,
-    generic: 0,
-  })
-
-  const parts = [
-    counts['no-op'] > 0 ? `${counts['no-op']} incorrect AI change note(s) ignored` : null,
-    counts.synthesized > 0 ? `${counts.synthesized} missing change note(s) added` : null,
-    counts.attribution > 0 ? `${counts.attribution} source label(s) fixed` : null,
-    counts.formatting > 0 ? `${counts.formatting} formatting issue(s) cleaned up` : null,
-    counts.metadata > 0 ? `${counts.metadata} saved detail(s) updated` : null,
-    counts.generic > 0 ? `${counts.generic} output issue(s) fixed` : null,
-  ].filter((part): part is string => Boolean(part))
-
-  return parts.length > 0 ? `Adjusted details: ${parts.join('; ')}.` : undefined
-}
-
 function isReusedApprovedInterviewFullAnswersContext(context?: ArtifactProcessingNoticeContext): boolean {
   return context?.fullAnswersOrigin === 'reused-approved-interview'
 }
 
-function buildReusedApprovedInterviewDetail(repairWarnings: string[]): string | undefined {
-  const parts: string[] = []
+const INTERVENTION_CATEGORY_COPY: Record<StructuredInterventionCategory, { label: string; className: string }> = {
+  parser_fix: {
+    label: 'Parser Fix',
+    className: 'border-amber-300 bg-amber-100/80 text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100',
+  },
+  cleanup: {
+    label: 'Cleanup',
+    className: 'border-blue-300 bg-blue-100/80 text-blue-900 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-100',
+  },
+  synthesized: {
+    label: 'Synthesized',
+    className: 'border-emerald-300 bg-emerald-100/80 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-100',
+  },
+  dropped: {
+    label: 'Dropped',
+    className: 'border-rose-300 bg-rose-100/80 text-rose-900 dark:border-rose-700 dark:bg-rose-900/40 dark:text-rose-100',
+  },
+  attribution: {
+    label: 'Attribution',
+    className: 'border-violet-300 bg-violet-100/80 text-violet-900 dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-100',
+  },
+  retry: {
+    label: 'Retried',
+    className: 'border-slate-300 bg-slate-100/80 text-slate-900 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100',
+  },
+}
 
-  if (repairWarnings.some((warning) => /resolved interview status from "approved" to "draft"/i.test(warning))) {
-    parts.push('status switched from approved to draft')
-  }
-  if (repairWarnings.some((warning) => /cleared approval fields/i.test(warning))) {
-    parts.push('approval fields cleared')
-  }
-  if (repairWarnings.some((warning) => /generated_by\.winner_model/i.test(warning))) {
-    parts.push('model label updated for this model')
+const INTERVENTION_STAGE_LABELS: Record<StructuredInterventionStage, string> = {
+  parse: 'Parse',
+  normalize: 'Normalize',
+  semantic_validation: 'Validation',
+  retry: 'Retry',
+}
+
+function buildInterventionBadges(interventions: StructuredIntervention[]): Array<{ label: string; count: number; className: string }> {
+  const counts = interventions.reduce<Record<StructuredInterventionCategory, number>>((acc, intervention) => {
+    acc[intervention.category] = (acc[intervention.category] ?? 0) + 1
+    return acc
+  }, {
+    parser_fix: 0,
+    cleanup: 0,
+    synthesized: 0,
+    dropped: 0,
+    attribution: 0,
+    retry: 0,
+  })
+
+  return STRUCTURED_INTERVENTION_CATEGORY_ORDER
+    .filter((category) => counts[category] > 0)
+    .map((category) => ({
+      label: INTERVENTION_CATEGORY_COPY[category].label,
+      count: counts[category],
+      className: INTERVENTION_CATEGORY_COPY[category].className,
+    }))
+}
+
+function buildInterventionSummary(interventions: StructuredIntervention[]): string {
+  const interventionCount = interventions.length
+  const categoryCount = new Set(interventions.map((intervention) => intervention.category)).size
+
+  if (interventionCount === 1) {
+    return '1 intervention recorded.'
   }
 
-  return parts.length > 0 ? `Adjusted details: ${parts.join('; ')}.` : undefined
+  if (categoryCount <= 1) {
+    return `${interventionCount} interventions recorded.`
+  }
+
+  return `${interventionCount} interventions across ${categoryCount} categories.`
+}
+
+function formatArtifactStatusLabel(status: ArtifactProcessingStatus): string {
+  if (status === 'timed_out') return 'timed out'
+  if (status === 'invalid_output') return 'saved invalid output'
+  if (status === 'failed') return 'failed'
+  if (status === 'pending') return 'is still in progress'
+  return 'validated'
 }
 
 function getArtifactProcessingStrings(kind: ArtifactProcessingKind, context?: ArtifactProcessingNoticeContext) {
@@ -679,119 +725,91 @@ function getArtifactProcessingStrings(kind: ArtifactProcessingKind, context?: Ar
   switch (kind) {
     case 'diff':
       return {
-        title: 'LoopTroop adjusted this diff.',
-        genericRepairSummary: 'LoopTroop cleaned up this diff before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} diff detail(s) before showing it.`,
-        repairBody: 'Some saved diff details did not line up with the validated artifact, so LoopTroop rebuilt the diff from the validated result. The diff below is safe to review, but some source labels may be estimated or cleared.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this diff was ready.`,
-        retryBody: 'The first diff response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this diff.',
+        nonCompletedTitle: 'Intervention details for this diff.',
+        completedBody: 'LoopTroop validated this diff and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this diff ${formatArtifactStatusLabel(status)}.`,
       }
     case 'coverage':
       return {
-        title: 'LoopTroop adjusted this coverage review.',
-        genericRepairSummary: 'LoopTroop cleaned up this coverage review before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} coverage detail(s) before showing it.`,
-        repairBody: 'Some coverage details needed cleanup so this review matched the expected shape. The review below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this coverage review was ready.`,
-        retryBody: 'The first coverage response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this coverage review.',
+        nonCompletedTitle: 'Intervention details for this coverage review.',
+        completedBody: 'LoopTroop validated this coverage review and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this coverage review ${formatArtifactStatusLabel(status)}.`,
       }
     case 'relevant-files':
       return {
-        title: 'LoopTroop adjusted this relevant files scan.',
-        genericRepairSummary: 'LoopTroop cleaned up this relevant files scan before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} scan detail(s) before showing it.`,
-        repairBody: 'Some relevant-file details needed cleanup so this scan matched the expected shape. The scan below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this scan was ready.`,
-        retryBody: 'The first relevant-files response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this relevant files scan.',
+        nonCompletedTitle: 'Intervention details for this relevant files scan.',
+        completedBody: 'LoopTroop validated this relevant files scan and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this relevant files scan ${formatArtifactStatusLabel(status)}.`,
       }
     case 'vote':
       return {
-        title: 'LoopTroop adjusted this vote scorecard.',
-        genericRepairSummary: 'LoopTroop cleaned up this vote scorecard before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} scorecard detail(s) before showing it.`,
-        repairBody: 'Some vote scorecard details needed cleanup so this ranking matched the expected shape. The scores below reflect the validated scorecard.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this scorecard was ready.`,
-        retryBody: 'The first scorecard did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this vote scorecard.',
+        nonCompletedTitle: 'Intervention details for this vote scorecard.',
+        completedBody: 'LoopTroop validated this vote scorecard and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this vote scorecard ${formatArtifactStatusLabel(status)}.`,
       }
     case 'vote-aggregate':
       return {
-        title: 'LoopTroop adjusted some vote scorecards.',
-        genericRepairSummary: `LoopTroop cleaned up one or more vote scorecards${affectedSuffix} before showing these results.`,
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} scorecard detail(s)${affectedSuffix} before showing these results.`,
-        repairBody: 'One or more vote scorecards needed cleanup so these results matched the validated scorecards.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es)${affectedSuffix} before these results were ready.`,
-        retryBody: 'At least one scorecard did not match the expected shape on the first pass, so LoopTroop tried again and kept the validated results.',
+        completedTitle: 'LoopTroop adjusted some vote scorecards.',
+        nonCompletedTitle: 'Intervention details for these vote scorecards.',
+        completedBody: `LoopTroop validated one or more vote scorecards${affectedSuffix} and recorded the intervention details below.`,
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before one or more vote scorecards${affectedSuffix} ${formatArtifactStatusLabel(status)}.`,
       }
     case 'draft':
       return {
-        title: 'LoopTroop adjusted this draft.',
-        genericRepairSummary: 'LoopTroop cleaned up this draft before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} draft detail(s) before showing it.`,
-        repairBody: 'Some draft details needed cleanup so this draft matched the expected shape. The draft below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this draft was ready.`,
-        retryBody: 'The first draft response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this draft.',
+        nonCompletedTitle: 'Intervention details for this draft.',
+        completedBody: 'LoopTroop validated this draft and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this draft ${formatArtifactStatusLabel(status)}.`,
       }
     case 'interview-draft':
       return {
-        title: 'LoopTroop adjusted this interview draft.',
-        genericRepairSummary: 'LoopTroop cleaned up this interview draft before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} interview draft detail(s) before showing it.`,
-        repairBody: 'Some interview-draft details needed cleanup so this draft matched the expected shape. The draft below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this interview draft was ready.`,
-        retryBody: 'The first interview-draft response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this interview draft.',
+        nonCompletedTitle: 'Intervention details for this interview draft.',
+        completedBody: 'LoopTroop validated this interview draft and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this interview draft ${formatArtifactStatusLabel(status)}.`,
       }
     case 'prd-draft':
       return {
-        title: 'LoopTroop adjusted this PRD draft.',
-        genericRepairSummary: 'LoopTroop cleaned up this PRD draft before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} PRD draft detail(s) before showing it.`,
-        repairBody: 'Some PRD draft details needed cleanup so this draft matched the expected shape. The draft below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this PRD draft was ready.`,
-        retryBody: 'The first PRD draft response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this PRD draft.',
+        nonCompletedTitle: 'Intervention details for this PRD draft.',
+        completedBody: 'LoopTroop validated this PRD draft and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this PRD draft ${formatArtifactStatusLabel(status)}.`,
       }
     case 'beads-draft':
       return {
-        title: 'LoopTroop adjusted this blueprint draft.',
-        genericRepairSummary: 'LoopTroop cleaned up this blueprint draft before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} blueprint draft detail(s) before showing it.`,
-        repairBody: 'Some blueprint-draft details needed cleanup so this draft matched the expected shape. The draft below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this blueprint draft was ready.`,
-        retryBody: 'The first blueprint draft response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this blueprint draft.',
+        nonCompletedTitle: 'Intervention details for this blueprint draft.',
+        completedBody: 'LoopTroop validated this blueprint draft and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this blueprint draft ${formatArtifactStatusLabel(status)}.`,
       }
     case 'full-answers':
       return {
-        title: isReusedApprovedInterviewFullAnswersContext(context)
+        completedTitle: isReusedApprovedInterviewFullAnswersContext(context)
           ? 'LoopTroop reused the approved interview for these answers.'
           : 'LoopTroop adjusted these Full Answers.',
-        genericRepairSummary: isReusedApprovedInterviewFullAnswersContext(context)
-          ? 'No new AI answers were needed for this model. LoopTroop copied the approved interview and adjusted draft-only details.'
-          : 'LoopTroop cleaned up these Full Answers before showing them.',
-        countedRepairSummary: (count: number) => isReusedApprovedInterviewFullAnswersContext(context)
-          ? `No new AI answers were needed for this model. LoopTroop copied the approved interview and adjusted ${count} draft-only detail(s).`
-          : `LoopTroop cleaned up ${count} Full Answers detail(s) before showing them.`,
-        repairBody: isReusedApprovedInterviewFullAnswersContext(context)
+        nonCompletedTitle: 'Intervention details for these Full Answers.',
+        completedBody: isReusedApprovedInterviewFullAnswersContext(context)
           ? 'This ticket had no skipped interview questions, so Part 1 did not need a model response. To keep PRD drafting consistent across models, LoopTroop copied the approved interview into a Full Answers artifact for this model and only changed draft-only fields such as status, approval, or the model label.'
-          : 'Some Full Answers details needed cleanup so this artifact matched the expected shape. The answers below are the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before these answers were ready.`,
-        retryBody: 'The first Full Answers response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+          : 'LoopTroop validated these Full Answers and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before these Full Answers ${formatArtifactStatusLabel(status)}.`,
       }
     case 'final-test':
       return {
-        title: 'LoopTroop adjusted this final test plan.',
-        genericRepairSummary: 'LoopTroop cleaned up this final test plan before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} final test detail(s) before showing this report.`,
-        repairBody: 'Some final test plan details needed cleanup so the command plan matched the expected shape. The plan below is the validated result that LoopTroop used.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this final test plan was ready.`,
-        retryBody: 'The first command-plan response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this final test plan.',
+        nonCompletedTitle: 'Intervention details for this final test plan.',
+        completedBody: 'LoopTroop validated this final test plan and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this final test plan ${formatArtifactStatusLabel(status)}.`,
       }
     default:
       return {
-        title: 'LoopTroop adjusted this artifact.',
-        genericRepairSummary: 'LoopTroop cleaned up this artifact before showing it.',
-        countedRepairSummary: (count: number) => `LoopTroop cleaned up ${count} artifact detail(s) before showing it.`,
-        repairBody: 'Some output details needed cleanup so this artifact matched the expected shape. The artifact below is the validated result.',
-        retrySummary: (count: number) => `LoopTroop needed ${count} extra validation pass(es) before this artifact was ready.`,
-        retryBody: 'The first response did not match the expected shape, so LoopTroop tried again and kept the validated result.',
+        completedTitle: 'LoopTroop adjusted this artifact.',
+        nonCompletedTitle: 'Intervention details for this artifact.',
+        completedBody: 'LoopTroop validated this artifact and recorded the intervention details below.',
+        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this artifact ${formatArtifactStatusLabel(status)}.`,
       }
   }
 }
@@ -801,67 +819,110 @@ export function buildArtifactProcessingNoticeCopy(
   kind: ArtifactProcessingKind = 'artifact',
   context?: ArtifactProcessingNoticeContext,
 ): ArtifactProcessingNoticeCopy | null {
-  if (!hasArtifactProcessingNotice(structuredOutput)) return null
+  const interventions = getStructuredOutputInterventions(structuredOutput)
+  if (interventions.length === 0) return null
 
-  const repairWarnings = getStructuredOutputWarnings(structuredOutput)
-  const hasRepair = repairWarnings.length > 0
-  const retryCount = structuredOutput?.autoRetryCount ?? 0
-  const hasRetry = retryCount > 0 || Boolean(structuredOutput?.validationError)
   const strings = getArtifactProcessingStrings(kind, context)
-  const onlyNoOpDiff = kind === 'diff' && repairWarnings.length > 0 && repairWarnings.every(isNoOpRefinementRepairWarning) && !hasRetry
-  const reusedApprovedInterviewFullAnswers = kind === 'full-answers' && isReusedApprovedInterviewFullAnswersContext(context) && !hasRetry
-
-  const summaryParts: string[] = []
-  if (onlyNoOpDiff) {
-    summaryParts.push(
-      repairWarnings.length === 1
-        ? '1 AI change note did not reflect a real change.'
-        : `${repairWarnings.length} AI change notes did not reflect real changes.`,
-    )
-  } else if (hasRepair) {
-    summaryParts.push(
-      repairWarnings.length > 0
-        ? strings.countedRepairSummary(repairWarnings.length)
-        : strings.genericRepairSummary,
-    )
-  }
-  if (hasRetry) {
-    summaryParts.push(strings.retrySummary(Math.max(retryCount, 1)))
-  }
-
-  const detailParts = [
-    reusedApprovedInterviewFullAnswers
-      ? buildReusedApprovedInterviewDetail(repairWarnings)
-      : buildRepairBreakdownDetail(repairWarnings),
-    hasRetry
-      ? `LoopTroop used ${Math.max(retryCount, 1)} extra validation pass(es) because an earlier response did not match the expected shape.`
-      : undefined,
-  ].filter((part): part is string => Boolean(part))
+  const status = context?.status ?? 'completed'
+  const badges = buildInterventionBadges(interventions)
 
   return {
-    title: onlyNoOpDiff
-      ? repairWarnings.length === 1
-        ? 'LoopTroop removed an incorrect AI change note.'
-        : 'LoopTroop removed incorrect AI change notes.'
-      : strings.title,
-    summary: summaryParts.join(' '),
-    body: onlyNoOpDiff
-      ? 'The AI marked some items as changed even though they were unchanged. LoopTroop removed those incorrect notes so you only see validated changes.'
-      : [hasRepair ? strings.repairBody : '', hasRetry ? strings.retryBody : ''].filter(Boolean).join(' '),
-    ...(detailParts.length > 0 ? { detail: detailParts.join(' ') } : {}),
+    title: status === 'completed' ? strings.completedTitle : strings.nonCompletedTitle,
+    summary: buildInterventionSummary(interventions),
+    body: status === 'completed' ? strings.completedBody : strings.nonCompletedBody(status),
+    badges,
+    interventions,
   }
+}
+
+function ArtifactInterventionBreakdown({ interventions }: { interventions: StructuredIntervention[] }) {
+  const groups = STRUCTURED_INTERVENTION_CATEGORY_ORDER
+    .map((category) => ({
+      category,
+      interventions: interventions.filter((intervention) => intervention.category === category),
+    }))
+    .filter((group) => group.interventions.length > 0)
+
+  return (
+    <div className="space-y-3">
+      {groups.map((group) => {
+        const categoryCopy = INTERVENTION_CATEGORY_COPY[group.category]
+        return (
+          <div key={group.category} className="space-y-2">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold ${categoryCopy.className}`}>
+                {categoryCopy.label}
+              </span>
+              <span className="opacity-80">{group.interventions.length}</span>
+            </div>
+            <div className="space-y-2">
+              {group.interventions.map((intervention, index) => (
+                <div key={`${group.category}:${intervention.code}:${index}`} className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs font-semibold">{intervention.title}</div>
+                    <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {INTERVENTION_STAGE_LABELS[intervention.stage]}
+                    </span>
+                    {intervention.target ? (
+                      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-mono text-foreground">
+                        {intervention.target}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 space-y-1 text-[11px] leading-5">
+                    <div><span className="font-medium">What:</span> {intervention.summary}</div>
+                    <div><span className="font-medium">Why:</span> {intervention.why}</div>
+                    <div><span className="font-medium">How:</span> {intervention.how}</div>
+                    {intervention.technicalDetail ? (
+                      <div className="rounded border border-border bg-background px-2 py-1 font-mono text-[10px] leading-4 text-muted-foreground">
+                        {intervention.technicalDetail}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ArtifactInterventionOwnerBreakdown({
+  owners,
+}: {
+  owners: Array<{ label: string; interventions: StructuredIntervention[] }>
+}) {
+  if (owners.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider opacity-80">Affected Voters</div>
+      <div className="space-y-2">
+        {owners.map((owner) => (
+          <div key={owner.label} className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50">
+            <div className="mb-2 text-xs font-semibold">{owner.label}</div>
+            <ArtifactInterventionBreakdown interventions={owner.interventions} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ArtifactProcessingNotice({
   structuredOutput,
   kind,
   context,
+  status = 'completed',
 }: {
   structuredOutput?: ArtifactStructuredOutputData
   kind?: ArtifactProcessingKind
   context?: ArtifactProcessingNoticeContext
+  status?: ArtifactProcessingStatus
 }) {
-  const copy = buildArtifactProcessingNoticeCopy(structuredOutput, kind, context)
+  const copy = buildArtifactProcessingNoticeCopy(structuredOutput, kind, { ...context, status })
   if (!copy) {
     return null
   }
@@ -870,8 +931,24 @@ function ArtifactProcessingNotice({
     <CollapsibleWarningNotice
       title={copy.title}
       summary={copy.summary}
-      body={copy.body}
-      detail={copy.detail}
+      body={(
+        <div className="space-y-3">
+          <div className="leading-5">{copy.body}</div>
+          <ArtifactInterventionBreakdown interventions={copy.interventions} />
+          {context?.ownerInterventions?.length ? (
+            <ArtifactInterventionOwnerBreakdown owners={context.ownerInterventions} />
+          ) : null}
+        </div>
+      )}
+      headerActions={copy.badges.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {copy.badges.map((badge) => (
+            <span key={badge.label} className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
+              {badge.label} {badge.count}
+            </span>
+          ))}
+        </div>
+      ) : undefined}
     />
   )
 }
@@ -1331,23 +1408,6 @@ function CoverageResolutionNotesInner({ content }: { content: string }) {
         </CollapsibleSection>
       ))}
     </div>
-  )
-}
-
-function CoverageResolutionNotesView({ content }: { content: string }) {
-  const parsed = parseRefinementArtifact(content)
-  const gapResolutions = parsed?.gapResolutions ?? []
-  if (!gapResolutions.length) return <RawContentWithCopy content={content} />
-
-  return (
-    <WithRawTab
-      content={content}
-      structuredLabel="Resolution Notes"
-      header={<div className="text-xs font-semibold px-1">Coverage Resolution Notes</div>}
-      notice={<ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />}
-    >
-      <CoverageResolutionNotesInner content={content} />
-    </WithRawTab>
   )
 }
 
@@ -1879,6 +1939,10 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
   const aggregateProcessingNotice = mergeStructuredOutputMetadata(
     votersWithProcessingNotice.map((voterId) => voterDetailById.get(voterId)?.structuredOutput),
   )
+  const aggregateOwnerInterventions = votersWithProcessingNotice.map((voterId) => ({
+    label: getModelDisplayName(voterId),
+    interventions: getStructuredOutputInterventions(voterDetailById.get(voterId)?.structuredOutput),
+  }))
 
   if (votes.length === 0 && !hasLiveOutcomes) {
     return <div className="text-xs text-muted-foreground italic">No voting data available</div>
@@ -1900,7 +1964,7 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
         <ArtifactProcessingNotice
           structuredOutput={aggregateProcessingNotice}
           kind="vote-aggregate"
-          context={{ affectedCount: votersWithProcessingNotice.length }}
+          context={{ affectedCount: votersWithProcessingNotice.length, ownerInterventions: aggregateOwnerInterventions }}
         />
       )}
       {hasLiveOutcomes && (
@@ -2593,7 +2657,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         </ModelBadge>
       ) : null
       const isPrd = isStructuredPrdArtifactId(artifactId)
-      const isBeads = artifactId?.includes('beads')
+      const isBeads = Boolean(artifactId?.includes('beads'))
       const noticeKind = getCouncilDraftNoticeKind({
         isFullAnswers: false,
         isInterview: !isPrd && !isBeads,
@@ -2608,7 +2672,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
           content={winnerContent}
           structuredLabel="Winner"
           header={header}
-          notice={<ArtifactProcessingNotice structuredOutput={winnerDraft?.structuredOutput} kind={noticeKind} />}
+          notice={<ArtifactProcessingNotice structuredOutput={winnerDraft?.structuredOutput} kind={noticeKind} status={winnerDraft?.outcome ?? 'completed'} />}
         >
           {structured || <RawContentView content={winnerContent} />}
         </WithRawTab>
@@ -2655,11 +2719,46 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
       </ModelBadge>
     ) : null
 
+    if (draft?.outcome === 'invalid_output' && draft.content) {
+      const isFullAnswers = isPrdFullAnswersArtifactId(artifactId)
+      const isInterview = Boolean(artifactId?.startsWith('draft') || artifactId?.includes('interview'))
+      const isPrd = isStructuredPrdArtifactId(artifactId) && !isFullAnswers
+      const isBeads = Boolean(artifactId?.includes('beads'))
+      const noticeContext = isFullAnswers ? getFullAnswersNoticeContext(draft.content) : undefined
+      const structured = isFullAnswers ? <InterviewAnswersView content={draft.content} />
+        : isInterview ? <InterviewDraftView content={draft.content} />
+          : isPrd ? <PrdDraftView content={draft.content} />
+            : isBeads ? <BeadsDraftView content={draft.content} />
+              : null
+      return (
+        <div className="space-y-2">
+          {header}
+          <CollapsibleWarningNotice
+            title="Output did not pass strict validation."
+            summary="The saved draft did not match the required format."
+            body="LoopTroop is showing the model output because it may still be useful, but it did not match the required format and may have formatting problems."
+            detail={draft.error ? `Validator message: ${draft.error}` : undefined}
+          />
+          {structured
+            ? (
+              <WithRawTab
+                content={draft.content}
+                structuredLabel="Draft"
+                notice={<ArtifactProcessingNotice structuredOutput={draft.structuredOutput} kind={getCouncilDraftNoticeKind({ isFullAnswers, isInterview, isPrd, isBeads })} context={noticeContext} status={draft.outcome} />}
+              >
+                {structured}
+              </WithRawTab>
+            )
+            : <RawContentWithCopy content={draft.content} />}
+        </div>
+      )
+    }
+
     if (draftContent) {
       const isFullAnswers = isPrdFullAnswersArtifactId(artifactId)
-      const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
+      const isInterview = Boolean(artifactId?.startsWith('draft') || artifactId?.includes('interview'))
       const isPrd = isStructuredPrdArtifactId(artifactId) && !isFullAnswers
-      const isBeads = artifactId?.includes('beads')
+      const isBeads = Boolean(artifactId?.includes('beads'))
       const noticeKind = getCouncilDraftNoticeKind({ isFullAnswers, isInterview, isPrd, isBeads })
       const noticeContext = isFullAnswers ? getFullAnswersNoticeContext(draftContent) : undefined
 
@@ -2675,7 +2774,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
             content={draftContent}
             structuredLabel="Draft"
             header={header}
-            notice={<ArtifactProcessingNotice structuredOutput={draft?.structuredOutput} kind={noticeKind} context={noticeContext} />}
+            notice={<ArtifactProcessingNotice structuredOutput={draft?.structuredOutput} kind={noticeKind} context={noticeContext} status={draft?.outcome ?? 'completed'} />}
           >
             {structured}
           </WithRawTab>
@@ -2685,41 +2784,6 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     }
 
     if (draft) {
-      if (draft.outcome === 'invalid_output' && draft.content) {
-        const isFullAnswers = isPrdFullAnswersArtifactId(artifactId)
-        const isInterview = artifactId?.startsWith('draft') || artifactId?.includes('interview')
-        const isPrd = isStructuredPrdArtifactId(artifactId) && !isFullAnswers
-        const isBeads = artifactId?.includes('beads')
-        const noticeContext = isFullAnswers ? getFullAnswersNoticeContext(draft.content) : undefined
-        const structured = isFullAnswers ? <InterviewAnswersView content={draft.content} />
-          : isInterview ? <InterviewDraftView content={draft.content} />
-            : isPrd ? <PrdDraftView content={draft.content} />
-              : isBeads ? <BeadsDraftView content={draft.content} />
-                : null
-        return (
-          <div className="space-y-2">
-            {header}
-            <CollapsibleWarningNotice
-              title="Output did not pass strict validation."
-              summary="The saved draft did not match the required format."
-              body="LoopTroop is showing the model output because it may still be useful, but it did not match the required format and may have formatting problems."
-              detail={draft.error ? `Validator message: ${draft.error}` : undefined}
-            />
-            {structured
-              ? (
-                <WithRawTab
-                  content={draft.content}
-                  structuredLabel="Draft"
-                  notice={<ArtifactProcessingNotice structuredOutput={draft.structuredOutput} kind={getCouncilDraftNoticeKind({ isFullAnswers, isInterview, isPrd, isBeads })} context={noticeContext} />}
-                >
-                  {structured}
-                </WithRawTab>
-              )
-              : <RawContentWithCopy content={draft.content} />}
-          </div>
-        )
-      }
-
       const waitingMessage = draft.outcome === 'pending'
         ? 'Artifact is still being generated for this member.'
         : draft.outcome === 'timed_out'
@@ -2733,6 +2797,17 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         <div className="space-y-3">
           {header}
           <div className="text-xs text-muted-foreground italic">{waitingMessage}</div>
+          <ArtifactProcessingNotice
+            structuredOutput={draft.structuredOutput}
+            kind={getCouncilDraftNoticeKind({
+              isFullAnswers: isPrdFullAnswersArtifactId(artifactId),
+              isInterview: Boolean(artifactId?.startsWith('draft') || artifactId?.includes('interview')),
+              isPrd: isStructuredPrdArtifactId(artifactId) && !isPrdFullAnswersArtifactId(artifactId),
+              isBeads: Boolean(artifactId?.includes('beads')),
+            })}
+            context={isPrdFullAnswersArtifactId(artifactId) && draft.content ? getFullAnswersNoticeContext(draft.content) : undefined}
+            status={draft.outcome}
+          />
         </div>
       )
     }

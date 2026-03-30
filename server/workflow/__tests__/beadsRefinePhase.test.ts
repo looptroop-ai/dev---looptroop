@@ -1,10 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initializeDatabase } from '../../db/init'
-import { sqlite } from '../../db/index'
-import { attachProject } from '../../storage/projects'
-import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
-import { TEST, makeTicketContextFromTicket as makeTicketContext, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
-import { initializeTicket } from '../../ticket/initialize'
+import { getLatestPhaseArtifact } from '../../storage/tickets'
+import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
 import { phaseIntermediate, phaseResults } from '../phases/state'
 
 const { refineDraftMock } = vi.hoisted(() => ({

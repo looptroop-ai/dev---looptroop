@@ -5,6 +5,7 @@ import {
   normalizeKey,
   collectStructuredCandidates,
   unwrapExplicitWrapperRecord,
+  appendStructuredCandidateRecoveryWarning,
   parseYamlOrJsonCandidate,
   getValueByAliases,
   buildYamlDocument,
@@ -182,6 +183,7 @@ export function normalizeVoteScorecardOutput(
           scores.total_score = total
           normalized[draftLabel] = scores
         }
+        appendStructuredCandidateRecoveryWarning(variantWarnings, rawContent, candidate)
 
         return {
           ok: true,

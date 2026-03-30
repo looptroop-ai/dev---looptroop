@@ -661,13 +661,13 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(modelButtons[0]!)
 
     expect(screen.getByText('LoopTroop adjusted these Full Answers.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 3 Full Answers detail(s) before showing them.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 3')).toBeInTheDocument()
     expect(screen.queryByText('LoopTroop adjusted this PRD draft.')).not.toBeInTheDocument()
 
     fireEvent.click(modelButtons[1]!)
 
     expect(screen.getByText('LoopTroop adjusted this PRD draft.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 1 PRD draft detail(s) before showing it.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
     expect(screen.queryByText('LoopTroop adjusted these Full Answers.')).not.toBeInTheDocument()
   })
 
@@ -1068,20 +1068,20 @@ describe('PhaseArtifactsPanel', () => {
         'Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.',
         'Dropped no-op PRD refinement modified change at index 1 because the winning and final records are identical.',
       ],
-      expectedText: 'LoopTroop removed incorrect AI change notes.',
-      expectedDetail: /The AI marked some items as changed even though they were unchanged/i,
-      expectedCount: '2 AI change notes did not reflect real changes.',
-      notExpected: 'LoopTroop adjusted this diff.',
+      expectedText: 'LoopTroop adjusted this diff.',
+      expectedDetail: /Dropped no-op PRD refinement modified change at index 0/i,
+      expectedCount: 'Dropped 2',
+      notExpected: 'Synthesized 1',
     },
     {
       scenario: 'shows cleanup notice for no-op interview warnings',
       repairWarnings: [
         'Dropped no-op interview refinement modified at index 0 because the question is unchanged across the winning and final drafts.',
       ],
-      expectedText: 'LoopTroop removed an incorrect AI change note.',
-      expectedDetail: /The AI marked some items as changed even though they were unchanged/i,
-      expectedCount: '1 AI change note did not reflect a real change.',
-      notExpected: 'LoopTroop adjusted this diff.',
+      expectedText: 'LoopTroop adjusted this diff.',
+      expectedDetail: /Dropped no-op interview refinement modified at index 0/i,
+      expectedCount: 'Dropped 1',
+      notExpected: 'Synthesized 1',
     },
     {
       scenario: 'keeps the broader repair notice for non-no-op repairs',
@@ -1089,9 +1089,9 @@ describe('PhaseArtifactsPanel', () => {
         'Inferred missing PRD refinement item_type at index 0 as epic.',
       ],
       expectedText: 'LoopTroop adjusted this diff.',
-      expectedDetail: /Some saved diff details did not line up with the validated artifact/i,
-      expectedCount: 'LoopTroop cleaned up 1 diff detail(s) before showing it.',
-      notExpected: 'LoopTroop removed an incorrect AI change note.',
+      expectedDetail: /Inferred missing PRD refinement item_type at index 0 as epic/i,
+      expectedCount: 'Synthesized 1',
+      notExpected: 'Dropped 1',
     },
   ])('$scenario', ({ repairWarnings, expectedText, expectedDetail, expectedCount, notExpected }) => {
     const refinedArtifact = makeArtifact({
@@ -1137,7 +1137,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.queryByText(notExpected)).not.toBeInTheDocument()
   })
 
-  it('uses count-based copy for mixed repair warnings and hides raw warning text', () => {
+  it('uses category counts for mixed repair warnings and shows raw technical detail on expand', () => {
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
@@ -1174,13 +1174,17 @@ describe('PhaseArtifactsPanel', () => {
 
     const noticeButton = screen.getByText('LoopTroop adjusted this diff.').closest('button')!
     expect(noticeButton).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 2 diff detail(s) before showing it.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText('Synthesized 1')).toBeInTheDocument()
+    expect(screen.getByText('Dropped 1')).toBeInTheDocument()
 
     fireEvent.click(noticeButton)
 
-    expect(screen.getByText('LoopTroop cleaned up 2 diff detail(s) before showing it.')).toBeInTheDocument()
-    expect(screen.queryByText(/Dropped no-op interview refinement modified at index 0/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).not.toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText('Synthesized 1')).toBeInTheDocument()
+    expect(screen.getByText('Dropped 1')).toBeInTheDocument()
+    expect(screen.getByText(/Dropped no-op interview refinement modified at index 0/i)).toBeInTheDocument()
+    expect(screen.getByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).toBeInTheDocument()
   })
 
   it('hides the interview diff repair notice when only a bare repair flag is present', () => {
@@ -1237,7 +1241,6 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
 
     expect(screen.queryByText('LoopTroop adjusted this diff.')).not.toBeInTheDocument()
-    expect(screen.queryByText('LoopTroop cleaned up this diff before showing it.')).not.toBeInTheDocument()
     expect(screen.queryByText(/Some saved diff details did not line up with the validated artifact/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
     expect(screen.getByText('Modified 1')).toBeInTheDocument()

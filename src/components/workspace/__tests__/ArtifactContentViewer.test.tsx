@@ -345,7 +345,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Fill them in with explicit AI-authored answers.')).toBeInTheDocument()
     expect(screen.getByText(/Answered automatically by AI in Drafting specs status/i)).toBeInTheDocument()
     expect(screen.getByText('LoopTroop adjusted these Full Answers.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 3 Full Answers detail(s) before showing them.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 3')).toBeInTheDocument()
   })
 
   it('explains when Full Answers were reused from the approved interview', () => {
@@ -394,7 +394,8 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop reused the approved interview for these answers.')).toBeInTheDocument()
-    expect(screen.getByText('No new AI answers were needed for this model. LoopTroop copied the approved interview and adjusted 2 draft-only detail(s).')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions recorded.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 2')).toBeInTheDocument()
 
     openNotice('LoopTroop reused the approved interview for these answers.')
 
@@ -722,10 +723,12 @@ describe('ArtifactContentViewer', () => {
     }, 'diff')
 
     expect(copy).toMatchObject({
-      title: 'LoopTroop removed an incorrect AI change note.',
-      summary: '1 AI change note did not reflect a real change.',
+      title: 'LoopTroop adjusted this diff.',
+      summary: '1 intervention recorded.',
     })
-    expect(copy?.detail).toContain('incorrect AI change note(s) ignored')
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({ category: 'dropped', code: 'dropped_no_op_change' }),
+    ])
   })
 
   it('classifies normalization repairs in the parser notice copy', () => {
@@ -736,8 +739,10 @@ describe('ArtifactContentViewer', () => {
     }, 'diff')
 
     expect(copy?.title).toBe('LoopTroop adjusted this diff.')
-    expect(copy?.summary).toBe('LoopTroop cleaned up 1 diff detail(s) before showing it.')
-    expect(copy?.detail).toContain('1 saved detail(s) updated')
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({ category: 'synthesized', code: 'synthesized_inferred_detail' }),
+    ])
   })
 
   it('classifies formatting cleanup in the parser notice copy', () => {
@@ -748,7 +753,10 @@ describe('ArtifactContentViewer', () => {
     }, 'final-test')
 
     expect(copy?.title).toBe('LoopTroop adjusted this final test plan.')
-    expect(copy?.detail).toContain('1 formatting issue(s) cleaned up')
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({ category: 'parser_fix', code: 'parser_repair' }),
+    ])
   })
 
   it('classifies synthesized change repairs in the parser notice copy', () => {
@@ -758,7 +766,10 @@ describe('ArtifactContentViewer', () => {
       autoRetryCount: 0,
     }, 'diff')
 
-    expect(copy?.detail).toContain('1 missing change note(s) added')
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({ category: 'synthesized', code: 'synthesized_missing_detail' }),
+    ])
   })
 
   it('describes retry-only parser interventions in the parser notice copy', () => {
@@ -769,9 +780,11 @@ describe('ArtifactContentViewer', () => {
       validationError: 'Coverage parser rejected the first pass.',
     }, 'coverage')
 
-    expect(copy?.summary).toBe('LoopTroop needed 1 extra validation pass(es) before this coverage review was ready.')
-    expect(copy?.body).toMatch(/first coverage response did not match the expected shape/i)
-    expect(copy?.detail).toContain('1 extra validation pass(es)')
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.body).toMatch(/validated this coverage review/i)
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({ category: 'retry', code: 'retry_after_validation_failure' }),
+    ])
   })
 
   it('falls back to generic parser wording for unknown warnings', () => {
@@ -782,7 +795,10 @@ describe('ArtifactContentViewer', () => {
     }, 'artifact')
 
     expect(copy?.title).toBe('LoopTroop adjusted this artifact.')
-    expect(copy?.detail).toContain('1 output issue(s) fixed')
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({ category: 'cleanup', code: 'cleanup_generic' }),
+    ])
   })
 
   it('uses output-specific wording for Full Answers metadata cleanup', () => {
@@ -797,8 +813,10 @@ describe('ArtifactContentViewer', () => {
     }, 'full-answers')
 
     expect(copy?.title).toBe('LoopTroop adjusted these Full Answers.')
-    expect(copy?.summary).toBe('LoopTroop cleaned up 3 Full Answers detail(s) before showing them.')
-    expect(copy?.detail).toContain('3 saved detail(s) updated')
+    expect(copy?.summary).toBe('3 interventions recorded.')
+    expect(copy?.badges).toEqual([
+      expect.objectContaining({ label: 'Cleanup', count: 3 }),
+    ])
   })
 
   it('uses reused-approved-interview wording for synthetic Full Answers artifacts', () => {
@@ -813,9 +831,8 @@ describe('ArtifactContentViewer', () => {
     }, 'full-answers', { fullAnswersOrigin: 'reused-approved-interview' })
 
     expect(copy?.title).toBe('LoopTroop reused the approved interview for these answers.')
-    expect(copy?.summary).toBe('No new AI answers were needed for this model. LoopTroop copied the approved interview and adjusted 3 draft-only detail(s).')
-    expect(copy?.detail).toContain('status switched from approved to draft')
-    expect(copy?.detail).toContain('approval fields cleared')
+    expect(copy?.summary).toBe('3 interventions recorded.')
+    expect(copy?.body).toMatch(/copied the approved interview/i)
   })
 
   it('suppresses parser notices when a bare repair flag has no details', () => {
@@ -850,13 +867,14 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop adjusted this PRD draft.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 1 PRD draft detail(s) before showing it.')).toBeInTheDocument()
-    expect(screen.queryByText(/Some PRD draft details needed cleanup so this draft matched the expected shape/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Synthesized 1')).toBeInTheDocument()
+    expect(screen.queryByText(/LoopTroop validated this PRD draft and recorded the intervention details below/i)).not.toBeInTheDocument()
 
     openNotice('LoopTroop adjusted this PRD draft.')
 
-    expect(screen.getByText(/Some PRD draft details needed cleanup so this draft matched the expected shape/i)).toBeInTheDocument()
-    expect(screen.queryByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/LoopTroop validated this PRD draft and recorded the intervention details below/i)).toBeInTheDocument()
+    expect(screen.getByText(/What:/i)).toBeInTheDocument()
+    expect(screen.getByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).toBeInTheDocument()
   })
 
   it('shows a collapsed parser notice for coverage review artifacts', () => {
@@ -884,12 +902,13 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop adjusted this coverage review.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 1 coverage detail(s) before showing it.')).toBeInTheDocument()
-    expect(screen.queryByText(/Some coverage details needed cleanup so this review matched the expected shape/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
+    expect(screen.queryByText(/LoopTroop validated this coverage review and recorded the intervention details below/i)).not.toBeInTheDocument()
 
     openNotice('LoopTroop adjusted this coverage review.')
 
-    expect(screen.getByText(/Some coverage details needed cleanup so this review matched the expected shape/i)).toBeInTheDocument()
+    expect(screen.getByText(/LoopTroop validated this coverage review and recorded the intervention details below/i)).toBeInTheDocument()
+    expect(screen.getByText(/Trimmed empty PRD coverage gap strings before persisting the normalized result/i)).toBeInTheDocument()
   })
 
   it('shows a collapsed parser notice for relevant files scans', () => {
@@ -918,12 +937,13 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop adjusted this relevant files scan.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 1 scan detail(s) before showing it.')).toBeInTheDocument()
-    expect(screen.queryByText(/Some relevant-file details needed cleanup so this scan matched the expected shape/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Parser Fix 1')).toBeInTheDocument()
+    expect(screen.queryByText(/LoopTroop validated this relevant files scan and recorded the intervention details below/i)).not.toBeInTheDocument()
 
     openNotice('LoopTroop adjusted this relevant files scan.')
 
-    expect(screen.getByText(/Some relevant-file details needed cleanup so this scan matched the expected shape/i)).toBeInTheDocument()
+    expect(screen.getByText(/LoopTroop validated this relevant files scan and recorded the intervention details below/i)).toBeInTheDocument()
+    expect(screen.getByText(/Removed surrounding markdown code fence before parsing the relevant files result/i)).toBeInTheDocument()
   })
 
   it('hides the relevant-files parser notice when there are no warnings or retries to explain', () => {
@@ -953,7 +973,6 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.queryByText('LoopTroop adjusted this relevant files scan.')).not.toBeInTheDocument()
-    expect(screen.queryByText('LoopTroop cleaned up this relevant files scan before showing it.')).not.toBeInTheDocument()
   })
 
   it('shows aggregate and per-voter parser notices for voting results', () => {
@@ -1001,7 +1020,9 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop cleaned up 1 scorecard detail(s) across 2 voter scorecard(s) before showing these results. LoopTroop needed 1 extra validation pass(es) across 2 voter scorecard(s) before these results were ready.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
+    expect(screen.getByText('Retried 1')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
     expect(screen.getAllByText('LoopTroop adjusted this vote scorecard.')).toHaveLength(2)
@@ -1031,11 +1052,12 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop adjusted this final test plan.')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop needed 1 extra validation pass(es) before this final test plan was ready.')).toBeInTheDocument()
-    expect(screen.queryByText(/The first command-plan response did not match the expected shape/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Retried 1')).toBeInTheDocument()
+    expect(screen.queryByText(/LoopTroop validated this final test plan and recorded the intervention details below/i)).not.toBeInTheDocument()
 
     openNotice('LoopTroop adjusted this final test plan.')
 
-    expect(screen.getByText(/The first command-plan response did not match the expected shape/i)).toBeInTheDocument()
+    expect(screen.getByText(/LoopTroop validated this final test plan and recorded the intervention details below/i)).toBeInTheDocument()
+    expect(screen.getByText(/Missing final test marker on first pass/i)).toBeInTheDocument()
   })
 })

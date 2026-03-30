@@ -32,6 +32,7 @@ import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../../p
 import type { OpenCodePromptDispatchEvent } from '../runOpenCodePrompt'
 import { buildSessionStatusLogEntries } from '../sessionStatusLogging'
 import {
+  buildStructuredOutputMetadata,
   type StructuredOutputMetadata,
 } from '../../structuredOutput'
 import type { StructuredLogFields, StructuredLogAudience, StructuredLogKind, StructuredLogOp, OpenCodeStreamState, PhaseIntermediateData } from './types'
@@ -1051,7 +1052,7 @@ export function upsertCouncilDraftArtifact(
       ...(draft.error ? { error: draft.error } : {}),
       ...(typeof draft.questionCount === 'number' ? { questionCount: draft.questionCount } : {}),
       ...(draft.draftMetrics ? { draftMetrics: draft.draftMetrics } : {}),
-      ...(draft.structuredOutput ? { structuredOutput: draft.structuredOutput } : {}),
+      ...(draft.structuredOutput ? { structuredOutput: buildStructuredMetadata(draft.structuredOutput) } : {}),
       ...(
         draft.outcome !== 'completed'
         && draft.content
@@ -1087,7 +1088,14 @@ export function upsertCouncilVoteArtifact(
   persistUiArtifactCompanionArtifact(ticketId, phase, artifactType, {
     votes,
     voterOutcomes: memberOutcomes,
-    ...(voterDetails && voterDetails.length > 0 ? { voterDetails } : {}),
+    ...(voterDetails && voterDetails.length > 0
+      ? {
+          voterDetails: voterDetails.map((detail) => ({
+            ...detail,
+            ...(detail.structuredOutput ? { structuredOutput: buildStructuredMetadata(detail.structuredOutput) } : {}),
+          })),
+        }
+      : {}),
     ...(presentationOrders ? { presentationOrders } : {}),
     ...(winnerId ? { winnerId } : {}),
     ...(typeof totalScore === 'number' ? { totalScore } : {}),
@@ -1251,16 +1259,7 @@ export function buildStructuredMetadata(
   base: Partial<StructuredOutputMetadata> | null | undefined,
   extra?: Partial<StructuredOutputMetadata>,
 ): StructuredOutputMetadata {
-  return {
-    repairApplied: Boolean(base?.repairApplied || extra?.repairApplied),
-    repairWarnings: [...(base?.repairWarnings ?? []), ...(extra?.repairWarnings ?? [])],
-    autoRetryCount: Math.max(base?.autoRetryCount ?? 0, extra?.autoRetryCount ?? 0),
-    ...(extra?.validationError
-      ? { validationError: extra.validationError }
-      : base?.validationError
-        ? { validationError: base.validationError }
-        : {}),
-  }
+  return buildStructuredOutputMetadata(base, extra)
 }
 
 /**

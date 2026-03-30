@@ -633,8 +633,15 @@ describe('runOpenCodePrompt', () => {
           },
         ],
       }),
-      subscribe: async (_options?: unknown, requestOptions?: { signal?: AbortSignal }) => ({
-        stream: (async function* () {
+      subscribe: async (...args: unknown[]) => {
+        const requestOptions = (
+          args[1] && typeof args[1] === 'object'
+            ? args[1] as { signal?: AbortSignal }
+            : undefined
+        )
+
+        return {
+          stream: (async function* () {
           await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(resolve, 80)
             requestOptions?.signal?.addEventListener('abort', () => {
@@ -648,8 +655,9 @@ describe('runOpenCodePrompt', () => {
             type: 'session.idle',
             properties: { info: { id: 'ses-1' } },
           }
-        })(),
-      }),
+          })(),
+        }
+      },
     })
     const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
 

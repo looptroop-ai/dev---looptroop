@@ -8,6 +8,7 @@ import {
   collectStructuredCandidates,
   collectTaggedCandidates,
   maybeUnwrapRecord,
+  appendStructuredCandidateRecoveryWarning,
   parseYamlOrJsonCandidate,
   toStringArray,
   getValueByAliases,
@@ -231,6 +232,7 @@ export function normalizeBeadSubsetYamlOutput(
       const valueWithChanges = parsedRefinementChanges.changes.length > 0
         ? Object.assign(subsets, { changes: parsedRefinementChanges.changes })
         : subsets
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
       return {
         ok: true,
         value: valueWithChanges,
@@ -377,6 +379,7 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
           throw new Error(`Bead ${bead.id} contextGuidance must include both patterns and anti_patterns`)
         }
       }
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,
@@ -530,6 +533,7 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
         file_count: files.length,
         files,
       }
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,

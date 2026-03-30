@@ -1,4 +1,5 @@
 import type { BeadChecks } from '../phases/execution/completionSchema'
+import type { StructuredIntervention } from '@shared/structuredInterventions'
 
 export interface StructuredOutputSuccess<T> {
   ok: true
@@ -22,6 +23,7 @@ export interface StructuredOutputMetadata {
   repairWarnings: string[]
   autoRetryCount: number
   validationError?: string
+  interventions?: StructuredIntervention[]
 }
 
 export interface CoverageFollowUpQuestion {

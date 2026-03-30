@@ -19,6 +19,7 @@ import {
   normalizeKey,
   collectStructuredCandidates,
   collectTaggedCandidates,
+  appendStructuredCandidateRecoveryWarning,
   parseYamlOrJsonCandidate,
   repairCoverageGapStringList,
   maybeUnwrapRecord,
@@ -1084,6 +1085,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
       const normalizedContent = normalizeInterviewCompletePayload(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
       }), true)
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
       return {
         ok: true,
         value: {
@@ -1106,6 +1108,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
       }))
       const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate)
       return {
         ok: true,
         value: {
@@ -1137,6 +1140,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
       })
       const normalizedContent = normalizeInterviewCompletePayload(parsed, false)
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
       return {
         ok: true,
         value: {
@@ -1156,6 +1160,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
       }))
       const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate)
       return {
         ok: true,
         value: {
@@ -1217,6 +1222,7 @@ export function normalizeInterviewQuestionsOutput(
       }
 
       const questions = normalized.questions
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
       return {
         ok: true,
         value: {
@@ -1400,6 +1406,7 @@ export function normalizeInterviewRefinementOutput(
       }
 
       const questionsYaml = buildYamlDocument({ questions: normalizedQuestions.questions })
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,
@@ -1563,6 +1570,7 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
 
     try {
       const normalized = parseCoverageResultCandidate(candidate)
+      appendStructuredCandidateRecoveryWarning(normalized.repairWarnings, rawContent, candidate)
 
       return {
         ok: true,
@@ -1587,6 +1595,7 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
         const normalized = parseCoverageResultCandidate(repairedCandidate.content)
         repairApplied = true
         repairWarnings = [...repairedCandidate.repairWarnings, ...normalized.repairWarnings]
+        appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
         return {
           ok: true,

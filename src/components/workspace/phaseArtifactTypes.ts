@@ -1,4 +1,6 @@
 import jsYaml from 'js-yaml'
+import type { StructuredIntervention } from '@shared/structuredInterventions'
+import { normalizeStructuredInterventions } from '@shared/structuredInterventions'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import {
@@ -114,6 +116,7 @@ export interface ArtifactStructuredOutputData {
   repairWarnings?: string[]
   autoRetryCount?: number
   validationError?: string
+  interventions?: StructuredIntervention[]
 }
 
 export interface CouncilDraftData {
@@ -414,12 +417,14 @@ export function normalizeArtifactStructuredOutput(value: unknown): ArtifactStruc
   const validationError = typeof value.validationError === 'string' && value.validationError.trim()
     ? value.validationError
     : undefined
+  const interventions = normalizeStructuredInterventions(value.interventions)
 
   return {
     repairApplied,
     repairWarnings,
     autoRetryCount,
     ...(validationError ? { validationError } : {}),
+    ...(interventions.length > 0 ? { interventions } : {}),
   }
 }
 

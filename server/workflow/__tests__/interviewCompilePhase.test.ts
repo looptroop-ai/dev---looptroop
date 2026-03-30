@@ -1,8 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
-import { initializeDatabase } from '../../db/init'
-import { sqlite } from '../../db/index'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
 import { TEST, makeTicketContextFromTicket as makeTicketContext, createTestRepoManager, resetTestDb } from '../../test/factories'

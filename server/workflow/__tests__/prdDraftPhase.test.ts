@@ -4,7 +4,7 @@ import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import type { Vote } from '../../council/types'
 import { clearProjectDatabaseCache } from '../../db/project'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
-import { TEST, makeTicketContextFromTicket, makeInterviewYaml, makePrdYaml, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
+import { TEST, makeInterviewYaml, makePrdYaml, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
 import { phaseIntermediate } from '../phases/state'
 
 const { draftPRDMock, conductVotingMock, selectWinnerMock } = vi.hoisted(() => ({
@@ -285,7 +285,13 @@ describe('handlePrdDraft', () => {
     const artifactCompanion = parseUiArtifactCompanionArtifact(artifactCompanionRow!.content)?.payload as {
       draftDetails?: Array<{
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
-        structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
+        structuredOutput?: {
+          repairApplied?: boolean
+          repairWarnings?: string[]
+          autoRetryCount?: number
+          validationError?: string
+          interventions?: Array<{ category?: string; code?: string }>
+        }
       }>
     } | undefined
 
@@ -295,12 +301,16 @@ describe('handlePrdDraft', () => {
       epicCount: 1,
       userStoryCount: 2,
     })
-    expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput).toEqual({
+    expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput).toMatchObject({
       repairApplied: true,
       repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
       autoRetryCount: 1,
       validationError: 'PRD output is not a YAML/JSON object',
     })
+    expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput?.interventions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'cleanup', code: 'cleanup_canonicalization' }),
+      expect.objectContaining({ category: 'retry' }),
+    ]))
     expect(existsSync(paths.executionLogPath)).toBe(true)
     const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
     expect(executionLog).toContain(`PRD draft session created for ${TEST.councilMembers[0]}: session-prd-a.`)

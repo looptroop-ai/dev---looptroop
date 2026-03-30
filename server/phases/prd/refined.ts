@@ -11,6 +11,7 @@ import type {
   StructuredOutputMetadata,
 } from '../../structuredOutput'
 import { getPrdDraftMetrics, normalizePrdYamlOutput } from '../../structuredOutput'
+import { normalizeStructuredOutputMetadata } from '../../structuredOutput/metadata'
 import { normalizeKey } from '../../structuredOutput/yamlUtils'
 
 type PrdRefinementItemType = 'epic' | 'user_story'
@@ -145,25 +146,7 @@ function cloneCanonicalItem(item: NormalizedPrdRefinementItem): RefinementChange
 }
 
 function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMetadata | undefined {
-  if (!isRecord(value)) return undefined
-
-  const repairApplied = typeof value.repairApplied === 'boolean' ? value.repairApplied : false
-  const repairWarnings = Array.isArray(value.repairWarnings)
-    ? value.repairWarnings.filter((warning): warning is string => typeof warning === 'string')
-    : []
-  const autoRetryCount = typeof value.autoRetryCount === 'number' && Number.isInteger(value.autoRetryCount)
-    ? value.autoRetryCount
-    : 0
-  const validationError = typeof value.validationError === 'string' && value.validationError.trim()
-    ? value.validationError
-    : undefined
-
-  return {
-    repairApplied,
-    repairWarnings,
-    autoRetryCount,
-    ...(validationError ? { validationError } : {}),
-  }
+  return normalizeStructuredOutputMetadata(value)
 }
 
 function normalizeDraftMetrics(value: unknown): PrdDraftMetrics | null {

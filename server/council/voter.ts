@@ -16,6 +16,7 @@ import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt, normalizeVoteScorecardOutput } from '../structuredOutput'
+import { buildStructuredOutputMetadata } from '../structuredOutput/metadata'
 import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError } from './draftUtils'
 
 export { parseScore } from './scoreParser'
@@ -140,12 +141,12 @@ export async function conductVoting(
     autoRetryCount: number,
     validationError?: string,
   ): DraftStructuredOutputMeta {
-    return {
+    return buildStructuredOutputMetadata(undefined, {
       repairApplied,
       repairWarnings,
       autoRetryCount,
       ...(validationError ? { validationError } : {}),
-    }
+    })
   }
 
   function recordOutcome(

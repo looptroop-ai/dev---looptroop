@@ -126,6 +126,7 @@ interface ParseYamlOrJsonCandidateOptions {
 
 const TERMINAL_NOISE_WARNING = 'Trimmed trailing terminal noise after the complete structured artifact.'
 const ORPHAN_CLOSING_CODE_FENCE_WARNING = 'Trimmed orphan trailing closing code fence after the structured artifact.'
+const CANDIDATE_RECOVERY_WARNING = 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.'
 
 function isControlNoiseChar(code: number) {
   return (code >= 0 && code <= 8)
@@ -514,6 +515,16 @@ export function parseYamlOrJsonCandidate(
   }
 
   throw lastError instanceof Error ? lastError : new Error('Failed to parse structured artifact candidate')
+}
+
+export function appendStructuredCandidateRecoveryWarning(
+  repairWarnings: string[],
+  rawContent: string,
+  candidate: string,
+) {
+  if (candidate !== rawContent.trim() && !repairWarnings.includes(CANDIDATE_RECOVERY_WARNING)) {
+    repairWarnings.push(CANDIDATE_RECOVERY_WARNING)
+  }
 }
 
 function quoteYamlDoubleQuotedScalar(value: string): string {

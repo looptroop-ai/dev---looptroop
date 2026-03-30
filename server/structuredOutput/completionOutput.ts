@@ -7,6 +7,7 @@ import {
   collectTaggedCandidates,
   maybeUnwrapRecord,
   unwrapExplicitWrapperRecord,
+  appendStructuredCandidateRecoveryWarning,
   parseYamlOrJsonCandidate,
   toStringArray,
   toOptionalString,
@@ -107,6 +108,7 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
       const status = normalizeCompletionStatus(getValueByAliases(parsed, ['status']))
       const checks = normalizeCompletionChecks(getValueByAliases(parsed, ['checks', 'gates', 'qualitygates', 'quality_gates']))
       const reason = toOptionalString(getValueByAliases(parsed, ['reason', 'details', 'message']))
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,
@@ -122,7 +124,7 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
           checks,
           ...(reason ? { reason } : {}),
         }),
-        repairApplied: candidate !== rawTrimmed,
+        repairApplied: candidate !== rawTrimmed || repairWarnings.length > 0,
         repairWarnings,
       }
     } catch (error) {
@@ -177,6 +179,7 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
       }
 
       const summary = toOptionalString(getValueByAliases(parsed, ['summary', 'reason', 'notes'])) ?? null
+      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,
@@ -187,7 +190,7 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
         normalizedContent: JSON.stringify(summary
           ? { commands, summary }
           : { commands }),
-        repairApplied: candidate !== rawTrimmed,
+        repairApplied: candidate !== rawTrimmed || repairWarnings.length > 0,
         repairWarnings,
       }
     } catch (error) {
