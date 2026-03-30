@@ -8,12 +8,26 @@ import {
   validatePrdRefinementOutput,
 } from '../refined'
 
-function story(id: string, title: string, criteria: string, steps: string) {
-  return { id, title, acceptance_criteria: [criteria], implementation_steps: [steps], verification: { required_commands: ['npm run test'] } }
+function story(id: string, title: string, criteria: string | string[], steps: string | string[]) {
+  return {
+    id,
+    title,
+    acceptance_criteria: Array.isArray(criteria) ? criteria : [criteria],
+    implementation_steps: Array.isArray(steps) ? steps : [steps],
+    verification: { required_commands: ['npm run test'] },
+  }
 }
 
 function buildPrdContent(options: {
-  epicTitle?: string; storyOneTitle?: string; includeStoryTwo?: boolean; includeStoryThree?: boolean; changes?: unknown[]
+  epicTitle?: string
+  epicObjective?: string
+  epicImplementationSteps?: string[]
+  storyOneTitle?: string
+  storyOneCriteria?: string[]
+  storyOneSteps?: string[]
+  includeStoryTwo?: boolean
+  includeStoryThree?: boolean
+  changes?: unknown[]
 } = {}): string {
   const document: Record<string, unknown> = {
     schema_version: 1,
@@ -33,12 +47,12 @@ function buildPrdContent(options: {
     epics: [{
       id: 'EPIC-1',
       title: options.epicTitle ?? 'Prompt hardening',
-      objective: 'Make PRD refinement exact and auditable.',
-      implementation_steps: ['Compare the winner draft against the final refined PRD.'],
+      objective: options.epicObjective ?? 'Make PRD refinement exact and auditable.',
+      implementation_steps: options.epicImplementationSteps ?? ['Compare the winner draft against the final refined PRD.'],
       user_stories: [
         story('US-1', options.storyOneTitle ?? 'Validate PRD refinement',
-          'Every winner-to-final diff is represented exactly once.',
-          'Validate change coverage before persisting the artifact.'),
+          options.storyOneCriteria ?? ['Every winner-to-final diff is represented exactly once.'],
+          options.storyOneSteps ?? ['Validate change coverage before persisting the artifact.']),
         ...(options.includeStoryTwo === false ? [] : [
           story('US-2', 'Record change attribution',
             'Every adopted improvement records its source.',
@@ -131,6 +145,64 @@ describe('PRD refined artifacts', () => {
 
     expect(result.changes).toEqual([])
     expect(result.repairWarnings.join('\n')).toContain('Dropped no-op PRD refinement modified change')
+  })
+
+  it('keeps modified epic changes when the epic title stays the same but the body changed', () => {
+    const result = validatePrdRefinementOutput(buildPrdContent({
+      epicObjective: 'Make PRD refinement exact, auditable, and restart-safe.',
+      changes: [{
+        type: 'modified', item_type: 'epic',
+        before: { id: 'EPIC-1', title: 'Prompt hardening' },
+        after: { id: 'EPIC-1', title: 'Prompt hardening' },
+        inspiration: null,
+      }],
+    }), validationContext())
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0]).toMatchObject({
+      type: 'modified',
+      before: { id: 'EPIC-1', label: 'Prompt hardening' },
+      after: { id: 'EPIC-1', label: 'Prompt hardening' },
+    })
+    expect(result.repairWarnings.join('\n')).not.toContain('Dropped no-op PRD refinement modified change')
+  })
+
+  it('keeps modified user story changes when only later story content changed', () => {
+    const winnerDraftContent = buildPrdContent({
+      storyOneCriteria: [
+        'Every winner-to-final diff is represented exactly once.',
+        'Persist only canonical changes.',
+      ],
+      storyOneSteps: [
+        'Validate change coverage before persisting the artifact.',
+        'Store validated changes alongside the artifact.',
+      ],
+    })
+
+    const result = validatePrdRefinementOutput(buildPrdContent({
+      storyOneCriteria: [
+        'Every winner-to-final diff is represented exactly once.',
+        'Surface later acceptance criteria changes as real diffs.',
+      ],
+      storyOneSteps: [
+        'Validate change coverage before persisting the artifact.',
+        'Store full story-body differences as real changes.',
+      ],
+      changes: [{
+        type: 'modified', item_type: 'user_story',
+        before: { id: 'US-1', title: 'Validate PRD refinement' },
+        after: { id: 'US-1', title: 'Validate PRD refinement' },
+        inspiration: null,
+      }],
+    }), validationContext({ winnerDraftContent }))
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0]).toMatchObject({
+      type: 'modified',
+      before: { id: 'US-1', label: 'Validate PRD refinement' },
+      after: { id: 'US-1', label: 'Validate PRD refinement' },
+    })
+    expect(result.repairWarnings.join('\n')).not.toContain('Dropped no-op PRD refinement modified change')
   })
 
   it('rejects changes that reference items outside the winning draft', () => {

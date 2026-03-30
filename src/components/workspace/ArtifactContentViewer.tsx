@@ -463,7 +463,7 @@ function ChangeAttributionBadge({ status }: { status: DiffAttributionStatus }) {
 }
 
 function isNoOpRefinementRepairWarning(warning: string): boolean {
-  return /^Dropped no-op .* refinement .* because .* identical\.$/i.test(warning.trim())
+  return /^Dropped no-op .* refinement .* because .*?(?:identical|unchanged across the winning and final drafts)\.$/i.test(warning.trim())
 }
 
 function getStructuredRepairNoticeCopy(repairWarnings: string[]): {
@@ -471,19 +471,20 @@ function getStructuredRepairNoticeCopy(repairWarnings: string[]): {
   body: string
   detail?: string
 } {
+  const issueCount = repairWarnings.length
+
   if (repairWarnings.length > 0 && repairWarnings.every(isNoOpRefinementRepairWarning)) {
-    const ignoredCount = repairWarnings.length
     return {
-      title: 'We cleaned up the AI\'s change list.',
-      body: 'Some items the AI marked as changed were actually unchanged, so LoopTroop ignored those bad change notes. The diff below still shows the real differences between the original artifact and the refined artifact.',
-      detail: `Ignored ${ignoredCount} invalid change note${ignoredCount === 1 ? '' : 's'} that turned out to be no-ops.`,
+      title: 'Some AI change notes were ignored.',
+      body: 'The AI reported some items as changed, but those items were actually unchanged. LoopTroop removed those incorrect notes. The diff below shows the real validated changes.',
+      detail: `${issueCount} incorrect AI change note(s) were ignored.`,
     }
   }
 
   return {
-    title: 'This artifact needed repair.',
-    body: 'Some diff entries may be auto-detected or may have corrected attribution because the stored artifact needed validation repairs.',
-    detail: repairWarnings[0],
+    title: 'LoopTroop repaired the diff data.',
+    body: 'The saved change metadata had a problem, so LoopTroop rebuilt this diff from the validated artifact. The diff below is safe to review, but some source labels may be estimated or cleared.',
+    detail: `LoopTroop fixed ${issueCount} diff metadata issue(s) before showing this diff.`,
   }
 }
 
@@ -492,7 +493,10 @@ function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: Artif
     (warning): warning is string => typeof warning === 'string' && warning.trim().length > 0,
   )
 
-  if (!structuredOutput?.repairApplied && repairWarnings.length === 0) {
+  // Only show a banner when there is concrete repair detail to explain.
+  // Bare repairApplied=true can come from invisible normalization like wrapper
+  // stripping, which should not read as a user-facing diff problem.
+  if (repairWarnings.length === 0) {
     return null
   }
 

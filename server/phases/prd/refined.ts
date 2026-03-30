@@ -14,9 +14,12 @@ import { getPrdDraftMetrics, normalizePrdYamlOutput } from '../../structuredOutp
 import { normalizeKey } from '../../structuredOutput/yamlUtils'
 
 type PrdRefinementItemType = 'epic' | 'user_story'
+type PrdEpic = PrdDocument['epics'][number]
+type PrdUserStory = PrdEpic['user_stories'][number]
 
 interface NormalizedPrdRefinementItem extends RefinementChangeItem {
   itemType: PrdRefinementItemType
+  contentFingerprint: string
 }
 
 export interface ValidatedPrdRefinement {
@@ -42,12 +45,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function buildItemKey(item: Pick<NormalizedPrdRefinementItem, 'itemType' | 'id' | 'label'>): string {
+function buildItemLookupKey(item: Pick<NormalizedPrdRefinementItem, 'itemType' | 'id' | 'label'>): string {
   return `${item.itemType}\u241f${item.id}\u241f${item.label}`
 }
 
 function buildItemIdentityKey(item: Pick<NormalizedPrdRefinementItem, 'itemType' | 'id'>): string {
   return `${item.itemType}\u241f${item.id}`
+}
+
+function buildItemContentKey(item: Pick<NormalizedPrdRefinementItem, 'itemType' | 'id' | 'contentFingerprint'>): string {
+  return `${item.itemType}\u241f${item.id}\u241f${item.contentFingerprint}`
+}
+
+function normalizeFingerprintList(values: string[] | undefined): string[] {
+  return Array.isArray(values)
+    ? values
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+    : []
+}
+
+function buildEpicContentFingerprint(epic: PrdEpic): string {
+  return JSON.stringify({
+    title: epic.title.trim(),
+    objective: epic.objective?.trim() ?? '',
+    implementationSteps: normalizeFingerprintList(epic.implementation_steps),
+  })
+}
+
+function buildUserStoryContentFingerprint(story: PrdUserStory): string {
+  return JSON.stringify({
+    title: story.title.trim(),
+    acceptanceCriteria: normalizeFingerprintList(story.acceptance_criteria),
+    implementationSteps: normalizeFingerprintList(story.implementation_steps),
+    verificationCommands: normalizeFingerprintList(story.verification?.required_commands),
+  })
 }
 
 function normalizePrdItemType(value: unknown): PrdRefinementItemType | null {
@@ -67,6 +99,7 @@ function buildDocumentItems(document: PrdDocument): NormalizedPrdRefinementItem[
       id: epic.id,
       label: epic.title,
       ...(epic.objective ? { detail: epic.objective } : {}),
+      contentFingerprint: buildEpicContentFingerprint(epic),
     })
 
     for (const story of epic.user_stories) {
@@ -76,6 +109,7 @@ function buildDocumentItems(document: PrdDocument): NormalizedPrdRefinementItem[
         id: story.id,
         label: story.title,
         ...(detail ? { detail } : {}),
+        contentFingerprint: buildUserStoryContentFingerprint(story),
       })
     }
   }
@@ -84,12 +118,12 @@ function buildDocumentItems(document: PrdDocument): NormalizedPrdRefinementItem[
 }
 
 function buildItemLookup(items: NormalizedPrdRefinementItem[]) {
-  const byKey = new Map<string, NormalizedPrdRefinementItem>()
+  const byLookupKey = new Map<string, NormalizedPrdRefinementItem>()
   const byIdentityKey = new Map<string, NormalizedPrdRefinementItem[]>()
   const byId = new Map<string, NormalizedPrdRefinementItem[]>()
 
   for (const item of items) {
-    byKey.set(buildItemKey(item), item)
+    byLookupKey.set(buildItemLookupKey(item), item)
 
     const identityKey = buildItemIdentityKey(item)
     const identityMatches = byIdentityKey.get(identityKey) ?? []
@@ -101,7 +135,7 @@ function buildItemLookup(items: NormalizedPrdRefinementItem[]) {
     byId.set(item.id, idMatches)
   }
 
-  return { byKey, byIdentityKey, byId }
+  return { byLookupKey, byIdentityKey, byId }
 }
 
 function cloneCanonicalItem(item: NormalizedPrdRefinementItem): RefinementChangeItem {
@@ -182,7 +216,7 @@ function inferPrdItemType(
       if (item.label) {
         for (const lookup of [winnerLookup, finalLookup]) {
           for (const itemType of ['epic', 'user_story'] as const) {
-            const candidate = lookup.byKey.get(buildItemKey({ itemType, id: item.id, label: item.label }))
+            const candidate = lookup.byLookupKey.get(buildItemLookupKey({ itemType, id: item.id, label: item.label }))
             if (candidate) matches.push(candidate.itemType)
           }
         }
@@ -214,7 +248,7 @@ function normalizePrdChangeItem(
 ): RefinementChangeItem | null {
   if (!item) return null
 
-  const canonical = lookup.byKey.get(buildItemKey({ itemType, id: item.id, label: item.label }))
+  const canonical = lookup.byLookupKey.get(buildItemLookupKey({ itemType, id: item.id, label: item.label }))
   return canonical ? cloneCanonicalItem(canonical) : item
 }
 
@@ -237,18 +271,18 @@ function normalizeAttributionStatus(
 function validateChangeCoverage(
   winnerItems: NormalizedPrdRefinementItem[],
   finalItems: NormalizedPrdRefinementItem[],
-  usedBeforeKeys: Set<string>,
-  usedAfterKeys: Set<string>,
+  usedBeforeContentKeys: Set<string>,
+  usedAfterContentKeys: Set<string>,
 ) {
-  const winnerKeySet = new Set(winnerItems.map(buildItemKey))
-  const finalKeySet = new Set(finalItems.map(buildItemKey))
-  const expectedBeforeKeys = [...winnerKeySet].filter((key) => !finalKeySet.has(key))
-  const expectedAfterKeys = [...finalKeySet].filter((key) => !winnerKeySet.has(key))
+  const winnerContentKeySet = new Set(winnerItems.map(buildItemContentKey))
+  const finalContentKeySet = new Set(finalItems.map(buildItemContentKey))
+  const expectedBeforeKeys = [...winnerContentKeySet].filter((key) => !finalContentKeySet.has(key))
+  const expectedAfterKeys = [...finalContentKeySet].filter((key) => !winnerContentKeySet.has(key))
 
-  const missingBefore = expectedBeforeKeys.filter((key) => !usedBeforeKeys.has(key))
-  const missingAfter = expectedAfterKeys.filter((key) => !usedAfterKeys.has(key))
-  const extraBefore = [...usedBeforeKeys].filter((key) => !winnerKeySet.has(key) || finalKeySet.has(key))
-  const extraAfter = [...usedAfterKeys].filter((key) => !finalKeySet.has(key) || winnerKeySet.has(key))
+  const missingBefore = expectedBeforeKeys.filter((key) => !usedBeforeContentKeys.has(key))
+  const missingAfter = expectedAfterKeys.filter((key) => !usedAfterContentKeys.has(key))
+  const extraBefore = [...usedBeforeContentKeys].filter((key) => !winnerContentKeySet.has(key) || finalContentKeySet.has(key))
+  const extraAfter = [...usedAfterContentKeys].filter((key) => !finalContentKeySet.has(key) || winnerContentKeySet.has(key))
 
   if (missingBefore.length > 0 || missingAfter.length > 0 || extraBefore.length > 0 || extraAfter.length > 0) {
     throw new Error('PRD refinement changes do not fully and exactly account for the diff between the winning draft and the final output.')
@@ -299,10 +333,14 @@ export function validatePrdRefinementOutput(
   const finalItems = buildDocumentItems(refinedDocument)
   const winnerLookup = buildItemLookup(winnerItems)
   const finalLookup = buildItemLookup(finalItems)
-  const winnerKeySet = new Set(winnerItems.map(buildItemKey))
-  const finalKeySet = new Set(finalItems.map(buildItemKey))
-  const usedBeforeKeys = new Set<string>()
-  const usedAfterKeys = new Set<string>()
+  const winnerLookupKeySet = new Set(winnerItems.map(buildItemLookupKey))
+  const finalLookupKeySet = new Set(finalItems.map(buildItemLookupKey))
+  const winnerContentKeySet = new Set(winnerItems.map(buildItemContentKey))
+  const finalContentKeySet = new Set(finalItems.map(buildItemContentKey))
+  const usedBeforeIdentityKeys = new Set<string>()
+  const usedAfterIdentityKeys = new Set<string>()
+  const usedBeforeContentKeys = new Set<string>()
+  const usedAfterContentKeys = new Set<string>()
   const repairWarnings = [...refinementResult.repairWarnings]
   const validatedChanges: RefinementChange[] = []
   let repairApplied = refinementResult.repairApplied
@@ -321,6 +359,10 @@ export function validatePrdRefinementOutput(
 
     const before = normalizePrdChangeItem(change.before, itemType, winnerLookup)
     const after = normalizePrdChangeItem(change.after, itemType, finalLookup)
+    const beforeLookupKey = before ? buildItemLookupKey({ itemType, ...before }) : null
+    const afterLookupKey = after ? buildItemLookupKey({ itemType, ...after }) : null
+    const canonicalBefore = beforeLookupKey ? winnerLookup.byLookupKey.get(beforeLookupKey) ?? null : null
+    const canonicalAfter = afterLookupKey ? finalLookup.byLookupKey.get(afterLookupKey) ?? null : null
 
     if (change.type === 'modified') {
       if (!before || !after) {
@@ -339,9 +381,21 @@ export function validatePrdRefinementOutput(
       }
     }
 
-    if (before && after && buildItemKey({ itemType, ...before }) === buildItemKey({ itemType, ...after })) {
-      const changeKey = buildItemKey({ itemType, ...before })
-      if (winnerKeySet.has(changeKey) && finalKeySet.has(changeKey)) {
+    if (before && (!beforeLookupKey || !winnerLookupKeySet.has(beforeLookupKey) || !canonicalBefore)) {
+      throw new Error(`PRD refinement change.before at index ${index} does not match any item from the winning draft`)
+    }
+
+    if (after && (!afterLookupKey || !finalLookupKeySet.has(afterLookupKey) || !canonicalAfter)) {
+      throw new Error(`PRD refinement change.after at index ${index} does not match any item from the refined final draft`)
+    }
+
+    if (
+      canonicalBefore
+      && canonicalAfter
+      && buildItemContentKey(canonicalBefore) === buildItemContentKey(canonicalAfter)
+    ) {
+      const changeKey = buildItemContentKey(canonicalBefore)
+      if (winnerContentKeySet.has(changeKey) && finalContentKeySet.has(changeKey)) {
         repairApplied = true
         repairWarnings.push(`Dropped no-op PRD refinement modified change at index ${index} because the winning and final records are identical.`)
         continue
@@ -349,25 +403,21 @@ export function validatePrdRefinementOutput(
     }
 
     if (before) {
-      const beforeKey = buildItemKey({ itemType, ...before })
-      if (!winnerKeySet.has(beforeKey)) {
-        throw new Error(`PRD refinement change.before at index ${index} does not match any item from the winning draft`)
-      }
-      if (usedBeforeKeys.has(beforeKey)) {
+      const beforeIdentityKey = buildItemIdentityKey({ itemType, id: before.id })
+      if (usedBeforeIdentityKeys.has(beforeIdentityKey)) {
         throw new Error(`PRD refinement change.before at index ${index} reuses a winning-draft item already referenced by another change`)
       }
-      usedBeforeKeys.add(beforeKey)
+      usedBeforeIdentityKeys.add(beforeIdentityKey)
+      usedBeforeContentKeys.add(buildItemContentKey(canonicalBefore!))
     }
 
     if (after) {
-      const afterKey = buildItemKey({ itemType, ...after })
-      if (!finalKeySet.has(afterKey)) {
-        throw new Error(`PRD refinement change.after at index ${index} does not match any item from the refined final draft`)
-      }
-      if (usedAfterKeys.has(afterKey)) {
+      const afterIdentityKey = buildItemIdentityKey({ itemType, id: after.id })
+      if (usedAfterIdentityKeys.has(afterIdentityKey)) {
         throw new Error(`PRD refinement change.after at index ${index} reuses a refined final item already referenced by another change`)
       }
-      usedAfterKeys.add(afterKey)
+      usedAfterIdentityKeys.add(afterIdentityKey)
+      usedAfterContentKeys.add(buildItemContentKey(canonicalAfter!))
     }
 
     let inspiration = change.inspiration ?? null
@@ -401,7 +451,7 @@ export function validatePrdRefinementOutput(
     })
   }
 
-  validateChangeCoverage(winnerItems, finalItems, usedBeforeKeys, usedAfterKeys)
+  validateChangeCoverage(winnerItems, finalItems, usedBeforeContentKeys, usedAfterContentKeys)
 
   return {
     document: refinedDocument,

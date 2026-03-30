@@ -962,20 +962,30 @@ describe('PhaseArtifactsPanel', () => {
         'Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.',
         'Dropped no-op PRD refinement modified change at index 1 because the winning and final records are identical.',
       ],
-      expectedText: "We cleaned up the AI's change list.",
-      expectedDetail: /Some items the AI marked as changed were actually unchanged/i,
-      expectedCount: 'Ignored 2 invalid change notes that turned out to be no-ops.',
-      notExpected: 'This artifact needed repair.',
+      expectedText: 'Some AI change notes were ignored.',
+      expectedDetail: /The AI reported some items as changed, but those items were actually unchanged/i,
+      expectedCount: '2 incorrect AI change note(s) were ignored.',
+      notExpected: 'LoopTroop repaired the diff data.',
+    },
+    {
+      scenario: 'shows cleanup notice for no-op interview warnings',
+      repairWarnings: [
+        'Dropped no-op interview refinement modified at index 0 because the question is unchanged across the winning and final drafts.',
+      ],
+      expectedText: 'Some AI change notes were ignored.',
+      expectedDetail: /The AI reported some items as changed, but those items were actually unchanged/i,
+      expectedCount: '1 incorrect AI change note(s) were ignored.',
+      notExpected: 'LoopTroop repaired the diff data.',
     },
     {
       scenario: 'keeps the broader repair notice for non-no-op repairs',
       repairWarnings: [
         'Inferred missing PRD refinement item_type at index 0 as epic.',
       ],
-      expectedText: 'This artifact needed repair.',
-      expectedDetail: /Some diff entries may be auto-detected or may have corrected attribution/i,
-      expectedCount: 'Inferred missing PRD refinement item_type at index 0 as epic.',
-      notExpected: "We cleaned up the AI's change list.",
+      expectedText: 'LoopTroop repaired the diff data.',
+      expectedDetail: /The saved change metadata had a problem/i,
+      expectedCount: 'LoopTroop fixed 1 diff metadata issue(s) before showing this diff.',
+      notExpected: 'Some AI change notes were ignored.',
     },
   ])('$scenario', ({ repairWarnings, expectedText, expectedDetail, expectedCount, notExpected }) => {
     const refinedArtifact = makeArtifact({
@@ -1013,6 +1023,106 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText(expectedDetail)).toBeInTheDocument()
     expect(screen.getByText(expectedCount)).toBeInTheDocument()
     expect(screen.queryByText(notExpected)).not.toBeInTheDocument()
+  })
+
+  it('uses count-based copy for mixed repair warnings and hides raw warning text', () => {
+    const refinedArtifact = makeArtifact({
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Original PRD review',
+          storyTitle: 'Inspect original PRD sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: [
+            'Dropped no-op interview refinement modified at index 0 because the question is unchanged across the winning and final drafts.',
+            'Inferred missing PRD refinement item_type at index 0 as epic.',
+          ],
+        },
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
+
+    expect(screen.getByText('LoopTroop repaired the diff data.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop fixed 2 diff metadata issue(s) before showing this diff.')).toBeInTheDocument()
+    expect(screen.queryByText(/Dropped no-op interview refinement modified at index 0/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).not.toBeInTheDocument()
+  })
+
+  it('hides the interview diff repair banner when only a bare repair flag is present', () => {
+    const voteArtifact = makeArtifact({
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Original winner question?"',
+          },
+        ],
+      }),
+    })
+
+    const compiledArtifact = makeArtifact({
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      content: JSON.stringify({
+        refinedContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Refined winner question?"',
+      }),
+    })
+
+    const compiledCompanionArtifact = makeArtifact({
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'ui_artifact_companion:interview_compiled',
+      content: JSON.stringify({
+        baseArtifactType: 'interview_compiled',
+        generatedAt: '2026-03-12T11:49:32.000Z',
+        payload: {
+          winnerId: 'openai/gpt-5.2',
+          questions: [{ id: 'Q01', phase: 'Foundation', question: 'Refined winner question?' }],
+          questionCount: 1,
+          structuredOutput: {
+            repairApplied: true,
+            repairWarnings: [],
+          },
+        },
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_INTERVIEW_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[voteArtifact, compiledArtifact, compiledCompanionArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
+
+    expect(screen.queryByText('LoopTroop repaired the diff data.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Some AI change notes were ignored.')).not.toBeInTheDocument()
+    expect(screen.getByText(/Comparing winning draft from gpt-5.2/i)).toBeInTheDocument()
+    expect(screen.getByText('Modified 1')).toBeInTheDocument()
   })
 
   it('keeps the final interview artifact available while waiting for interview answers', () => {
