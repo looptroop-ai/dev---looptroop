@@ -55,7 +55,21 @@ export interface OpenCodeAdapter {
   checkHealth(): Promise<HealthStatus>
 }
 
+function formatContextGuidance(guidance: Bead['contextGuidance']): string {
+  const lines: string[] = []
+  if (guidance.patterns.length > 0) {
+    lines.push('Patterns:')
+    for (const pattern of guidance.patterns) lines.push(`- ${pattern}`)
+  }
+  if (guidance.anti_patterns.length > 0) {
+    lines.push('Anti-patterns:')
+    for (const antiPattern of guidance.anti_patterns) lines.push(`- ${antiPattern}`)
+  }
+  return lines.length > 0 ? lines.join('\n') : 'No additional guidance provided.'
+}
+
 function formatBeadContext(bead: Bead): string {
+  const blockedBy = bead.dependencies.blocked_by
   return [
     `# Active Bead`,
     `ID: ${bead.id}`,
@@ -65,7 +79,7 @@ function formatBeadContext(bead: Bead): string {
     bead.description,
     '',
     `## Context Guidance`,
-    bead.contextGuidance || 'No additional guidance provided.',
+    formatContextGuidance(bead.contextGuidance),
     '',
     `## Acceptance Criteria`,
     ...bead.acceptanceCriteria.map((item) => `- ${item}`),
@@ -79,8 +93,8 @@ function formatBeadContext(bead: Bead): string {
     `## Test Commands`,
     ...bead.testCommands.map((item) => `- ${item}`),
     '',
-    `## Dependencies`,
-    ...(bead.dependencies.length > 0 ? bead.dependencies.map((item) => `- ${item}`) : ['- None']),
+    `## Dependencies (blocked by)`,
+    ...(blockedBy.length > 0 ? blockedBy.map((item) => `- ${item}`) : ['- None']),
   ].join('\n')
 }
 
@@ -459,7 +473,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
           if (bead) {
             state.beadData = formatBeadContext(bead)
-            state.beadNotes = bead.notes.filter((note) => note.trim().length > 0)
+            const noteText = typeof bead.notes === 'string' ? bead.notes.trim() : ''
+            state.beadNotes = noteText.length > 0 ? [noteText] : []
           }
         }
       } catch (err) {

@@ -53,7 +53,7 @@ export async function handleCoding(
 
   const now = new Date().toISOString()
   const inProgressBeads = beads.map(bead => bead.id === nextBead.id
-    ? { ...bead, status: 'in_progress' as const, updatedAt: now }
+    ? { ...bead, status: 'in_progress' as const, updatedAt: now, startedAt: now }
     : bead)
   writeTicketBeads(ticketId, inProgressBeads)
   updateTicketProgressFromBeads(ticketId, inProgressBeads)
@@ -127,12 +127,13 @@ export async function handleCoding(
   })
 
   if (!result.success) {
+    const nowStr = new Date().toISOString()
     const failedBeads = inProgressBeads.map(bead => bead.id === nextBead.id
       ? {
           ...bead,
-          status: 'failed' as const,
+          status: 'error' as const,
           iteration: result.iteration,
-          updatedAt: new Date().toISOString(),
+          updatedAt: nowStr,
         }
       : bead)
     writeTicketBeads(ticketId, failedBeads)
@@ -144,12 +145,14 @@ export async function handleCoding(
     return
   }
 
+  const doneNow = new Date().toISOString()
   const completedBeads = inProgressBeads.map(bead => bead.id === nextBead.id
     ? {
         ...bead,
-        status: 'completed' as const,
+        status: 'done' as const,
         iteration: result.iteration,
-        updatedAt: new Date().toISOString(),
+        updatedAt: doneNow,
+        completedAt: doneNow,
       }
     : bead)
   writeTicketBeads(ticketId, completedBeads)
@@ -159,7 +162,7 @@ export async function handleCoding(
     ticketId,
     beadId: nextBead.id,
     title: nextBead.title,
-    completed: completedBeads.filter(bead => bead.status === 'completed' || bead.status === 'skipped').length,
+    completed: completedBeads.filter(bead => bead.status === 'done').length,
     total: completedBeads.length,
   })
 

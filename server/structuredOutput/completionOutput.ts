@@ -18,14 +18,14 @@ const COMPLETION_NESTED_MAPPING_CHILDREN = {
   checks: ['tests', 'lint', 'typecheck', 'qualitative'],
 } as const
 
-function normalizeCompletionStatus(value: unknown): 'completed' | 'failed' {
+function normalizeCompletionStatus(value: unknown): 'done' | 'error' {
   const raw = getRequiredString({ status: value }, ['status'], 'status')
   const normalized = normalizeKey(raw)
   if (['completed', 'complete', 'done', 'success', 'succeeded'].includes(normalized)) {
-    return 'completed'
+    return 'done'
   }
   if (['failed', 'fail', 'error'].includes(normalized)) {
-    return 'failed'
+    return 'error'
   }
   throw new Error(`Invalid completion status: ${raw}`)
 }

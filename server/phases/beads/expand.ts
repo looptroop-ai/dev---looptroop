@@ -1,6 +1,6 @@
 import type { Bead, BeadSubset } from './types'
 
-/** Extract epicId and storyId from PRD references. */
+/** Extract epicId and storyId from PRD references for label generation. */
 function derivePrdIds(prdRefs: string[]): { epicId: string; storyId: string } {
   let epicId = ''
   let storyId = ''
@@ -23,34 +23,36 @@ function derivePrdIds(prdRefs: string[]): { epicId: string; storyId: string } {
   return { epicId, storyId }
 }
 
-function deriveLabels(epicId: string, storyId: string): string[] {
+function deriveLabels(epicId: string, storyId: string, externalRef: string): string[] {
   const labels: string[] = []
+  if (externalRef) labels.push(`ticket:${externalRef}`)
   if (epicId) labels.push(`epic:${epicId}`)
   if (storyId) labels.push(`story:${storyId}`)
   return labels
 }
 
-export function expandBeads(subsetBeads: BeadSubset[]): Bead[] {
+export function expandBeads(subsetBeads: BeadSubset[], externalRef: string = ''): Bead[] {
   const now = new Date().toISOString()
 
   return subsetBeads.map((subset, index) => {
     const { epicId, storyId } = derivePrdIds(subset.prdRefs)
-    const labels = deriveLabels(epicId, storyId)
+    const labels = deriveLabels(epicId, storyId, externalRef)
     return {
       ...subset,
       priority: index + 1,
       status: 'pending' as const,
+      issueType: 'task',
+      externalRef,
       labels,
-      dependencies: [],
+      dependencies: { blocked_by: [], blocks: [] },
       targetFiles: [],
-      notes: [],
+      notes: '',
       iteration: 1,
       createdAt: now,
       updatedAt: now,
+      completedAt: '',
+      startedAt: '',
       beadStartCommit: null,
-      estimatedComplexity: 'moderate' as const,
-      epicId,
-      storyId,
     }
   })
 }

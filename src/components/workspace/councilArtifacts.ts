@@ -188,6 +188,8 @@ function buildVotingMemberArtifacts(
   const mergedVoteContent = mergeVoteArtifactContent(voteArtifact?.content, voteCompanionArtifact?.content, mergedDraftContent)
   const voteResult = parseCouncilResult(mergedVoteContent)
   const voterOutcomes = voteResult?.voterOutcomes ?? {}
+  const draftPhase = getDraftPhaseForVoting(phase)
+  const failedDraftOutcomes = getDraftOutcomes(domain, artifacts, draftPhase)
   const orderedMembers = getOrderedMembers(
     configuredMembers,
     Object.keys(voterOutcomes).length > 0 ? Object.keys(voterOutcomes) : unique(voteResult?.votes?.map((vote) => vote.voterId) ?? []),
@@ -196,6 +198,17 @@ function buildVotingMemberArtifacts(
   const viewer = makeVotingViewer(domain, mergedVoteContent ?? voteArtifact?.content ?? '')
 
   return orderedMembers.map((memberId) => {
+    const draftFailure = failedDraftOutcomes.get(memberId)
+    if (draftFailure) {
+      return {
+        key: `${phase}:${memberId}`,
+        modelId: memberId,
+        action: 'scoring' as CouncilAction,
+        outcome: draftFailure,
+        detail: getDraftFailureVotingDetail(draftFailure),
+        viewer,
+      }
+    }
     const outcome = voterOutcomes[memberId] ?? 'pending'
     const voteCount = (voteResult?.votes ?? []).filter((vote) => vote.voterId === memberId).length
     return {
@@ -241,11 +254,16 @@ function buildRefiningMemberArtifacts(
       : isWinner
         ? makeWinnerViewer(domain, phase, memberId, refinedArtifact?.content ?? voteArtifact?.content ?? '', refinedArtifact?.content ? true : false)
         : makeDraftViewer(domain, memberId, mergedVoteContent ?? voteArtifact?.content ?? '')
-    const detail = shouldShowProposedDraft
-      ? getDraftDetail(domain, draft)
-      : isWinner
-        ? 'Winner — refining draft'
-        : getDraftCompletionDetail(domain, draft)
+    const draftFailureOutcome = draft?.outcome === 'invalid_output' || draft?.outcome === 'failed' || draft?.outcome === 'timed_out'
+      ? draft.outcome as NonSuccessOutcome
+      : undefined
+    const detail = draftFailureOutcome && !isWinner
+      ? getDraftFailureVotingDetail(draftFailureOutcome)
+      : shouldShowProposedDraft
+        ? getDraftDetail(domain, draft)
+        : isWinner
+          ? 'Winner — refining draft'
+          : getDraftCompletionDetail(domain, draft)
 
     return {
       key: `${phase}:${memberId}`,
@@ -253,8 +271,8 @@ function buildRefiningMemberArtifacts(
       action: isWinner && !isCompleted ? 'refining' : 'working',
       outcome: isWinner && !isCompleted
         ? 'pending'
-        : (!isWinner && draft?.outcome && draft.outcome !== 'completed' && draft.outcome !== 'pending')
-          ? draft.outcome
+        : (!isWinner && draftFailureOutcome)
+          ? draftFailureOutcome
           : 'completed',
       detail,
       isWinner,
@@ -419,6 +437,12 @@ function getVotingDetail(outcome: CouncilOutcome, voteCount: number): string {
   if (outcome === 'failed') return 'vote failed'
   if (outcome === 'invalid_output') return 'malformed scores'
   return 'waiting for scores'
+}
+
+function getDraftFailureVotingDetail(outcome: NonSuccessOutcome): string {
+  if (outcome === 'invalid_output') return 'draft had invalid output'
+  if (outcome === 'timed_out') return 'draft timed out'
+  return 'draft failed'
 }
 
 function getCoverageDetail(result: CoverageResultLike | null): string {
@@ -594,6 +618,28 @@ function getVotePhaseForRefine(phase: string): string {
   if (phase === 'COMPILING_INTERVIEW') return 'COUNCIL_VOTING_INTERVIEW'
   if (phase === 'REFINING_PRD') return 'COUNCIL_VOTING_PRD'
   return 'COUNCIL_VOTING_BEADS'
+}
+
+function getDraftPhaseForVoting(phase: string): string {
+  if (phase === 'COUNCIL_VOTING_INTERVIEW') return 'COUNCIL_DELIBERATING'
+  if (phase === 'COUNCIL_VOTING_PRD') return 'DRAFTING_PRD'
+  return 'DRAFTING_BEADS'
+}
+
+type NonSuccessOutcome = 'timed_out' | 'invalid_output' | 'failed'
+
+function getDraftOutcomes(domain: Domain, artifacts: ArtifactSource[], draftPhase: string): Map<string, NonSuccessOutcome> {
+  const draftArtifact = findLatestArtifact(artifacts, a => a.phase === draftPhase && a.artifactType === `${domain}_drafts`)
+  const draftCompanion = findLatestCompanionArtifact(artifacts, `${domain}_drafts`, [draftPhase])
+  const mergedContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+  const result = parseCouncilResult(mergedContent)
+  const outcomes = new Map<string, NonSuccessOutcome>()
+  for (const draft of result?.drafts ?? []) {
+    if (draft.outcome === 'invalid_output' || draft.outcome === 'failed' || draft.outcome === 'timed_out') {
+      outcomes.set(draft.memberId, draft.outcome)
+    }
+  }
+  return outcomes
 }
 
 function getRefinedArtifactType(domain: Domain): string {

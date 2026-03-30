@@ -78,7 +78,7 @@ export type InterviewTurnOutput =
 
 export interface BeadCompletionPayload {
   beadId: string
-  status: 'completed' | 'failed'
+  status: 'done' | 'error'
   checks: BeadChecks
   reason?: string
 }

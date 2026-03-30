@@ -94,7 +94,7 @@ interface ParsedBeadSubset {
   title?: string
   prdRefs?: string[]
   description?: string
-  contextGuidance?: string
+  contextGuidance?: { patterns?: string[]; anti_patterns?: string[] } | string
   acceptanceCriteria?: string[]
   tests?: string[]
   testCommands?: string[]
@@ -855,7 +855,14 @@ function buildBeadText(bead: ParsedBeadSubset): string {
       ? renderNamedSection('PRD References', renderList(bead.prdRefs))
       : '',
     bead.description?.trim() ? `Description: ${bead.description.trim()}` : '',
-    bead.contextGuidance?.trim() ? `Context Guidance: ${bead.contextGuidance.trim()}` : '',
+    bead.contextGuidance
+      ? typeof bead.contextGuidance === 'string'
+        ? bead.contextGuidance.trim() ? `Context Guidance: ${bead.contextGuidance.trim()}` : ''
+        : [
+            ...(bead.contextGuidance.patterns?.length ? [`Patterns: ${bead.contextGuidance.patterns.join(', ')}`] : []),
+            ...(bead.contextGuidance.anti_patterns?.length ? [`Anti-patterns: ${bead.contextGuidance.anti_patterns.join(', ')}`] : []),
+          ].join('\n') || ''
+      : '',
     normalizeStringArray(bead.acceptanceCriteria).length
       ? renderNamedSection('Acceptance Criteria', renderList(bead.acceptanceCriteria))
       : '',

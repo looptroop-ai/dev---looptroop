@@ -319,7 +319,7 @@ function stripTrailingInlineTerminalNoise(content: string): string | null {
     if (!stripped) continue
 
     const lastChar = stripped[stripped.length - 1]
-    if (!lastChar || !['"', "'", '}', ']'].includes(lastChar)) continue
+    if (!lastChar || !/["'}\]\w.-]/.test(lastChar)) continue
 
     return stripped
   }
@@ -375,43 +375,21 @@ export function parseYamlOrJsonCandidate(
   const applyNestedMappingRepair = (value: string): string => options?.nestedMappingChildren
     ? repairYamlNestedMappingChildren(value, options.nestedMappingChildren)
     : value
-  const parseTrailingNoiseVariants = (value: string): unknown | undefined => {
-    if (!options?.allowTrailingTerminalNoise) return undefined
-
-    for (const variant of buildTrailingTerminalNoiseVariants(value)) {
-      try {
-        const parsed = JSON.parse(variant)
-        options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
-        return parsed
-      } catch {
-        const repairedVariant = applyNestedMappingRepair(variant)
-        if (repairedVariant !== variant) {
-          try {
-            const parsed = jsYaml.load(repairedVariant)
-            options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
-            return parsed
-          } catch { /* fall through to the raw variant */ }
-        }
-        try {
-          const parsed = jsYaml.load(variant)
-          options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
-          return parsed
-        } catch { /* try the next repair variant */ }
-      }
-    }
-
-    return undefined
-  }
   const trimmed = content.trim()
   if (!trimmed) return null
 
-  const tryParseCandidate = (candidate: string): unknown => {
+  const tryParseCandidate = (candidate: string, allowTrailingNoiseVariants = true): unknown => {
     try {
       return JSON.parse(candidate)
     } catch {
-      const trailingNoiseParsed = parseTrailingNoiseVariants(candidate)
-      if (trailingNoiseParsed !== undefined) {
-        return trailingNoiseParsed
+      if (allowTrailingNoiseVariants && options?.allowTrailingTerminalNoise) {
+        for (const variant of buildTrailingTerminalNoiseVariants(candidate)) {
+          try {
+            const parsed = tryParseCandidate(variant, false)
+            options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
+            return parsed
+          } catch { /* try the next stripped-noise variant */ }
+        }
       }
 
       const repairedTrimmed = applyNestedMappingRepair(candidate)
@@ -429,24 +407,9 @@ export function parseYamlOrJsonCandidate(
         const effectiveBase = defenced !== candidate ? defenced.trim() : candidate
 
         if (effectiveBase !== candidate) {
-          const defencedTrailingNoiseParsed = parseTrailingNoiseVariants(effectiveBase)
-          if (defencedTrailingNoiseParsed !== undefined) {
-            return defencedTrailingNoiseParsed
-          }
-
-          const repairedDefenced = applyNestedMappingRepair(effectiveBase)
           try {
-            return JSON.parse(effectiveBase)
-          } catch {
-            if (repairedDefenced !== effectiveBase) {
-              try {
-                return jsYaml.load(repairedDefenced)
-              } catch { /* fall through to the original defenced input */ }
-            }
-            try {
-              return jsYaml.load(effectiveBase)
-            } catch { /* fall through to further repairs */ }
-          }
+            return tryParseCandidate(effectiveBase, allowTrailingNoiseVariants)
+          } catch { /* fall through to further repairs */ }
         }
 
         // Earliest repair: split inline keys onto separate lines (prerequisite for all other repairs)

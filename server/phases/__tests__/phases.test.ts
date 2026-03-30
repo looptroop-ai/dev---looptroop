@@ -39,12 +39,12 @@ describe('Interview Q&A', () => {
 describe('Beads Coverage', () => {
   const validBead: Bead = {
     id: 'b1', title: 'Bead 1', prdRefs: ['e1'], description: 'desc',
-    contextGuidance: 'Patterns:\n- Reuse the existing bead planning flow.\nAnti-patterns:\n- Do not invent extra runtime state.',
+    contextGuidance: { patterns: ['Reuse the existing bead planning flow.'], anti_patterns: ['Do not invent extra runtime state.'] },
     acceptanceCriteria: ['ac1'], tests: ['test1'],
     testCommands: ['npm test'], priority: 1, status: 'pending',
-    labels: [], dependencies: [], targetFiles: [], notes: [],
-    iteration: 1, createdAt: '', updatedAt: '', beadStartCommit: null,
-    estimatedComplexity: 'moderate', epicId: 'e1', storyId: 's1',
+    issueType: 'task', externalRef: '',
+    labels: [], dependencies: { blocked_by: [], blocks: [] }, targetFiles: [], notes: '',
+    iteration: 1, createdAt: '', updatedAt: '', completedAt: '', startedAt: '', beadStartCommit: null,
   }
 
   it('passes with valid beads', () => {
@@ -58,22 +58,22 @@ describe('Beads Coverage', () => {
   })
 
   it('detects self-dependencies', () => {
-    const bead = { ...validBead, dependencies: ['b1'] }
+    const bead = { ...validBead, dependencies: { blocked_by: ['b1'], blocks: [] } }
     const result = verifyBeadsCoverage([bead], 'prd')
     expect(result.passed).toBe(false)
     expect(result.gaps.some(g => g.includes('self-dependency'))).toBe(true)
   })
 
   it('detects dangling dependencies', () => {
-    const bead = { ...validBead, dependencies: ['nonexistent'] }
+    const bead = { ...validBead, dependencies: { blocked_by: ['nonexistent'], blocks: [] } }
     const result = verifyBeadsCoverage([bead], 'prd')
     expect(result.passed).toBe(false)
     expect(result.gaps.some(g => g.includes('non-existent'))).toBe(true)
   })
 
   it('detects circular dependencies', () => {
-    const b1: Bead = { ...validBead, id: 'b1', dependencies: ['b2'] }
-    const b2: Bead = { ...validBead, id: 'b2', dependencies: ['b1'] }
+    const b1: Bead = { ...validBead, id: 'b1', dependencies: { blocked_by: ['b2'], blocks: [] } }
+    const b2: Bead = { ...validBead, id: 'b2', dependencies: { blocked_by: ['b1'], blocks: [] } }
     const result = verifyBeadsCoverage([b1, b2], 'prd')
     expect(result.passed).toBe(false)
     expect(result.gaps.some(g => g.includes('Circular'))).toBe(true)
@@ -84,7 +84,7 @@ describe('Beads Expansion', () => {
   it('expands subset beads to full fields', () => {
     const subsets: BeadSubset[] = [
       { id: 'b1', title: 'T1', prdRefs: [], description: 'd',
-        contextGuidance: 'Patterns:\n- Keep the draft aligned with PRD refs.\nAnti-patterns:\n- Do not drop later beads when output is long.',
+        contextGuidance: { patterns: ['Keep the draft aligned with PRD refs.'], anti_patterns: ['Do not drop later beads when output is long.'] },
         acceptanceCriteria: ['ac'], tests: ['t'], testCommands: ['cmd'] },
     ]
     const expanded = expandBeads(subsets)

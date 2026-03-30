@@ -541,7 +541,7 @@ export function writeTicketBeads(ticketId: string, beads: Bead[]) {
 
 export function updateTicketProgressFromBeads(ticketId: string, beads: Bead[]) {
   const total = beads.length
-  const completed = beads.filter(bead => bead.status === 'completed' || bead.status === 'skipped').length
+  const completed = beads.filter(bead => bead.status === 'done').length
   const currentIndex = total === 0
     ? 0
     : completed >= total
@@ -563,7 +563,10 @@ export function buildMockBeadSubsets(context: TicketContext): BeadSubset[] {
       title: 'Project-local storage plumbing',
       prdRefs: ['AC-1'],
       description: `Store ${context.title} runtime state under the project-local .looptroop directory.`,
-      contextGuidance: 'Update path resolution and local-db ownership first.',
+      contextGuidance: {
+        patterns: ['Update path resolution and local-db ownership first.'],
+        anti_patterns: ['Do not use global paths.'],
+      },
       acceptanceCriteria: ['All ticket files resolve under <project>/.looptroop/worktrees/<ticket-id>/.ticket/.'],
       tests: ['Create a ticket and verify its meta and execution log paths.'],
       testCommands: ['npm run test -- server/routes'],
@@ -573,7 +576,10 @@ export function buildMockBeadSubsets(context: TicketContext): BeadSubset[] {
       title: 'String ticket refs through the app',
       prdRefs: ['AC-2'],
       description: 'Propagate <projectId>:<externalId> ticket refs through API, SSE, and UI state.',
-      contextGuidance: 'Keep project ids numeric while converting public ticket ids to strings.',
+      contextGuidance: {
+        patterns: ['Keep project ids numeric while converting public ticket ids to strings.'],
+        anti_patterns: ['Do not use numeric-only ticket IDs in public APIs.'],
+      },
       acceptanceCriteria: ['Routes, SSE, and UI all accept string ticket refs.'],
       tests: ['Fetch and open a ticket using its string ref.'],
       testCommands: ['npm run test -- src/hooks'],
@@ -583,7 +589,10 @@ export function buildMockBeadSubsets(context: TicketContext): BeadSubset[] {
       title: 'Deterministic mock lifecycle verification',
       prdRefs: ['AC-3'],
       description: 'Support a deterministic mock runtime for complete browser-driven lifecycle tests.',
-      contextGuidance: 'Mock mode should create stable artifacts and pass through the full flow.',
+      contextGuidance: {
+        patterns: ['Mock mode should create stable artifacts and pass through the full flow.'],
+        anti_patterns: ['Do not depend on external AI services in mock mode.'],
+      },
       acceptanceCriteria: ['A ticket reaches COMPLETED in mock mode without external AI dependencies.'],
       tests: ['Run the browser lifecycle script end-to-end.'],
       testCommands: ['npm run test'],

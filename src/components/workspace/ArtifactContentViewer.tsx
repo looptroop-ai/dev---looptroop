@@ -399,7 +399,10 @@ function InterviewInspirationTooltip({ inspiration }: { inspiration: Inspiration
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors">
+          <span
+            className="inline-flex shrink-0 items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+          >
             <Lightbulb className="h-3 w-3 text-amber-500" />
           </span>
         </TooltipTrigger>
@@ -424,7 +427,10 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors">
+          <span
+            className="inline-flex shrink-0 items-center justify-center h-4 w-4 rounded-sm hover:bg-accent/60 transition-colors"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+          >
             <Lightbulb className="h-3 w-3 text-amber-500" />
           </span>
         </TooltipTrigger>

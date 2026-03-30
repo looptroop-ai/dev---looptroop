@@ -1508,6 +1508,7 @@ function parseCoverageResultCandidate(candidate: string): {
 } {
   const parseRepairWarnings: string[] = []
   const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate, {
+    allowTrailingTerminalNoise: true,
     repairWarnings: parseRepairWarnings,
   }), [
     'coverage',

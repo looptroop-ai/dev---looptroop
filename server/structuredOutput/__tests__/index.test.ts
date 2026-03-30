@@ -1197,6 +1197,29 @@ describe('structured output normalization', () => {
     expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
   })
 
+  it('trims trailing terminal noise from vote scorecard scalars before validation', () => {
+    const repaired = normalizeVoteScorecardOutput(
+      [
+        'draft_scores:',
+        '  Draft 1:',
+        '    Coverage of requirements: 18',
+        '    Correctness / feasibility: 17',
+        '    Testability: 16',
+        '    Minimal complexity / good decomposition: 15',
+        '    Risks / edge cases addressed: 18',
+        '    total_score: 84[e~[',
+      ].join('\n'),
+      ['Draft 1'],
+      VOTE_CATEGORIES,
+    )
+
+    expect(repaired.ok).toBe(true)
+    if (!repaired.ok) return
+    expect(repaired.repairApplied).toBe(true)
+    expect(repaired.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(repaired.value.draftScores['Draft 1']?.total_score).toBe(84)
+  })
+
   it('keeps unknown vote scorecards strict', () => {
     const result = normalizeVoteScorecardOutput(
       [
@@ -1600,6 +1623,69 @@ describe('structured output normalization', () => {
     expect(result.value.epics[0]?.user_stories[0]?.id).toBe('US-1')
   })
 
+  it('repairs PRD YAML that needs both trailing-noise trimming and scalar quoting', () => {
+    const interviewContent = buildInterviewContent(TICKET_ID)
+
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      `ticket_id: "${TICKET_ID}"`,
+      'artifact: "prd"',
+      'status: "draft"',
+      'source_interview:',
+      '  content_sha256: "stale-hash"',
+      'product:',
+      '  problem_statement: Build theme: pink option',
+      '  target_users:',
+      '    - "Maintainers"',
+      'scope:',
+      '  in_scope:',
+      '    - "Prompt hardening"',
+      '  out_of_scope:',
+      '    - "Execution changes"',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Shared validator layer"',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'epics:',
+      '  - id: "EPIC-1"',
+      '    title: "Harden structured output"',
+      '    objective: "Prevent format-only model mistakes from blocking tickets."',
+      '    implementation_steps:',
+      '      - "Add validators"',
+      '    user_stories:',
+      '      - id: "US-1"',
+      '        title: "Validate interview and PRD artifacts"',
+      '        acceptance_criteria:',
+      '          - "Structured artifacts are normalized before save"',
+      '        implementation_steps:',
+      '          - "Reuse shared repair helpers"',
+      '        verification:',
+      '          required_commands:',
+      '            - "npm run test:server"',
+      'risks:',
+      '  - "Permissive repairs could hide semantic issues"',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""[e~[',
+    ].join('\n'), {
+      ticketId: TICKET_ID,
+      interviewContent,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(result.value.product.problem_statement).toBe('Build theme: pink option')
+    expect(result.value.epics[0]?.user_stories[0]?.id).toBe('US-1')
+  })
+
   it('accepts PRD normalization even when the source interview contains skipped questions', () => {
     const result = normalizePrdYamlOutput(buildStandardPrdYaml({
       sourceHash: false,
@@ -1671,14 +1757,13 @@ describe('structured output normalization', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.repairApplied).toBe(true)
-    expect(result.value[0]?.contextGuidance).toContain('Patterns:')
-    expect(result.value[0]?.contextGuidance).toContain('Anti-patterns:')
-    expect(result.normalizedContent).toContain('Patterns:')
-    expect(result.normalizedContent).toContain('Anti-patterns:')
+    expect(result.value[0]?.contextGuidance).toEqual({
+      patterns: ['Prefer structured retry prompts before widening context.', 'Keep retry metadata attached to the companion artifact.'],
+      anti_patterns: ['Do not rewrite the whole artifact when a localized repair is enough.'],
+    })
   })
 
-  it('canonicalizes inline string bead context guidance into the runtime string format', () => {
+  it('canonicalizes inline string bead context guidance into the patterns/anti_patterns object', () => {
     const result = normalizeBeadSubsetYamlOutput([
       'beads:',
       '  - id: bead-1',
@@ -1697,13 +1782,11 @@ describe('structured output normalization', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.repairApplied).toBe(true)
-    expect(result.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.')
-    expect(result.value[0]?.contextGuidance).toBe([
-      'Patterns:',
-      '- update src/context/uiContextDef.ts as the single source of truth; keep SET_THEME typed from UIState theme; preserve the existing state shape.',
-      'Anti-patterns:',
-      '- avoid duplicating theme unions in multiple files; avoid widening theme to string; avoid mixing runtime logic into this type-only bead.',
-    ].join('\n'))
+    expect(result.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into patterns/anti_patterns object.')
+    expect(result.value[0]?.contextGuidance).toEqual({
+      patterns: ['update src/context/uiContextDef.ts as the single source of truth; keep SET_THEME typed from UIState theme; preserve the existing state shape.'],
+      anti_patterns: ['avoid duplicating theme unions in multiple files; avoid widening theme to string; avoid mixing runtime logic into this type-only bead.'],
+    })
   })
 
   it('rejects malformed inline string bead context guidance', () => {
@@ -1882,13 +1965,11 @@ describe('structured output normalization', () => {
     expect(inlineGuidance.ok).toBe(true)
     if (!inlineGuidance.ok) return
     expect(inlineGuidance.repairApplied).toBe(true)
-    expect(inlineGuidance.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.')
-    expect(inlineGuidance.value[0]?.contextGuidance).toBe([
-      'Patterns:',
-      '- keep the bead narrowly scoped.',
-      'Anti-patterns:',
-      '- do not depend on unrelated files.',
-    ].join('\n'))
+    expect(inlineGuidance.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into patterns/anti_patterns object.')
+    expect(inlineGuidance.value[0]?.contextGuidance).toEqual({
+      patterns: ['keep the bead narrowly scoped.'],
+      anti_patterns: ['do not depend on unrelated files.'],
+    })
 
     const invalid = normalizeBeadsJsonlOutput(JSON.stringify([
       {
@@ -2066,6 +2147,22 @@ describe('structured output normalization', () => {
         rationale: 'Lock the mutex scope before PRD generation.',
       },
     ])
+  })
+
+  it('trims trailing terminal noise from coverage envelopes', () => {
+    const result = normalizeCoverageResultOutput([
+      'status: clean',
+      'gaps: []',
+      'follow_up_questions: [][e~[',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(result.value.status).toBe('clean')
+    expect(result.value.gaps).toEqual([])
+    expect(result.value.followUpQuestions).toEqual([])
   })
 
   it('recovers interview questions with backtick scalars via loose parser fallback', () => {
@@ -2265,7 +2362,7 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value).toEqual({
       beadId: 'bead-1',
-      status: 'completed',
+      status: 'done',
       checks: {
         tests: 'pass',
         lint: 'pass',
@@ -2292,7 +2389,7 @@ describe('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value).toEqual({
       beadId: 'bead-2',
-      status: 'completed',
+      status: 'done',
       checks: {
         tests: 'pass',
         lint: 'pass',
@@ -3737,6 +3834,77 @@ describe('structured output normalization', () => {
     expect(result.value.questions).toHaveLength(2)
     expect(result.value.questions[1]?.id).toBe('Q02')
     expect(result.value.questions[0]?.answer.free_text).toContain('risk-first planning checkpoint')
+  })
+
+  it('repairs resolved interview YAML that needs both trailing-noise trimming and free_text quoting', () => {
+    const canonicalInterview = CANONICAL_RESOLVED_INTERVIEW
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      'schema_version: 1',
+      `ticket_id: "${TICKET_ID}"`,
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5.4"',
+      '  generated_at: "2026-03-25T18:20:00.000Z"',
+      '  canonicalization: "server_normalized"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What primary problem should the new phase solve?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Done when: planning retries recover safely without manual cleanup.',
+      '      answered_by: "ai_skip"',
+      '      answered_at: "2026-03-25T18:20:00.000Z"',
+      '  - id: "Q02"',
+      '    phase: "Foundation"',
+      '    prompt: "Who should consume the strategy?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "single_choice"',
+      '    options:',
+      '      - id: "opt1"',
+      '        label: "Workflow engine"',
+      '      - id: "opt2"',
+      '        label: "Beads generation"',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids:',
+      '        - "opt1"',
+      '      free_text: ""',
+      '      answered_by: "user"',
+      '      answered_at: "2026-03-25T18:19:00.000Z"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-25T18:19:30.000Z"[e~[',
+    ].join('\n'), {
+      ticketId: TICKET_ID,
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/z-ai/glm5',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Trimmed trailing terminal noise')
+    expect(result.value.questions[0]?.answer.free_text).toBe('Done when: planning retries recover safely without manual cleanup.')
+    expect(result.value.status).toBe('draft')
+    expect(result.value.approval).toEqual({
+      approved_by: '',
+      approved_at: '',
+    })
   })
 
   it('keeps resolved interview artifacts with missing canonical questions invalid', () => {

@@ -376,8 +376,12 @@ describe('draftPRD', () => {
     expect(fullAnswerRetryMessages[0]?.content).toContain('What are the key requirements?')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Do not use tools.')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Keep every generated free_text answer concise')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('If any free_text contains `:`')
     expect(fullAnswerRetryMessages[0]?.content).toContain('use only the existing canonical selected_option_ids')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Set `status: draft`')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('keep `approval.approved_by: ""` plus `approval.approved_at: ""`')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Stop immediately after the final approval block')
+    expect(fullAnswerRetryMessages[0]?.content).not.toContain('Do not change `follow_up_rounds`, `summary`, or approval fields.')
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
 

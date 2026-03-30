@@ -28,8 +28,8 @@ export function parseCompletionMarker(output: string): CompletionResult {
       validationError: normalized.error,
     }
   }
-  const isComplete = normalized.value.status === 'completed'
-  const isFailed = normalized.value.status === 'failed'
+  const isComplete = normalized.value.status === 'done'
+  const isFailed = normalized.value.status === 'error'
 
   // Validate quality gates
   const checks = normalized.value.checks

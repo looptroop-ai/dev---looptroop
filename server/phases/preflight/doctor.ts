@@ -75,18 +75,29 @@ export async function runPreFlightChecks(
   const beadIds = new Set(beads.map((b) => b.id))
   let graphValid = true
   for (const bead of beads) {
-    for (const dep of bead.dependencies) {
+    for (const dep of bead.dependencies.blocked_by) {
       if (!beadIds.has(dep)) {
         graphValid = false
         checks.push({
           name: 'Dependency Graph',
           category: 'graph',
           result: 'fail',
-          message: `Bead ${bead.id} has dangling dependency: ${dep}`,
+          message: `Bead ${bead.id} has dangling blocked_by dependency: ${dep}`,
         })
       }
     }
-    if (bead.dependencies.includes(bead.id)) {
+    for (const dep of bead.dependencies.blocks) {
+      if (!beadIds.has(dep)) {
+        graphValid = false
+        checks.push({
+          name: 'Dependency Graph',
+          category: 'graph',
+          result: 'fail',
+          message: `Bead ${bead.id} has dangling blocks dependency: ${dep}`,
+        })
+      }
+    }
+    if (bead.dependencies.blocked_by.includes(bead.id) || bead.dependencies.blocks.includes(bead.id)) {
       graphValid = false
       checks.push({
         name: 'Dependency Graph',

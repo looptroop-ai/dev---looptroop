@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { RefinementChange } from '@shared/refinementChanges'
-import type { Bead, BeadSubset } from '../phases/beads/types'
+import type { Bead, BeadSubset, BeadContextGuidance, BeadDependencies } from '../phases/beads/types'
 import { looksLikePromptEcho } from '../lib/promptEcho'
 import type { StructuredOutputResult, RelevantFilesOutputEntry, RelevantFilesOutputPayload } from './types'
 import {
@@ -35,51 +35,50 @@ function normalizeGuidanceItems(value: unknown, label: string): string[] {
   return items
 }
 
-function buildContextGuidanceBlock(patterns: string[], antiPatterns: string[]): string {
-  return [
-    'Patterns:',
-    ...patterns.map((item) => `- ${item}`),
-    'Anti-patterns:',
-    ...antiPatterns.map((item) => `- ${item}`),
-  ].join('\n')
+/** Parse a multi-line string with Patterns: and Anti-patterns: sections into arrays. */
+function parseGuidanceStringToObject(guidance: string): { patterns: string[]; anti_patterns: string[] } | null {
+  const patternsMatch = guidance.match(/^\s*patterns\s*:\s*\n?([\s\S]*?)(?=^\s*anti[-\s_]*patterns\s*:|$)/im)
+  const antiPatternsMatch = guidance.match(/^\s*anti[-\s_]*patterns\s*:\s*\n?([\s\S]*?)$/im)
+
+  if (!patternsMatch && !antiPatternsMatch) return null
+
+  const parseItems = (text: string) =>
+    text.split('\n')
+      .map(line => line.replace(/^\s*-\s*/, '').trim())
+      .filter(Boolean)
+
+  return {
+    patterns: patternsMatch?.[1] ? parseItems(patternsMatch[1]) : [],
+    anti_patterns: antiPatternsMatch?.[1] ? parseItems(antiPatternsMatch[1]) : [],
+  }
 }
 
-function repairInlineContextGuidance(
-  guidance: string,
-  index: number,
-  repairWarnings: string[],
-): string | null {
-  const match = guidance.match(/^\s*patterns\s*:\s*(.+?)\s+anti[-\s_]*patterns\s*:\s*(.+)\s*$/is)
-  if (!match) return null
-
-  const patterns = cleanString(match[1] ?? '')
-  const antiPatterns = cleanString(match[2] ?? '')
-  if (!patterns || !antiPatterns) return null
-
-  repairWarnings.push(`Canonicalized inline string context guidance at index ${index} into Patterns and Anti-patterns sections.`)
-  return buildContextGuidanceBlock([patterns], [antiPatterns])
-}
-
-function renderContextGuidance(
+function normalizeContextGuidance(
   value: unknown,
   index: number,
   repairWarnings: string[],
-): string {
+): BeadContextGuidance {
   if (typeof value === 'string') {
     const guidance = value.trim()
     if (!guidance) {
       throw new Error(`Bead context guidance at index ${index} is empty`)
     }
 
-    const hasPatterns = /^\s*patterns\s*:/im.test(guidance)
-    const hasAntiPatterns = /^\s*anti[-\s_]*patterns\s*:/im.test(guidance)
-    if (hasPatterns && hasAntiPatterns) {
-      return guidance
+    const parsed = parseGuidanceStringToObject(guidance)
+    if (parsed && parsed.patterns.length > 0 && parsed.anti_patterns.length > 0) {
+      repairWarnings.push(`Canonicalized string context guidance at index ${index} into patterns/anti_patterns object.`)
+      return parsed
     }
 
-    const repairedInlineGuidance = repairInlineContextGuidance(guidance, index, repairWarnings)
-    if (repairedInlineGuidance) {
-      return repairedInlineGuidance
+    // Try inline repair: "Patterns: X Anti-patterns: Y"
+    const inlineMatch = guidance.match(/^\s*patterns\s*:\s*(.+?)\s+anti[-\s_]*patterns\s*:\s*(.+)\s*$/is)
+    if (inlineMatch) {
+      const patterns = cleanString(inlineMatch[1] ?? '')
+      const antiPatterns = cleanString(inlineMatch[2] ?? '')
+      if (patterns && antiPatterns) {
+        repairWarnings.push(`Canonicalized inline string context guidance at index ${index} into patterns/anti_patterns object.`)
+        return { patterns: [patterns], anti_patterns: [antiPatterns] }
+      }
     }
 
     throw new Error(`Bead context guidance at index ${index} must include both Patterns and Anti-patterns sections`)
@@ -97,9 +96,29 @@ function renderContextGuidance(
     getValueByAliases(value, ['antipatterns', 'anti_patterns', 'anti-patterns', 'anti_patterns_list']),
     'anti-patterns',
   )
-  repairWarnings.push(`Canonicalized object-form context guidance at index ${index} into Patterns and Anti-patterns sections.`)
 
-  return buildContextGuidanceBlock(patterns, antiPatterns)
+  return { patterns, anti_patterns: antiPatterns }
+}
+
+function normalizeDependencies(value: unknown): BeadDependencies {
+  if (!value) return { blocked_by: [], blocks: [] }
+
+  if (isRecord(value)) {
+    return {
+      blocked_by: toStringArray(getValueByAliases(value, ['blockedby', 'blocked_by'])),
+      blocks: toStringArray(getValueByAliases(value, ['blocks'])),
+    }
+  }
+
+  // Legacy flat array format — treat as blocked_by
+  if (Array.isArray(value)) {
+    return {
+      blocked_by: toStringArray(value),
+      blocks: [],
+    }
+  }
+
+  return { blocked_by: [], blocks: [] }
 }
 
 function normalizeBeadSubsetEntry(value: unknown, index: number, repairWarnings: string[]): BeadSubset {
@@ -115,7 +134,7 @@ function normalizeBeadSubsetEntry(value: unknown, index: number, repairWarnings:
     title: getRequiredString(value, ['title', 'name'], `bead title at index ${index}`),
     prdRefs: toStringArray(getValueByAliases(value, ['prdrefs', 'prd_refs', 'prdreferences', 'prd_references'])),
     description: getRequiredString(value, ['description', 'details'], `bead description at index ${index}`),
-    contextGuidance: renderContextGuidance(
+    contextGuidance: normalizeContextGuidance(
       getValueByAliases(value, ['contextguidance', 'context_guidance', 'architecturalguidance', 'guidance']),
       index,
       repairWarnings,
@@ -203,8 +222,8 @@ export function normalizeBeadSubsetYamlOutput(
         if (subset.prdRefs.length === 0) {
           repairWarnings.push(`Bead "${subset.id}" has no PRD references (prdRefs is empty).`)
         }
-        if (!/\bpatterns\s*:/i.test(subset.contextGuidance) || !/\banti[-\s_]*patterns\s*:/i.test(subset.contextGuidance)) {
-          throw new Error(`Bead "${subset.id}" contextGuidance must include both Patterns and Anti-patterns sections`)
+        if (subset.contextGuidance.patterns.length === 0 || subset.contextGuidance.anti_patterns.length === 0) {
+          throw new Error(`Bead "${subset.id}" contextGuidance must include both patterns and anti_patterns`)
         }
       }
 
@@ -250,37 +269,53 @@ function parseJsonLines(content: string): unknown[] {
     .map((line) => JSON.parse(line))
 }
 
+function normalizeNotesField(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.filter(item => typeof item === 'string').join('\n')
+  return ''
+}
+
 function normalizeBeadRecord(value: unknown, index: number, repairWarnings: string[]): Bead {
   if (!isRecord(value)) throw new Error(`Bead JSONL entry at index ${index} is not an object`)
 
-  const dependenciesValue = getValueByAliases(value, ['dependencies'])
-  const blockedBy = isRecord(dependenciesValue)
-    ? toStringArray(getValueByAliases(dependenciesValue, ['blockedby', 'blocked_by']))
-    : toStringArray(dependenciesValue)
+  const dependencies = normalizeDependencies(getValueByAliases(value, ['dependencies']))
 
-  const normalizedContextGuidance = renderContextGuidance(
+  const normalizedGuidance = normalizeContextGuidance(
     getValueByAliases(value, ['contextguidance', 'context_guidance']),
     index,
     repairWarnings,
   )
+
+  const rawStatus = typeof getValueByAliases(value, ['status']) === 'string'
+    ? String(getValueByAliases(value, ['status'])).trim()
+    : 'pending'
+  // Map legacy status values to architecture spec
+  const status = (rawStatus === 'completed' ? 'done'
+    : rawStatus === 'failed' ? 'error'
+    : rawStatus === 'skipped' ? 'done'
+    : rawStatus) as Bead['status']
 
   const bead: Bead = {
     id: getRequiredString(value, ['id'], `bead id at index ${index}`),
     title: getRequiredString(value, ['title'], `bead title at index ${index}`),
     prdRefs: toStringArray(getValueByAliases(value, ['prdrefs', 'prd_refs', 'prdreferences', 'prd_references'])),
     description: getRequiredString(value, ['description'], `bead description at index ${index}`),
-    contextGuidance: normalizedContextGuidance,
+    contextGuidance: normalizedGuidance,
     acceptanceCriteria: toStringArray(getValueByAliases(value, ['acceptancecriteria', 'acceptance_criteria'])),
     tests: toStringArray(getValueByAliases(value, ['tests'])),
     testCommands: toStringArray(getValueByAliases(value, ['testcommands', 'test_commands'])),
     priority: Number(getValueByAliases(value, ['priority']) ?? index + 1),
-    status: (typeof getValueByAliases(value, ['status']) === 'string'
-      ? String(getValueByAliases(value, ['status'])).trim()
-      : 'pending') as Bead['status'],
+    status,
+    issueType: typeof getValueByAliases(value, ['issuetype', 'issue_type']) === 'string'
+      ? String(getValueByAliases(value, ['issuetype', 'issue_type'])).trim()
+      : 'task',
+    externalRef: typeof getValueByAliases(value, ['externalref', 'external_ref']) === 'string'
+      ? String(getValueByAliases(value, ['externalref', 'external_ref'])).trim()
+      : '',
     labels: toStringArray(getValueByAliases(value, ['labels'])),
-    dependencies: [...new Set(blockedBy)],
+    dependencies,
     targetFiles: toStringArray(getValueByAliases(value, ['targetfiles', 'target_files'])),
-    notes: toStringArray(getValueByAliases(value, ['notes'])),
+    notes: normalizeNotesField(getValueByAliases(value, ['notes'])),
     iteration: Number(getValueByAliases(value, ['iteration']) ?? 1),
     createdAt: typeof getValueByAliases(value, ['createdat', 'created_at']) === 'string'
       ? String(getValueByAliases(value, ['createdat', 'created_at'])).trim()
@@ -288,18 +323,15 @@ function normalizeBeadRecord(value: unknown, index: number, repairWarnings: stri
     updatedAt: typeof getValueByAliases(value, ['updatedat', 'updated_at']) === 'string'
       ? String(getValueByAliases(value, ['updatedat', 'updated_at'])).trim()
       : '',
+    completedAt: typeof getValueByAliases(value, ['completedat', 'completed_at']) === 'string'
+      ? String(getValueByAliases(value, ['completedat', 'completed_at'])).trim()
+      : '',
+    startedAt: typeof getValueByAliases(value, ['startedat', 'started_at']) === 'string'
+      ? String(getValueByAliases(value, ['startedat', 'started_at'])).trim()
+      : '',
     beadStartCommit: typeof getValueByAliases(value, ['beadstartcommit', 'bead_start_commit']) === 'string'
       ? String(getValueByAliases(value, ['beadstartcommit', 'bead_start_commit'])).trim() || null
       : null,
-    estimatedComplexity: (typeof getValueByAliases(value, ['estimatedcomplexity', 'estimated_complexity']) === 'string'
-      ? String(getValueByAliases(value, ['estimatedcomplexity', 'estimated_complexity'])).trim()
-      : 'moderate') as Bead['estimatedComplexity'],
-    epicId: typeof getValueByAliases(value, ['epicid', 'epic_id']) === 'string'
-      ? String(getValueByAliases(value, ['epicid', 'epic_id'])).trim()
-      : '',
-    storyId: typeof getValueByAliases(value, ['storyid', 'story_id']) === 'string'
-      ? String(getValueByAliases(value, ['storyid', 'story_id'])).trim()
-      : '',
   }
 
   if (!Number.isInteger(bead.priority) || bead.priority <= 0) {
@@ -330,10 +362,10 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
       for (const bead of beads) {
         if (beadIds.has(bead.id)) throw new Error(`Duplicate bead id: ${bead.id}`)
         beadIds.add(bead.id)
-        if (bead.dependencies.includes(bead.id)) {
+        if (bead.dependencies.blocked_by.includes(bead.id) || bead.dependencies.blocks.includes(bead.id)) {
           throw new Error(`Bead ${bead.id} has a self-dependency`)
         }
-        for (const dependency of bead.dependencies) {
+        for (const dependency of bead.dependencies.blocked_by) {
           if (!beadIds.has(dependency) && !beads.some((candidateBead) => candidateBead.id === dependency)) {
             throw new Error(`Bead ${bead.id} depends on unknown bead ${dependency}`)
           }
@@ -341,8 +373,8 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
       }
 
       for (const bead of beads) {
-        if (!/\bpatterns\s*:/i.test(bead.contextGuidance) || !/\banti[-\s_]*patterns\s*:/i.test(bead.contextGuidance)) {
-          throw new Error(`Bead ${bead.id} contextGuidance must include both Patterns and Anti-patterns sections`)
+        if (bead.contextGuidance.patterns.length === 0 || bead.contextGuidance.anti_patterns.length === 0) {
+          throw new Error(`Bead ${bead.id} contextGuidance must include both patterns and anti_patterns`)
         }
       }
 

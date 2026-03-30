@@ -151,16 +151,17 @@ describe('structured prompt hardening', () => {
   it('requires the bead subset schema consistently in draft and refine prompts', () => {
     expect(PROM20.outputFormat).toContain('top-level `beads` key')
     expect(PROM20.outputFormat).toContain('id:')
-    expect(PROM20.outputFormat).toContain('contextGuidance: |')
-    expect(PROM20.outputFormat).toContain('Do not collapse both headings into a single quoted line.')
-    expect(PROM20.outputFormat).not.toContain('contextGuidance: "Patterns: use Drizzle ORM migrations. Anti-patterns: avoid raw SQL."')
+    expect(PROM20.outputFormat).toContain('contextGuidance:')
+    expect(PROM20.outputFormat).toContain('patterns:')
+    expect(PROM20.outputFormat).toContain('anti_patterns:')
     expect(PROM22.outputFormat).toContain(PROM20.outputFormat)
     expect(PROM22.outputFormat).toContain('top-level `changes` list')
     expect(PROM22.outputFormat).toContain('inspiration')
 
     const draftPrompt = buildPromptFromTemplate(PROM20, [])
-    expect(draftPrompt).toContain('contextGuidance: |')
-    expect(draftPrompt).toContain('Do not collapse both headings into a single quoted line.')
+    expect(draftPrompt).toContain('contextGuidance:')
+    expect(draftPrompt).toContain('patterns:')
+    expect(draftPrompt).toContain('anti_patterns:')
 
     const refinePrompt = buildPromptFromTemplate(PROM22, [])
     expect(refinePrompt).toContain('Return one YAML artifact')

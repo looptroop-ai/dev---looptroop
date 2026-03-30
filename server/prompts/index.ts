@@ -109,11 +109,11 @@ const BEAD_SUBSET_OUTPUT_FORMAT = [
   '      - "EPIC-1"',
   '      - "US-1-1"',
   '    description: "Detailed technical implementation steps for this bead."',
-  '    contextGuidance: |',
-  '      Patterns:',
-  '      - Use Drizzle ORM migrations.',
-  '      Anti-patterns:',
-  '      - Avoid raw SQL.',
+  '    contextGuidance:',
+  '      patterns:',
+  '        - "Use Drizzle ORM migrations."',
+  '      anti_patterns:',
+  '        - "Avoid raw SQL."',
   '    acceptanceCriteria:',
   '      - "Schema file exists and migrations run cleanly."',
   '    tests:',
@@ -121,7 +121,7 @@ const BEAD_SUBSET_OUTPUT_FORMAT = [
   '    testCommands:',
   '      - "npm run test -- server/db"',
   '```',
-  'Write `contextGuidance` as a multi-line block with separate `Patterns:` and `Anti-patterns:` headings. Do not collapse both headings into a single quoted line.',
+  'Write `contextGuidance` as an object with two keys: `patterns` (list of specific patterns to follow) and `anti_patterns` (list of anti-patterns to avoid).',
   'No other top-level keys. No prose before or after the YAML.',
 ].join('\n')
 const BEADS_JSONL_OUTPUT_FORMAT = 'JSONL only. One JSON object per line. No markdown fences, no surrounding array, no prose, and no wrapper object.'
@@ -480,14 +480,20 @@ export const PROM20: PromptTemplate = {
   systemRole: 'You are an expert Software Architect.',
   task: 'Create a Beads breakdown (architecture/task graph) based on the final PRD.',
   instructions: [
-    'Decomposition: Split each user story into one or more beads using phased modular decomposition (e.g., data layer → business logic → API/integration → presentation) to keep flow logical and dependencies minimal.',
-    'Granularity: Each bead must be the smallest independently-completable unit of work — small enough that a single AI agent call can implement it with its defined tests, but complete enough to be meaningful. Split further if a bead would touch too many files or concepts.',
-    'Draft Bead Structure: Each bead in this draft phase must include only: id, title, prdRefs, description, contextGuidance (with patterns AND anti_patterns), acceptanceCriteria, tests, testCommands.',
-    'Context Guidance Contract: Write `contextGuidance` as a compact guidance block with an explicit `Patterns:` section and an explicit `Anti-patterns:` section. If the structure risks becoming too long, shorten the prose in those sections instead of dropping later beads.',
-    'ID Format: Use concise, descriptive kebab-case IDs (e.g., `setup-db-schema`, `user-auth-middleware`). Each ID must be unique across the entire beads list.',
+    'Decomposition: Split each user story into one or more beads using phased modular decomposition appropriate to the feature domain (e.g., input capture → normalization/validation → core domain logic → integration/adapters → output/presentation) to keep flow logical and dependencies minimal.',
+    'Granularity: Each bead must be the smallest independently-completable unit of work — small enough that a single AI agent call can implement it with its defined tests, but complete enough to be meaningful. If a bead requires touching too many files or concepts, split it further.',
+    `Draft Bead Structure: Each bead in this draft phase must include only the following subset of fields (the remaining fields will be added in a later expansion step):
+  - id — a concise, descriptive kebab-case identifier unique across all beads (e.g., "setup-db-schema", "user-auth-middleware"). These draft IDs will be replaced with hierarchical IDs in the expansion step.
+  - title — short task name.
+  - prdRefs — list of PRD epic and user-story IDs this bead maps to (e.g., EPIC-1, US-1-1). If there are multiple beads in a user story, each bead references the same story.
+  - description — detailed technical implementation steps for this specific bead only.
+  - contextGuidance — an object with two keys: \`patterns\` (specific patterns to follow copied from the PRD/Architecture, e.g., "Use the AppError class for exceptions", "Follow the Container/Presenter pattern defined in src/components") and \`anti_patterns\` (approaches to avoid for this task, e.g., "Do not use alert() for error display").
+  - acceptanceCriteria — human-readable definitions of done for this bead.
+  - tests — bead-scoped tests (targeted unit/integration tests for this bead only, not the full suite).
+  - testCommands — exact commands to run the bead-scoped tests.`,
+    'Context Guidance Contract: Write `contextGuidance` as an object with an explicit `patterns` list and an explicit `anti_patterns` list. Each must contain at least one entry. If the structure risks becoming too long, shorten the prose in those lists instead of dropping later beads.',
     'Dependency Ordering: List beads in dependency order — if bead B depends on bead A, A must appear before B. Do not create circular dependencies or self-references.',
     'PRD Coverage: Every in-scope PRD requirement must map to at least one bead. Each bead\'s `prdRefs` must reference valid PRD epic or user-story IDs (e.g., EPIC-1, US-1-1).',
-    'Context Guidance Completeness: Each bead\'s `contextGuidance` must include at least one architectural pattern to follow AND at least one anti-pattern to avoid.',
     'Test Specificity: Each bead\'s `tests` must verify that bead alone — not the entire feature. Each bead must have at least one entry in `testCommands` with the exact command to run.',
     'Single Response Completeness: Return one complete final `beads` list in a single response. Do not stop mid-list or emit partial subsets.',
     'Length Safety: If total output risks being cut off, shorten description text instead of omitting later beads. Every planned bead must appear in the output.',
@@ -543,10 +549,25 @@ export const PROM23: PromptTemplate = {
   id: 'PROM23',
   description: 'Beads Full Fields Expansion Prompt',
   systemRole: "You are the Lead Architect and the winner of the AI Council's Beads phase.",
-  task: 'Take the refined Beads draft (subset fields) and create the final Beads breakdown by adding all remaining required fields per bead.',
+  task: 'Take the refined Beads draft (which contains only the subset fields: id, title, prdRefs, description, contextGuidance, acceptanceCriteria, tests, testCommands) and create the final Beads breakdown by adding all remaining required fields per bead.',
   instructions: [
-    'Expansion Fields: For each bead, add: ID (hierarchical + 4-char suffix hash), Priority (sequential order), Status (pending), Issue type, External reference, Labels, Dependencies (blocked_by + blocks arrays), Target files, Notes (empty), Iteration (1), Created at, Updated at, Completed at (empty), Started at (empty), Bead start commit (empty).',
-    'Dependency Graph: Ensure all dependency edges are valid — no dangling references, no self-dependencies, no circular dependencies. Priority order should respect dependency ordering.',
+    `Expansion Fields: Each bead has 22 fields total. The refined draft already contains some fields (title, prdRefs, description, contextGuidance, acceptanceCriteria, tests, testCommands). For each bead, read the existing fields and add the following remaining fields while preserving all existing content:
+  1.  id — unique hierarchical bead ID including ticket name and structure for epics/tasks/subtasks, plus a short 4-character suffix hash for uniqueness (e.g., "PROJ-1-EPIC-1-US-1-task4-sub1-h3fa"). Replace the draft kebab-case ID with this hierarchical format.
+  3.  priority — numeric execution priority (sequential order: 1 for the first bead to execute, 2 for the second, etc.).
+  4.  status — set to "pending" (lifecycle: pending → in_progress → done / error).
+  5.  issueType — "task", "bug", "chore", etc. (included for future use).
+  6.  externalRef — parent ticket ID (e.g., PROJ-1).
+  8.  labels — every bead must map to at least one user story and one epic (if epics exist); additional labels allowed (e.g., "backend", "frontend", "database") for future filtering and stats. Format: ["ticket:PROJ-1", "epic:EPIC-1", "story:US-1", ...].
+  12. dependencies — two arrays: "blocked_by" (bead IDs that must complete before this bead can start) and "blocks" (bead IDs that cannot start until this bead completes). Both arrays use the new hierarchical bead IDs.
+  13. targetFiles — name and path (in project folder) of files explicitly targeted by the bead, only necessary ones to reduce context size.
+  16. notes — errors and learnings from previous attempts to help the agent learn from mistakes; empty string on first attempt; each failed attempt appends its details until max iterations is reached.
+  17. iteration — starts at 1, increases on each retry.
+  18. createdAt — ISO 8601 timestamp (when the bead record was created during planning).
+  19. updatedAt — ISO 8601 timestamp (updated by SYS when the bead record is modified).
+  20. completedAt — ISO 8601 timestamp (filled when status is set to "done"); empty string during planning.
+  21. startedAt — ISO 8601 timestamp (filled by SYS when status is set to "in_progress"); empty string during planning.
+  22. beadStartCommit — git commit SHA recorded by SYS when the bead begins execution; used to reset the worktree on context wipe (git reset --hard). Empty string during planning.`,
+    'Dependency Graph: Ensure all dependency edges (blocked_by and blocks) are valid — no dangling references, no self-dependencies, no circular dependencies. Priority order should respect dependency ordering.',
     'Output Format: Output the complete final Beads breakdown with all 22 fields per bead, in dependency order. Output as JSONL.',
     'Output Discipline: output JSONL only. No surrounding array. No markdown fences. No prose before or after the JSONL.',
     STRUCTURED_SELF_CHECK,

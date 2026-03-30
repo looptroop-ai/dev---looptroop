@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react'
+import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { getEntryColor, formatTimestamp, formatVisibleTag } from './logFormat'
@@ -69,6 +70,7 @@ export interface LogEntryRowProps {
 export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: LogEntryRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
+  const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   
   // Fast multiline check to predict if truncation is needed
@@ -106,7 +108,20 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   return (
     <div className="py-0.5 border-b border-border/30 last:border-0 flex relative group">
       <div className="flex flex-col shrink-0 w-[105px] mr-2 pt-0.5 items-start">
-        <span className="text-muted-foreground/40 pb-1">{formatTimestamp(entry.timestamp)}</span>
+        <div className="flex flex-row items-center gap-1 w-full pb-1">
+          <span className="text-muted-foreground/40">{formatTimestamp(entry.timestamp)}</span>
+          <button
+            onClick={() => {
+              void navigator.clipboard.writeText(entry.line)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+            }}
+            className="text-muted-foreground/40 hover:text-foreground hover:bg-muted p-0.5 rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
+            title="Copy log entry"
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          </button>
+        </div>
         {isTruncatable && (
           <div className="sticky top-1">
             <button

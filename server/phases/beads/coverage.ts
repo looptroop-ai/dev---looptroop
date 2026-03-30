@@ -14,17 +14,25 @@ export function verifyBeadsCoverage(
 
   // Validate no self-dependencies
   for (const bead of beads) {
-    if (bead.dependencies.includes(bead.id)) {
-      gaps.push(`Bead ${bead.id} has a self-dependency`)
+    if (bead.dependencies.blocked_by.includes(bead.id)) {
+      gaps.push(`Bead ${bead.id} has a self-dependency in blocked_by`)
+    }
+    if (bead.dependencies.blocks.includes(bead.id)) {
+      gaps.push(`Bead ${bead.id} has a self-dependency in blocks`)
     }
   }
 
   // Validate no dangling dependency references
   const beadIds = new Set(beads.map(b => b.id))
   for (const bead of beads) {
-    for (const dep of bead.dependencies) {
+    for (const dep of bead.dependencies.blocked_by) {
       if (!beadIds.has(dep)) {
-        gaps.push(`Bead ${bead.id} depends on non-existent bead ${dep}`)
+        gaps.push(`Bead ${bead.id} blocked_by non-existent bead ${dep}`)
+      }
+    }
+    for (const dep of bead.dependencies.blocks) {
+      if (!beadIds.has(dep)) {
+        gaps.push(`Bead ${bead.id} blocks non-existent bead ${dep}`)
       }
     }
   }
@@ -39,7 +47,7 @@ export function verifyBeadsCoverage(
 
     const bead = beads.find(b => b.id === beadId)
     if (bead) {
-      for (const dep of bead.dependencies) {
+      for (const dep of bead.dependencies.blocked_by) {
         if (!visited.has(dep)) {
           if (hasCycle(dep)) return true
         } else if (recStack.has(dep)) {
