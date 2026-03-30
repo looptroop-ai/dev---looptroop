@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { TEST } from '@/test/factories'
-import { ArtifactContent, CollapsibleSection, InterviewAnswersView, buildArtifactProcessingNoticeCopy } from '../ArtifactContentViewer'
+import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
+import { buildArtifactProcessingNoticeCopy } from '../artifactProcessingNotice'
 
 function buildCanonicalInterviewContent(questions: Array<Record<string, unknown>>) {
   return JSON.stringify({

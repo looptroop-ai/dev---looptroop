@@ -1,21 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import jsYaml from 'js-yaml'
 import {
-  deriveStructuredInterventions,
   mergeStructuredInterventions,
   normalizeStructuredInterventions,
   STRUCTURED_INTERVENTION_CATEGORY_ORDER,
 } from '@shared/structuredInterventions'
 import type {
   StructuredIntervention,
-  StructuredInterventionCategory,
-  StructuredInterventionStage,
 } from '@shared/structuredInterventions'
 import { encode } from 'gpt-tokenizer'
 import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
+import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
 import type {
   ArtifactStructuredOutputData,
   CoverageGapResolutionData,
@@ -53,6 +51,19 @@ import {
   getCouncilStatusEmoji,
   getCouncilStatusLabel,
 } from './councilArtifacts'
+import {
+  buildArtifactProcessingNoticeCopy,
+  getStructuredOutputInterventions,
+  getStructuredOutputWarnings,
+  hasArtifactProcessingNotice,
+  INTERVENTION_CATEGORY_COPY,
+  INTERVENTION_STAGE_LABELS,
+} from './artifactProcessingNotice'
+import type {
+  ArtifactProcessingKind,
+  ArtifactProcessingNoticeContext,
+  ArtifactProcessingStatus,
+} from './artifactProcessingNotice'
 
 export function CollapsibleSection({
   title,
@@ -119,7 +130,7 @@ export function CopyButton({ content, className = '' }: { content: string; class
     e.preventDefault()
     navigator.clipboard.writeText(content).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
     })
   }
 
@@ -148,9 +159,9 @@ export function WithRawTab({
   notice?: React.ReactNode
 }) {
   const [activeTab, setActiveTab] = useState<'structured' | 'raw'>('structured')
+  const tokenCount = useMemo(() => encode(content).length, [content])
   const lineCount = content.split('\n').length
   const charCount = content.length
-  const tokenCount = encode(content).length
 
   return (
     <div className="space-y-3">
@@ -209,9 +220,9 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
   notice?: React.ReactNode
 }) {
   const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(hasChanges ? 'diff' : 'sections')
+  const tokenCount = useMemo(() => encode(content).length, [content])
   const lineCount = content.split('\n').length
   const charCount = content.length
-  const tokenCount = encode(content).length
 
   return (
     <div className="space-y-3">
@@ -299,9 +310,9 @@ export function RawContentView({ content }: { content: string }) {
 }
 
 function RawContentWithCopy({ content }: { content: string }) {
+  const tokenCount = useMemo(() => encode(content).length, [content])
   const lineCount = content.split('\n').length
   const charCount = content.length
-  const tokenCount = encode(content).length
 
   return (
     <div className="space-y-3">
@@ -509,59 +520,6 @@ function ChangeAttributionBadge({ status }: { status: DiffAttributionStatus }) {
   )
 }
 
-type ArtifactProcessingKind =
-  | 'artifact'
-  | 'diff'
-  | 'coverage'
-  | 'relevant-files'
-  | 'vote'
-  | 'vote-aggregate'
-  | 'draft'
-  | 'interview-draft'
-  | 'prd-draft'
-  | 'beads-draft'
-  | 'full-answers'
-  | 'final-test'
-type ArtifactProcessingStatus = 'completed' | CouncilOutcome
-
-interface ArtifactProcessingNoticeContext {
-  affectedCount?: number
-  fullAnswersOrigin?: 'reused-approved-interview'
-  ownerInterventions?: Array<{ label: string; interventions: StructuredIntervention[] }>
-  status?: ArtifactProcessingStatus
-}
-
-interface ArtifactProcessingNoticeCopy {
-  title: string
-  summary: string
-  body: string
-  badges: Array<{ label: string; count: number; className: string }>
-  interventions: StructuredIntervention[]
-}
-
-function getStructuredOutputWarnings(structuredOutput?: ArtifactStructuredOutputData): string[] {
-  return (structuredOutput?.repairWarnings ?? []).filter(
-    (warning): warning is string => typeof warning === 'string' && warning.trim().length > 0,
-  )
-}
-
-function getStructuredOutputInterventions(structuredOutput?: ArtifactStructuredOutputData): StructuredIntervention[] {
-  const explicit = normalizeStructuredInterventions(structuredOutput?.interventions)
-  if (explicit.length > 0) {
-    return explicit
-  }
-
-  return deriveStructuredInterventions({
-    repairWarnings: getStructuredOutputWarnings(structuredOutput),
-    autoRetryCount: structuredOutput?.autoRetryCount ?? 0,
-    validationError: structuredOutput?.validationError,
-  })
-}
-
-function hasArtifactProcessingNotice(structuredOutput?: ArtifactStructuredOutputData): boolean {
-  return Boolean(structuredOutput && getStructuredOutputInterventions(structuredOutput).length > 0)
-}
-
 function mergeStructuredOutputMetadata(
   outputs: Array<ArtifactStructuredOutputData | undefined | null>,
 ): ArtifactStructuredOutputData | undefined {
@@ -636,204 +594,6 @@ function CollapsibleWarningNotice({
   )
 }
 
-function isReusedApprovedInterviewFullAnswersContext(context?: ArtifactProcessingNoticeContext): boolean {
-  return context?.fullAnswersOrigin === 'reused-approved-interview'
-}
-
-const INTERVENTION_CATEGORY_COPY: Record<StructuredInterventionCategory, { label: string; className: string }> = {
-  parser_fix: {
-    label: 'Parser Fix',
-    className: 'border-amber-300 bg-amber-100/80 text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100',
-  },
-  cleanup: {
-    label: 'Cleanup',
-    className: 'border-blue-300 bg-blue-100/80 text-blue-900 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-100',
-  },
-  synthesized: {
-    label: 'Synthesized',
-    className: 'border-emerald-300 bg-emerald-100/80 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-100',
-  },
-  dropped: {
-    label: 'Dropped',
-    className: 'border-rose-300 bg-rose-100/80 text-rose-900 dark:border-rose-700 dark:bg-rose-900/40 dark:text-rose-100',
-  },
-  attribution: {
-    label: 'Attribution',
-    className: 'border-violet-300 bg-violet-100/80 text-violet-900 dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-100',
-  },
-  retry: {
-    label: 'Retried',
-    className: 'border-slate-300 bg-slate-100/80 text-slate-900 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100',
-  },
-}
-
-const INTERVENTION_STAGE_LABELS: Record<StructuredInterventionStage, string> = {
-  parse: 'Parse',
-  normalize: 'Normalize',
-  semantic_validation: 'Validation',
-  retry: 'Retry',
-}
-
-function buildInterventionBadges(interventions: StructuredIntervention[]): Array<{ label: string; count: number; className: string }> {
-  const counts = interventions.reduce<Record<StructuredInterventionCategory, number>>((acc, intervention) => {
-    acc[intervention.category] = (acc[intervention.category] ?? 0) + 1
-    return acc
-  }, {
-    parser_fix: 0,
-    cleanup: 0,
-    synthesized: 0,
-    dropped: 0,
-    attribution: 0,
-    retry: 0,
-  })
-
-  return STRUCTURED_INTERVENTION_CATEGORY_ORDER
-    .filter((category) => counts[category] > 0)
-    .map((category) => ({
-      label: INTERVENTION_CATEGORY_COPY[category].label,
-      count: counts[category],
-      className: INTERVENTION_CATEGORY_COPY[category].className,
-    }))
-}
-
-function buildInterventionSummary(interventions: StructuredIntervention[]): string {
-  const interventionCount = interventions.length
-  const categoryCount = new Set(interventions.map((intervention) => intervention.category)).size
-
-  if (interventionCount === 1) {
-    return '1 intervention recorded.'
-  }
-
-  if (categoryCount <= 1) {
-    return `${interventionCount} interventions recorded.`
-  }
-
-  return `${interventionCount} interventions across ${categoryCount} categories.`
-}
-
-function formatArtifactStatusLabel(status: ArtifactProcessingStatus): string {
-  if (status === 'timed_out') return 'timed out'
-  if (status === 'invalid_output') return 'saved invalid output'
-  if (status === 'failed') return 'failed'
-  if (status === 'pending') return 'is still in progress'
-  return 'validated'
-}
-
-function getArtifactProcessingStrings(kind: ArtifactProcessingKind, context?: ArtifactProcessingNoticeContext) {
-  const affectedSuffix = context?.affectedCount ? ` across ${context.affectedCount} voter scorecard(s)` : ''
-
-  switch (kind) {
-    case 'diff':
-      return {
-        completedTitle: 'LoopTroop adjusted this diff.',
-        nonCompletedTitle: 'Intervention details for this diff.',
-        completedBody: 'LoopTroop validated this diff and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this diff ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'coverage':
-      return {
-        completedTitle: 'LoopTroop adjusted this coverage review.',
-        nonCompletedTitle: 'Intervention details for this coverage review.',
-        completedBody: 'LoopTroop validated this coverage review and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this coverage review ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'relevant-files':
-      return {
-        completedTitle: 'LoopTroop adjusted this relevant files scan.',
-        nonCompletedTitle: 'Intervention details for this relevant files scan.',
-        completedBody: 'LoopTroop validated this relevant files scan and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this relevant files scan ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'vote':
-      return {
-        completedTitle: 'LoopTroop adjusted this vote scorecard.',
-        nonCompletedTitle: 'Intervention details for this vote scorecard.',
-        completedBody: 'LoopTroop validated this vote scorecard and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this vote scorecard ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'vote-aggregate':
-      return {
-        completedTitle: 'LoopTroop adjusted some vote scorecards.',
-        nonCompletedTitle: 'Intervention details for these vote scorecards.',
-        completedBody: `LoopTroop validated one or more vote scorecards${affectedSuffix} and recorded the intervention details below.`,
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before one or more vote scorecards${affectedSuffix} ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'draft':
-      return {
-        completedTitle: 'LoopTroop adjusted this draft.',
-        nonCompletedTitle: 'Intervention details for this draft.',
-        completedBody: 'LoopTroop validated this draft and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this draft ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'interview-draft':
-      return {
-        completedTitle: 'LoopTroop adjusted this interview draft.',
-        nonCompletedTitle: 'Intervention details for this interview draft.',
-        completedBody: 'LoopTroop validated this interview draft and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this interview draft ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'prd-draft':
-      return {
-        completedTitle: 'LoopTroop adjusted this PRD draft.',
-        nonCompletedTitle: 'Intervention details for this PRD draft.',
-        completedBody: 'LoopTroop validated this PRD draft and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this PRD draft ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'beads-draft':
-      return {
-        completedTitle: 'LoopTroop adjusted this blueprint draft.',
-        nonCompletedTitle: 'Intervention details for this blueprint draft.',
-        completedBody: 'LoopTroop validated this blueprint draft and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this blueprint draft ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'full-answers':
-      return {
-        completedTitle: isReusedApprovedInterviewFullAnswersContext(context)
-          ? 'LoopTroop reused the approved interview for these answers.'
-          : 'LoopTroop adjusted these Full Answers.',
-        nonCompletedTitle: 'Intervention details for these Full Answers.',
-        completedBody: isReusedApprovedInterviewFullAnswersContext(context)
-          ? 'This ticket had no skipped interview questions, so Part 1 did not need a model response. To keep PRD drafting consistent across models, LoopTroop copied the approved interview into a Full Answers artifact for this model and only changed draft-only fields such as status, approval, or the model label.'
-          : 'LoopTroop validated these Full Answers and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before these Full Answers ${formatArtifactStatusLabel(status)}.`,
-      }
-    case 'final-test':
-      return {
-        completedTitle: 'LoopTroop adjusted this final test plan.',
-        nonCompletedTitle: 'Intervention details for this final test plan.',
-        completedBody: 'LoopTroop validated this final test plan and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this final test plan ${formatArtifactStatusLabel(status)}.`,
-      }
-    default:
-      return {
-        completedTitle: 'LoopTroop adjusted this artifact.',
-        nonCompletedTitle: 'Intervention details for this artifact.',
-        completedBody: 'LoopTroop validated this artifact and recorded the intervention details below.',
-        nonCompletedBody: (status: ArtifactProcessingStatus) => `LoopTroop recorded these intervention details before this artifact ${formatArtifactStatusLabel(status)}.`,
-      }
-  }
-}
-
-export function buildArtifactProcessingNoticeCopy(
-  structuredOutput?: ArtifactStructuredOutputData,
-  kind: ArtifactProcessingKind = 'artifact',
-  context?: ArtifactProcessingNoticeContext,
-): ArtifactProcessingNoticeCopy | null {
-  const interventions = getStructuredOutputInterventions(structuredOutput)
-  if (interventions.length === 0) return null
-
-  const strings = getArtifactProcessingStrings(kind, context)
-  const status = context?.status ?? 'completed'
-  const badges = buildInterventionBadges(interventions)
-
-  return {
-    title: status === 'completed' ? strings.completedTitle : strings.nonCompletedTitle,
-    summary: buildInterventionSummary(interventions),
-    body: status === 'completed' ? strings.completedBody : strings.nonCompletedBody(status),
-    badges,
-    interventions,
-  }
-}
 
 function ArtifactInterventionBreakdown({ interventions }: { interventions: StructuredIntervention[] }) {
   const groups = STRUCTURED_INTERVENTION_CATEGORY_ORDER
@@ -2237,6 +1997,7 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
 
 function RelevantFilesScanView({ content }: { content: string }) {
   const [activeTab, setActiveTab] = useState<'files' | 'raw'>('files')
+  const tokenCount = useMemo(() => encode(content).length, [content])
   const raw = tryParseStructuredContent(content) as (RelevantFilesScanData & { files: Array<RelevantFileScanEntry & { content_preview?: string }> }) | null
   if (!raw?.files) return <RawContentView content={content} />
 
@@ -2264,7 +2025,6 @@ function RelevantFilesScanView({ content }: { content: string }) {
 
   const lineCount = formattedContent.split('\n').length
   const charCount = content.length
-  const tokenCount = encode(content).length
 
   return (
     <div className="space-y-3">

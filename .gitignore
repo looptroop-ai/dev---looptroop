@@ -47,20 +47,27 @@ Thumbs.db
 .agents/
 .claude/
 
-# Temp analysis/debug files
-ARTIFACT_AND_SSE_ANALYSIS.md
-BROADCAST_GAPS_QUICK_REFERENCE.md
-EXACT_CODE_LOCATIONS.md
-README_ARTIFACT_ANALYSIS.md
-VISUAL_SUMMARY.txt
-INTERVIEW_*.txt
-INTERVIEW_*.md
-EXPLORATION_SUMMARY.txt
-QUICK_REFERENCE.md
-README_EXPLORATION.md
-VERIFYING_INTERVIEW_COVERAGE_ANALYSIS.md
-fix-loop7.ts
-new.txt
+# Temp analysis/debug/scratch files at root
+/ARTIFACT_AND_SSE_ANALYSIS.md
+/BROADCAST_GAPS_QUICK_REFERENCE.md
+/EXACT_CODE_LOCATIONS.md
+/README_ARTIFACT_ANALYSIS.md
+/VISUAL_SUMMARY.txt
+/INTERVIEW_*.txt
+/INTERVIEW_*.md
+/EXPLORATION_SUMMARY.txt
+/QUICK_REFERENCE.md
+/README_EXPLORATION.md
+/VERIFYING_INTERVIEW_COVERAGE_ANALYSIS.md
+/fix-loop7.ts
+/new.txt
+/test-perf*.js
+/test*.html
+/start-test.log
+
+# Backup files
+*.orig.tsx
+*.orig.ts
 
 # Database files
 *.db
@@ -74,11 +81,4 @@ new.txt
 playwright-report/
 test-results/
 .playwright/
-.cache/start-test.log
-
-# Root-level temp test/debug scripts
-test-perf.js
-test-perf2.js
-test.html
-test2.html
-start-test.log
+.cache/

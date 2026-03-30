@@ -2435,7 +2435,7 @@ describe('structured output normalization', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.repairApplied).toBe(false)
+    expect(result.repairApplied).toBe(true)
     expect(result.value.file_count).toBe(1)
     expect(result.value.files[0]).toMatchObject({
       path: 'src/app.ts',

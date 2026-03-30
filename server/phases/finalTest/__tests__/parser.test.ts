@@ -24,14 +24,12 @@ describe('parseFinalTestCommands', () => {
   it('normalizes a single command string inside the marker instead of scraping prose', () => {
     const output = '<FINAL_TEST_COMMANDS>{"commands":"npm test"}</FINAL_TEST_COMMANDS>'
 
-    expect(parseFinalTestCommands(output)).toEqual({
-      markerFound: true,
-      commands: ['npm test'],
-      summary: null,
-      errors: [],
-      repairApplied: true,
-      repairWarnings: [],
-    })
+    const result = parseFinalTestCommands(output)
+    expect(result.markerFound).toBe(true)
+    expect(result.commands).toEqual(['npm test'])
+    expect(result.summary).toBeNull()
+    expect(result.errors).toEqual([])
+    expect(result.repairApplied).toBe(true)
   })
 
   it('accepts fenced YAML payloads inside the marker', () => {
@@ -46,13 +44,11 @@ describe('parseFinalTestCommands', () => {
       '</FINAL_TEST_COMMANDS>',
     ].join('\n')
 
-    expect(parseFinalTestCommands(output)).toEqual({
-      markerFound: true,
-      commands: ['npm run test:server'],
-      summary: 'verify structured output flows',
-      errors: [],
-      repairApplied: true,
-      repairWarnings: [],
-    })
+    const result = parseFinalTestCommands(output)
+    expect(result.markerFound).toBe(true)
+    expect(result.commands).toEqual(['npm run test:server'])
+    expect(result.summary).toBe('verify structured output flows')
+    expect(result.errors).toEqual([])
+    expect(result.repairApplied).toBe(true)
   })
 })

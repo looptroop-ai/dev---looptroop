@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertTriangle, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -98,13 +98,8 @@ export function ErrorOccurrencesPanel({
 
   const shouldShowPanel = visibleOccurrences.length > 0 || Boolean(selectedOccurrence)
   const shouldAutoExpand = currentStatusIsBlocked || Boolean(selectedOccurrence?.resolvedAt)
-  const [expanded, setExpanded] = useState(shouldAutoExpand)
-
-  useEffect(() => {
-    if (shouldAutoExpand) {
-      setExpanded(true)
-    }
-  }, [shouldAutoExpand])
+  const [userToggled, setUserToggled] = useState(false)
+  const expanded = shouldAutoExpand || userToggled
 
   if (!shouldShowPanel) return null
 
@@ -112,7 +107,7 @@ export function ErrorOccurrencesPanel({
     <div className="space-y-1.5">
       <button
         type="button"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => setUserToggled((v) => !v)}
         aria-expanded={expanded}
         className="flex w-full items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
       >

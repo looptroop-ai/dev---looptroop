@@ -24,7 +24,6 @@ function isReviewablePhase(
   phase: string,
   currentStatus: string,
   phaseOrder: string[],
-  _previousStatus?: string,
   reviewCutoffStatus?: string,
 ): boolean {
   const phaseIndex = phaseOrder.indexOf(phase)
@@ -37,7 +36,7 @@ function isReviewablePhase(
   return phaseIndex >= 0 && currentIndex >= 0 && phaseIndex < currentIndex
 }
 
-export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus, reviewCutoffStatus }: ActiveWorkspaceProps) {
+export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus: _previousStatus, reviewCutoffStatus }: ActiveWorkspaceProps) {
   const { phases, phaseMap } = useWorkflowMeta()
   const phaseOrder = phases.map((phase) => phase.id)
   const phaseMeta = phaseMap[selectedPhase]
@@ -49,7 +48,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
     ? getActiveErrorOccurrence(ticket)
     : null
   const activeErrorOccurrence = explicitErrorOccurrence ?? liveErrorOccurrence
-  const isViewingPast = isReviewablePhase(selectedPhase, ticket.status, phaseOrder, previousStatus, reviewCutoffStatus)
+  const isViewingPast = isReviewablePhase(selectedPhase, ticket.status, phaseOrder, reviewCutoffStatus)
   const isLiveErrorOccurrence = Boolean(
     activeErrorOccurrence
     && liveErrorOccurrence
