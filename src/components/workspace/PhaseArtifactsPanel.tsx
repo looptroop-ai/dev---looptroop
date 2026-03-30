@@ -243,20 +243,18 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ?? null
     }
 
-    if (artifactDef.id === 'coverage-review') {
+    if (artifactDef.id === 'coverage-report') {
       const coverageArtifact = findExactArtifact('prd_coverage')
       const coverageCompanion = findCompanionArtifact('prd_coverage')
-      return buildCoverageArtifactContent(coverageArtifact?.content, coverageCompanion?.content)
+      const coverageReviewContent = buildCoverageArtifactContent(coverageArtifact?.content, coverageCompanion?.content)
         ?? coverageArtifact?.content
         ?? null
-    }
-
-    if (artifactDef.id === 'coverage-changes' || artifactDef.id === 'coverage-resolution-notes') {
       const revisionArtifact = findExactArtifact('prd_coverage_revision')
       const revisionCompanion = findCompanionArtifact('prd_coverage_revision')
-      return unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'prd_coverage_revision')
+      const revisionContent = unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'prd_coverage_revision')
         ?? revisionArtifact?.content
         ?? null
+      return JSON.stringify({ coverageReviewContent, revisionContent })
     }
 
     if (artifactDef.id === 'refined-beads') {
@@ -328,48 +326,21 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       return baseArtifacts
     }
 
-    const reviewContent = findDbContent({
-      id: 'coverage-review',
-      label: 'Coverage Review',
-      description: '',
-      icon: <FileText className="h-3.5 w-3.5" />,
-    })
-    const revisionContent = findDbContent({
-      id: 'coverage-changes',
-      label: 'Coverage Changes',
-      description: '',
-      icon: <FileText className="h-3.5 w-3.5" />,
-    })
-    const revisionPayload = revisionContent ? parseRefinementArtifact(revisionContent) : null
+    const hasCoverageReview = !!findExactArtifact('prd_coverage')
+    const hasRevision = !!findExactArtifact('prd_coverage_revision') || !!findCompanionArtifact('prd_coverage_revision')
 
     return [
       ...baseArtifacts,
-      ...(reviewContent
+      ...((hasCoverageReview || hasRevision)
         ? [{
-            id: 'coverage-review',
-            label: 'Coverage Review',
-            description: 'Latest PRD coverage audit result',
-            icon: <FileText className="h-3.5 w-3.5" />,
-          } satisfies ArtifactDef]
-        : []),
-      ...(revisionPayload
-        ? [{
-            id: 'coverage-changes',
-            label: 'Coverage Changes',
-            description: 'Diff between the prior PRD candidate and the coverage-revised candidate',
-            icon: <FileText className="h-3.5 w-3.5" />,
-          } satisfies ArtifactDef]
-        : []),
-      ...(revisionPayload?.gapResolutions?.length
-        ? [{
-            id: 'coverage-resolution-notes',
-            label: 'Coverage Resolution Notes',
-            description: 'How each coverage gap was handled in the latest PRD candidate revision',
+            id: 'coverage-report',
+            label: 'Coverage Report',
+            description: 'Coverage audit results, changes, and resolution notes',
             icon: <FileText className="h-3.5 w-3.5" />,
           } satisfies ArtifactDef]
         : []),
     ]
-  }, [findDbContent, phase, supplementalArtifacts])
+  }, [findCompanionArtifact, findDbContent, findExactArtifact, phase, supplementalArtifacts])
 
   const prominentSupplementalArtifacts = collapseVotingMemberArtifacts ? displayedSupplementalArtifacts : []
   const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : displayedSupplementalArtifacts

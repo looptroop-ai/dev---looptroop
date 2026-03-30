@@ -933,11 +933,8 @@ export function resolveStaticArtifact(
       return findExactType('prd_coverage_revision') ?? findExactType('prd_coverage_input') ?? findExactType('prd_refined')
     case 'final-prd-draft':
       return findExactType('prd_refined')
-    case 'coverage-review':
-      return findExactType('prd_coverage')
-    case 'coverage-changes':
-    case 'coverage-resolution-notes':
-      return findExactType('prd_coverage_revision')
+    case 'coverage-report':
+      return findExactType('prd_coverage') ?? findExactType('prd_coverage_revision')
     case 'refined-beads':
       return findExactType('beads_coverage_input') ?? findExactType('beads_refined')
     case 'final-beads-draft':
