@@ -1678,6 +1678,88 @@ describe('structured output normalization', () => {
     expect(result.normalizedContent).toContain('Anti-patterns:')
   })
 
+  it('canonicalizes inline string bead context guidance into the runtime string format', () => {
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Harden inline guidance repair',
+      '    prdRefs: [EPIC-1, US-1-1]',
+      '    description: Recover inline guidance labels from council drafts.',
+      '    contextGuidance: "Patterns: update src/context/uiContextDef.ts as the single source of truth; keep SET_THEME typed from UIState theme; preserve the existing state shape. Anti-patterns: avoid duplicating theme unions in multiple files; avoid widening theme to string; avoid mixing runtime logic into this type-only bead."',
+      '    acceptanceCriteria:',
+      '      - Inline guidance is canonicalized to the runtime format.',
+      '    tests:',
+      '      - Normalizer accepts inline guidance labels from council drafts.',
+      '    testCommands:',
+      '      - npm run test:server',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.')
+    expect(result.value[0]?.contextGuidance).toBe([
+      'Patterns:',
+      '- update src/context/uiContextDef.ts as the single source of truth; keep SET_THEME typed from UIState theme; preserve the existing state shape.',
+      'Anti-patterns:',
+      '- avoid duplicating theme unions in multiple files; avoid widening theme to string; avoid mixing runtime logic into this type-only bead.',
+    ].join('\n'))
+  })
+
+  it('rejects malformed inline string bead context guidance', () => {
+    const cases = [
+      [
+        'beads:',
+        '  - id: bead-1',
+        '    title: Missing anti-patterns',
+        '    prdRefs: [EPIC-1, US-1-1]',
+        '    description: Reject guidance missing the second section.',
+        '    contextGuidance: "Patterns: keep repairs deterministic."',
+        '    acceptanceCriteria:',
+        '      - Missing anti-patterns is rejected.',
+        '    tests:',
+        '      - Validator returns an error.',
+        '    testCommands:',
+        '      - npm run test:server',
+      ].join('\n'),
+      [
+        'beads:',
+        '  - id: bead-1',
+        '    title: Empty patterns section',
+        '    prdRefs: [EPIC-1, US-1-1]',
+        '    description: Reject inline guidance with an empty patterns section.',
+        '    contextGuidance: "Patterns:   Anti-patterns: avoid widening the retry scope."',
+        '    acceptanceCriteria:',
+        '      - Empty patterns is rejected.',
+        '    tests:',
+        '      - Validator returns an error.',
+        '    testCommands:',
+        '      - npm run test:server',
+      ].join('\n'),
+      [
+        'beads:',
+        '  - id: bead-1',
+        '    title: Reversed section order',
+        '    prdRefs: [EPIC-1, US-1-1]',
+        '    description: Reject inline guidance with reversed section order.',
+        '    contextGuidance: "Anti-patterns: avoid widening the retry scope. Patterns: keep repairs deterministic."',
+        '    acceptanceCriteria:',
+        '      - Reversed labels are rejected.',
+        '    tests:',
+        '      - Validator returns an error.',
+        '    testCommands:',
+        '      - npm run test:server',
+      ].join('\n'),
+    ]
+
+    for (const content of cases) {
+      const result = normalizeBeadSubsetYamlOutput(content)
+      expect(result.ok).toBe(false)
+      if (result.ok) continue
+      expect(result.error).toContain('must include both Patterns and Anti-patterns sections')
+    }
+  })
+
   it('accepts labeled alternative-draft references in bead refinement inspiration', () => {
     const result = normalizeBeadSubsetYamlOutput([
       'beads:',
@@ -1770,6 +1852,43 @@ describe('structured output normalization', () => {
     ]))
 
     expect(valid.ok).toBe(true)
+
+    const inlineGuidance = normalizeBeadsJsonlOutput(JSON.stringify([
+      {
+        id: 'bead-inline',
+        title: 'Inline guidance bead',
+        prdRefs: ['EPIC-1 / US-1'],
+        description: 'Recover inline guidance in expanded bead validation.',
+        contextGuidance: 'Patterns: keep the bead narrowly scoped. Anti-patterns: do not depend on unrelated files.',
+        acceptanceCriteria: ['done'],
+        tests: ['test'],
+        testCommands: ['npm run test'],
+        priority: 1,
+        status: 'pending',
+        labels: [],
+        dependencies: [],
+        targetFiles: [],
+        notes: [],
+        iteration: 1,
+        createdAt: '',
+        updatedAt: '',
+        beadStartCommit: null,
+        estimatedComplexity: 'moderate',
+        epicId: 'EPIC-1',
+        storyId: 'US-1',
+      },
+    ]))
+
+    expect(inlineGuidance.ok).toBe(true)
+    if (!inlineGuidance.ok) return
+    expect(inlineGuidance.repairApplied).toBe(true)
+    expect(inlineGuidance.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.')
+    expect(inlineGuidance.value[0]?.contextGuidance).toBe([
+      'Patterns:',
+      '- keep the bead narrowly scoped.',
+      'Anti-patterns:',
+      '- do not depend on unrelated files.',
+    ].join('\n'))
 
     const invalid = normalizeBeadsJsonlOutput(JSON.stringify([
       {

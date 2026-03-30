@@ -466,6 +466,40 @@ function isNoOpRefinementRepairWarning(warning: string): boolean {
   return /^Dropped no-op .* refinement .* because .*?(?:identical|unchanged across the winning and final drafts)\.$/i.test(warning.trim())
 }
 
+function CollapsibleWarningNotice({
+  title,
+  body,
+  detail,
+  defaultOpen = false,
+}: {
+  title: React.ReactNode
+  body?: React.ReactNode
+  detail?: React.ReactNode
+  defaultOpen?: boolean
+}) {
+  if (!body && !detail) {
+    return null
+  }
+
+  return (
+    <CollapsibleSection
+      title={title}
+      defaultOpen={defaultOpen}
+      scrollOnOpen={false}
+      className="border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20"
+      triggerClassName="text-amber-950 hover:bg-amber-100/60 dark:text-amber-100 dark:hover:bg-amber-900/20"
+      contentClassName="pt-0 text-amber-950 dark:text-amber-100"
+    >
+      {body ? <div className="leading-5">{body}</div> : null}
+      {detail ? (
+        <div className={cn('text-[11px] opacity-90 leading-5', body ? 'mt-1' : undefined)}>
+          {detail}
+        </div>
+      ) : null}
+    </CollapsibleSection>
+  )
+}
+
 function getStructuredRepairNoticeCopy(repairWarnings: string[]): {
   title: string
   body: string
@@ -503,15 +537,11 @@ function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: Artif
   const copy = getStructuredRepairNoticeCopy(repairWarnings)
 
   return (
-    <div className="rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100">
-      <div className="font-medium">{copy.title}</div>
-      <div className="mt-1 leading-5">
-        {copy.body}
-      </div>
-      {copy.detail && (
-        <div className="mt-1 text-[11px] opacity-90 leading-5">{copy.detail}</div>
-      )}
-    </div>
+    <CollapsibleWarningNotice
+      title={copy.title}
+      body={copy.body}
+      detail={copy.detail}
+    />
   )
 }
 
@@ -2035,9 +2065,11 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         return (
           <div className="space-y-2">
             {header}
-            <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2 py-1">
-              ⚠️ Output did not pass strict validation{draft.error ? `: ${draft.error}` : ''} — content shown below may have formatting issues.
-            </div>
+            <CollapsibleWarningNotice
+              title="Output did not pass strict validation."
+              body="LoopTroop is showing the model output because it may still be useful, but it did not match the required format and may have formatting problems."
+              detail={draft.error ? `Validator message: ${draft.error}` : undefined}
+            />
             {structured
               ? <WithRawTab content={draft.content} structuredLabel="Draft">{structured}</WithRawTab>
               : <RawContentWithCopy content={draft.content} />}

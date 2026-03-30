@@ -149,11 +149,7 @@ describe('handleBeadsDraft', () => {
               '    title: Harden beads drafting',
               '    prdRefs: [EPIC-1, US-1-1]',
               '    description: Keep beads drafting strict and deterministic.',
-              '    contextGuidance:',
-              '      patterns:',
-              '        - Load codebase map, ticket details, and final PRD.',
-              '      anti_patterns:',
-              '        - Do not omit later beads when the output gets long.',
+              '    contextGuidance: "Patterns: load codebase map, ticket details, and final PRD. Anti-patterns: do not omit later beads when the output gets long."',
               '    acceptanceCriteria:',
               '      - Draft is complete.',
               '    tests:',
@@ -163,9 +159,9 @@ describe('handleBeadsDraft', () => {
             ].join('\n'),
             structuredOutput: {
               repairApplied: true,
-              repairWarnings: ['Recovered object-form context guidance.'],
+              repairWarnings: ['Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.'],
               autoRetryCount: 1,
-              validationError: 'contextGuidance missing anti-patterns',
+              validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
             },
           },
           {
@@ -260,9 +256,9 @@ describe('handleBeadsDraft', () => {
     expect(companionPayload?.draftDetails?.[0]?.structuredOutput).toMatchObject({
       repairApplied: true,
       autoRetryCount: 1,
-      validationError: 'contextGuidance missing anti-patterns',
+      validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
     })
-    expect(companionPayload?.draftDetails?.[0]?.structuredOutput?.repairWarnings).toContain('Recovered object-form context guidance.')
+    expect(companionPayload?.draftDetails?.[0]?.structuredOutput?.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.')
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
     expect(phaseIntermediate.get(`${ticket.id}:beads`)).toBeDefined()
     expect(paths.ticketDir).toContain('.ticket')

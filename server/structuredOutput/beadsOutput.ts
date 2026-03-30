@@ -34,6 +34,31 @@ function normalizeGuidanceItems(value: unknown, label: string): string[] {
   return items
 }
 
+function buildContextGuidanceBlock(patterns: string[], antiPatterns: string[]): string {
+  return [
+    'Patterns:',
+    ...patterns.map((item) => `- ${item}`),
+    'Anti-patterns:',
+    ...antiPatterns.map((item) => `- ${item}`),
+  ].join('\n')
+}
+
+function repairInlineContextGuidance(
+  guidance: string,
+  index: number,
+  repairWarnings: string[],
+): string | null {
+  const match = guidance.match(/^\s*patterns\s*:\s*(.+?)\s+anti[-\s_]*patterns\s*:\s*(.+)\s*$/is)
+  if (!match) return null
+
+  const patterns = cleanString(match[1] ?? '')
+  const antiPatterns = cleanString(match[2] ?? '')
+  if (!patterns || !antiPatterns) return null
+
+  repairWarnings.push(`Canonicalized inline string context guidance at index ${index} into Patterns and Anti-patterns sections.`)
+  return buildContextGuidanceBlock([patterns], [antiPatterns])
+}
+
 function renderContextGuidance(
   value: unknown,
   index: number,
@@ -47,11 +72,16 @@ function renderContextGuidance(
 
     const hasPatterns = /^\s*patterns\s*:/im.test(guidance)
     const hasAntiPatterns = /^\s*anti[-\s_]*patterns\s*:/im.test(guidance)
-    if (!hasPatterns || !hasAntiPatterns) {
-      throw new Error(`Bead context guidance at index ${index} must include both Patterns and Anti-patterns sections`)
+    if (hasPatterns && hasAntiPatterns) {
+      return guidance
     }
 
-    return guidance
+    const repairedInlineGuidance = repairInlineContextGuidance(guidance, index, repairWarnings)
+    if (repairedInlineGuidance) {
+      return repairedInlineGuidance
+    }
+
+    throw new Error(`Bead context guidance at index ${index} must include both Patterns and Anti-patterns sections`)
   }
 
   if (!isRecord(value)) {
@@ -68,12 +98,7 @@ function renderContextGuidance(
   )
   repairWarnings.push(`Canonicalized object-form context guidance at index ${index} into Patterns and Anti-patterns sections.`)
 
-  return [
-    'Patterns:',
-    ...patterns.map((item) => `- ${item}`),
-    'Anti-patterns:',
-    ...antiPatterns.map((item) => `- ${item}`),
-  ].join('\n')
+  return buildContextGuidanceBlock(patterns, antiPatterns)
 }
 
 function normalizeBeadSubsetEntry(value: unknown, index: number, repairWarnings: string[]): BeadSubset {

@@ -109,7 +109,11 @@ const BEAD_SUBSET_OUTPUT_FORMAT = [
   '      - "EPIC-1"',
   '      - "US-1-1"',
   '    description: "Detailed technical implementation steps for this bead."',
-  '    contextGuidance: "Patterns: use Drizzle ORM migrations. Anti-patterns: avoid raw SQL."',
+  '    contextGuidance: |',
+  '      Patterns:',
+  '      - Use Drizzle ORM migrations.',
+  '      Anti-patterns:',
+  '      - Avoid raw SQL.',
   '    acceptanceCriteria:',
   '      - "Schema file exists and migrations run cleanly."',
   '    tests:',
@@ -117,6 +121,7 @@ const BEAD_SUBSET_OUTPUT_FORMAT = [
   '    testCommands:',
   '      - "npm run test -- server/db"',
   '```',
+  'Write `contextGuidance` as a multi-line block with separate `Patterns:` and `Anti-patterns:` headings. Do not collapse both headings into a single quoted line.',
   'No other top-level keys. No prose before or after the YAML.',
 ].join('\n')
 const BEADS_JSONL_OUTPUT_FORMAT = 'JSONL only. One JSON object per line. No markdown fences, no surrounding array, no prose, and no wrapper object.'

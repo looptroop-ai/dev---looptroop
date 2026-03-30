@@ -1019,7 +1019,13 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
-    expect(screen.getByText(expectedText)).toBeInTheDocument()
+    const noticeButton = screen.getByRole('button', { name: expectedText })
+    expect(noticeButton).toBeInTheDocument()
+    expect(screen.queryByText(expectedDetail)).not.toBeInTheDocument()
+    expect(screen.queryByText(expectedCount)).not.toBeInTheDocument()
+
+    fireEvent.click(noticeButton)
+
     expect(screen.getByText(expectedDetail)).toBeInTheDocument()
     expect(screen.getByText(expectedCount)).toBeInTheDocument()
     expect(screen.queryByText(notExpected)).not.toBeInTheDocument()
@@ -1060,7 +1066,12 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
-    expect(screen.getByText('LoopTroop repaired the diff data.')).toBeInTheDocument()
+    const noticeButton = screen.getByRole('button', { name: 'LoopTroop repaired the diff data.' })
+    expect(noticeButton).toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop fixed 2 diff metadata issue(s) before showing this diff.')).not.toBeInTheDocument()
+
+    fireEvent.click(noticeButton)
+
     expect(screen.getByText('LoopTroop fixed 2 diff metadata issue(s) before showing this diff.')).toBeInTheDocument()
     expect(screen.queryByText(/Dropped no-op interview refinement modified at index 0/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).not.toBeInTheDocument()
