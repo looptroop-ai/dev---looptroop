@@ -5,7 +5,14 @@ import { buildMinimalContext, type TicketState } from '../../opencode/contextBui
 import { analyzeAssistantMessages } from '../../opencode/assistantMessageAnalysis'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { PROM5, PROM13, PROM24 } from '../../prompts/index'
-import type { DraftProgressEvent, DraftResult, MemberOutcome, Vote, VotePresentationOrder } from '../../council/types'
+import type {
+  DraftProgressEvent,
+  DraftResult,
+  DraftStructuredOutputMeta,
+  MemberOutcome,
+  Vote,
+  VotePresentationOrder,
+} from '../../council/types'
 import { parseCouncilMembers } from '../../council/members'
 import { db as appDb } from '../../db/index'
 import { profiles } from '../../db/schema'
@@ -1062,6 +1069,11 @@ export function upsertCouncilVoteArtifact(
   drafts: DraftResult[],
   votes: Vote[],
   memberOutcomes: Record<string, MemberOutcome>,
+  voterDetails?: Array<{
+    voterId: string
+    error?: string
+    structuredOutput?: DraftStructuredOutputMeta
+  }>,
   presentationOrders?: Record<string, VotePresentationOrder>,
   winnerId?: string,
   totalScore?: number,
@@ -1075,6 +1087,7 @@ export function upsertCouncilVoteArtifact(
   persistUiArtifactCompanionArtifact(ticketId, phase, artifactType, {
     votes,
     voterOutcomes: memberOutcomes,
+    ...(voterDetails && voterDetails.length > 0 ? { voterDetails } : {}),
     ...(presentationOrders ? { presentationOrders } : {}),
     ...(winnerId ? { winnerId } : {}),
     ...(typeof totalScore === 'number' ? { totalScore } : {}),

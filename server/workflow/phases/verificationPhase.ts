@@ -23,7 +23,6 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { runPreFlightChecks } from '../../phases/preflight/doctor'
 import { generateFinalTests } from '../../phases/finalTest/generator'
-import { parseFinalTestCommands } from '../../phases/finalTest/parser'
 import { executeFinalTestCommands } from '../../phases/finalTest/runner'
 import { broadcaster } from '../../sse/broadcaster'
 import { resolveInterviewCoverageFollowUpResolution } from '../interviewCoverageFollowUps'
@@ -856,10 +855,20 @@ export async function handleRelevantFilesScan(
 
     let normalized = validateRelevantFilesScanResponse(result.response)
     let finalResponse = result.response
+    let structuredMeta = buildStructuredMetadata({
+      autoRetryCount: 0,
+      repairApplied: normalized.repairApplied,
+      repairWarnings: normalized.repairWarnings,
+      ...(!normalized.ok && normalized.error ? { validationError: normalized.error } : {}),
+    })
 
     if (!normalized.ok) {
       const retryDecision = getStructuredRetryDecision(result.response, result.responseMeta)
       const retryMode = retryDecision.reuseSession ? 'same session' : 'fresh session'
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError: normalized.error,
+      })
       emitPhaseLog(
         ticketId,
         context.externalId,
@@ -993,6 +1002,11 @@ export async function handleRelevantFilesScan(
       }
     }
 
+    structuredMeta = buildStructuredMetadata(structuredMeta, {
+      repairApplied: normalized.repairApplied,
+      repairWarnings: normalized.repairWarnings,
+    })
+
     const parsed: RelevantFilesData = {
       file_count: normalized.value.file_count,
       files: normalized.value.files.map((f) => ({
@@ -1022,6 +1036,7 @@ export async function handleRelevantFilesScan(
           contentLength: (f.content_preview ?? f.content ?? '').length,
         })),
         modelId: codingModelId,
+        structuredOutput: structuredMeta,
       }),
     })
 
@@ -1668,7 +1683,7 @@ export async function handleFinalTest(
   }
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const streamStates = new Map<string, OpenCodeStreamState>()
-  const output = await generateFinalTests(
+  const finalTestGeneration = await generateFinalTests(
     adapter,
     finalTestContext,
     worktreePath,
@@ -1718,7 +1733,11 @@ export async function handleFinalTest(
   )
   throwIfAborted(signal, ticketId)
 
-  const commandPlan = parseFinalTestCommands(output)
+  const {
+    output,
+    commandPlan,
+    structuredOutput: planStructuredOutput,
+  } = finalTestGeneration
   const executionSettings = resolveExecutionRuntimeSettings(context)
   const report = commandPlan.commands.length > 0
     ? await executeFinalTestCommands({
@@ -1728,6 +1747,7 @@ export async function handleFinalTest(
         plannedBy: finalTestModelId!,
         ...(commandPlan.summary ? { summary: commandPlan.summary } : {}),
         modelOutput: output,
+        planStructuredOutput,
       })
     : {
         status: 'failed' as const,
@@ -1737,6 +1757,7 @@ export async function handleFinalTest(
         modelOutput: output,
         commands: [],
         errors: commandPlan.errors,
+        planStructuredOutput,
       }
 
   insertPhaseArtifact(ticketId, {

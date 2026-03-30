@@ -545,10 +545,11 @@ export async function handleInterviewVote(
     acc[member.modelId] = 'pending'
     return acc
   }, {})
+  const liveVoterDetails = new Map<string, { voterId: string; error?: string; structuredOutput?: NonNullable<typeof intermediate.drafts[number]['structuredOutput']> }>()
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'info',
     `Interview voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
-  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, [], liveVoterOutcomes)
+  upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, [], liveVoterOutcomes, [...liveVoterDetails.values()])
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const voteRun = await conductVoting(
@@ -600,7 +601,12 @@ export async function handleInterviewVote(
     (entry) => {
       liveVoterOutcomes[entry.memberId] = entry.outcome
       if (entry.votes.length > 0) liveVotes.push(...entry.votes)
-      upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, liveVotes, liveVoterOutcomes)
+      liveVoterDetails.set(entry.memberId, {
+        voterId: entry.memberId,
+        ...(entry.error ? { error: entry.error } : {}),
+        ...(entry.structuredOutput ? { structuredOutput: entry.structuredOutput } : {}),
+      })
+      upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_INTERVIEW', 'interview_votes', intermediate.drafts, liveVotes, liveVoterOutcomes, [...liveVoterDetails.values()])
     },
     ({ anonymizedDrafts, rubric }) => buildInterviewVotePrompt(
       interviewTicketState,
@@ -634,6 +640,7 @@ export async function handleInterviewVote(
       intermediate.drafts,
       voteRun.votes,
       voteRun.memberOutcomes,
+      voteRun.voterDetails,
       voteRun.presentationOrders,
       undefined,
       undefined,
@@ -660,6 +667,7 @@ export async function handleInterviewVote(
     intermediate.drafts,
     voteRun.votes,
     voteRun.memberOutcomes,
+    voteRun.voterDetails,
     voteRun.presentationOrders,
     winnerId,
     totalScore,
@@ -1539,6 +1547,7 @@ export async function handleMockInterviewVote(
     drafts,
     voteResult.votes,
     voteResult.voterOutcomes,
+    undefined,
     voteResult.presentationOrders,
     voteResult.winnerId,
     voteResult.totalScore,

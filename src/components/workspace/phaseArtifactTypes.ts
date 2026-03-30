@@ -106,6 +106,7 @@ export interface CoverageArtifactData {
     followUpQuestions?: CoverageFollowUpArtifactQuestion[]
     follow_up_questions?: CoverageFollowUpArtifactQuestion[]
   }
+  structuredOutput?: ArtifactStructuredOutputData
 }
 
 export interface ArtifactStructuredOutputData {
@@ -121,6 +122,7 @@ export interface CouncilDraftData {
   content?: string
   duration?: number
   error?: string
+  structuredOutput?: ArtifactStructuredOutputData
 }
 
 export interface CouncilVoteData {
@@ -135,6 +137,12 @@ export interface VotePresentationOrderData {
   order: string[]
 }
 
+export interface CouncilVoterDetailData {
+  voterId: string
+  structuredOutput?: ArtifactStructuredOutputData
+  error?: string
+}
+
 export interface CouncilResultData {
   drafts?: CouncilDraftData[]
   votes?: CouncilVoteData[]
@@ -143,6 +151,7 @@ export interface CouncilResultData {
   refinedContent?: string
   voterOutcomes?: Record<string, CouncilOutcome>
   presentationOrders?: Record<string, VotePresentationOrderData>
+  voterDetails?: CouncilVoterDetailData[]
 }
 
 export interface InterviewDiffArtifactData {
@@ -227,6 +236,29 @@ export interface RelevantFilesScanData {
   fileCount: number
   files: RelevantFileScanEntry[]
   modelId?: string
+  structuredOutput?: ArtifactStructuredOutputData
+}
+
+export interface FinalTestCommandResultData {
+  command: string
+  exitCode: number | null
+  signal: string | null
+  stdout: string
+  stderr: string
+  durationMs: number
+  timedOut: boolean
+}
+
+export interface FinalTestExecutionReportData {
+  status: 'passed' | 'failed'
+  passed: boolean
+  checkedAt: string
+  plannedBy: string
+  summary?: string
+  modelOutput: string
+  commands: FinalTestCommandResultData[]
+  errors: string[]
+  planStructuredOutput?: ArtifactStructuredOutputData
 }
 
 import type { CouncilOutcome, CouncilViewerArtifact } from './councilArtifacts'

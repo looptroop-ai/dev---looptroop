@@ -86,11 +86,18 @@ export interface VotePresentationOrder {
   order: string[]
 }
 
+export interface VoterDetail {
+  voterId: string
+  error?: string
+  structuredOutput?: DraftStructuredOutputMeta
+}
+
 export interface VotingPhaseResult {
   votes: Vote[]
   memberOutcomes: Record<string, MemberOutcome>
   deadlineReached: boolean
   presentationOrders: Record<string, VotePresentationOrder>
+  voterDetails: VoterDetail[]
 }
 
 export interface VoterResult {

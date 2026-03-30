@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import type { OpenCodeAdapter } from '../opencode/adapter'
-import type { CouncilMember, DraftResult, MemberOutcome, Vote, VotePresentationOrder, VoteScore, VotingPhaseResult } from './types'
+import type {
+  CouncilMember,
+  DraftResult,
+  DraftStructuredOutputMeta,
+  MemberOutcome,
+  Vote,
+  VotePresentationOrder,
+  VoteScore,
+  VoterDetail,
+  VotingPhaseResult,
+} from './types'
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
@@ -98,6 +108,7 @@ export async function conductVoting(
     outcome: MemberOutcome
     votes: Vote[]
     error?: string
+    structuredOutput?: DraftStructuredOutputMeta
   }) => void,
   buildPromptForVoter?: (entry: {
     voter: CouncilMember
@@ -119,19 +130,40 @@ export async function conductVoting(
     return outcomes
   }, {})
   const finalizedMembers = new Set<string>()
+  const voterDetailMap = new Map<string, VoterDetail>()
   const deadlineAt = timeoutMs && timeoutMs > 0 ? Date.now() + timeoutMs : null
   let deadlineReached = false
+
+  function buildStructuredOutputMeta(
+    repairApplied: boolean,
+    repairWarnings: string[],
+    autoRetryCount: number,
+    validationError?: string,
+  ): DraftStructuredOutputMeta {
+    return {
+      repairApplied,
+      repairWarnings,
+      autoRetryCount,
+      ...(validationError ? { validationError } : {}),
+    }
+  }
 
   function recordOutcome(
     memberId: string,
     outcome: MemberOutcome,
     voterVotes: Vote[],
     error?: string,
+    structuredOutput?: DraftStructuredOutputMeta,
   ): boolean {
     if (finalizedMembers.has(memberId)) return false
 
     finalizedMembers.add(memberId)
     memberOutcomes[memberId] = outcome
+    voterDetailMap.set(memberId, {
+      voterId: memberId,
+      ...(error ? { error } : {}),
+      ...(structuredOutput ? { structuredOutput } : {}),
+    })
     if (outcome === 'completed' && voterVotes.length > 0) {
       votes.push(...voterVotes)
     }
@@ -140,12 +172,13 @@ export async function conductVoting(
       outcome,
       votes: voterVotes,
       error,
+      structuredOutput,
     })
     return true
   }
 
   if (validDrafts.length === 0) {
-    return { votes, memberOutcomes, deadlineReached: false, presentationOrders }
+    return { votes, memberOutcomes, deadlineReached: false, presentationOrders, voterDetails: [] }
   }
 
   const promises = voters.map(async (voter): Promise<Vote[]> => {
@@ -190,6 +223,7 @@ export async function conductVoting(
       let response = ''
       let result: Awaited<ReturnType<typeof runOpenCodePrompt>> | undefined
       let attemptCount = 0
+      let lastValidationError: string | undefined
       const maxStructuredRetries = 1
 
       while (true) {
@@ -258,6 +292,12 @@ export async function conductVoting(
         )
 
         if (scorecardResult.ok) {
+          const structuredOutput = buildStructuredOutputMeta(
+            scorecardResult.repairApplied,
+            scorecardResult.repairWarnings,
+            attemptCount,
+            lastValidationError,
+          )
           for (const [draftIndex, draft] of anonymized.entries()) {
             const draftLabel = `Draft ${draftIndex + 1}`
             const normalizedScores = scorecardResult.value.draftScores[draftLabel] ?? {}
@@ -273,15 +313,26 @@ export async function conductVoting(
               totalScore: normalizedScores.total_score ?? scores.reduce((sum, score) => sum + score.score, 0),
             })
           }
+          if (!recordOutcome(voter.modelId, 'completed', voterVotes, undefined, structuredOutput)) {
+            return voterVotes
+          }
           break
         }
 
+        lastValidationError = scorecardResult.error
         if (attemptCount >= maxStructuredRetries) {
+          const structuredOutput = buildStructuredOutputMeta(
+            scorecardResult.repairApplied,
+            scorecardResult.repairWarnings,
+            attemptCount,
+            scorecardResult.error,
+          )
           recordOutcome(
             voter.modelId,
             'invalid_output',
             [],
             scorecardResult.error,
+            structuredOutput,
           )
           return voterVotes
         }
@@ -293,10 +344,6 @@ export async function conductVoting(
           schemaReminder: buildStrictVoteSchemaReminder(rubric),
           doNotUseTools: true,
         })
-      }
-
-      if (!recordOutcome(voter.modelId, 'completed', voterVotes)) {
-        return voterVotes
       }
 
       return voterVotes
@@ -352,6 +399,7 @@ export async function conductVoting(
     memberOutcomes,
     deadlineReached,
     presentationOrders,
+    voterDetails: [...voterDetailMap.values()],
   }
 }
 

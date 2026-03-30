@@ -14,7 +14,9 @@ import type {
   InterviewDiffEntry,
   CoverageInputData,
   CouncilResultData,
+  CouncilVoterDetailData,
   CouncilOutcome,
+  FinalTestExecutionReportData,
   QuestionDiffSegment,
   RelevantFileScanEntry,
   RelevantFilesScanData,
@@ -121,7 +123,19 @@ export function CopyButton({ content, className = '' }: { content: string; class
   )
 }
 
-export function WithRawTab({ content, structuredLabel, children, header }: { content: string; structuredLabel: string; children: React.ReactNode; header?: React.ReactNode }) {
+export function WithRawTab({
+  content,
+  structuredLabel,
+  children,
+  header,
+  notice,
+}: {
+  content: string
+  structuredLabel: string
+  children: React.ReactNode
+  header?: React.ReactNode
+  notice?: React.ReactNode
+}) {
   const [activeTab, setActiveTab] = useState<'structured' | 'raw'>('structured')
   const lineCount = content.split('\n').length
   const charCount = content.length
@@ -160,7 +174,12 @@ export function WithRawTab({ content, structuredLabel, children, header }: { con
         </div>
       )}
 
-      {activeTab === 'structured' ? children : (
+      {activeTab === 'structured' ? (
+        <>
+          {notice}
+          {children}
+        </>
+      ) : (
         <div className="min-w-0 w-full overflow-hidden">
           <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
             {content}
@@ -171,11 +190,12 @@ export function WithRawTab({ content, structuredLabel, children, header }: { con
   )
 }
 
-function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent }: {
+function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent, notice }: {
   content: string
   hasChanges: boolean
   sectionsContent: React.ReactNode
   diffContent?: React.ReactNode
+  notice?: React.ReactNode
 }) {
   const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(hasChanges ? 'diff' : 'sections')
   const lineCount = content.split('\n').length
@@ -224,7 +244,17 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
         </div>
       )}
 
-      {activeTab === 'sections' ? sectionsContent : activeTab === 'diff' && diffContent ? diffContent : activeTab === 'raw' ? (
+      {activeTab === 'sections' ? (
+        <>
+          {notice}
+          {sectionsContent}
+        </>
+      ) : activeTab === 'diff' && diffContent ? (
+        <>
+          {notice}
+          {diffContent}
+        </>
+      ) : activeTab === 'raw' ? (
         <div className="min-w-0 w-full overflow-hidden">
           <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
             {content}
@@ -466,24 +496,89 @@ function isNoOpRefinementRepairWarning(warning: string): boolean {
   return /^Dropped no-op .* refinement .* because .*?(?:identical|unchanged across the winning and final drafts)\.$/i.test(warning.trim())
 }
 
+type ArtifactProcessingKind = 'artifact' | 'diff' | 'coverage' | 'relevant-files' | 'vote' | 'vote-aggregate' | 'draft' | 'final-test'
+type RepairBucket = 'no-op' | 'synthesized' | 'attribution' | 'formatting' | 'metadata' | 'generic'
+
+interface ArtifactProcessingNoticeContext {
+  affectedCount?: number
+}
+
+interface ArtifactProcessingNoticeCopy {
+  title: string
+  summary: string
+  body: string
+  detail?: string
+}
+
+function getStructuredOutputWarnings(structuredOutput?: ArtifactStructuredOutputData): string[] {
+  return (structuredOutput?.repairWarnings ?? []).filter(
+    (warning): warning is string => typeof warning === 'string' && warning.trim().length > 0,
+  )
+}
+
+function hasArtifactProcessingNotice(structuredOutput?: ArtifactStructuredOutputData): boolean {
+  return Boolean(
+    structuredOutput
+    && (
+      structuredOutput.repairApplied
+      || getStructuredOutputWarnings(structuredOutput).length > 0
+      || (structuredOutput.autoRetryCount ?? 0) > 0
+      || structuredOutput.validationError
+    ),
+  )
+}
+
+function mergeStructuredOutputMetadata(
+  outputs: Array<ArtifactStructuredOutputData | undefined | null>,
+): ArtifactStructuredOutputData | undefined {
+  const present = outputs.filter((output): output is ArtifactStructuredOutputData => Boolean(output))
+  if (present.length === 0) return undefined
+
+  return present.reduce<ArtifactStructuredOutputData>((merged, output) => ({
+    repairApplied: Boolean(merged.repairApplied || output.repairApplied),
+    repairWarnings: [...(merged.repairWarnings ?? []), ...getStructuredOutputWarnings(output)],
+    autoRetryCount: Math.max(merged.autoRetryCount ?? 0, output.autoRetryCount ?? 0),
+    ...(output.validationError
+      ? { validationError: output.validationError }
+      : merged.validationError
+        ? { validationError: merged.validationError }
+        : {}),
+  }), {
+    repairApplied: false,
+    repairWarnings: [],
+    autoRetryCount: 0,
+  })
+}
+
 function CollapsibleWarningNotice({
   title,
+  summary,
   body,
   detail,
   defaultOpen = false,
 }: {
   title: React.ReactNode
+  summary?: React.ReactNode
   body?: React.ReactNode
   detail?: React.ReactNode
   defaultOpen?: boolean
 }) {
-  if (!body && !detail) {
+  if (!summary && !body && !detail) {
     return null
   }
 
   return (
     <CollapsibleSection
-      title={title}
+      title={(
+        <span className="flex min-w-0 flex-col items-start gap-0.5">
+          <span className="font-medium">{title}</span>
+          {summary ? (
+            <span className="text-[11px] font-normal leading-4 opacity-80">
+              {summary}
+            </span>
+          ) : null}
+        </span>
+      )}
       defaultOpen={defaultOpen}
       scrollOnOpen={false}
       className="border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20"
@@ -500,45 +595,187 @@ function CollapsibleWarningNotice({
   )
 }
 
-function getStructuredRepairNoticeCopy(repairWarnings: string[]): {
-  title: string
-  body: string
-  detail?: string
-} {
-  const issueCount = repairWarnings.length
+function classifyRepairWarning(warning: string): RepairBucket {
+  const normalized = warning.trim().toLowerCase()
 
-  if (repairWarnings.length > 0 && repairWarnings.every(isNoOpRefinementRepairWarning)) {
-    return {
-      title: 'Some AI change notes were ignored.',
-      body: 'The AI reported some items as changed, but those items were actually unchanged. LoopTroop removed those incorrect notes. The diff below shows the real validated changes.',
-      detail: `${issueCount} incorrect AI change note(s) were ignored.`,
-    }
-  }
+  if (isNoOpRefinementRepairWarning(warning)) return 'no-op'
+  if (/synthesi|auto-detected|rebuilt|reconstructed|missing .*change/i.test(normalized)) return 'synthesized'
+  if (/attribution|source label|source labels|source information|source info|inspiration/i.test(normalized)) return 'attribution'
+  if (/wrapper|code fence|markdown|tag|marker|trailing|leading|prefix|suffix|json|yaml/i.test(normalized)) return 'formatting'
+  if (/normaliz|canonical|dedup|duplicate|reorder|sort|item_type|phase|id\b|metadata|inferred|filled|trimmed empty|ignored because/i.test(normalized)) return 'metadata'
+  return 'generic'
+}
 
-  return {
-    title: 'LoopTroop repaired the diff data.',
-    body: 'The saved change metadata had a problem, so LoopTroop rebuilt this diff from the validated artifact. The diff below is safe to review, but some source labels may be estimated or cleared.',
-    detail: `LoopTroop fixed ${issueCount} diff metadata issue(s) before showing this diff.`,
+function buildRepairBreakdownDetail(repairWarnings: string[]): string | undefined {
+  if (repairWarnings.length === 0) return undefined
+
+  const counts = repairWarnings.reduce<Record<RepairBucket, number>>((acc, warning) => {
+    const bucket = classifyRepairWarning(warning)
+    acc[bucket] = (acc[bucket] ?? 0) + 1
+    return acc
+  }, {
+    'no-op': 0,
+    synthesized: 0,
+    attribution: 0,
+    formatting: 0,
+    metadata: 0,
+    generic: 0,
+  })
+
+  const parts = [
+    counts['no-op'] > 0 ? `${counts['no-op']} incorrect AI change note(s) ignored` : null,
+    counts.synthesized > 0 ? `${counts.synthesized} missing change note(s) rebuilt` : null,
+    counts.attribution > 0 ? `${counts.attribution} source label issue(s) repaired` : null,
+    counts.formatting > 0 ? `${counts.formatting} formatting problem(s) cleaned up` : null,
+    counts.metadata > 0 ? `${counts.metadata} metadata issue(s) repaired` : null,
+    counts.generic > 0 ? `${counts.generic} parser issue(s) repaired` : null,
+  ].filter((part): part is string => Boolean(part))
+
+  return parts.length > 0 ? `Detected cleanup: ${parts.join('; ')}.` : undefined
+}
+
+function getArtifactProcessingStrings(kind: ArtifactProcessingKind, context?: ArtifactProcessingNoticeContext) {
+  const affectedSuffix = context?.affectedCount ? ` across ${context.affectedCount} voter scorecard(s)` : ''
+
+  switch (kind) {
+    case 'diff':
+      return {
+        title: 'LoopTroop repaired the diff data.',
+        genericRepairSummary: 'LoopTroop repaired this diff before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} diff metadata issue(s) before showing this diff.`,
+        repairBody: 'The saved diff metadata had problems, so LoopTroop rebuilt this diff from the validated artifact. The diff below is safe to review, but some labels or source attribution may have been normalized.',
+        retrySummary: (count: number) => `LoopTroop retried the diff parser ${count} time(s) before this diff was ready.`,
+        retryBody: 'The first diff payload did not pass validation, so LoopTroop asked the parser to repair it and validated the result again.',
+      }
+    case 'coverage':
+      return {
+        title: 'LoopTroop repaired the coverage result.',
+        genericRepairSummary: 'LoopTroop repaired this coverage review before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} coverage parsing issue(s) before showing this review.`,
+        repairBody: 'The coverage response needed cleanup before it matched the expected format. LoopTroop normalized it before showing this review.',
+        retrySummary: (count: number) => `LoopTroop retried the coverage parser ${count} time(s) before this review was ready.`,
+        retryBody: 'The first coverage response did not pass validation, so LoopTroop retried the structured parser before finalizing this review.',
+      }
+    case 'relevant-files':
+      return {
+        title: 'LoopTroop repaired the relevant files scan.',
+        genericRepairSummary: 'LoopTroop repaired this relevant files scan before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} relevant-files parsing issue(s) before showing this scan.`,
+        repairBody: 'The relevant-files response needed cleanup before it matched the expected format. LoopTroop normalized it before showing this scan.',
+        retrySummary: (count: number) => `LoopTroop retried the relevant-files parser ${count} time(s) before this scan was ready.`,
+        retryBody: 'The first relevant-files response did not pass validation, so LoopTroop retried the structured parser before finalizing this scan.',
+      }
+    case 'vote':
+      return {
+        title: 'LoopTroop repaired this vote scorecard.',
+        genericRepairSummary: 'LoopTroop repaired this vote scorecard before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} vote parsing issue(s) before showing this scorecard.`,
+        repairBody: 'This voting scorecard needed cleanup before it matched the required format. The rankings below reflect the validated scorecard.',
+        retrySummary: (count: number) => `LoopTroop retried this vote parser ${count} time(s) before the scorecard was ready.`,
+        retryBody: 'The first scorecard did not pass validation, so LoopTroop retried the structured parser before using it.',
+      }
+    case 'vote-aggregate':
+      return {
+        title: 'LoopTroop repaired some vote scorecards.',
+        genericRepairSummary: `LoopTroop repaired one or more vote scorecards${affectedSuffix} before showing these results.`,
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} vote parsing issue(s)${affectedSuffix} before showing these results.`,
+        repairBody: 'One or more voting scorecards needed cleanup before they matched the required format. The rankings below reflect the validated scorecards.',
+        retrySummary: (count: number) => `LoopTroop retried the vote parser ${count} time(s)${affectedSuffix} before these results were ready.`,
+        retryBody: 'At least one scorecard failed validation on the first pass, so LoopTroop retried the structured parser before finalizing the results.',
+      }
+    case 'draft':
+      return {
+        title: 'LoopTroop repaired this draft artifact.',
+        genericRepairSummary: 'LoopTroop repaired this draft before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} draft parsing issue(s) before showing this draft.`,
+        repairBody: 'The model output needed cleanup before it matched the expected format. LoopTroop normalized it before showing this structured draft.',
+        retrySummary: (count: number) => `LoopTroop retried the draft parser ${count} time(s) before this draft was ready.`,
+        retryBody: 'The first draft output did not pass validation, so LoopTroop retried the structured parser before showing this draft.',
+      }
+    case 'final-test':
+      return {
+        title: 'LoopTroop repaired the test plan data.',
+        genericRepairSummary: 'LoopTroop repaired this final test plan before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} test-plan parsing issue(s) before showing this report.`,
+        repairBody: 'The final-test command plan needed cleanup before it matched the expected format. LoopTroop normalized it before showing and executing this plan.',
+        retrySummary: (count: number) => `LoopTroop retried the test-plan parser ${count} time(s) before this report was ready.`,
+        retryBody: 'The first command-plan response did not pass validation, so LoopTroop retried the structured parser before running the final test commands.',
+      }
+    default:
+      return {
+        title: 'LoopTroop repaired this artifact.',
+        genericRepairSummary: 'LoopTroop repaired this artifact before showing it.',
+        countedRepairSummary: (count: number) => `LoopTroop fixed ${count} parser issue(s) before showing this artifact.`,
+        repairBody: 'The model output needed cleanup before it matched the expected format. LoopTroop normalized it before showing this artifact.',
+        retrySummary: (count: number) => `LoopTroop retried the parser ${count} time(s) before this artifact was ready.`,
+        retryBody: 'The first parser pass did not validate, so LoopTroop retried it before showing this artifact.',
+      }
   }
 }
 
-function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: ArtifactStructuredOutputData }) {
-  const repairWarnings = (structuredOutput?.repairWarnings ?? []).filter(
-    (warning): warning is string => typeof warning === 'string' && warning.trim().length > 0,
-  )
+export function buildArtifactProcessingNoticeCopy(
+  structuredOutput?: ArtifactStructuredOutputData,
+  kind: ArtifactProcessingKind = 'artifact',
+  context?: ArtifactProcessingNoticeContext,
+): ArtifactProcessingNoticeCopy | null {
+  if (!hasArtifactProcessingNotice(structuredOutput)) return null
 
-  // Only show a banner when there is concrete repair detail to explain.
-  // Bare repairApplied=true can come from invisible normalization like wrapper
-  // stripping, which should not read as a user-facing diff problem.
-  if (repairWarnings.length === 0) {
-    return null
+  const repairWarnings = getStructuredOutputWarnings(structuredOutput)
+  const hasRepair = Boolean(structuredOutput?.repairApplied || repairWarnings.length > 0)
+  const retryCount = structuredOutput?.autoRetryCount ?? 0
+  const hasRetry = retryCount > 0 || Boolean(structuredOutput?.validationError)
+  const strings = getArtifactProcessingStrings(kind, context)
+  const onlyNoOpDiff = kind === 'diff' && repairWarnings.length > 0 && repairWarnings.every(isNoOpRefinementRepairWarning) && !hasRetry
+
+  const summaryParts: string[] = []
+  if (onlyNoOpDiff) {
+    summaryParts.push(`${repairWarnings.length} incorrect AI change note(s) were ignored.`)
+  } else if (hasRepair) {
+    summaryParts.push(
+      repairWarnings.length > 0
+        ? strings.countedRepairSummary(repairWarnings.length)
+        : strings.genericRepairSummary,
+    )
+  }
+  if (hasRetry) {
+    summaryParts.push(strings.retrySummary(Math.max(retryCount, 1)))
   }
 
-  const copy = getStructuredRepairNoticeCopy(repairWarnings)
+  const detailParts = [
+    buildRepairBreakdownDetail(repairWarnings),
+    hasRetry
+      ? `LoopTroop used ${Math.max(retryCount, 1)} automatic structured retry attempt(s) because an earlier parser pass did not validate.`
+      : undefined,
+  ].filter((part): part is string => Boolean(part))
+
+  return {
+    title: onlyNoOpDiff ? 'Some AI change notes were ignored.' : strings.title,
+    summary: summaryParts.join(' '),
+    body: onlyNoOpDiff
+      ? 'The AI reported some items as changed, but those items were actually unchanged. LoopTroop removed those incorrect notes so you only see the validated changes.'
+      : [hasRepair ? strings.repairBody : '', hasRetry ? strings.retryBody : ''].filter(Boolean).join(' '),
+    ...(detailParts.length > 0 ? { detail: detailParts.join(' ') } : {}),
+  }
+}
+
+function ArtifactProcessingNotice({
+  structuredOutput,
+  kind,
+  context,
+}: {
+  structuredOutput?: ArtifactStructuredOutputData
+  kind?: ArtifactProcessingKind
+  context?: ArtifactProcessingNoticeContext
+}) {
+  const copy = buildArtifactProcessingNoticeCopy(structuredOutput, kind, context)
+  if (!copy) {
+    return null
+  }
 
   return (
     <CollapsibleWarningNotice
       title={copy.title}
+      summary={copy.summary}
       body={copy.body}
       detail={copy.detail}
     />
@@ -546,8 +783,6 @@ function StructuredRepairNotice({ structuredOutput }: { structuredOutput?: Artif
 }
 
 function RefinementDiffView({ content, domain }: { content: string; domain: 'prd' | 'beads' }) {
-  const parsed = parseRefinementArtifact(content)
-
   const diffs = buildRefinementDiffEntries(content, domain)
   const modifiedCount = diffs.filter((d) => d.changeType === 'modified').length
   const addedCount = diffs.filter((d) => d.changeType === 'added').length
@@ -563,7 +798,6 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
 
   return (
     <div className="space-y-3">
-      <StructuredRepairNotice structuredOutput={parsed?.structuredOutput} />
       <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Added {addedCount}</span>
@@ -659,7 +893,6 @@ function InterviewDraftDiffView({ content }: { content: string }) {
       <div className="text-xs text-muted-foreground">
         Comparing winning draft from {winnerLabel} ({parsed?.originalQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.originalContent).length} questions) with the final refined interview ({parsed?.refinedQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.refinedContent).length} questions).
       </div>
-      <StructuredRepairNotice structuredOutput={parsed?.structuredOutput} />
       <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Replaced {replacedCount}</span>
@@ -749,11 +982,25 @@ function FinalInterviewArtifactView({
   const parsedContent = tryParseStructuredContent(content)
   if (parsedContent && typeof parsedContent === 'object') {
     const interviewArtifact = parsedContent as InterviewArtifactData
+    const notice = (
+      <ArtifactProcessingNotice
+        structuredOutput={(interviewArtifact as { structuredOutput?: ArtifactStructuredOutputData }).structuredOutput}
+        kind="artifact"
+      />
+    )
     if (typeof interviewArtifact.interview === 'string' && interviewArtifact.interview.trim()) {
-      return <WithRawTab content={interviewArtifact.interview} structuredLabel="Q&A" header={header}><InterviewAnswersView content={interviewArtifact.interview} hideAiAnswerBadge={hideAiAnswerBadge} /></WithRawTab>
+      return (
+        <WithRawTab content={interviewArtifact.interview} structuredLabel="Q&A" header={header} notice={notice}>
+          <InterviewAnswersView content={interviewArtifact.interview} hideAiAnswerBadge={hideAiAnswerBadge} />
+        </WithRawTab>
+      )
     }
     if (interviewArtifact.artifact === 'interview') {
-      return <WithRawTab content={content} structuredLabel="Q&A" header={header}><InterviewAnswersView content={content} hideAiAnswerBadge={hideAiAnswerBadge} /></WithRawTab>
+      return (
+        <WithRawTab content={content} structuredLabel="Q&A" header={header} notice={notice}>
+          <InterviewAnswersView content={content} hideAiAnswerBadge={hideAiAnswerBadge} />
+        </WithRawTab>
+      )
     }
   }
 
@@ -770,6 +1017,7 @@ function FinalInterviewArtifactView({
   const diffEntries = buildInterviewDiffEntries(content)
   const hasDiffTab = showDiffTab && Boolean(parsed?.originalContent)
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
+  const notice = <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />
 
   const tabButtonClass = (tab: string) =>
     currentTab === tab
@@ -802,8 +1050,18 @@ function FinalInterviewArtifactView({
           </pre>
         </div>
       ) : currentTab === 'final'
-        ? <InterviewDraftView content={refinedContent} />
-        : <InterviewDraftDiffView content={content} />}
+        ? (
+          <div className="space-y-3">
+            {notice}
+            <InterviewDraftView content={refinedContent} />
+          </div>
+        )
+        : (
+          <div className="space-y-3">
+            {notice}
+            <InterviewDraftDiffView content={content} />
+          </div>
+        )}
     </div>
   )
 }
@@ -833,6 +1091,7 @@ function FinalPrdDraftView({
   const diffEntries = buildRefinementDiffEntries(content, domain)
   const hasDiffTab = diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent)
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
+  const notice = <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />
 
   const tabButtonClass = (tab: string) =>
     currentTab === tab
@@ -865,8 +1124,18 @@ function FinalPrdDraftView({
           </pre>
         </div>
       ) : currentTab === 'final'
-        ? (isBeads ? <BeadsDraftView content={refinedContent} /> : <PrdDraftView content={refinedContent} />)
-        : <RefinementDiffView content={content} domain={domain} />}
+        ? (
+          <div className="space-y-3">
+            {notice}
+            {isBeads ? <BeadsDraftView content={refinedContent} /> : <PrdDraftView content={refinedContent} />}
+          </div>
+        )
+        : (
+          <div className="space-y-3">
+            {notice}
+            <RefinementDiffView content={content} domain={domain} />
+          </div>
+        )}
     </div>
   )
 }
@@ -895,6 +1164,7 @@ function CoverageResolutionNotesView({ content }: { content: string }) {
       content={content}
       structuredLabel="Resolution Notes"
       header={<div className="text-xs font-semibold px-1">Coverage Resolution Notes</div>}
+      notice={<ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />}
     >
       <div className="space-y-3">
         <div className="text-xs text-muted-foreground">
@@ -1376,12 +1646,20 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
     : []
   const winnerId = data.winnerId ?? ''
   const voterOutcomes = (data.voterOutcomes ?? {}) as Record<string, CouncilOutcome>
+  const voterDetails = Array.isArray(data.voterDetails)
+    ? data.voterDetails
+    : []
+  const voterDetailById = new Map<string, CouncilVoterDetailData>(
+    voterDetails.map((detail) => [detail.voterId, detail] as const),
+  )
   const presentationOrders = data.presentationOrders ?? {}
 
   const draftIds = [...new Set(votes.map(v => v.draftId))]
-  const voterIds = Object.keys(voterOutcomes).length > 0
-    ? Object.keys(voterOutcomes)
-    : [...new Set(votes.map(v => v.voterId))]
+  const voterIds = [
+    ...(Object.keys(voterOutcomes).length > 0 ? Object.keys(voterOutcomes) : []),
+    ...votes.map(v => v.voterId),
+    ...voterDetails.map((detail) => detail.voterId),
+  ].filter((voterId, index, values) => values.indexOf(voterId) === index)
   const categories = votes[0]?.scores?.map(s => s.category) ?? []
   const getVoterOutcome = (voterId: string): CouncilOutcome => {
     const outcome = voterOutcomes[voterId]
@@ -1392,6 +1670,10 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
   }
   const completedCount = voterIds.filter(voterId => getVoterOutcome(voterId) === 'completed').length
   const hasLiveOutcomes = voterIds.length > 0
+  const votersWithProcessingNotice = voterIds.filter((voterId) => hasArtifactProcessingNotice(voterDetailById.get(voterId)?.structuredOutput))
+  const aggregateProcessingNotice = mergeStructuredOutputMetadata(
+    votersWithProcessingNotice.map((voterId) => voterDetailById.get(voterId)?.structuredOutput),
+  )
 
   if (votes.length === 0 && !hasLiveOutcomes) {
     return <div className="text-xs text-muted-foreground italic">No voting data available</div>
@@ -1409,6 +1691,13 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
 
   return (
     <div className="space-y-3">
+      {aggregateProcessingNotice && (
+        <ArtifactProcessingNotice
+          structuredOutput={aggregateProcessingNotice}
+          kind="vote-aggregate"
+          context={{ affectedCount: votersWithProcessingNotice.length }}
+        />
+      )}
       {hasLiveOutcomes && (
         <div className="space-y-2">
           {showHeader && (
@@ -1507,6 +1796,7 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
                   {getCouncilStatusEmoji(getVoterOutcome(voterId), 'scoring')} {getCouncilStatusLabel(getVoterOutcome(voterId), 'scoring')}
                 </span>
               </div>
+              <ArtifactProcessingNotice structuredOutput={voterDetailById.get(voterId)?.structuredOutput} kind="vote" />
               {votes.filter(v => v.voterId === voterId).length === 0 ? (
                 <div className="ml-4 text-muted-foreground italic">
                   {getVoterOutcome(voterId) === 'pending'
@@ -1709,6 +1999,7 @@ function RelevantFilesScanView({ content }: { content: string }) {
 
   return (
     <div className="space-y-3">
+      <ArtifactProcessingNotice structuredOutput={parsed.structuredOutput} kind="relevant-files" />
       <div className="flex items-center gap-2">
         {parsed.modelId && (
           <ModelBadge modelId={parsed.modelId} active className="px-3 py-2 h-auto flex-1 justify-start">
@@ -1799,9 +2090,128 @@ function RelevantFilesScanView({ content }: { content: string }) {
   )
 }
 
+function FinalTestResultsView({ content }: { content: string }) {
+  const parsed = tryParseStructuredContent(content) as FinalTestExecutionReportData | null
+  if (
+    !parsed
+    || typeof parsed !== 'object'
+    || !Array.isArray(parsed.commands)
+    || !Array.isArray(parsed.errors)
+    || typeof parsed.modelOutput !== 'string'
+  ) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const checkedAtLabel = Number.isNaN(Date.parse(parsed.checkedAt))
+    ? parsed.checkedAt
+    : new Date(parsed.checkedAt).toLocaleString()
+  const header = parsed.plannedBy
+    ? (
+      <ModelBadge modelId={parsed.plannedBy} active className="px-3 py-2 h-auto flex-1 justify-start">
+        <div className="text-left">
+          <div className="text-xs font-medium">{getModelDisplayName(parsed.plannedBy)}</div>
+          <div className="text-[10px] opacity-80 mt-0.5">Final test results</div>
+        </div>
+      </ModelBadge>
+      )
+    : <div className="text-xs font-semibold px-1">Final Test Results</div>
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Results"
+      header={header}
+      notice={<ArtifactProcessingNotice structuredOutput={parsed.planStructuredOutput} kind="final-test" />}
+    >
+      <div className="space-y-4">
+        <div className={`rounded-md border px-3 py-2 text-xs font-medium ${
+          parsed.passed
+            ? 'border-green-300 bg-green-50 text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200'
+            : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
+        }`}>
+          {parsed.passed ? 'Final test commands passed' : 'Final test commands failed'}
+        </div>
+
+        <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+          Checked at {checkedAtLabel}.
+          {parsed.summary ? ` Summary: ${parsed.summary}` : ''}
+        </div>
+
+        {parsed.commands.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Executed Commands</div>
+            {parsed.commands.map((command, index) => {
+              const commandStatus = command.timedOut
+                ? 'Timed Out'
+                : command.exitCode === 0
+                  ? 'Passed'
+                  : 'Failed'
+              return (
+                <CollapsibleSection
+                  key={`${command.command}:${index}`}
+                  title={(
+                    <span className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-[11px]">{command.command}</span>
+                      <span className="text-[10px] text-muted-foreground">{commandStatus}</span>
+                      <span className="text-[10px] text-muted-foreground">{command.durationMs}ms</span>
+                    </span>
+                  )}
+                >
+                  <div className="space-y-2">
+                    <div className="text-[11px] text-muted-foreground">
+                      Exit code: {command.exitCode ?? 'none'}
+                      {command.signal ? ` · Signal: ${command.signal}` : ''}
+                    </div>
+                    {command.stdout ? (
+                      <div>
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Stdout</div>
+                        <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap">
+                          {command.stdout}
+                        </pre>
+                      </div>
+                    ) : null}
+                    {command.stderr ? (
+                      <div>
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Stderr</div>
+                        <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap">
+                          {command.stderr}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </div>
+                </CollapsibleSection>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+            No final test commands were executed.
+          </div>
+        )}
+
+        {parsed.errors.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Errors</div>
+            <div className="space-y-2">
+              {parsed.errors.map((error, index) => (
+                <div key={`${error}:${index}`} className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                  {error}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </WithRawTab>
+  )
+}
+
 export function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
   if (artifactId === 'relevant-files-scan') {
     return <RelevantFilesScanView content={content} />
+  }
+  if (artifactId === 'test-results') {
+    return <FinalTestResultsView content={content} />
   }
   if (artifactId === 'final-interview') {
     const isCanonicalInterviewPhase = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
@@ -1870,7 +2280,12 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     ) : <div className="text-xs font-semibold px-1">Coverage Audit</div>
 
     return (
-      <WithRawTab content={content} structuredLabel="Summary" header={header}>
+      <WithRawTab
+        content={content}
+        structuredLabel="Summary"
+        header={header}
+        notice={<ArtifactProcessingNotice structuredOutput={coverageResult?.structuredOutput} kind="coverage" />}
+      >
         <CoverageResultView content={content} phase={phase} />
       </WithRawTab>
     )
@@ -1891,6 +2306,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
       <RefinedArtifactTabs
         content={content}
         hasChanges={hasChanges}
+        notice={<ArtifactProcessingNotice structuredOutput={parseRefinementArtifact(content)?.structuredOutput} kind="diff" />}
         sectionsContent={(
           <div className="space-y-6">
             {parsedCoverageInput.interview && (
@@ -1983,7 +2399,12 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         : isBeads ? <BeadsDraftView content={winnerContent} />
           : <InterviewDraftView content={winnerContent} />
       return (
-        <WithRawTab content={winnerContent} structuredLabel="Winner" header={header}>
+        <WithRawTab
+          content={winnerContent}
+          structuredLabel="Winner"
+          header={header}
+          notice={<ArtifactProcessingNotice structuredOutput={winnerDraft?.structuredOutput} kind="draft" />}
+        >
           {structured || <RawContentView content={winnerContent} />}
         </WithRawTab>
       )
@@ -2043,7 +2464,12 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
       if (structured) {
         return (
-          <WithRawTab content={draftContent} structuredLabel="Draft" header={header}>
+          <WithRawTab
+            content={draftContent}
+            structuredLabel="Draft"
+            header={header}
+            notice={<ArtifactProcessingNotice structuredOutput={draft?.structuredOutput} kind="draft" />}
+          >
             {structured}
           </WithRawTab>
         )
@@ -2067,6 +2493,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
             {header}
             <CollapsibleWarningNotice
               title="Output did not pass strict validation."
+              summary="The saved draft did not match the required format."
               body="LoopTroop is showing the model output because it may still be useful, but it did not match the required format and may have formatting problems."
               detail={draft.error ? `Validator message: ${draft.error}` : undefined}
             />

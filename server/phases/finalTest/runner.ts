@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { FORCE_KILL_DELAY_MS } from '../../lib/constants'
+import type { StructuredOutputMetadata } from '../../structuredOutput/types'
 
 export interface FinalTestCommandResult {
   command: string
@@ -20,6 +21,7 @@ export interface FinalTestExecutionReport {
   modelOutput: string
   commands: FinalTestCommandResult[]
   errors: string[]
+  planStructuredOutput?: StructuredOutputMetadata
 }
 
 async function runCommand(
@@ -87,6 +89,7 @@ export async function executeFinalTestCommands(input: {
   plannedBy: string
   summary?: string
   modelOutput: string
+  planStructuredOutput?: StructuredOutputMetadata
 }): Promise<FinalTestExecutionReport> {
   const commandResults: FinalTestCommandResult[] = []
   const errors: string[] = []
@@ -112,5 +115,6 @@ export async function executeFinalTestCommands(input: {
     modelOutput: input.modelOutput,
     commands: commandResults,
     errors,
+    ...(input.planStructuredOutput ? { planStructuredOutput: input.planStructuredOutput } : {}),
   }
 }

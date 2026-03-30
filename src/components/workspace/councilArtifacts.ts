@@ -34,6 +34,12 @@ interface DraftLike {
   content?: string
   outcome?: CouncilOutcome
   error?: string
+  structuredOutput?: {
+    repairApplied?: boolean
+    repairWarnings?: string[]
+    autoRetryCount?: number
+    validationError?: string
+  }
   questionCount?: number
   draftMetrics?: {
     questionCount?: number
@@ -57,6 +63,16 @@ interface CouncilResultLike {
   winnerId?: string
   voterOutcomes?: Record<string, CouncilOutcome>
   memberOutcomes?: Record<string, CouncilOutcome>
+  voterDetails?: Array<{
+    voterId: string
+    error?: string
+    structuredOutput?: {
+      repairApplied?: boolean
+      repairWarnings?: string[]
+      autoRetryCount?: number
+      validationError?: string
+    }
+  }>
 }
 
 interface CoverageResultLike {

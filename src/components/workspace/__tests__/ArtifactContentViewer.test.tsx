@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { TEST } from '@/test/factories'
-import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
+import { ArtifactContent, CollapsibleSection, InterviewAnswersView, buildArtifactProcessingNoticeCopy } from '../ArtifactContentViewer'
 
 function buildCanonicalInterviewContent(questions: Array<Record<string, unknown>>) {
   return JSON.stringify({
@@ -103,6 +103,10 @@ function hasExactTextContent(text: string) {
 
 function hasTextContent(text: string) {
   return (_content: string, element: Element | null) => element?.textContent?.includes(text) ?? false
+}
+
+function openNotice(title: string) {
+  fireEvent.click(screen.getByText(title).closest('button')!)
 }
 
 describe('ArtifactContentViewer', () => {
@@ -634,5 +638,259 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText(/seed seed-alp/i)).toBeInTheDocument()
     expect(screen.getByText('Draft 1: draft-b')).toBeInTheDocument()
     expect(screen.getByText('Draft 2: draft-a')).toBeInTheDocument()
+  })
+
+  it('classifies no-op diff cleanup in the parser notice copy', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: [
+        'Dropped no-op interview refinement modified at index 0 because the question is unchanged across the winning and final drafts.',
+      ],
+      autoRetryCount: 0,
+    }, 'diff')
+
+    expect(copy).toMatchObject({
+      title: 'Some AI change notes were ignored.',
+      summary: '1 incorrect AI change note(s) were ignored.',
+    })
+    expect(copy?.detail).toContain('incorrect AI change note(s) ignored')
+  })
+
+  it('classifies normalization repairs in the parser notice copy', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: ['Inferred missing PRD refinement item_type at index 0 as epic.'],
+      autoRetryCount: 0,
+    }, 'diff')
+
+    expect(copy?.title).toBe('LoopTroop repaired the diff data.')
+    expect(copy?.summary).toBe('LoopTroop fixed 1 diff metadata issue(s) before showing this diff.')
+    expect(copy?.detail).toContain('1 metadata issue(s) repaired')
+  })
+
+  it('classifies formatting cleanup in the parser notice copy', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: ['Removed surrounding markdown code fence before parsing the final test commands.'],
+      autoRetryCount: 0,
+    }, 'final-test')
+
+    expect(copy?.title).toBe('LoopTroop repaired the test plan data.')
+    expect(copy?.detail).toContain('1 formatting problem(s) cleaned up')
+  })
+
+  it('classifies synthesized change repairs in the parser notice copy', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: ['Synthesized missing PRD refinement change at index 0 from the validated records.'],
+      autoRetryCount: 0,
+    }, 'diff')
+
+    expect(copy?.detail).toContain('1 missing change note(s) rebuilt')
+  })
+
+  it('describes retry-only parser interventions in the parser notice copy', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: false,
+      repairWarnings: [],
+      autoRetryCount: 1,
+      validationError: 'Coverage parser rejected the first pass.',
+    }, 'coverage')
+
+    expect(copy?.summary).toBe('LoopTroop retried the coverage parser 1 time(s) before this review was ready.')
+    expect(copy?.body).toMatch(/first coverage response did not pass validation/i)
+    expect(copy?.detail).toContain('1 automatic structured retry attempt(s)')
+  })
+
+  it('falls back to generic parser wording for unknown warnings', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: ['Validator repair step completed.'],
+      autoRetryCount: 0,
+    }, 'artifact')
+
+    expect(copy?.title).toBe('LoopTroop repaired this artifact.')
+    expect(copy?.detail).toContain('1 parser issue(s) repaired')
+  })
+
+  it('shows a collapsed parser notice for council draft artifacts', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-draft-member-openai%2Fgpt-5.2"
+        phase="DRAFTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: buildPrdDocumentContent(),
+              structuredOutput: {
+                repairApplied: true,
+                repairWarnings: ['Inferred missing PRD refinement item_type at index 0 as epic.'],
+              },
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('LoopTroop repaired this draft artifact.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop fixed 1 draft parsing issue(s) before showing this draft.')).toBeInTheDocument()
+    expect(screen.queryByText(/The model output needed cleanup before it matched the expected format/i)).not.toBeInTheDocument()
+
+    openNotice('LoopTroop repaired this draft artifact.')
+
+    expect(screen.getByText(/The model output needed cleanup before it matched the expected format/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a collapsed parser notice for coverage review artifacts', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-coverage-result"
+        phase="VERIFYING_PRD_COVERAGE"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          response: 'status: gaps\ngaps:\n  - "Missing approval sequencing."',
+          hasGaps: true,
+          coverageRunNumber: 1,
+          maxCoveragePasses: 2,
+          parsed: {
+            status: 'gaps',
+            gaps: ['Missing approval sequencing.'],
+            followUpQuestions: [],
+          },
+          structuredOutput: {
+            repairApplied: true,
+            repairWarnings: ['Trimmed empty PRD coverage gap strings before persisting the normalized result.'],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('LoopTroop repaired the coverage result.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop fixed 1 coverage parsing issue(s) before showing this review.')).toBeInTheDocument()
+    expect(screen.queryByText(/The coverage response needed cleanup before it matched the expected format/i)).not.toBeInTheDocument()
+
+    openNotice('LoopTroop repaired the coverage result.')
+
+    expect(screen.getByText(/The coverage response needed cleanup before it matched the expected format/i)).toBeInTheDocument()
+  })
+
+  it('shows a collapsed parser notice for relevant files scans', () => {
+    render(
+      <ArtifactContent
+        artifactId="relevant-files-scan"
+        phase="PREPARING_CONTEXT"
+        content={JSON.stringify({
+          fileCount: 1,
+          files: [
+            {
+              path: 'src/app.ts',
+              rationale: 'Main app entry point.',
+              relevance: 'high',
+              likely_action: 'modify',
+              contentPreview: 'export function app() {}',
+              contentLength: 25,
+            },
+          ],
+          structuredOutput: {
+            repairApplied: true,
+            repairWarnings: ['Removed surrounding markdown code fence before parsing the relevant files result.'],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('LoopTroop repaired the relevant files scan.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop fixed 1 relevant-files parsing issue(s) before showing this scan.')).toBeInTheDocument()
+    expect(screen.queryByText(/The relevant-files response needed cleanup before it matched the expected format/i)).not.toBeInTheDocument()
+
+    openNotice('LoopTroop repaired the relevant files scan.')
+
+    expect(screen.getByText(/The relevant-files response needed cleanup before it matched the expected format/i)).toBeInTheDocument()
+  })
+
+  it('shows aggregate and per-voter parser notices for voting results', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-votes"
+        phase="COUNCIL_VOTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            { memberId: 'vendor/draft-a', outcome: 'completed', content: 'draft-a' },
+            { memberId: 'vendor/draft-b', outcome: 'completed', content: 'draft-b' },
+          ],
+          votes: [
+            {
+              voterId: 'vendor/voter-a',
+              draftId: 'vendor/draft-a',
+              totalScore: 91,
+              scores: [{ category: 'Coverage of requirements', score: 18, justification: 'Strong coverage' }],
+            },
+          ],
+          voterOutcomes: {
+            'vendor/voter-a': 'completed',
+            'vendor/voter-b': 'invalid_output',
+          },
+          voterDetails: [
+            {
+              voterId: 'vendor/voter-a',
+              structuredOutput: {
+                repairApplied: true,
+                repairWarnings: ['Normalized vote scorecard ordering before persistence.'],
+              },
+            },
+            {
+              voterId: 'vendor/voter-b',
+              structuredOutput: {
+                repairApplied: false,
+                repairWarnings: [],
+                autoRetryCount: 1,
+                validationError: 'Malformed scorecard',
+              },
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('LoopTroop repaired some vote scorecards.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop fixed 1 vote parsing issue(s) across 2 voter scorecard(s) before showing these results. LoopTroop retried the vote parser 1 time(s) across 2 voter scorecard(s) before these results were ready.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
+    expect(screen.getAllByText('LoopTroop repaired this vote scorecard.')).toHaveLength(2)
+  })
+
+  it('shows a collapsed parser notice for final test results', () => {
+    render(
+      <ArtifactContent
+        artifactId="test-results"
+        phase="RUNNING_FINAL_TEST"
+        content={JSON.stringify({
+          status: 'failed',
+          passed: false,
+          checkedAt: '2026-03-30T12:00:00.000Z',
+          plannedBy: 'openai/gpt-5.2',
+          modelOutput: '<FINAL_TEST_COMMANDS>commands: []</FINAL_TEST_COMMANDS>',
+          commands: [],
+          errors: ['No final test commands were executed'],
+          planStructuredOutput: {
+            repairApplied: false,
+            repairWarnings: [],
+            autoRetryCount: 1,
+            validationError: 'Missing final test marker on first pass.',
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('LoopTroop repaired the test plan data.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop retried the test-plan parser 1 time(s) before this report was ready.')).toBeInTheDocument()
+    expect(screen.queryByText(/The first command-plan response did not pass validation/i)).not.toBeInTheDocument()
+
+    openNotice('LoopTroop repaired the test plan data.')
+
+    expect(screen.getByText(/The first command-plan response did not pass validation/i)).toBeInTheDocument()
   })
 })

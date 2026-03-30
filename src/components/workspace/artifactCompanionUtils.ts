@@ -168,6 +168,11 @@ export function mergeVoteArtifactContent(
     : Array.isArray(core.votes)
       ? core.votes
       : undefined
+  const resolvedVoterDetails = Array.isArray(companion?.voterDetails)
+    ? companion.voterDetails
+    : Array.isArray(core.voterDetails)
+      ? core.voterDetails
+      : undefined
 
   return JSON.stringify({
     ...core,
@@ -175,6 +180,7 @@ export function mergeVoteArtifactContent(
     ...(resolvedVotes ? { votes: resolvedVotes } : {}),
     ...(resolvedMemberOutcomes ? { memberOutcomes: resolvedMemberOutcomes } : {}),
     ...(resolvedVoterOutcomes ? { voterOutcomes: resolvedVoterOutcomes } : {}),
+    ...(resolvedVoterDetails ? { voterDetails: resolvedVoterDetails } : {}),
     ...(resolvedPresentationOrders ? { presentationOrders: resolvedPresentationOrders } : {}),
     ...(typeof companion?.winnerId === 'string' && companion.winnerId.trim()
       ? { winnerId: companion.winnerId }

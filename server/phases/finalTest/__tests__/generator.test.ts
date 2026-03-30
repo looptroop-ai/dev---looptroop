@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
 import { generateFinalTests } from '../generator'
-import { parseFinalTestCommands } from '../parser'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
@@ -34,19 +33,26 @@ describe('generateFinalTests', () => {
       '</FINAL_TEST_COMMANDS>',
     ].join('\n'))
 
-    const output = await generateFinalTests(
+    const result = await generateFinalTests(
       adapter,
       [{ type: 'text', content: 'Ticket context' }],
       '/tmp/test',
     )
 
-    expect(parseFinalTestCommands(output)).toEqual({
+    expect(result.commandPlan).toEqual({
       markerFound: true,
       commands: ['npm run test:server'],
       summary: 'verify end-to-end ticket coverage',
       errors: [],
       repairApplied: true,
       repairWarnings: [],
+    })
+    expect(result.output).toContain('<FINAL_TEST_COMMANDS>')
+    expect(result.structuredOutput).toEqual({
+      repairApplied: true,
+      repairWarnings: [],
+      autoRetryCount: 1,
+      validationError: 'No final test command marker found',
     })
 
     const messages = adapter.messages.get('mock-session-1') ?? []
@@ -65,19 +71,26 @@ describe('generateFinalTests', () => {
       '</FINAL_TEST_COMMANDS>',
     ].join('\n'))
 
-    const output = await generateFinalTests(
+    const result = await generateFinalTests(
       adapter,
       [{ type: 'text', content: 'Ticket context' }],
       '/tmp/test',
     )
 
-    expect(parseFinalTestCommands(output)).toEqual({
+    expect(result.commandPlan).toEqual({
       markerFound: true,
       commands: ['npm run test:server'],
       summary: 'verify end-to-end ticket coverage',
       errors: [],
       repairApplied: true,
       repairWarnings: [],
+    })
+    expect(result.output).toContain('<FINAL_TEST_COMMANDS>')
+    expect(result.structuredOutput).toEqual({
+      repairApplied: true,
+      repairWarnings: [],
+      autoRetryCount: 1,
+      validationError: 'No final test command marker found',
     })
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
