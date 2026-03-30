@@ -230,6 +230,244 @@ describe('PRD refined artifacts', () => {
       .toThrow('reuses a winning-draft item already referenced by another change')
   })
 
+  it('collapses duplicate modified changes for the same PRD item instead of failing', () => {
+    const winnerDraftContent = buildPrdContent({ includeStoryTwo: false })
+    const result = validatePrdRefinementOutput(buildPrdContent({
+      storyOneTitle: 'Validate PRD refinement exactly',
+      includeStoryTwo: false,
+      changes: [
+        {
+          type: 'modified',
+          item_type: 'user_story',
+          before: { id: 'US-1', title: 'Validate PRD refinement' },
+          after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
+          inspiration: null,
+        },
+        {
+          type: 'modified',
+          item_type: 'user_story',
+          before: { id: 'US-1', title: 'Validate PRD refinement' },
+          after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
+          inspiration: null,
+        },
+      ],
+    }), validationContext({ winnerDraftContent }))
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0]).toMatchObject({
+      type: 'modified',
+      itemType: 'user_story',
+      before: expect.objectContaining({ id: 'US-1', label: 'Validate PRD refinement' }),
+      after: expect.objectContaining({ id: 'US-1', label: 'Validate PRD refinement exactly' }),
+      inspiration: null,
+      attributionStatus: 'model_unattributed',
+    })
+    expect(result.repairWarnings.join('\n')).toContain('Collapsed duplicate PRD refinement modified change')
+  })
+
+  it('downgrades conflicting duplicate inspirations to model_unattributed', () => {
+    const winnerDraftContent = buildPrdContent({ includeStoryTwo: false })
+    const result = validatePrdRefinementOutput(buildPrdContent({
+      storyOneTitle: 'Validate PRD refinement exactly',
+      includeStoryTwo: false,
+      changes: [
+        {
+          type: 'modified',
+          item_type: 'user_story',
+          before: { id: 'US-1', title: 'Validate PRD refinement' },
+          after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
+          inspiration: { alternative_draft: 1, item: { id: 'US-8', title: 'Expose retry telemetry' } },
+        },
+        {
+          type: 'modified',
+          item_type: 'user_story',
+          before: { id: 'US-1', title: 'Validate PRD refinement' },
+          after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
+          inspiration: { alternative_draft: 2, item: { id: 'US-9', title: 'Tighten refinement accounting' } },
+        },
+      ],
+    }), {
+      ...validationContext({ winnerDraftContent }),
+      losingDraftMeta: [
+        { memberId: 'openai/gpt-5-mini' },
+        { memberId: 'anthropic/claude-sonnet-4' },
+      ],
+    })
+
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0]).toMatchObject({
+      inspiration: null,
+      attributionStatus: 'model_unattributed',
+    })
+    expect(result.repairWarnings.join('\n')).toContain('Collapsed duplicate PRD refinement modified change')
+  })
+
+  it('synthesizes omitted same-identity user story modifications', () => {
+    const winnerDraftContent = buildPrdContent({ includeStoryTwo: false })
+    const result = validatePrdRefinementOutput(buildPrdContent({
+      epicTitle: 'Prompt hardening and refinement safety',
+      storyOneSteps: [
+        'Validate change coverage before persisting the artifact.',
+        'Repair omitted same-ID story changes before accepting the PRD.',
+      ],
+      includeStoryTwo: false,
+      changes: [{
+        type: 'modified',
+        item_type: 'epic',
+        before: { id: 'EPIC-1', title: 'Prompt hardening' },
+        after: { id: 'EPIC-1', title: 'Prompt hardening and refinement safety' },
+        inspiration: null,
+      }],
+    }), validationContext({ winnerDraftContent }))
+
+    expect(result.changes).toHaveLength(2)
+    expect(result.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'modified',
+        itemType: 'user_story',
+        before: expect.objectContaining({ id: 'US-1', label: 'Validate PRD refinement' }),
+        after: expect.objectContaining({ id: 'US-1', label: 'Validate PRD refinement' }),
+        inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
+      }),
+    ]))
+    expect(result.repairWarnings.join('\n')).toContain('Synthesized omitted PRD refinement modified change for user_story US-1')
+  })
+
+  it('synthesizes omitted same-identity epic and user story modifications when unclaimed', () => {
+    const result = validatePrdRefinementOutput(buildPrdContent({
+      epicObjective: 'Make PRD refinement exact, auditable, and approval-safe.',
+      storyOneSteps: [
+        'Validate change coverage before persisting the artifact.',
+        'Repair exact same-ID omissions before persisting the artifact.',
+      ],
+      includeStoryTwo: false,
+      changes: [{
+        type: 'removed',
+        item_type: 'user_story',
+        before: { id: 'US-2', title: 'Record change attribution' },
+        after: null,
+        inspiration: null,
+      }],
+    }), validationContext())
+
+    expect(result.changes).toHaveLength(3)
+    expect(result.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'removed',
+        itemType: 'user_story',
+        before: expect.objectContaining({ id: 'US-2', label: 'Record change attribution' }),
+        after: null,
+      }),
+      expect.objectContaining({
+        type: 'modified',
+        itemType: 'epic',
+        inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
+      }),
+      expect.objectContaining({
+        type: 'modified',
+        itemType: 'user_story',
+        inspiration: null,
+        attributionStatus: 'synthesized_unattributed',
+      }),
+    ]))
+    expect(result.repairWarnings.join('\n')).toContain('Synthesized omitted PRD refinement modified change for epic EPIC-1')
+    expect(result.repairWarnings.join('\n')).toContain('Synthesized omitted PRD refinement modified change for user_story US-1')
+  })
+
+  it('still rejects ambiguous item_type repairs when no unique candidate exists', () => {
+    const winnerDocument = jsYaml.dump({
+      schema_version: 1,
+      ticket_id: TEST.externalId,
+      artifact: 'prd',
+      status: 'draft',
+      source_interview: { content_sha256: 'stale-hash' },
+      product: { problem_statement: 'Keep PRD refinement strict and restart-safe.', target_users: ['LoopTroop maintainers'] },
+      scope: { in_scope: ['PRD refinement validation'], out_of_scope: ['Execution pipeline changes'] },
+      technical_requirements: {
+        architecture_constraints: ['Preserve the winner-only refinement flow.'],
+        data_model: [], api_contracts: [], security_constraints: [], performance_constraints: [],
+        reliability_constraints: ['Validated artifacts must survive restarts.'],
+        error_handling_rules: ['Retry once on structured-output failures.'],
+        tooling_assumptions: [],
+      },
+      epics: [{
+        id: 'ITEM-1',
+        title: 'Shared item',
+        objective: 'Track ambiguous PRD item IDs safely.',
+        implementation_steps: ['Inspect the winning draft first.'],
+        user_stories: [{
+          id: 'ITEM-1',
+          title: 'Shared item',
+          acceptance_criteria: ['Ambiguous item_type repairs must fail.'],
+          implementation_steps: ['Require a unique repair candidate before inferring item_type.'],
+          verification: { required_commands: ['npm run test'] },
+        }],
+      }],
+      risks: ['Ambiguous IDs could hide invalid changes.'],
+      approval: { approved_by: '', approved_at: '' },
+    }, { lineWidth: 120, noRefs: true }) as string
+
+    const ambiguousOutput = jsYaml.dump({
+      schema_version: 1,
+      ticket_id: TEST.externalId,
+      artifact: 'prd',
+      status: 'draft',
+      source_interview: { content_sha256: 'stale-hash' },
+      product: { problem_statement: 'Keep PRD refinement strict and restart-safe.', target_users: ['LoopTroop maintainers'] },
+      scope: { in_scope: ['PRD refinement validation'], out_of_scope: ['Execution pipeline changes'] },
+      technical_requirements: {
+        architecture_constraints: ['Preserve the winner-only refinement flow.'],
+        data_model: [], api_contracts: [], security_constraints: [], performance_constraints: [],
+        reliability_constraints: ['Validated artifacts must survive restarts.'],
+        error_handling_rules: ['Retry once on structured-output failures.'],
+        tooling_assumptions: [],
+      },
+      epics: [{
+        id: 'ITEM-1',
+        title: 'Shared item v2',
+        objective: 'Track ambiguous PRD item IDs safely.',
+        implementation_steps: ['Inspect the winning draft first.'],
+        user_stories: [{
+          id: 'ITEM-1',
+          title: 'Shared item',
+          acceptance_criteria: ['Ambiguous item_type repairs must fail.'],
+          implementation_steps: ['Require a unique repair candidate before inferring item_type.'],
+          verification: { required_commands: ['npm run test'] },
+        }],
+      }],
+      risks: ['Ambiguous IDs could hide invalid changes.'],
+      approval: { approved_by: '', approved_at: '' },
+      changes: [{
+        type: 'modified',
+        before: { id: 'ITEM-1', title: 'Shared item' },
+        after: { id: 'ITEM-1', title: 'Shared item v2' },
+        inspiration: null,
+      }],
+    }, { lineWidth: 120, noRefs: true }) as string
+
+    expect(() => validatePrdRefinementOutput(ambiguousOutput, validationContext({ winnerDraftContent: winnerDocument })))
+      .toThrow('is missing item_type and no unique repair candidate was found')
+  })
+
+  it('still rejects missing add/remove coverage that cannot be synthesized safely', () => {
+    const incompleteCoverageOutput = buildPrdContent({
+      storyOneTitle: 'Validate PRD refinement exactly',
+      includeStoryTwo: false,
+      changes: [{
+        type: 'modified',
+        item_type: 'user_story',
+        before: { id: 'US-1', title: 'Validate PRD refinement' },
+        after: { id: 'US-1', title: 'Validate PRD refinement exactly' },
+        inspiration: null,
+      }],
+    })
+
+    expect(() => validatePrdRefinementOutput(incompleteCoverageOutput, validationContext()))
+      .toThrow('PRD refinement changes do not fully and exactly account for the diff between the winning draft and the final output.')
+  })
+
   it('downgrades malformed inspiration to invalid_unattributed', () => {
     const result = validatePrdRefinementOutput(buildPrdContent({
       includeStoryThree: true,

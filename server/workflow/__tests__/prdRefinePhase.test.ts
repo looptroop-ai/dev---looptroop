@@ -183,7 +183,7 @@ function buildValidRefinementOutput(ticketId: string, options: { omitStoryItemTy
 function buildValidCoverageRevisionOutput(ticketId: string, coverageGap: string): string {
   const parsed = jsYaml.load(buildPrdContent(ticketId, {
     epicTitle: 'Prompt hardening and approval safety',
-    storyOneTitle: 'Validate PRD refinement exactly',
+    storyOneTitle: 'Validate PRD refinement and approval exactly',
     includeStoryTwo: false,
     includeStoryThree: true,
     changes: [
@@ -295,6 +295,11 @@ describe('handlePrdRefine', () => {
       const retryPromptText = retryPrompt.map((part) => part.content).join('\n')
       expect(retryPromptText).toContain('PRD Refinement Structured Output Retry')
       expect(retryPromptText).toContain('Do not use tools.')
+      expect(retryPromptText).toContain('Use the normal PRD schema plus a top-level `changes` list.')
+      expect(retryPromptText).toContain('fully and exactly account for the diff between the winning PRD and the final refined PRD')
+      expect(retryPromptText).toContain('Every changed epic or user story must appear exactly once in `changes`.')
+      expect(retryPromptText).not.toContain('PROM10b')
+      expect(retryPromptText).not.toContain('extra top-level keys')
       expect(retryPromptText).not.toContain('\nchanges:')
 
       return validateResponse?.(validOutput).normalizedContent ?? validOutput
@@ -600,11 +605,32 @@ describe('handlePrdRefine', () => {
     const parsedCoverageRevision = parseUiArtifactCompanionArtifact(coverageRevisionCompanion!.content)?.payload as {
       candidateVersion?: number
       refinedContent?: string
+      changes?: Array<{
+        type?: string
+        itemType?: string
+        before?: { id?: string; label?: string } | null
+        after?: { id?: string; label?: string } | null
+        attributionStatus?: string
+      }>
       gapResolutions?: Array<{ gap?: string; action?: string }>
     } | undefined
     expect(parsedCoverageRevision).toBeDefined()
     expect(parsedCoverageRevision?.candidateVersion).toBe(2)
     expect(parsedCoverageRevision?.refinedContent).toContain('Prompt hardening and approval safety')
+    expect(parsedCoverageRevision?.refinedContent).toContain('Validate PRD refinement and approval exactly')
+    expect(parsedCoverageRevision?.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'modified',
+        itemType: 'epic',
+      }),
+      expect.objectContaining({
+        type: 'modified',
+        itemType: 'user_story',
+        before: expect.objectContaining({ id: 'US-1', label: 'Validate PRD refinement exactly' }),
+        after: expect.objectContaining({ id: 'US-1', label: 'Validate PRD refinement and approval exactly' }),
+        attributionStatus: 'synthesized_unattributed',
+      }),
+    ]))
     expect(parsedCoverageRevision?.gapResolutions).toEqual([
       expect.objectContaining({
         gap: coverageGap,

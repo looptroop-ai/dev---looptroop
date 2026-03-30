@@ -23,6 +23,18 @@ interface NormalizedPrdRefinementItem extends RefinementChangeItem {
   contentFingerprint: string
 }
 
+interface PreparedPrdRefinementChange {
+  sourceIndex: number
+  type: RefinementChange['type']
+  itemType: PrdRefinementItemType
+  before: RefinementChangeItem | null
+  after: RefinementChangeItem | null
+  canonicalBefore: NormalizedPrdRefinementItem | null
+  canonicalAfter: NormalizedPrdRefinementItem | null
+  inspiration: RefinementChange['inspiration'] | null
+  attributionStatus: RefinementChangeAttributionStatus
+}
+
 export interface ValidatedPrdRefinement {
   document: PrdDocument
   metrics: PrdDraftMetrics
@@ -251,6 +263,141 @@ function normalizeAttributionStatus(
   return inspiration ? 'inspired' : 'model_unattributed'
 }
 
+function sameRefinementInspiration(
+  left: RefinementChange['inspiration'] | null,
+  right: RefinementChange['inspiration'] | null,
+): boolean {
+  if (!left && !right) return true
+  if (!left || !right) return false
+
+  return left.draftIndex === right.draftIndex
+    && left.memberId === right.memberId
+    && left.item.id === right.item.id
+    && left.item.label === right.item.label
+    && (left.item.detail ?? '') === (right.item.detail ?? '')
+}
+
+function buildDuplicateModifiedChangeKey(change: PreparedPrdRefinementChange): string | null {
+  if (change.type !== 'modified' || !change.canonicalBefore || !change.canonicalAfter) {
+    return null
+  }
+
+  return `${buildItemContentKey(change.canonicalBefore)}\u241f${buildItemContentKey(change.canonicalAfter)}`
+}
+
+function collapseDuplicateModifiedPrdChanges(
+  changes: PreparedPrdRefinementChange[],
+): {
+  changes: PreparedPrdRefinementChange[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const collapsedChanges: PreparedPrdRefinementChange[] = []
+  const seenModifiedChanges = new Map<string, PreparedPrdRefinementChange>()
+  const repairWarnings: string[] = []
+  let repairApplied = false
+
+  for (const change of changes) {
+    const duplicateKey = buildDuplicateModifiedChangeKey(change)
+    if (!duplicateKey) {
+      collapsedChanges.push(change)
+      continue
+    }
+
+    const existing = seenModifiedChanges.get(duplicateKey)
+    if (!existing) {
+      seenModifiedChanges.set(duplicateKey, change)
+      collapsedChanges.push(change)
+      continue
+    }
+
+    repairApplied = true
+    repairWarnings.push(
+      `Collapsed duplicate PRD refinement modified change at index ${change.sourceIndex} because ${change.after?.id ?? change.before?.id ?? 'the item'} was already covered by an identical modified change.`,
+    )
+
+    if (!sameRefinementInspiration(existing.inspiration, change.inspiration)) {
+      existing.inspiration = null
+      existing.attributionStatus = 'model_unattributed'
+      continue
+    }
+
+    if (existing.inspiration) {
+      existing.attributionStatus = 'inspired'
+      continue
+    }
+
+    if (existing.attributionStatus !== change.attributionStatus) {
+      existing.attributionStatus = 'model_unattributed'
+    }
+  }
+
+  return {
+    changes: collapsedChanges,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+function synthesizeOmittedSameIdentityPrdChanges(params: {
+  winnerItems: NormalizedPrdRefinementItem[]
+  winnerLookup: ReturnType<typeof buildItemLookup>
+  finalLookup: ReturnType<typeof buildItemLookup>
+  usedBeforeIdentityKeys: Set<string>
+  usedAfterIdentityKeys: Set<string>
+  usedBeforeContentKeys: Set<string>
+  usedAfterContentKeys: Set<string>
+}): {
+  changes: RefinementChange[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const synthesizedChanges: RefinementChange[] = []
+  const repairWarnings: string[] = []
+
+  for (const winnerItem of params.winnerItems) {
+    const identityKey = buildItemIdentityKey(winnerItem)
+    const winnerMatches = params.winnerLookup.byIdentityKey.get(identityKey)
+    const finalMatches = params.finalLookup.byIdentityKey.get(identityKey)
+
+    if (winnerMatches?.length !== 1 || finalMatches?.length !== 1) continue
+
+    const finalItem = finalMatches[0]!
+    const winnerContentKey = buildItemContentKey(winnerItem)
+    const finalContentKey = buildItemContentKey(finalItem)
+    if (winnerContentKey === finalContentKey) continue
+
+    if (
+      params.usedBeforeIdentityKeys.has(identityKey)
+      || params.usedAfterIdentityKeys.has(identityKey)
+    ) {
+      continue
+    }
+
+    params.usedBeforeIdentityKeys.add(identityKey)
+    params.usedAfterIdentityKeys.add(identityKey)
+    params.usedBeforeContentKeys.add(winnerContentKey)
+    params.usedAfterContentKeys.add(finalContentKey)
+    synthesizedChanges.push({
+      type: 'modified',
+      itemType: winnerItem.itemType,
+      before: cloneCanonicalItem(winnerItem),
+      after: cloneCanonicalItem(finalItem),
+      inspiration: null,
+      attributionStatus: 'synthesized_unattributed',
+    })
+    repairWarnings.push(
+      `Synthesized omitted PRD refinement modified change for ${winnerItem.itemType} ${winnerItem.id} by matching item_type + id across the winning and final drafts.`,
+    )
+  }
+
+  return {
+    changes: synthesizedChanges,
+    repairApplied: synthesizedChanges.length > 0,
+    repairWarnings,
+  }
+}
+
 function validateChangeCoverage(
   winnerItems: NormalizedPrdRefinementItem[],
   finalItems: NormalizedPrdRefinementItem[],
@@ -325,6 +472,7 @@ export function validatePrdRefinementOutput(
   const usedBeforeContentKeys = new Set<string>()
   const usedAfterContentKeys = new Set<string>()
   const repairWarnings = [...refinementResult.repairWarnings]
+  const preparedChanges: PreparedPrdRefinementChange[] = []
   const validatedChanges: RefinementChange[] = []
   let repairApplied = refinementResult.repairApplied
 
@@ -385,24 +533,6 @@ export function validatePrdRefinementOutput(
       }
     }
 
-    if (before) {
-      const beforeIdentityKey = buildItemIdentityKey({ itemType, id: before.id })
-      if (usedBeforeIdentityKeys.has(beforeIdentityKey)) {
-        throw new Error(`PRD refinement change.before at index ${index} reuses a winning-draft item already referenced by another change`)
-      }
-      usedBeforeIdentityKeys.add(beforeIdentityKey)
-      usedBeforeContentKeys.add(buildItemContentKey(canonicalBefore!))
-    }
-
-    if (after) {
-      const afterIdentityKey = buildItemIdentityKey({ itemType, id: after.id })
-      if (usedAfterIdentityKeys.has(afterIdentityKey)) {
-        throw new Error(`PRD refinement change.after at index ${index} reuses a refined final item already referenced by another change`)
-      }
-      usedAfterIdentityKeys.add(afterIdentityKey)
-      usedAfterContentKeys.add(buildItemContentKey(canonicalAfter!))
-    }
-
     let inspiration = change.inspiration ?? null
     let attributionStatus = normalizeAttributionStatus(change.attributionStatus, inspiration)
     if (inspiration) {
@@ -424,14 +554,69 @@ export function validatePrdRefinementOutput(
       attributionStatus = 'model_unattributed'
     }
 
+    preparedChanges.push({
+      sourceIndex: index,
+      type: change.type,
+      itemType,
+      before,
+      after,
+      canonicalBefore,
+      canonicalAfter,
+      inspiration,
+      attributionStatus,
+    })
+  }
+
+  const collapsedChanges = collapseDuplicateModifiedPrdChanges(preparedChanges)
+  if (collapsedChanges.repairApplied) {
+    repairApplied = true
+    repairWarnings.push(...collapsedChanges.repairWarnings)
+  }
+
+  for (const change of collapsedChanges.changes) {
+    const { sourceIndex, itemType, before, after, canonicalBefore, canonicalAfter } = change
+
+    if (before) {
+      const beforeIdentityKey = buildItemIdentityKey({ itemType, id: before.id })
+      if (usedBeforeIdentityKeys.has(beforeIdentityKey)) {
+        throw new Error(`PRD refinement change.before at index ${sourceIndex} reuses a winning-draft item already referenced by another change`)
+      }
+      usedBeforeIdentityKeys.add(beforeIdentityKey)
+      usedBeforeContentKeys.add(buildItemContentKey(canonicalBefore!))
+    }
+
+    if (after) {
+      const afterIdentityKey = buildItemIdentityKey({ itemType, id: after.id })
+      if (usedAfterIdentityKeys.has(afterIdentityKey)) {
+        throw new Error(`PRD refinement change.after at index ${sourceIndex} reuses a refined final item already referenced by another change`)
+      }
+      usedAfterIdentityKeys.add(afterIdentityKey)
+      usedAfterContentKeys.add(buildItemContentKey(canonicalAfter!))
+    }
+
     validatedChanges.push({
       type: change.type,
       itemType,
       before,
       after,
-      inspiration,
-      attributionStatus,
+      inspiration: change.inspiration,
+      attributionStatus: change.attributionStatus,
     })
+  }
+
+  const synthesizedChanges = synthesizeOmittedSameIdentityPrdChanges({
+    winnerItems,
+    winnerLookup,
+    finalLookup,
+    usedBeforeIdentityKeys,
+    usedAfterIdentityKeys,
+    usedBeforeContentKeys,
+    usedAfterContentKeys,
+  })
+  if (synthesizedChanges.repairApplied) {
+    repairApplied = true
+    repairWarnings.push(...synthesizedChanges.repairWarnings)
+    validatedChanges.push(...synthesizedChanges.changes)
   }
 
   validateChangeCoverage(winnerItems, finalItems, usedBeforeContentKeys, usedAfterContentKeys)
@@ -549,10 +734,15 @@ export function buildPrdRefinementRetryPrompt(
         'Return only one corrected YAML artifact.',
         'Do not use tools.',
         'Requirements:',
-        '- Use the exact PROM10b PRD schema.',
+        '- Use the normal PRD schema plus a top-level `changes` list.',
+        '- The `changes` list must fully and exactly account for the diff between the winning PRD and the final refined PRD.',
+        '- Every changed epic or user story must appear exactly once in `changes`.',
+        '- Epic changes do not subsume changed user stories.',
+        '- If an existing epic or user story keeps the same ID but its content changes, emit exactly one `modified` entry for that item.',
+        '- Do not split one changed item across multiple change entries.',
         '- Preserve epic IDs and user story IDs unless the final draft contains a genuinely new item.',
         '- Do not wrap the PRD in another object.',
-        '- Do not include prose, commentary, markdown fences, or extra top-level keys.',
+        '- Do not include prose, commentary, or markdown fences.',
         '',
         '## Previous Invalid Response',
         '```yaml',
