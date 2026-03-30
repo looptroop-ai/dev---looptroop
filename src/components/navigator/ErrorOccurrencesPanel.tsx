@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -88,150 +88,65 @@ export function ErrorOccurrencesPanel({
     ? occurrences.find((occurrence) => occurrence.id === selectedErrorOccurrenceId) ?? null
     : null
 
-  const visibleCurrentOccurrence = currentStatusIsBlocked ? activeOccurrence ?? occurrences.at(-1) ?? null : null
-  const pastOccurrences = useMemo(() => {
-    if (currentStatusIsBlocked) {
-      return occurrences.filter((occurrence) => occurrence.id !== visibleCurrentOccurrence?.id)
-    }
-    return occurrences
-  }, [currentStatusIsBlocked, occurrences, visibleCurrentOccurrence?.id])
+  const visibleOccurrences = useMemo(() => {
+    if (!currentStatusIsBlocked || !activeOccurrence) return occurrences
+    return [
+      activeOccurrence,
+      ...occurrences.filter((occurrence) => occurrence.id !== activeOccurrence.id),
+    ]
+  }, [activeOccurrence, currentStatusIsBlocked, occurrences])
 
-  const shouldShowPanel = currentStatusIsBlocked || pastOccurrences.length > 0 || Boolean(selectedOccurrence)
-  const shouldForcePastOpen = Boolean(selectedOccurrence && selectedOccurrence.id !== visibleCurrentOccurrence?.id)
-  const [pastExpanded, setPastExpanded] = useState(false)
-  const isPastExpanded = pastExpanded || shouldForcePastOpen
+  const shouldShowPanel = visibleOccurrences.length > 0 || Boolean(selectedOccurrence)
+  const shouldAutoExpand = currentStatusIsBlocked || Boolean(selectedOccurrence?.resolvedAt)
+  const [expanded, setExpanded] = useState(shouldAutoExpand)
+
+  useEffect(() => {
+    if (shouldAutoExpand) {
+      setExpanded(true)
+    }
+  }, [shouldAutoExpand])
 
   if (!shouldShowPanel) return null
 
-  const isViewingPast = Boolean(selectedOccurrence && selectedOccurrence.id !== visibleCurrentOccurrence?.id)
-
   return (
-    <div className="border-t border-border px-2 py-2 space-y-2">
-      <div className="flex items-center gap-2 px-1">
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
         <AlertTriangle className={cn('h-3.5 w-3.5', currentStatusIsBlocked ? 'text-red-500' : 'text-amber-500')} />
-        <span className="text-xs font-semibold uppercase tracking-wider">Errors</span>
+        <span>Errors</span>
         <Badge variant="outline" className="text-[10px] shrink-0">
-          {occurrences.length}
+          {visibleOccurrences.length}
         </Badge>
         {currentStatusIsBlocked && (
           <Badge variant="destructive" className="text-[10px] shrink-0">
             Active
           </Badge>
         )}
-        {!currentStatusIsBlocked && isViewingPast && (
+        {!currentStatusIsBlocked && selectedOccurrence?.resolvedAt && (
           <Badge variant="secondary" className="text-[10px] shrink-0">
             Review
           </Badge>
         )}
-      </div>
+      </button>
 
-      {currentStatusIsBlocked && visibleCurrentOccurrence && (
-        <div className="space-y-2">
-          <div className="rounded-md border border-red-200 bg-red-50/70 p-2 dark:border-red-900/50 dark:bg-red-950/20">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-semibold truncate">
-                    {formatErrorOccurrenceLabel(visibleCurrentOccurrence, visibleCurrentOccurrence.occurrenceNumber)}
-                  </span>
-                  <Badge variant="destructive" className="text-[10px] shrink-0">
-                    Current
-                  </Badge>
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {getOccurrenceSubtitle(visibleCurrentOccurrence)}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled
-                className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground"
-              >
-                Live
-              </button>
-            </div>
-
-            {visibleCurrentOccurrence.errorMessage && (
-              <p className="mt-2 rounded-md bg-background/70 p-2 text-[11px] font-mono text-muted-foreground [overflow-wrap:anywhere]">
-                {visibleCurrentOccurrence.errorMessage}
-              </p>
-            )}
-
-            {visibleCurrentOccurrence.errorCodes.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {visibleCurrentOccurrence.errorCodes.map((code) => (
-                  <Badge key={code} variant="outline" className="text-[10px]">
-                    {code}
-                  </Badge>
-                ))}
-              </div>
-            )}
+      {expanded && (
+        <ScrollArea className="max-h-[260px] pr-1">
+          <div className="space-y-1.5">
+            {visibleOccurrences.map((occurrence) => (
+              <ErrorOccurrenceRow
+                key={occurrence.id}
+                occurrence={occurrence}
+                isSelected={selectedErrorOccurrenceId === occurrence.id}
+                onSelect={() => onSelectErrorOccurrence(occurrence.id)}
+              />
+            ))}
           </div>
-
-          {pastOccurrences.length > 0 && (
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => setPastExpanded((value) => !value)}
-                aria-expanded={isPastExpanded}
-                className="flex w-full items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ChevronRight className={cn('h-3 w-3 transition-transform', isPastExpanded && 'rotate-90')} />
-                <span>Past errors</span>
-                <span className="ml-auto text-[10px] font-normal normal-case">
-                  {pastOccurrences.length}
-                </span>
-              </button>
-
-              {isPastExpanded && (
-                <ScrollArea className="max-h-[220px] pr-1">
-                  <div className="space-y-1.5">
-                    {pastOccurrences.map((occurrence) => (
-                      <ErrorOccurrenceRow
-                        key={occurrence.id}
-                        occurrence={occurrence}
-                        isSelected={selectedErrorOccurrenceId === occurrence.id}
-                        onSelect={() => onSelectErrorOccurrence(occurrence.id)}
-                      />
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!currentStatusIsBlocked && (
-        <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => setPastExpanded((value) => !value)}
-            aria-expanded={isPastExpanded}
-            className="flex w-full items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronRight className={cn('h-3 w-3 transition-transform', isPastExpanded && 'rotate-90')} />
-            <span>Past errors</span>
-            <span className="ml-auto text-[10px] font-normal normal-case">
-              {pastOccurrences.length}
-            </span>
-          </button>
-
-          {isPastExpanded && (
-            <ScrollArea className="max-h-[260px] pr-1">
-              <div className="space-y-1.5">
-                {pastOccurrences.map((occurrence) => (
-                  <ErrorOccurrenceRow
-                    key={occurrence.id}
-                    occurrence={occurrence}
-                    isSelected={selectedErrorOccurrenceId === occurrence.id}
-                    onSelect={() => onSelectErrorOccurrence(occurrence.id)}
-                  />
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-        </div>
+        </ScrollArea>
       )}
     </div>
   )

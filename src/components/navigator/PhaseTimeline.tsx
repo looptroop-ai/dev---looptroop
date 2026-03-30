@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { StatusIndicator } from './StatusIndicator'
@@ -14,6 +14,7 @@ interface PhaseTimelineProps {
   onSelectPhase?: (phase: string) => void
   selectedPhase?: string | null
   showBlockedErrorPhase?: boolean
+  footer?: ReactNode
 }
 
 type PhaseIndicatorStatus = 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled'
@@ -109,6 +110,7 @@ export function PhaseTimeline({
   onSelectPhase,
   selectedPhase,
   showBlockedErrorPhase = currentStatus === 'BLOCKED_ERROR',
+  footer,
 }: PhaseTimelineProps) {
   const { groups, phases } = useWorkflowMeta()
   const visiblePhases = useMemo(
@@ -213,6 +215,7 @@ export function PhaseTimeline({
             </div>
           )
         })}
+        {footer ? <div className="pt-2">{footer}</div> : null}
       </div>
     </ScrollArea>
   )

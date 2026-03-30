@@ -36,11 +36,6 @@ export function NavigatorPanel({
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex-1 overflow-hidden">
-          <ErrorOccurrencesPanel
-            ticket={ticket}
-            selectedErrorOccurrenceId={selectedErrorOccurrenceId}
-            onSelectErrorOccurrence={onSelectErrorOccurrence}
-          />
           <PhaseTimeline
             currentStatus={currentStatus}
             reviewCutoffStatus={reviewCutoffStatus}
@@ -48,6 +43,16 @@ export function NavigatorPanel({
             onSelectPhase={(phase) => onSelectPhase(phase === currentStatus ? null : phase)}
             selectedPhase={selectedPhase}
             showBlockedErrorPhase={false}
+            footer={(
+              <div className="space-y-2">
+                <Separator />
+                <ErrorOccurrencesPanel
+                  ticket={ticket}
+                  selectedErrorOccurrenceId={selectedErrorOccurrenceId}
+                  onSelectErrorOccurrence={onSelectErrorOccurrence}
+                />
+              </div>
+            )}
           />
           {isApprovalNavigatorPhase ? (
             <ApprovalNavigator ticketId={ticketId} phase={contextPhase} />

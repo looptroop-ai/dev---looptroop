@@ -124,4 +124,19 @@ describe('PhaseTimeline', () => {
     fireEvent.click(codingBtn!)
     expect(onSelect).toHaveBeenCalledWith('CODING')
   })
+
+  it('renders footer content after the final phase group', () => {
+    renderWithProviders(
+      <PhaseTimeline
+        currentStatus="DRAFT"
+        footer={<div>Timeline footer</div>}
+      />,
+    )
+
+    const doneButton = screen.getByText('Done').closest('button')
+    const footer = screen.getByText('Timeline footer')
+
+    expect(doneButton).not.toBeNull()
+    expect(doneButton!.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })

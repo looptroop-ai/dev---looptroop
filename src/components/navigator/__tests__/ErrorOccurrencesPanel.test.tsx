@@ -50,7 +50,39 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
 }
 
 describe('ErrorOccurrencesPanel', () => {
-  it('shows the active error immediately and hides past errors behind a reveal', () => {
+  it('keeps historical errors collapsed by default', () => {
+    const ticket = makeTicket({
+      status: 'CANCELED',
+      errorOccurrences: [
+        {
+          id: 'error-1',
+          occurrenceNumber: 1,
+          blockedFromStatus: 'CODING',
+          errorMessage: 'First crash',
+          errorCodes: [],
+          occurredAt: '2026-03-11T10:10:00.000Z',
+          resolvedAt: '2026-03-11T10:11:00.000Z',
+          resolutionStatus: 'RETRIED',
+          resumedToStatus: 'REFINING_PRD',
+        },
+      ],
+      activeErrorOccurrenceId: null,
+      hasPastErrors: true,
+    })
+
+    render(
+      <ErrorOccurrencesPanel
+        ticket={ticket}
+        selectedErrorOccurrenceId={null}
+        onSelectErrorOccurrence={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /errors/i })).toBeInTheDocument()
+    expect(screen.queryByText('Error 1 — Implementing (Bead ?/?)')).not.toBeInTheDocument()
+  })
+
+  it('auto-expands for a live blocked ticket and lists all errors in one section', () => {
     const onSelect = vi.fn()
     const ticket = makeTicket({
       errorOccurrences: [
@@ -88,12 +120,11 @@ describe('ErrorOccurrencesPanel', () => {
       />,
     )
 
-    expect(screen.getByText('Errors')).toBeInTheDocument()
-    expect(screen.getByText('Current')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /errors/i })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Error 2 — Refining Specs')).toBeInTheDocument()
-    expect(screen.queryByText('Error 1 — Implementing (Bead ?/?)')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /past errors/i }))
+    expect(screen.getByText('Error 1 — Implementing (Bead ?/?)')).toBeInTheDocument()
+    expect(screen.queryByText('Current')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /past errors/i })).not.toBeInTheDocument()
 
     const pastError = screen.getByRole('button', { name: /error 1/i })
     fireEvent.click(pastError)
@@ -101,7 +132,7 @@ describe('ErrorOccurrencesPanel', () => {
     expect(onSelect).toHaveBeenCalledWith('error-1')
   })
 
-  it('opens past error history by default when a resolved occurrence is selected', () => {
+  it('auto-expands when a resolved occurrence is selected', () => {
     const ticket = makeTicket({
       status: 'CANCELED',
       errorOccurrences: [
@@ -129,7 +160,7 @@ describe('ErrorOccurrencesPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: /past errors/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /errors/i })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Error 1 — Implementing (Bead ?/?)')).toBeInTheDocument()
   })
 })
