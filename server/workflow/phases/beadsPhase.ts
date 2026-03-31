@@ -551,7 +551,7 @@ export async function handleBeadsVote(
     true,
   )
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info',
-    `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`)
+    `Beads voting selected winner: ${winnerId} (score: ${totalScore}).`, { source: 'system', modelId: winnerId })
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
 }
 
@@ -586,7 +586,7 @@ export async function handleBeadsRefine(
     : undefined
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Beads refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+    `Beads refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`, { source: 'system', modelId: intermediate.winnerId })
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
     `Substep blueprint_refine started with ${losingDrafts.length} alternative drafts.`)
 

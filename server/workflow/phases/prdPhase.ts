@@ -388,6 +388,7 @@ export async function handlePrdDraft(
           phase,
           'info',
           `${entry.memberId} PRD draft normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
+          { source: 'system', modelId: entry.memberId },
         )
       }
       if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
@@ -397,6 +398,7 @@ export async function handlePrdDraft(
           phase,
           'info',
           `${entry.memberId} PRD draft required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
+          { source: 'system', modelId: entry.memberId },
         )
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'prd_drafts', liveDrafts)
@@ -420,6 +422,7 @@ export async function handlePrdDraft(
           phase,
           'info',
           `${entry.memberId} Full Answers normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
+          { source: 'system', modelId: entry.memberId },
         )
       }
       if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
@@ -429,6 +432,7 @@ export async function handlePrdDraft(
           phase,
           'info',
           `${entry.memberId} Full Answers required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
+          { source: 'system', modelId: entry.memberId },
         )
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'prd_full_answers', liveFullAnswers)
@@ -436,15 +440,15 @@ export async function handlePrdDraft(
     (entry) => {
       const stepLabel = entry.step === 'full_answers' ? 'Full Answers' : 'PRD draft'
       if (entry.status === 'started') {
-        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} started.`)
+        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} started.`, { source: 'system', modelId: entry.memberId })
         return
       }
       if (entry.status === 'skipped') {
-        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} skipped; reusing the approved interview artifact.`)
+        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} skipped; reusing the approved interview artifact.`, { source: 'system', modelId: entry.memberId })
         return
       }
       if (entry.status === 'completed') {
-        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} completed.`)
+        emitPhaseLog(ticketId, context.externalId, phase, 'info', `${entry.memberId} ${stepLabel} completed.`, { source: 'system', modelId: entry.memberId })
         return
       }
       emitPhaseLog(
@@ -453,6 +457,7 @@ export async function handlePrdDraft(
         phase,
         entry.outcome === 'failed' ? 'error' : 'info',
         `${entry.memberId} ${stepLabel} ${entry.outcome === 'timed_out' ? 'timed out' : 'failed'}${entry.error ? `: ${entry.error}` : '.'}`,
+        { source: 'system', modelId: entry.memberId },
       )
     },
   )
@@ -755,7 +760,8 @@ export async function handlePrdRefine(
   })()
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
-    `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+    `PRD refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`,
+    { source: 'system', modelId: intermediate.winnerId })
 
   if (signal.aborted) throw new CancelledError(ticketId)
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
@@ -925,9 +931,11 @@ export async function handlePrdRefine(
     'REFINING_PRD',
     'info',
     `Validated refined PRD from winner ${intermediate.winnerId} (${refinedArtifact.draftMetrics.epicCount} epics, ${refinedArtifact.draftMetrics.userStoryCount} user stories).`,
+    { source: 'system', modelId: intermediate.winnerId },
   )
   emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'info',
-    `PRD Candidate v1 from winner ${intermediate.winnerId}. Saved to ${prdPath}.`)
+    `PRD Candidate v1 from winner ${intermediate.winnerId}. Saved to ${prdPath}.`,
+    { source: 'system', modelId: intermediate.winnerId })
 
   sendEvent({ type: 'REFINED' })
 }

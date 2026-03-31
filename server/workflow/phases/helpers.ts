@@ -652,6 +652,7 @@ export function emitOpenCodeSessionLogs(
     phase,
     'info',
     `OpenCode ${stage}: ${memberId} session=${sessionId}, messages=${messages.length}, responseChars=${response.length}.`,
+    { source: 'system', modelId: memberId },
   )
   const { responseText, responseMeta } = analyzeAssistantMessages(messages)
   const latestAssistantMessageId = responseMeta.latestAssistantMessageId

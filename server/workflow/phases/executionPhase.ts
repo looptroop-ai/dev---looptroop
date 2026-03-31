@@ -58,7 +58,7 @@ export async function handleCoding(
   writeTicketBeads(ticketId, inProgressBeads)
   updateTicketProgressFromBeads(ticketId, inProgressBeads)
 
-  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`)
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
 
   const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
   throwIfAborted(signal, ticketId)
@@ -139,6 +139,8 @@ export async function handleCoding(
     writeTicketBeads(ticketId, failedBeads)
     updateTicketProgressFromBeads(ticketId, failedBeads)
     emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', `Bead ${nextBead.id} failed.`, {
+      source: 'system',
+      modelId: codingModelId,
       errors: result.errors,
     })
     sendEvent({ type: 'BEAD_ERROR' })
@@ -166,7 +168,7 @@ export async function handleCoding(
     total: completedBeads.length,
   })
 
-  emitPhaseLog(ticketId, context.externalId, 'CODING', 'bead_complete', `Completed bead ${nextBead.id}: ${nextBead.title}`)
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'bead_complete', `Completed bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
   if (isAllComplete(completedBeads)) {
     sendEvent({ type: 'ALL_BEADS_DONE' })
   } else {

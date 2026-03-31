@@ -679,6 +679,7 @@ export async function handleInterviewVote(
     'COUNCIL_VOTING_INTERVIEW',
     'info',
     `Interview voting selected winner: ${winnerId} (score: ${totalScore}).`,
+    { source: 'system', modelId: winnerId },
   )
   sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
 }
@@ -709,7 +710,8 @@ export async function handleInterviewCompile(
   const streamStates = new Map<string, OpenCodeStreamState>()
 
   emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'info',
-    `Interview refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+    `Interview refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`,
+    { source: 'system', modelId: intermediate.winnerId })
 
   if (signal.aborted) throw new CancelledError(ticketId)
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
