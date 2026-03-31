@@ -872,6 +872,53 @@ describe('PhaseArtifactsPanel', () => {
     }
   })
 
+  it('shows only PRD Candidate and Coverage Report during PRD coverage verification', async () => {
+    const coverageInputArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_input',
+      content: JSON.stringify({
+        candidateVersion: 1,
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Coverage input candidate',
+          storyTitle: 'Inspect the candidate under review',
+        }),
+      }),
+    })
+
+    const coverageArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        hasGaps: true,
+        coverageRunNumber: 1,
+        maxCoveragePasses: 2,
+        limitReached: false,
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="VERIFYING_PRD_COVERAGE"
+        isCompleted={false}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[coverageInputArtifact, coverageArtifact]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /PRD Candidate v1/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Coverage Report/i })).toBeInTheDocument()
+    expect(screen.queryByText(/GPT-5\.2/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
+    expect(screen.getByText('The PRD version currently being checked.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
+    expect(screen.getByText('Shows what the check found, what changed, and why.')).toBeInTheDocument()
+  })
+
   it('prefers the latest coverage revision and exposes review, diff, and resolution artifacts in approval', async () => {
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',

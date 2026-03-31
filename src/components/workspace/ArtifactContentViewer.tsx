@@ -1120,17 +1120,20 @@ function getCoverageResolutionTone(action: CoverageGapResolutionData['action']):
   return 'border-amber-200 bg-amber-100/70 text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/30 dark:text-amber-200'
 }
 
-function CoverageResolutionNotesInner({ content }: { content: string }) {
+function CoverageResolutionNotesInner({ content, phase }: { content: string; phase?: string }) {
   const parsed = parseRefinementArtifact(content)
   const gapResolutions = parsed?.gapResolutions ?? []
   if (!gapResolutions.length) return <RawContentWithCopy content={content} />
 
   const candidateVersionLabel = parsed?.candidateVersion ? `PRD Candidate v${parsed.candidateVersion}` : 'PRD Candidate'
+  const summaryText = phase === 'VERIFYING_PRD_COVERAGE'
+    ? `Latest notes about how coverage gaps were handled for ${candidateVersionLabel}.`
+    : `Latest coverage-driven resolution notes for ${candidateVersionLabel}.`
 
   return (
     <div className="space-y-3">
       <div className="text-xs text-muted-foreground">
-        Latest coverage-driven resolution notes for {candidateVersionLabel}.
+        {summaryText}
       </div>
       {gapResolutions.map((resolution, index) => (
         <CollapsibleSection
@@ -1229,7 +1232,7 @@ function CoverageReportView({ content, phase }: { content: string; phase?: strin
         return <FinalPrdDraftView content={revisionContent} defaultTab="diff" finalLabel={finalLabel} />
       })()}
       {resolvedTab === 'notes' && revisionContent && (
-        <CoverageResolutionNotesInner content={revisionContent} />
+        <CoverageResolutionNotesInner content={revisionContent} phase={phase} />
       )}
     </div>
   )
@@ -1883,6 +1886,7 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
   }
 
   const isPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL'
+  const isVerifyPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE'
   const isInterviewCoverage = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
   const isBeadsCoverage = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
   const status = coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
@@ -1909,9 +1913,9 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
         : 'source material'
   const summaryText = status === 'gaps'
     ? gaps.length > 0
-      ? `This pass found ${gaps.length === 1 ? '1 gap' : `${gaps.length} gaps`} between the ${reviewedArtifact} and the ${reviewedAgainst}.`
-      : `This pass found coverage gaps between the ${reviewedArtifact} and the ${reviewedAgainst}.`
-    : `The ${reviewedArtifact} covers the ${reviewedAgainst}. No gaps were flagged in this pass.`
+      ? `This ${isVerifyPrdCoverage ? 'check' : 'pass'} found ${gaps.length === 1 ? '1 gap' : `${gaps.length} gaps`} between the ${reviewedArtifact} and the ${reviewedAgainst}.`
+      : `This ${isVerifyPrdCoverage ? 'check' : 'pass'} found coverage gaps between the ${reviewedArtifact} and the ${reviewedAgainst}.`
+    : `The ${reviewedArtifact} covers the ${reviewedAgainst}. No gaps were ${isVerifyPrdCoverage ? 'found in this check' : 'flagged in this pass'}.`
   const terminationSummary = coverageResult.terminationReason === 'coverage_pass_limit_reached'
     ? 'Retry cap reached; moving to approval with unresolved gaps.'
     : coverageResult.terminationReason === 'follow_up_budget_exhausted'

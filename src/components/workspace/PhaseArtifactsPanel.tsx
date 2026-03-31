@@ -314,7 +314,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
           ...artifact,
           label: `PRD Candidate v${candidateVersion}`,
           description: phase === 'VERIFYING_PRD_COVERAGE'
-            ? 'Current PRD candidate being audited and revised in coverage'
+            ? 'The PRD version currently being checked.'
             : 'Latest PRD candidate awaiting approval',
         }
       }
@@ -335,7 +335,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ? [{
             id: 'coverage-report',
             label: 'Coverage Report',
-            description: 'Coverage audit results, changes, and resolution notes',
+            description: phase === 'VERIFYING_PRD_COVERAGE'
+              ? 'Shows what the check found, what changed, and why.'
+              : 'Coverage audit results, changes, and resolution notes',
             icon: <FileText className="h-3.5 w-3.5" />,
           } satisfies ArtifactDef]
         : []),
@@ -417,7 +419,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
   }, [displayedSupplementalArtifacts, findDbContent, fullAnswerArtifacts, memberArtifacts, viewingSelection])
 
-  const visibleMemberArtifacts = collapseVotingMemberArtifacts ? [] : memberArtifacts
+  const visibleMemberArtifacts = collapseVotingMemberArtifacts || phase === 'VERIFYING_PRD_COVERAGE' ? [] : memberArtifacts
   const compactInterviewArtifacts = phase === 'COMPILING_INTERVIEW'
   const hasTopArtifactRow = visibleMemberArtifacts.length > 0 || prominentSupplementalArtifacts.length > 0
   const hasFullAnswerRow = fullAnswerArtifacts.length > 0

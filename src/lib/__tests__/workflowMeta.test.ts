@@ -40,4 +40,12 @@ describe('workflow metadata', () => {
 
     expect(scanningPhase?.contextSummary).toEqual(['ticket_details'])
   })
+
+  it('uses the simplified description for PRD coverage verification', () => {
+    const prdCoveragePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'VERIFYING_PRD_COVERAGE')
+
+    expect(prdCoveragePhase?.description).toBe(
+      'LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again.',
+    )
+  })
 })

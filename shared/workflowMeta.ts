@@ -173,7 +173,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'VERIFYING_PRD_COVERAGE',
     label: 'Coverage Check (PRD)',
-    description: 'Coverage audits the current PRD candidate against the approved interview and may revise the candidate in-place before approval.',
+    description: 'LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again.',
     kanbanPhase: 'in_progress',
     groupId: 'prd',
     uiView: 'council',

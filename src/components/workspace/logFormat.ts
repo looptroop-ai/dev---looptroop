@@ -147,7 +147,7 @@ export const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   DRAFTING_PRD: 'Each council model generates an independent PRD draft with epics and user stories.',
   COUNCIL_VOTING_PRD: 'Council members vote on all PRD drafts using weighted scoring rubric.',
   REFINING_PRD: 'Winning model consolidates the best draft into PRD Candidate v1 using useful ideas from the losing proposals.',
-  VERIFYING_PRD_COVERAGE: 'AI audits the current PRD candidate against the approved interview and can revise the candidate in-place before re-auditing.',
+  VERIFYING_PRD_COVERAGE: 'LoopTroop checks the current PRD against the approved interview and, if needed, revises it before checking again.',
   WAITING_PRD_APPROVAL: 'Latest PRD candidate is ready for user review and approval.',
   DRAFTING_BEADS: 'Each council model creates an independent beads breakdown from the PRD.',
   COUNCIL_VOTING_BEADS: 'Council members vote on all beads drafts for best architecture.',

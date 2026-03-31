@@ -537,6 +537,42 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Epic EPIC-1: Coverage revised candidate')).toBeInTheDocument()
   })
 
+  it('uses simpler PRD coverage resolution note copy during verification', () => {
+    const revisionContent = JSON.stringify({
+      winnerId: 'openai/gpt-5.2',
+      candidateVersion: 2,
+      refinedContent: buildPrdDocumentContent({
+        epicTitle: 'Coverage revised candidate',
+        storyTitle: 'Inspect the revised candidate',
+      }),
+      gapResolutions: [
+        {
+          gap: 'Missing retry-cap approval behavior.',
+          action: 'updated_prd',
+          rationale: 'Added explicit approval handling when unresolved gaps remain after the retry cap.',
+          affectedItems: [
+            { itemType: 'epic', id: 'EPIC-1', label: 'Coverage revised candidate' },
+          ],
+        },
+      ],
+    })
+
+    render(
+      <ArtifactContent
+        artifactId="coverage-report"
+        phase="VERIFYING_PRD_COVERAGE"
+        content={JSON.stringify({
+          coverageReviewContent: null,
+          revisionContent,
+        })}
+      />,
+    )
+
+    expect(
+      screen.getByText('Latest notes about how coverage gaps were handled for PRD Candidate v2.'),
+    ).toBeInTheDocument()
+  })
+
   it('hides PRD coverage follow-up questions while preserving gap and termination summaries', () => {
     render(
       <ArtifactContent
@@ -576,7 +612,7 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('Coverage review found gaps')).toBeInTheDocument()
-    expect(screen.getByText('This pass found 1 gap between the current PRD candidate and the approved interview.')).toBeInTheDocument()
+    expect(screen.getByText('This check found 1 gap between the current PRD candidate and the approved interview.')).toBeInTheDocument()
     expect(screen.getByText('Retry cap reached; moving to approval with unresolved gaps.')).toBeInTheDocument()
     expect(screen.getByText('Missing PRD approval sequencing.')).toBeInTheDocument()
     expect(screen.queryByText('Follow-up Questions')).not.toBeInTheDocument()
@@ -606,7 +642,7 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('No coverage gaps found')).toBeInTheDocument()
-    expect(screen.getByText('The current PRD candidate covers the approved interview. No gaps were flagged in this pass.')).toBeInTheDocument()
+    expect(screen.getByText('The current PRD candidate covers the approved interview. No gaps were found in this check.')).toBeInTheDocument()
     expect(screen.getByText(/Coverage review of the current PRD candidate · pass 1 of 2/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Technical Details/i })).toBeInTheDocument()
   })
