@@ -26,6 +26,32 @@ function normalizeRefinementChangeItem(value: unknown): RefinementChangeItem | n
   return { id, label, ...(detail ? { detail } : {}) }
 }
 
+// Lenient parser for inspiration items — mirrors how interviewOutput.ts
+// normalizeInterviewInspirationQuestion accepts strings and partial objects.
+// Unlike normalizeRefinementChangeItem (used for before/after), this does NOT
+// require both id and label — models frequently omit one or output a bare string.
+function normalizeInspirationItem(value: unknown): RefinementChangeItem | null {
+  if (typeof value === 'string') {
+    const label = value.trim()
+    if (!label) return null
+    return { id: '', label }
+  }
+
+  if (!isRecord(value)) return null
+
+  const id = toOptionalString(getValueByAliases(value, ['id'])) ?? ''
+  const label = toOptionalString(
+    getValueByAliases(value, ['title', 'label', 'name', 'text', 'content', 'description']),
+  ) ?? ''
+  if (!id && !label) return null
+
+  const detail = id && label
+    ? toOptionalString(getValueByAliases(value, ['detail', 'description', 'objective']))
+    : undefined
+
+  return { id, label, ...(detail ? { detail } : {}) }
+}
+
 function normalizeRefinementInspiration(
   value: unknown,
   losingDraftMeta?: Array<{ memberId: string }>,
@@ -34,7 +60,7 @@ function normalizeRefinementInspiration(
 
   const altDraft = toOrdinalInteger(getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index', 'draftindex']))
   const rawItem = getValueByAliases(value, ['item', 'bead', 'epic', 'story'])
-  const item = normalizeRefinementChangeItem(rawItem)
+  const item = normalizeInspirationItem(rawItem)
 
   if (altDraft == null || !item) return null
 
