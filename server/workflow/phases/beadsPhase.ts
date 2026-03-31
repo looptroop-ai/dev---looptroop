@@ -12,7 +12,8 @@ import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
 import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
-import { buildPromptFromTemplate, PROM22, PROM23 } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM21, PROM22, PROM23 } from '../../prompts/index'
+import { VOTING_RUBRIC_BEADS } from '../../council/types'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import type { RefinementChange } from '@shared/refinementChanges'
@@ -329,9 +330,34 @@ export async function handleBeadsDraft(
     contextBuilder: buildBeadsContextBuilder(ticketContext),
     worktreePath,
     phase: result.phase,
+    ticketState,
   })
 
   sendEvent({ type: 'DRAFTS_READY' })
+}
+
+export function buildBeadsVotePrompt(
+  ticketState: TicketState,
+  anonymizedDrafts: Array<{ draftId: string; content: string }>,
+  rubric: Array<{ category: string; weight: number; description: string }> = VOTING_RUBRIC_BEADS,
+): Array<{ type: 'text'; content: string }> {
+  const voteContext = [
+    ...buildMinimalContext('beads_vote', {
+      ...ticketState,
+      drafts: anonymizedDrafts.map((draft) => draft.content),
+    }),
+    {
+      type: 'text' as const,
+      source: 'vote_rubric',
+      content: [
+        'Detailed scoring rubric:',
+        ...rubric.map((item) => `- ${item.category} (${item.weight}pts): ${item.description}`),
+        '',
+        'Use the exact PROM21 `draft_scores` YAML schema. Keep the exact draft labels, include only rubric integer fields plus `total_score`, and do not add prose or extra keys.',
+      ].join('\n'),
+    },
+  ]
+  return [{ type: 'text', content: buildPromptFromTemplate(PROM21, voteContext) }]
 }
 
 export async function handleBeadsVote(
@@ -350,7 +376,21 @@ export async function handleBeadsVote(
   if (!intermediate.contextBuilder) {
     throw new Error('No beads context builder found — cannot vote')
   }
-  const voteContext = intermediate.contextBuilder('vote')
+  const voteTicketState = intermediate.ticketState ?? (() => {
+    const { ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
+    const prdPath = resolve(ticketDir, 'prd.yaml')
+    let prd: string | undefined
+    if (existsSync(prdPath)) {
+      try { prd = readFileSync(prdPath, 'utf-8') } catch { /* ignore */ }
+    }
+    return {
+      ticketId: context.externalId,
+      title: context.title,
+      description: ticket?.description ?? '',
+      relevantFiles,
+      prd,
+    } satisfies TicketState
+  })()
   const streamStates = new Map<string, OpenCodeStreamState>()
   const liveVotes: Vote[] = []
   const liveVoterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
@@ -368,7 +408,7 @@ export async function handleBeadsVote(
     adapter,
     members,
     intermediate.drafts,
-    voteContext,
+    [],
     intermediate.worktreePath,
     intermediate.phase,
     councilSettings.draftTimeoutMs,
@@ -420,7 +460,7 @@ export async function handleBeadsVote(
       })
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', intermediate.drafts, liveVotes, liveVoterOutcomes, [...liveVoterDetails.values()])
     },
-    undefined,
+    ({ anonymizedDrafts, rubric }) => buildBeadsVotePrompt(voteTicketState, anonymizedDrafts, rubric),
     {
       ticketId,
       phase: 'COUNCIL_VOTING_BEADS',

@@ -516,8 +516,9 @@ export const PROM21: PromptTemplate = {
   systemRole: 'You are an impartial judge on an AI Council. Your role is to evaluate multiple Beads breakdown (architecture/task) drafts objectively.',
   task: 'Read all provided Beads drafts, compare each draft against the final PRD, and evaluate them against each other. Rate each draft from 0 to 100.',
   instructions: [
-    'Impartiality: Rate impartially as if all drafts are anonymous.',
-    'Anti-anchoring: Drafts are presented in randomized order per evaluator.',
+    'Impartiality: Rate impartially as if all drafts are anonymous. Do not favor any draft based on its origin or style.',
+    'Anti-anchoring: Drafts are presented in randomized order per evaluator. Do not assume the first draft is the baseline or best.',
+    'Decomposition Interpretation: Different architectural approaches to the same PRD may legitimately vary in granularity, dependency handling, and sequencing. Score the decomposition quality, coverage, and test isolation as presented, not the identity of the architect.',
     'Scoring Rubric (minimum 0, maximum 20 points per category, total maximum 100): 1) Coverage of PRD requirements. 2) Correctness / feasibility of technical approach. 3) Quality and isolation of bead-scoped tests. 4) Minimal complexity / good dependency management. 5) Risks / edge cases addressed.',
     buildStrictVoteOutputInstruction(VOTING_RUBRIC_BEADS.map(item => item.category)),
     DO_NOT_USE_TOOLS_RULE,
