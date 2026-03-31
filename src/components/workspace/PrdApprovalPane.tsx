@@ -10,6 +10,7 @@ import { PrdApprovalEditor } from './PrdApprovalEditor'
 import { PrdDocumentView } from './PrdDocumentView'
 import { clearTicketArtifactsCache } from '@/hooks/useTicketArtifacts'
 import { useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
+import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 import {
   type PrdApprovalDraft,
   type PrdDocument,
@@ -23,8 +24,6 @@ import {
 } from '@/lib/prdDocument'
 
 type EditTab = 'structured' | 'yaml'
-
-const PRD_CASCADE_WARNING_MESSAGE = 'Editing the PRD will restart the Beads phase and remove the current beads draft and approval state.'
 
 interface PrdApprovalUiState {
   editMode?: boolean
@@ -42,7 +41,10 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
   const queryClient = useQueryClient()
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_prd'
-  const cascadeWarningMessage = PRD_CASCADE_WARNING_MESSAGE
+  const cascadeWarningMessage = useMemo(
+    () => getCascadeEditWarningMessage(ticket.status, 'prd'),
+    [ticket.status],
+  )
   const { data: persistedUiState } = useTicketUIState<PrdApprovalUiState>(ticket.id, uiStateScope, true)
   const { data: fetchedContent, isLoading, isFetching } = useQuery({
     queryKey: ['artifact', ticket.id, 'prd'],
@@ -336,7 +338,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={approving || saving || (editMode && (hasUnsavedChanges || structuredEditorUnavailable)) || !prdDocument}
+            disabled={approving || saving || (editMode && (hasUnsavedChanges || structuredEditorUnavailable)) || !prdDocument || ticket.status !== 'WAITING_PRD_APPROVAL'}
             className="text-xs shrink-0"
           >
             {approving ? 'Approving…' : 'Approve'}

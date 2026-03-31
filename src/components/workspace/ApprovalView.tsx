@@ -41,12 +41,33 @@ function BeadsStructuredView({ content }: { content: string }) {
             </span>
           )}
         >
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {bead.description ? <div><span className="text-blue-600 dark:text-blue-400">description</span>: {String(bead.description)}</div> : null}
             {bead.acceptance_criteria ? <div><span className="text-blue-600 dark:text-blue-400">acceptance_criteria</span>: {String(bead.acceptance_criteria)}</div> : null}
             {bead.prd_references ? <div><span className="text-blue-600 dark:text-blue-400">prd_references</span>: {String(bead.prd_references)}</div> : null}
             {Array.isArray(bead.target_files) && <div><span className="text-blue-600 dark:text-blue-400">target_files</span>: {(bead.target_files as string[]).join(', ')}</div>}
-            {Array.isArray(bead.tests) && <div><span className="text-blue-600 dark:text-blue-400">tests</span>: {(bead.tests as string[]).join('; ')}</div>}
+            {bead.context_guidance && typeof bead.context_guidance === 'object' && !Array.isArray(bead.context_guidance) ? (
+              <div className="border-l-2 border-violet-400 dark:border-violet-600 pl-2">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-600 dark:text-violet-400">context_guidance</span>
+                {Array.isArray((bead.context_guidance as Record<string, unknown>).patterns) && ((bead.context_guidance as Record<string, unknown>).patterns as string[]).length > 0 && (
+                  <div className="pl-2 mt-0.5"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">patterns</span>: {((bead.context_guidance as Record<string, unknown>).patterns as string[]).join('; ')}</div>
+                )}
+                {Array.isArray((bead.context_guidance as Record<string, unknown>).anti_patterns) && ((bead.context_guidance as Record<string, unknown>).anti_patterns as string[]).length > 0 && (
+                  <div className="pl-2 mt-0.5"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">anti_patterns</span>: {((bead.context_guidance as Record<string, unknown>).anti_patterns as string[]).join('; ')}</div>
+                )}
+              </div>
+            ) : null}
+            {(Array.isArray(bead.tests) && (bead.tests as string[]).length > 0) || (Array.isArray(bead.test_commands) && (bead.test_commands as string[]).length > 0) ? (
+              <div className="border-l-2 border-amber-400 dark:border-amber-600 pl-2">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">tests</span>
+                {Array.isArray(bead.tests) && (bead.tests as string[]).length > 0 && (
+                  <div className="mt-0.5">{(bead.tests as string[]).join('; ')}</div>
+                )}
+                {Array.isArray(bead.test_commands) && (bead.test_commands as string[]).length > 0 && (
+                  <div className="mt-0.5"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">test_commands</span>: {(bead.test_commands as string[]).join('; ')}</div>
+                )}
+              </div>
+            ) : null}
           </div>
         </CollapsibleSection>
       ))}
@@ -185,7 +206,7 @@ function GenericApprovalView({ ticket }: { ticket: Ticket }) {
               <Button
                 size="sm"
                 onClick={() => performAction({ id: ticket.id, action: 'approve' })}
-                disabled={isPending || (editMode && hasChanges)}
+                disabled={isPending || (editMode && hasChanges) || ticket.status !== 'WAITING_BEADS_APPROVAL'}
                 className="text-xs shrink-0"
               >
                 {isPending ? 'Approving…' : '✅ Approve'}

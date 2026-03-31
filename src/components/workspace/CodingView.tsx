@@ -22,7 +22,9 @@ interface TicketBead {
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped'
   iteration: number
   acceptanceCriteria: string[]
+  tests: string[]
   testCommands: string[]
+  contextGuidance: { patterns: string[]; anti_patterns: string[] }
   notes: string[]
 }
 
@@ -33,13 +35,20 @@ function normalizeBead(input: {
   iteration: number
   description?: string
   acceptanceCriteria?: string[]
+  tests?: string[]
   testCommands?: string[]
+  contextGuidance?: { patterns?: string[]; anti_patterns?: string[] }
   notes?: string[]
 }): TicketBead {
   const allowedStatuses: TicketBead['status'][] = ['pending', 'in_progress', 'completed', 'failed', 'skipped']
   const status = allowedStatuses.includes(input.status as TicketBead['status'])
     ? input.status as TicketBead['status']
     : 'pending'
+
+  const cg = input.contextGuidance
+  const contextGuidance = cg && typeof cg === 'object' && !Array.isArray(cg)
+    ? { patterns: Array.isArray(cg.patterns) ? cg.patterns : [], anti_patterns: Array.isArray(cg.anti_patterns) ? cg.anti_patterns : [] }
+    : { patterns: [], anti_patterns: [] }
 
   return {
     id: input.id,
@@ -48,7 +57,9 @@ function normalizeBead(input: {
     status,
     iteration: input.iteration ?? 0,
     acceptanceCriteria: input.acceptanceCriteria ?? [],
+    tests: input.tests ?? [],
     testCommands: input.testCommands ?? [],
+    contextGuidance,
     notes: input.notes ?? [],
   }
 }
@@ -66,7 +77,9 @@ async function fetchTicketBeads(ticketId: string): Promise<TicketBead[]> {
           iteration: number
           description?: string
           acceptanceCriteria?: string[]
+          tests?: string[]
           testCommands?: string[]
+          contextGuidance?: { patterns?: string[]; anti_patterns?: string[] }
           notes?: string[]
         } =>
           Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && typeof (item as { title?: unknown }).title === 'string'),
@@ -203,9 +216,34 @@ export function CodingView({ ticket }: CodingViewProps) {
               {viewedBead.title}
             </div>
             <p className="mt-2 text-sm whitespace-pre-wrap">{viewedBead.description || 'No bead description available.'}</p>
+            {(viewedBead.contextGuidance.patterns.length > 0 || viewedBead.contextGuidance.anti_patterns.length > 0) && (
+              <div className="mt-3 border-l-2 border-violet-300 dark:border-violet-700 pl-2">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-600 dark:text-violet-400 mb-1">Context Guidance</div>
+                {viewedBead.contextGuidance.patterns.length > 0 && (
+                  <div className="mt-1">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Patterns</div>
+                    <ul className="text-xs space-y-0.5 pl-3">
+                      {viewedBead.contextGuidance.patterns.map((pattern) => (
+                        <li key={pattern}>- {pattern}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {viewedBead.contextGuidance.anti_patterns.length > 0 && (
+                  <div className="mt-1">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Anti-patterns</div>
+                    <ul className="text-xs space-y-0.5 pl-3">
+                      {viewedBead.contextGuidance.anti_patterns.map((ap) => (
+                        <li key={ap}>- {ap}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
             {viewedBead.acceptanceCriteria.length > 0 && (
-              <div className="mt-3">
-                <div className="text-xs font-medium text-muted-foreground mb-1">Acceptance Criteria</div>
+              <div className="mt-3 border-l-2 border-green-300 dark:border-green-700 pl-2">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-green-600 dark:text-green-400 mb-1">Acceptance Criteria</div>
                 <ul className="text-xs space-y-1">
                   {viewedBead.acceptanceCriteria.map((criterion) => (
                     <li key={criterion}>- {criterion}</li>
@@ -213,14 +251,26 @@ export function CodingView({ ticket }: CodingViewProps) {
                 </ul>
               </div>
             )}
-            {viewedBead.testCommands.length > 0 && (
-              <div className="mt-3">
-                <div className="text-xs font-medium text-muted-foreground mb-1">Test Commands</div>
-                <div className="space-y-1">
-                  {viewedBead.testCommands.map((command) => (
-                    <code key={command} className="block text-xs rounded bg-background px-2 py-1">{command}</code>
-                  ))}
-                </div>
+            {(viewedBead.tests.length > 0 || viewedBead.testCommands.length > 0) && (
+              <div className="mt-3 border-l-2 border-amber-300 dark:border-amber-700 pl-2 space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">Tests</div>
+                {viewedBead.tests.length > 0 && (
+                  <ul className="text-xs space-y-1">
+                    {viewedBead.tests.map((test) => (
+                      <li key={test}>- {test}</li>
+                    ))}
+                  </ul>
+                )}
+                {viewedBead.testCommands.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Test Commands</div>
+                    <div className="space-y-1">
+                      {viewedBead.testCommands.map((command) => (
+                        <code key={command} className="block text-xs rounded bg-background border border-border px-2 py-1 font-mono">{command}</code>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {viewedBead.notes.length > 0 && (

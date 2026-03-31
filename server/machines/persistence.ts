@@ -350,6 +350,49 @@ export function getTicketState(ticketRef: string | number) {
   }
 }
 
+export function revertTicketToApprovalStatus(
+  ticketRef: string | number,
+  targetApprovalStatus: string,
+) {
+  const resolvedTicketRef = resolveTicketRef(ticketRef)
+
+  const actor = activeActors.get(resolvedTicketRef)
+  if (!actor) {
+    throw new Error(`No active actor for ticket ${resolvedTicketRef}`)
+  }
+
+  const currentState = getStateValue(actor)
+  if (currentState === targetApprovalStatus) return actor
+
+  const snapshot = actor.getPersistedSnapshot() as Record<string, unknown>
+  snapshot.value = targetApprovalStatus
+
+  const context = snapshot.context as Record<string, unknown>
+  context.previousStatus = currentState
+  context.status = targetApprovalStatus
+  context.updatedAt = new Date().toISOString()
+
+  const ticket = getTicketContext(resolvedTicketRef)
+  if (!ticket) throw new Error(`Ticket ${resolvedTicketRef} not found`)
+
+  // Stop the current actor (cleans up workflow runner subscription)
+  stopActor(resolvedTicketRef)
+
+  return hydrateTicketActor(resolvedTicketRef, snapshot, {
+    ticketId: resolvedTicketRef,
+    projectId: ticket.projectId,
+    externalId: ticket.externalId,
+    title: ticket.localTicket.title,
+    lockedMainImplementer: ticket.localTicket.lockedMainImplementer ?? null,
+    lockedMainImplementerVariant: ticket.localTicket.lockedMainImplementerVariant ?? null,
+    lockedCouncilMembers: ticket.localTicket.lockedCouncilMembers ? JSON.parse(ticket.localTicket.lockedCouncilMembers) as string[] : null,
+    lockedCouncilMemberVariants: ticket.localTicket.lockedCouncilMemberVariants ? JSON.parse(ticket.localTicket.lockedCouncilMemberVariants) as Record<string, string> : null,
+    lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
+    lockedCoverageFollowUpBudgetPercent: ticket.localTicket.lockedCoverageFollowUpBudgetPercent ?? null,
+    lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
+  })
+}
+
 export function stopActor(ticketRef: string | number) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
   const actor = activeActors.get(resolvedTicketRef)

@@ -6,6 +6,7 @@ import { PROFILE_DEFAULTS } from '../db/defaults'
 import {
   createTicketActor,
   ensureActorForTicket,
+  revertTicketToApprovalStatus,
   sendTicketEvent,
   getTicketState,
   stopActor,
@@ -53,6 +54,7 @@ import {
   savePrdRawContent,
 } from '../phases/prd/document'
 import type { PrdDocument } from '../structuredOutput/types'
+import { isBeforeExecution, isStatusAtOrPast } from '@shared/workflowMeta'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -826,8 +828,8 @@ export async function handlePutInterviewAnswers(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
-    return c.json({ error: 'Ticket is not waiting for interview approval' }, 409)
+  if (!isStatusAtOrPast(ticket.status, 'WAITING_INTERVIEW_APPROVAL') || !isBeforeExecution(ticket.status)) {
+    return c.json({ error: 'Ticket is not in a state where interview can be edited' }, 409)
   }
 
   const body = await c.req.json().catch(() => ({}))
@@ -837,6 +839,10 @@ export async function handlePutInterviewAnswers(c: Context) {
   }
 
   try {
+    if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
+      ensureActorForTicket(ticketId)
+      revertTicketToApprovalStatus(ticketId, 'WAITING_INTERVIEW_APPROVAL')
+    }
     saveInterviewAnswerUpdates(ticketId, parsed.data.questions)
     return c.json({
       success: true,
@@ -854,8 +860,8 @@ export async function handlePutInterview(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
-    return c.json({ error: 'Ticket is not waiting for interview approval' }, 409)
+  if (!isStatusAtOrPast(ticket.status, 'WAITING_INTERVIEW_APPROVAL') || !isBeforeExecution(ticket.status)) {
+    return c.json({ error: 'Ticket is not in a state where interview can be edited' }, 409)
   }
 
   const body = await c.req.json().catch(() => ({}))
@@ -865,6 +871,10 @@ export async function handlePutInterview(c: Context) {
   }
 
   try {
+    if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
+      ensureActorForTicket(ticketId)
+      revertTicketToApprovalStatus(ticketId, 'WAITING_INTERVIEW_APPROVAL')
+    }
     saveInterviewRawContent(ticketId, parsed.data.content)
     return c.json({
       success: true,
@@ -882,14 +892,18 @@ export async function handlePutPrd(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_PRD_APPROVAL') {
-    return c.json({ error: 'Ticket is not waiting for PRD approval' }, 409)
+  if (!isStatusAtOrPast(ticket.status, 'WAITING_PRD_APPROVAL') || !isBeforeExecution(ticket.status)) {
+    return c.json({ error: 'Ticket is not in a state where PRD can be edited' }, 409)
   }
 
   const body = await c.req.json().catch(() => ({}))
   const rawParsed = rawPrdSaveSchema.safeParse(body)
   if (rawParsed.success) {
     try {
+      if (ticket.status !== 'WAITING_PRD_APPROVAL') {
+        ensureActorForTicket(ticketId)
+        revertTicketToApprovalStatus(ticketId, 'WAITING_PRD_APPROVAL')
+      }
       const { raw } = savePrdRawContent(ticketId, rawParsed.data.content)
       return c.json({
         success: true,
@@ -909,6 +923,10 @@ export async function handlePutPrd(c: Context) {
   }
 
   try {
+    if (ticket.status !== 'WAITING_PRD_APPROVAL') {
+      ensureActorForTicket(ticketId)
+      revertTicketToApprovalStatus(ticketId, 'WAITING_PRD_APPROVAL')
+    }
     const { raw } = savePrdStructuredContent(ticketId, structuredParsed.data.document)
     return c.json({
       success: true,

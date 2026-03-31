@@ -361,7 +361,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={approving || saving || (editMode && hasUnsavedChanges) || !interviewDocument}
+            disabled={approving || saving || (editMode && hasUnsavedChanges) || !interviewDocument || ticket.status !== 'WAITING_INTERVIEW_APPROVAL'}
             className="text-xs shrink-0"
           >
             {approving ? 'Approving…' : 'Approve'}

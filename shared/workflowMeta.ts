@@ -363,6 +363,22 @@ export function getWorkflowPhaseMeta(status: string): WorkflowPhaseMeta | undefi
 
 export type WorkflowAction = 'start' | 'approve' | 'cancel' | 'retry' | 'verify'
 
+export const APPROVAL_PHASE_IDS = new Set(
+  WORKFLOW_PHASES.filter((phase) => phase.uiView === 'approval' && phase.reviewArtifactType).map((phase) => phase.id),
+)
+
+export function isBeforeExecution(status: string): boolean {
+  const index = WORKFLOW_PHASE_IDS.indexOf(status)
+  const executionIndex = WORKFLOW_PHASE_IDS.indexOf('PRE_FLIGHT_CHECK')
+  return index >= 0 && executionIndex >= 0 && index < executionIndex
+}
+
+export function isStatusAtOrPast(currentStatus: string, targetStatus: string): boolean {
+  const currentIndex = WORKFLOW_PHASE_IDS.indexOf(currentStatus)
+  const targetIndex = WORKFLOW_PHASE_IDS.indexOf(targetStatus)
+  return currentIndex >= 0 && targetIndex >= 0 && currentIndex >= targetIndex
+}
+
 export function getAvailableWorkflowActions(status: string): WorkflowAction[] {
   switch (status) {
     case 'DRAFT':

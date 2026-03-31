@@ -1430,6 +1430,9 @@ interface ParsedBead {
     patterns?: string[]
     anti_patterns?: string[]
   }
+  acceptanceCriteria?: string[]
+  tests?: string[]
+  testCommands?: string[]
 }
 
 const PRD_TECHNICAL_SECTION_CONFIG: Array<{
@@ -1480,7 +1483,7 @@ function renderBeadGuidance(guidance: ParsedBead['contextGuidance']): React.Reac
 
     return (
       <div className="text-xs">
-        <strong className="text-muted-foreground font-medium">Guidance:</strong>{' '}
+        <strong className="text-muted-foreground font-medium">Context Guidance:</strong>{' '}
         <span className="whitespace-pre-wrap">{trimmed}</span>
       </div>
     )
@@ -1489,7 +1492,7 @@ function renderBeadGuidance(guidance: ParsedBead['contextGuidance']): React.Reac
   if (typeof guidance !== 'object' || Array.isArray(guidance)) {
     return (
       <div className="text-xs">
-        <strong className="text-muted-foreground font-medium">Guidance:</strong>{' '}
+        <strong className="text-muted-foreground font-medium">Context Guidance:</strong>{' '}
         <code className="whitespace-pre-wrap break-all">{String(guidance)}</code>
       </div>
     )
@@ -1505,19 +1508,19 @@ function renderBeadGuidance(guidance: ParsedBead['contextGuidance']): React.Reac
   if (patterns.length === 0 && antiPatterns.length === 0) {
     return (
       <div className="text-xs">
-        <strong className="text-muted-foreground font-medium">Guidance:</strong>{' '}
+        <strong className="text-muted-foreground font-medium">Context Guidance:</strong>{' '}
         <code className="whitespace-pre-wrap break-all">{JSON.stringify(guidance, null, 2) ?? '[invalid guidance]'}</code>
       </div>
     )
   }
 
   return (
-    <div className="text-xs space-y-2">
-      <strong className="text-muted-foreground font-medium">Guidance:</strong>
+    <div className="text-xs space-y-1.5 border-l-2 border-violet-300 dark:border-violet-700 pl-2">
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-600 dark:text-violet-400">Context Guidance</div>
       {patterns.length > 0 && (
         <div>
-          <div className="text-muted-foreground font-medium">Patterns</div>
-          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Patterns</div>
+          <ul className="list-disc pl-4 space-y-0.5">
             {patterns.map((pattern, index) => (
               <li key={`pattern-${index}`}>{pattern}</li>
             ))}
@@ -1526,8 +1529,8 @@ function renderBeadGuidance(guidance: ParsedBead['contextGuidance']): React.Reac
       )}
       {antiPatterns.length > 0 && (
         <div>
-          <div className="text-muted-foreground font-medium">Anti-patterns</div>
-          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Anti-patterns</div>
+          <ul className="list-disc pl-4 space-y-0.5">
             {antiPatterns.map((antiPattern, index) => (
               <li key={`anti-pattern-${index}`}>{antiPattern}</li>
             ))}
@@ -1690,16 +1693,51 @@ function BeadsDraftView({ content }: { content: string }) {
         <div className="text-xs text-muted-foreground mb-2">{beadsArray.length} beads</div>
         {beadsArray.map((bead, index) => (
           <CollapsibleSection key={`${bead.id ?? 'bead'}-${index}`} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{bead.id || `Bead ${index + 1}`}</span> {bead.title}</span>}>
-            <div className="space-y-2 p-2">
+            <div className="space-y-2.5 p-2">
               {Array.isArray(bead.prdRefs) && bead.prdRefs.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {bead.prdRefs.map((ref, refIndex) => <span key={refIndex} className="px-1.5 py-0.5 bg-muted rounded border border-border text-[10px] text-muted-foreground">{ref}</span>)}
                 </div>
               )}
               {bead.description && (
-                <div className="text-xs"><strong className="text-muted-foreground font-medium">Description:</strong> <span className="whitespace-pre-wrap">{bead.description}</span></div>
+                <div className="text-xs">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-foreground/60 mb-0.5">Description</div>
+                  <span className="whitespace-pre-wrap">{bead.description}</span>
+                </div>
               )}
               {renderBeadGuidance(bead.contextGuidance)}
+              {Array.isArray(bead.acceptanceCriteria) && bead.acceptanceCriteria.filter(Boolean).length > 0 && (
+                <div className="text-xs border-l-2 border-green-300 dark:border-green-700 pl-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-green-600 dark:text-green-400 mb-0.5">Acceptance Criteria</div>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {bead.acceptanceCriteria.filter(Boolean).map((criterion, ci) => (
+                      <li key={`ac-${ci}`}>{criterion}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(Array.isArray(bead.tests) && bead.tests.filter(Boolean).length > 0) || (Array.isArray(bead.testCommands) && bead.testCommands.filter(Boolean).length > 0) ? (
+                <div className="text-xs border-l-2 border-amber-300 dark:border-amber-700 pl-2 space-y-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">Tests</div>
+                  {Array.isArray(bead.tests) && bead.tests.filter(Boolean).length > 0 && (
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {bead.tests.filter(Boolean).map((test, ti) => (
+                        <li key={`test-${ti}`}>{test}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {Array.isArray(bead.testCommands) && bead.testCommands.filter(Boolean).length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Test Commands</div>
+                      <div className="space-y-1">
+                        {bead.testCommands.filter(Boolean).map((command, ci) => (
+                          <code key={`tc-${ci}`} className="block text-xs rounded bg-background border border-border px-2 py-1 font-mono">{command}</code>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           </CollapsibleSection>
         ))}

@@ -11,6 +11,7 @@ import { PhaseReviewView } from '@/components/workspace/PhaseReviewView'
 import type { Ticket } from '@/hooks/useTickets'
 import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
+import { isBeforeExecution } from '@shared/workflowMeta'
 
 interface ActiveWorkspaceProps {
   ticket: Ticket
@@ -61,7 +62,16 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
   }
 
   // If viewing a past/completed phase, show the review view with logs + artifacts
+  // Exception: past approval phases remain editable until execution starts
   if (isViewingPast) {
+    const pastPhaseMeta = phaseMap[selectedPhase]
+    if (
+      pastPhaseMeta?.uiView === 'approval'
+      && pastPhaseMeta.reviewArtifactType
+      && isBeforeExecution(ticket.status)
+    ) {
+      return <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} />
+    }
     return <PhaseReviewView phase={selectedPhase} ticket={ticket} />
   }
 

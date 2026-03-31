@@ -225,14 +225,14 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Product Requirements Document')).toBeInTheDocument()
+      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(screen.getByText('Cascading Edit Warning')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Proceed with Edit' }))
 
-    expect(await screen.findByLabelText('structured-prd-editor')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByLabelText('structured-prd-editor')).toBeInTheDocument()
+    })
 
     fireEvent.change(screen.getByLabelText('structured-prd-editor'), {
       target: { value: 'Protect imports and keep retries reversible.' },
@@ -265,11 +265,12 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Product Requirements Document')).toBeInTheDocument()
+      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Proceed with Edit' }))
+
+    await screen.findByLabelText('structured-prd-editor')
 
     fireEvent.change(screen.getByLabelText('structured-prd-editor'), {
       target: { value: 'Unsaved PRD draft.' },
