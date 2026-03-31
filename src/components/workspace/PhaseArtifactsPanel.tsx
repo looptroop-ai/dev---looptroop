@@ -322,7 +322,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       return artifact
     })
 
-    if (phase !== 'VERIFYING_PRD_COVERAGE' && phase !== 'WAITING_PRD_APPROVAL') {
+    if (phase !== 'VERIFYING_PRD_COVERAGE') {
       return baseArtifacts
     }
 

@@ -919,7 +919,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Shows what the check found, what changed, and why.')).toBeInTheDocument()
   })
 
-  it('prefers the latest coverage revision and exposes review, diff, and resolution artifacts in approval', async () => {
+  it('prefers the latest coverage revision in approval without exposing a separate coverage report artifact', async () => {
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
@@ -1035,7 +1035,7 @@ describe('PhaseArtifactsPanel', () => {
     )
 
     expect(screen.getByRole('button', { name: /PRD Candidate v2/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Coverage Report/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Coverage Report/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Coverage Review/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Coverage Changes/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Coverage Resolution Notes/i })).not.toBeInTheDocument()
@@ -1043,18 +1043,8 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v2/i }))
     expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
     expect(screen.queryByText('Audit input candidate')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Close/i }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-
-    fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
-    // Audit tab is shown by default
-    expect(screen.getByText('Audit')).toBeInTheDocument()
-    expect(screen.getByText('Changes')).toBeInTheDocument()
-    expect(screen.getByText('Resolution Notes')).toBeInTheDocument()
-    // Switch to Resolution Notes tab to see gap details
-    fireEvent.click(screen.getByText('Resolution Notes'))
-    expect(screen.getByText('Missing retry-cap approval behavior.')).toBeInTheDocument()
-    expect(screen.getByText(/Added explicit approval handling when unresolved gaps remain after the retry cap/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+    expect(screen.queryByText('Resolution Notes')).not.toBeInTheDocument()
   })
 
   it('shows no-source badges in generic refinement diff views', () => {
