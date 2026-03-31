@@ -1426,7 +1426,10 @@ interface ParsedBead {
   title?: string
   prdRefs?: string[]
   description?: string
-  contextGuidance?: string
+  contextGuidance?: string | {
+    patterns?: string[]
+    anti_patterns?: string[]
+  }
 }
 
 const PRD_TECHNICAL_SECTION_CONFIG: Array<{
@@ -1466,6 +1469,73 @@ function parseBeadsArtifact(content: string): ParsedBead[] | null {
     }
   }
   return null
+}
+
+function renderBeadGuidance(guidance: ParsedBead['contextGuidance']): React.ReactNode {
+  if (!guidance) return null
+
+  if (typeof guidance === 'string') {
+    const trimmed = guidance.trim()
+    if (!trimmed) return null
+
+    return (
+      <div className="text-xs">
+        <strong className="text-muted-foreground font-medium">Guidance:</strong>{' '}
+        <span className="whitespace-pre-wrap">{trimmed}</span>
+      </div>
+    )
+  }
+
+  if (typeof guidance !== 'object' || Array.isArray(guidance)) {
+    return (
+      <div className="text-xs">
+        <strong className="text-muted-foreground font-medium">Guidance:</strong>{' '}
+        <code className="whitespace-pre-wrap break-all">{String(guidance)}</code>
+      </div>
+    )
+  }
+
+  const patterns = Array.isArray(guidance.patterns)
+    ? guidance.patterns.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+  const antiPatterns = Array.isArray(guidance.anti_patterns)
+    ? guidance.anti_patterns.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+
+  if (patterns.length === 0 && antiPatterns.length === 0) {
+    return (
+      <div className="text-xs">
+        <strong className="text-muted-foreground font-medium">Guidance:</strong>{' '}
+        <code className="whitespace-pre-wrap break-all">{JSON.stringify(guidance, null, 2) ?? '[invalid guidance]'}</code>
+      </div>
+    )
+  }
+
+  return (
+    <div className="text-xs space-y-2">
+      <strong className="text-muted-foreground font-medium">Guidance:</strong>
+      {patterns.length > 0 && (
+        <div>
+          <div className="text-muted-foreground font-medium">Patterns</div>
+          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+            {patterns.map((pattern, index) => (
+              <li key={`pattern-${index}`}>{pattern}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {antiPatterns.length > 0 && (
+        <div>
+          <div className="text-muted-foreground font-medium">Anti-patterns</div>
+          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+            {antiPatterns.map((antiPattern, index) => (
+              <li key={`anti-pattern-${index}`}>{antiPattern}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function isPrdFullAnswersArtifactId(artifactId?: string): boolean {
@@ -1629,9 +1699,7 @@ function BeadsDraftView({ content }: { content: string }) {
               {bead.description && (
                 <div className="text-xs"><strong className="text-muted-foreground font-medium">Description:</strong> <span className="whitespace-pre-wrap">{bead.description}</span></div>
               )}
-              {bead.contextGuidance && (
-                <div className="text-xs"><strong className="text-muted-foreground font-medium">Guidance:</strong> <span className="whitespace-pre-wrap">{bead.contextGuidance}</span></div>
-              )}
+              {renderBeadGuidance(bead.contextGuidance)}
             </div>
           </CollapsibleSection>
         ))}

@@ -94,6 +94,30 @@ function buildPrdDocumentContent({
   ].join('\n')
 }
 
+function buildBeadsDraftContent({
+  title = 'Render structured guidance safely',
+  guidance = {
+    patterns: ['Reuse the shared bead viewer for every artifact path.'],
+    anti_patterns: ['Do not render structured guidance objects directly into JSX.'],
+  },
+}: {
+  title?: string
+  guidance?: string | {
+    patterns?: string[]
+    anti_patterns?: string[]
+  }
+} = {}) {
+  return JSON.stringify([
+    {
+      id: 'bead-1',
+      title,
+      prdRefs: ['EPIC-1', 'US-1'],
+      description: 'Keep bead guidance readable in artifact dialogs.',
+      contextGuidance: guidance,
+    },
+  ])
+}
+
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
 }
@@ -457,6 +481,96 @@ describe('ArtifactContentViewer', () => {
 
     expect(screen.getByText('Inspect refined stories')).toBeInTheDocument()
     expect(screen.getByText('Keep the PRD viewer structured after refinement.')).toBeInTheDocument()
+  })
+
+  it('renders structured bead guidance for winner artifacts without crashing', () => {
+    render(
+      <ArtifactContent
+        artifactId="winner-beads-draft"
+        phase="COUNCIL_VOTING_BEADS"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: buildBeadsDraftContent({
+                guidance: {
+                  patterns: ['Reuse the shared bead viewer for every artifact path.'],
+                  anti_patterns: ['Do not render structured guidance objects directly into JSX.'],
+                },
+              }),
+            },
+          ],
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Render structured guidance safely').closest('button')!)
+
+    expect(screen.getByText('Patterns')).toBeInTheDocument()
+    expect(screen.getByText('Anti-patterns')).toBeInTheDocument()
+    expect(screen.getByText('Reuse the shared bead viewer for every artifact path.')).toBeInTheDocument()
+    expect(screen.getByText('Do not render structured guidance objects directly into JSX.')).toBeInTheDocument()
+    expect(screen.queryByText(/Something went wrong rendering this content/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps legacy string bead guidance working for final bead drafts', () => {
+    render(
+      <ArtifactContent
+        artifactId="final-beads-draft"
+        phase="WAITING_BEADS_APPROVAL"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          refinedContent: buildBeadsDraftContent({
+            title: 'Keep legacy guidance readable',
+            guidance: 'Preserve the old single-block guidance rendering for legacy bead artifacts.',
+          }),
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Keep legacy guidance readable').closest('button')!)
+
+    expect(screen.getByText('Preserve the old single-block guidance rendering for legacy bead artifacts.')).toBeInTheDocument()
+    expect(screen.queryByText('Patterns')).not.toBeInTheDocument()
+    expect(screen.queryByText('Anti-patterns')).not.toBeInTheDocument()
+  })
+
+  it('uses the same safe bead guidance renderer in coverage review sections', () => {
+    render(
+      <ArtifactContent
+        artifactId="refined-beads"
+        phase="WAITING_BEADS_APPROVAL"
+        content={JSON.stringify({
+          beads: buildBeadsDraftContent({
+            title: 'Review prior bead guidance',
+            guidance: {
+              patterns: ['Carry forward the prior patterns list in review mode.'],
+              anti_patterns: ['Do not lose structured guidance in the prior-context section.'],
+            },
+          }),
+          refinedContent: buildBeadsDraftContent({
+            title: 'Review refined bead guidance',
+            guidance: {
+              patterns: ['Render refined guidance with explicit list headings.'],
+              anti_patterns: ['Do not special-case the review view with a different renderer.'],
+            },
+          }),
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
+    expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Review prior bead guidance').closest('button')!)
+    fireEvent.click(screen.getByText('Review refined bead guidance').closest('button')!)
+
+    expect(screen.getByText('Carry forward the prior patterns list in review mode.')).toBeInTheDocument()
+    expect(screen.getByText('Do not lose structured guidance in the prior-context section.')).toBeInTheDocument()
+    expect(screen.getByText('Render refined guidance with explicit list headings.')).toBeInTheDocument()
+    expect(screen.getByText('Do not special-case the review view with a different renderer.')).toBeInTheDocument()
   })
 
   it('renders coverage report with changes tab when only revision content is provided', () => {
