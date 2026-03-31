@@ -167,6 +167,48 @@ function respondWithState(c: Context, ticketId: string, message: string) {
   })
 }
 
+function emitRoutePhaseLog(
+  ticketId: string,
+  phase: string,
+  type: 'info' | 'error',
+  content: string,
+  data?: Record<string, unknown>,
+) {
+  const timestamp = new Date().toISOString()
+  const source = type === 'error' ? 'error' : 'system'
+  const kind = type === 'error' ? 'error' : 'milestone'
+  const payload = {
+    ticketId,
+    phase,
+    type,
+    content,
+    source,
+    audience: 'all' as const,
+    kind,
+    op: 'append' as const,
+    streaming: false,
+    timestamp,
+    ...(data ?? {}),
+  }
+
+  broadcaster.broadcast(ticketId, 'log', payload)
+  appendLogEvent(
+    ticketId,
+    type,
+    phase,
+    content,
+    data ? { ticketId, ...data, timestamp } : { ticketId, timestamp },
+    source,
+    phase,
+    {
+      audience: 'all',
+      kind,
+      op: 'append',
+      streaming: false,
+    },
+  )
+}
+
 function getTicketParam(c: Context): string {
   return c.req.param('id') || c.req.param('ticketId')
 }
@@ -405,25 +447,62 @@ export async function handleStartTicket(c: Context) {
     return c.json({ error: 'Ticket can only be started from DRAFT status' }, 409)
   }
 
+  const startPhase = 'DRAFT'
+  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Start requested.')
+
   const profile = getProfileDefaults()
   const councilRaw = ticketContext.localProject.councilMembers ?? profile?.councilMembers ?? null
+  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Validating model availability.')
   let modelSelection
   try {
     modelSelection = await validateModelSelection(profile?.mainImplementer, councilRaw)
+    emitRoutePhaseLog(
+      ticketId,
+      startPhase,
+      'info',
+      `Model validation passed. Main implementer ${modelSelection.mainImplementer}; council size ${modelSelection.councilMembers.length}.`,
+      {
+        mainImplementer: modelSelection.mainImplementer,
+        councilMembers: modelSelection.councilMembers,
+      },
+    )
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Invalid model configuration' }, 400)
+    const message = err instanceof Error ? err.message : 'Invalid model configuration'
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `Model validation failed: ${message}`, {
+      error: message,
+    })
+    return c.json({ error: message }, 400)
   }
 
+  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Initializing worktree and ticket directories.')
   let init: ReturnType<typeof initializeTicket>
   try {
     init = initializeTicket({
       externalId: ticketContext.externalId,
       projectFolder: ticketContext.projectRoot,
     })
+    emitRoutePhaseLog(
+      ticketId,
+      startPhase,
+      'info',
+      init.reused
+        ? `Ticket workspace ready on branch ${init.branchName}. Reused existing worktree.`
+        : `Ticket workspace ready on branch ${init.branchName}. Created new worktree and ticket directories.`,
+      {
+        branchName: init.branchName,
+        baseBranch: init.baseBranch,
+        worktreePath: init.worktreePath,
+        reused: init.reused,
+      },
+    )
   } catch (err) {
     const initErr = err instanceof TicketInitializationError
       ? err
       : new TicketInitializationError('INIT_UNKNOWN', err instanceof Error ? err.message : String(err))
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `Initialization failed: ${initErr.message}`, {
+      code: initErr.code,
+      error: initErr.message,
+    })
 
     try {
       ensureActorForTicket(ticketId)
@@ -433,6 +512,16 @@ export async function handleStartTicket(c: Context) {
         codes: [initErr.code],
       })
     } catch (sendErr) {
+      emitRoutePhaseLog(
+        ticketId,
+        startPhase,
+        'error',
+        `Failed to block ticket after initialization error: ${String(sendErr)}`,
+        {
+          code: initErr.code,
+          error: String(sendErr),
+        },
+      )
       console.error(`[tickets] Failed to send INIT_FAILED to ticket ${ticketId}:`, sendErr)
       return c.json({ error: 'Failed to block ticket after initialization error', details: String(sendErr) }, 500)
     }
@@ -464,6 +553,7 @@ export async function handleStartTicket(c: Context) {
     : null
   const startedAt = new Date().toISOString()
 
+  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Locking start configuration.')
   try {
     const lockedTicket = lockTicketStartConfiguration(ticketId, {
       branchName: init.branchName,
@@ -476,14 +566,26 @@ export async function handleStartTicket(c: Context) {
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,
     })
-    if (!lockedTicket) return c.json({ error: 'Ticket not found' }, 404)
+    if (!lockedTicket) {
+      emitRoutePhaseLog(ticketId, startPhase, 'error', 'Failed to persist ticket start configuration: Ticket not found.')
+      return c.json({ error: 'Ticket not found' }, 404)
+    }
+    emitRoutePhaseLog(ticketId, startPhase, 'info', 'Start configuration locked.', {
+      branchName: init.branchName,
+      startedAt,
+    })
   } catch (err) {
+    const details = err instanceof Error ? err.message : String(err)
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `Failed to persist ticket start configuration: ${details}`, {
+      error: details,
+    })
     return c.json({
       error: 'Failed to persist ticket start configuration',
-      details: err instanceof Error ? err.message : String(err),
+      details,
     }, 500)
   }
 
+  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Dispatching workflow start.')
   try {
     ensureActorForTicket(ticketId)
     sendTicketEvent(ticketId, {
@@ -497,6 +599,9 @@ export async function handleStartTicket(c: Context) {
       lockedMaxCoveragePasses,
     })
   } catch (err) {
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `Failed to dispatch workflow start: ${String(err)}`, {
+      error: String(err),
+    })
     console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to start ticket', details: String(err) }, 500)
   }
@@ -830,10 +935,7 @@ export function handleApproveInterview(c: Context) {
     ensureActorForTicket(ticketId)
 
     const phase = 'WAITING_INTERVIEW_APPROVAL'
-    const message = '[SYS] Interview approved by user.'
-    const timestamp = new Date().toISOString()
-    broadcaster.broadcast(ticketId, 'log', { ticketId, phase, type: 'info', content: message, timestamp, source: 'system' })
-    appendLogEvent(ticketId, 'info', phase, message, { ticketId, timestamp }, 'system', phase, { audience: 'all', kind: 'milestone', op: 'append', streaming: false })
+    emitRoutePhaseLog(ticketId, phase, 'info', 'Interview approved by user.')
 
     sendTicketEvent(ticketId, { type: 'APPROVE' })
   } catch (err) {
@@ -860,10 +962,7 @@ export function handleApprovePrd(c: Context) {
     ensureActorForTicket(ticketId)
 
     const phase = 'WAITING_PRD_APPROVAL'
-    const message = '[SYS] PRD approved by user.'
-    const timestamp = new Date().toISOString()
-    broadcaster.broadcast(ticketId, 'log', { ticketId, phase, type: 'info', content: message, timestamp, source: 'system' })
-    appendLogEvent(ticketId, 'info', phase, message, { ticketId, timestamp }, 'system', phase, { audience: 'all', kind: 'milestone', op: 'append', streaming: false })
+    emitRoutePhaseLog(ticketId, phase, 'info', 'PRD approved by user.')
 
     sendTicketEvent(ticketId, { type: 'APPROVE' })
   } catch (err) {

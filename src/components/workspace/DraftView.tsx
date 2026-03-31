@@ -9,6 +9,7 @@ import { useProjects } from '@/hooks/useProjects'
 import { useProfile } from '@/hooks/useProfile'
 import { CalendarDays } from 'lucide-react'
 import { EffortBadge } from '@/components/shared/EffortBadge'
+import { CollapsiblePhaseLogSection } from '@/components/workspace/CollapsiblePhaseLogSection'
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'Very High', 2: 'High', 3: 'Normal', 4: 'Low', 5: 'Very Low' }
 const PRIORITY_COLORS: Record<number, string> = {
@@ -81,6 +82,7 @@ export function DraftView({ ticket }: DraftViewProps) {
   const { mutateAsync: updateTicket, isPending: isSavingDescription } = useUpdateTicket()
   const { data: projects = [] } = useProjects()
   const { data: profile, isLoading: isProfileLoading } = useProfile()
+  const [startAttemptActive, setStartAttemptActive] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [descriptionDraft, setDescriptionDraft] = useState(ticket.description ?? '')
   const [isEditingDescription, setIsEditingDescription] = useState(false)
@@ -118,6 +120,7 @@ export function DraftView({ ticket }: DraftViewProps) {
   }
 
   const handleStart = () => {
+    setStartAttemptActive(true)
     setStartError(null)
     performAction(
       { id: ticket.id, action: 'start' },
@@ -307,6 +310,17 @@ export function DraftView({ ticket }: DraftViewProps) {
           </div>
         </div>
       </div>
+
+      {startAttemptActive && (
+        <div className="shrink-0 border-t border-border bg-background px-4 pb-3 pt-2">
+          <CollapsiblePhaseLogSection
+            phase="DRAFT"
+            ticket={ticket}
+            variant="bottom"
+            defaultHeight={220}
+          />
+        </div>
+      )}
 
       <div className="shrink-0 border-t border-border bg-background p-4 flex flex-col items-center justify-center gap-2">
         <Button

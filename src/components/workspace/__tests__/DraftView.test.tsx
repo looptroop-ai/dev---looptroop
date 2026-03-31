@@ -1,11 +1,16 @@
+import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act } from '@testing-library/react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { makeTicket, TEST } from '@/test/factories'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { LogProvider } from '@/context/LogContext'
+import { useLogs } from '@/context/useLogContext'
 import { DraftView } from '../DraftView'
 
 const queryClients: QueryClient[] = []
+let latestLogApi: ReturnType<typeof useLogs> = null
 
 function createJsonResponse(payload: unknown, status: number = 200) {
   return Promise.resolve(
@@ -16,7 +21,39 @@ function createJsonResponse(payload: unknown, status: number = 200) {
   )
 }
 
-function renderWithProviders(ui: React.ReactElement) {
+function createDeferredJsonResponse(payload: unknown, status: number = 200) {
+  let resolveResponse: ((value: Response) => void) | null = null
+  const promise = new Promise<Response>((resolve) => {
+    resolveResponse = resolve
+  })
+
+  return {
+    promise,
+    resolve: () => resolveResponse?.(new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })),
+  }
+}
+
+function hasTextContent(text: string) {
+  return (_content: string, node: Element | null) => node?.textContent?.includes(text) ?? false
+}
+
+function DraftLogHarness() {
+  const logApi = useLogs()
+
+  useEffect(() => {
+    latestLogApi = logApi
+  }, [logApi])
+
+  return null
+}
+
+function renderWithProviders(
+  ui: React.ReactElement,
+  options?: { withLogProvider?: boolean; logProviderTicketId?: string | null },
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: Infinity },
@@ -25,10 +62,18 @@ function renderWithProviders(ui: React.ReactElement) {
   })
   queryClients.push(queryClient)
 
+  const wrapped = options?.withLogProvider
+    ? (
+      <LogProvider ticketId={options.logProviderTicketId} currentStatus="DRAFT">
+        {ui}
+      </LogProvider>
+    )
+    : ui
+
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        {ui}
+        {wrapped}
       </TooltipProvider>
     </QueryClientProvider>,
   )
@@ -79,21 +124,44 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Respons
   })
 }
 
+beforeAll(() => {
+  class ResizeObserverMock {
+    observe() {}
+    disconnect() {}
+    unobserve() {}
+  }
+
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: ResizeObserverMock,
+  })
+
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  })
+})
+
 describe('DraftView', () => {
   afterEach(() => {
     cleanup()
+    latestLogApi = null
     for (const queryClient of queryClients.splice(0)) {
       queryClient.clear()
     }
     vi.restoreAllMocks()
   })
 
-  it('shows the start error when the ticket cannot start', async () => {
+  it('mounts the draft log viewer immediately when start begins and keeps it open on failure', async () => {
+    const startResponse = createDeferredJsonResponse({
+      error: 'Council member models are not configured in OpenCode: anthropic/claude-sonnet-4, google/gemini-2.5-pro',
+    }, 400)
+
     mockFetch((url) => {
       if (url === `/api/tickets/${TEST.ticketId}/start`) {
-        return createJsonResponse({
-          error: 'Council member models are not configured in OpenCode: anthropic/claude-sonnet-4, google/gemini-2.5-pro',
-        }, 400)
+        return startResponse.promise
       }
       throw new Error(`Unhandled fetch: ${url}`)
     })
@@ -109,9 +177,65 @@ describe('DraftView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /start ticket/i }))
 
+    expect(screen.getByRole('button', { name: /^Log — /i })).toBeInTheDocument()
+    expect(screen.getByText(/No log entries yet\. Logs will stream here during execution\./i)).toBeInTheDocument()
+
+    startResponse.resolve()
+
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Council member models are not configured in OpenCode')
     expect(alert).toHaveTextContent('Update Configuration to choose currently available models, then try again.')
+    expect(screen.getByRole('button', { name: /^Log — /i })).toBeInTheDocument()
+  })
+
+  it('renders streamed draft logs through LogProvider once the start viewer is open', async () => {
+    const startResponse = createDeferredJsonResponse({ error: 'Failed to start ticket.' }, 400)
+
+    mockFetch((url) => {
+      if (url === `/api/tickets/${TEST.ticketId}/start`) {
+        return startResponse.promise
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderWithProviders(
+      <>
+        <DraftView ticket={makeTicket({ description: 'Add a planning gate before interview.', availableActions: ['start', 'cancel'] })} />
+        <DraftLogHarness />
+      </>,
+      {
+        withLogProvider: true,
+        logProviderTicketId: null,
+      },
+    )
+
+    expect(await screen.findByText('Current Council Members')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /start ticket/i }))
+
+    expect(screen.getByText(/No log entries yet\. Logs will stream here during execution\./i)).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(latestLogApi).not.toBeNull()
+    })
+
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        latestLogApi?.addLog('DRAFT', 'Validating model availability.', {
+          source: 'system',
+          kind: 'milestone',
+        })
+        await vi.advanceTimersByTimeAsync(1)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(screen.getAllByText(hasTextContent('Validating model availability.')).length).toBeGreaterThan(0)
+
+    startResponse.resolve()
+    await screen.findByRole('alert')
   })
 
   it('lets users edit the description while the ticket is in backlog', async () => {
