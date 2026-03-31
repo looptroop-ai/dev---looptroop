@@ -132,7 +132,13 @@ async function executeBeadsExpandStep(params: {
         repairWarnings: expandedResult.repairWarnings,
       })
 
-      validateBeadExpansion(params.beadSubsets, expandedResult.value)
+      const validationRepairWarnings = validateBeadExpansion(params.beadSubsets, expandedResult.value)
+      if (validationRepairWarnings.length > 0) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          repairApplied: true,
+          repairWarnings: validationRepairWarnings,
+        })
+      }
       const hydratedBeads = hydrateExpandedBeads(params.beadSubsets, expandedResult.value, params.externalRef)
       const hydratedContent = hydratedBeads.map((bead) => JSON.stringify(bead)).join('\n')
       const hydratedResult = normalizeBeadsJsonlOutput(hydratedContent)
@@ -160,7 +166,7 @@ async function executeBeadsExpandStep(params: {
         autoRetryCount: 1,
         validationError,
       })
-      promptParts = buildStructuredRetryPrompt(baseParts, {
+      promptParts = buildBeadsExpandRetryPrompt(baseParts, {
         validationError,
         rawResponse: response,
         schemaReminder: PROM23.outputFormat,
@@ -170,6 +176,31 @@ async function executeBeadsExpandStep(params: {
   }
 
   throw new Error('Beads expansion finished without a valid structured result')
+}
+
+function buildBeadsExpandRetryPrompt(
+  baseParts: PromptPart[],
+  options: {
+    validationError: string
+    rawResponse: string
+    schemaReminder?: string
+    doNotUseTools?: boolean
+  },
+): PromptPart[] {
+  const preservedFieldDriftGuidance = options.validationError.includes('changed preserved Part 1 fields or order')
+    ? [
+        options.schemaReminder,
+        'Preserved-field correction:',
+        '- Copy every Part 1 field from `### beads_draft` verbatim, including punctuation.',
+        '- Edit only `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`.',
+        '- Do not rewrite `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, or `testCommands`.',
+      ].filter(Boolean).join('\n')
+    : options.schemaReminder
+
+  return buildStructuredRetryPrompt(baseParts, {
+    ...options,
+    schemaReminder: preservedFieldDriftGuidance,
+  })
 }
 
 export async function handleBeadsDraft(

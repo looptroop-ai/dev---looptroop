@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
 import { phaseIntermediate, phaseResults } from '../phases/state'
@@ -121,9 +122,9 @@ function buildValidRefinementOutput(): string {
   ].join('\n')
 }
 
-function buildValidExpansionOutput(): string {
+function buildExpansionRecords() {
   return [
-    JSON.stringify({
+    {
       id: 'proj-1-validate-refinement-attribution',
       title: 'Validate refinement attribution',
       prdRefs: ['EPIC-1 / US-1'],
@@ -139,8 +140,8 @@ function buildValidExpansionOutput(): string {
       labels: ['ticket:PROJ-1', 'story:US-1'],
       dependencies: { blocked_by: [] },
       targetFiles: ['server/workflow/phases/beadsPhase.ts'],
-    }),
-    JSON.stringify({
+    },
+    {
       id: 'proj-1-surface-retry-metadata',
       title: 'Surface retry metadata',
       prdRefs: ['EPIC-1 / US-2'],
@@ -156,8 +157,20 @@ function buildValidExpansionOutput(): string {
       labels: ['ticket:PROJ-1', 'story:US-2'],
       dependencies: { blocked_by: ['proj-1-validate-refinement-attribution'] },
       targetFiles: ['src/components/workspace/ArtifactContentViewer.tsx'],
-    }),
-  ].join('\n')
+    },
+  ]
+}
+
+function buildValidExpansionOutput(options?: {
+  mutateFirstBead?: (bead: ReturnType<typeof buildExpansionRecords>[number]) => ReturnType<typeof buildExpansionRecords>[number]
+}): string {
+  const [firstBead, ...remainingBeads] = buildExpansionRecords()
+  const beads = [
+    options?.mutateFirstBead ? options.mutateFirstBead(firstBead!) : firstBead!,
+    ...remainingBeads,
+  ]
+
+  return beads.map((bead) => JSON.stringify(bead)).join('\n')
 }
 
 describe('handleBeadsRefine', () => {
@@ -283,6 +296,196 @@ describe('handleBeadsRefine', () => {
       }),
     }))
     expect(phaseIntermediate.get(`${ticket.id}:beads`)).toBeUndefined()
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
+  })
+
+  it('salvages punctuation-only preserved-field drift and records a repair warning', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Salvage near-miss bead expansion drift',
+      description: 'Keep beads expansion strict but tolerate punctuation-only preserved-field drift.',
+    })
+    const sendEvent = vi.fn()
+    const winnerId = TEST.councilMembers[0]
+    const winnerDraftContent = buildBeadSubsetContent()
+    const losingDraftContent = buildBeadSubsetContent({
+      includeSecondBead: true,
+      secondBeadId: 'bead-9',
+      secondBeadTitle: 'Adopt losing-draft telemetry',
+    })
+
+    phaseIntermediate.set(`${ticket.id}:beads`, {
+      phase: 'beads',
+      worktreePath: paths.worktreePath,
+      winnerId,
+      drafts: [
+        { memberId: winnerId, outcome: 'completed', content: winnerDraftContent, duration: 1 },
+        { memberId: TEST.councilMembers[1], outcome: 'completed', content: losingDraftContent, duration: 1 },
+      ],
+      memberOutcomes: {
+        [winnerId]: 'completed',
+        [TEST.councilMembers[1]]: 'completed',
+      },
+      contextBuilder: () => [],
+    })
+
+    refineDraftMock.mockImplementationOnce(async (
+      _adapter: unknown,
+      _winnerDraft: unknown,
+      _losingDrafts: unknown,
+      _contextParts: unknown,
+      _projectPath: unknown,
+      _timeoutMs: unknown,
+      _signal: unknown,
+      _onOpenCodeSessionLog: unknown,
+      _onOpenCodeStreamEvent: unknown,
+      _onOpenCodePromptDispatched: unknown,
+      _sessionOwnership: unknown,
+      _buildPrompt: unknown,
+      validateResponse?: (content: string) => { normalizedContent?: string },
+    ) => validateResponse?.(buildValidRefinementOutput()).normalizedContent ?? buildValidRefinementOutput())
+
+    runOpenCodePromptMock.mockResolvedValueOnce({
+      session: { id: 'session-expand-salvage' },
+      response: buildValidExpansionOutput({
+        mutateFirstBead: (bead) => ({
+          ...bead,
+          contextGuidance: {
+            patterns: ['Keep repairs deterministic'],
+            anti_patterns: bead.contextGuidance.anti_patterns,
+          },
+        }),
+      }),
+      messages: [],
+      responseMeta: {
+        hasAssistantMessage: true,
+        latestAssistantWasEmpty: false,
+        latestAssistantHasError: false,
+        latestAssistantWasStale: false,
+      },
+    })
+
+    await handleBeadsRefine(ticket.id, context, sendEvent, new AbortController().signal)
+
+    const persistedBeads = readFileSync(paths.beadsPath, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { contextGuidance: { patterns: string[] } })
+    expect(persistedBeads[0]?.contextGuidance.patterns[0]).toBe('Keep repairs deterministic.')
+
+    const companionArtifact = JSON.parse(readFileSync(
+      resolve(paths.ticketDir, 'ui', 'artifact-companions', 'beads_expanded.json'),
+      'utf-8',
+    )) as {
+      payload: {
+        structuredOutput: {
+          repairApplied: boolean
+          autoRetryCount: number
+          repairWarnings: string[]
+        }
+      }
+    }
+    expect(companionArtifact.payload.structuredOutput.repairApplied).toBe(true)
+    expect(companionArtifact.payload.structuredOutput.autoRetryCount).toBe(0)
+    expect(companionArtifact.payload.structuredOutput.repairWarnings).toEqual([
+      expect.stringContaining('punctuation/whitespace-only drift'),
+    ])
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
+  })
+
+  it('adds preserved-field verbatim guidance on retry while keeping the retry budget at one', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Retry beads expansion with preserved-field drift guidance',
+      description: 'Ensure preserved-field drift retries include the extra verbatim-copy appendix.',
+    })
+    const sendEvent = vi.fn()
+    const winnerId = TEST.councilMembers[0]
+    const winnerDraftContent = buildBeadSubsetContent()
+    const losingDraftContent = buildBeadSubsetContent({
+      includeSecondBead: true,
+      secondBeadId: 'bead-9',
+      secondBeadTitle: 'Adopt losing-draft telemetry',
+    })
+
+    phaseIntermediate.set(`${ticket.id}:beads`, {
+      phase: 'beads',
+      worktreePath: paths.worktreePath,
+      winnerId,
+      drafts: [
+        { memberId: winnerId, outcome: 'completed', content: winnerDraftContent, duration: 1 },
+        { memberId: TEST.councilMembers[1], outcome: 'completed', content: losingDraftContent, duration: 1 },
+      ],
+      memberOutcomes: {
+        [winnerId]: 'completed',
+        [TEST.councilMembers[1]]: 'completed',
+      },
+      contextBuilder: () => [],
+    })
+
+    refineDraftMock.mockImplementationOnce(async (
+      _adapter: unknown,
+      _winnerDraft: unknown,
+      _losingDrafts: unknown,
+      _contextParts: unknown,
+      _projectPath: unknown,
+      _timeoutMs: unknown,
+      _signal: unknown,
+      _onOpenCodeSessionLog: unknown,
+      _onOpenCodeStreamEvent: unknown,
+      _onOpenCodePromptDispatched: unknown,
+      _sessionOwnership: unknown,
+      _buildPrompt: unknown,
+      validateResponse?: (content: string) => { normalizedContent?: string },
+    ) => validateResponse?.(buildValidRefinementOutput()).normalizedContent ?? buildValidRefinementOutput())
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'session-expand-retry-1' },
+        response: buildValidExpansionOutput({
+          mutateFirstBead: (bead) => ({
+            ...bead,
+            description: 'Rewrite the refinement pipeline around a new metadata transport.',
+          }),
+        }),
+        messages: [],
+        responseMeta: {
+          hasAssistantMessage: true,
+          latestAssistantWasEmpty: false,
+          latestAssistantHasError: false,
+          latestAssistantWasStale: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'session-expand-retry-2' },
+        response: buildValidExpansionOutput(),
+        messages: [],
+        responseMeta: {
+          hasAssistantMessage: true,
+          latestAssistantWasEmpty: false,
+          latestAssistantHasError: false,
+          latestAssistantWasStale: false,
+        },
+      })
+
+    await handleBeadsRefine(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(2)
+    const secondCall = runOpenCodePromptMock.mock.calls[1]?.[0] as { parts: Array<{ content: string }> }
+    const retryPromptText = secondCall.parts.map((part) => part.content).join('\n')
+    expect(retryPromptText).toContain('Copy every Part 1 field from `### beads_draft` verbatim, including punctuation.')
+    expect(retryPromptText).toContain('Edit only `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`.')
+    expect(retryPromptText).toContain('Do not rewrite `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, or `testCommands`.')
+
+    const companionArtifact = JSON.parse(readFileSync(
+      resolve(paths.ticketDir, 'ui', 'artifact-companions', 'beads_expanded.json'),
+      'utf-8',
+    )) as {
+      payload: {
+        structuredOutput: {
+          autoRetryCount: number
+        }
+      }
+    }
+    expect(companionArtifact.payload.structuredOutput.autoRetryCount).toBe(1)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
   })
 })

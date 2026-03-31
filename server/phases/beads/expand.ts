@@ -66,16 +66,79 @@ export function expandBeads(subsetBeads: BeadSubset[], externalRef: string = '')
   })
 }
 
-function normalizeSubsetRecord(bead: Pick<Bead, 'title' | 'prdRefs' | 'description' | 'contextGuidance' | 'acceptanceCriteria' | 'tests' | 'testCommands'>) {
-  return JSON.stringify({
-    title: bead.title,
-    prdRefs: bead.prdRefs,
-    description: bead.description,
-    contextGuidance: bead.contextGuidance,
-    acceptanceCriteria: bead.acceptanceCriteria,
-    tests: bead.tests,
-    testCommands: bead.testCommands,
-  })
+function compareExactStringArrays(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function normalizeNarrativeText(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?]+$/u, '')
+}
+
+function collectNarrativeStringDrift(fieldPath: string, left: string, right: string): string[] | null {
+  if (left === right) return []
+  return normalizeNarrativeText(left) === normalizeNarrativeText(right) ? [fieldPath] : null
+}
+
+function collectNarrativeArrayDrift(fieldPath: string, left: string[], right: string[]): string[] | null {
+  if (left.length !== right.length) return null
+  const driftPaths: string[] = []
+  for (let index = 0; index < left.length; index += 1) {
+    const itemDrift = collectNarrativeStringDrift(`${fieldPath}[${index}]`, left[index] ?? '', right[index] ?? '')
+    if (itemDrift == null) return null
+    driftPaths.push(...itemDrift)
+  }
+  return driftPaths
+}
+
+function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): string[] | null {
+  if (!compareExactStringArrays(subset.prdRefs, bead.prdRefs)) {
+    return null
+  }
+  if (!compareExactStringArrays(subset.testCommands, bead.testCommands)) {
+    return null
+  }
+
+  const driftPaths: string[] = []
+  const titleDrift = collectNarrativeStringDrift('title', subset.title, bead.title)
+  if (titleDrift == null) return null
+  driftPaths.push(...titleDrift)
+
+  const descriptionDrift = collectNarrativeStringDrift('description', subset.description, bead.description)
+  if (descriptionDrift == null) return null
+  driftPaths.push(...descriptionDrift)
+
+  const patternDrift = collectNarrativeArrayDrift(
+    'contextGuidance.patterns',
+    subset.contextGuidance.patterns,
+    bead.contextGuidance.patterns,
+  )
+  if (patternDrift == null) return null
+  driftPaths.push(...patternDrift)
+
+  const antiPatternDrift = collectNarrativeArrayDrift(
+    'contextGuidance.anti_patterns',
+    subset.contextGuidance.anti_patterns,
+    bead.contextGuidance.anti_patterns,
+  )
+  if (antiPatternDrift == null) return null
+  driftPaths.push(...antiPatternDrift)
+
+  const acceptanceCriteriaDrift = collectNarrativeArrayDrift(
+    'acceptanceCriteria',
+    subset.acceptanceCriteria,
+    bead.acceptanceCriteria,
+  )
+  if (acceptanceCriteriaDrift == null) return null
+  driftPaths.push(...acceptanceCriteriaDrift)
+
+  const testsDrift = collectNarrativeArrayDrift('tests', subset.tests, bead.tests)
+  if (testsDrift == null) return null
+  driftPaths.push(...testsDrift)
+
+  return driftPaths
 }
 
 function isProjectRelativePath(filePath: string): boolean {
@@ -89,12 +152,13 @@ function isProjectRelativePath(filePath: string): boolean {
   return true
 }
 
-export function validateBeadExpansion(subsetBeads: BeadSubset[], expandedBeads: Bead[]): void {
+export function validateBeadExpansion(subsetBeads: BeadSubset[], expandedBeads: Bead[]): string[] {
   if (expandedBeads.length !== subsetBeads.length) {
     throw new Error(`Expanded bead count ${expandedBeads.length} does not match refined blueprint count ${subsetBeads.length}`)
   }
 
   const idToIndex = new Map(expandedBeads.map((bead, index) => [bead.id, index] as const))
+  const repairWarnings: string[] = []
 
   for (const [index, bead] of expandedBeads.entries()) {
     const subset = subsetBeads[index]
@@ -102,8 +166,14 @@ export function validateBeadExpansion(subsetBeads: BeadSubset[], expandedBeads: 
       throw new Error(`Expanded bead at index ${index} has no matching refined blueprint bead`)
     }
 
-    if (normalizeSubsetRecord(subset) !== normalizeSubsetRecord(bead)) {
+    const preservedFieldDrift = collectPreservedFieldDrift(subset, bead)
+    if (preservedFieldDrift == null) {
       throw new Error(`Expanded bead at index ${index} changed preserved Part 1 fields or order`)
+    }
+    if (preservedFieldDrift.length > 0) {
+      repairWarnings.push(
+        `Restored preserved Part 1 narrative fields from the refined blueprint for expanded bead at index ${index} (${subset.id}) after punctuation/whitespace-only drift in: ${preservedFieldDrift.join(', ')}.`,
+      )
     }
 
     if (!bead.issueType.trim()) {
@@ -134,6 +204,8 @@ export function validateBeadExpansion(subsetBeads: BeadSubset[], expandedBeads: 
       }
     }
   }
+
+  return repairWarnings
 }
 
 export function hydrateExpandedBeads(
