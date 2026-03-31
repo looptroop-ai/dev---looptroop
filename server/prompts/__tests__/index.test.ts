@@ -11,6 +11,7 @@ import {
   PROM11,
   PROM12,
   PROM13,
+  PROM13b,
   PROM20,
   PROM21,
   PROM22,
@@ -91,6 +92,7 @@ describe('structured prompt hardening', () => {
     expect(draftPrompt).toContain('Complete Interview Input')
     expect(draftPrompt).toContain('artifact: "prd"')
     expect(draftPrompt).toContain('acceptance_criteria')
+    expect(draftPrompt).toContain('Every epic must include at least one fully populated `user_stories` entry')
     expect(draftPrompt).toContain('Begin the artifact at `schema_version` and end at `approval.approved_at`')
     expect(draftPrompt).toContain('shorten field text instead of truncating later epics')
     expect(draftPrompt).toContain('Never output implementation plans, diffs, next steps, acknowledgements, commentary')
@@ -98,6 +100,10 @@ describe('structured prompt hardening', () => {
     const refinePrompt = buildPromptFromTemplate(PROM12, [])
     expect(refinePrompt).toContain('Return one YAML artifact')
     expect(refinePrompt).toContain('Do not split the refined PRD and change metadata')
+    expect(refinePrompt).toContain('Every epic in the final PRD must include at least one fully populated `user_stories` entry')
+
+    const coverageResolutionPrompt = buildPromptFromTemplate(PROM13b, [])
+    expect(coverageResolutionPrompt).toContain('Every epic in the revised PRD must include at least one fully populated `user_stories` entry')
   })
 
   it('keeps PROM10a strict about preserving user answers and outputting only a full interview artifact', () => {

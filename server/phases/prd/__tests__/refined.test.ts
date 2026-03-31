@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { TEST, makeInterviewYaml, makeInterviewQuestion } from '../../../test/factories'
 import {
   buildPrdRefinedArtifact,
+  buildPrdRefinementRetryPrompt,
   parsePrdRefinedArtifact,
   requirePrdRefinedArtifact,
   validatePrdRefinementOutput,
@@ -117,6 +118,16 @@ function validationContext(overrides: Record<string, unknown> = {}) {
 }
 
 describe('PRD refined artifacts', () => {
+  it('keeps the retry prompt explicit about non-empty epic user_stories', () => {
+    const retryPrompt = buildPrdRefinementRetryPrompt([], {
+      validationError: 'Epic at index 1 is missing user stories',
+      rawResponse: 'schema_version: 1\nartifact: prd\n',
+    })
+
+    expect(retryPrompt[0]?.type).toBe('text')
+    expect(retryPrompt[0]?.content).toContain('Every epic must include at least one fully populated `user_stories` entry')
+  })
+
   it('validates a refined PRD only when changes fully and exactly cover the winner-to-final diff', () => {
     const result = validatePrdRefinementOutput(buildValidRefinementOutput(), {
       ...validationContext(),

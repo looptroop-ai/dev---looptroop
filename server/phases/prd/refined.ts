@@ -738,6 +738,7 @@ export function buildPrdRefinementRetryPrompt(
         '- The `changes` list must fully and exactly account for the diff between the winning PRD and the final refined PRD.',
         '- Every changed epic or user story must appear exactly once in `changes`.',
         '- Epic changes do not subsume changed user stories.',
+        '- Every epic must include at least one fully populated `user_stories` entry. Do not leave any epic with `user_stories: []`, omit `user_stories`, or move story-level requirements only into epic-level fields.',
         '- If an existing epic or user story keeps the same ID but its content changes, emit exactly one `modified` entry for that item.',
         '- Do not split one changed item across multiple change entries.',
         '- Preserve epic IDs and user story IDs unless the final draft contains a genuinely new item.',

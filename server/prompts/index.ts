@@ -370,6 +370,7 @@ export const PROM10b: PromptTemplate = {
   instructions: [
     'Complete Interview Input: Treat the provided Full Answers interview artifact as the complete requirement source, including any AI-resolved answers for questions the user originally skipped.',
     'Product Scope: Include epics, user stories, and acceptance criteria. Every in-scope feature from the Interview Results must map to at least one user story.',
+    'Epic Completeness: Every epic must include at least one fully populated `user_stories` entry. Never emit an epic shell with `user_stories: []`, omit `user_stories`, or park requirements only at epic level.',
     'Implementation Steps: For each user story, include detailed technical implementation steps decomposed as far as possible — data flows, state changes, component interactions, and integration points.',
     'Technical Requirements: Define architecture constraints, data model, API/contracts, security/performance/reliability constraints, error-handling rules, tooling/environment assumptions, explicit non-goals.',
     'Schema Contract: Follow the exact PRD YAML schema in the Expected Output Format section, including all required top-level keys and nested fields.',
@@ -414,6 +415,7 @@ export const PROM12: PromptTemplate = {
     'Selective Upgrade: For each candidate, decide: does it add genuine value, or is it a rephrasing of something you already cover well? If it fills a real gap, add it. If it is a strictly better formulation of something you already have, replace yours with it. Otherwise, discard it.',
     'Measured Refinement: Do not rewrite from scratch or blend drafts together just for balance. But it is acceptable to improve multiple sections, adjust local structure, or rework content across the draft if that produces a clearly stronger final result.',
     'Restraint: Avoid adding content that merely restates what you already cover. But if genuine gaps exist — missing requirements, unaddressed risks, overlooked error states — add them; completeness matters more than brevity.',
+    'Epic Completeness: Every epic in the final PRD must include at least one fully populated `user_stories` entry. Never leave an epic as a shell with `user_stories: []`, omit `user_stories`, or move story-level requirements only into epic-level fields.',
     'Single Artifact Contract: Return one YAML artifact that contains both the final refined PRD and a top-level `changes` list. Do not split the refined PRD and change metadata across multiple outputs, wrappers, or separate artifacts.',
     'Changes Coverage: The top-level `changes` list must fully account for the differences between the winning PRD and the final refined PRD. Use `type` values `modified`, `added`, or `removed`. Include `item_type` (`epic` or `user_story`) plus `before` and `after` item records (or `null` when appropriate).',
     'One-Entry-Per-Item Rule: Every changed epic or user story must appear exactly once in `changes`. Epic changes do not subsume changed user stories. If an existing item keeps the same ID but its content changes, emit exactly one `modified` entry for that item.',
@@ -462,6 +464,7 @@ export const PROM13b: PromptTemplate = {
     'Baseline Rule: Treat the provided current PRD candidate as the baseline. Do not rewrite from scratch.',
     'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
     'Preservation Rule: Keep existing epic IDs and user story IDs unless the revised candidate requires a genuinely new item.',
+    'Epic Completeness: Every epic in the revised PRD must include at least one fully populated `user_stories` entry. Never leave an epic as a shell with `user_stories: []`, omit `user_stories`, or move story-level requirements only into epic-level fields.',
     'Change Accounting: Include a top-level `changes` list that fully and exactly accounts for the diff between the current PRD candidate and the revised PRD candidate.',
     'Gap Resolution Accounting: Include a top-level `gap_resolutions` list with exactly one entry per provided gap.',
     'Gap Resolution Actions: Each `gap_resolutions` entry must include `gap`, `action`, `rationale`, and `affected_items`. `action` must be one of `updated_prd`, `already_covered`, or `left_unresolved`.',
