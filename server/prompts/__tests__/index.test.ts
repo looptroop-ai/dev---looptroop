@@ -174,6 +174,18 @@ describe('structured prompt hardening', () => {
     expect(refinePrompt).toContain('Do not split the refined beads and change metadata')
   })
 
+  it('keeps PROM23 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {
+    const expandPrompt = buildPromptFromTemplate(PROM23, [])
+
+    expect(expandPrompt).toContain('Order Is Mandatory')
+    expect(expandPrompt).toContain('The app executes beads sequentially in this order')
+    expect(expandPrompt).toContain('Add only these fields per bead: `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`')
+    expect(expandPrompt).toContain('Do not generate or rely on `priority`, `status`, `externalRef`, `dependencies.blocks`')
+    expect(expandPrompt).toContain('Use `relevant_files` first as hints for likely `targetFiles`')
+    expect(expandPrompt).toContain('Repository-inspection tools are allowed')
+    expect(expandPrompt).toContain('Do not edit files, run mutating commands, or change the repository')
+  })
+
   it('keeps PROM4 and PROM52 explicit about marker-only structured output', () => {
     const interviewPrompt = buildPromptFromTemplate(PROM4, [])
     const finalTestPrompt = buildPromptFromTemplate(PROM52, [])

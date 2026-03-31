@@ -378,4 +378,60 @@ describe('Interview approval UI', () => {
     expect(screen.getByText('Building the structured approval view.')).toBeInTheDocument()
     expect(screen.queryByText(/schema_version: 1/i)).not.toBeInTheDocument()
   }, 30_000)
+
+  it('uses the shared bead renderer with nested metadata in beads approval view', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url === `/api/tickets/${TEST.ticketId}/beads`) {
+        return createJsonResponse([
+          {
+            id: 'proj-1-review-approval-metadata',
+            title: 'Review approval metadata',
+            prdRefs: ['EPIC-1', 'US-1'],
+            description: 'Render the final beads approval card with metadata.',
+            contextGuidance: {
+              patterns: ['Reuse the shared bead renderer in approval mode.'],
+              anti_patterns: ['Do not keep a separate approval-only bead layout.'],
+            },
+            acceptanceCriteria: ['Approval shows full bead structure.'],
+            tests: ['Render the bead card in approval mode.'],
+            testCommands: ['npm run test -- ApprovalView'],
+            priority: 1,
+            status: 'pending',
+            issueType: 'task',
+            externalRef: TEST.externalId,
+            labels: ['ticket:PROJ-1', 'story:US-1'],
+            dependencies: { blocked_by: [], blocks: [] },
+            targetFiles: ['src/components/workspace/ApprovalView.tsx'],
+            notes: '',
+            iteration: 1,
+            createdAt: '2026-03-31T10:00:00.000Z',
+            updatedAt: '2026-03-31T10:00:00.000Z',
+            completedAt: '',
+            startedAt: '',
+            beadStartCommit: null,
+          },
+        ])
+      }
+      if (url === `/api/tickets/${TEST.ticketId}/artifacts`) {
+        return createJsonResponse([])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
+
+    fireEvent.click((await screen.findByText('Review approval metadata')).closest('button')!)
+
+    expect(screen.getByText('Target Files')).toBeInTheDocument()
+    expect(screen.getByText('src/components/workspace/ApprovalView.tsx')).toBeInTheDocument()
+    const metadataButton = screen.getByRole('button', { name: /^Metadata$/i })
+    expect(metadataButton).toBeInTheDocument()
+    expect(screen.queryByText('Issue Type')).not.toBeInTheDocument()
+
+    fireEvent.click(metadataButton)
+
+    expect(screen.getByText('Issue Type')).toBeInTheDocument()
+    expect(screen.getByText('Lifecycle')).toBeInTheDocument()
+  }, 30_000)
 })

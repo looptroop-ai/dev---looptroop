@@ -1140,8 +1140,9 @@ export async function handleCoverageVerification(
       ? 'interview_compiled'
       : phase === 'prd'
         ? 'prd_refined'
-        : 'beads_refined'
+        : 'beads_expanded'
     const compiledArtifact = getLatestPhaseArtifact(ticketId, compiledArtifactType)
+      ?? (phase === 'beads' ? getLatestPhaseArtifact(ticketId, 'beads_refined') : null)
     if (compiledArtifact) {
       try {
         refinedContent = phase === 'prd'

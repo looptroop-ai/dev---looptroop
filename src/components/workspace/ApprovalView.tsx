@@ -8,7 +8,7 @@ import { YamlEditor } from '@/components/editor/YamlEditor'
 import type { Ticket } from '@/hooks/useTickets'
 import { InterviewApprovalPane } from './InterviewApprovalPane'
 import { PrdApprovalPane } from './PrdApprovalPane'
-import { CollapsibleSection } from './ArtifactContentViewer'
+import { BeadsDraftView } from './ArtifactContentViewer'
 
 interface ApprovalViewProps {
   ticket: Ticket
@@ -21,58 +21,6 @@ function beadsArrayToJsonl(beads: unknown[]): string {
 
 function jsonlToBeadsArray(jsonl: string): unknown[] {
   return jsonl.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l))
-}
-
-function BeadsStructuredView({ content }: { content: string }) {
-  let beads: Array<Record<string, unknown>> = []
-  try { beads = jsonlToBeadsArray(content) as Array<Record<string, unknown>> } catch { /* ignore */ }
-  if (beads.length === 0) return <div className="text-xs text-muted-foreground italic p-4">No beads to display</div>
-  return (
-    <div className="bg-muted rounded-md p-3 font-mono text-xs space-y-2">
-      <div className="text-xs text-muted-foreground mb-2">{beads.length} beads</div>
-      {beads.map((bead, i) => (
-        <CollapsibleSection
-          key={String(bead.id ?? i)}
-          title={(
-            <span className="flex items-center gap-2 min-w-0 w-full">
-              <span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">#{bead.priority != null ? String(bead.priority) : String(i + 1)}</span>
-              <span className="min-w-0 truncate">{String(bead.title ?? `Bead ${i + 1}`)}</span>
-              {bead.status ? <span className="ml-auto text-muted-foreground text-[10px]">{String(bead.status)}</span> : null}
-            </span>
-          )}
-        >
-          <div className="space-y-1.5">
-            {bead.description ? <div><span className="text-blue-600 dark:text-blue-400">description</span>: {String(bead.description)}</div> : null}
-            {bead.acceptance_criteria ? <div><span className="text-blue-600 dark:text-blue-400">acceptance_criteria</span>: {String(bead.acceptance_criteria)}</div> : null}
-            {bead.prd_references ? <div><span className="text-blue-600 dark:text-blue-400">prd_references</span>: {String(bead.prd_references)}</div> : null}
-            {Array.isArray(bead.target_files) && <div><span className="text-blue-600 dark:text-blue-400">target_files</span>: {(bead.target_files as string[]).join(', ')}</div>}
-            {bead.context_guidance && typeof bead.context_guidance === 'object' && !Array.isArray(bead.context_guidance) ? (
-              <div className="border-l-2 border-violet-400 dark:border-violet-600 pl-2">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-600 dark:text-violet-400">context_guidance</span>
-                {Array.isArray((bead.context_guidance as Record<string, unknown>).patterns) && ((bead.context_guidance as Record<string, unknown>).patterns as string[]).length > 0 && (
-                  <div className="pl-2 mt-0.5"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">patterns</span>: {((bead.context_guidance as Record<string, unknown>).patterns as string[]).join('; ')}</div>
-                )}
-                {Array.isArray((bead.context_guidance as Record<string, unknown>).anti_patterns) && ((bead.context_guidance as Record<string, unknown>).anti_patterns as string[]).length > 0 && (
-                  <div className="pl-2 mt-0.5"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">anti_patterns</span>: {((bead.context_guidance as Record<string, unknown>).anti_patterns as string[]).join('; ')}</div>
-                )}
-              </div>
-            ) : null}
-            {(Array.isArray(bead.tests) && (bead.tests as string[]).length > 0) || (Array.isArray(bead.test_commands) && (bead.test_commands as string[]).length > 0) ? (
-              <div className="border-l-2 border-amber-400 dark:border-amber-600 pl-2">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">tests</span>
-                {Array.isArray(bead.tests) && (bead.tests as string[]).length > 0 && (
-                  <div className="mt-0.5">{(bead.tests as string[]).join('; ')}</div>
-                )}
-                {Array.isArray(bead.test_commands) && (bead.test_commands as string[]).length > 0 && (
-                  <div className="mt-0.5"><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">test_commands</span>: {(bead.test_commands as string[]).join('; ')}</div>
-                )}
-              </div>
-            ) : null}
-          </div>
-        </CollapsibleSection>
-      ))}
-    </div>
-  )
 }
 
 function GenericApprovalView({ ticket }: { ticket: Ticket }) {
@@ -238,7 +186,7 @@ function GenericApprovalView({ ticket }: { ticket: Ticket }) {
         ) : editMode ? (
           <YamlEditor value={editedContent} onChange={setEditedContent} className="border rounded-md" />
         ) : fileContent ? (
-          <BeadsStructuredView content={fileContent} />
+          <BeadsDraftView content={fileContent} />
         ) : null}
       </div>
 

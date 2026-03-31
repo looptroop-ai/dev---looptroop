@@ -260,8 +260,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     if (artifactDef.id === 'refined-beads') {
       const coverageArtifact = findExactArtifact('beads_coverage_input')
       const coverageCompanion = findCompanionArtifact('beads_coverage_input')
-      const refinedArtifact = findExactArtifact('beads_refined')
-      const refinedCompanion = findCompanionArtifact('beads_refined')
+      const refinedArtifact = findExactArtifact('beads_expanded') ?? findExactArtifact('beads_refined')
+      const refinedCompanion = findCompanionArtifact('beads_expanded') ?? findCompanionArtifact('beads_refined')
       const winnerArtifact = findExactArtifact('beads_winner')
       const uiDiffArtifact = findExactArtifact('ui_refinement_diff:beads')
       const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'beads_coverage_input')
@@ -279,8 +279,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifactDef.id === 'final-beads-draft') {
-      const refinedArtifact = findExactArtifact('beads_refined')
-      const refinedCompanion = findCompanionArtifact('beads_refined')
+      const refinedArtifact = findExactArtifact('beads_expanded') ?? findExactArtifact('beads_refined')
+      const refinedCompanion = findCompanionArtifact('beads_expanded') ?? findCompanionArtifact('beads_refined')
       const winnerArtifact = findExactArtifact('beads_winner')
       const uiDiffArtifact = findExactArtifact('ui_refinement_diff:beads')
       return buildFinalRefinementArtifactContent(

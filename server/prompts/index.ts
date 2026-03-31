@@ -551,28 +551,20 @@ export const PROM22: PromptTemplate = {
 
 export const PROM23: PromptTemplate = {
   id: 'PROM23',
-  description: 'Beads Full Fields Expansion Prompt',
+  description: 'Beads Semantic Expansion Prompt',
   systemRole: "You are the Lead Architect and the winner of the AI Council's Beads phase.",
-  task: 'Take the refined Beads draft (which contains only the subset fields: id, title, prdRefs, description, contextGuidance, acceptanceCriteria, tests, testCommands) and create the final Beads breakdown by adding all remaining required fields per bead.',
+  task: 'Take the final refined Beads blueprint from Part 1 and expand each bead into the final execution-ready Beads list by adding only the AI-owned fields.',
   instructions: [
-    `Expansion Fields: Each bead has 22 fields total. The refined draft already contains some fields (title, prdRefs, description, contextGuidance, acceptanceCriteria, tests, testCommands). For each bead, read the existing fields and add the following remaining fields while preserving all existing content:
-  1.  id — unique hierarchical bead ID including ticket name and structure for epics/tasks/subtasks, plus a short 4-character suffix hash for uniqueness (e.g., "PROJ-1-EPIC-1-US-1-task4-sub1-h3fa"). Replace the draft kebab-case ID with this hierarchical format.
-  3.  priority — numeric execution priority (sequential order: 1 for the first bead to execute, 2 for the second, etc.).
-  4.  status — set to "pending" (lifecycle: pending → in_progress → done / error).
-  5.  issueType — "task", "bug", "chore", etc. (included for future use).
-  6.  externalRef — parent ticket ID (e.g., PROJ-1).
-  8.  labels — every bead must map to at least one user story and one epic (if epics exist); additional labels allowed (e.g., "backend", "frontend", "database") for future filtering and stats. Format: ["ticket:PROJ-1", "epic:EPIC-1", "story:US-1", ...].
-  12. dependencies — two arrays: "blocked_by" (bead IDs that must complete before this bead can start) and "blocks" (bead IDs that cannot start until this bead completes). Both arrays use the new hierarchical bead IDs.
-  13. targetFiles — name and path (in project folder) of files explicitly targeted by the bead, only necessary ones to reduce context size.
-  16. notes — errors and learnings from previous attempts to help the agent learn from mistakes; empty string on first attempt; each failed attempt appends its details until max iterations is reached.
-  17. iteration — starts at 1, increases on each retry.
-  18. createdAt — ISO 8601 timestamp (when the bead record was created during planning).
-  19. updatedAt — ISO 8601 timestamp (updated by SYS when the bead record is modified).
-  20. completedAt — ISO 8601 timestamp (filled when status is set to "done"); empty string during planning.
-  21. startedAt — ISO 8601 timestamp (filled by SYS when status is set to "in_progress"); empty string during planning.
-  22. beadStartCommit — git commit SHA recorded by SYS when the bead begins execution; used to reset the worktree on context wipe (git reset --hard). Empty string during planning.`,
-    'Dependency Graph: Ensure all dependency edges (blocked_by and blocks) are valid — no dangling references, no self-dependencies, no circular dependencies. Priority order should respect dependency ordering.',
-    'Output Format: Output the complete final Beads breakdown with all 22 fields per bead, in dependency order. Output as JSONL.',
+    'Fresh Context Contract: This prompt includes only the approved final PRD, the final blueprint draft from Part 1, ticket details, and `relevant_files`. Use this refreshed context as your full working set; do not assume any prior conversation state.',
+    'Expansion Only: Preserve these Part 1 fields exactly for every bead: `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, and `testCommands`.',
+    'Order Is Mandatory: Preserve bead list order exactly. The app executes beads sequentially in this order and derives `priority` from this order. Do not reorder, merge, split, add, or remove beads.',
+    'AI-Owned Fields Only: Add only these fields per bead: `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`.',
+    'LoopTroop-Owned Fields: Do not generate or rely on `priority`, `status`, `externalRef`, `dependencies.blocks`, `notes`, `iteration`, `createdAt`, `updatedAt`, `completedAt`, `startedAt`, or `beadStartCommit`. LoopTroop will create those.',
+    'ID Contract: Generate a unique, stable, readable bead `id` for each bead. Hierarchical IDs are allowed when useful, but keep them concise and execution-friendly.',
+    'Dependency Contract: `dependencies.blocked_by` may reference only earlier beads in the existing list order. No self-dependencies. No forward references. Keep the graph acyclic.',
+    'Labels: Provide concise, useful labels grounded in the PRD and the refined blueprint. Include epic/story/ticket/domain labels when they are well supported by the provided context.',
+    'Target Files: Use `relevant_files` first as hints for likely `targetFiles`. Prefer those hints when they are already sufficient. Use repository-inspection tools only when the hints are insufficient or need confirmation. Return only minimal project-relative file paths that the bead is most likely to touch.',
+    'Tool Policy: Repository-inspection tools are allowed. You may read files and inspect the tree. Do not edit files, run mutating commands, or change the repository.',
     'Output Discipline: output JSONL only. No surrounding array. No markdown fences. No prose before or after the JSONL.',
     STRUCTURED_SELF_CHECK,
   ],

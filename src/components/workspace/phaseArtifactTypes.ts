@@ -941,9 +941,9 @@ export function resolveStaticArtifact(
     case 'coverage-report':
       return findExactType('prd_coverage') ?? findExactType('prd_coverage_revision')
     case 'refined-beads':
-      return findExactType('beads_coverage_input') ?? findExactType('beads_refined')
+      return findExactType('beads_coverage_input') ?? findExactType('beads_expanded') ?? findExactType('beads_refined')
     case 'final-beads-draft':
-      return findExactType('beads_refined')
+      return findExactType('beads_expanded') ?? findExactType('beads_refined')
     case 'relevant-files-scan':
       return findExactType('relevant_files_scan')
     case 'diagnostics':

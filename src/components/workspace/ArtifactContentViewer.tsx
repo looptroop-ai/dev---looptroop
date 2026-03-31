@@ -1422,17 +1422,50 @@ interface ParsedPrdDocument {
 }
 
 interface ParsedBead {
+  [key: string]: unknown
   id?: string
   title?: string
   prdRefs?: string[]
+  prd_refs?: string[]
   description?: string
   contextGuidance?: string | {
     patterns?: string[]
     anti_patterns?: string[]
   }
+  context_guidance?: string | {
+    patterns?: string[]
+    anti_patterns?: string[]
+  }
   acceptanceCriteria?: string[]
+  acceptance_criteria?: string[]
   tests?: string[]
   testCommands?: string[]
+  test_commands?: string[]
+  priority?: number
+  status?: string
+  issueType?: string
+  issue_type?: string
+  externalRef?: string
+  external_ref?: string
+  labels?: string[]
+  dependencies?: {
+    blocked_by?: string[]
+    blocks?: string[]
+  }
+  targetFiles?: string[]
+  target_files?: string[]
+  notes?: string
+  iteration?: number
+  createdAt?: string
+  created_at?: string
+  updatedAt?: string
+  updated_at?: string
+  completedAt?: string
+  completed_at?: string
+  startedAt?: string
+  started_at?: string
+  beadStartCommit?: string | null
+  bead_start_commit?: string | null
 }
 
 const PRD_TECHNICAL_SECTION_CONFIG: Array<{
@@ -1537,6 +1570,148 @@ function renderBeadGuidance(guidance: ParsedBead['contextGuidance']): React.Reac
           </ul>
         </div>
       )}
+    </div>
+  )
+}
+
+function getBeadStringArray(bead: ParsedBead, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = bead[key]
+    if (!Array.isArray(value)) continue
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+function getBeadStringValue(bead: ParsedBead, keys: string[]): string {
+  for (const key of keys) {
+    const value = bead[key]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+  return ''
+}
+
+function getBeadNumberValue(bead: ParsedBead, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = bead[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
+}
+
+function getBeadDependencies(bead: ParsedBead): { blockedBy: string[]; blocks: string[] } {
+  const raw = bead.dependencies
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { blockedBy: [], blocks: [] }
+  }
+
+  const record = raw as Record<string, unknown>
+  const blockedBy = Array.isArray(record.blocked_by)
+    ? record.blocked_by.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+  const blocks = Array.isArray(record.blocks)
+    ? record.blocks.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+
+  return { blockedBy, blocks }
+}
+
+function getBeadStatusTone(status: string) {
+  switch (status) {
+    case 'done':
+      return {
+        card: 'border-green-300/80 dark:border-green-800/80',
+        header: 'bg-green-50/80 dark:bg-green-950/30',
+        statusBadge: 'border-green-300 text-green-700 dark:border-green-800 dark:text-green-300',
+      }
+    case 'in_progress':
+      return {
+        card: 'border-blue-300/80 dark:border-blue-800/80',
+        header: 'bg-blue-50/80 dark:bg-blue-950/30',
+        statusBadge: 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300',
+      }
+    case 'error':
+      return {
+        card: 'border-red-300/80 dark:border-red-800/80',
+        header: 'bg-red-50/80 dark:bg-red-950/30',
+        statusBadge: 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300',
+      }
+    default:
+      return {
+        card: 'border-amber-300/80 dark:border-amber-800/80',
+        header: 'bg-amber-50/80 dark:bg-amber-950/30',
+        statusBadge: 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300',
+      }
+  }
+}
+
+function BeadChip({ value, tone = 'default', mono = false }: { value: string; tone?: 'default' | 'muted' | 'rose' | 'cyan'; mono?: boolean }) {
+  const toneClass = tone === 'rose'
+    ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-800'
+    : tone === 'cyan'
+      ? 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/30 dark:text-cyan-300 dark:border-cyan-800'
+      : tone === 'muted'
+        ? 'bg-muted text-muted-foreground border-border'
+        : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-300 dark:border-blue-800'
+
+  return (
+    <span className={cn('inline-flex items-center rounded border px-2 py-0.5 text-[10px]', toneClass, mono && 'font-mono')}>
+      {value}
+    </span>
+  )
+}
+
+function BeadSection({
+  title,
+  accent,
+  children,
+}: {
+  title: string
+  accent: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className={cn('text-xs border-l-2 pl-2 space-y-1.5', accent)}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function MetadataValue({ value, mono = false }: { value: string; mono?: boolean }) {
+  if (!value) {
+    return <span className="text-muted-foreground/70">Not set</span>
+  }
+  return <span className={cn(mono && 'font-mono')}>{value}</span>
+}
+
+function MetadataGroup({
+  title,
+  accent,
+  rows,
+}: {
+  title: string
+  accent: string
+  rows: Array<{ label: string; value: string; mono?: boolean }>
+}) {
+  return (
+    <div className={cn('rounded-md border px-3 py-2 space-y-2', accent)}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest">{title}</div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label} className="space-y-0.5">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{row.label}</div>
+            <div className="text-xs break-all">
+              <MetadataValue value={row.value} mono={row.mono} />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1685,61 +1860,186 @@ export function PrdDraftView({ content }: { content: string }) {
   )
 }
 
-function BeadsDraftView({ content }: { content: string }) {
+export function BeadsDraftView({ content }: { content: string }) {
   const beadsArray = parseBeadsArtifact(content)
   if (Array.isArray(beadsArray)) {
     return (
       <div className="space-y-2">
         <div className="text-xs text-muted-foreground mb-2">{beadsArray.length} beads</div>
         {beadsArray.map((bead, index) => (
-          <CollapsibleSection key={`${bead.id ?? 'bead'}-${index}`} title={<span className="flex items-center gap-1.5"><span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono">{bead.id || `Bead ${index + 1}`}</span> {bead.title}</span>}>
-            <div className="space-y-2.5 p-2">
-              {Array.isArray(bead.prdRefs) && bead.prdRefs.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {bead.prdRefs.map((ref, refIndex) => <span key={refIndex} className="px-1.5 py-0.5 bg-muted rounded border border-border text-[10px] text-muted-foreground">{ref}</span>)}
-                </div>
-              )}
-              {bead.description && (
-                <div className="text-xs">
-                  <div className="text-[10px] font-semibold uppercase tracking-widest text-foreground/60 mb-0.5">Description</div>
-                  <span className="whitespace-pre-wrap">{bead.description}</span>
-                </div>
-              )}
-              {renderBeadGuidance(bead.contextGuidance)}
-              {Array.isArray(bead.acceptanceCriteria) && bead.acceptanceCriteria.filter(Boolean).length > 0 && (
-                <div className="text-xs border-l-2 border-green-300 dark:border-green-700 pl-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-widest text-green-600 dark:text-green-400 mb-0.5">Acceptance Criteria</div>
-                  <ul className="list-disc pl-4 space-y-0.5">
-                    {bead.acceptanceCriteria.filter(Boolean).map((criterion, ci) => (
-                      <li key={`ac-${ci}`}>{criterion}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {(Array.isArray(bead.tests) && bead.tests.filter(Boolean).length > 0) || (Array.isArray(bead.testCommands) && bead.testCommands.filter(Boolean).length > 0) ? (
-                <div className="text-xs border-l-2 border-amber-300 dark:border-amber-700 pl-2 space-y-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">Tests</div>
-                  {Array.isArray(bead.tests) && bead.tests.filter(Boolean).length > 0 && (
-                    <ul className="list-disc pl-4 space-y-0.5">
-                      {bead.tests.filter(Boolean).map((test, ti) => (
-                        <li key={`test-${ti}`}>{test}</li>
-                      ))}
-                    </ul>
+          (() => {
+            const prdRefs = getBeadStringArray(bead, ['prdRefs', 'prd_refs', 'prd_references'])
+            const labels = getBeadStringArray(bead, ['labels'])
+            const acceptanceCriteria = getBeadStringArray(bead, ['acceptanceCriteria', 'acceptance_criteria'])
+            const tests = getBeadStringArray(bead, ['tests'])
+            const testCommands = getBeadStringArray(bead, ['testCommands', 'test_commands'])
+            const targetFiles = getBeadStringArray(bead, ['targetFiles', 'target_files'])
+            const status = getBeadStringValue(bead, ['status']) || 'pending'
+            const tone = getBeadStatusTone(status)
+            const order = getBeadNumberValue(bead, ['priority']) ?? index + 1
+            const description = getBeadStringValue(bead, ['description'])
+            const title = getBeadStringValue(bead, ['title']) || `Bead ${index + 1}`
+            const issueType = getBeadStringValue(bead, ['issueType', 'issue_type'])
+            const externalRef = getBeadStringValue(bead, ['externalRef', 'external_ref'])
+            const notes = getBeadStringValue(bead, ['notes'])
+            const iteration = getBeadNumberValue(bead, ['iteration'])
+            const createdAt = getBeadStringValue(bead, ['createdAt', 'created_at'])
+            const updatedAt = getBeadStringValue(bead, ['updatedAt', 'updated_at'])
+            const startedAt = getBeadStringValue(bead, ['startedAt', 'started_at'])
+            const completedAt = getBeadStringValue(bead, ['completedAt', 'completed_at'])
+            const beadStartCommit = getBeadStringValue(bead, ['beadStartCommit', 'bead_start_commit'])
+            const metadataId = getBeadStringValue(bead, ['id'])
+            const { blockedBy, blocks } = getBeadDependencies(bead)
+            return (
+              <CollapsibleSection
+                key={`${metadataId || 'bead'}-${index}`}
+                className={tone.card}
+                headerClassName={tone.header}
+                title={(
+                  <span className="flex items-center gap-2 min-w-0 w-full flex-wrap">
+                    <span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px] font-mono shrink-0">
+                      #{order}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{title}</span>
+                    <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0', tone.statusBadge)}>
+                      {status.replace(/_/g, ' ')}
+                    </span>
+                  </span>
+                )}
+              >
+                <div className="space-y-3 p-2">
+                  {(prdRefs.length > 0 || labels.length > 0) && (
+                    <BeadSection title="Scope Mapping" accent="border-sky-300 dark:border-sky-700">
+                      {prdRefs.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">PRD Refs</div>
+                          <div className="flex flex-wrap gap-1">
+                            {prdRefs.map((ref) => <BeadChip key={ref} value={ref} tone="muted" />)}
+                          </div>
+                        </div>
+                      )}
+                      {labels.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Labels</div>
+                          <div className="flex flex-wrap gap-1">
+                            {labels.map((label) => <BeadChip key={label} value={label} />)}
+                          </div>
+                        </div>
+                      )}
+                    </BeadSection>
                   )}
-                  {Array.isArray(bead.testCommands) && bead.testCommands.filter(Boolean).length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Test Commands</div>
-                      <div className="space-y-1">
-                        {bead.testCommands.filter(Boolean).map((command, ci) => (
-                          <code key={`tc-${ci}`} className="block text-xs rounded bg-background border border-border px-2 py-1 font-mono">{command}</code>
-                        ))}
-                      </div>
+                  {description && (
+                    <div className="text-xs">
+                      <div className="text-[10px] font-semibold uppercase tracking-widest text-foreground/60 mb-0.5">Description</div>
+                      <span className="whitespace-pre-wrap">{description}</span>
                     </div>
                   )}
+                  {targetFiles.length > 0 && (
+                    <BeadSection title="Target Files" accent="border-cyan-300 dark:border-cyan-700">
+                      <div className="space-y-1">
+                        {targetFiles.map((targetFile) => (
+                          <code key={targetFile} className="block text-xs rounded bg-background border border-border px-2 py-1 font-mono break-all">
+                            {targetFile}
+                          </code>
+                        ))}
+                      </div>
+                    </BeadSection>
+                  )}
+                  {(blockedBy.length > 0 || blocks.length > 0) && (
+                    <BeadSection title="Dependencies" accent="border-rose-300 dark:border-rose-700">
+                      {blockedBy.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Blocked By</div>
+                          <div className="flex flex-wrap gap-1">
+                            {blockedBy.map((dependency) => <BeadChip key={dependency} value={dependency} tone="rose" mono />)}
+                          </div>
+                        </div>
+                      )}
+                      {blocks.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Blocks</div>
+                          <div className="flex flex-wrap gap-1">
+                            {blocks.map((dependency) => <BeadChip key={dependency} value={dependency} tone="rose" mono />)}
+                          </div>
+                        </div>
+                      )}
+                    </BeadSection>
+                  )}
+                  {renderBeadGuidance((bead.contextGuidance ?? bead.context_guidance) as ParsedBead['contextGuidance'])}
+                  {acceptanceCriteria.length > 0 && (
+                    <BeadSection title="Acceptance Criteria" accent="border-green-300 dark:border-green-700">
+                      <ul className="list-disc pl-4 space-y-0.5">
+                        {acceptanceCriteria.map((criterion) => (
+                          <li key={criterion}>{criterion}</li>
+                        ))}
+                      </ul>
+                    </BeadSection>
+                  )}
+                  {(tests.length > 0 || testCommands.length > 0) && (
+                    <BeadSection title="Tests" accent="border-amber-300 dark:border-amber-700">
+                      {tests.length > 0 && (
+                        <ul className="list-disc pl-4 space-y-0.5">
+                          {tests.map((test) => (
+                            <li key={test}>{test}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {testCommands.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Test Commands</div>
+                          {testCommands.map((command) => (
+                            <code key={command} className="block text-xs rounded bg-background border border-border px-2 py-1 font-mono break-all">
+                              {command}
+                            </code>
+                          ))}
+                        </div>
+                      )}
+                    </BeadSection>
+                  )}
+                  <CollapsibleSection
+                    title="Metadata"
+                    defaultOpen={false}
+                    scrollOnOpen={false}
+                    className="bg-muted/20"
+                    headerClassName="bg-muted/40"
+                    contentClassName="pt-2"
+                  >
+                    <div className="space-y-3">
+                      <MetadataGroup
+                        title="Identity"
+                        accent="border-slate-200 bg-slate-50/60 text-slate-900 dark:border-slate-800 dark:bg-slate-950/20 dark:text-slate-100"
+                        rows={[
+                          { label: 'ID', value: metadataId, mono: true },
+                          { label: 'Issue Type', value: issueType },
+                          { label: 'External Ref', value: externalRef, mono: true },
+                          { label: 'Status', value: status },
+                        ]}
+                      />
+                      <MetadataGroup
+                        title="Runtime"
+                        accent="border-zinc-200 bg-zinc-50/60 text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950/20 dark:text-zinc-100"
+                        rows={[
+                          { label: 'Notes', value: notes },
+                          { label: 'Iteration', value: iteration != null ? String(iteration) : '', mono: true },
+                          { label: 'Bead Start Commit', value: beadStartCommit, mono: true },
+                        ]}
+                      />
+                      <MetadataGroup
+                        title="Lifecycle"
+                        accent="border-indigo-200 bg-indigo-50/60 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/20 dark:text-indigo-100"
+                        rows={[
+                          { label: 'Created At', value: createdAt, mono: true },
+                          { label: 'Updated At', value: updatedAt, mono: true },
+                          { label: 'Started At', value: startedAt, mono: true },
+                          { label: 'Completed At', value: completedAt, mono: true },
+                        ]}
+                      />
+                    </div>
+                  </CollapsibleSection>
                 </div>
-              ) : null}
-            </div>
-          </CollapsibleSection>
+              </CollapsibleSection>
+            )
+          })()
         ))}
       </div>
     )

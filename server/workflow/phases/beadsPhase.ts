@@ -5,13 +5,14 @@ import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
 import { checkMemberResponseQuorum, checkQuorum } from '../../council/quorum'
 import { draftBeads, buildBeadsContextBuilder } from '../../phases/beads/draft'
-import { expandBeads } from '../../phases/beads/expand'
+import { expandBeads, hydrateExpandedBeads, validateBeadExpansion } from '../../phases/beads/expand'
 import type { Bead, BeadSubset } from '../../phases/beads/types'
 import { buildMinimalContext, clearContextCache, type TicketState } from '../../opencode/contextBuilder'
+import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
-import { normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
-import { PROM22 } from '../../prompts/index'
+import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
+import { buildPromptFromTemplate, PROM22, PROM23 } from '../../prompts/index'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import type { RefinementChange } from '@shared/refinementChanges'
@@ -44,6 +45,131 @@ import {
 import type { OpenCodeStreamState } from './types'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
+import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../runOpenCodePrompt'
+
+async function executeBeadsExpandStep(params: {
+  ticketId: string
+  externalId: string
+  worktreePath: string
+  winnerId: string
+  externalRef: string
+  timeoutMs: number
+  signal: AbortSignal
+  ticketState: TicketState
+  beadSubsets: BeadSubset[]
+  onSessionLog: (entry: {
+    memberId: string
+    sessionId: string
+    response: string
+    messages: Message[]
+  }) => void
+  onStreamEvent: (entry: { memberId: string; sessionId: string; event: StreamEvent }) => void
+  onPromptDispatched: (entry: { memberId: string; event: OpenCodePromptDispatchEvent }) => void
+}): Promise<{
+  expandedModelContent: string
+  hydratedContent: string
+  hydratedBeads: Bead[]
+  structuredMeta: ReturnType<typeof buildStructuredMetadata>
+}> {
+  clearContextCache(params.externalId)
+  const baseParts: PromptPart[] = [{ type: 'text', content: buildPromptFromTemplate(PROM23, buildMinimalContext('beads_expand', params.ticketState)) }]
+  let promptParts: PromptPart[] = baseParts
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
+    let sessionId = ''
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: params.worktreePath,
+      parts: promptParts,
+      signal: params.signal,
+      timeoutMs: params.timeoutMs,
+      model: params.winnerId,
+      variant: 'refine',
+      sessionOwnership: {
+        ticketId: params.ticketId,
+        phase: 'REFINING_BEADS',
+        phaseAttempt: 1,
+        memberId: params.winnerId,
+        step: 'expand',
+      },
+      onSessionCreated: (session) => {
+        sessionId = session.id
+      },
+      onStreamEvent: (event) => {
+        if (!sessionId) return
+        params.onStreamEvent({
+          memberId: params.winnerId,
+          sessionId,
+          event,
+        })
+      },
+      onPromptDispatched: (event) => {
+        params.onPromptDispatched({
+          memberId: params.winnerId,
+          event,
+        })
+      },
+    })
+
+    const response = result.response
+    params.onSessionLog({
+      memberId: params.winnerId,
+      sessionId: result.session.id,
+      response,
+      messages: result.messages,
+    })
+
+    try {
+      const expandedResult = normalizeBeadsJsonlOutput(response)
+      if (!expandedResult.ok) {
+        throw new Error(expandedResult.error)
+      }
+
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: expandedResult.repairApplied,
+        repairWarnings: expandedResult.repairWarnings,
+      })
+
+      validateBeadExpansion(params.beadSubsets, expandedResult.value)
+      const hydratedBeads = hydrateExpandedBeads(params.beadSubsets, expandedResult.value, params.externalRef)
+      const hydratedContent = hydratedBeads.map((bead) => JSON.stringify(bead)).join('\n')
+      const hydratedResult = normalizeBeadsJsonlOutput(hydratedContent)
+      if (!hydratedResult.ok) {
+        throw new Error(`Hydrated bead graph failed validation: ${hydratedResult.error}`)
+      }
+
+      return {
+        expandedModelContent: expandedResult.normalizedContent,
+        hydratedContent: hydratedResult.normalizedContent,
+        hydratedBeads: hydratedResult.value,
+        structuredMeta,
+      }
+    } catch (error) {
+      const validationError = error instanceof Error ? error.message : String(error)
+      if (attempt >= 1) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError,
+        })
+        throw error
+      }
+
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError,
+      })
+      promptParts = buildStructuredRetryPrompt(baseParts, {
+        validationError,
+        rawResponse: response,
+        schemaReminder: PROM23.outputFormat,
+        doNotUseTools: false,
+      })
+    }
+  }
+
+  throw new Error('Beads expansion finished without a valid structured result')
+}
 
 export async function handleBeadsDraft(
   ticketId: string,
@@ -364,6 +490,7 @@ export async function handleBeadsRefine(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
+  const { ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
   const intermediate = phaseIntermediate.get(`${ticketId}:beads`)
   if (!intermediate || !intermediate.winnerId) {
     throw new Error('No Beads vote results found — cannot refine')
@@ -382,82 +509,100 @@ export async function handleBeadsRefine(
     throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   }
   const beadsPath = paths.beadsPath
+  const prdPath = resolve(ticketDir, 'prd.yaml')
+  const prd = existsSync(prdPath)
+    ? readFileSync(prdPath, 'utf-8')
+    : undefined
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
     `Beads refinement started. Winner: ${intermediate.winnerId}, incorporating ideas from ${losingDrafts.length} alternative drafts.`)
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
+    `Substep blueprint_refine started with ${losingDrafts.length} alternative drafts.`)
 
   if (signal.aborted) throw new CancelledError(ticketId)
-  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+  let refineStructuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
   let validatedChanges: RefinementChange[] = []
-  const refinedContent = await refineDraft(
-    adapter,
-    winnerDraft,
-    losingDrafts,
-    refineContext,
-    intermediate.worktreePath,
-    councilSettings.draftTimeoutMs,
-    signal,
-    (entry) => {
-      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
-      streamStates.set(entry.sessionId, streamState)
-      emitOpenCodeSessionLogs(
+  let refinedContent: string
+  try {
+    refinedContent = await refineDraft(
+      adapter,
+      winnerDraft,
+      losingDrafts,
+      refineContext,
+      intermediate.worktreePath,
+      councilSettings.draftTimeoutMs,
+      signal,
+      (entry) => {
+        const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+        streamStates.set(entry.sessionId, streamState)
+        emitOpenCodeSessionLogs(
+          ticketId,
+          context.externalId,
+          'REFINING_BEADS',
+          entry.memberId,
+          entry.sessionId,
+          entry.stage,
+          entry.response,
+          entry.messages,
+          streamState,
+        )
+      },
+      (entry) => {
+        const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+        streamStates.set(entry.sessionId, streamState)
+        emitOpenCodeStreamEvent(
+          ticketId,
+          context.externalId,
+          'REFINING_BEADS',
+          entry.memberId,
+          entry.sessionId,
+          entry.event,
+          streamState,
+        )
+      },
+      (entry) => {
+        emitOpenCodePromptLog(
+          ticketId,
+          context.externalId,
+          'REFINING_BEADS',
+          entry.memberId,
+          entry.event,
+        )
+      },
+      {
         ticketId,
-        context.externalId,
-        'REFINING_BEADS',
-        entry.memberId,
-        entry.sessionId,
-        entry.stage,
-        entry.response,
-        entry.messages,
-        streamState,
-      )
-    },
-    (entry) => {
-      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
-      streamStates.set(entry.sessionId, streamState)
-      emitOpenCodeStreamEvent(
-        ticketId,
-        context.externalId,
-        'REFINING_BEADS',
-        entry.memberId,
-        entry.sessionId,
-        entry.event,
-        streamState,
-      )
-    },
-    (entry) => {
-      emitOpenCodePromptLog(
-        ticketId,
-        context.externalId,
-        'REFINING_BEADS',
-        entry.memberId,
-        entry.event,
-      )
-    },
-    {
-      ticketId,
-      phase: 'REFINING_BEADS',
-    },
-    undefined,
-    (content) => {
-      const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId }))
-      const result = normalizeBeadSubsetYamlOutput(content, losingDraftMeta)
-      if (!result.ok) {
-        structuredMeta = buildStructuredMetadata(structuredMeta, {
-          autoRetryCount: 1,
-          validationError: result.error,
+        phase: 'REFINING_BEADS',
+      },
+      undefined,
+      (content) => {
+        const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId }))
+        const result = normalizeBeadSubsetYamlOutput(content, losingDraftMeta)
+        if (!result.ok) {
+          refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
+            autoRetryCount: 1,
+            validationError: result.error,
+          })
+          throw new Error(result.error)
+        }
+        refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
+          repairApplied: result.repairApplied,
+          repairWarnings: result.repairWarnings,
         })
-        throw new Error(result.error)
-      }
-      structuredMeta = buildStructuredMetadata(structuredMeta, {
-        repairApplied: result.repairApplied,
-        repairWarnings: result.repairWarnings,
-      })
-      validatedChanges = Array.isArray(result.value.changes) ? result.value.changes : []
-      return { normalizedContent: result.normalizedContent }
-    },
-    PROM22.outputFormat,
-  )
+        validatedChanges = Array.isArray(result.value.changes) ? result.value.changes : []
+        return { normalizedContent: result.normalizedContent }
+      },
+      PROM22.outputFormat,
+    )
+  } catch (error) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'REFINING_BEADS',
+      'error',
+      `Substep blueprint_refine failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    throw error
+  }
 
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:beads`)
@@ -468,13 +613,8 @@ export async function handleBeadsRefine(
     throw new Error(`PROM22 refinement output failed validation: ${beadSubsetResult.error}`)
   }
   const beadSubsets: BeadSubset[] = beadSubsetResult.value
-
-  const expandedBeads = expandBeads(beadSubsets)
-  const expandedBeadsJsonl = expandedBeads.map((bead) => JSON.stringify(bead)).join('\n')
-  const beadsJsonlResult = normalizeBeadsJsonlOutput(expandedBeadsJsonl)
-  if (!beadsJsonlResult.ok) {
-    throw new Error(`Expanded bead graph failed validation: ${beadsJsonlResult.error}`)
-  }
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
+    `Substep blueprint_refine completed with ${beadSubsets.length} beads.`)
 
   const uiDiffArtifact = validatedChanges.length > 0
     ? buildBeadsUiRefinementDiffArtifactFromChanges({
@@ -495,12 +635,13 @@ export async function handleBeadsRefine(
     phase: 'REFINING_BEADS',
     artifactType: 'beads_refined',
     content: JSON.stringify({
+      winnerId: intermediate.winnerId,
       refinedContent,
     }),
   })
   persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_refined', {
     winnerDraftContent: winnerDraft.content,
-    structuredOutput: structuredMeta,
+    structuredOutput: refineStructuredMeta,
   })
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
@@ -509,18 +650,102 @@ export async function handleBeadsRefine(
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
 
-  // Save expanded beads to disk as JSONL
-  writeJsonl(beadsPath, beadsJsonlResult.value)
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
+    `Substep beads_expand started with fresh context (prd=${prd ? 'loaded' : 'missing'}, relevant_files=${relevantFiles ? 'loaded' : 'missing'}).`)
+
+  const expandStreamStates = new Map<string, OpenCodeStreamState>()
+  let expansionResult: Awaited<ReturnType<typeof executeBeadsExpandStep>>
+  try {
+    expansionResult = await executeBeadsExpandStep({
+      ticketId,
+      externalId: context.externalId,
+      worktreePath: intermediate.worktreePath,
+      winnerId: intermediate.winnerId,
+      externalRef: context.externalId,
+      timeoutMs: councilSettings.draftTimeoutMs,
+      signal,
+      ticketState: {
+        ticketId: context.externalId,
+        title: context.title,
+        description: ticket?.description ?? '',
+        relevantFiles,
+        prd,
+        beadsDraft: refinedContent,
+      },
+      beadSubsets,
+      onSessionLog: (entry) => {
+        const streamState = expandStreamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+        expandStreamStates.set(entry.sessionId, streamState)
+        emitOpenCodeSessionLogs(
+          ticketId,
+          context.externalId,
+          'REFINING_BEADS',
+          entry.memberId,
+          entry.sessionId,
+          'refine',
+          entry.response,
+          entry.messages,
+          streamState,
+        )
+      },
+      onStreamEvent: (entry) => {
+        const streamState = expandStreamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+        expandStreamStates.set(entry.sessionId, streamState)
+        emitOpenCodeStreamEvent(
+          ticketId,
+          context.externalId,
+          'REFINING_BEADS',
+          entry.memberId,
+          entry.sessionId,
+          entry.event,
+          streamState,
+        )
+      },
+      onPromptDispatched: (entry) => {
+        emitOpenCodePromptLog(
+          ticketId,
+          context.externalId,
+          'REFINING_BEADS',
+          entry.memberId,
+          entry.event,
+        )
+      },
+    })
+  } catch (error) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'REFINING_BEADS',
+      'error',
+      `Substep beads_expand failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    throw error
+  }
+
+  insertPhaseArtifact(ticketId, {
+    phase: 'REFINING_BEADS',
+    artifactType: 'beads_expanded',
+    content: JSON.stringify({
+      winnerId: intermediate.winnerId,
+      refinedContent: expansionResult.hydratedContent,
+      expandedContent: expansionResult.expandedModelContent,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_expanded', {
+    structuredOutput: expansionResult.structuredMeta,
+  })
+
+  writeJsonl(beadsPath, expansionResult.hydratedBeads)
 
   clearContextCache(context.externalId)
   patchTicket(ticketId, {
-    totalBeads: expandedBeads.length,
+    totalBeads: expansionResult.hydratedBeads.length,
     currentBead: 0,
     percentComplete: 0,
   })
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Refined and expanded ${expandedBeads.length} beads from winner ${intermediate.winnerId}. Saved to ${beadsPath}.`)
+    `Substep beads_expand completed with ${expansionResult.hydratedBeads.length} hydrated beads written to ${beadsPath}.`)
 
   sendEvent({ type: 'REFINED' })
 }

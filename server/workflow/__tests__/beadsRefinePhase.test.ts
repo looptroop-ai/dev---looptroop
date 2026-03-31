@@ -1,10 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
 import { phaseIntermediate, phaseResults } from '../phases/state'
 
-const { refineDraftMock } = vi.hoisted(() => ({
+const { refineDraftMock, runOpenCodePromptMock } = vi.hoisted(() => ({
   refineDraftMock: vi.fn(),
+  runOpenCodePromptMock: vi.fn(),
 }))
 
 vi.mock('../../opencode/factory', () => ({
@@ -14,6 +16,10 @@ vi.mock('../../opencode/factory', () => ({
 
 vi.mock('../../council/refiner', () => ({
   refineDraft: refineDraftMock,
+}))
+
+vi.mock('../runOpenCodePrompt', () => ({
+  runOpenCodePrompt: runOpenCodePromptMock,
 }))
 
 import { handleBeadsRefine } from '../phases/beadsPhase'
@@ -115,12 +121,52 @@ function buildValidRefinementOutput(): string {
   ].join('\n')
 }
 
+function buildValidExpansionOutput(): string {
+  return [
+    JSON.stringify({
+      id: 'proj-1-validate-refinement-attribution',
+      title: 'Validate refinement attribution',
+      prdRefs: ['EPIC-1 / US-1'],
+      description: 'Preserve explicit inspiration in refinement diffs.',
+      contextGuidance: {
+        patterns: ['Keep repairs deterministic.'],
+        anti_patterns: ['Do not widen the repair scope unnecessarily.'],
+      },
+      acceptanceCriteria: ['Validate attribution survives refinement'],
+      tests: ['Shared tests cover refinement attribution'],
+      testCommands: ['npm run test:server'],
+      issueType: 'task',
+      labels: ['ticket:PROJ-1', 'story:US-1'],
+      dependencies: { blocked_by: [] },
+      targetFiles: ['server/workflow/phases/beadsPhase.ts'],
+    }),
+    JSON.stringify({
+      id: 'proj-1-surface-retry-metadata',
+      title: 'Surface retry metadata',
+      prdRefs: ['EPIC-1 / US-2'],
+      description: 'Surface refinement retry metadata in the diff viewer.',
+      contextGuidance: {
+        patterns: ['Keep attribution deterministic.'],
+        anti_patterns: ['Do not remove inspiration metadata.'],
+      },
+      acceptanceCriteria: ['Show retry metadata alongside refinement diffs'],
+      tests: ['UI tests show the correct inspiration tooltip'],
+      testCommands: ['npm run test:server'],
+      issueType: 'task',
+      labels: ['ticket:PROJ-1', 'story:US-2'],
+      dependencies: { blocked_by: ['proj-1-validate-refinement-attribution'] },
+      targetFiles: ['src/components/workspace/ArtifactContentViewer.tsx'],
+    }),
+  ].join('\n')
+}
+
 describe('handleBeadsRefine', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
     phaseResults.clear()
     refineDraftMock.mockReset()
+    runOpenCodePromptMock.mockReset()
   })
 
   afterAll(() => {
@@ -174,6 +220,18 @@ describe('handleBeadsRefine', () => {
       validateResponse?: (content: string) => { normalizedContent?: string },
     ) => validateResponse?.(validOutput).normalizedContent ?? validOutput)
 
+    runOpenCodePromptMock.mockResolvedValue({
+      session: { id: 'session-expand-1' },
+      response: buildValidExpansionOutput(),
+      messages: [],
+      responseMeta: {
+        hasAssistantMessage: true,
+        latestAssistantWasEmpty: false,
+        latestAssistantHasError: false,
+        latestAssistantWasStale: false,
+      },
+    })
+
     await handleBeadsRefine(ticket.id, context, sendEvent, new AbortController().signal)
 
     const uiDiffArtifact = getLatestPhaseArtifact(ticket.id, 'ui_refinement_diff:beads', 'REFINING_BEADS')
@@ -196,7 +254,34 @@ describe('handleBeadsRefine', () => {
       ]),
     })
     expect(getLatestPhaseArtifact(ticket.id, 'beads_refined', 'REFINING_BEADS')).toBeDefined()
+    expect(getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'REFINING_BEADS')).toBeDefined()
     expect(getLatestPhaseArtifact(ticket.id, 'beads_winner', 'REFINING_BEADS')).toBeDefined()
+    const persistedBeads = readFileSync(paths.beadsPath, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { priority: number; status: string; labels: string[]; dependencies: { blocked_by: string[]; blocks: string[] } })
+    expect(persistedBeads).toHaveLength(2)
+    expect(persistedBeads[0]).toMatchObject({
+      priority: 1,
+      status: 'pending',
+      labels: ['ticket:PROJ-1', 'story:US-1'],
+      dependencies: { blocked_by: [], blocks: ['proj-1-surface-retry-metadata'] },
+    })
+    expect(persistedBeads[1]).toMatchObject({
+      priority: 2,
+      status: 'pending',
+      labels: ['ticket:PROJ-1', 'story:US-2'],
+      dependencies: { blocked_by: ['proj-1-validate-refinement-attribution'], blocks: [] },
+    })
+    expect(runOpenCodePromptMock).toHaveBeenCalledWith(expect.objectContaining({
+      model: winnerId,
+      sessionOwnership: expect.objectContaining({
+        ticketId: ticket.id,
+        phase: 'REFINING_BEADS',
+        memberId: winnerId,
+        step: 'expand',
+      }),
+    }))
     expect(phaseIntermediate.get(`${ticket.id}:beads`)).toBeUndefined()
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
   })
