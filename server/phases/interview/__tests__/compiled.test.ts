@@ -5,7 +5,7 @@ import {
   requireCompiledInterviewArtifact,
 } from '../compiled'
 
-describe('compiled interview artifacts', () => {
+describe.concurrent('compiled interview artifacts', () => {
   it('builds a validated normalized artifact from a PROM3 refinement output', () => {
     const winnerDraft = [
       'questions:',

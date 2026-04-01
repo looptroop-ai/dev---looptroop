@@ -82,7 +82,7 @@ function buildBeadsDocument(beads: Array<{ id: string; title: string; descriptio
   ].join('\n')
 }
 
-describe('refinement diff artifacts', () => {
+describe.concurrent('refinement diff artifacts', () => {
   it('uses explicit PRD inspiration metadata when changes provide it', () => {
     const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
       winnerId: 'openai/gpt-5.2',

@@ -19,7 +19,7 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   }
 }
 
-describe('generateFinalTests', () => {
+describe.concurrent('generateFinalTests', () => {
   it('retries malformed final test markers in the same session', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
     adapter.mockResponses.set('mock-session-1#1', 'I added tests to cover the whole ticket.')

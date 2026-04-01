@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildStructuredOutputMetadata, normalizeStructuredOutputMetadata } from '../metadata'
 
-describe('structured output metadata helpers', () => {
+describe.concurrent('structured output metadata helpers', () => {
   it('normalizes metadata and drops malformed interventions', () => {
     const metadata = normalizeStructuredOutputMetadata({
       repairApplied: true,

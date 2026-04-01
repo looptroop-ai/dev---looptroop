@@ -8,7 +8,7 @@ interface TestTicket {
   title: string
 }
 
-describe('patchTicketStatusInCache', () => {
+describe.concurrent('patchTicketStatusInCache', () => {
   it('updates the ticket detail cache and every ticket list cache immediately', () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -48,7 +48,7 @@ describe('patchTicketStatusInCache', () => {
   })
 })
 
-describe('mergeTicketInCache', () => {
+describe.concurrent('mergeTicketInCache', () => {
   it('merges newly returned ticket fields into the detail cache and every ticket list cache immediately', () => {
     const queryClient = new QueryClient({
       defaultOptions: {

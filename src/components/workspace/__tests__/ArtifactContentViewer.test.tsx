@@ -135,14 +135,6 @@ function openNotice(title: string) {
 }
 
 describe('ArtifactContentViewer', () => {
-  beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    })
-  })
-
   afterEach(() => {
     vi.restoreAllMocks()
   })

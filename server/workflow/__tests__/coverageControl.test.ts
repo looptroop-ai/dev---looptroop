@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../coverageControl'
 
-describe('coverage control', () => {
+describe.concurrent('coverage control', () => {
   it('treats maxCoveragePasses as a total execution cap', () => {
     expect(resolveCoverageRunState(0, 2)).toEqual({
       coverageRunNumber: 1,

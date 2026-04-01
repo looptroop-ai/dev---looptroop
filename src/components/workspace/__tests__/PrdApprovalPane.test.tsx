@@ -186,14 +186,6 @@ describe('PrdApprovalPane', () => {
     vi.restoreAllMocks()
   })
 
-  beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    })
-  })
-
   it('renders the dedicated PRD approval view and focuses PRD anchors on demand', async () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 

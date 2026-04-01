@@ -7,7 +7,7 @@ import {
   resolveInterviewCoverageFollowUpResolution,
 } from '../interviewCoverageFollowUps'
 
-describe('resolveInterviewCoverageFollowUpResolution', () => {
+describe.concurrent('resolveInterviewCoverageFollowUpResolution', () => {
   it('accepts string-based raw follow-up questions without retrying', () => {
     const snapshot = createInterviewSessionSnapshot({
       winnerId: 'openai/gpt-5-mini',

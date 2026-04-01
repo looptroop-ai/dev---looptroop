@@ -174,7 +174,7 @@ const CANONICAL_RESOLVED_INTERVIEW = [
   '  approved_at: "2026-03-25T18:19:30.000Z"',
 ].join('\n')
 
-describe('structured output normalization', () => {
+describe.concurrent('structured output normalization', () => {
   it('repairs interview phase ordering without changing within-phase order', () => {
     const result = normalizeInterviewQuestionsOutput([
       'questions:',

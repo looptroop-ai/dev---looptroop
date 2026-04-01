@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateInterviewDraft } from '../validation'
 
-describe('validateInterviewDraft', () => {
+describe.concurrent('validateInterviewDraft', () => {
   it('accepts valid PROM1 draft YAML', () => {
     const result = validateInterviewDraft([
       'questions:',

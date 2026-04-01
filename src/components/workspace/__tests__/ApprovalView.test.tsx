@@ -206,11 +206,6 @@ describe('Interview approval UI', () => {
     })
     mockSaveUiState.mockReset()
     mockClearTicketArtifactsCache.mockReset()
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    })
   })
 
   afterEach(() => {

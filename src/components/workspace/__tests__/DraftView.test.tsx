@@ -124,26 +124,6 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Respons
   })
 }
 
-beforeAll(() => {
-  class ResizeObserverMock {
-    observe() {}
-    disconnect() {}
-    unobserve() {}
-  }
-
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    writable: true,
-    value: ResizeObserverMock,
-  })
-
-  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
-    configurable: true,
-    writable: true,
-    value: vi.fn(),
-  })
-})
-
 describe('DraftView', () => {
   afterEach(() => {
     cleanup()

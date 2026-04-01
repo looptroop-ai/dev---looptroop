@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { WORKFLOW_PHASES } from '@shared/workflowMeta'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 
-describe('getCascadeEditWarningMessage', () => {
+describe.concurrent('getCascadeEditWarningMessage', () => {
   it('does not warn when editing interview before PRD has started', () => {
     expect(getCascadeEditWarningMessage('WAITING_INTERVIEW_APPROVAL', 'interview')).toBeNull()
   })
@@ -34,7 +34,7 @@ describe('getCascadeEditWarningMessage', () => {
   })
 })
 
-describe('workflow metadata', () => {
+describe.concurrent('workflow metadata', () => {
   it('shows only ticket details as allowed context while scanning relevant files', () => {
     const scanningPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'SCANNING_RELEVANT_FILES')
 

@@ -123,7 +123,7 @@ function ticket(title: string, description: string, interview = makeInterviewYam
   return { ticketId: TEST.externalId, title, description, interview }
 }
 
-describe('draftPRD', () => {
+describe.concurrent('draftPRD', () => {
   it('builds the PRD voting prompt with anonymized drafts and a strict scorecard reminder', () => {
     const prompt = buildPrdVotePrompt(
       {

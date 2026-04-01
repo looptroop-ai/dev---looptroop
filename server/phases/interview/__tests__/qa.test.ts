@@ -21,7 +21,7 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   }
 }
 
-describe('PROM4 interview session parsing', () => {
+describe.concurrent('PROM4 interview session parsing', () => {
   it('frames compiled questions as the working checklist in the initial PROM4 prompt', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
     adapter.mockResponses.set('mock-session-1', [

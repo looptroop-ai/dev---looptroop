@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
 import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
-describe('repairYamlListDashSpace', () => {
+describe.concurrent('repairYamlListDashSpace', () => {
   it.each([
     ['correctly formatted list items', ['questions:', '  - id: Q01', '    phase: Foundation', '    question: "What problem are we solving?"'].join('\n')],
     ['top-level mapping keys', ['file_count: 2', 'files:', '  - path: a.ts'].join('\n')],

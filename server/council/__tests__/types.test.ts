@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { VOTING_RUBRIC_INTERVIEW } from '../types'
 
-describe('VOTING_RUBRIC_INTERVIEW', () => {
+describe.concurrent('VOTING_RUBRIC_INTERVIEW', () => {
   it('describes interview efficiency without encouraging budget filling', () => {
     const criterion = VOTING_RUBRIC_INTERVIEW.find(item => item.category === 'Minimal complexity / good decomposition')
 

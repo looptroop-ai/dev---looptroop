@@ -21,7 +21,7 @@ import { buildInterviewDocumentYaml } from '../../structuredOutput'
 import { buildYamlDocument } from '../../structuredOutput/yamlUtils'
 import { ticketRouter } from '../tickets'
 import { filesRouter } from '../files'
-import type { InterviewDocument } from '@shared/interviewArtifact'
+import { buildInterviewDocument, buildPrdDocument } from '../../test/factories'
 import type { PrdDocument } from '../../structuredOutput/types'
 
 vi.mock('../../machines/persistence', async () => {
@@ -51,123 +51,6 @@ const repoManager = createFixtureRepoManager({
     'README.md': '# LoopTroop PRD Approval Test\n',
   },
 })
-
-function buildInterviewDocument(ticketId: string): InterviewDocument {
-  return {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status: 'approved',
-    generated_by: {
-      winner_model: 'openai/gpt-5',
-      generated_at: '2026-03-20T10:00:00.000Z',
-      canonicalization: 'server_normalized',
-    },
-    questions: [
-      {
-        id: 'Q01',
-        phase: 'Foundation',
-        prompt: 'What outcome matters most?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'Protect the import pipeline.',
-          answered_by: 'user',
-          answered_at: '2026-03-20T10:05:00.000Z',
-        },
-      },
-      {
-        id: 'FINAL',
-        phase: 'Assembly',
-        prompt: 'Anything else the team should know?',
-        source: 'final_free_form',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'Keep retries observable.',
-          answered_by: 'user',
-          answered_at: '2026-03-20T10:07:00.000Z',
-        },
-      },
-    ],
-    follow_up_rounds: [
-      {
-        round_number: 1,
-        source: 'prom4',
-        question_ids: ['Q01'],
-      },
-    ],
-    summary: {
-      goals: ['Protect imports'],
-      constraints: ['No duplicate records'],
-      non_goals: ['Bulk reprocessing'],
-      final_free_form_answer: 'Keep retries observable.',
-    },
-    approval: {
-      approved_by: 'user',
-      approved_at: '2026-03-20T10:10:00.000Z',
-    },
-  }
-}
-
-function buildPrdDocument(ticketId: string, interviewContentSha256: string): PrdDocument {
-  return {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'prd',
-    status: 'draft',
-    source_interview: { content_sha256: interviewContentSha256 },
-    product: {
-      problem_statement: 'Import pipeline needs resilience against transient failures.',
-      target_users: ['Backend engineers', 'SRE team'],
-    },
-    scope: {
-      in_scope: ['Retry logic for failed imports', 'Observable retry metrics'],
-      out_of_scope: ['Bulk reprocessing UI'],
-    },
-    technical_requirements: {
-      architecture_constraints: ['Must integrate with existing message queue'],
-      data_model: ['Add retry_count column to imports table'],
-      api_contracts: ['POST /imports/:id/retry'],
-      security_constraints: ['Retry tokens must expire after 5 minutes'],
-      performance_constraints: ['Retries must complete within 30 seconds'],
-      reliability_constraints: ['At-least-once delivery guarantee'],
-      error_handling_rules: ['Dead-letter queue for failed retries'],
-      tooling_assumptions: ['Node.js 20+', 'PostgreSQL 15+'],
-    },
-    epics: [
-      {
-        id: 'E01',
-        title: 'Retry infrastructure',
-        objective: 'Build core retry mechanism for failed imports.',
-        implementation_steps: ['Add retry queue', 'Implement backoff strategy'],
-        user_stories: [
-          {
-            id: 'E01-S01',
-            title: 'Retry a single failed import',
-            acceptance_criteria: ['Import is retried with exponential backoff', 'Retry count is tracked'],
-            implementation_steps: ['Create retry handler', 'Update imports table schema'],
-            verification: {
-              required_commands: ['npm test -- --grep "retry"'],
-            },
-          },
-        ],
-      },
-    ],
-    risks: ['Queue saturation under high failure rates'],
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
-}
 
 function setupPrdApprovalTicket() {
   const repoDir = repoManager.createRepo()

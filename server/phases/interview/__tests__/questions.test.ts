@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { formatInterviewQuestionPreview, parseInterviewQuestions } from '../questions'
 
-describe('parseInterviewQuestions', () => {
+describe.concurrent('parseInterviewQuestions', () => {
   it('parses wrapped question YAML for interview log previews', () => {
     const questions = parseInterviewQuestions([
       'questions:',

@@ -1,53 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { Ticket } from '@/hooks/useTickets'
+import { makeTicket } from '@/test/factories'
 import { ErrorOccurrencesPanel } from '../ErrorOccurrencesPanel'
-
-function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
-  return {
-    id: '1:T-42',
-    externalId: 'T-42',
-    projectId: 1,
-    title: 'Inspect hidden errors',
-    description: null,
-    priority: 3,
-    status: 'BLOCKED_ERROR',
-    xstateSnapshot: null,
-    branchName: null,
-    currentBead: null,
-    totalBeads: null,
-    percentComplete: null,
-    errorMessage: 'The worker crashed.',
-    errorSeenSignature: null,
-    errorOccurrences: [],
-    activeErrorOccurrenceId: null,
-    hasPastErrors: false,
-    lockedMainImplementer: null,
-    lockedCouncilMembers: ['openai/gpt-5-mini'],
-    availableActions: [],
-    previousStatus: 'CODING',
-    reviewCutoffStatus: null,
-    runtime: {
-      baseBranch: 'main',
-      currentBead: 0,
-      completedBeads: 0,
-      totalBeads: 0,
-      percentComplete: 0,
-      iterationCount: 0,
-      maxIterations: null,
-      artifactRoot: '/tmp/ticket',
-      beads: [],
-      candidateCommitSha: null,
-      preSquashHead: null,
-      finalTestStatus: 'pending',
-    },
-    startedAt: null,
-    plannedDate: null,
-    createdAt: '2026-03-11T10:00:00.000Z',
-    updatedAt: '2026-03-11T10:15:00.000Z',
-    ...overrides,
-  }
-}
 
 describe('ErrorOccurrencesPanel', () => {
   it('keeps historical errors collapsed by default', () => {
@@ -85,6 +39,8 @@ describe('ErrorOccurrencesPanel', () => {
   it('auto-expands for a live blocked ticket and lists all errors in one section', () => {
     const onSelect = vi.fn()
     const ticket = makeTicket({
+      status: 'BLOCKED_ERROR',
+      hasPastErrors: true,
       errorOccurrences: [
         {
           id: 'error-1',

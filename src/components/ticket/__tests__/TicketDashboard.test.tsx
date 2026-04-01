@@ -3,8 +3,8 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryClient } from '@/lib/queryClient'
+import { makeTicket } from '@/test/factories'
 import { patchTicketStatusInCache } from '@/hooks/ticketStatusCache'
-import type { Ticket } from '@/hooks/useTickets'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT } from '@/lib/workspaceNavigation'
 
 const selectedTicketId = '1:T-42'
@@ -98,51 +98,6 @@ vi.mock('../NavigatorPanel', () => ({
 
 import { TicketDashboard } from '../TicketDashboard'
 
-function makeTicket(status: string): Ticket {
-  return {
-    id: selectedTicketId,
-    externalId: 'T-42',
-    projectId: 1,
-    title: 'Sync live phases',
-    description: 'Reproduce status transition lag.',
-    priority: 3,
-    status,
-    xstateSnapshot: null,
-    branchName: null,
-    currentBead: null,
-    totalBeads: null,
-    percentComplete: null,
-    errorMessage: null,
-    errorSeenSignature: null,
-    errorOccurrences: [],
-    activeErrorOccurrenceId: null,
-    hasPastErrors: false,
-    lockedMainImplementer: null,
-    lockedCouncilMembers: ['openai/gpt-5-codex', 'openai/gpt-5-mini'],
-    availableActions: [],
-    previousStatus: null,
-    reviewCutoffStatus: null,
-    runtime: {
-      baseBranch: 'main',
-      currentBead: 0,
-      completedBeads: 0,
-      totalBeads: 0,
-      percentComplete: 0,
-      iterationCount: 0,
-      maxIterations: null,
-      artifactRoot: '/tmp/ticket',
-      beads: [],
-      candidateCommitSha: null,
-      preSquashHead: null,
-      finalTestStatus: 'pending',
-    },
-    startedAt: null,
-    plannedDate: null,
-    createdAt: '2026-03-11T10:00:00.000Z',
-    updatedAt: '2026-03-11T10:00:00.000Z',
-  }
-}
-
 /** Simulate a realistic SSE state_change: patch the cache first (as useSSE does), then fire onEvent. */
 function simulateSSE(from: string, to: string) {
   patchTicketStatusInCache(queryClient, selectedTicketId, to)
@@ -170,24 +125,6 @@ function renderDashboard() {
 }
 
 beforeAll(() => {
-  class ResizeObserverMock {
-    observe() {}
-    disconnect() {}
-    unobserve() {}
-  }
-
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    writable: true,
-    value: ResizeObserverMock,
-  })
-
-  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
-    configurable: true,
-    writable: true,
-    value: vi.fn(),
-  })
-
   Object.defineProperty(window, 'requestAnimationFrame', {
     configurable: true,
     writable: true,
@@ -216,7 +153,7 @@ afterEach(() => {
 
 describe('TicketDashboard', () => {
   it('follows the next live status immediately on SSE transitions even if ticket refetch is still stale', async () => {
-    const initialTicket = makeTicket('DRAFTING_PRD')
+    const initialTicket = makeTicket({ status: 'DRAFTING_PRD', id: selectedTicketId })
 
     queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
 
@@ -263,7 +200,7 @@ describe('TicketDashboard', () => {
   })
 
   it('follows the interview draft transition immediately on SSE transitions', async () => {
-    const initialTicket = makeTicket('COUNCIL_DELIBERATING')
+    const initialTicket = makeTicket({ status: 'COUNCIL_DELIBERATING', id: selectedTicketId })
 
     queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
 
@@ -310,7 +247,7 @@ describe('TicketDashboard', () => {
   })
 
   it('keeps a manually selected past phase pinned across live transitions', async () => {
-    const initialTicket = makeTicket('COUNCIL_VOTING_PRD')
+    const initialTicket = makeTicket({ status: 'COUNCIL_VOTING_PRD', id: selectedTicketId })
 
     queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
 
@@ -365,7 +302,7 @@ describe('TicketDashboard', () => {
   })
 
   it('releases a stale pin once the selected phase becomes live and follows the next transition', async () => {
-    const initialTicket = makeTicket('COUNCIL_VOTING_PRD')
+    const initialTicket = makeTicket({ status: 'COUNCIL_VOTING_PRD', id: selectedTicketId })
 
     queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
 
@@ -420,7 +357,7 @@ describe('TicketDashboard', () => {
   })
 
   it('advances past stale livePhase when refetch returns a newer status (fast transition race)', async () => {
-    const initialTicket = makeTicket('SCANNING_RELEVANT_FILES')
+    const initialTicket = makeTicket({ status: 'SCANNING_RELEVANT_FILES', id: selectedTicketId })
 
     queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
 
@@ -435,7 +372,7 @@ describe('TicketDashboard', () => {
       if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
         // Simulate the refetch returning a NEWER status than the SSE event
         // (the server already transitioned past SCANNING_RELEVANT_FILES).
-        return createJsonResponse(makeTicket('COUNCIL_DELIBERATING'))
+        return createJsonResponse(makeTicket({ status: 'COUNCIL_DELIBERATING', id: selectedTicketId }))
       }
       throw new Error(`Unhandled fetch: ${url}`)
     })
@@ -465,7 +402,7 @@ describe('TicketDashboard', () => {
     // Now simulate the race: a React Query refetch resolves with a NEWER
     // status (COUNCIL_DELIBERATING), leapfrogging the stale livePhase.
     await act(async () => {
-      queryClient.setQueryData(['ticket', selectedTicketId], makeTicket('COUNCIL_DELIBERATING'))
+      queryClient.setQueryData(['ticket', selectedTicketId], makeTicket({ status: 'COUNCIL_DELIBERATING', id: selectedTicketId }))
     })
 
     // The useEffect should advance livePhase to match the DB status.
@@ -476,7 +413,7 @@ describe('TicketDashboard', () => {
   })
 
   it('switches to interview approval and forwards workspace navigation focus', async () => {
-    const initialTicket = makeTicket('WAITING_PRD_APPROVAL')
+    const initialTicket = makeTicket({ status: 'WAITING_PRD_APPROVAL', id: selectedTicketId })
 
     queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseFinalTestCommands } from '../parser'
 
-describe('parseFinalTestCommands', () => {
+describe.concurrent('parseFinalTestCommands', () => {
   it('requires the structured final test marker', () => {
     const output = [
       'Run these commands:',

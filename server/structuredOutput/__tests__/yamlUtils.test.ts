@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildStructuredRetryPrompt } from '../yamlUtils'
 
-describe('buildStructuredRetryPrompt', () => {
+describe.concurrent('buildStructuredRetryPrompt', () => {
   it('adds the no-tool rule only when explicitly requested', () => {
     const withRule = buildStructuredRetryPrompt([], {
       validationError: 'missing schema_version',

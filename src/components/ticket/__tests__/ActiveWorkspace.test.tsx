@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { screen } from '@testing-library/react'
+import { makeTicket } from '@/test/factories'
+import { renderWithProviders } from '@/test/renderHelpers'
 import { ActiveWorkspace } from '../ActiveWorkspace'
-import type { Ticket } from '@/hooks/useTickets'
 
 vi.mock('@/components/workspace/DraftView', () => ({
   DraftView: () => <div>draft view</div>,
@@ -56,68 +56,9 @@ vi.mock('@/hooks/useTicketArtifacts', async () => {
   }
 })
 
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  })
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
-}
-
-function makeTicket(status: string): Ticket {
-  return {
-    id: '1:T-42',
-    externalId: 'T-42',
-    projectId: 1,
-    title: 'Inspect canceled history',
-    description: 'Review should stay available after cancel.',
-    priority: 3,
-    status,
-    xstateSnapshot: null,
-    branchName: null,
-    currentBead: null,
-    totalBeads: null,
-    percentComplete: null,
-    errorMessage: null,
-    errorSeenSignature: null,
-    errorOccurrences: [],
-    activeErrorOccurrenceId: null,
-    hasPastErrors: false,
-    lockedMainImplementer: null,
-    lockedCouncilMembers: ['openai/gpt-5-codex', 'openai/gpt-5-mini'],
-    availableActions: [],
-    previousStatus: null,
-    reviewCutoffStatus: null,
-    runtime: {
-      baseBranch: 'main',
-      currentBead: 0,
-      completedBeads: 0,
-      totalBeads: 0,
-      percentComplete: 0,
-      iterationCount: 0,
-      maxIterations: null,
-      artifactRoot: '/tmp/ticket',
-      beads: [],
-      candidateCommitSha: null,
-      preSquashHead: null,
-      finalTestStatus: 'pending',
-    },
-    startedAt: null,
-    plannedDate: null,
-    createdAt: '2026-03-11T10:00:00.000Z',
-    updatedAt: '2026-03-11T10:00:00.000Z',
-  }
-}
-
 describe('ActiveWorkspace', () => {
   it('opens live error mode when the ticket is currently blocked', () => {
-    const ticket = makeTicket('BLOCKED_ERROR')
+    const ticket = makeTicket({ status: 'BLOCKED_ERROR' })
     ticket.errorOccurrences = [
       {
         id: 'err-live',
@@ -147,7 +88,7 @@ describe('ActiveWorkspace', () => {
   })
 
   it('opens read-only error review mode for a resolved error occurrence', () => {
-    const ticket = makeTicket('CANCELED')
+    const ticket = makeTicket({ status: 'CANCELED' })
     ticket.errorOccurrences = [
       {
         id: 'err-1',

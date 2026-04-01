@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionStatusStreamEvent } from '../../opencode/types'
 import { buildSessionStatusLogEntries } from '../sessionStatusLogging'
 
-describe('buildSessionStatusLogEntries', () => {
+describe.concurrent('buildSessionStatusLogEntries', () => {
   it('keeps retry reasons as separate error entries and preserves the status line', () => {
     const event: SessionStatusStreamEvent = {
       type: 'session_status',

@@ -1,6 +1,6 @@
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
-import { afterEach } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 if (!window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
@@ -17,6 +17,32 @@ if (!window.matchMedia) {
     }),
   })
 }
+
+// ResizeObserver is not available in jsdom
+class ResizeObserverMock {
+  observe() {}
+  disconnect() {}
+  unobserve() {}
+}
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  configurable: true,
+  writable: true,
+  value: ResizeObserverMock,
+})
+
+// scrollIntoView is not available in jsdom
+Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+})
+
+// scrollTo is not available in jsdom
+Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+})
 
 let store: Record<string, string> = {}
 const storage = {

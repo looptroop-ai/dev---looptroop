@@ -17,6 +17,7 @@ import { createFixtureRepoManager } from '../../test/fixtureRepo'
 import { initializeTicket } from '../../ticket/initialize'
 import { buildInterviewDocumentYaml } from '../../structuredOutput'
 import { ticketRouter } from '../tickets'
+import { buildInterviewDocument } from '../../test/factories'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 
 vi.mock('../../machines/persistence', async () => {
@@ -51,71 +52,6 @@ const repoManager = createFixtureRepoManager({
   },
 })
 
-function buildInterviewDocument(ticketId: string, status: 'draft' | 'approved' = 'draft'): InterviewDocument {
-  return {
-    schema_version: 1,
-    ticket_id: ticketId,
-    artifact: 'interview',
-    status,
-    generated_by: {
-      winner_model: 'openai/gpt-5',
-      generated_at: '2026-03-20T10:00:00.000Z',
-      canonicalization: 'server_normalized',
-    },
-    questions: [
-      {
-        id: 'Q01',
-        phase: 'Foundation',
-        prompt: 'What outcome matters most?',
-        source: 'compiled',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'Protect the import pipeline.',
-          answered_by: 'user',
-          answered_at: '2026-03-20T10:05:00.000Z',
-        },
-      },
-      {
-        id: 'FINAL',
-        phase: 'Assembly',
-        prompt: 'Anything else the team should know?',
-        source: 'final_free_form',
-        follow_up_round: null,
-        answer_type: 'free_text',
-        options: [],
-        answer: {
-          skipped: false,
-          selected_option_ids: [],
-          free_text: 'Keep retries observable.',
-          answered_by: 'user',
-          answered_at: '2026-03-20T10:07:00.000Z',
-        },
-      },
-    ],
-    follow_up_rounds: [
-      {
-        round_number: 1,
-        source: 'prom4',
-        question_ids: ['Q01'],
-      },
-    ],
-    summary: {
-      goals: ['Protect imports'],
-      constraints: ['No duplicate records'],
-      non_goals: ['Bulk reprocessing'],
-      final_free_form_answer: 'Keep retries observable.',
-    },
-    approval: {
-      approved_by: status === 'approved' ? 'user' : '',
-      approved_at: status === 'approved' ? '2026-03-20T10:10:00.000Z' : '',
-    },
-  }
-}
-
 function setupApprovalTicket() {
   const repoDir = repoManager.createRepo()
   const project = attachProject({
@@ -144,7 +80,7 @@ function setupApprovalTicket() {
     throw new Error('Ticket workspace not initialized')
   }
 
-  const document = buildInterviewDocument(ticket.externalId)
+  const document = buildInterviewDocument(ticket.externalId, 'draft')
   const raw = buildInterviewDocumentYaml(document)
   safeAtomicWrite(`${paths.ticketDir}/interview.yaml`, raw)
 

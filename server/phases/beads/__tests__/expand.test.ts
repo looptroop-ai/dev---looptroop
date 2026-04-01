@@ -47,7 +47,7 @@ function buildExpandedBeads(subsets: BeadSubset[] = buildSubsetBeads()): Bead[] 
   }))
 }
 
-describe('validateBeadExpansion', () => {
+describe.concurrent('validateBeadExpansion', () => {
   it('accepts punctuation and whitespace-only drift in narrative preserved fields', () => {
     const subsets = buildSubsetBeads()
     const expanded = buildExpandedBeads(subsets)

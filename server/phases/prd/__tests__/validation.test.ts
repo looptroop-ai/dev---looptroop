@@ -57,7 +57,7 @@ const structuredInterviewYaml = makeInterviewYaml({
   ],
 })
 
-describe('validatePrdDraft', () => {
+describe.concurrent('validatePrdDraft', () => {
   it('accepts wrapped PRD YAML, repairs ids deterministically, and returns stable metrics', () => {
     const interviewContent = skippedInterviewYaml
 

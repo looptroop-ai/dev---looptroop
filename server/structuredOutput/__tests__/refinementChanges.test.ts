@@ -16,7 +16,7 @@ function makeChange(overrides: Record<string, unknown> = {}) {
   }
 }
 
-describe('parseRefinementChanges — inspiration item parsing', () => {
+describe.concurrent('parseRefinementChanges — inspiration item parsing', () => {
   it('accepts inspiration with both id and label (strict format)', () => {
     const { changes } = parseRefinementChanges(
       [makeChange({

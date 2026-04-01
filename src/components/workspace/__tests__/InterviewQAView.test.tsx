@@ -71,11 +71,6 @@ describe('InterviewQAView', () => {
     skippedBody = null
     savedUiState = null
     preSeededDrafts = null
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    })
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0)
       return 1

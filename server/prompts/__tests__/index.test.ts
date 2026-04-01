@@ -22,7 +22,7 @@ import {
   buildPromptFromTemplate,
 } from '../index'
 
-describe('structured prompt hardening', () => {
+describe.concurrent('structured prompt hardening', () => {
   it('keeps the interview refinement prompt explicit about phase order and self-checks', () => {
     const prompt = buildPromptFromTemplate(PROM3, [])
     expect(prompt).toContain('Phase Order Is Mandatory')

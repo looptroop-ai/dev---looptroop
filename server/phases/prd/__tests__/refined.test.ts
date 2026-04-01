@@ -117,7 +117,7 @@ function validationContext(overrides: Record<string, unknown> = {}) {
   return { ticketId: TEST.externalId, interviewContent, winnerDraftContent: buildPrdContent(), ...overrides }
 }
 
-describe('PRD refined artifacts', () => {
+describe.concurrent('PRD refined artifacts', () => {
   it('keeps the retry prompt explicit about non-empty epic user_stories', () => {
     const retryPrompt = buildPrdRefinementRetryPrompt([], {
       validationError: 'Epic at index 1 is missing user stories',

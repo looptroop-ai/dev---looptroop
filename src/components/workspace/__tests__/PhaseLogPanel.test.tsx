@@ -67,12 +67,6 @@ function renderWithTooltipProvider(ui: React.ReactElement) {
 }
 
 beforeAll(() => {
-  class ResizeObserverMock {
-    observe() {}
-    disconnect() {}
-    unobserve() {}
-  }
-
   Object.defineProperty(globalThis, 'requestAnimationFrame', {
     configurable: true,
     writable: true,
@@ -119,12 +113,6 @@ beforeAll(() => {
     configurable: true,
     writable: true,
     value: scrollToMock,
-  })
-
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    writable: true,
-    value: ResizeObserverMock,
   })
 })
 
