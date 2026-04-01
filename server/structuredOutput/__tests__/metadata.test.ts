@@ -69,7 +69,7 @@ describe.concurrent('structured output metadata helpers', () => {
     ])
     expect(metadata.interventions).toEqual([
       expect.objectContaining({ code: 'attribution_repaired', category: 'attribution' }),
-      expect.objectContaining({ code: 'parser_repair', category: 'parser_fix' }),
+      expect.objectContaining({ code: 'parser_transcript_recovery', category: 'parser_fix' }),
       expect.objectContaining({ code: 'retry_after_validation_failure', category: 'retry' }),
     ])
   })

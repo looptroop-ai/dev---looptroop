@@ -898,7 +898,7 @@ describe('ArtifactContentViewer', () => {
     expect(copy?.title).toBe('LoopTroop adjusted this final test plan.')
     expect(copy?.summary).toBe('1 intervention recorded.')
     expect(copy?.interventions).toEqual([
-      expect.objectContaining({ category: 'parser_fix', code: 'parser_repair' }),
+      expect.objectContaining({ category: 'parser_fix', code: 'parser_markdown_fence' }),
     ])
   })
 

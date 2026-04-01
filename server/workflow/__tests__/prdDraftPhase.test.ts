@@ -308,7 +308,7 @@ describe('handlePrdDraft', () => {
       validationError: 'PRD output is not a YAML/JSON object',
     })
     expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput?.interventions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'cleanup', code: 'cleanup_canonicalization' }),
+      expect.objectContaining({ category: 'cleanup', code: 'cleanup_content_hash' }),
       expect.objectContaining({ category: 'retry' }),
     ]))
     expect(existsSync(paths.executionLogPath)).toBe(true)
