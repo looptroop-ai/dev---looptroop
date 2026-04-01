@@ -67,28 +67,33 @@ export interface LogEntryRowProps {
   showModelName: boolean
 }
 
+function showsStreamingUi(entry: LogEntry): boolean {
+  return entry.streaming && (entry.kind === 'text' || entry.kind === 'reasoning')
+}
+
 export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: LogEntryRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  const isStreamingUiEntry = showsStreamingUi(entry)
   
   // Fast multiline check to predict if truncation is needed
   const isMultiline = useMemo(() => {
-    if (entry.streaming) {
-      return entry.line.split('\n').length > 6;
+    if (isStreamingUiEntry) {
+      return entry.line.split('\n').length > 6
     }
     
-    let count = 0;
-    const trimmed = entry.line.trimEnd();
-    let pos = trimmed.indexOf('\n');
+    let count = 0
+    const trimmed = entry.line.trimEnd()
+    let pos = trimmed.indexOf('\n')
     while (pos !== -1) {
-      count++;
+      count++
       if (count >= 5) return true;
-      pos = trimmed.indexOf('\n', pos + 1);
+      pos = trimmed.indexOf('\n', pos + 1)
     }
-    return false;
-  }, [entry.line, entry.streaming]);
+    return false
+  }, [entry.line, isStreamingUiEntry])
 
   useEffect(() => {
     const el = contentRef.current
@@ -133,7 +138,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             </button>
           </div>
         )}
-        {entry.streaming && (
+        {isStreamingUiEntry && (
           <div className="mt-0.5">
             <span
               title="Receiving continuous text from AI model"
@@ -152,10 +157,10 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
             className={cn(
               getEntryColor(entry),
               'whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] max-w-full',
-              !isExpanded && !entry.streaming && 'line-clamp-5',
+              !isExpanded && !isStreamingUiEntry && 'line-clamp-5',
             )}
           >
-            {!isExpanded && entry.streaming ? (
+            {!isExpanded && isStreamingUiEntry ? (
               <StreamingPreview entry={entry} showModelName={showModelName} />
             ) : (
               <div>

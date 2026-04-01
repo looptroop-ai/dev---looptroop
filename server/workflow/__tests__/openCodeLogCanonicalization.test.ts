@@ -208,6 +208,28 @@ describe('OpenCode log canonicalization', () => {
     expect(getPersistedEntries().some((entry) => entry.entryId === 'ses-3:transcript-summary')).toBe(false)
   })
 
+  it('persists step-start rows without marking them as streaming', () => {
+    const state = createOpenCodeStreamState()
+
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'COUNCIL_DELIBERATING', 'openai/gpt-5-mini', 'ses-step', {
+      type: 'step',
+      sessionId: 'ses-step',
+      partId: 'part-step-1',
+      step: 'start',
+      complete: false,
+    }, state)
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'ses-step:part-step-1',
+        kind: 'step',
+        op: 'append',
+        streaming: false,
+        content: 'Step started.',
+      }),
+    ]))
+  })
+
   it('emits one canonical text row per assistant response when a session is reused', () => {
     const state = createOpenCodeStreamState()
 

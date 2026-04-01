@@ -459,6 +459,45 @@ describe('PhaseLogPanel', () => {
     expect(screen.getAllByText(/Final PRD Title/i)).toHaveLength(1)
   })
 
+  it('does not show a Stream badge for non-text AI status rows even if they are marked streaming', () => {
+    const stepLog: LogEntry = {
+      id: 'ses-9:step-1',
+      entryId: 'ses-9:step-1',
+      line: '[SYS] Step started.',
+      source: 'model:openai/gpt-5.4',
+      status: 'CODING',
+      timestamp: '2026-03-10T10:00:00.000Z',
+      audience: 'ai',
+      kind: 'step',
+      modelId: 'openai/gpt-5.4',
+      sessionId: 'ses-9',
+      streaming: true,
+      op: 'append',
+    }
+    const sessionLog: LogEntry = {
+      id: 'ses-9:status',
+      entryId: 'ses-9:status',
+      line: '[SYS] Session status: busy.',
+      source: 'model:openai/gpt-5.4',
+      status: 'CODING',
+      timestamp: '2026-03-10T10:00:01.000Z',
+      audience: 'ai',
+      kind: 'session',
+      modelId: 'openai/gpt-5.4',
+      sessionId: 'ses-9',
+      streaming: true,
+      op: 'upsert',
+    }
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={[stepLog, sessionLog]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(screen.getByText(/Step started/i)).toBeInTheDocument()
+    expect(screen.getByText(/Session status: busy/i)).toBeInTheDocument()
+    expect(screen.queryByText('Stream')).not.toBeInTheDocument()
+  })
+
   it('pins the viewport to the latest logs by default and follows new visible entries', () => {
     const firstLog = makeLog('log-1', '[SYS] First visible log line')
     const secondLog = makeLog('log-2', '[SYS] Second visible log line', {

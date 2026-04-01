@@ -536,7 +536,7 @@ export function emitOpenCodeStreamEvent(
         source,
         modelId: memberId || undefined,
         sessionId,
-        streaming: event.step === 'start',
+        streaming: false,
       },
     )
     if (event.complete) {
