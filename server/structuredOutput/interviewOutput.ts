@@ -308,6 +308,7 @@ function hydrateInterviewInspirationQuestion(
 function parseInterviewRefinementChangeEntry(
   value: unknown,
   index: number,
+  losingDraftMeta?: Array<{ memberId: string }>,
 ): ParsedInterviewRefinementChangeCandidate {
   if (!isRecord(value)) {
     throw new Error(`Interview refinement change at index ${index} is not an object`)
@@ -340,10 +341,26 @@ function parseInterviewRefinementChangeEntry(
     inspiration = undefined
   } else if (isRecord(rawInspiration)) {
     try {
-      const altDraft = toOrdinalInteger(getValueByAliases(rawInspiration, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index']))
+      const rawAltDraft = getValueByAliases(rawInspiration, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index'])
+      let draftIndex = -1
+
+      if (typeof rawAltDraft === 'string' && losingDraftMeta) {
+        const rawTrimmed = rawAltDraft.trim()
+        const foundIdx = losingDraftMeta.findIndex((m) => m.memberId === rawTrimmed)
+        if (foundIdx >= 0) {
+          draftIndex = foundIdx
+        }
+      }
+
+      if (draftIndex === -1) {
+        const altDraft = toOrdinalInteger(rawAltDraft)
+        if (altDraft != null) {
+          draftIndex = altDraft - 1
+        }
+      }
+
       const rawInspirationQuestion = getValueByAliases(rawInspiration, ['question', 'item'])
-      if (altDraft != null && rawInspirationQuestion !== undefined) {
-        const draftIndex = altDraft - 1
+      if (draftIndex >= 0 && rawInspirationQuestion !== undefined) {
         const question = normalizeInterviewInspirationQuestion(
           rawInspirationQuestion,
           `Interview refinement change.inspiration.question at index ${index}`,
@@ -1312,6 +1329,7 @@ export function normalizeInterviewRefinementOutput(
         const parsedChanges = rawChanges.map((entry, index) => parseInterviewRefinementChangeEntry(
           entry,
           index,
+          losingDraftMeta,
         ))
         const canonicalizedChanges = canonicalizeInterviewRefinementChanges(
           parsedChanges,

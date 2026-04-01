@@ -58,17 +58,38 @@ function normalizeRefinementInspiration(
 ): RefinementChangeInspiration | null {
   if (!isRecord(value)) return null
 
-  const altDraft = toOrdinalInteger(getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index', 'draftindex']))
+  const rawAltDraft = getValueByAliases(value, ['alternative_draft', 'alternativedraft', 'draft', 'draft_index', 'draftindex'])
+  
+  let draftIndex = -1
+  let memberId = ''
+
+  if (typeof rawAltDraft === 'string' && losingDraftMeta) {
+    const rawTrimmed = rawAltDraft.trim()
+    const foundIndex = losingDraftMeta.findIndex((m) => m.memberId === rawTrimmed)
+    if (foundIndex >= 0) {
+      draftIndex = foundIndex
+      memberId = losingDraftMeta[foundIndex]!.memberId
+    }
+  }
+
+  if (draftIndex === -1) {
+    const altDraft = toOrdinalInteger(rawAltDraft)
+    if (altDraft != null) {
+      draftIndex = altDraft - 1
+      if (losingDraftMeta && draftIndex >= 0 && draftIndex < losingDraftMeta.length) {
+        memberId = losingDraftMeta[draftIndex]!.memberId
+      }
+    }
+  }
+
+  if (!memberId) {
+    memberId = toOptionalString(getValueByAliases(value, ['member_id', 'memberid', 'memberId'])) ?? ''
+  }
+
   const rawItem = getValueByAliases(value, ['item', 'bead', 'epic', 'story'])
   const item = normalizeInspirationItem(rawItem)
 
-  if (altDraft == null || !item) return null
-
-  const draftIndex = altDraft - 1
-  let memberId = toOptionalString(getValueByAliases(value, ['member_id', 'memberid', 'memberId'])) ?? ''
-  if (losingDraftMeta && draftIndex >= 0 && draftIndex < losingDraftMeta.length) {
-    memberId = losingDraftMeta[draftIndex]!.memberId
-  }
+  if (draftIndex === -1 || !item) return null
 
   return { draftIndex, memberId, item }
 }
