@@ -116,6 +116,7 @@ function buildPromptParts(template: typeof PROM10a | typeof PROM10b, contextPart
 function stripGeneratedByForRetry(
   normalizedInterviewDocument: InterviewDocument,
 ): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { generated_by: _generatedBy, ...sanitized } = normalizedInterviewDocument
   return (jsYaml.dump(sanitized, { lineWidth: 120, noRefs: true }) as string).trim()
 }

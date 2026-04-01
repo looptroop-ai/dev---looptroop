@@ -1079,13 +1079,15 @@ export function buildRefinementDiffEntries(
     const beforeId = change.before?.id
     const key = `${afterId || beforeId || index}:${normalizedType}:${index}`
 
-    const rawInspiration = change.inspiration as any
+    const rawInspiration = change.inspiration as Record<string, unknown> | null | undefined
+    const rawItem = rawInspiration?.item
+    const itemRecord = isRecord(rawItem) ? rawItem : null
     const inspiration = rawInspiration
       ? {
-          memberId: rawInspiration.memberId ?? rawInspiration.alternative_draft ?? rawInspiration.alternativeDraft ?? '',
-          sourceId: typeof rawInspiration.item === 'string' ? '' : (rawInspiration.item?.id ?? ''),
-          sourceLabel: typeof rawInspiration.item === 'string' ? rawInspiration.item : (rawInspiration.item?.label ?? ''),
-          sourceText: typeof rawInspiration.item === 'string' ? rawInspiration.item : (rawInspiration.item?.detail ?? rawInspiration.item?.label ?? ''),
+          memberId: String(rawInspiration.memberId ?? rawInspiration.alternative_draft ?? rawInspiration.alternativeDraft ?? ''),
+          sourceId: typeof rawItem === 'string' ? '' : String(itemRecord?.id ?? ''),
+          sourceLabel: typeof rawItem === 'string' ? rawItem : String(itemRecord?.label ?? ''),
+          sourceText: typeof rawItem === 'string' ? rawItem : String(itemRecord?.detail ?? itemRecord?.label ?? ''),
         }
       : rawInspiration === null ? null : undefined
     const attributionStatus = normalizeRefinementDiffAttributionStatus(change.attributionStatus)

@@ -204,8 +204,8 @@ function buildExactInterventionDetails(
   const fromToMatch = warning.match(/^(?:Canonicalized|Normalized)\s+(.+?)\s+from\s+(.+?)\s+to\s+(.+?)\.$/i)
   if (fromToMatch) {
     const subject = normalizeString(fromToMatch[1])
-    const before = fromToMatch[2]
-    const after = fromToMatch[3]
+    const before = fromToMatch[2]!
+    const after = fromToMatch[3]!
     const example = buildBeforeAfterExample(subject, before, after)
     return {
       exactCorrection: subject
@@ -220,7 +220,7 @@ function buildExactInterventionDetails(
     if (statusMatch) {
       const example = buildBeforeAfterExample('PRD status', statusMatch[1], statusMatch[2])
       return {
-        exactCorrection: `Changed the PRD status from ${formatQuotedValue(statusMatch[1])} to ${formatQuotedValue(statusMatch[2])}.`,
+        exactCorrection: `Changed the PRD status from ${formatQuotedValue(statusMatch[1]!)} to ${formatQuotedValue(statusMatch[2]!)}.`,
         ...(example ? { examples: [example] } : {}),
       }
     }
@@ -230,8 +230,8 @@ function buildExactInterventionDetails(
     const renumberMatch = warning.match(/^Renumbered duplicate (.+?) id\s+("?[^"]+"?|[^\s.]+)(?: at index \d+)?\s+to\s+("?[^"]+"?|.+?)\.$/i)
     if (renumberMatch) {
       const subject = `${renumberMatch[1]} ID`
-      const before = renumberMatch[2]
-      const after = renumberMatch[3]
+      const before = renumberMatch[2]!
+      const after = renumberMatch[3]!
       const example = buildBeforeAfterExample(subject, before, after)
       return {
         exactCorrection: `Renumbered the duplicate ${subject.toLowerCase()} from ${formatQuotedValue(before)} to ${formatQuotedValue(after)}.`,
@@ -242,7 +242,7 @@ function buildExactInterventionDetails(
     const duplicateOptionsMatch = warning.match(/^([^:]+): removed duplicate option ids (.+?) and kept the first occurrence\.$/i)
     if (duplicateOptionsMatch) {
       return {
-        exactCorrection: `Removed duplicate option IDs for ${duplicateOptionsMatch[1].trim()} and kept the first occurrence of each ID.`,
+        exactCorrection: `Removed duplicate option IDs for ${duplicateOptionsMatch[1]!.trim()} and kept the first occurrence of each ID.`,
       }
     }
   }
@@ -251,8 +251,8 @@ function buildExactInterventionDetails(
     const filledMatch = warning.match(/^(.*?) was missing (.+?)\. Filled with (.+)\.$/i)
     if (filledMatch) {
       const scope = normalizeString(filledMatch[1])
-      const field = stripOuterQuotes(filledMatch[2])
-      const value = filledMatch[3]
+      const field = stripOuterQuotes(filledMatch[2]!)
+      const value = filledMatch[3]!
       const example = buildBeforeAfterExample(scope ?? field, '[missing]', value, scope ? `Filled ${field}.` : undefined)
       return {
         exactCorrection: `Filled the missing ${field} with ${formatQuotedValue(value)}.`,
@@ -263,7 +263,7 @@ function buildExactInterventionDetails(
     const runtimeFillMatch = warning.match(/^Filled missing (.+?) from runtime context\.$/i)
     if (runtimeFillMatch) {
       return {
-        exactCorrection: `Filled the missing ${stripOuterQuotes(runtimeFillMatch[1])} from the runtime context.`,
+        exactCorrection: `Filled the missing ${stripOuterQuotes(runtimeFillMatch[1]!)} from the runtime context.`,
       }
     }
   }
@@ -272,7 +272,7 @@ function buildExactInterventionDetails(
     const inferredMatch = warning.match(/^Inferred missing (.+?)(?: at index \d+)? as (.+)\.$/i)
     if (inferredMatch) {
       const field = inferredMatch[1]
-      const value = inferredMatch[2]
+      const value = inferredMatch[2]!
       const example = buildBeforeAfterExample(field, '[missing]', value)
       return {
         exactCorrection: `Filled the missing ${field} with ${formatQuotedValue(value)} using the validated surrounding context.`,

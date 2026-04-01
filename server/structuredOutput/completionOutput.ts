@@ -201,7 +201,11 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
         ]))
       }
 
-      const commands = toStringArray(getValueByAliases(parsed, ['commands', 'commandlist', 'command_list', 'cmds', 'cmd']))
+      const rawCommands = getValueByAliases(parsed, ['commands', 'commandlist', 'command_list', 'cmds', 'cmd'])
+      const commands = toStringArray(rawCommands)
+      if (typeof rawCommands === 'string') {
+        candidateWarnings.push('Coerced commands from string to array')
+      }
       if (commands.length === 0) {
         throw new Error('No executable final test commands were provided')
       }

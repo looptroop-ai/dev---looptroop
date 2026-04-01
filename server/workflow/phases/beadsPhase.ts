@@ -357,7 +357,7 @@ export async function handleBeadsDraft(
   phaseIntermediate.set(`${ticketId}:beads`, {
     drafts: result.drafts,
     memberOutcomes: result.memberOutcomes,
-    contextBuilder: buildBeadsContextBuilder(ticketContext),
+    contextBuilder: buildBeadsContextBuilder(ticketState),
     worktreePath,
     phase: result.phase,
     ticketState,
@@ -536,6 +536,7 @@ export async function handleBeadsVote(
 
   intermediate.votes = voteRun.votes
   intermediate.winnerId = winnerId
+  intermediate.presentationOrders = voteRun.presentationOrders
 
   upsertCouncilVoteArtifact(
     ticketId,

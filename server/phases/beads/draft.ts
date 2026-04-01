@@ -3,14 +3,17 @@ import type { CouncilMember, DraftPhaseResult, DraftProgressEvent } from '../../
 import { generateDrafts } from '../../council/drafter'
 import { buildPromptFromTemplate, PROM20, PROM21, PROM22 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
+import { buildMinimalContext } from '../../opencode/contextBuilder'
+import type { TicketState } from '../../opencode/contextBuilder'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { normalizeBeadSubsetYamlOutput } from '../../structuredOutput'
 
 /** Build a context builder that returns PROM21 (vote) or PROM22 (refine) context. */
-export function buildBeadsContextBuilder(ticketContext: PromptPart[]) {
+export function buildBeadsContextBuilder(ticketState: TicketState) {
   return (step: 'vote' | 'refine'): PromptPart[] => {
     const template = step === 'vote' ? PROM21 : PROM22
-    return [{ type: 'text', content: buildPromptFromTemplate(template, ticketContext) }]
+    const contextPhase = step === 'vote' ? 'beads_vote' : 'beads_refine'
+    return [{ type: 'text', content: buildPromptFromTemplate(template, buildMinimalContext(contextPhase, ticketState)) }]
   }
 }
 

@@ -1,7 +1,7 @@
 import { broadcaster } from '../../sse/broadcaster'
 import { appendLogEvent } from '../../log/executionLog'
 import type { LogEventType, LogSource } from '../../log/types'
-import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
+import { type TicketState } from '../../opencode/contextBuilder'
 import { analyzeAssistantMessages } from '../../opencode/assistantMessageAnalysis'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { PROM5, PROM13, PROM24 } from '../../prompts/index'
@@ -1360,7 +1360,7 @@ export function tryRecoverPhaseIntermediate(
         relevantFiles,
         prd,
       }
-      contextBuilder = buildBeadsContextBuilder(buildMinimalContext('beads_draft', ticketState))
+      contextBuilder = buildBeadsContextBuilder(ticketState)
     }
 
     const data: PhaseIntermediateData = {
