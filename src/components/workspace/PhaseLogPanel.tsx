@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
 import { ChevronRight, ChevronLeft, Copy, Check } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
@@ -218,95 +218,98 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
       )}
       <div className="text-xs text-muted-foreground px-1 mb-1">{description}</div>
       <div className="flex gap-1 px-1 py-1 items-center flex-wrap">
-        <TooltipProvider delayDuration={300}>
-          {FIXED_TABS.map(tab => {
-            const tooltipContent = TAB_TOOLTIPS[tab]
+        {FIXED_TABS.map(tab => {
+          const tooltipContent = TAB_TOOLTIPS[tab]
 
-            if (tab === 'AI' && showModelTabs) {
-              const isActive = effectiveTab === tab
-              return (
-                <Fragment key={tab}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={cn(
-                          'flex items-center rounded text-xs font-medium shrink-0 transition-colors',
-                          isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
-                        )}
-                      >
-                        <button
-                          onClick={() => setActiveTab(tab)}
-                          className="pl-2 pr-0.5 py-0.5 hover:text-foreground transition-colors"
-                        >
-                          {tab}
-                        </button>
-                        <button
-                          onClick={() => setModelsCollapsed(!modelsCollapsed)}
-                          className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
-                          title={modelsCollapsed ? 'Show models' : 'Hide models'}
-                        >
-                          {modelsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
-                      {tooltipContent}
-                    </TooltipContent>
-                  </Tooltip>
-                  {!modelsCollapsed && modelTabs.map(mTab => (
-                    <ModelBadge
-                      key={mTab}
-                      modelId={mTab}
-                      active={effectiveTab === mTab}
-                      onClick={() => setActiveTab(mTab)}
-                      showIcon={false}
-                    />
-                  ))}
-                </Fragment>
-              )
-            }
-
+          if (tab === 'AI' && showModelTabs) {
+            const isActive = effectiveTab === tab
             return (
-              <Tooltip key={tab}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setActiveTab(tab)}
-                    className={cn(
-                      'px-2 py-0.5 rounded text-xs font-medium shrink-0',
-                      effectiveTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {tab}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
-                  {tooltipContent}
-                </TooltipContent>
-              </Tooltip>
+              <Fragment key={tab}>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        'flex items-center rounded text-xs font-medium shrink-0 transition-colors',
+                        isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab(tab)}
+                        className="pl-2 pr-0.5 py-0.5 hover:text-foreground transition-colors"
+                      >
+                        {tab}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setModelsCollapsed(!modelsCollapsed)}
+                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
+                        title={modelsCollapsed ? 'Show models' : 'Hide models'}
+                      >
+                        {modelsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
+                    {tooltipContent}
+                  </TooltipContent>
+                </Tooltip>
+                {!modelsCollapsed && modelTabs.map(mTab => (
+                  <ModelBadge
+                    key={mTab}
+                    modelId={mTab}
+                    active={effectiveTab === mTab}
+                    onClick={() => setActiveTab(mTab)}
+                    showIcon={false}
+                  />
+                ))}
+              </Fragment>
             )
-          })}
-        </TooltipProvider>
-        <div className="ml-auto flex items-center pl-2 gap-2 text-xs text-muted-foreground">
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
+          }
+
+          return (
+            <Tooltip key={tab} delayDuration={300}>
               <TooltipTrigger asChild>
-                <div className="flex items-center cursor-help px-1 py-0.5 rounded hover:bg-muted transition-colors">
-                  <span>{filteredLogs.length} entries</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    'px-2 py-0.5 rounded text-xs font-medium shrink-0',
+                    effectiveTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {tab}
+                </button>
               </TooltipTrigger>
-              <TooltipContent side="top" align="end" className="flex flex-col gap-1.5 p-2 bg-popover text-popover-foreground border-border font-medium shadow-md">
-                <div className="font-semibold text-xs border-b border-border pb-1">Log Colors Legend</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-blue-500"></div> Input (Prompt)</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-emerald-600"></div> Final Output (Text)</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-green-500"></div> Other AI Events</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-purple-400"></div> Thinking</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-red-500"></div> Error</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-amber-600"></div> Debug</div>
-                <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-foreground"></div> System</div>
+              <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
+                {tooltipContent}
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
+          )
+        })}
+        <div className="ml-auto flex items-center pl-2 gap-2 text-xs text-muted-foreground">
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center cursor-help px-1 py-0.5 rounded hover:bg-muted transition-colors border-none bg-transparent m-0 focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <span>{filteredLogs.length} entries</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="end" className="flex flex-col gap-1.5 p-2 bg-popover text-popover-foreground border border-border font-medium shadow-md">
+              <div className="font-semibold text-xs border-b border-border pb-1">Log Colors Legend</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-blue-500"></div> Input (Prompt)</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-emerald-600"></div> Final Output (Text)</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-green-500"></div> Other AI Events</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-purple-400"></div> Thinking</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-red-500"></div> Error</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-amber-600"></div> Debug</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-foreground"></div> System</div>
+            </TooltipContent>
+          </Tooltip>
           <button
+            type="button"
             onClick={handleCopyLogs}
             disabled={!hasLogs}
             title="Copy all logs"

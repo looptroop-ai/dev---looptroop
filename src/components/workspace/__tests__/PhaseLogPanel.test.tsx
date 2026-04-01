@@ -2,6 +2,7 @@ import type { ReactNode, Ref } from 'react'
 import { act, render, screen, fireEvent } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({
@@ -57,6 +58,12 @@ function makeLog(id: string, line: string, overrides: Partial<LogEntry> = {}): L
     op: 'append',
     ...overrides,
   }
+}
+
+function renderWithTooltipProvider(ui: React.ReactElement) {
+  return render(ui, {
+    wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider>,
+  })
 }
 
 beforeAll(() => {
@@ -212,7 +219,7 @@ describe('PhaseLogPanel', () => {
       },
     ]
 
-    render(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
+    renderWithTooltipProvider(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
 
     expect(screen.getByText(/Interview council drafting started/i)).toBeInTheDocument()
     expect(screen.getAllByText(/Confidence in timing\?/i)).toHaveLength(1)
@@ -264,7 +271,7 @@ describe('PhaseLogPanel', () => {
       },
     ]
 
-    render(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
 
     expect(screen.getByText(/Canonical PRD/i)).toBeInTheDocument()
     expect(screen.getByText(/failed to produce Full Answers/i)).toBeInTheDocument()
@@ -318,7 +325,7 @@ describe('PhaseLogPanel', () => {
       },
     ]
 
-    render(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
+    renderWithTooltipProvider(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
 
     expect(screen.getByText(/\[MODEL-gpt-5-codex\]/i)).toBeInTheDocument()
     expect(screen.queryByText(/\[THINKING-gpt-5-codex\]/i)).not.toBeInTheDocument()
@@ -362,7 +369,7 @@ describe('PhaseLogPanel', () => {
       },
     ]
 
-    render(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
+    renderWithTooltipProvider(<PhaseLogPanel phase="COUNCIL_DELIBERATING" logs={logs} />)
 
     expect(screen.getByText(/openai\/gpt-5-mini prompt #1/i)).toBeInTheDocument()
     expect(screen.getByText(/You are an expert product manager/i)).toBeInTheDocument()
@@ -405,7 +412,7 @@ describe('PhaseLogPanel', () => {
       timestamp: '2026-03-10T10:00:02.000Z',
     }
 
-    const { rerender } = render(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, streamingAiLog]} />)
+    const { rerender } = renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, streamingAiLog]} />)
 
     expect(screen.getByText(/PRD drafting started/i)).toBeInTheDocument()
     expect(screen.queryByText(/Final PRD Title/i)).not.toBeInTheDocument()
@@ -433,7 +440,7 @@ describe('PhaseLogPanel', () => {
       timestamp: '2026-03-10T10:00:01.000Z',
     })
 
-    const { rerender } = render(<PhaseLogPanel phase="CODING" logs={[firstLog]} />)
+    const { rerender } = renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={[firstLog]} />)
 
     flushAnimationFrames()
 
@@ -456,7 +463,7 @@ describe('PhaseLogPanel', () => {
       timestamp: '2026-03-10T10:00:01.000Z',
     })
 
-    const { rerender } = render(<PhaseLogPanel phase="CODING" logs={[]} />)
+    const { rerender } = renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={[]} />)
 
     flushAnimationFrames()
     scrollToMock.mockClear()
@@ -478,7 +485,7 @@ describe('PhaseLogPanel', () => {
       timestamp: '2026-03-10T10:00:02.000Z',
     })
 
-    const { rerender } = render(<PhaseLogPanel phase="CODING" logs={[firstLog]} />)
+    const { rerender } = renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={[firstLog]} />)
 
     flushAnimationFrames()
     scrollToMock.mockClear()
@@ -502,5 +509,33 @@ describe('PhaseLogPanel', () => {
 
     expect(scrollToMock).toHaveBeenCalledTimes(1)
     expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'smooth' })
+  })
+
+  it('shows the log color legend when hovering the entry count', async () => {
+    renderWithTooltipProvider(
+      <PhaseLogPanel
+        phase="CODING"
+        logs={[
+          makeLog('log-1', '[PROMPT] Prompt line', {
+            source: 'model:openai/gpt-5-mini',
+            audience: 'ai',
+            kind: 'prompt',
+          }),
+          makeLog('log-2', '[SYS] System line', {
+            timestamp: '2026-03-10T10:00:01.000Z',
+          }),
+        ]}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: '2 entries' })
+    await act(async () => {
+      fireEvent.focus(trigger)
+    })
+
+    const legends = screen.getAllByText('Log Colors Legend')
+    expect(legends.length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Input (Prompt)').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('System').length).toBeGreaterThan(0)
   })
 })
