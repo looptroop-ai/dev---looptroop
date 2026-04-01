@@ -394,6 +394,46 @@ describe('technicalDetail', () => {
   })
 })
 
+// ── exact details ──────────────────────────────────────────────────
+
+describe('exact correction details', () => {
+  it('derives rule and exact correction details for wrapper-key repairs', () => {
+    const i = deriveOne('Removed wrapper key "command_plan" from top level.')
+
+    expect(i.rule).toEqual({
+      id: 'parser_wrapper_key',
+      label: 'Wrapper Key',
+    })
+    expect(i.exactCorrection).toBe('Removed the unexpected top-level wrapper key "command_plan" and kept its nested payload.')
+  })
+
+  it('derives before/after examples for canonicalized from/to repairs', () => {
+    const i = deriveOne('Canonicalized generated_by.winner_model from "gpt-4" to "claude-sonnet".')
+
+    expect(i.exactCorrection).toBe('Changed generated_by.winner_model from "gpt-4" to "claude-sonnet".')
+    expect(i.examples).toEqual([
+      {
+        scope: 'generated_by.winner_model',
+        before: 'gpt-4',
+        after: 'claude-sonnet',
+      },
+    ])
+  })
+
+  it('derives missing-value examples for inferred field repairs', () => {
+    const i = deriveOne('Inferred missing PRD refinement item_type at index 0 as epic.')
+
+    expect(i.exactCorrection).toBe('Filled the missing PRD refinement item_type with "epic" using the validated surrounding context.')
+    expect(i.examples).toEqual([
+      {
+        scope: 'PRD refinement item_type',
+        before: '[missing]',
+        after: 'epic',
+      },
+    ])
+  })
+})
+
 // ── deriveStructuredInterventions ───────────────────────────────────
 
 describe('deriveStructuredInterventions', () => {

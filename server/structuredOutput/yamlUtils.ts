@@ -138,6 +138,85 @@ function appendRepairWarningOnce(repairWarnings: string[] | undefined, warning: 
   }
 }
 
+function formatQuotedList(values: string[]): string {
+  if (values.length === 0) return ''
+  if (values.length === 1) return values[0]!
+  if (values.length === 2) return `${values[0]} and ${values[1]}`
+  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`
+}
+
+function normalizeWrapperPath(path: string[] | undefined): string[] {
+  return Array.isArray(path)
+    ? path
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0)
+    : []
+}
+
+function buildWrapperKeyRepairWarning(path?: string[]): string {
+  const normalizedPath = normalizeWrapperPath(path)
+  if (normalizedPath.length === 0) return WRAPPER_KEY_WARNING
+  if (normalizedPath.length === 1) {
+    return `Removed wrapper key "${normalizedPath[0]}" from top level.`
+  }
+  return `Removed wrapper key chain "${normalizedPath.join(' -> ')}" from top level.`
+}
+
+function buildXmlStyleTagsWarning(tags?: string[]): string {
+  const normalizedTags = Array.isArray(tags)
+    ? [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))]
+    : []
+
+  if (normalizedTags.length === 0) return XML_STYLE_TAGS_WARNING
+  return `Stripped XML-style tags ${formatQuotedList(normalizedTags)} from the payload before parsing.`
+}
+
+function findWrapperPath(
+  value: unknown,
+  preferredKeys: string[],
+  allowSingleKeyFallback: boolean,
+  depth: number = 0,
+): string[] | null {
+  if (!isRecord(value) || depth > 4) return null
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (!preferredKeys.includes(normalizeKey(key))) continue
+    const nestedPath = findWrapperPath(nested, preferredKeys, allowSingleKeyFallback, depth + 1)
+    return nestedPath ? [key, ...nestedPath] : [key]
+  }
+
+  const keys = Object.keys(value)
+  if (allowSingleKeyFallback && keys.length === 1) {
+    const nestedPath = findWrapperPath(value[keys[0]!], preferredKeys, allowSingleKeyFallback, depth + 1)
+    return nestedPath ? [keys[0]!, ...nestedPath] : [keys[0]!]
+  }
+
+  return null
+}
+
+export function findMaybeUnwrappedWrapperPath(value: unknown, preferredKeys: string[]): string[] | undefined {
+  return findWrapperPath(value, preferredKeys, true) ?? undefined
+}
+
+export function findExplicitWrapperPath(value: unknown, preferredKeys: string[]): string[] | undefined {
+  return findWrapperPath(value, preferredKeys, false) ?? undefined
+}
+
+function collectSpuriousXmlTags(content: string): string[] {
+  const tags: string[] = []
+  const seen = new Set<string>()
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (!/^\s*<\/?[a-zA-Z_][a-zA-Z0-9_-]*\s*\/?\s*>\s*$/.test(trimmed)) continue
+    if (seen.has(trimmed)) continue
+    seen.add(trimmed)
+    tags.push(trimmed)
+  }
+
+  return tags
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -169,8 +248,8 @@ export function shouldRecordStructuredCandidateRecovery(
   return true
 }
 
-export function appendWrapperKeyRepairWarning(repairWarnings: string[]) {
-  appendRepairWarningOnce(repairWarnings, WRAPPER_KEY_WARNING)
+export function appendWrapperKeyRepairWarning(repairWarnings: string[], wrapperPath?: string[]) {
+  appendRepairWarningOnce(repairWarnings, buildWrapperKeyRepairWarning(wrapperPath))
 }
 
 function isControlNoiseChar(code: number) {
@@ -430,7 +509,7 @@ export function parseYamlOrJsonCandidate(
       appliedRepairs?: {
         markdownCodeFence?: boolean
         nestedMappingChildren?: boolean
-        xmlStyleTags?: boolean
+        xmlStyleTags?: string[]
       },
     ): unknown => {
       if (appliedRepairs?.markdownCodeFence) {
@@ -439,8 +518,8 @@ export function parseYamlOrJsonCandidate(
       if (appliedRepairs?.nestedMappingChildren) {
         appendRepairWarningOnce(options?.repairWarnings, NESTED_MAPPING_CHILDREN_WARNING)
       }
-      if (appliedRepairs?.xmlStyleTags) {
-        appendRepairWarningOnce(options?.repairWarnings, XML_STYLE_TAGS_WARNING)
+      if (appliedRepairs?.xmlStyleTags && appliedRepairs.xmlStyleTags.length > 0) {
+        appendRepairWarningOnce(options?.repairWarnings, buildXmlStyleTagsWarning(appliedRepairs.xmlStyleTags))
       }
       return parsed
     }
@@ -502,12 +581,13 @@ export function parseYamlOrJsonCandidate(
 
         // Pre-processing: strip XML tags, quote fragile free_text values, remove duplicate keys, fix missing list-dash space
         const xmlStripped = stripSpuriousXmlTags(afterInline)
+        const xmlTags = xmlStripped !== afterInline ? collectSpuriousXmlTags(afterInline) : []
         const freeTextQuoted = repairYamlFreeTextScalars(xmlStripped)
         const dashFixed = repairYamlListDashSpace(freeTextQuoted)
         const deduped = repairYamlDuplicateKeys(dashFixed)
         const base = applyNestedMappingRepair(deduped)
         const appliedPreParseRepairs = {
-          xmlStyleTags: xmlStripped !== afterInline,
+          xmlStyleTags: xmlTags,
         }
 
         // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)

@@ -688,6 +688,48 @@ function ArtifactInterventionBreakdown({ interventions }: { interventions: Struc
                     ) : null}
                   </div>
                   <div className="mt-1 space-y-1 text-[11px] leading-5">
+                    {intervention.exactCorrection ? (
+                      <div><span className="font-medium">Exact correction:</span> {intervention.exactCorrection}</div>
+                    ) : null}
+                    {intervention.rule ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">Rule:</span>
+                        <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
+                          {intervention.rule.label}
+                        </span>
+                        <span className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                          {intervention.rule.id}
+                        </span>
+                      </div>
+                    ) : null}
+                    {intervention.examples && intervention.examples.length > 0 ? (
+                      <div className="space-y-2 rounded border border-border bg-background/80 px-2 py-2">
+                        {intervention.examples.map((example, exampleIndex) => (
+                          <div key={`${group.category}:${intervention.code}:${index}:example:${exampleIndex}`} className="space-y-1">
+                            {example.scope ? (
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                {example.scope}
+                              </div>
+                            ) : null}
+                            {example.before ? (
+                              <div>
+                                <span className="font-medium">Before:</span>{' '}
+                                <span className="font-mono text-[10px] text-muted-foreground">{example.before}</span>
+                              </div>
+                            ) : null}
+                            {example.after ? (
+                              <div>
+                                <span className="font-medium">After:</span>{' '}
+                                <span className="font-mono text-[10px] text-muted-foreground">{example.after}</span>
+                              </div>
+                            ) : null}
+                            {example.note ? (
+                              <div><span className="font-medium">Note:</span> {example.note}</div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     <div><span className="font-medium">What:</span> {intervention.summary}</div>
                     <div><span className="font-medium">Why:</span> {intervention.why}</div>
                     <div><span className="font-medium">How:</span> {intervention.how}</div>

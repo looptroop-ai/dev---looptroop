@@ -9,6 +9,8 @@ import {
   unwrapExplicitWrapperRecord,
   appendStructuredCandidateRecoveryWarning,
   appendWrapperKeyRepairWarning,
+  findExplicitWrapperPath,
+  findMaybeUnwrappedWrapperPath,
   parseYamlOrJsonCandidate,
   shouldRecordStructuredCandidateRecovery,
   toStringArray,
@@ -107,7 +109,15 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
       ])
       if (!isRecord(parsed)) throw new Error('Completion marker payload is not a YAML/JSON object')
       if (parsed !== parsedCandidate && isRecord(parsedCandidate)) {
-        appendWrapperKeyRepairWarning(candidateWarnings)
+        appendWrapperKeyRepairWarning(candidateWarnings, findMaybeUnwrappedWrapperPath(parsedCandidate, [
+          'beadstatus',
+          'bead_status',
+          'statusmarker',
+          'marker',
+          'result',
+          'output',
+          'data',
+        ]))
       }
 
       const beadId = getRequiredString(parsed, ['beadid', 'bead_id', 'id'], 'bead_id')
@@ -179,7 +189,16 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
       ])
       if (!isRecord(parsed)) throw new Error('Final test command payload is not a YAML/JSON object')
       if (parsed !== parsedCandidate && isRecord(parsedCandidate)) {
-        appendWrapperKeyRepairWarning(candidateWarnings)
+        appendWrapperKeyRepairWarning(candidateWarnings, findExplicitWrapperPath(parsedCandidate, [
+          'finaltestcommands',
+          'final_test_commands',
+          'commandplan',
+          'command_plan',
+          'plan',
+          'result',
+          'output',
+          'data',
+        ]))
       }
 
       const commands = toStringArray(getValueByAliases(parsed, ['commands', 'commandlist', 'command_list', 'cmds', 'cmd']))

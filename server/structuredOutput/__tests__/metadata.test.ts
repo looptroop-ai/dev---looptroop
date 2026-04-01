@@ -103,4 +103,42 @@ describe.concurrent('structured output metadata helpers', () => {
       expect.objectContaining({ code: 'retry_after_validation_failure', category: 'retry' }),
     ])
   })
+
+  it('hydrates fallback rule and exact details for legacy interventions with technicalDetail only', () => {
+    const metadata = normalizeStructuredOutputMetadata({
+      repairApplied: true,
+      repairWarnings: [],
+      autoRetryCount: 0,
+      interventions: [
+        {
+          code: 'cleanup_ticket_id',
+          stage: 'normalize',
+          category: 'cleanup',
+          title: 'Corrected the ticket_id field',
+          summary: 'The ticket_id did not match the current ticket.',
+          why: 'The model produced a ticket_id that does not match the current ticket.',
+          how: 'LoopTroop replaced ticket_id with the runtime value.',
+          technicalDetail: 'Canonicalized ticket_id from "old-id" to "new-id".',
+        },
+      ],
+    })
+
+    expect(metadata?.interventions).toEqual([
+      expect.objectContaining({
+        code: 'cleanup_ticket_id',
+        rule: {
+          id: 'cleanup_ticket_id',
+          label: 'Ticket ID',
+        },
+        exactCorrection: 'Changed ticket_id from "old-id" to "new-id".',
+        examples: [
+          {
+            scope: 'ticket_id',
+            before: 'old-id',
+            after: 'new-id',
+          },
+        ],
+      }),
+    ])
+  })
 })

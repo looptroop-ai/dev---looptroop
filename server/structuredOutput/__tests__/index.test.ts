@@ -2636,7 +2636,7 @@ describe.concurrent('structured output normalization', () => {
     if (!result.ok) return
     expect(result.repairApplied).toBe(true)
     expect(result.repairWarnings).toEqual([
-      'Removed wrapper key from top level.',
+      'Removed wrapper key "command_plan" from top level.',
     ])
   })
 

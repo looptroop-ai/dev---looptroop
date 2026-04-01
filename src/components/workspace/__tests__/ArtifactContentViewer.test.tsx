@@ -902,6 +902,34 @@ describe('ArtifactContentViewer', () => {
     ])
   })
 
+  it('derives exact correction details for canonicalized metadata warnings', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: [
+        'Canonicalized generated_by.winner_model from "openai/gpt-5.4" to "github-copilot/gpt-4.1".',
+      ],
+      autoRetryCount: 0,
+    }, 'full-answers')
+
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({
+        code: 'cleanup_winner_model',
+        exactCorrection: 'Changed generated_by.winner_model from "openai/gpt-5.4" to "github-copilot/gpt-4.1".',
+        rule: {
+          id: 'cleanup_winner_model',
+          label: 'Winner Model',
+        },
+        examples: [
+          {
+            scope: 'generated_by.winner_model',
+            before: 'openai/gpt-5.4',
+            after: 'github-copilot/gpt-4.1',
+          },
+        ],
+      }),
+    ])
+  })
+
   it('classifies synthesized change repairs in the parser notice copy', () => {
     const copy = buildArtifactProcessingNoticeCopy({
       repairApplied: true,
@@ -1052,8 +1080,68 @@ describe('ArtifactContentViewer', () => {
     openNotice('LoopTroop adjusted this PRD draft.')
 
     expect(screen.getByText(/LoopTroop validated this PRD draft and recorded the intervention details below/i)).toBeInTheDocument()
+    expect(screen.getByText(/Exact correction:/i)).toBeInTheDocument()
+    expect(screen.getByText(/Rule:/i)).toBeInTheDocument()
+    expect(screen.getByText(/Before:/i)).toBeInTheDocument()
+    expect(screen.getByText(/\[missing\]/i)).toBeInTheDocument()
+    expect(screen.getByText(/After:/i)).toBeInTheDocument()
+    expect(screen.getByText(/^epic$/i)).toBeInTheDocument()
     expect(screen.getByText(/What:/i)).toBeInTheDocument()
     expect(screen.getByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).toBeInTheDocument()
+  })
+
+  it('renders exact correction, rule, and before/after blocks for explicit interventions', () => {
+    render(
+      <ArtifactContent
+        artifactId="prd-draft-member-openai%2Fgpt-5.2"
+        phase="DRAFTING_PRD"
+        content={JSON.stringify({
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: buildPrdDocumentContent(),
+              structuredOutput: {
+                repairApplied: true,
+                interventions: [
+                  {
+                    code: 'cleanup_ticket_id',
+                    stage: 'normalize',
+                    category: 'cleanup',
+                    title: 'Corrected the ticket_id field',
+                    summary: 'The ticket_id did not match the current ticket.',
+                    why: 'The model produced a ticket_id that does not match the current ticket.',
+                    how: 'LoopTroop replaced ticket_id with the runtime value.',
+                    exactCorrection: 'Changed ticket_id from "PROJ-OLD" to "PROJ-123".',
+                    rule: { id: 'cleanup_ticket_id', label: 'Ticket ID' },
+                    examples: [
+                      {
+                        scope: 'ticket_id',
+                        before: 'PROJ-OLD',
+                        after: 'PROJ-123',
+                      },
+                    ],
+                    technicalDetail: 'Canonicalized ticket_id from "PROJ-OLD" to "PROJ-123".',
+                  },
+                ],
+              },
+            },
+          ],
+        })}
+      />,
+    )
+
+    openNotice('LoopTroop adjusted this PRD draft.')
+
+    expect(screen.getByText('Exact correction:')).toBeInTheDocument()
+    expect(screen.getByText('Changed ticket_id from "PROJ-OLD" to "PROJ-123".')).toBeInTheDocument()
+    expect(screen.getByText('Rule:')).toBeInTheDocument()
+    expect(screen.getByText('Ticket ID')).toBeInTheDocument()
+    expect(screen.getByText('cleanup_ticket_id')).toBeInTheDocument()
+    expect(screen.getByText('Before:')).toBeInTheDocument()
+    expect(screen.getByText('PROJ-OLD')).toBeInTheDocument()
+    expect(screen.getByText('After:')).toBeInTheDocument()
+    expect(screen.getByText('PROJ-123')).toBeInTheDocument()
   })
 
   it('shows a collapsed parser notice for coverage review artifacts', () => {

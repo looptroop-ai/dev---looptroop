@@ -1,6 +1,18 @@
 export type StructuredInterventionStage = 'parse' | 'normalize' | 'semantic_validation' | 'retry'
 export type StructuredInterventionCategory = 'parser_fix' | 'cleanup' | 'synthesized' | 'dropped' | 'attribution' | 'retry'
 
+export interface StructuredInterventionRule {
+  id: string
+  label: string
+}
+
+export interface StructuredInterventionExample {
+  scope?: string
+  before?: string
+  after?: string
+  note?: string
+}
+
 export interface StructuredIntervention {
   code: string
   stage: StructuredInterventionStage
@@ -9,6 +21,9 @@ export interface StructuredIntervention {
   summary: string
   why: string
   how: string
+  rule?: StructuredInterventionRule
+  exactCorrection?: string
+  examples?: StructuredInterventionExample[]
   technicalDetail?: string
   target?: string
 }
@@ -29,6 +44,438 @@ function normalizeString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
 }
 
+function normalizeExample(value: unknown): StructuredInterventionExample | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+  const record = value as Record<string, unknown>
+  const scope = normalizeString(record.scope)
+  const before = normalizeString(record.before)
+  const after = normalizeString(record.after)
+  const note = normalizeString(record.note)
+  if (!scope && !before && !after && !note) return null
+
+  return {
+    ...(scope ? { scope } : {}),
+    ...(before ? { before } : {}),
+    ...(after ? { after } : {}),
+    ...(note ? { note } : {}),
+  }
+}
+
+function normalizeExamples(value: unknown): StructuredInterventionExample[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const normalized = normalizeExample(entry)
+    return normalized ? [normalized] : []
+  })
+}
+
+function normalizeRule(value: unknown): StructuredInterventionRule | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+
+  const record = value as Record<string, unknown>
+  const id = normalizeString(record.id)
+  const label = normalizeString(record.label)
+  if (!id || !label) return undefined
+
+  return { id, label }
+}
+
+function formatRuleLabelToken(token: string): string {
+  const normalized = token.trim().toLowerCase()
+  if (!normalized) return ''
+
+  const acronyms: Record<string, string> = {
+    ai: 'AI',
+    id: 'ID',
+    ids: 'IDs',
+    json: 'JSON',
+    jsonl: 'JSONL',
+    prd: 'PRD',
+    xml: 'XML',
+    yaml: 'YAML',
+  }
+  if (acronyms[normalized]) return acronyms[normalized]
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function buildDefaultRule(code: string): StructuredInterventionRule {
+  const overrides: Record<string, string> = {
+    parser_closing_fence: 'Closing Fence Trim',
+    parser_indentation: 'YAML Indentation Repair',
+    parser_inline_yaml: 'Inline YAML Normalize',
+    parser_list_dash: 'YAML List Dash Repair',
+    parser_malformed_yaml: 'Malformed YAML Recovery',
+    parser_markdown_fence: 'Markdown Fence Unwrap',
+    parser_quoted_scalar: 'Quoted Scalar Repair',
+    parser_terminal_noise: 'Terminal Noise Trim',
+    parser_transcript_recovery: 'Transcript Recovery',
+    parser_unbalanced_quote: 'Quote Balance Repair',
+    parser_wrapper_key: 'Wrapper Key',
+    parser_xml_tags: 'XML Tag Strip',
+    cleanup_duplicate_ids: 'Duplicate ID Repair',
+    cleanup_filled_missing: 'Missing Field Fill',
+    cleanup_status_normalized: 'Status Normalize',
+    cleanup_ticket_id: 'Ticket ID',
+    cleanup_winner_model: 'Winner Model',
+    retry_after_validation_failure: 'Validation Retry',
+    validation_failure_recorded: 'Validation Failure Record',
+    synthesized_inferred_detail: 'Missing Field Inference',
+  }
+  if (overrides[code]) {
+    return {
+      id: code,
+      label: overrides[code],
+    }
+  }
+
+  const suffix = code.replace(/^(parser|cleanup|synthesized|dropped|attribution|retry)_/, '')
+  const label = suffix
+    .split('_')
+    .map((token) => formatRuleLabelToken(token))
+    .join(' ')
+    .trim() || 'Intervention'
+
+  return {
+    id: code,
+    label,
+  }
+}
+
+function stripOuterQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length >= 2) {
+    const first = trimmed[0]
+    const last = trimmed[trimmed.length - 1]
+    if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) {
+      return trimmed.slice(1, -1)
+    }
+  }
+  return trimmed
+}
+
+function formatQuotedValue(value: string): string {
+  return `"${stripOuterQuotes(value)}"`
+}
+
+function buildBeforeAfterExample(
+  scope: string | undefined,
+  before: string | undefined,
+  after: string | undefined,
+  note?: string,
+): StructuredInterventionExample | undefined {
+  const normalizedScope = normalizeString(scope)
+  const normalizedBefore = normalizeString(before)
+  const normalizedAfter = normalizeString(after)
+  const normalizedNote = normalizeString(note)
+
+  if (!normalizedScope && !normalizedBefore && !normalizedAfter && !normalizedNote) return undefined
+
+  return {
+    ...(normalizedScope ? { scope: normalizedScope } : {}),
+    ...(normalizedBefore ? { before: stripOuterQuotes(normalizedBefore) } : {}),
+    ...(normalizedAfter ? { after: stripOuterQuotes(normalizedAfter) } : {}),
+    ...(normalizedNote ? { note: normalizedNote } : {}),
+  }
+}
+
+function extractWrapperSubject(warning: string): string | undefined {
+  const chainMatch = warning.match(/^Removed wrapper key chain "(.+)" from top level\.$/i)
+  if (chainMatch?.[1]) return chainMatch[1]
+
+  const keyMatch = warning.match(/^Removed wrapper key "(.+)" from top level\.$/i)
+  if (keyMatch?.[1]) return keyMatch[1]
+
+  return undefined
+}
+
+function buildExactInterventionDetails(
+  code: string,
+  technicalDetail?: string,
+): {
+  exactCorrection?: string
+  examples?: StructuredInterventionExample[]
+} {
+  if (!technicalDetail) return {}
+
+  const warning = technicalDetail.trim()
+  if (!warning) return {}
+
+  const fromToMatch = warning.match(/^(?:Canonicalized|Normalized)\s+(.+?)\s+from\s+(.+?)\s+to\s+(.+?)\.$/i)
+  if (fromToMatch) {
+    const subject = normalizeString(fromToMatch[1])
+    const before = fromToMatch[2]
+    const after = fromToMatch[3]
+    const example = buildBeforeAfterExample(subject, before, after)
+    return {
+      exactCorrection: subject
+        ? `Changed ${subject} from ${formatQuotedValue(before)} to ${formatQuotedValue(after)}.`
+        : `Changed ${formatQuotedValue(before)} to ${formatQuotedValue(after)}.`,
+      ...(example ? { examples: [example] } : {}),
+    }
+  }
+
+  if (code === 'cleanup_status_normalized') {
+    const statusMatch = warning.match(/^Normalized unsupported PRD status\s+(.+?)\s+to\s+(.+?)\.$/i)
+    if (statusMatch) {
+      const example = buildBeforeAfterExample('PRD status', statusMatch[1], statusMatch[2])
+      return {
+        exactCorrection: `Changed the PRD status from ${formatQuotedValue(statusMatch[1])} to ${formatQuotedValue(statusMatch[2])}.`,
+        ...(example ? { examples: [example] } : {}),
+      }
+    }
+  }
+
+  if (code === 'cleanup_duplicate_ids') {
+    const renumberMatch = warning.match(/^Renumbered duplicate (.+?) id\s+("?[^"]+"?|[^\s.]+)(?: at index \d+)?\s+to\s+("?[^"]+"?|.+?)\.$/i)
+    if (renumberMatch) {
+      const subject = `${renumberMatch[1]} ID`
+      const before = renumberMatch[2]
+      const after = renumberMatch[3]
+      const example = buildBeforeAfterExample(subject, before, after)
+      return {
+        exactCorrection: `Renumbered the duplicate ${subject.toLowerCase()} from ${formatQuotedValue(before)} to ${formatQuotedValue(after)}.`,
+        ...(example ? { examples: [example] } : {}),
+      }
+    }
+
+    const duplicateOptionsMatch = warning.match(/^([^:]+): removed duplicate option ids (.+?) and kept the first occurrence\.$/i)
+    if (duplicateOptionsMatch) {
+      return {
+        exactCorrection: `Removed duplicate option IDs for ${duplicateOptionsMatch[1].trim()} and kept the first occurrence of each ID.`,
+      }
+    }
+  }
+
+  if (code === 'cleanup_filled_missing') {
+    const filledMatch = warning.match(/^(.*?) was missing (.+?)\. Filled with (.+)\.$/i)
+    if (filledMatch) {
+      const scope = normalizeString(filledMatch[1])
+      const field = stripOuterQuotes(filledMatch[2])
+      const value = filledMatch[3]
+      const example = buildBeforeAfterExample(scope ?? field, '[missing]', value, scope ? `Filled ${field}.` : undefined)
+      return {
+        exactCorrection: `Filled the missing ${field} with ${formatQuotedValue(value)}.`,
+        ...(example ? { examples: [example] } : {}),
+      }
+    }
+
+    const runtimeFillMatch = warning.match(/^Filled missing (.+?) from runtime context\.$/i)
+    if (runtimeFillMatch) {
+      return {
+        exactCorrection: `Filled the missing ${stripOuterQuotes(runtimeFillMatch[1])} from the runtime context.`,
+      }
+    }
+  }
+
+  if (code === 'synthesized_inferred_detail') {
+    const inferredMatch = warning.match(/^Inferred missing (.+?)(?: at index \d+)? as (.+)\.$/i)
+    if (inferredMatch) {
+      const field = inferredMatch[1]
+      const value = inferredMatch[2]
+      const example = buildBeforeAfterExample(field, '[missing]', value)
+      return {
+        exactCorrection: `Filled the missing ${field} with ${formatQuotedValue(value)} using the validated surrounding context.`,
+        ...(example ? { examples: [example] } : {}),
+      }
+    }
+  }
+
+  if (code === 'dropped_no_op_change') {
+    const droppedMatch = warning.match(/^Dropped no-op .* refinement (.+?)(?: change)? at index (\d+)/i)
+    if (droppedMatch) {
+      return {
+        exactCorrection: `Removed the no-op ${droppedMatch[1]} change entry at index ${droppedMatch[2]} from the saved diff.`,
+      }
+    }
+  }
+
+  if (code === 'parser_wrapper_key') {
+    const wrapperSubject = extractWrapperSubject(warning)
+    return {
+      exactCorrection: wrapperSubject
+        ? `Removed the unexpected top-level wrapper ${wrapperSubject.includes('->') ? 'key chain' : 'key'} ${formatQuotedValue(wrapperSubject)} and kept its nested payload.`
+        : 'Removed an unexpected top-level wrapper key and kept its nested payload.',
+    }
+  }
+
+  if (code === 'parser_markdown_fence') {
+    return {
+      exactCorrection: 'Removed the outer Markdown code fence wrapper so only the structured payload remained.',
+    }
+  }
+
+  if (code === 'parser_closing_fence') {
+    return {
+      exactCorrection: 'Removed the stray trailing closing code fence after the structured payload.',
+    }
+  }
+
+  if (code === 'parser_xml_tags') {
+    const tagsMatch = warning.match(/^Stripped XML-style tags?\s+(.+?)\s+from the payload before parsing\.$/i)
+    if (tagsMatch) {
+      return {
+        exactCorrection: `Removed the XML-style wrapper tags ${tagsMatch[1]} around the payload before reparsing.`,
+      }
+    }
+
+    return {
+      exactCorrection: 'Removed XML-style wrapper tags around the payload before reparsing.',
+    }
+  }
+
+  if (code === 'parser_terminal_noise') {
+    return {
+      exactCorrection: 'Trimmed the trailing terminal control noise after the structured payload.',
+    }
+  }
+
+  if (code === 'parser_transcript_recovery') {
+    return {
+      exactCorrection: 'Extracted just the structured artifact and ignored the surrounding transcript or wrapper text.',
+    }
+  }
+
+  if (code === 'parser_indentation') {
+    const lineMatch = warning.match(/line\s+(\d+)/i)
+    return {
+      exactCorrection: lineMatch
+        ? `Repaired YAML indentation at line ${lineMatch[1]} so the structure parsed correctly.`
+        : 'Repaired the YAML indentation so the structure parsed correctly.',
+    }
+  }
+
+  if (code === 'parser_list_dash') {
+    const lineMatch = warning.match(/line\s+(\d+)/i)
+    return {
+      exactCorrection: lineMatch
+        ? `Fixed the malformed YAML list dash at line ${lineMatch[1]}.`
+        : 'Fixed a malformed YAML list-item dash.',
+    }
+  }
+
+  if (code === 'parser_unbalanced_quote') {
+    return {
+      exactCorrection: 'Balanced the malformed YAML quote before reparsing the payload.',
+    }
+  }
+
+  if (code === 'parser_quoted_scalar') {
+    return {
+      exactCorrection: 'Repaired the malformed quoted YAML scalar before reparsing the payload.',
+    }
+  }
+
+  if (code === 'parser_inline_yaml') {
+    return {
+      exactCorrection: 'Converted inline YAML flow syntax into standard block YAML before validation.',
+    }
+  }
+
+  if (code === 'parser_malformed_yaml') {
+    return {
+      exactCorrection: 'Recovered the valid portion of the malformed YAML and discarded the unrecoverable fragment.',
+    }
+  }
+
+  if (code === 'cleanup_schema_version') {
+    const example = buildBeforeAfterExample('schema_version', '[invalid]', '1')
+    return {
+      exactCorrection: 'Set schema_version to "1".',
+      ...(example ? { examples: [example] } : {}),
+    }
+  }
+
+  if (code === 'cleanup_approval_fields') {
+    return {
+      exactCorrection: 'Cleared the pre-filled approval fields so the artifact remained unapproved.',
+    }
+  }
+
+  if (code === 'cleanup_content_hash') {
+    return {
+      exactCorrection: 'Recomputed source_interview.content_sha256 from the authoritative approved source artifact.',
+    }
+  }
+
+  if (code === 'cleanup_follow_up_rounds') {
+    return {
+      exactCorrection: 'Restored follow_up_rounds from the approved interview artifact.',
+    }
+  }
+
+  if (code === 'cleanup_summary_match') {
+    return {
+      exactCorrection: 'Restored the summary from the approved interview artifact.',
+    }
+  }
+
+  if (code === 'cleanup_restored_answered') {
+    return {
+      exactCorrection: 'Restored the approved answered question record from the canonical interview artifact.',
+    }
+  }
+
+  if (code === 'cleanup_answered_by') {
+    const targetMatch = warning.match(/question\s+(Q\d+|FU\d+)/i)
+    const example = buildBeforeAfterExample(targetMatch?.[1], undefined, 'ai_skip')
+    return {
+      exactCorrection: 'Set answered_by to "ai_skip" for the AI-filled question.',
+      ...(example ? { examples: [example] } : {}),
+    }
+  }
+
+  if (code === 'cleanup_mapped_free_text') {
+    return {
+      exactCorrection: 'Mapped the generated free-text answer to the closest canonical option IDs.',
+    }
+  }
+
+  if (code === 'cleanup_context_guidance') {
+    return {
+      exactCorrection: 'Converted inline context guidance text into the canonical patterns / anti_patterns object.',
+    }
+  }
+
+  if (code === 'cleanup_change_type_correction') {
+    return {
+      exactCorrection: 'Reclassified or reapplied the refinement change so the declared change list matched the validated content.',
+    }
+  }
+
+  if (code === 'retry_after_validation_failure') {
+    return {
+      exactCorrection: 'Retried after validation failed and kept the first successful validated result.',
+    }
+  }
+
+  if (code === 'validation_failure_recorded') {
+    return {
+      exactCorrection: 'Recorded the validation failure message alongside the saved result for debugging.',
+    }
+  }
+
+  return {}
+}
+
+function enrichIntervention(intervention: StructuredIntervention): StructuredIntervention {
+  const derivedDetails = buildExactInterventionDetails(intervention.code, intervention.technicalDetail)
+  const normalizedExamples = intervention.examples && intervention.examples.length > 0
+    ? intervention.examples
+    : derivedDetails.examples
+
+  return {
+    ...intervention,
+    ...(intervention.rule ? { rule: intervention.rule } : { rule: buildDefaultRule(intervention.code) }),
+    ...(intervention.exactCorrection
+      ? { exactCorrection: intervention.exactCorrection }
+      : derivedDetails.exactCorrection
+        ? { exactCorrection: derivedDetails.exactCorrection }
+        : {}),
+    ...(normalizedExamples && normalizedExamples.length > 0 ? { examples: normalizedExamples } : {}),
+  }
+}
+
 function normalizeIntervention(value: unknown): StructuredIntervention | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
 
@@ -40,6 +487,9 @@ function normalizeIntervention(value: unknown): StructuredIntervention | null {
   const summary = normalizeString(record.summary)
   const why = normalizeString(record.why)
   const how = normalizeString(record.how)
+  const rule = normalizeRule(record.rule)
+  const exactCorrection = normalizeString(record.exactCorrection)
+  const examples = normalizeExamples(record.examples)
   const technicalDetail = normalizeString(record.technicalDetail)
   const target = normalizeString(record.target)
 
@@ -50,7 +500,7 @@ function normalizeIntervention(value: unknown): StructuredIntervention | null {
     return null
   }
 
-  return {
+  return enrichIntervention({
     code,
     stage: stage as StructuredInterventionStage,
     category: category as StructuredInterventionCategory,
@@ -58,9 +508,12 @@ function normalizeIntervention(value: unknown): StructuredIntervention | null {
     summary,
     why,
     how,
+    ...(rule ? { rule } : {}),
+    ...(exactCorrection ? { exactCorrection } : {}),
+    ...(examples.length > 0 ? { examples } : {}),
     ...(technicalDetail ? { technicalDetail } : {}),
     ...(target ? { target } : {}),
-  }
+  })
 }
 
 export function normalizeStructuredInterventions(value: unknown): StructuredIntervention[] {
@@ -82,9 +535,32 @@ export function dedupeStructuredInterventions(interventions: StructuredIntervent
   const seen = new Set<string>()
 
   for (const intervention of interventions) {
-    const serialized = JSON.stringify(intervention)
-    if (seen.has(serialized)) continue
-    seen.add(serialized)
+    const fingerprint = JSON.stringify({
+      code: intervention.code,
+      stage: intervention.stage,
+      category: intervention.category,
+      title: intervention.title,
+      summary: intervention.summary,
+      why: intervention.why,
+      how: intervention.how,
+      rule: intervention.rule
+        ? {
+            id: intervention.rule.id,
+            label: intervention.rule.label,
+          }
+        : null,
+      exactCorrection: intervention.exactCorrection ?? null,
+      examples: intervention.examples?.map((example) => ({
+        scope: example.scope ?? null,
+        before: example.before ?? null,
+        after: example.after ?? null,
+        note: example.note ?? null,
+      })) ?? [],
+      technicalDetail: intervention.technicalDetail ?? null,
+      target: intervention.target ?? null,
+    })
+    if (seen.has(fingerprint)) continue
+    seen.add(fingerprint)
     unique.push(intervention)
   }
 
@@ -107,14 +583,14 @@ function extractTargetFromWarning(warning: string): string | undefined {
 
 function buildIntervention(
   warning: string,
-  intervention: Omit<StructuredIntervention, 'technicalDetail' | 'target'>,
+  intervention: Omit<StructuredIntervention, 'technicalDetail' | 'target' | 'rule' | 'exactCorrection' | 'examples'>,
 ): StructuredIntervention {
   const target = extractTargetFromWarning(warning)
-  return {
+  return enrichIntervention({
     ...intervention,
     technicalDetail: warning,
     ...(target ? { target } : {}),
-  }
+  })
 }
 
 function deriveInterventionFromWarning(warning: string): StructuredIntervention {
@@ -697,7 +1173,7 @@ export function deriveStructuredInterventions(options: {
   const retryCount = options.autoRetryCount ?? 0
   const validationError = normalizeString(options.validationError)
   if (retryCount > 0 || validationError) {
-    interventions.push({
+    interventions.push(enrichIntervention({
       code: retryCount > 0 ? 'retry_after_validation_failure' : 'validation_failure_recorded',
       stage: retryCount > 0 ? 'retry' : 'semantic_validation',
       category: 'retry',
@@ -712,7 +1188,7 @@ export function deriveStructuredInterventions(options: {
         ? 'LoopTroop issued a structured retry and kept the validated result from the successful pass.'
         : 'LoopTroop kept the validator message for debugging and surfaced the saved result with that context.',
       ...(validationError ? { technicalDetail: validationError } : {}),
-    })
+    }))
   }
 
   return interventions

@@ -10,6 +10,7 @@ import {
   maybeUnwrapRecord,
   appendStructuredCandidateRecoveryWarning,
   appendWrapperKeyRepairWarning,
+  findMaybeUnwrappedWrapperPath,
   parseYamlOrJsonCandidate,
   shouldRecordStructuredCandidateRecovery,
   toStringArray,
@@ -495,7 +496,17 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
       ])
       if (!isRecord(parsed)) throw new Error('Relevant files output is not a YAML/JSON object')
       if (parsed !== yamlParsed && isRecord(yamlParsed)) {
-        appendWrapperKeyRepairWarning(candidateWarnings)
+        appendWrapperKeyRepairWarning(candidateWarnings, findMaybeUnwrappedWrapperPath(yamlParsed, [
+          'relevantfilesresult',
+          'relevant_files_result',
+          'relevantfiles',
+          'relevant_files',
+          'payload',
+          'result',
+          'output',
+          'data',
+          'artifact',
+        ]))
       }
 
       const rawFiles = getValueByAliases(parsed, ['files'])

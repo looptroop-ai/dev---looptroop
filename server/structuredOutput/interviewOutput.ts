@@ -21,6 +21,7 @@ import {
   collectTaggedCandidates,
   appendStructuredCandidateRecoveryWarning,
   appendWrapperKeyRepairWarning,
+  findMaybeUnwrappedWrapperPath,
   parseYamlOrJsonCandidate,
   repairCoverageGapStringList,
   maybeUnwrapRecord,
@@ -1109,7 +1110,14 @@ function normalizeInterviewBatchPayload(value: unknown): {
   ])
   if (!isRecord(parsed)) throw new Error('Interview batch output is not a YAML/JSON object')
   if (parsed !== value && isRecord(value)) {
-    appendWrapperKeyRepairWarning(repairWarnings)
+    appendWrapperKeyRepairWarning(repairWarnings, findMaybeUnwrappedWrapperPath(value, [
+      'interviewbatch',
+      'interview_batch',
+      'batch',
+      'payload',
+      'output',
+      'data',
+    ]))
   }
 
   const rawQuestions = getValueByAliases(parsed, ['questions', 'nextquestions', 'next_questions'])
@@ -1168,7 +1176,14 @@ function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: b
   ])
   if (!isRecord(parsed)) throw new Error('Interview complete output is not a YAML/JSON object')
   if (parsed !== value && isRecord(value)) {
-    appendWrapperKeyRepairWarning(repairWarnings)
+    appendWrapperKeyRepairWarning(repairWarnings, findMaybeUnwrappedWrapperPath(value, [
+      'interviewcomplete',
+      'interview_complete',
+      'interview',
+      'result',
+      'output',
+      'data',
+    ]))
   }
 
   const hasQuestions = Array.isArray(getValueByAliases(parsed, ['questions']))

@@ -47,7 +47,7 @@ describe.concurrent('generateFinalTests', () => {
       repairApplied: true,
       repairWarnings: [
         'Unwrapped markdown code fence wrapping the YAML payload.',
-        'Removed wrapper key from top level.',
+        'Removed wrapper key "command_plan" from top level.',
       ],
     })
     expect(result.output).toContain('<FINAL_TEST_COMMANDS>')
@@ -55,7 +55,7 @@ describe.concurrent('generateFinalTests', () => {
       repairApplied: true,
       repairWarnings: [
         'Unwrapped markdown code fence wrapping the YAML payload.',
-        'Removed wrapper key from top level.',
+        'Removed wrapper key "command_plan" from top level.',
       ],
       autoRetryCount: 1,
       validationError: 'No final test command marker found',
