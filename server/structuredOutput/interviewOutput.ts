@@ -115,6 +115,18 @@ function buildInterviewQuestionLookup(questions: NormalizedInterviewQuestion[]) 
   return { byFullKey, byIdentityKey }
 }
 
+function sortInterviewQuestionsStable(
+  questions: NormalizedInterviewQuestion[],
+): NormalizedInterviewQuestion[] {
+  return questions
+    .map((question, index) => ({ question, index }))
+    .sort((left, right) => {
+      const orderDiff = (PHASE_ORDER.get(left.question.phase) ?? 0) - (PHASE_ORDER.get(right.question.phase) ?? 0)
+      return orderDiff !== 0 ? orderDiff : left.index - right.index
+    })
+    .map(({ question }) => question)
+}
+
 function normalizeParsedInterviewQuestionList(
   parsed: ParsedInterviewQuestion[],
   maxInitialQuestions: number,
@@ -530,6 +542,78 @@ function canonicalizeInterviewRefinementChanges(
 
   return {
     changes: normalizedChanges,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+function repairStaleInterviewRefinedQuestionsFromChanges(
+  finalQuestions: NormalizedInterviewQuestion[],
+  changes: ParsedInterviewRefinementChangeCandidate[],
+): {
+  questions: NormalizedInterviewQuestion[]
+  repairApplied: boolean
+  repairWarnings: string[]
+} {
+  const repairedQuestions = [...finalQuestions]
+  const repairWarnings: string[] = []
+  let repairApplied = false
+
+  const findIndexByFullKey = (question: NormalizedInterviewQuestion) => repairedQuestions.findIndex(
+    (candidate) => buildInterviewQuestionKey(candidate) === buildInterviewQuestionKey(question),
+  )
+  const findIndexByIdentity = (question: NormalizedInterviewQuestion) => repairedQuestions.findIndex(
+    (candidate) => buildInterviewQuestionIdentityKey(candidate) === buildInterviewQuestionIdentityKey(question),
+  )
+
+  for (const change of changes) {
+    if ((change.type !== 'modified' && change.type !== 'replaced') || !change.before || !change.after) continue
+    if (findIndexByFullKey(change.after) !== -1) continue
+
+    const beforeIndex = findIndexByFullKey(change.before)
+    if (beforeIndex === -1) continue
+
+    repairedQuestions[beforeIndex] = change.after
+    repairApplied = true
+    repairWarnings.push(
+      `Updated the refined interview questions from ${change.type} change at index ${change.sourceIndex} for ${change.after.id} because the top-level questions list still contained the pre-change record.`,
+    )
+  }
+
+  for (const change of changes) {
+    if (change.type !== 'added' || change.before !== null || !change.after) continue
+    if (findIndexByFullKey(change.after) !== -1) continue
+
+    const identityIndex = findIndexByIdentity(change.after)
+    if (identityIndex === -1) continue
+
+    repairedQuestions[identityIndex] = change.after
+    repairApplied = true
+    repairWarnings.push(
+      `Updated the refined interview questions from added change at index ${change.sourceIndex} for ${change.after.id} because the top-level questions list still contained the winner-draft record with the same id and phase.`,
+    )
+  }
+
+  for (const change of changes) {
+    if (change.type !== 'removed' || !change.before || change.after !== null) continue
+
+    const beforeIndex = findIndexByFullKey(change.before)
+    if (beforeIndex === -1) continue
+
+    repairedQuestions.splice(beforeIndex, 1)
+    repairApplied = true
+    repairWarnings.push(
+      `Removed stale top-level refined interview question ${change.before.id} using removed change at index ${change.sourceIndex}.`,
+    )
+  }
+
+  const sortedQuestions = sortInterviewQuestionsStable(repairedQuestions)
+  if (repairApplied && sortedQuestions.some((question, index) => question !== repairedQuestions[index])) {
+    repairWarnings.push('Applied stable interview phase reordering after repairing the refined question list from declared changes.')
+  }
+
+  return {
+    questions: sortedQuestions,
     repairApplied,
     repairWarnings,
   }
@@ -1320,21 +1404,32 @@ export function normalizeInterviewRefinementOutput(
         repairWarnings.push(...winnerDraftNormalized.repairWarnings)
       }
       const winnerDraftQuestions = winnerDraftNormalized.questions
+      let finalQuestions = normalizedQuestions.questions
       let changes: NormalizedInterviewRefinementChange[] = []
       if (Array.isArray(rawChanges)) {
-        const winnerKeySet = new Set(winnerDraftQuestions.map(buildInterviewQuestionKey))
-        const finalKeySet = new Set(normalizedQuestions.questions.map(buildInterviewQuestionKey))
-        const usedBeforeKeys = new Set<string>()
-        const usedAfterKeys = new Set<string>()
         const parsedChanges = rawChanges.map((entry, index) => parseInterviewRefinementChangeEntry(
           entry,
           index,
           losingDraftMeta,
         ))
+        const repairedFinalQuestions = repairStaleInterviewRefinedQuestionsFromChanges(
+          finalQuestions,
+          parsedChanges,
+        )
+        if (repairedFinalQuestions.repairApplied) {
+          repairApplied = true
+          repairWarnings.push(...repairedFinalQuestions.repairWarnings)
+          finalQuestions = repairedFinalQuestions.questions
+        }
+
+        const winnerKeySet = new Set(winnerDraftQuestions.map(buildInterviewQuestionKey))
+        const finalKeySet = new Set(finalQuestions.map(buildInterviewQuestionKey))
+        const usedBeforeKeys = new Set<string>()
+        const usedAfterKeys = new Set<string>()
         const canonicalizedChanges = canonicalizeInterviewRefinementChanges(
           parsedChanges,
           winnerDraftQuestions,
-          normalizedQuestions.questions,
+          finalQuestions,
         )
         if (canonicalizedChanges.repairApplied) {
           repairApplied = true
@@ -1344,7 +1439,7 @@ export function normalizeInterviewRefinementOutput(
         const synthesizedChanges = synthesizeOmittedSameIdentityInterviewRefinementChanges(
           canonicalizedChanges.changes,
           winnerDraftQuestions,
-          normalizedQuestions.questions,
+          finalQuestions,
         )
         if (synthesizedChanges.repairApplied) {
           repairApplied = true
@@ -1363,7 +1458,7 @@ export function normalizeInterviewRefinementOutput(
         const repairedPartialChanges = repairPartialInterviewRefinementChanges(
           prunedPartialChanges.changes,
           winnerDraftQuestions,
-          normalizedQuestions.questions,
+          finalQuestions,
         )
         if (repairedPartialChanges.repairApplied) {
           repairApplied = true
@@ -1417,20 +1512,20 @@ export function normalizeInterviewRefinementOutput(
 
         ensureQuestionChangeCoverage(
           winnerDraftQuestions,
-          normalizedQuestions.questions,
+          finalQuestions,
           usedBeforeKeys,
           usedAfterKeys,
         )
       }
 
-      const questionsYaml = buildYamlDocument({ questions: normalizedQuestions.questions })
+      const questionsYaml = buildYamlDocument({ questions: finalQuestions })
       appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
 
       return {
         ok: true,
         value: {
-          questions: normalizedQuestions.questions,
-          questionCount: normalizedQuestions.questionCount,
+          questions: finalQuestions,
+          questionCount: finalQuestions.length,
           changes,
           questionsYaml,
         },

@@ -589,6 +589,110 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value.changes).toEqual([])
   })
 
+  it('repairs stale top-level interview questions from explicit declared changes before diff validation', () => {
+    const winnerDraft = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: >-',
+      '      Should the pink theme be selectable alongside existing themes (light, dark, system), or should it replace one of',
+      '      them?',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: Are there any requirements or constraints for accessibility, contrast, or branding for the pink theme?',
+      '  - id: Q03',
+      '    phase: structure',
+      '    question: >-',
+      '      Which UI areas or components (e.g., buttons, badges, backgrounds) must change appearance when the pink theme is',
+      '      active?',
+      '  - id: Q04',
+      '    phase: assembly',
+      '    question: >-',
+      '      Do you have a specific shade or palette of pink in mind for key color roles (background, primary, accent), or',
+      '      should the implementation choose reasonable defaults?',
+      '  - id: Q05',
+      '    phase: assembly',
+      '    question: >-',
+      "      Should the pink theme's application support toggling at runtime in the same way as current themes, with instant",
+      '      visual update and persistence?',
+    ].join('\n')
+
+    const result = normalizeInterviewRefinementOutput([
+      'questions:',
+      '  - id: Q01',
+      '    phase: foundation',
+      '    question: Should the pink theme be selectable alongside existing themes (light, dark, system), or should it replace one of them?',
+      '  - id: Q02',
+      '    phase: foundation',
+      '    question: Are there any requirements or constraints for accessibility, contrast, or branding for the pink theme?',
+      '  - id: Q03',
+      '    phase: structure',
+      '    question: Which UI areas or components (e.g., buttons, badges, backgrounds) must change appearance when the pink theme is active?',
+      '  - id: Q04',
+      '    phase: assembly',
+      '    question: Do you have a specific shade or palette of pink in mind for key color roles (background, primary, accent), or should the implementation choose reasonable defaults?',
+      '  - id: Q05',
+      '    phase: assembly',
+      "    question: Should the pink theme's application support toggling at runtime in the same way as current themes, with instant visual update and persistence?",
+      'changes:',
+      '  - type: removed',
+      '    before:',
+      '      id: Q02',
+      '      phase: foundation',
+      '      question: Are there any requirements or constraints for accessibility, contrast, or branding for the pink theme?',
+      '    after: null',
+      '  - type: added',
+      '    before: null',
+      '    after:',
+      '      id: Q02',
+      '      phase: foundation',
+      '      question: Are there any accessibility, contrast, or branding requirements—or is "visible and pink" sufficient for this test?',
+      '  - type: modified',
+      '    before:',
+      '      id: Q04',
+      '      phase: assembly',
+      '      question: Do you have a specific shade or palette of pink in mind for key color roles (background, primary, accent), or should the implementation choose reasonable defaults?',
+      '    after:',
+      '      id: Q04',
+      '      phase: assembly',
+      '      question: Do you have a specific pink palette in mind (hex values or reference), or should the implementation use reasonable defaults?',
+    ].join('\n'), winnerDraft, 10)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Updated the refined interview questions from added change')
+    expect(result.repairWarnings.join('\n')).toContain('Updated the refined interview questions from modified change')
+    expect(result.value.questions).toEqual([
+      {
+        id: 'Q01',
+        phase: 'foundation',
+        question: 'Should the pink theme be selectable alongside existing themes (light, dark, system), or should it replace one of them?',
+      },
+      {
+        id: 'Q02',
+        phase: 'foundation',
+        question: 'Are there any accessibility, contrast, or branding requirements—or is "visible and pink" sufficient for this test?',
+      },
+      {
+        id: 'Q03',
+        phase: 'structure',
+        question: 'Which UI areas or components (e.g., buttons, badges, backgrounds) must change appearance when the pink theme is active?',
+      },
+      {
+        id: 'Q04',
+        phase: 'assembly',
+        question: 'Do you have a specific pink palette in mind (hex values or reference), or should the implementation use reasonable defaults?',
+      },
+      {
+        id: 'Q05',
+        phase: 'assembly',
+        question: "Should the pink theme's application support toggling at runtime in the same way as current themes, with instant visual update and persistence?",
+      },
+    ])
+    expect(result.value.changes.map((change) => change.type)).toEqual(['removed', 'added', 'modified'])
+  })
+
   it('canonicalizes slight interview refinement text drift when id and phase uniquely match', () => {
     const winnerDraft = [
       'questions:',
