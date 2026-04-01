@@ -384,7 +384,9 @@ describe.concurrent('draftPRD', () => {
     expect(fullAnswerRetryMessages[0]?.content).not.toContain('generated_by:')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Keep every generated free_text answer concise')
     expect(fullAnswerRetryMessages[0]?.content).toContain('If any free_text contains `:`')
-    expect(fullAnswerRetryMessages[0]?.content).toContain('use only the existing canonical selected_option_ids')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('`selected_option_ids` must still use the existing canonical option IDs')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('Treat those options as hints rather than an exhaustive truth set')
+    expect(fullAnswerRetryMessages[0]?.content).toContain('use concise `free_text` to capture the actual answer')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Set `status: draft`')
     expect(fullAnswerRetryMessages[0]?.content).toContain('keep `approval.approved_by: ""` plus `approval.approved_at: ""`')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Stop immediately after the final approval block')
@@ -472,6 +474,84 @@ describe.concurrent('draftPRD', () => {
     expect(fullAnswerRetryMessages).toHaveLength(1)
     expect(fullAnswerRetryMessages[0]?.content).toContain('Only these skipped question answers may change: Q01')
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('accepts choice-based full answers that combine canonical selections with explanatory free_text', async () => {
+    const singleChoiceQ = {
+      id: 'Q01',
+      prompt: 'Which audience should the first rollout prioritize?',
+      answer_type: 'single_choice' as const,
+      options: [
+        { id: 'opt1', label: 'Internal operators' },
+        { id: 'opt2', label: 'External users' },
+      ],
+    }
+    const multipleChoiceQ = {
+      id: 'Q02',
+      phase: 'Structure',
+      prompt: 'Which delivery channels should the first rollout support?',
+      answer_type: 'multiple_choice' as const,
+      options: [
+        { id: 'opt1', label: 'Web app' },
+        { id: 'opt2', label: 'CLI' },
+        { id: 'opt3', label: 'Internal API' },
+      ],
+    }
+    const adapter = new TestOpenCodeAdapter([
+      makeInterviewYaml({
+        status: 'draft',
+        generated_by: GENERATED_BY,
+        questions: [
+          makeInterviewQuestion({
+            ...singleChoiceQ,
+            answer: {
+              skipped: false,
+              selected_option_ids: ['opt1'],
+              free_text: 'Prioritize internal operators first, mainly support and operations staff, because the current workflow still needs validation.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            ...multipleChoiceQ,
+            answer: {
+              skipped: false,
+              selected_option_ids: ['opt1', 'opt3'],
+              free_text: 'Keep the API internal-only during the first rollout; do not expose partner access yet.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+        ],
+      }),
+      makePrdYaml(),
+    ])
+
+    const result = await draftPRD(adapter, COUNCIL,
+      ticket('Preserve choice nuance in full answers', 'Choice questions may need canonical selections plus explanatory free text.',
+        makeInterviewYaml({
+          questions: [
+            makeInterviewQuestion(singleChoiceQ),
+            makeInterviewQuestion(multipleChoiceQ),
+          ],
+        }),
+      ),
+      '/tmp/test', DRAFT_OPTS,
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      questionCount: 2,
+      structuredOutput: { autoRetryCount: 0 },
+    })
+    expect(result.fullAnswers[0]?.content).toContain('Prioritize internal operators first')
+    expect(result.fullAnswers[0]?.content).toContain('Keep the API internal-only during the first rollout')
+    expect(result.drafts[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'completed',
+      draftMetrics: { epicCount: 1, userStoryCount: 1 },
+    })
   })
 
   it('continues to fail when the full-answers retry devolves into prose planning', async () => {
