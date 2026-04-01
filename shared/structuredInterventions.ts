@@ -65,16 +65,30 @@ function normalizeIntervention(value: unknown): StructuredIntervention | null {
 
 export function normalizeStructuredInterventions(value: unknown): StructuredIntervention[] {
   if (!Array.isArray(value)) return []
-  return value.flatMap((entry) => {
+  return dedupeStructuredInterventions(value.flatMap((entry) => {
     const normalized = normalizeIntervention(entry)
     return normalized ? [normalized] : []
-  })
+  }))
 }
 
 export function mergeStructuredInterventions(
   ...lists: Array<StructuredIntervention[] | undefined | null>
 ): StructuredIntervention[] {
-  return lists.flatMap((list) => (Array.isArray(list) ? list : []))
+  return dedupeStructuredInterventions(lists.flatMap((list) => (Array.isArray(list) ? list : [])))
+}
+
+export function dedupeStructuredInterventions(interventions: StructuredIntervention[]): StructuredIntervention[] {
+  const unique: StructuredIntervention[] = []
+  const seen = new Set<string>()
+
+  for (const intervention of interventions) {
+    const serialized = JSON.stringify(intervention)
+    if (seen.has(serialized)) continue
+    seen.add(serialized)
+    unique.push(intervention)
+  }
+
+  return unique
 }
 
 function extractTargetFromWarning(warning: string): string | undefined {

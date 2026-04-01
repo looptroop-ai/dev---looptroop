@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { TEST } from '@/test/factories'
 import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
@@ -986,6 +986,42 @@ describe('ArtifactContentViewer', () => {
     }, 'relevant-files')
 
     expect(copy).toBeNull()
+  })
+
+  it('deduplicates identical explicit interventions in parser notices', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
+      autoRetryCount: 0,
+      interventions: [
+        {
+          code: 'parser_transcript_recovery',
+          stage: 'parse',
+          category: 'parser_fix',
+          title: 'Extracted payload from surrounding prose or transcript',
+          summary: 'The structured payload was embedded inside conversational text, preamble, or transcript output.',
+          why: 'The model included explanatory prose or transcript text alongside the structured data instead of returning only the raw YAML/JSON payload.',
+          how: 'LoopTroop isolated the structured data block from the surrounding text, discarded the prose, and reparsed the extracted payload.',
+          technicalDetail: 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.',
+        },
+        {
+          code: 'parser_transcript_recovery',
+          stage: 'parse',
+          category: 'parser_fix',
+          title: 'Extracted payload from surrounding prose or transcript',
+          summary: 'The structured payload was embedded inside conversational text, preamble, or transcript output.',
+          why: 'The model included explanatory prose or transcript text alongside the structured data instead of returning only the raw YAML/JSON payload.',
+          how: 'LoopTroop isolated the structured data block from the surrounding text, discarded the prose, and reparsed the extracted payload.',
+          technicalDetail: 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.',
+        },
+      ],
+    }, 'relevant-files')
+
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.badges).toEqual([
+      expect.objectContaining({ label: 'Parser Fix', count: 1 }),
+    ])
+    expect(copy?.interventions).toHaveLength(1)
   })
 
   it('shows a collapsed parser notice for council draft artifacts', () => {

@@ -145,9 +145,18 @@ describe('handleRelevantFilesScan', () => {
 
     const artifactRow = getLatestPhaseArtifact(ticket.id, 'relevant_files_scan', 'SCANNING_RELEVANT_FILES')
     expect(artifactRow).toBeDefined()
-    const artifact = JSON.parse(artifactRow!.content) as { fileCount?: number; files?: Array<{ path?: string }> }
+    const artifact = JSON.parse(artifactRow!.content) as {
+      fileCount?: number
+      files?: Array<{ path?: string }>
+      structuredOutput?: {
+        repairWarnings?: string[]
+        interventions?: Array<{ code?: string }>
+      }
+    }
     expect(artifact.fileCount).toBe(1)
     expect(artifact.files?.[0]?.path).toBe('src/main.ts')
+    expect(artifact.structuredOutput?.repairWarnings?.length).toBe(new Set(artifact.structuredOutput?.repairWarnings ?? []).size)
+    expect(artifact.structuredOutput?.interventions?.length).toBe(new Set((artifact.structuredOutput?.interventions ?? []).map((intervention) => intervention.code)).size)
   })
 
   it('emits ERROR after the retry is exhausted so the ticket can block', async () => {
@@ -232,6 +241,23 @@ describe('handleRelevantFilesScan', () => {
     expect(runOpenCodeSessionPromptMock).not.toHaveBeenCalled()
     expect(sendEvent).toHaveBeenCalledWith({ type: 'RELEVANT_FILES_READY' })
     expect(existsSync(`${paths.ticketDir}/relevant-files.yaml`)).toBe(true)
+
+    const artifactRow = getLatestPhaseArtifact(ticket.id, 'relevant_files_scan', 'SCANNING_RELEVANT_FILES')
+    expect(artifactRow).toBeDefined()
+    const artifact = JSON.parse(artifactRow!.content) as {
+      structuredOutput?: {
+        repairApplied?: boolean
+        repairWarnings?: string[]
+        interventions?: Array<{ code?: string }>
+      }
+    }
+    expect(artifact.structuredOutput).toMatchObject({
+      repairApplied: false,
+      repairWarnings: [],
+    })
+    expect(artifact.structuredOutput?.interventions).toEqual([
+      expect.objectContaining({ code: 'retry_after_validation_failure' }),
+    ])
   })
 
   it('blocks immediately when no main implementer is locked', async () => {

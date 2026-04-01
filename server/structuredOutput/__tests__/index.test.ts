@@ -2394,6 +2394,25 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value.batch.questions.map((q) => q.id)).toEqual(['Q01', 'Q02', 'Q03'])
   })
 
+  it('does not treat exact PROM4 batch envelopes as parser repairs', () => {
+    const result = normalizeInterviewTurnOutput([
+      '<INTERVIEW_BATCH>',
+      'batch_number: 1',
+      'progress:',
+      '  current: 0',
+      '  total: 2',
+      'questions:',
+      '  - id: Q01',
+      '    question: "What is the primary goal?"',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(false)
+    expect(result.repairWarnings).toEqual([])
+  })
+
   it('normalizes PROM4 complete envelopes with transcript prefixes', () => {
     const result = normalizeInterviewTurnOutput([
       '[assistant] <INTERVIEW_COMPLETE>',
@@ -2440,9 +2459,32 @@ describe.concurrent('structured output normalization', () => {
     if (!result.ok) return
     expect(result.value.kind).toBe('complete')
     if (result.value.kind !== 'complete') return
+    expect(result.repairApplied).toBe(false)
+    expect(result.repairWarnings).toEqual([])
     expect(result.value.finalYaml).toContain('ticket_id: LOOTR-5')
     expect(result.value.finalYaml).toContain('answers:')
     expect(result.value.finalYaml).toContain('derived_findings:')
+  })
+
+  it('records a single transcript recovery warning for wrapped interview batch envelopes', () => {
+    const result = normalizeInterviewTurnOutput([
+      '[assistant] <INTERVIEW_BATCH>',
+      'batch_number: 2',
+      'progress:',
+      '  current: 1',
+      '  total: 3',
+      'questions:',
+      '  - id: Q02',
+      '    question: "What happens on rollback?"',
+      '</INTERVIEW_BATCH>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toEqual([
+      'Recovered the structured artifact from surrounding transcript or wrapper text before validation.',
+    ])
   })
 
   it('normalizes BEAD_STATUS markers with YAML payloads and gate aliases', () => {
@@ -2504,6 +2546,48 @@ describe.concurrent('structured output normalization', () => {
     expect(result.repairApplied).toBe(true)
   })
 
+  it('does not treat exact BEAD_STATUS envelopes as parser repairs', () => {
+    const result = normalizeBeadCompletionMarkerOutput([
+      '<BEAD_STATUS>',
+      'bead_id: bead-plain',
+      'status: done',
+      'checks:',
+      '  tests: pass',
+      '  lint: pass',
+      '  typecheck: pass',
+      '  qualitative: pass',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(false)
+    expect(result.repairWarnings).toEqual([])
+  })
+
+  it('records a single markdown fence warning for exact BEAD_STATUS envelopes with fenced YAML', () => {
+    const result = normalizeBeadCompletionMarkerOutput([
+      '<BEAD_STATUS>',
+      '```yaml',
+      'bead_id: bead-fenced',
+      'status: done',
+      'checks:',
+      '  tests: pass',
+      '  lint: pass',
+      '  typecheck: pass',
+      '  qualitative: pass',
+      '```',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toEqual([
+      'Unwrapped markdown code fence wrapping the YAML payload.',
+    ])
+  })
+
   it('normalizes FINAL_TEST_COMMANDS markers and single-string commands', () => {
     const result = normalizeFinalTestCommandsOutput([
       '[assistant] <FINAL_TEST_COMMANDS>',
@@ -2523,6 +2607,39 @@ describe.concurrent('structured output normalization', () => {
     })
   })
 
+  it('does not treat exact FINAL_TEST_COMMANDS envelopes as parser repairs', () => {
+    const result = normalizeFinalTestCommandsOutput([
+      '<FINAL_TEST_COMMANDS>',
+      'commands:',
+      '  - npm run test:server',
+      'summary: verify the whole workflow',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(false)
+    expect(result.repairWarnings).toEqual([])
+  })
+
+  it('records a single wrapper-key warning for exact FINAL_TEST_COMMANDS envelopes with wrapper objects', () => {
+    const result = normalizeFinalTestCommandsOutput([
+      '<FINAL_TEST_COMMANDS>',
+      'command_plan:',
+      '  commands:',
+      '    - npm run test:server',
+      '  summary: verify the whole workflow',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toEqual([
+      'Removed wrapper key from top level.',
+    ])
+  })
+
   it('normalizes tagged relevant-files payloads', () => {
     const result = normalizeRelevantFilesOutput([
       '<RELEVANT_FILES_RESULT>',
@@ -2539,7 +2656,8 @@ describe.concurrent('structured output normalization', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.repairApplied).toBe(true)
+    expect(result.repairApplied).toBe(false)
+    expect(result.repairWarnings).toEqual([])
     expect(result.value.file_count).toBe(1)
     expect(result.value.files[0]).toMatchObject({
       path: 'src/app.ts',

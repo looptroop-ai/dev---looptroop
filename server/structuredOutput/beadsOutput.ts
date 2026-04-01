@@ -9,7 +9,9 @@ import {
   collectTaggedCandidates,
   maybeUnwrapRecord,
   appendStructuredCandidateRecoveryWarning,
+  appendWrapperKeyRepairWarning,
   parseYamlOrJsonCandidate,
+  shouldRecordStructuredCandidateRecovery,
   toStringArray,
   getValueByAliases,
   getRequiredString,
@@ -421,14 +423,6 @@ function truncateToCompleteFileEntries(content: string): string | null {
   return truncated || null
 }
 
-function isExactTaggedRelevantFilesEnvelope(rawContent: string, candidate: string): boolean {
-  const trimmed = rawContent.trim()
-  const match = trimmed.match(/^<RELEVANT_FILES_RESULT>\s*([\s\S]*?)\s*<\/RELEVANT_FILES_RESULT>$/)
-  if (!match) return false
-
-  return (match[1] ?? '').trim() === candidate.trim()
-}
-
 function parsesAsPlainYamlOrJson(content: string): boolean {
   const trimmed = content.trim()
   if (!trimmed) return false
@@ -447,7 +441,6 @@ function parsesAsPlainYamlOrJson(content: string): boolean {
 }
 
 export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutputResult<RelevantFilesOutputPayload> {
-  const repairWarnings: string[] = []
   const candidates = collectTaggedCandidates(rawContent, 'RELEVANT_FILES_RESULT')
 
   // Also try structured candidates as fallback
@@ -465,6 +458,7 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
   let lastError = 'No relevant files content found'
 
   for (const candidate of uniqueCandidates) {
+    const candidateWarnings: string[] = []
     try {
       if (looksLikePromptEcho(candidate)) {
         throw new Error('Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact')
@@ -472,14 +466,14 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
 
       let yamlParsed: unknown
       try {
-        yamlParsed = parseYamlOrJsonCandidate(candidate)
+        yamlParsed = parseYamlOrJsonCandidate(candidate, { repairWarnings: candidateWarnings })
       } catch (parseErr) {
         // Truncation recovery: trim the last incomplete file entry and retry
         const truncated = truncateToCompleteFileEntries(candidate)
         if (truncated) {
           try {
-            yamlParsed = parseYamlOrJsonCandidate(truncated)
-            repairWarnings.push('Truncated incomplete last file entry to recover from malformed YAML.')
+            yamlParsed = parseYamlOrJsonCandidate(truncated, { repairWarnings: candidateWarnings })
+            candidateWarnings.push('Truncated incomplete last file entry to recover from malformed YAML.')
           } catch {
             throw parseErr
           }
@@ -500,6 +494,9 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
         'artifact',
       ])
       if (!isRecord(parsed)) throw new Error('Relevant files output is not a YAML/JSON object')
+      if (parsed !== yamlParsed && isRecord(yamlParsed)) {
+        appendWrapperKeyRepairWarning(candidateWarnings)
+      }
 
       const rawFiles = getValueByAliases(parsed, ['files'])
       if (!Array.isArray(rawFiles) || rawFiles.length === 0) {
@@ -533,17 +530,16 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
         file_count: files.length,
         files,
       }
-      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'RELEVANT_FILES_RESULT' })
 
       return {
         ok: true,
         value: payload,
         normalizedContent: buildYamlDocument(payload),
-        repairApplied: repairWarnings.length > 0 || (
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'RELEVANT_FILES_RESULT' }) || (
           !parsesAsPlainYamlOrJson(candidate)
-          || (candidate !== rawContent.trim() && !isExactTaggedRelevantFilesEnvelope(rawContent, candidate))
         ),
-        repairWarnings,
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)

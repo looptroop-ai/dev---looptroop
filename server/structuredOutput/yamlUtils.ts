@@ -126,7 +126,52 @@ interface ParseYamlOrJsonCandidateOptions {
 
 const TERMINAL_NOISE_WARNING = 'Trimmed trailing terminal noise after the complete structured artifact.'
 const ORPHAN_CLOSING_CODE_FENCE_WARNING = 'Trimmed orphan trailing closing code fence after the structured artifact.'
+const MARKDOWN_CODE_FENCE_WARNING = 'Unwrapped markdown code fence wrapping the YAML payload.'
+const NESTED_MAPPING_CHILDREN_WARNING = 'Repaired inconsistent YAML indentation for nested mapping children.'
+const XML_STYLE_TAGS_WARNING = 'Stripped XML-style tags from the payload before parsing.'
 const CANDIDATE_RECOVERY_WARNING = 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.'
+const WRAPPER_KEY_WARNING = 'Removed wrapper key from top level.'
+
+function appendRepairWarningOnce(repairWarnings: string[] | undefined, warning: string) {
+  if (!repairWarnings?.includes(warning)) {
+    repairWarnings?.push(warning)
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function isExactTaggedEnvelope(rawContent: string, tag: string, candidate: string): boolean {
+  const trimmed = rawContent.trim()
+  const escapedTag = escapeRegExp(tag)
+  const match = trimmed.match(new RegExp(`^<${escapedTag}>\\s*([\\s\\S]*?)\\s*<\\/${escapedTag}>$`))
+  if (!match) return false
+
+  return (match[1] ?? '').trim() === candidate.trim()
+}
+
+export function shouldRecordStructuredCandidateRecovery(
+  rawContent: string,
+  candidate: string,
+  options?: {
+    tag?: string
+  },
+): boolean {
+  if (candidate === rawContent.trim()) {
+    return false
+  }
+
+  if (options?.tag && isExactTaggedEnvelope(rawContent, options.tag, candidate)) {
+    return false
+  }
+
+  return true
+}
+
+export function appendWrapperKeyRepairWarning(repairWarnings: string[]) {
+  appendRepairWarningOnce(repairWarnings, WRAPPER_KEY_WARNING)
+}
 
 function isControlNoiseChar(code: number) {
   return (code >= 0 && code <= 8)
@@ -380,6 +425,26 @@ export function parseYamlOrJsonCandidate(
   if (!trimmed) return null
 
   const tryParseCandidate = (candidate: string, allowTrailingNoiseVariants = true): unknown => {
+    const finalizeParsedCandidate = (
+      parsed: unknown,
+      appliedRepairs?: {
+        markdownCodeFence?: boolean
+        nestedMappingChildren?: boolean
+        xmlStyleTags?: boolean
+      },
+    ): unknown => {
+      if (appliedRepairs?.markdownCodeFence) {
+        appendRepairWarningOnce(options?.repairWarnings, MARKDOWN_CODE_FENCE_WARNING)
+      }
+      if (appliedRepairs?.nestedMappingChildren) {
+        appendRepairWarningOnce(options?.repairWarnings, NESTED_MAPPING_CHILDREN_WARNING)
+      }
+      if (appliedRepairs?.xmlStyleTags) {
+        appendRepairWarningOnce(options?.repairWarnings, XML_STYLE_TAGS_WARNING)
+      }
+      return parsed
+    }
+
     try {
       return JSON.parse(candidate)
     } catch {
@@ -387,7 +452,7 @@ export function parseYamlOrJsonCandidate(
         for (const variant of buildTrailingTerminalNoiseVariants(candidate)) {
           try {
             const parsed = tryParseCandidate(variant, false)
-            options.repairWarnings?.push(TERMINAL_NOISE_WARNING)
+            appendRepairWarningOnce(options.repairWarnings, TERMINAL_NOISE_WARNING)
             return parsed
           } catch { /* try the next stripped-noise variant */ }
         }
@@ -396,7 +461,9 @@ export function parseYamlOrJsonCandidate(
       const repairedTrimmed = applyNestedMappingRepair(candidate)
       if (repairedTrimmed !== candidate) {
         try {
-          return jsYaml.load(repairedTrimmed)
+          return finalizeParsedCandidate(jsYaml.load(repairedTrimmed), {
+            nestedMappingChildren: true,
+          })
         } catch { /* fall through to the original input and later repairs */ }
       }
 
@@ -409,7 +476,10 @@ export function parseYamlOrJsonCandidate(
 
         if (effectiveBase !== candidate) {
           try {
-            return tryParseCandidate(effectiveBase, allowTrailingNoiseVariants)
+            return finalizeParsedCandidate(
+              tryParseCandidate(effectiveBase, allowTrailingNoiseVariants),
+              { markdownCodeFence: true },
+            )
           } catch { /* fall through to further repairs */ }
         }
 
@@ -419,7 +489,9 @@ export function parseYamlOrJsonCandidate(
           const nestedInlineRepaired = applyNestedMappingRepair(inlineRepaired)
           if (nestedInlineRepaired !== inlineRepaired) {
             try {
-              return jsYaml.load(nestedInlineRepaired)
+              return finalizeParsedCandidate(jsYaml.load(nestedInlineRepaired), {
+                nestedMappingChildren: true,
+              })
             } catch { /* fall through — later repairs may still be needed */ }
           }
           try {
@@ -434,11 +506,14 @@ export function parseYamlOrJsonCandidate(
         const dashFixed = repairYamlListDashSpace(freeTextQuoted)
         const deduped = repairYamlDuplicateKeys(dashFixed)
         const base = applyNestedMappingRepair(deduped)
+        const appliedPreParseRepairs = {
+          xmlStyleTags: xmlStripped !== afterInline,
+        }
 
         // Pre-processing alone might fix it (e.g. duplicate keys or missing dash space were the only issue)
         if (base !== afterInline) {
           try {
-            return jsYaml.load(base)
+            return finalizeParsedCandidate(jsYaml.load(base), appliedPreParseRepairs)
           } catch { /* fall through to targeted repairs */ }
         }
 
@@ -446,11 +521,11 @@ export function parseYamlOrJsonCandidate(
         const quoteRepaired = repairYamlUnclosedQuotes(base)
         if (quoteRepaired !== base) {
           try {
-            return jsYaml.load(quoteRepaired)
+            return finalizeParsedCandidate(jsYaml.load(quoteRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: unclosed-quote + indentation repair
             try {
-              return jsYaml.load(repairYamlIndentation(quoteRepaired))
+              return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(quoteRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
@@ -458,10 +533,10 @@ export function parseYamlOrJsonCandidate(
         const unionRepaired = repairYamlTypeUnionScalars(base)
         if (unionRepaired !== base) {
           try {
-            return jsYaml.load(unionRepaired)
+            return finalizeParsedCandidate(jsYaml.load(unionRepaired), appliedPreParseRepairs)
           } catch {
             try {
-              return jsYaml.load(repairYamlIndentation(unionRepaired))
+              return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(unionRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
@@ -470,11 +545,11 @@ export function parseYamlOrJsonCandidate(
         const colonRepaired = repairYamlPlainScalarColons(base)
         if (colonRepaired !== base) {
           try {
-            return jsYaml.load(colonRepaired)
+            return finalizeParsedCandidate(jsYaml.load(colonRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: colon repair + indentation repair
             try {
-              return jsYaml.load(repairYamlIndentation(colonRepaired))
+              return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(colonRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
@@ -483,17 +558,17 @@ export function parseYamlOrJsonCandidate(
         const seqRepaired = repairYamlSequenceEntryIndent(base)
         if (seqRepaired !== base) {
           try {
-            return jsYaml.load(seqRepaired)
+            return finalizeParsedCandidate(jsYaml.load(seqRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: sequence entry + property indentation repair
             try {
-              return jsYaml.load(repairYamlIndentation(seqRepaired))
+              return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(seqRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
 
         const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(base))
-        return jsYaml.load(repaired)
+        return finalizeParsedCandidate(jsYaml.load(repaired), appliedPreParseRepairs)
       }
     }
   }
@@ -506,7 +581,7 @@ export function parseYamlOrJsonCandidate(
     try {
       const parsed = tryParseCandidate(variants[index]!)
       if (index > 0) {
-        options?.repairWarnings?.push(ORPHAN_CLOSING_CODE_FENCE_WARNING)
+        appendRepairWarningOnce(options?.repairWarnings, ORPHAN_CLOSING_CODE_FENCE_WARNING)
       }
       return parsed
     } catch (error) {
@@ -521,8 +596,11 @@ export function appendStructuredCandidateRecoveryWarning(
   repairWarnings: string[],
   rawContent: string,
   candidate: string,
+  options?: {
+    tag?: string
+  },
 ) {
-  if (candidate !== rawContent.trim() && !repairWarnings.includes(CANDIDATE_RECOVERY_WARNING)) {
+  if (shouldRecordStructuredCandidateRecovery(rawContent, candidate, options) && !repairWarnings.includes(CANDIDATE_RECOVERY_WARNING)) {
     repairWarnings.push(CANDIDATE_RECOVERY_WARNING)
   }
 }

@@ -8,7 +8,9 @@ import {
   maybeUnwrapRecord,
   unwrapExplicitWrapperRecord,
   appendStructuredCandidateRecoveryWarning,
+  appendWrapperKeyRepairWarning,
   parseYamlOrJsonCandidate,
+  shouldRecordStructuredCandidateRecovery,
   toStringArray,
   toOptionalString,
   getValueByAliases,
@@ -73,8 +75,6 @@ function normalizeCompletionChecks(value: unknown): BeadChecks {
 }
 
 export function normalizeBeadCompletionMarkerOutput(rawContent: string): StructuredOutputResult<BeadCompletionPayload> {
-  const repairWarnings: string[] = []
-  const rawTrimmed = rawContent.trim()
   const candidates = collectTaggedCandidates(rawContent, 'BEAD_STATUS')
   let lastError = 'No completion marker found'
 
@@ -85,15 +85,18 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
         ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
         : lastError,
       repairApplied: false,
-      repairWarnings,
+      repairWarnings: [],
     }
   }
 
   for (const candidate of candidates) {
+    const candidateWarnings: string[] = []
     try {
-      const parsed = maybeUnwrapRecord(parseYamlOrJsonCandidate(candidate, {
+      const parsedCandidate = parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: COMPLETION_NESTED_MAPPING_CHILDREN,
-      }), [
+        repairWarnings: candidateWarnings,
+      })
+      const parsed = maybeUnwrapRecord(parsedCandidate, [
         'beadstatus',
         'bead_status',
         'statusmarker',
@@ -103,12 +106,15 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
         'data',
       ])
       if (!isRecord(parsed)) throw new Error('Completion marker payload is not a YAML/JSON object')
+      if (parsed !== parsedCandidate && isRecord(parsedCandidate)) {
+        appendWrapperKeyRepairWarning(candidateWarnings)
+      }
 
       const beadId = getRequiredString(parsed, ['beadid', 'bead_id', 'id'], 'bead_id')
       const status = normalizeCompletionStatus(getValueByAliases(parsed, ['status']))
       const checks = normalizeCompletionChecks(getValueByAliases(parsed, ['checks', 'gates', 'qualitygates', 'quality_gates']))
       const reason = toOptionalString(getValueByAliases(parsed, ['reason', 'details', 'message']))
-      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'BEAD_STATUS' })
 
       return {
         ok: true,
@@ -124,8 +130,8 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
           checks,
           ...(reason ? { reason } : {}),
         }),
-        repairApplied: candidate !== rawTrimmed || repairWarnings.length > 0,
-        repairWarnings,
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'BEAD_STATUS' }),
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -133,18 +139,16 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
   }
 
   return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
-      ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
-      : lastError,
-    repairApplied: false,
-    repairWarnings,
+      ok: false,
+      error: looksLikePromptEcho(rawContent)
+        ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
+        : lastError,
+      repairApplied: false,
+      repairWarnings: [],
+    }
   }
-}
 
 export function normalizeFinalTestCommandsOutput(rawContent: string): StructuredOutputResult<FinalTestCommandPayload> {
-  const repairWarnings: string[] = []
-  const rawTrimmed = rawContent.trim()
   const candidates = collectTaggedCandidates(rawContent, 'FINAL_TEST_COMMANDS')
   let lastError = 'No final test command marker found'
 
@@ -155,13 +159,15 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
         ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
         : lastError,
       repairApplied: false,
-      repairWarnings,
+      repairWarnings: [],
     }
   }
 
   for (const candidate of candidates) {
+    const candidateWarnings: string[] = []
     try {
-      const parsed = unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate), [
+      const parsedCandidate = parseYamlOrJsonCandidate(candidate, { repairWarnings: candidateWarnings })
+      const parsed = unwrapExplicitWrapperRecord(parsedCandidate, [
         'finaltestcommands',
         'final_test_commands',
         'commandplan',
@@ -172,6 +178,9 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
         'data',
       ])
       if (!isRecord(parsed)) throw new Error('Final test command payload is not a YAML/JSON object')
+      if (parsed !== parsedCandidate && isRecord(parsedCandidate)) {
+        appendWrapperKeyRepairWarning(candidateWarnings)
+      }
 
       const commands = toStringArray(getValueByAliases(parsed, ['commands', 'commandlist', 'command_list', 'cmds', 'cmd']))
       if (commands.length === 0) {
@@ -179,7 +188,7 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
       }
 
       const summary = toOptionalString(getValueByAliases(parsed, ['summary', 'reason', 'notes'])) ?? null
-      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'FINAL_TEST_COMMANDS' })
 
       return {
         ok: true,
@@ -190,8 +199,8 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
         normalizedContent: JSON.stringify(summary
           ? { commands, summary }
           : { commands }),
-        repairApplied: candidate !== rawTrimmed || repairWarnings.length > 0,
-        repairWarnings,
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'FINAL_TEST_COMMANDS' }),
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -199,11 +208,11 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
   }
 
   return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
-      ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
-      : lastError,
-    repairApplied: false,
-    repairWarnings,
+      ok: false,
+      error: looksLikePromptEcho(rawContent)
+        ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
+        : lastError,
+      repairApplied: false,
+      repairWarnings: [],
+    }
   }
-}

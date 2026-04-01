@@ -7,9 +7,19 @@ import type { StructuredOutputMetadata } from './types'
 import { isRecord } from './yamlUtils'
 
 function normalizeStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    : []
+  if (!Array.isArray(value)) return []
+
+  const normalized = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+  const unique: string[] = []
+  const seen = new Set<string>()
+
+  for (const entry of normalized) {
+    if (seen.has(entry)) continue
+    seen.add(entry)
+    unique.push(entry)
+  }
+
+  return unique
 }
 
 export function normalizeStructuredOutputMetadata(value: unknown): StructuredOutputMetadata | undefined {
@@ -40,7 +50,10 @@ export function buildStructuredOutputMetadata(
 ): StructuredOutputMetadata {
   const merged: StructuredOutputMetadata = {
     repairApplied: Boolean(base?.repairApplied || extra?.repairApplied),
-    repairWarnings: [...normalizeStringArray(base?.repairWarnings), ...normalizeStringArray(extra?.repairWarnings)],
+    repairWarnings: normalizeStringArray([
+      ...normalizeStringArray(base?.repairWarnings),
+      ...normalizeStringArray(extra?.repairWarnings),
+    ]),
     autoRetryCount: Math.max(base?.autoRetryCount ?? 0, extra?.autoRetryCount ?? 0),
     ...(extra?.validationError
       ? { validationError: extra.validationError }

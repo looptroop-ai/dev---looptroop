@@ -869,17 +869,16 @@ export async function handleRelevantFilesScan(
 
     let normalized = validateRelevantFilesScanResponse(result.response)
     let finalResponse = result.response
-    let structuredMeta = buildStructuredMetadata({
+    let retryMeta = buildStructuredMetadata({
       autoRetryCount: 0,
-      repairApplied: normalized.repairApplied,
-      repairWarnings: normalized.repairWarnings,
-      ...(!normalized.ok && normalized.error ? { validationError: normalized.error } : {}),
+      repairApplied: false,
+      repairWarnings: [],
     })
 
     if (!normalized.ok) {
       const retryDecision = getStructuredRetryDecision(result.response, result.responseMeta)
       const retryMode = retryDecision.reuseSession ? 'same session' : 'fresh session'
-      structuredMeta = buildStructuredMetadata(structuredMeta, {
+      retryMeta = buildStructuredMetadata(retryMeta, {
         autoRetryCount: 1,
         validationError: normalized.error,
       })
@@ -1018,7 +1017,7 @@ export async function handleRelevantFilesScan(
       }
     }
 
-    structuredMeta = buildStructuredMetadata(structuredMeta, {
+    const structuredMeta = buildStructuredMetadata(retryMeta, {
       repairApplied: normalized.repairApplied,
       repairWarnings: normalized.repairWarnings,
     })

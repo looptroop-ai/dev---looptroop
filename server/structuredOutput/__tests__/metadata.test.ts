@@ -73,4 +73,34 @@ describe.concurrent('structured output metadata helpers', () => {
       expect.objectContaining({ code: 'retry_after_validation_failure', category: 'retry' }),
     ])
   })
+
+  it('deduplicates repair warnings and derived interventions across repeated merges', () => {
+    const once = buildStructuredOutputMetadata(
+      {
+        repairApplied: true,
+        repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
+        autoRetryCount: 1,
+        validationError: 'Malformed YAML on first pass.',
+      },
+      {
+        repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
+        autoRetryCount: 1,
+        validationError: 'Malformed YAML on first pass.',
+      },
+    )
+
+    const twice = buildStructuredOutputMetadata(once, {
+      repairWarnings: ['Recovered the structured artifact from surrounding transcript or wrapper text before validation.'],
+      autoRetryCount: 1,
+      validationError: 'Malformed YAML on first pass.',
+    })
+
+    expect(twice.repairWarnings).toEqual([
+      'Recovered the structured artifact from surrounding transcript or wrapper text before validation.',
+    ])
+    expect(twice.interventions).toEqual([
+      expect.objectContaining({ code: 'parser_transcript_recovery', category: 'parser_fix' }),
+      expect.objectContaining({ code: 'retry_after_validation_failure', category: 'retry' }),
+    ])
+  })
 })

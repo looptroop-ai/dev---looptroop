@@ -9,7 +9,7 @@ import type { StructuredIntervention } from '../structuredInterventions'
 function deriveOne(warning: string) {
   const result = deriveStructuredInterventions({ repairWarnings: [warning] })
   expect(result).toHaveLength(1)
-  return result[0]
+  return result[0]!
 }
 
 function expectIntervention(
@@ -404,23 +404,23 @@ describe('deriveStructuredInterventions', () => {
   it('filters out empty/whitespace warnings', () => {
     const result = deriveStructuredInterventions({ repairWarnings: ['', '  ', 'Removed terminal noise.'] })
     expect(result).toHaveLength(1)
-    expect(result[0].code).toBe('parser_terminal_noise')
+    expect(result[0]!.code).toBe('parser_terminal_noise')
   })
 
   it('appends retry intervention when autoRetryCount > 0', () => {
     const result = deriveStructuredInterventions({ autoRetryCount: 2 })
     expect(result).toHaveLength(1)
-    expect(result[0].code).toBe('retry_after_validation_failure')
-    expect(result[0].category).toBe('retry')
-    expect(result[0].stage).toBe('retry')
-    expect(result[0].summary).toContain('2')
+    expect(result[0]!.code).toBe('retry_after_validation_failure')
+    expect(result[0]!.category).toBe('retry')
+    expect(result[0]!.stage).toBe('retry')
+    expect(result[0]!.summary).toContain('2')
   })
 
   it('appends validation failure when validationError is provided', () => {
     const result = deriveStructuredInterventions({ validationError: 'Missing required field: id' })
     expect(result).toHaveLength(1)
-    expect(result[0].code).toBe('validation_failure_recorded')
-    expect(result[0].technicalDetail).toBe('Missing required field: id')
+    expect(result[0]!.code).toBe('validation_failure_recorded')
+    expect(result[0]!.technicalDetail).toBe('Missing required field: id')
   })
 
   it('combines warnings and retry', () => {
@@ -430,8 +430,8 @@ describe('deriveStructuredInterventions', () => {
       validationError: 'Schema mismatch',
     })
     expect(result).toHaveLength(2)
-    expect(result[0].code).toBe('parser_terminal_noise')
-    expect(result[1].code).toBe('retry_after_validation_failure')
+    expect(result[0]!.code).toBe('parser_terminal_noise')
+    expect(result[1]!.code).toBe('retry_after_validation_failure')
   })
 })
 

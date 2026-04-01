@@ -20,9 +20,11 @@ import {
   collectStructuredCandidates,
   collectTaggedCandidates,
   appendStructuredCandidateRecoveryWarning,
+  appendWrapperKeyRepairWarning,
   parseYamlOrJsonCandidate,
   repairCoverageGapStringList,
   maybeUnwrapRecord,
+  shouldRecordStructuredCandidateRecovery,
   unwrapExplicitWrapperRecord,
   toStringArray,
   toOptionalString,
@@ -1096,6 +1098,7 @@ function normalizeInterviewBatchPayload(value: unknown): {
   batch: InterviewBatchPayload
   repairWarnings: string[]
 } {
+  const repairWarnings: string[] = []
   const parsed = maybeUnwrapRecord(value, [
     'interviewbatch',
     'interview_batch',
@@ -1105,6 +1108,9 @@ function normalizeInterviewBatchPayload(value: unknown): {
     'data',
   ])
   if (!isRecord(parsed)) throw new Error('Interview batch output is not a YAML/JSON object')
+  if (parsed !== value && isRecord(value)) {
+    appendWrapperKeyRepairWarning(repairWarnings)
+  }
 
   const rawQuestions = getValueByAliases(parsed, ['questions', 'nextquestions', 'next_questions'])
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
@@ -1127,7 +1133,7 @@ function normalizeInterviewBatchPayload(value: unknown): {
   }
 
   const normalizedQuestions = rawQuestions.map((question, index) => normalizeInterviewBatchQuestion(question, index))
-  const repairWarnings = normalizedQuestions.flatMap((question) => question.repairWarnings)
+  repairWarnings.push(...normalizedQuestions.flatMap((question) => question.repairWarnings))
   const questions = normalizedQuestions.map((question) => question.question)
 
   // Enforce architecture batch size limit (1-3 questions per batch)
@@ -1147,7 +1153,11 @@ function normalizeInterviewBatchPayload(value: unknown): {
   }
 }
 
-function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: boolean): string {
+function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: boolean): {
+  normalizedContent: string
+  repairWarnings: string[]
+} {
+  const repairWarnings: string[] = []
   const parsed = maybeUnwrapRecord(value, [
     'interviewcomplete',
     'interview_complete',
@@ -1157,6 +1167,9 @@ function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: b
     'data',
   ])
   if (!isRecord(parsed)) throw new Error('Interview complete output is not a YAML/JSON object')
+  if (parsed !== value && isRecord(value)) {
+    appendWrapperKeyRepairWarning(repairWarnings)
+  }
 
   const hasQuestions = Array.isArray(getValueByAliases(parsed, ['questions']))
   const hasAnswers = Array.isArray(getValueByAliases(parsed, ['answers']))
@@ -1172,30 +1185,35 @@ function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: b
     throw new Error('Interview complete output is missing final interview schema fields')
   }
 
-  return buildYamlDocument(parsed)
+  return {
+    normalizedContent: buildYamlDocument(parsed),
+    repairWarnings,
+  }
 }
 
 export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutputResult<InterviewTurnOutput> {
-  const repairWarnings: string[] = []
-  const rawTrimmed = rawContent.trim()
   let lastError = 'No interview batch or completion content found'
 
   const completeCandidates = collectTaggedCandidates(rawContent, 'INTERVIEW_COMPLETE')
   for (const candidate of completeCandidates) {
+    const candidateWarnings: string[] = []
     try {
-      const normalizedContent = normalizeInterviewCompletePayload(parseYamlOrJsonCandidate(candidate, {
+      const parsedCandidate = parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
-      }), true)
-      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
+        repairWarnings: candidateWarnings,
+      })
+      const normalizedContent = normalizeInterviewCompletePayload(parsedCandidate, true)
+      candidateWarnings.push(...normalizedContent.repairWarnings)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'INTERVIEW_COMPLETE' })
       return {
         ok: true,
         value: {
           kind: 'complete',
-          finalYaml: normalizedContent.trim(),
+          finalYaml: normalizedContent.normalizedContent.trim(),
         },
-        normalizedContent,
-        repairApplied: candidate !== rawTrimmed,
-        repairWarnings,
+        normalizedContent: normalizedContent.normalizedContent,
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'INTERVIEW_COMPLETE' }),
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
@@ -1204,12 +1222,14 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
 
   const batchCandidates = collectTaggedCandidates(rawContent, 'INTERVIEW_BATCH')
   for (const candidate of batchCandidates) {
+    const candidateWarnings: string[] = []
     try {
       const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+        repairWarnings: candidateWarnings,
       }))
-      const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
-      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate)
+      candidateWarnings.push(...normalizedBatch.repairWarnings)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'INTERVIEW_BATCH' })
       return {
         ok: true,
         value: {
@@ -1223,7 +1243,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
           ai_commentary: normalizedBatch.batch.aiCommentary,
           questions: normalizedBatch.batch.questions,
         }),
-        repairApplied: candidate !== rawTrimmed || candidateWarnings.length > 0,
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'INTERVIEW_BATCH' }),
         repairWarnings: candidateWarnings,
       }
     } catch (error) {
@@ -1237,30 +1257,35 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
 
   for (const candidate of fallbackCandidates) {
     try {
+      const candidateWarnings: string[] = []
       const parsed = parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+        repairWarnings: candidateWarnings,
       })
       const normalizedContent = normalizeInterviewCompletePayload(parsed, false)
-      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
+      candidateWarnings.push(...normalizedContent.repairWarnings)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate)
       return {
         ok: true,
         value: {
           kind: 'complete',
-          finalYaml: normalizedContent.trim(),
+          finalYaml: normalizedContent.normalizedContent.trim(),
         },
-        normalizedContent,
-        repairApplied: candidate !== rawTrimmed,
-        repairWarnings,
+        normalizedContent: normalizedContent.normalizedContent,
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate),
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
     }
 
     try {
+      const candidateWarnings: string[] = []
       const normalizedBatch = normalizeInterviewBatchPayload(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: INTERVIEW_TURN_NESTED_MAPPING_CHILDREN,
+        repairWarnings: candidateWarnings,
       }))
-      const candidateWarnings = [...repairWarnings, ...normalizedBatch.repairWarnings]
+      candidateWarnings.push(...normalizedBatch.repairWarnings)
       appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate)
       return {
         ok: true,
@@ -1275,7 +1300,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
           ai_commentary: normalizedBatch.batch.aiCommentary,
           questions: normalizedBatch.batch.questions,
         }),
-        repairApplied: candidate !== rawTrimmed || candidateWarnings.length > 0,
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate),
         repairWarnings: candidateWarnings,
       }
     } catch (error) {
