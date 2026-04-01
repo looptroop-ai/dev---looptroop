@@ -72,6 +72,7 @@ export async function deliberateInterview(
       ticketId: options.ticketId,
       phase: 'COUNCIL_DELIBERATING',
       phaseAttempt: options.phaseAttempt,
+      toolPolicy: PROM1.toolPolicy,
       onPromptDispatched: onOpenCodePromptDispatched,
       structuredRetrySchemaReminder: PROM1.outputFormat,
     },

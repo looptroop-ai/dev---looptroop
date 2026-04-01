@@ -247,6 +247,7 @@ async function runPrdCoverageAuditPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
+        toolPolicy: getCoveragePromptTemplate('prd').toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
           phase: params.stateLabel,
@@ -344,7 +345,6 @@ async function runPrdCoverageAuditPrompt(params: {
           validationError: prdCoverageNormalization.validationError,
           rawResponse: response,
           schemaReminder: getCoveragePromptTemplate('prd').outputFormat,
-          doNotUseTools: true,
         })
         continue
       }
@@ -379,7 +379,6 @@ async function runPrdCoverageAuditPrompt(params: {
       validationError: coverageEnvelope.error,
       rawResponse: response,
       schemaReminder: getCoveragePromptTemplate('prd').outputFormat,
-      doNotUseTools: true,
     })
   }
 
@@ -431,6 +430,7 @@ async function runPrdCoverageResolutionPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
+        toolPolicy: PROM13b.toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
           phase: params.stateLabel,
@@ -814,6 +814,7 @@ export async function handleRelevantFilesScan(
       timeoutMs: draftTimeoutMs,
       model: codingModelId,
       variant: 'relevant_files_scan',
+      toolPolicy: PROM0.toolPolicy,
       onSessionCreated: (session) => {
         sessionId = session.id
         emitAiMilestone(
@@ -904,6 +905,7 @@ export async function handleRelevantFilesScan(
           signal,
           timeoutMs: draftTimeoutMs,
           model: codingModelId,
+          toolPolicy: PROM0.toolPolicy,
           onStreamEvent: (event) => {
             if (!sessionId) return
             emitOpenCodeStreamEvent(
@@ -951,6 +953,7 @@ export async function handleRelevantFilesScan(
           timeoutMs: draftTimeoutMs,
           model: codingModelId,
           variant: 'relevant_files_scan',
+          toolPolicy: PROM0.toolPolicy,
           onSessionCreated: (session) => {
             sessionId = session.id
             emitAiMilestone(
@@ -1346,6 +1349,7 @@ export async function handleCoverageVerification(
         signal,
         timeoutMs: councilSettings.draftTimeoutMs,
         model: winnerId,
+        toolPolicy: promptTemplate.toolPolicy,
         sessionOwnership: {
           ticketId,
           phase: stateLabel,
@@ -1449,7 +1453,6 @@ export async function handleCoverageVerification(
           validationError: interviewCoverageResolution.validationError,
           rawResponse: response,
           schemaReminder: promptTemplate.outputFormat,
-          doNotUseTools: true,
         })
         continue
       }
@@ -1481,7 +1484,6 @@ export async function handleCoverageVerification(
       validationError: coverageEnvelope.error,
       rawResponse: response,
       schemaReminder: promptTemplate.outputFormat,
-      doNotUseTools: true,
     })
   }
 

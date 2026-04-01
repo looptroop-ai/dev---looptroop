@@ -306,7 +306,7 @@ describe('handlePrdRefine', () => {
       }) ?? []
       const retryPromptText = retryPrompt.map((part) => part.content).join('\n')
       expect(retryPromptText).toContain('PRD Refinement Structured Output Retry')
-      expect(retryPromptText).toContain('Do not use tools.')
+      expect(retryPromptText).not.toContain('Do not use tools.')
       expect(retryPromptText).toContain('Use the normal PRD schema plus a top-level `changes` list.')
       expect(retryPromptText).toContain('fully and exactly account for the diff between the winning PRD and the final refined PRD')
       expect(retryPromptText).toContain('Every changed epic or user story must appear exactly once in `changes`.')

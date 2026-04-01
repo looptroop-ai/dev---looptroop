@@ -740,7 +740,6 @@ export function buildStructuredRetryPrompt(
     validationError: string
     rawResponse: string
     schemaReminder?: string
-    doNotUseTools?: boolean
   },
 ): PromptPart[] {
   return [
@@ -751,7 +750,6 @@ export function buildStructuredRetryPrompt(
         '## Structured Output Retry',
         `Your previous response failed machine validation: ${options.validationError}`,
         'Return only a corrected artifact in the required structured format.',
-        options.doNotUseTools ? 'Do not use tools.' : '',
         options.schemaReminder ? `Schema reminder:\n${options.schemaReminder}` : '',
         'Previous invalid response:',
         '```',

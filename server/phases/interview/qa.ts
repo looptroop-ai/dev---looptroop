@@ -201,6 +201,7 @@ export async function startInterviewSession(
       signal,
       timeoutMs,
       model: winnerId,
+      toolPolicy: PROM4.toolPolicy,
       ...(ticketId
         ? {
             sessionOwnership: {
@@ -255,6 +256,7 @@ export async function startInterviewSession(
         signal,
         timeoutMs,
         model: winnerId,
+        toolPolicy: PROM4.toolPolicy,
         ...(ticketId
           ? {
               sessionOwnership: {
@@ -331,6 +333,7 @@ export async function submitBatchToSession(
       signal,
       timeoutMs,
       model,
+      toolPolicy: PROM4.toolPolicy,
       onStreamEvent: (event) => {
         onOpenCodeStreamEvent?.({
           sessionId,
@@ -373,6 +376,7 @@ export async function submitBatchToSession(
             signal,
             timeoutMs,
             model,
+            toolPolicy: PROM4.toolPolicy,
             ...(ticketId
               ? {
                   sessionOwnership: {
@@ -489,7 +493,6 @@ async function parseBatchResponseWithRetry(input: {
     validationError: normalized.error,
     rawResponse: input.response,
     schemaReminder: PROM4_SCHEMA_REMINDER,
-    doNotUseTools: true,
   })
 
   let retryResult: Awaited<ReturnType<typeof runOpenCodeSessionPrompt>>
@@ -501,6 +504,7 @@ async function parseBatchResponseWithRetry(input: {
       signal: input.signal,
       timeoutMs: input.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
       model: input.model,
+      toolPolicy: PROM4.toolPolicy,
       onStreamEvent: (event) => {
         input.onOpenCodeStreamEvent?.({
           sessionId: input.sessionId,

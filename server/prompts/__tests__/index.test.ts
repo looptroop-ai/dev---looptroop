@@ -53,7 +53,7 @@ describe.concurrent('structured prompt hardening', () => {
     }
   })
 
-  it('adds the no-tool rule only to in-scope non-execution prompts', () => {
+  it('marks in-scope non-execution prompts as runtime no-tool prompts', () => {
     for (const prompt of [
       PROM1,
       PROM2,
@@ -65,15 +65,18 @@ describe.concurrent('structured prompt hardening', () => {
       PROM11,
       PROM12,
       PROM13,
+      PROM13b,
       PROM20,
       PROM21,
       PROM22,
       PROM24,
     ]) {
-      expect(buildPromptFromTemplate(prompt, [])).toContain('Do not use tools.')
+      expect(prompt.toolPolicy).toBe('disabled')
+      expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
 
     for (const prompt of [PROM0, PROM23, PROM51, PROM52]) {
+      expect(prompt.toolPolicy).toBe('default')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
   })

@@ -10,6 +10,7 @@ import type {
 import { CancelledError } from '../../council/types'
 import { classifyDraftFailure, isAbortError, isPhaseDeadlineError, PHASE_DEADLINE_ERROR } from '../../council/draftUtils'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
+import type { OpenCodeToolPolicy } from '../../opencode/toolPolicy'
 import type { Message, PromptPart, Session, StreamEvent } from '../../opencode/types'
 import { SessionManager } from '../../opencode/sessionManager'
 import { buildPromptFromTemplate, PROM10a, PROM10b, PROM11, PROM12 } from '../../prompts/index'
@@ -18,6 +19,8 @@ import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../../workflow/runO
 import { buildStructuredRetryPrompt, normalizeInterviewDocumentOutput } from '../../structuredOutput'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { validatePrdDraft, validateResolvedInterview } from './validation'
+import type { InterviewDocument } from '@shared/interviewArtifact'
+import jsYaml from 'js-yaml'
 
 interface StepValidationResult {
   questionCount?: number
@@ -110,6 +113,13 @@ function buildPromptParts(template: typeof PROM10a | typeof PROM10b, contextPart
   return [{ type: 'text', content: buildPromptFromTemplate(template, contextParts) }]
 }
 
+function stripGeneratedByForRetry(
+  normalizedInterviewDocument: InterviewDocument,
+): string {
+  const { generated_by: _generatedBy, ...sanitized } = normalizedInterviewDocument
+  return (jsYaml.dump(sanitized, { lineWidth: 120, noRefs: true }) as string).trim()
+}
+
 function buildFullAnswersRetryPrompt(
   baseParts: PromptPart[],
   options: {
@@ -131,7 +141,6 @@ function buildFullAnswersRetryPrompt(
         '## Full Answers Structured Output Retry',
         `Your previous response failed machine validation: ${options.validationError}`,
         'Return only a corrected full interview YAML artifact.',
-        'Do not use tools.',
         'Keep every generated free_text answer concise, ideally 1-2 sentences.',
         'For single_choice and multiple_choice questions, use only the existing canonical selected_option_ids and keep free_text empty unless a short explanation is explicitly required.',
         'If any free_text contains `:`, emit it as a quoted scalar or a `>-` block scalar.',
@@ -248,6 +257,7 @@ async function executeStructuredStep(
     timeoutMs: number
     activeSession?: Session
     deadlineAt: number | null
+    toolPolicy: OpenCodeToolPolicy
     validateStep: (content: string) => StepValidationResult
     schemaReminder: string
     buildRetryPrompt?: (params: {
@@ -314,6 +324,7 @@ async function executeStructuredStep(
           timeoutMs: remainingTimeoutMs,
           model: member.modelId,
           variant: member.variant,
+          toolPolicy: options.toolPolicy,
           onStreamEvent: (event) => {
             options.onOpenCodeStreamEvent?.({
               stage: 'draft',
@@ -338,6 +349,7 @@ async function executeStructuredStep(
           timeoutMs: remainingTimeoutMs,
           model: member.modelId,
           variant: member.variant,
+          toolPolicy: options.toolPolicy,
           ...(sessionOwnership ? { sessionOwnership } : {}),
           onSessionCreated: (createdSession) => {
             session = createdSession
@@ -420,7 +432,6 @@ async function executeStructuredStep(
         validationError: lastValidationError,
         rawResponse,
         schemaReminder: options.schemaReminder,
-        doNotUseTools: true,
       })
     }
   }
@@ -475,7 +486,7 @@ export async function draftPRD(
       })
     : null
   const canonicalInterviewForRetry = canonicalInterviewResult?.ok
-    ? canonicalInterviewResult.normalizedContent
+    ? stripGeneratedByForRetry(canonicalInterviewResult.value)
     : canonicalInterview
   const skippedQuestionIds = canonicalInterviewResult?.ok
     ? canonicalInterviewResult.value.questions
@@ -601,6 +612,7 @@ export async function draftPRD(
           timeoutMs: options.draftTimeoutMs,
           activeSession: currentSession,
           deadlineAt,
+          toolPolicy: PROM10a.toolPolicy,
           validateStep: (content) => {
             const result = validateResolvedInterview(content, {
               ticketId: options.ticketExternalId ?? options.ticketId ?? '',
@@ -719,6 +731,7 @@ export async function draftPRD(
         timeoutMs: options.draftTimeoutMs,
         activeSession: currentSession,
         deadlineAt,
+        toolPolicy: PROM10b.toolPolicy,
         validateStep: (content) => {
           const result = validatePrdDraft(content, {
             ticketId: options.ticketExternalId ?? options.ticketId ?? '',

@@ -11,6 +11,7 @@ import type {
   StreamEvent,
 } from '../../opencode/types'
 import { deliberateInterview } from '../../phases/interview/deliberate'
+import { OPENCODE_DISABLED_TOOLS } from '../../opencode/toolPolicy'
 import {
   runOpenCodePrompt,
   runOpenCodeSessionPrompt,
@@ -42,6 +43,11 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     | { response: string | Deferred<string>; messageContent?: string }
   >
   private readonly sessionMessages = new Map<string, Message[]>()
+  public readonly promptCalls: Array<{
+    sessionId: string
+    parts: PromptPart[]
+    options?: PromptSessionOptions
+  }> = []
   private sessionCounter = 0
 
   constructor(responses: Array<string | Deferred<string> | { response: string | Deferred<string>; messageContent?: string }>) {
@@ -62,6 +68,7 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     _signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string> {
+    this.promptCalls.push({ sessionId, parts: _parts, options })
     const queued = this.queuedResponses.shift() ?? 'assistant response'
     const queuedResponse = typeof queued === 'object' && 'response' in queued
       ? queued.response
@@ -222,6 +229,34 @@ describe('runOpenCodePrompt', () => {
     })
 
     expect(promptNumbers).toEqual([1, 2])
+  })
+
+  it('sends the shared deny-all tools map when toolPolicy is disabled', async () => {
+    const adapter = new TestOpenCodeAdapter(['assistant response'])
+
+    await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      toolPolicy: 'disabled',
+    })
+
+    expect(adapter.promptCalls).toHaveLength(1)
+    expect(adapter.promptCalls[0]?.options?.tools).toEqual(OPENCODE_DISABLED_TOOLS)
+  })
+
+  it('does not send a tools override when toolPolicy is default', async () => {
+    const adapter = new TestOpenCodeAdapter(['assistant response'])
+
+    await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      toolPolicy: 'default',
+    })
+
+    expect(adapter.promptCalls).toHaveLength(1)
+    expect(adapter.promptCalls[0]?.options?.tools).toBeUndefined()
   })
 
   it('propagates the initial PROM1 interview draft prompt to callers', async () => {

@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
+import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
 import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError, classifyDraftFailure } from './draftUtils'
@@ -29,6 +30,7 @@ interface GenerateDraftsRuntimeOptions {
   ticketId?: string
   phase?: string
   phaseAttempt?: number
+  toolPolicy?: OpenCodeToolPolicy
   onPromptDispatched?: (entry: {
     stage: 'draft'
     memberId: string
@@ -60,7 +62,6 @@ function buildStructuredRetryPrompt(
         '## Structured Output Retry',
         `Your previous response failed machine validation: ${validationError}`,
         'Return only a corrected artifact in the required structured format.',
-        'Do not use tools.',
         schemaReminder ? `Schema reminder:\n${schemaReminder}` : '',
         'Previous invalid response:',
         '```',
@@ -166,6 +167,7 @@ export async function generateDrafts(
           signal,
           model: member.modelId,
           variant: member.variant,
+          toolPolicy: runtimeOptions?.toolPolicy,
           ...(runtimeOptions?.ticketId && runtimeOptions.phase
             ? {
                 sessionOwnership: {

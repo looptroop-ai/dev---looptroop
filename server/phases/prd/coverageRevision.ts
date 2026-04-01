@@ -312,7 +312,6 @@ export function buildPrdCoverageRevisionRetryPrompt(
         `Your previous response failed validation: ${params.validationError}`,
         '',
         'Return only one corrected YAML artifact.',
-        'Do not use tools.',
         'Requirements:',
         '- Use the exact PRD schema.',
         '- Include a top-level `changes` list that fully accounts for the diff between the current PRD candidate and the revised PRD candidate.',

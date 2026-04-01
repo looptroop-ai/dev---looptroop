@@ -664,6 +664,7 @@ export async function handlePrdVote(
       ticketId,
       phase: 'COUNCIL_VOTING_PRD',
     },
+    PROM11.toolPolicy,
   )
 
   const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, councilSettings.minQuorum)
@@ -851,6 +852,7 @@ export async function handlePrdRefine(
       validationError,
       rawResponse,
     }),
+    PROM12.toolPolicy,
   )
 
   // Clean up intermediate data

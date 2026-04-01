@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenCodeAdapter } from '../../../opencode/adapter'
+import { OPENCODE_DISABLED_TOOLS } from '../../../opencode/toolPolicy'
 import type {
   HealthStatus,
   Message,
@@ -15,6 +16,11 @@ import { TEST, makeInterviewYaml, makeInterviewQuestion, makePrdYaml } from '../
 class TestOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   public messages = new Map<string, Message[]>()
+  public promptCalls: Array<{
+    sessionId: string
+    parts: PromptPart[]
+    options?: PromptSessionOptions
+  }> = []
   private readonly queuedResponses: Array<string | { response: string; error?: string; messageContent?: string }>
   private sessionCounter = 0
 
@@ -38,6 +44,7 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     _signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string> {
+    this.promptCalls.push({ sessionId, parts, options })
     const queued = this.queuedResponses.shift() ?? 'assistant response'
     const response = typeof queued === 'string' ? queued : queued.response
     const messageContent = typeof queued === 'string' ? response : (queued.messageContent ?? response)
@@ -343,7 +350,7 @@ describe.concurrent('draftPRD', () => {
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(true)
-    expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Do not use tools.'))).toBe(true)
+    expect(adapter.promptCalls[1]?.options?.tools).toEqual(OPENCODE_DISABLED_TOOLS)
   })
 
   it('keeps full answers structured retries inside the same session while starting PRD drafting in a fresh one', async () => {
@@ -374,7 +381,7 @@ describe.concurrent('draftPRD', () => {
     expect(fullAnswerRetryMessages[0]?.content).toContain('Only these skipped question answers may change: Q01')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Canonical approved interview artifact')
     expect(fullAnswerRetryMessages[0]?.content).toContain('What are the key requirements?')
-    expect(fullAnswerRetryMessages[0]?.content).toContain('Do not use tools.')
+    expect(fullAnswerRetryMessages[0]?.content).not.toContain('generated_by:')
     expect(fullAnswerRetryMessages[0]?.content).toContain('Keep every generated free_text answer concise')
     expect(fullAnswerRetryMessages[0]?.content).toContain('If any free_text contains `:`')
     expect(fullAnswerRetryMessages[0]?.content).toContain('use only the existing canonical selected_option_ids')
@@ -383,6 +390,7 @@ describe.concurrent('draftPRD', () => {
     expect(fullAnswerRetryMessages[0]?.content).toContain('Stop immediately after the final approval block')
     expect(fullAnswerRetryMessages[0]?.content).not.toContain('Do not change `follow_up_rounds`, `summary`, or approval fields.')
     expect(adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+    expect(adapter.promptCalls[0]?.options?.tools).toEqual(OPENCODE_DISABLED_TOOLS)
   })
 
   it('restarts full answers in a fresh session when the model leaves skipped questions unanswered', async () => {

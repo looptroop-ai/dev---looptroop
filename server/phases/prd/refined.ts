@@ -732,7 +732,6 @@ export function buildPrdRefinementRetryPrompt(
         `Your previous response failed validation: ${params.validationError}`,
         '',
         'Return only one corrected YAML artifact.',
-        'Do not use tools.',
         'Requirements:',
         '- Use the normal PRD schema plus a top-level `changes` list.',
         '- The `changes` list must fully and exactly account for the diff between the winning PRD and the final refined PRD.',

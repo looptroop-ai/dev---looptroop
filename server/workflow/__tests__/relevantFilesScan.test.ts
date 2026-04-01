@@ -122,6 +122,11 @@ describe('handleRelevantFilesScan', () => {
     expect(runOpenCodeSessionPromptMock.mock.calls[0]?.[0]).toMatchObject({
       session: { id: 'ses-1' },
       model: TEST.implementer,
+      toolPolicy: 'default',
+    })
+    expect(runOpenCodePromptMock.mock.calls[0]?.[0]).toMatchObject({
+      model: TEST.implementer,
+      toolPolicy: 'default',
     })
     expect(runOpenCodeSessionPromptMock.mock.calls[0]?.[0]?.parts).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -129,9 +134,6 @@ describe('handleRelevantFilesScan', () => {
         content: expect.stringContaining('## Structured Output Retry'),
       }),
     ]))
-    expect(
-      runOpenCodeSessionPromptMock.mock.calls[0]?.[0]?.parts.some((part: { content?: string }) => part.content?.includes('Do not use tools.') ?? false),
-    ).toBe(false)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'RELEVANT_FILES_READY' })
 
     const relevantFilesPath = `${paths.ticketDir}/relevant-files.yaml`

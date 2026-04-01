@@ -12,6 +12,11 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   public messages: Map<string, Message[]> = new Map()
   public mockResponses: Map<string, string> = new Map()
+  public promptCalls: Array<{
+    sessionId: string
+    parts: PromptPart[]
+    options?: PromptSessionOptions
+  }> = []
   private sessionCounter = 0
 
   async createSession(projectPath: string, _signal?: AbortSignal): Promise<Session> {
@@ -30,6 +35,7 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
     _signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string> {
+    this.promptCalls.push({ sessionId, parts, options })
     const promptText = parts.map(part => part.content).join('\n')
     const response = this.mockResponses.get(sessionId) ?? this.buildMockResponse(promptText)
 

@@ -60,6 +60,7 @@ export async function generateFinalTests(
       timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
       model: callbacks?.model,
       variant: callbacks?.variant,
+      toolPolicy: PROM52.toolPolicy,
       ...(callbacks?.ticketId
         ? {
             sessionOwnership: {
@@ -128,6 +129,7 @@ export async function generateFinalTests(
           signal,
           timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
           model: callbacks?.model,
+          toolPolicy: PROM52.toolPolicy,
           onStreamEvent: (event) => {
             if (!sessionId) return
             callbacks?.onOpenCodeStreamEvent?.({
@@ -157,6 +159,7 @@ export async function generateFinalTests(
           timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
           model: callbacks?.model,
           variant: callbacks?.variant,
+          toolPolicy: PROM52.toolPolicy,
           ...(callbacks?.ticketId
             ? {
                 sessionOwnership: {

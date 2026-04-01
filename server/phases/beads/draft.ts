@@ -76,6 +76,7 @@ export async function draftBeads(
       ticketId: options.ticketId,
       phase: 'DRAFTING_BEADS',
       phaseAttempt: options.phaseAttempt,
+      toolPolicy: PROM20.toolPolicy,
       onPromptDispatched: onOpenCodePromptDispatched,
       structuredRetrySchemaReminder: PROM20.outputFormat,
     },

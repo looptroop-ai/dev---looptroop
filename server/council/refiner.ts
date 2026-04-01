@@ -1,6 +1,7 @@
 import type { OpenCodeAdapter } from '../opencode/adapter'
 import type { DraftResult } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
+import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt } from '../structuredOutput'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
@@ -44,6 +45,7 @@ export async function refineDraft(
     validationError: string
     rawResponse: string
   }) => PromptPart[],
+  toolPolicy: OpenCodeToolPolicy = 'default',
 ): Promise<string> {
   let sessionId = ''
   const refineParts = buildPrompt
@@ -73,6 +75,7 @@ export async function refineDraft(
       signal,
       timeoutMs,
       model: winnerDraft.memberId,
+      toolPolicy,
       ...(sessionOwnership
         ? {
             sessionOwnership: {
@@ -134,7 +137,6 @@ export async function refineDraft(
         validationError,
         rawResponse: refined,
         schemaReminder,
-        doNotUseTools: true,
       })
     }
   }

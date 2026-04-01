@@ -10,8 +10,10 @@ import type {
   Session,
   StreamEvent,
 } from '../opencode/types'
+import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { parseModelRef } from '../opencode/types'
 import { SessionManager, type SessionOwnership } from '../opencode/sessionManager'
+import { resolveOpenCodeTools } from '../opencode/toolPolicy'
 
 export interface OpenCodeRunCallbacks {
   onSessionCreated?: (session: Session) => void
@@ -44,6 +46,7 @@ export interface OpenCodeRunOptions extends OpenCodeRunCallbacks {
   model?: string
   agent?: string
   variant?: string
+  toolPolicy?: OpenCodeToolPolicy
   sessionOwnership?: OpenCodeSessionOwnership
 }
 
@@ -97,6 +100,7 @@ export async function runOpenCodePrompt({
   model,
   agent,
   variant,
+  toolPolicy,
   sessionOwnership,
   onSessionCreated,
   onPromptDispatched,
@@ -132,6 +136,7 @@ export async function runOpenCodePrompt({
       model,
       agent,
       variant,
+      toolPolicy,
       onPromptDispatched,
       onStreamEvent,
     })
@@ -156,6 +161,7 @@ export async function runOpenCodeSessionPrompt({
   model,
   agent,
   variant,
+  toolPolicy,
   sessionOwnership,
   onPromptDispatched,
   onStreamEvent,
@@ -186,6 +192,7 @@ export async function runOpenCodeSessionPrompt({
     : signal
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined
   const parsedModel = model ? parseModelRef(model) : undefined
+  const tools = resolveOpenCodeTools(toolPolicy)
   const stepFinishSafetyMs = timeoutMs
     ? Math.min(Math.max(timeoutMs / 10, 10_000), 30_000)
     : undefined
@@ -194,6 +201,7 @@ export async function runOpenCodeSessionPrompt({
     ...(parsedModel ? { model: parsedModel } : {}),
     ...(agent ? { agent } : {}),
     ...(variant ? { variant } : {}),
+    ...(tools ? { tools } : {}),
     ...(onStreamEvent ? { onEvent: onStreamEvent } : {}),
     ...(stepFinishSafetyMs !== undefined ? { stepFinishSafetyMs } : {}),
   }

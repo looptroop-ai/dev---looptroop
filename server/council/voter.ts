@@ -13,6 +13,7 @@ import type {
 } from './types'
 import { CancelledError } from './types'
 import type { Message, PromptPart, StreamEvent } from '../opencode/types'
+import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt, normalizeVoteScorecardOutput } from '../structuredOutput'
@@ -121,6 +122,7 @@ export async function conductVoting(
     phase: string
     phaseAttempt?: number
   },
+  toolPolicy: OpenCodeToolPolicy = 'default',
 ): Promise<VotingPhaseResult> {
   const votes: Vote[] = []
   const validDrafts = drafts.filter(d => d.outcome === 'completed' && d.content)
@@ -235,6 +237,7 @@ export async function conductVoting(
           signal,
           model: voter.modelId,
           variant: voter.variant,
+          toolPolicy,
           ...(sessionOwnership
             ? {
                 sessionOwnership: {
@@ -343,7 +346,6 @@ export async function conductVoting(
           validationError: scorecardResult.error,
           rawResponse: response,
           schemaReminder: buildStrictVoteSchemaReminder(rubric),
-          doNotUseTools: true,
         })
       }
 

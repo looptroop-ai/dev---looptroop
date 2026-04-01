@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../opencode/adapter'
+import { OPENCODE_DISABLED_TOOLS } from '../../opencode/toolPolicy'
 import type { CouncilMember, DraftResult } from '../types'
 import { VOTING_RUBRIC_BEADS, VOTING_RUBRIC_INTERVIEW, VOTING_RUBRIC_PRD } from '../types'
 import { conductVoting } from '../voter'
@@ -75,12 +76,20 @@ describe('conductVoting', () => {
       [{ type: 'text', content: 'vote prompt' }],
       '/tmp/test',
       'interview_draft',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'disabled',
     )
 
     expect(result.memberOutcomes).toEqual({ 'model-a': 'completed' })
     expect(result.votes).toHaveLength(2)
-    expect(
-      adapter.messages.get('mock-session-2')?.some((message) => typeof message.content === 'string' && message.content.includes('Do not use tools.')),
-    ).toBe(true)
+    expect(adapter.promptCalls[0]?.options?.tools).toEqual(OPENCODE_DISABLED_TOOLS)
+    expect(adapter.promptCalls[1]?.options?.tools).toEqual(OPENCODE_DISABLED_TOOLS)
   })
 })

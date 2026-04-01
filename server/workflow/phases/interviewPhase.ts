@@ -618,6 +618,7 @@ export async function handleInterviewVote(
       ticketId,
       phase: 'COUNCIL_VOTING_INTERVIEW',
     },
+    PROM2.toolPolicy,
   )
 
   const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, councilSettings.minQuorum)
@@ -795,6 +796,8 @@ export async function handleInterviewCompile(
       return { normalizedContent: result.normalizedContent }
     },
     PROM3.outputFormat,
+    undefined,
+    PROM3.toolPolicy,
   )
 
   // Clean up intermediate data

@@ -87,6 +87,7 @@ async function executeBeadsExpandStep(params: {
       timeoutMs: params.timeoutMs,
       model: params.winnerId,
       variant: 'refine',
+      toolPolicy: PROM23.toolPolicy,
       sessionOwnership: {
         ticketId: params.ticketId,
         phase: 'REFINING_BEADS',
@@ -170,7 +171,6 @@ async function executeBeadsExpandStep(params: {
         validationError,
         rawResponse: response,
         schemaReminder: PROM23.outputFormat,
-        doNotUseTools: false,
       })
     }
   }
@@ -184,7 +184,6 @@ function buildBeadsExpandRetryPrompt(
     validationError: string
     rawResponse: string
     schemaReminder?: string
-    doNotUseTools?: boolean
   },
 ): PromptPart[] {
   const preservedFieldDriftGuidance = options.validationError.includes('changed preserved Part 1 fields or order')
@@ -496,6 +495,7 @@ export async function handleBeadsVote(
       ticketId,
       phase: 'COUNCIL_VOTING_BEADS',
     },
+    PROM21.toolPolicy,
   )
 
   const voteQuorum = checkMemberResponseQuorum(voteRun.memberOutcomes, councilSettings.minQuorum)
@@ -663,6 +663,8 @@ export async function handleBeadsRefine(
         return { normalizedContent: result.normalizedContent }
       },
       PROM22.outputFormat,
+      undefined,
+      PROM22.toolPolicy,
     )
   } catch (error) {
     emitPhaseLog(
