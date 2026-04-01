@@ -421,6 +421,7 @@ describe('PhaseLogPanel', () => {
     const appendReceivedAiLog: LogEntry = {
       ...streamingAiLog,
       timestamp: '2026-03-10T10:00:01.500Z',
+      streaming: false,
       op: 'append',
     }
     const finalizedAiLog: LogEntry = {
@@ -438,6 +439,8 @@ describe('PhaseLogPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
 
     expect(screen.getByText(/Final PRD Title/i)).toBeInTheDocument()
+    expect(screen.getByText('Stream')).toBeInTheDocument()
+    expect(screen.getAllByText(/Final PRD Title/i)).toHaveLength(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'ALL' }))
 
@@ -446,10 +449,14 @@ describe('PhaseLogPanel', () => {
     rerender(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, appendReceivedAiLog]} />)
 
     expect(screen.getByText(/Final PRD Title/i)).toBeInTheDocument()
+    expect(screen.queryByText('Stream')).not.toBeInTheDocument()
+    expect(screen.getAllByText(/Final PRD Title/i)).toHaveLength(1)
 
     rerender(<PhaseLogPanel phase="DRAFTING_PRD" logs={[systemLog, finalizedAiLog]} />)
 
     expect(screen.getByText(/Final PRD Title/i)).toBeInTheDocument()
+    expect(screen.queryByText('Stream')).not.toBeInTheDocument()
+    expect(screen.getAllByText(/Final PRD Title/i)).toHaveLength(1)
   })
 
   it('pins the viewport to the latest logs by default and follows new visible entries', () => {

@@ -238,8 +238,9 @@ export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
         next[existingIndex] = {
           ...existing,
           ...entry,
-          // Keep the AI tab's stream state unchanged until an explicit finalize arrives.
-          streaming: true,
+          // A terminal non-streaming fallback append should stop the UI stream state
+          // even if a later finalize for the same canonical row still arrives.
+          streaming: false,
         }
         return next
       }

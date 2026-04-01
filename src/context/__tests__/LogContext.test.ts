@@ -117,7 +117,7 @@ describe('LogProvider', () => {
 })
 
 describe('mergeEntry', () => {
-  it('preserves fallback append receipts for streaming AI text rows', () => {
+  it('stops streaming when a terminal fallback append arrives for an AI text row', () => {
     const streamingUpsert: LogEntry = {
       id: 'ses-1:msg-1:text',
       entryId: 'ses-1:msg-1:text',
@@ -145,7 +145,7 @@ describe('mergeEntry', () => {
       expect.objectContaining({
         entryId: 'ses-1:msg-1:text',
         op: 'append',
-        streaming: true,
+        streaming: false,
         timestamp: '2026-03-13T10:00:01.000Z',
       }),
     ])
