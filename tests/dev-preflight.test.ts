@@ -6,6 +6,7 @@ import {
   parseProcessTable,
   resolveProcessTreesToTerminate,
 } from '../scripts/dev-preflight-utils'
+import { formatPortOccupantSummary } from '../scripts/port-occupants'
 
 const repoRoot = '/mnt/d/LoopTroop'
 
@@ -45,5 +46,9 @@ describe('dev preflight helpers', () => {
     const resolution = resolveProcessTreesToTerminate(processes, [300], repoRoot)
     expect(resolution.roots).toHaveLength(0)
     expect(resolution.unrelatedOccupants.map((entry) => entry.pid)).toEqual([300])
+    expect(formatPortOccupantSummary({
+      pid: resolution.unrelatedOccupants[0]?.pid,
+      command: resolution.unrelatedOccupants[0]?.args,
+    })).toBe('python (pid 300, cmd: python -m http.server 3000)')
   })
 })

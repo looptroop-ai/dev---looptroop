@@ -112,7 +112,8 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
           <span className="text-muted-foreground/40">{formatTimestamp(entry.timestamp)}</span>
           <button
             onClick={() => {
-              void navigator.clipboard.writeText(entry.line)
+              const textToCopy = entry.timestamp ? `[${entry.timestamp}] ${entry.line}` : entry.line
+              void navigator.clipboard.writeText(textToCopy)
               setCopied(true)
               setTimeout(() => setCopied(false), 2000)
             }}

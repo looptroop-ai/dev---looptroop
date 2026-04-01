@@ -13,6 +13,11 @@ import {
   resolveProcessTreesToTerminate,
   type ProcessInfo,
 } from './dev-preflight-utils'
+import {
+  describePortOccupants,
+  formatPortOccupantSummary,
+  inspectPortOccupants,
+} from './port-occupants'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
@@ -76,26 +81,6 @@ async function ensurePortFree(port: number) {
   })
 }
 
-function getPortOccupantOutput(port: number): string | null {
-  try {
-    return execFileSync('ss', ['-ltnp', `( sport = :${port} )`], { encoding: 'utf8' }).trim()
-  } catch {
-    return null
-  }
-}
-
-function describePortOccupants(port: number) {
-  return getPortOccupantOutput(port) ?? `Port ${port} is in use by another process.`
-}
-
-function listPortOccupantPids(port: number): number[] {
-  const output = getPortOccupantOutput(port)
-  if (!output) return []
-  const matches = output.matchAll(/pid=(\d+)/g)
-  return Array.from(new Set(Array.from(matches, (match) => Number(match[1]))))
-    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
-}
-
 async function terminateProcessTree(root: ProcessInfo, graph = buildProcessGraph(listProcesses())) {
   const processTree = collectProcessTree(root.pid, graph)
   console.log(
@@ -134,23 +119,34 @@ async function reclaimOccupiedPorts(ports: number[]) {
   const protectedPids = collectProtectedPids(process.pid, graph)
 
   const initialRoots = new Map<number, ProcessInfo>()
-  const unresolvedOccupants: Array<{ port: number; process: ProcessInfo }> = []
+  const unresolvedOccupants: Array<{ port: number; summary: string }> = []
 
   for (const port of ports) {
-    const occupantPids = listPortOccupantPids(port)
+    const inspection = inspectPortOccupants(port)
+    const occupantPids = inspection.occupants
+      .map((occupant) => occupant.pid)
+      .filter((pid): pid is number => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
     const resolution = resolveProcessTreesToTerminate(processes, occupantPids, repoRoot)
     for (const root of resolution.roots) {
       if (protectedPids.has(root.pid)) continue
       initialRoots.set(root.pid, root)
     }
     for (const occupant of resolution.unrelatedOccupants) {
-      unresolvedOccupants.push({ port, process: occupant })
+      const knownOccupant = inspection.occupants.find((entry) => entry.pid === occupant.pid)
+      unresolvedOccupants.push({
+        port,
+        summary: formatPortOccupantSummary(
+          knownOccupant ?? { pid: occupant.pid, command: occupant.args },
+        ) ?? formatProcessSummary(occupant),
+      })
     }
   }
 
   if (unresolvedOccupants.length > 0) {
     for (const occupant of unresolvedOccupants) {
-      console.error(`[dev-preflight] Refusing to terminate unrelated occupant on port ${occupant.port}: ${formatProcessSummary(occupant.process)}`)
+      console.error(
+        `[dev-preflight] Refusing to terminate unrelated occupant on port ${occupant.port}: ${occupant.summary}`,
+      )
     }
     return false
   }
@@ -193,7 +189,10 @@ for (const port of [getFrontendPort(), getBackendPort()]) {
   try {
     await ensurePortFree(port)
   } catch (error) {
-    const occupantPids = listPortOccupantPids(port)
+    const inspection = inspectPortOccupants(port)
+    const occupantPids = inspection.occupants
+      .map((occupant) => occupant.pid)
+      .filter((pid): pid is number => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
     const remainingProcesses = listProcesses()
     const resolution = resolveProcessTreesToTerminate(remainingProcesses, occupantPids, repoRoot)
     if (resolution.roots.length > 0) {
@@ -209,9 +208,14 @@ for (const port of [getFrontendPort(), getBackendPort()]) {
     try {
       await ensurePortFree(port)
     } catch (retryError) {
+      const updatedInspection = inspectPortOccupants(port)
       const message = retryError instanceof Error ? retryError.message : String(retryError)
       console.error(`[dev-preflight] Cannot start LoopTroop on port ${port}: ${message}`)
-      console.error(describePortOccupants(port))
+      console.error(`[dev-preflight] ${describePortOccupants(port, updatedInspection)}`)
+      if (verboseLogging && updatedInspection.rawSocketSnapshot) {
+        console.error('[dev-preflight] Listener snapshot:')
+        console.error(updatedInspection.rawSocketSnapshot)
+      }
       if (error instanceof Error && error.message) {
         console.error(`[dev-preflight] Initial check failed with: ${error.message}`)
       }

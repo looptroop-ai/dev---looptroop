@@ -1,10 +1,16 @@
 import net from 'node:net'
+import {
+  appendPortOccupantDetails,
+  inspectPortOccupants,
+  type PortOccupantInspection,
+} from './port-occupants'
 
 const MAX_PORT_SCAN_ATTEMPTS = 50
 
 type ProbeDependencies = {
   canConnect: (hostname: string, port: number) => Promise<boolean>
   canListen: (hostname: string, port: number) => Promise<boolean>
+  inspectPortOccupants: (port: number) => PortOccupantInspection
   isOpenCodeResponding: (url: URL, hostname: string, port: number) => Promise<boolean>
 }
 
@@ -49,6 +55,14 @@ export function getProbeHosts(url: URL) {
 
 function getServeHostname(url: URL) {
   return url.hostname === 'localhost' ? '127.0.0.1' : url.hostname
+}
+
+function withOccupantDetails(
+  message: string,
+  port: number,
+  deps: ProbeDependencies,
+) {
+  return appendPortOccupantDetails(message, deps.inspectPortOccupants(port).occupants)
 }
 
 async function canConnect(hostname: string, port: number) {
@@ -164,6 +178,7 @@ export async function resolveOpenCodeBaseUrl(options: ResolveOptions): Promise<R
   const deps: ProbeDependencies = {
     canConnect: providedDeps?.canConnect ?? canConnect,
     canListen: providedDeps?.canListen ?? canListen,
+    inspectPortOccupants: providedDeps?.inspectPortOccupants ?? inspectPortOccupants,
     isOpenCodeResponding: providedDeps?.isOpenCodeResponding ?? isOpenCodeResponding,
   }
 
@@ -185,7 +200,12 @@ export async function resolveOpenCodeBaseUrl(options: ResolveOptions): Promise<R
 
     if (hasExplicitBaseUrl) {
       throw new Error(
-        `Configured OpenCode URL ${normalizedBaseUrl} is occupied by a non-OpenCode process on ${host}. ` +
+        withOccupantDetails(
+          `Configured OpenCode URL ${normalizedBaseUrl} is occupied by a non-OpenCode process on ${host}.`,
+          port,
+          deps,
+        ) +
+        ' ' +
         'Choose a different LOOPTROOP_OPENCODE_BASE_URL before running `npm run dev`.',
       )
     }
@@ -193,7 +213,11 @@ export async function resolveOpenCodeBaseUrl(options: ResolveOptions): Promise<R
     const fallbackPort = await findAvailablePort(url, port + 1, maxPortScanAttempts, deps)
     if (!fallbackPort) {
       throw new Error(
-        `Default OpenCode port ${port} is occupied by another process on ${host} and no free fallback port was found.`,
+        withOccupantDetails(
+          `Default OpenCode port ${port} is occupied by another process on ${host} and no free fallback port was found.`,
+          port,
+          deps,
+        ),
       )
     }
 
@@ -202,7 +226,11 @@ export async function resolveOpenCodeBaseUrl(options: ResolveOptions): Promise<R
 
     return {
       baseUrl: formatBaseUrl(fallbackUrl),
-      note: `Port ${port} is occupied by another app on ${host}; using ${formatBaseUrl(fallbackUrl)} for OpenCode instead.`,
+      note: withOccupantDetails(
+        `Port ${port} is occupied on ${host}; using ${formatBaseUrl(fallbackUrl)} for OpenCode instead.`,
+        port,
+        deps,
+      ),
       status: 'ready-to-start',
     }
   }
