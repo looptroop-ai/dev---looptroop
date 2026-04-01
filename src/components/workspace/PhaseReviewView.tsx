@@ -60,24 +60,27 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
       </div>
 
       {isDraft ? (
-        <div className="flex-1 min-h-0 px-4 pb-4 overflow-auto">
-          <div className="max-w-lg mx-auto space-y-4">
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-              <Badge variant="outline">
-                P{ticket.priority} — {PRIORITY_LABELS[ticket.priority] ?? 'Normal'}
-              </Badge>
-              <span className="flex items-center gap-1 text-muted-foreground" title={new Date(ticket.createdAt).toLocaleString()}>
-                <CalendarDays className="h-3.5 w-3.5" />
-                Created {new Date(ticket.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-              </span>
-            </div>
-            {ticket.description && (
-              <div className="rounded-md border border-border p-3">
-                <h4 className="text-xs font-medium mb-1">Description</h4>
-                <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{ticket.description}</p>
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="shrink-0 px-4 pb-4">
+            <div className="max-w-lg mx-auto space-y-4">
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <Badge variant="outline">
+                  P{ticket.priority} — {PRIORITY_LABELS[ticket.priority] ?? 'Normal'}
+                </Badge>
+                <span className="flex items-center gap-1 text-muted-foreground" title={new Date(ticket.createdAt).toLocaleString()}>
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Created {new Date(ticket.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                </span>
               </div>
-            )}
+              {ticket.description && (
+                <div className="rounded-md border border-border p-3">
+                  <h4 className="text-xs font-medium mb-1">Description</h4>
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{ticket.description}</p>
+                </div>
+              )}
+            </div>
           </div>
+          <CollapsiblePhaseLogSection phase={phase} ticket={ticket} className="px-4 pb-4" />
         </div>
       ) : (
         <CollapsiblePhaseLogSection phase={phase} ticket={ticket} className="px-4 pb-4" />

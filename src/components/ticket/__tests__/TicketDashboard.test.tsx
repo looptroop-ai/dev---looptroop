@@ -63,7 +63,20 @@ vi.mock('../ResizeHandle', () => ({
 }))
 
 vi.mock('../ActiveWorkspace', () => ({
-  ActiveWorkspace: ({ selectedPhase }: { selectedPhase: string }) => <div data-testid="active-workspace">{selectedPhase}</div>,
+  ActiveWorkspace: ({
+    ticket,
+    selectedPhase,
+  }: {
+    ticket: Ticket
+    selectedPhase: string
+  }) => (
+    <div data-testid="active-workspace">
+      <div>{selectedPhase}</div>
+      {selectedPhase === 'DRAFT' && ticket.status !== 'DRAFT' ? (
+        <button type="button">Log — Backlog</button>
+      ) : null}
+    </div>
+  ),
 }))
 
 vi.mock('../NavigatorPanel', () => ({
@@ -87,6 +100,7 @@ vi.mock('../NavigatorPanel', () => ({
       <div data-testid="navigator-selected">{selectedPhase}</div>
       <div data-testid="navigator-error">{selectedErrorOccurrenceId ?? ''}</div>
       <div data-testid="navigator-context">{contextPhase}</div>
+      <button onClick={() => onSelectPhase('DRAFT')}>Select backlog</button>
       <button onClick={() => onSelectPhase('DRAFTING_PRD')}>Select drafting</button>
       <button onClick={() => onSelectErrorOccurrence('error-1')}>Select error</button>
       {(selectedPhase !== currentStatus || Boolean(selectedErrorOccurrenceId)) && (
@@ -409,6 +423,50 @@ describe('TicketDashboard', () => {
     await waitFor(() => {
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('COUNCIL_DELIBERATING')
       expect(screen.getByTestId('dashboard-header')).toHaveTextContent('COUNCIL_DELIBERATING')
+    })
+  })
+
+  it('lets users reselect backlog after start and keeps the backlog log viewer visible', async () => {
+    const initialTicket = makeTicket({ status: 'DRAFT', id: selectedTicketId })
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        return createJsonResponse(makeTicket({ status: 'SCANNING_RELEVANT_FILES', id: selectedTicketId }))
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('navigator-current')).toHaveTextContent('DRAFT')
+    })
+
+    await act(async () => {
+      simulateSSE('DRAFT', 'SCANNING_RELEVANT_FILES')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('navigator-current')).toHaveTextContent('SCANNING_RELEVANT_FILES')
+      expect(screen.getByTestId('active-workspace')).toHaveTextContent('SCANNING_RELEVANT_FILES')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select backlog' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('navigator-current')).toHaveTextContent('SCANNING_RELEVANT_FILES')
+      expect(screen.getByTestId('navigator-selected')).toHaveTextContent('DRAFT')
+      expect(screen.getByTestId('active-workspace')).toHaveTextContent('DRAFT')
+      expect(screen.getByRole('button', { name: 'Log — Backlog' })).toBeInTheDocument()
     })
   })
 
