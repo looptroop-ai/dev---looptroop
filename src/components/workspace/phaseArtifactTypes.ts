@@ -1045,13 +1045,15 @@ export function buildRefinementDiffEntries(
     const beforeId = change.before?.id
     const key = `${afterId || beforeId || index}:${normalizedType}:${index}`
 
-    const inspiration = change.inspiration
+    const rawInspiration = change.inspiration as any
+    const inspiration = rawInspiration
       ? {
-          memberId: change.inspiration.memberId ?? '',
-          sourceId: change.inspiration.item?.id ?? '',
-          sourceLabel: change.inspiration.item?.label ?? '',
+          memberId: rawInspiration.memberId ?? rawInspiration.alternative_draft ?? rawInspiration.alternativeDraft ?? '',
+          sourceId: typeof rawInspiration.item === 'string' ? '' : (rawInspiration.item?.id ?? ''),
+          sourceLabel: typeof rawInspiration.item === 'string' ? rawInspiration.item : (rawInspiration.item?.label ?? ''),
+          sourceText: typeof rawInspiration.item === 'string' ? rawInspiration.item : (rawInspiration.item?.detail ?? rawInspiration.item?.label ?? ''),
         }
-      : change.inspiration === null ? null : undefined
+      : rawInspiration === null ? null : undefined
     const attributionStatus = normalizeRefinementDiffAttributionStatus(change.attributionStatus)
       ?? (inspiration ? 'inspired' : 'model_unattributed')
 

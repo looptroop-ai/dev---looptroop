@@ -58,14 +58,15 @@ export async function handleCoding(
   writeTicketBeads(ticketId, inProgressBeads)
   updateTicketProgressFromBeads(ticketId, inProgressBeads)
 
-  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
-
-  const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
-  throwIfAborted(signal, ticketId)
   const codingModelId = context.lockedMainImplementer
   if (!codingModelId) {
     throw new Error('No locked main implementer is configured for coding')
   }
+
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
+
+  const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
+  throwIfAborted(signal, ticketId)
   const executionSettings = resolveExecutionRuntimeSettings(context)
   const streamStates = new Map<string, OpenCodeStreamState>()
   const result = await executeBead(
