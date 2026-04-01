@@ -221,25 +221,38 @@ function findSourceCandidateByIdentity(
   candidates: DiffSourceCandidate[],
 ): DiffSourceCandidate | null {
   const memberScopedCandidates = candidates.filter((candidate) =>
-    candidate.itemKind === target.itemKind
-    && (!target.memberId || candidate.memberId === target.memberId),
+    (!target.memberId || candidate.memberId === target.memberId)
   )
 
-  const idMatches = target.id
-    ? uniqueByKey(
-        memberScopedCandidates.filter((candidate) => candidate.id === target.id),
-        (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`,
-      )
-    : []
-  if (idMatches.length === 1) return idMatches[0]!
+  if (target.id) {
+    const exactKindMatches = uniqueByKey(
+      memberScopedCandidates.filter((candidate) => candidate.id === target.id && candidate.itemKind === target.itemKind),
+      (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`
+    )
+    if (exactKindMatches.length === 1) return exactKindMatches[0]!
 
-  const labelMatches = target.label
-    ? uniqueByKey(
-        memberScopedCandidates.filter((candidate) => candidate.label === target.label),
-        (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`,
-      )
-    : []
-  return labelMatches.length === 1 ? labelMatches[0]! : null
+    const idMatches = uniqueByKey(
+      memberScopedCandidates.filter((candidate) => candidate.id === target.id),
+      (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`
+    )
+    if (idMatches.length === 1) return idMatches[0]!
+  }
+
+  if (target.label) {
+    const exactKindMatches = uniqueByKey(
+      memberScopedCandidates.filter((candidate) => candidate.label === target.label && candidate.itemKind === target.itemKind),
+      (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`
+    )
+    if (exactKindMatches.length === 1) return exactKindMatches[0]!
+
+    const labelMatches = uniqueByKey(
+      memberScopedCandidates.filter((candidate) => candidate.label === target.label),
+      (candidate) => `${candidate.memberId}\u241f${candidate.itemKind}\u241f${candidate.id ?? ''}\u241f${candidate.text}`
+    )
+    if (labelMatches.length === 1) return labelMatches[0]!
+  }
+
+  return null
 }
 
 function buildExplicitRefinementInspiration(
