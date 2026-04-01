@@ -280,6 +280,8 @@ type RefinementDiffAttributionStatus = NonNullable<RefinementChange['attribution
 
 export function extractDraftDetail(content: string | null): string {
   if (!content) return ''
+  const beadCount = countBeadsInContent(content)
+  if (beadCount > 0) return `${beadCount} beads`
   const questionMatch = content.match(/(\d+)\s*(?:questions|Q)/i)
   if (questionMatch) return `proposed ${questionMatch[1]} questions`
   const scoreMatch = content.match(/(\d+\.?\d*)\s*\/\s*10/i)
@@ -323,6 +325,30 @@ export function tryParseStructuredContent(content: string | null | undefined): u
       return null
     }
   }
+}
+
+function countBeadsInContent(content: string): number {
+  const parsed = tryParseStructuredContent(content)
+  if (Array.isArray(parsed)) return parsed.length
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray((parsed as { beads?: unknown[] }).beads)) {
+    return (parsed as { beads: unknown[] }).beads.length
+  }
+
+  const trimmed = content.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      return trimmed
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as unknown)
+        .length
+    } catch {
+      // Ignore malformed JSONL and fall back to line-based counting.
+    }
+  }
+
+  return (content.match(/^\s*-\s+id\s*:/gm) ?? []).length
 }
 
 export function extractCanonicalInterviewDetail(content: string | null): string {

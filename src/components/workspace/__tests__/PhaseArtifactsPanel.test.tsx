@@ -1618,6 +1618,47 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText(/Finished/)).toBeInTheDocument()
   })
 
+  it('shows bead counts instead of question counts while live beads drafts are still running', () => {
+    const draftArtifact = makeArtifact({
+      phase: 'DRAFTING_BEADS',
+      artifactType: 'beads_drafts',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildBeadsDocumentContent([
+              { id: 'bead-1', title: 'Validate refinement attribution' },
+              { id: 'bead-2', title: 'Surface retry metadata' },
+            ]),
+          },
+          {
+            memberId: 'openai/gpt-5.1-codex',
+            outcome: 'pending',
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+          'openai/gpt-5.1-codex': 'pending',
+        },
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="DRAFTING_BEADS"
+        isCompleted={false}
+        councilMemberCount={2}
+        councilMemberNames={['openai/gpt-5.2', 'openai/gpt-5.1-codex']}
+        preloadedArtifacts={[draftArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('2 beads')).toBeInTheDocument()
+    expect(screen.getByText('waiting for response')).toBeInTheDocument()
+    expect(screen.queryByText(/proposed \d+ questions/i)).not.toBeInTheDocument()
+  })
+
   it('prefers the canonical interview result in later interview phases when coverage input is available', () => {
     const compiledArtifact = makeArtifact({
       phase: 'COMPILING_INTERVIEW',
