@@ -369,6 +369,36 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
   })
 
+  it('shows system rows with modelId in the matching model tab without changing their color class', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'sys-model-1',
+        entryId: 'sys-model-1',
+        line: '[SYS] OpenCode vote: openai/gpt-5.4 session=ses-1, messages=2, responseChars=622.',
+        source: 'system',
+        status: 'COUNCIL_VOTING_PRD',
+        timestamp: '2026-03-10T10:00:00.000Z',
+        audience: 'all',
+        kind: 'milestone',
+        modelId: 'openai/gpt-5.4',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="COUNCIL_VOTING_PRD" logs={logs} />)
+
+    fireEvent.click(screen.getByTitle('Show models'))
+    fireEvent.click(screen.getByTitle('openai/gpt-5.4'))
+
+    const line = screen.getByText(/OpenCode vote: openai\/gpt-5\.4 session=ses-1/i)
+    const lineContainer = line.closest('.whitespace-pre-wrap') ?? line
+
+    expect(line).toBeInTheDocument()
+    expect(lineContainer).toHaveClass('text-foreground')
+    expect(lineContainer).not.toHaveClass('text-green-500')
+  })
+
   it('shows Drafting PRD part 1 output in ALL once the final response is received', () => {
     const systemLog = makeLog('sys-1', '[SYS] PRD drafting started.', {
       status: 'DRAFTING_PRD',

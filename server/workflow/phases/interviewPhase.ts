@@ -47,6 +47,7 @@ import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { adapter, interviewQASessions, phaseIntermediate, SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE, getOrCreateAbortSignal } from './state'
 import {
   emitPhaseLog,
+  emitModelSystemLog,
   emitAiMilestone,
   emitOpenCodeSessionLogs,
   emitOpenCodeStreamEvent,
@@ -847,12 +848,13 @@ export async function handleInterviewCompile(
     })
     persistUiRefinementDiffArtifact(ticketId, 'COMPILING_INTERVIEW', paths.ticketDir, uiDiffArtifact)
 
-    emitPhaseLog(
+    emitModelSystemLog(
       ticketId,
       context.externalId,
       'COMPILING_INTERVIEW',
       'info',
       `Compiled final interview from winner ${intermediate.winnerId}. Validated ${compiledArtifact.questionCount} normalized questions.`,
+      intermediate.winnerId,
     )
 
     sendEvent({ type: 'READY' })
@@ -896,12 +898,13 @@ export async function handleInterviewQAStart(
 
   const restoredSession = await restoreInterviewQASession(ticketId)
   if (restoredSession) {
-    emitPhaseLog(
+    emitModelSystemLog(
       ticketId,
       context.externalId,
       'WAITING_INTERVIEW_ANSWERS',
       'info',
       `Reattached PROM4 session ${restoredSession.sessionId} for ${restoredSession.winnerId}.`,
+      restoredSession.winnerId,
     )
     return
   }
@@ -957,8 +960,14 @@ export async function handleInterviewQAStart(
     followUpBudgetPercent: interviewSettings.coverageFollowUpBudgetPercent,
   })
 
-  emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
-    `Starting PROM4 interview session with winning model: ${winnerId}`)
+  emitModelSystemLog(
+    ticketId,
+    context.externalId,
+    'WAITING_INTERVIEW_ANSWERS',
+    'info',
+    `Starting PROM4 interview session with winning model: ${winnerId}`,
+    winnerId,
+  )
 
   if (signal.aborted) throw new CancelledError(ticketId)
   const streamState = createOpenCodeStreamState()
@@ -1008,8 +1017,14 @@ export async function handleInterviewQAStart(
   const updatedSnapshot = recordPreparedBatch(baseSnapshot, persistedBatch)
   persistInterviewSession(ticketId, updatedSnapshot)
 
-  emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'info',
-    `PROM4 session started (session=${sessionId}). First batch: ${persistedBatch.questions.length} questions.`)
+  emitModelSystemLog(
+    ticketId,
+    context.externalId,
+    'WAITING_INTERVIEW_ANSWERS',
+    'info',
+    `PROM4 session started (session=${sessionId}). First batch: ${persistedBatch.questions.length} questions.`,
+    winnerId,
+  )
   emitAiMilestone(
     ticketId,
     context.externalId,

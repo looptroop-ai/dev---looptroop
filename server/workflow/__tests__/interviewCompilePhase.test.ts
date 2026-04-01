@@ -24,6 +24,16 @@ import { handleInterviewCompile } from '../phases/interviewPhase'
 
 const repoManager = createTestRepoManager('interview-compile')
 
+function readExecutionLogEntries(ticketId: string) {
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Missing ticket paths for ${ticketId}`)
+  return readFileSync(paths.executionLogPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+}
+
 describe('handleInterviewCompile', () => {
   beforeEach(() => {
     resetTestDb()
@@ -189,6 +199,14 @@ describe('handleInterviewCompile', () => {
     expect(compiledPayload.refinedContent).toContain('Refined winner question?')
     expect(compiledPayload.refinedContent).toContain('Replacement target question?')
     expect('changes' in compiledPayload).toBe(false)
+
+    expect(readExecutionLogEntries(ticket.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message: `Compiled final interview from winner ${TEST.councilMembers[0]}. Validated 2 normalized questions.`,
+        source: 'system',
+        modelId: TEST.councilMembers[0],
+      }),
+    ]))
 
     expect(sendEvent).toHaveBeenCalledWith({ type: 'READY' })
   })

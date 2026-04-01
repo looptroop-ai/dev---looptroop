@@ -92,6 +92,22 @@ export function emitPhaseLog(
   }
 }
 
+export function emitModelSystemLog(
+  ticketId: string,
+  ticketExternalId: string,
+  phase: string,
+  type: LogEventType,
+  content: string,
+  modelId: string,
+  extra?: Record<string, unknown>,
+) {
+  emitPhaseLog(ticketId, ticketExternalId, phase, type, content, {
+    ...(extra ?? {}),
+    source: 'system',
+    modelId,
+  })
+}
+
 /**
  * Emit a debug-level log entry.
  *
@@ -646,13 +662,13 @@ export function emitOpenCodeSessionLogs(
   messages: Message[],
   state?: OpenCodeStreamState,
 ) {
-  emitPhaseLog(
+  emitModelSystemLog(
     ticketId,
     ticketExternalId,
     phase,
     'info',
     `OpenCode ${stage}: ${memberId} session=${sessionId}, messages=${messages.length}, responseChars=${response.length}.`,
-    { source: 'system', modelId: memberId },
+    memberId,
   )
   const { responseText, responseMeta } = analyzeAssistantMessages(messages)
   const latestAssistantMessageId = responseMeta.latestAssistantMessageId

@@ -45,6 +45,7 @@ import {
 import { adapter, phaseResults, interviewQASessions } from './state'
 import {
   emitPhaseLog,
+  emitModelSystemLog,
   emitAiMilestone,
   emitOpenCodeSessionLogs,
   emitOpenCodeStreamEvent,
@@ -643,12 +644,13 @@ async function handlePrdCoverageVerificationLoop(params: {
     })
 
     if (!detectedGaps) {
-      emitPhaseLog(
+      emitModelSystemLog(
         params.ticketId,
         params.context.externalId,
         params.stateLabel,
         'info',
         `Coverage verification passed (winning model: ${params.winnerId}) for PRD Candidate v${currentCandidateVersion}.`,
+        params.winnerId,
       )
       params.sendEvent({ type: 'COVERAGE_CLEAN' })
       return
@@ -656,17 +658,25 @@ async function handlePrdCoverageVerificationLoop(params: {
 
     if (!gapDisposition.shouldLoopBack) {
       const reviewReason = `Coverage gaps detected by winning model ${params.winnerId}, but ${describeCoverageTerminationReason(gapDisposition.terminationReason)}. Routing to approval with unresolved gaps for manual review.`
-      emitPhaseLog(params.ticketId, params.context.externalId, params.stateLabel, 'info', reviewReason)
+      emitModelSystemLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        reviewReason,
+        params.winnerId,
+      )
       params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
       return
     }
 
-    emitPhaseLog(
+    emitModelSystemLog(
       params.ticketId,
       params.context.externalId,
       params.stateLabel,
       'info',
       `Coverage found ${auditResult.envelope.gaps.length} gap(s) in PRD Candidate v${currentCandidateVersion}. Revising candidate before the next audit pass.`,
+      params.winnerId,
     )
 
     params.ticketState.prd = currentCandidateContent
@@ -731,30 +741,33 @@ async function handlePrdCoverageVerificationLoop(params: {
     clearContextCache(params.context.externalId)
 
     if (revisionRun.revision.repairWarnings.length > 0) {
-      emitPhaseLog(
+      emitModelSystemLog(
         params.ticketId,
         params.context.externalId,
         params.stateLabel,
         'info',
         `PRD coverage resolution normalization applied repairs: ${revisionRun.revision.repairWarnings.join(' | ')}`,
+        params.winnerId,
       )
     }
     if ((revisionRun.structuredMeta.autoRetryCount ?? 0) > 0 && revisionRun.structuredMeta.validationError) {
-      emitPhaseLog(
+      emitModelSystemLog(
         params.ticketId,
         params.context.externalId,
         params.stateLabel,
         'info',
         `PRD coverage resolution required ${revisionRun.structuredMeta.autoRetryCount} structured retry attempt(s): ${revisionRun.structuredMeta.validationError}`,
+        params.winnerId,
       )
     }
 
-    emitPhaseLog(
+    emitModelSystemLog(
       params.ticketId,
       params.context.externalId,
       params.stateLabel,
       'info',
       `Revised PRD Candidate v${currentCandidateVersion} into PRD Candidate v${nextCandidateVersion} and saved it to ${prdPath}.`,
+      params.winnerId,
     )
 
     currentCandidateContent = revisionArtifact.refinedContent
@@ -1125,12 +1138,13 @@ export async function handleCoverageVerification(
       return
     }
   }
-  emitPhaseLog(
+  emitModelSystemLog(
     ticketId,
     context.externalId,
     stateLabel,
     'info',
     `Coverage verification started using winning model: ${winnerId} (run ${coverageRunNumber}/${coverageSettings.maxCoveragePasses}).`,
+    winnerId,
   )
 
   // Resolve refinedContent: prefer in-memory, fall back to persisted artifact
@@ -1572,15 +1586,27 @@ export async function handleCoverageVerification(
     }
 
     if (phase === 'interview' && shouldQueueInterviewFollowUps) {
-      emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
-        `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
+      emitModelSystemLog(
+        ticketId,
+        context.externalId,
+        stateLabel,
+        'info',
+        `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`,
+        winnerId,
+      )
       sendEvent({ type: 'GAPS_FOUND' })
       return
     }
 
     if (phase !== 'interview' && gapDisposition.shouldLoopBack) {
-      emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
-        `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`)
+      emitModelSystemLog(
+        ticketId,
+        context.externalId,
+        stateLabel,
+        'info',
+        `Coverage gaps detected by winning model ${winnerId}. Looping back for refinement.`,
+        winnerId,
+      )
       sendEvent({ type: 'GAPS_FOUND' })
       return
     }
@@ -1589,7 +1615,14 @@ export async function handleCoverageVerification(
       ? interviewCoverageResolution?.validationError
         ?? 'Coverage found interview gaps but produced no parseable follow-up questions.'
       : `Coverage gaps detected by winning model ${winnerId}, but ${describeCoverageTerminationReason(gapDisposition.terminationReason)}. Routing to approval with unresolved gaps for manual review.`
-    emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', reviewReason)
+    emitModelSystemLog(
+      ticketId,
+      context.externalId,
+      stateLabel,
+      'info',
+      reviewReason,
+      winnerId,
+    )
     sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
   } else {
     if (phase === 'interview') {
@@ -1606,8 +1639,14 @@ export async function handleCoverageVerification(
       }
     }
 
-    emitPhaseLog(ticketId, context.externalId, stateLabel, 'info',
-      `Coverage verification passed (winning model: ${winnerId}).`)
+    emitModelSystemLog(
+      ticketId,
+      context.externalId,
+      stateLabel,
+      'info',
+      `Coverage verification passed (winning model: ${winnerId}).`,
+      winnerId,
+    )
     sendEvent({ type: 'COVERAGE_CLEAN' })
   }
 }

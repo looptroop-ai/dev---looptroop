@@ -85,6 +85,43 @@ describe('OpenCode log canonicalization', () => {
     expect(getPersistedEntries().some((entry) => entry.entryId === 'ses-1:transcript-summary')).toBe(false)
   })
 
+  it('persists structured model attribution on OpenCode summary rows across stages', () => {
+    const memberId = 'openai/gpt-5-mini'
+    const stages = ['draft', 'vote', 'coverage', 'refine'] as const
+
+    for (const stage of stages) {
+      emitOpenCodeSessionLogs(
+        '1:T-42',
+        'T-42',
+        'COUNCIL_DELIBERATING',
+        memberId,
+        `ses-${stage}`,
+        stage,
+        `${stage} response`,
+        [
+          {
+            id: `msg-${stage}`,
+            role: 'assistant',
+            content: `${stage} response`,
+          },
+        ],
+        createOpenCodeStreamState(),
+      )
+    }
+
+    const summaryEntries = getPersistedEntries().filter((entry) =>
+      typeof entry.message === 'string' && entry.message.startsWith('OpenCode '),
+    )
+
+    expect(summaryEntries).toEqual(expect.arrayContaining(
+      stages.map((stage) => expect.objectContaining({
+        message: `OpenCode ${stage}: ${memberId} session=ses-${stage}, messages=1, responseChars=${`${stage} response`.length}.`,
+        source: 'system',
+        modelId: memberId,
+      })),
+    ))
+  })
+
   it('combines multiple text parts for the same assistant message into one persisted row', () => {
     const state = createOpenCodeStreamState()
 

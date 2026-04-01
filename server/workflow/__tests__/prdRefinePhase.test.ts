@@ -180,7 +180,11 @@ function buildValidRefinementOutput(ticketId: string, options: { omitStoryItemTy
   })
 }
 
-function buildValidCoverageRevisionOutput(ticketId: string, coverageGap: string): string {
+function buildValidCoverageRevisionOutput(
+  ticketId: string,
+  coverageGap: string,
+  options: { affectedItemLabel?: string } = {},
+): string {
   const parsed = jsYaml.load(buildPrdContent(ticketId, {
     epicTitle: 'Prompt hardening and approval safety',
     storyOneTitle: 'Validate PRD refinement and approval exactly',
@@ -206,13 +210,21 @@ function buildValidCoverageRevisionOutput(ticketId: string, coverageGap: string)
         {
           item_type: 'epic',
           id: 'EPIC-1',
-          label: 'Prompt hardening and approval safety',
+          label: options.affectedItemLabel ?? 'Prompt hardening and approval safety',
         },
       ],
     },
   ]
 
   return jsYaml.dump(parsed, { lineWidth: 120, noRefs: true }) as string
+}
+
+function readExecutionLogEntries(logPath: string) {
+  return readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
 describe('handlePrdRefine', () => {
@@ -650,6 +662,76 @@ describe('handlePrdRefine', () => {
     expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')).toContain('Prompt hardening and approval safety')
   })
 
+  it('persists winner-owned PRD coverage SYS logs with model attribution for pass, repair, and retry milestones', async () => {
+    const { ticket, context, paths, winnerId } = setupCoverageTest()
+    const sendEvent = vi.fn()
+    const coverageGap = 'Missing retry-cap approval behavior.'
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-2', projectPath: paths.worktreePath },
+        response: buildPrdContent(ticket.externalId, {
+          epicTitle: 'Prompt hardening and approval safety',
+          storyOneTitle: 'Validate PRD refinement and approval exactly',
+          includeStoryTwo: false,
+          includeStoryThree: true,
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-3', projectPath: paths.worktreePath },
+        response: buildValidCoverageRevisionOutput(ticket.externalId, coverageGap, {
+          affectedItemLabel: 'Outdated epic label',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-4', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
+
+    const entries = readExecutionLogEntries(paths.executionLogPath)
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message: expect.stringContaining(`Coverage verification started using winning model: ${winnerId}`),
+        source: 'system',
+        modelId: winnerId,
+      }),
+      expect.objectContaining({
+        message: expect.stringContaining('PRD coverage resolution required 1 structured retry attempt(s):'),
+        source: 'system',
+        modelId: winnerId,
+      }),
+      expect.objectContaining({
+        message: expect.stringContaining('Canonicalized affected_items label for epic EPIC-1 from "Outdated epic label" to "Prompt hardening and approval safety".'),
+        source: 'system',
+        modelId: winnerId,
+      }),
+      expect.objectContaining({
+        message: `Coverage verification passed (winning model: ${winnerId}) for PRD Candidate v2.`,
+        source: 'system',
+        modelId: winnerId,
+      }),
+    ]))
+  })
+
   it('routes final PRD coverage gaps to approval instead of Beads when the retry cap is reached', async () => {
     const { ticket, paths } = setupCoverageTest()
     const sendEvent = vi.fn()
@@ -676,5 +758,13 @@ describe('handlePrdRefine', () => {
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_LIMIT_REACHED' })
     expect(sendEvent).not.toHaveBeenCalledWith({ type: 'GAPS_FOUND' })
     expect(sendEvent).not.toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+
+    expect(readExecutionLogEntries(paths.executionLogPath)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message: expect.stringContaining(`Coverage gaps detected by winning model ${TEST.councilMembers[0]}, but retry cap reached. Routing to approval with unresolved gaps for manual review.`),
+        source: 'system',
+        modelId: TEST.councilMembers[0],
+      }),
+    ]))
   })
 })
