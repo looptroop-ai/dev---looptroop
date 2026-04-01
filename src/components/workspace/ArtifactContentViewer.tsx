@@ -456,11 +456,11 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
             <Lightbulb className="h-3 w-3 text-amber-500" />
           </span>
         </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs">
+        <TooltipContent side="top" className="max-w-md">
           <div className="space-y-1">
             <div className="font-medium">Inspired by {modelName}</div>
             {displayText && (
-              <div className="text-[11px] opacity-90 leading-snug">
+              <div className="max-h-72 overflow-y-auto pr-1 text-[11px] opacity-90 leading-snug whitespace-pre-wrap break-words">
                 {showSourceIdPrefix && <span className="font-mono">{inspiration.sourceId}: </span>}
                 {displayText}
               </div>

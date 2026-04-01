@@ -1464,6 +1464,19 @@ describe('PhaseArtifactsPanel', () => {
     { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate/i, sourceLabel: 'Expose retry telemetry' },
     { phase: 'REFINING_PRD' as const, buttonName: /PRD Candidate v1/i, sourceLabel: '' },
   ])('shows PRD inspiration tooltip text in $phase', async ({ phase, buttonName, sourceLabel }) => {
+    const sourceText = [
+      'Title: Expose retry telemetry',
+      '',
+      'Acceptance Criteria:',
+      '- Show retry telemetry in the diff tooltip.',
+      '',
+      'Implementation Steps:',
+      '- Implement retry telemetry rendering.',
+      '',
+      'Verification Commands:',
+      '- npm run test',
+    ].join('\n')
+
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
       artifactType: 'prd_refined',
@@ -1494,7 +1507,7 @@ describe('PhaseArtifactsPanel', () => {
               memberId: 'openai/gpt-5-mini',
               sourceId: 'US-8',
               sourceLabel,
-              sourceText: 'Title: Expose retry telemetry',
+              sourceText,
             },
             attributionStatus: 'inspired',
           },
@@ -1515,13 +1528,28 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
-    await expectFirstInspirationTooltip('US-8: Title: Expose retry telemetry')
+    await expectFirstInspirationTooltip(`US-8: ${sourceText}`)
   })
 
   it.each([
     { phase: 'WAITING_BEADS_APPROVAL' as const, buttonName: /Refined Beads/i },
     { phase: 'REFINING_BEADS' as const, buttonName: /Final Blueprint Draft/i },
   ])('shows Beads inspiration tooltip text in $phase', async ({ phase, buttonName }) => {
+    const sourceText = [
+      'Title: Adopt losing-draft telemetry',
+      '',
+      'Description: Surface retry metadata in the diff viewer.',
+      '',
+      'Acceptance Criteria:',
+      '- Validate losing-draft telemetry',
+      '',
+      'Tests:',
+      '- Test losing-draft telemetry',
+      '',
+      'Test Commands:',
+      '- npm run test:server',
+    ].join('\n')
+
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_BEADS',
       artifactType: 'beads_refined',
@@ -1552,7 +1580,7 @@ describe('PhaseArtifactsPanel', () => {
               memberId: 'openai/gpt-5-mini',
               sourceId: 'bead-9',
               sourceLabel: 'Adopt losing-draft telemetry',
-              sourceText: 'Title: Adopt losing-draft telemetry',
+              sourceText,
             },
             attributionStatus: 'inspired',
           },
@@ -1573,7 +1601,7 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
-    await expectFirstInspirationTooltip('bead-9: Title: Adopt losing-draft telemetry')
+    await expectFirstInspirationTooltip(`bead-9: ${sourceText}`)
   })
 
   it('shows beads draft metrics on the council cards during DRAFTING_BEADS', () => {

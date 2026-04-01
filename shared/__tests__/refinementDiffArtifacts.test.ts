@@ -82,8 +82,46 @@ function buildBeadsDocument(beads: Array<{ id: string; title: string; descriptio
   ].join('\n')
 }
 
+function buildExpectedPrdStorySourceText(title: string, acceptanceCriterion = `Review ${title.toLowerCase()}.`): string {
+  return [
+    `Title: ${title}`,
+    '',
+    'Acceptance Criteria:',
+    `- ${acceptanceCriterion}`,
+    '',
+    'Implementation Steps:',
+    `- Implement ${title.toLowerCase()}.`,
+    '',
+    'Verification Commands:',
+    '- npm run test',
+  ].join('\n')
+}
+
+function buildExpectedBeadSourceText(title: string, description = `Deliver ${title.toLowerCase()}.`): string {
+  return [
+    `Title: ${title}`,
+    '',
+    'PRD References:',
+    '- EPIC-1 / US-1',
+    '',
+    `Description: ${description}`,
+    '',
+    'Context Guidance: Keep repairs deterministic.',
+    '',
+    'Acceptance Criteria:',
+    `- Validate ${title.toLowerCase()}`,
+    '',
+    'Tests:',
+    `- Test ${title.toLowerCase()}`,
+    '',
+    'Test Commands:',
+    '- npm run test:server',
+  ].join('\n')
+}
+
 describe.concurrent('refinement diff artifacts', () => {
   it('uses explicit PRD inspiration metadata when changes provide it', () => {
+    const sourceTitle = 'Expose retry telemetry'
     const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildPrdDocument({
@@ -100,7 +138,7 @@ describe.concurrent('refinement diff artifacts', () => {
         content: buildPrdDocument({
           stories: [
             { id: 'US-1', title: 'Validate PRD refinement' },
-            { id: 'US-8', title: 'Expose retry telemetry' },
+            { id: 'US-8', title: sourceTitle },
           ],
         }),
       }],
@@ -129,8 +167,53 @@ describe.concurrent('refinement diff artifacts', () => {
         inspiration: expect.objectContaining({
           memberId: 'openai/gpt-5-mini',
           sourceId: 'US-8',
-          sourceLabel: 'Expose retry telemetry',
-          sourceText: expect.stringContaining('Title: Expose retry telemetry'),
+          sourceLabel: sourceTitle,
+          sourceText: buildExpectedPrdStorySourceText(sourceTitle),
+        }),
+        attributionStatus: 'inspired',
+      }),
+    ])
+  })
+
+  it('falls back to label and detail for explicit PRD inspiration when the source draft item cannot be recovered', () => {
+    const sourceTitle = 'Expose retry telemetry'
+    const sourceDetail = 'Show retry telemetry in the approval diff.'
+    const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
+      winnerId: 'openai/gpt-5.2',
+      winnerDraftContent: buildPrdDocument({
+        stories: [{ id: 'US-1', title: 'Validate PRD refinement' }],
+      }),
+      refinedContent: buildPrdDocument({
+        stories: [
+          { id: 'US-1', title: 'Validate PRD refinement' },
+          { id: 'US-3', title: 'Surface retry metadata' },
+        ],
+      }),
+      changes: [{
+        type: 'added',
+        itemType: 'user_story',
+        before: null,
+        after: { id: 'US-3', label: 'Surface retry metadata' },
+        inspiration: {
+          draftIndex: 0,
+          memberId: 'openai/gpt-5-mini',
+          item: {
+            id: 'US-8',
+            label: sourceTitle,
+            detail: sourceDetail,
+          },
+        },
+        attributionStatus: 'inspired',
+      }],
+    })
+
+    expect(artifact.entries).toEqual([
+      expect.objectContaining({
+        inspiration: expect.objectContaining({
+          memberId: 'openai/gpt-5-mini',
+          sourceId: 'US-8',
+          sourceLabel: sourceTitle,
+          sourceText: `Title: ${sourceTitle}\n\nDetail: ${sourceDetail}`,
         }),
         attributionStatus: 'inspired',
       }),
@@ -255,6 +338,7 @@ describe.concurrent('refinement diff artifacts', () => {
   })
 
   it('uses explicit Beads inspiration metadata when changes provide it', () => {
+    const sourceTitle = 'Adopt losing-draft telemetry'
     const artifact = buildBeadsUiRefinementDiffArtifactFromChanges({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildBeadsDocument([{ id: 'bead-1', title: 'Validate refinement attribution' }]),
@@ -266,7 +350,7 @@ describe.concurrent('refinement diff artifacts', () => {
         memberId: 'openai/gpt-5-mini',
         content: buildBeadsDocument([
           { id: 'bead-1', title: 'Validate refinement attribution' },
-          { id: 'bead-9', title: 'Adopt losing-draft telemetry' },
+          { id: 'bead-9', title: sourceTitle },
         ]),
       }],
       changes: [{
@@ -279,7 +363,7 @@ describe.concurrent('refinement diff artifacts', () => {
           memberId: 'openai/gpt-5-mini',
           item: {
             id: 'bead-9',
-            label: 'Adopt losing-draft telemetry',
+            label: sourceTitle,
           },
         },
         attributionStatus: 'inspired',
@@ -293,8 +377,49 @@ describe.concurrent('refinement diff artifacts', () => {
         inspiration: expect.objectContaining({
           memberId: 'openai/gpt-5-mini',
           sourceId: 'bead-9',
-          sourceLabel: 'Adopt losing-draft telemetry',
-          sourceText: expect.stringContaining('Title: Adopt losing-draft telemetry'),
+          sourceLabel: sourceTitle,
+          sourceText: buildExpectedBeadSourceText(sourceTitle),
+        }),
+        attributionStatus: 'inspired',
+      }),
+    ])
+  })
+
+  it('falls back to label and detail for explicit Beads inspiration when the source draft item cannot be recovered', () => {
+    const sourceTitle = 'Adopt losing-draft telemetry'
+    const sourceDetail = 'Surface refinement retry metadata in the diff viewer.'
+    const artifact = buildBeadsUiRefinementDiffArtifactFromChanges({
+      winnerId: 'openai/gpt-5.2',
+      winnerDraftContent: buildBeadsDocument([{ id: 'bead-1', title: 'Validate refinement attribution' }]),
+      refinedContent: buildBeadsDocument([
+        { id: 'bead-1', title: 'Validate refinement attribution' },
+        { id: 'bead-2', title: 'Surface retry metadata' },
+      ]),
+      changes: [{
+        type: 'added',
+        itemType: 'bead',
+        before: null,
+        after: { id: 'bead-2', label: 'Surface retry metadata' },
+        inspiration: {
+          draftIndex: 0,
+          memberId: 'openai/gpt-5-mini',
+          item: {
+            id: 'bead-9',
+            label: sourceTitle,
+            detail: sourceDetail,
+          },
+        },
+        attributionStatus: 'inspired',
+      }],
+    })
+
+    expect(artifact.entries).toEqual([
+      expect.objectContaining({
+        inspiration: expect.objectContaining({
+          memberId: 'openai/gpt-5-mini',
+          sourceId: 'bead-9',
+          sourceLabel: sourceTitle,
+          sourceText: `Title: ${sourceTitle}\n\nDescription: ${sourceDetail}`,
         }),
         attributionStatus: 'inspired',
       }),

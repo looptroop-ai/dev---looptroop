@@ -257,11 +257,15 @@ function buildExplicitRefinementInspiration(
     sourceCandidates,
   )
 
+  const fallbackSourceText = buildFallbackRefinementSourceText(itemKind, inspiration.item)
+
   return {
     memberId: sourceCandidate?.memberId ?? inspiration.memberId ?? '',
     sourceId: inspiration.item.id,
     sourceLabel: inspiration.item.label,
-    ...(sourceCandidate?.text ? { sourceText: sourceCandidate.text } : {}),
+    ...(sourceCandidate?.text || fallbackSourceText
+      ? { sourceText: sourceCandidate?.text ?? fallbackSourceText }
+      : {}),
   }
 }
 
@@ -288,6 +292,35 @@ function buildFallbackRefinementItemText(
   if (!label) return undefined
   const detail = item?.detail?.trim()
   return detail ? `${label}\n\n${detail}` : label
+}
+
+function buildFallbackRefinementSourceText(
+  itemKind: string,
+  item: { label?: string; detail?: string } | null | undefined,
+): string | undefined {
+  const label = item?.label?.trim()
+  if (!label) return undefined
+
+  const detail = item?.detail?.trim()
+  if (!detail) {
+    return itemKind === 'epic' || itemKind === 'user_story' || itemKind === 'bead'
+      ? `Title: ${label}`
+      : label
+  }
+
+  if (itemKind === 'epic') {
+    return `Title: ${label}\n\nObjective: ${detail}`
+  }
+
+  if (itemKind === 'bead') {
+    return `Title: ${label}\n\nDescription: ${detail}`
+  }
+
+  if (itemKind === 'user_story') {
+    return `Title: ${label}\n\nDetail: ${detail}`
+  }
+
+  return `${label}\n\n${detail}`
 }
 
 function buildBlockIdentityLookup(blocks: DiffCandidateBlock[]): Map<string, DiffCandidateBlock> {
