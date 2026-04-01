@@ -17,7 +17,7 @@ function getByTextContent(text: string) {
   return screen.getByText(hasExactTextContent(text))
 }
 
-async function expectFirstInspirationTooltip(bodyText: string) {
+async function expectFirstInspirationTooltip(bodyText: string | string[]) {
   const trigger = document.querySelector('.lucide-lightbulb')?.parentElement as HTMLElement | null
   expect(trigger).not.toBeNull()
   if (!trigger) throw new Error('Expected inspiration tooltip trigger')
@@ -26,7 +26,9 @@ async function expectFirstInspirationTooltip(bodyText: string) {
   fireEvent.mouseEnter(trigger)
 
   expect((await screen.findAllByText(/Inspired by /i)).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText(hasExactTextContent(bodyText))).length).toBeGreaterThan(0)
+  for (const text of Array.isArray(bodyText) ? bodyText : [bodyText]) {
+    expect((await screen.findAllByText(hasExactTextContent(text))).length).toBeGreaterThan(0)
+  }
 }
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -1461,10 +1463,15 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it.each([
-    { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate/i, sourceLabel: 'Expose retry telemetry' },
-    { phase: 'REFINING_PRD' as const, buttonName: /PRD Candidate v1/i, sourceLabel: '' },
-  ])('shows PRD inspiration tooltip text in $phase', async ({ phase, buttonName, sourceLabel }) => {
-    const sourceText = [
+    { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate/i },
+    { phase: 'REFINING_PRD' as const, buttonName: /PRD Candidate v1/i },
+  ])('shows PRD inspiration tooltip text in $phase', async ({ phase, buttonName }) => {
+    const epicText = [
+      'Title: Refined PRD review',
+      '',
+      'Objective: Make PRD artifacts easy to inspect.',
+    ].join('\n')
+    const storyText = [
       'Title: Expose retry telemetry',
       '',
       'Acceptance Criteria:',
@@ -1506,8 +1513,22 @@ describe('PhaseArtifactsPanel', () => {
             inspiration: {
               memberId: 'openai/gpt-5-mini',
               sourceId: 'US-8',
-              sourceLabel,
-              sourceText,
+              sourceLabel: 'Expose retry telemetry',
+              sourceText: storyText,
+              blocks: [
+                {
+                  kind: 'epic',
+                  id: 'EPIC-1',
+                  label: 'Refined PRD review',
+                  text: epicText,
+                },
+                {
+                  kind: 'user_story',
+                  id: 'US-8',
+                  label: 'Expose retry telemetry',
+                  text: storyText,
+                },
+              ],
             },
             attributionStatus: 'inspired',
           },
@@ -1528,14 +1549,14 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
-    await expectFirstInspirationTooltip(`US-8: ${sourceText}`)
+    await expectFirstInspirationTooltip([epicText, storyText])
   })
 
   it.each([
     { phase: 'WAITING_BEADS_APPROVAL' as const, buttonName: /Refined Beads/i },
     { phase: 'REFINING_BEADS' as const, buttonName: /Final Blueprint Draft/i },
   ])('shows Beads inspiration tooltip text in $phase', async ({ phase, buttonName }) => {
-    const sourceText = [
+    const beadText = [
       'Title: Adopt losing-draft telemetry',
       '',
       'Description: Surface retry metadata in the diff viewer.',
@@ -1548,6 +1569,17 @@ describe('PhaseArtifactsPanel', () => {
       '',
       'Test Commands:',
       '- npm run test:server',
+    ].join('\n')
+    const epicText = [
+      'Title: Refined PRD review',
+      '',
+      'Objective: Make PRD artifacts easy to inspect.',
+    ].join('\n')
+    const storyText = [
+      'Title: Inspect refined PRD sections',
+      '',
+      'Acceptance Criteria:',
+      '- Show epics and user stories in the structured view.',
     ].join('\n')
 
     const refinedArtifact = makeArtifact({
@@ -1580,7 +1612,27 @@ describe('PhaseArtifactsPanel', () => {
               memberId: 'openai/gpt-5-mini',
               sourceId: 'bead-9',
               sourceLabel: 'Adopt losing-draft telemetry',
-              sourceText,
+              sourceText: beadText,
+              blocks: [
+                {
+                  kind: 'bead',
+                  id: 'bead-9',
+                  label: 'Adopt losing-draft telemetry',
+                  text: beadText,
+                },
+                {
+                  kind: 'epic',
+                  id: 'EPIC-1',
+                  label: 'Refined PRD review',
+                  text: epicText,
+                },
+                {
+                  kind: 'user_story',
+                  id: 'US-1',
+                  label: 'Inspect refined PRD sections',
+                  text: storyText,
+                },
+              ],
             },
             attributionStatus: 'inspired',
           },
@@ -1601,7 +1653,67 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
-    await expectFirstInspirationTooltip(`bead-9: ${sourceText}`)
+    await expectFirstInspirationTooltip([beadText, epicText, storyText])
+  })
+
+  it('falls back to a single legacy tooltip block when inspiration blocks are missing', async () => {
+    const sourceText = [
+      'Title: Expose retry telemetry',
+      '',
+      'Acceptance Criteria:',
+      '- Show retry telemetry in the diff tooltip.',
+    ].join('\n')
+
+    const refinedArtifact = makeArtifact({
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify({
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Refined PRD review',
+          storyTitle: 'Inspect refined PRD sections',
+        }),
+      }),
+    })
+
+    const uiDiffArtifact = makeArtifact({
+      phase: 'REFINING_PRD',
+      artifactType: 'ui_refinement_diff:prd',
+      content: JSON.stringify({
+        domain: 'prd',
+        winnerId: 'openai/gpt-5.2',
+        generatedAt: '2026-03-12T11:49:34.000Z',
+        entries: [
+          {
+            key: 'user_story:US-3',
+            changeType: 'added',
+            itemKind: 'user_story',
+            label: 'Surface retry metadata',
+            afterId: 'US-3',
+            afterText: 'Title: Surface retry metadata',
+            inspiration: {
+              memberId: 'openai/gpt-5-mini',
+              sourceId: 'US-8',
+              sourceLabel: 'Expose retry telemetry',
+              sourceText,
+            },
+            attributionStatus: 'inspired',
+          },
+        ],
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="REFINING_PRD"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, uiDiffArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
+
+    await expectFirstInspirationTooltip(sourceText)
   })
 
   it('shows beads draft metrics on the council cards during DRAFTING_BEADS', () => {

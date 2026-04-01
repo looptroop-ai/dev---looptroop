@@ -13,11 +13,19 @@ export type UiRefinementDiffAttributionStatus =
   | InterviewQuestionChangeAttributionStatus
   | RefinementChangeAttributionStatus
 
+export interface UiRefinementDiffInspirationBlock {
+  kind: 'epic' | 'user_story' | 'bead'
+  id?: string
+  label: string
+  text: string
+}
+
 export interface UiRefinementDiffInspiration {
   memberId: string
   sourceId?: string
   sourceLabel: string
   sourceText?: string
+  blocks?: UiRefinementDiffInspirationBlock[]
 }
 
 export interface UiRefinementDiffEntry {
@@ -46,6 +54,7 @@ interface DiffCandidateBlock {
   label: string
   id?: string
   text: string
+  inspirationBlocks?: UiRefinementDiffInspirationBlock[]
 }
 
 interface ParsedPrdUserStory {
@@ -106,6 +115,7 @@ interface DiffSourceCandidate {
   label: string
   id?: string
   text: string
+  blocks?: UiRefinementDiffInspirationBlock[]
 }
 
 const QUESTION_ID_FALLBACK_PREFIX = 'Q'
@@ -189,8 +199,64 @@ function buildSourceCandidates(
       label: block.label,
       id: block.id,
       text: block.text,
+      blocks: block.inspirationBlocks,
     })),
   )
+}
+
+function buildInspirationBlock(
+  kind: UiRefinementDiffInspirationBlock['kind'],
+  label: string,
+  text: string,
+  id?: string,
+): UiRefinementDiffInspirationBlock {
+  return {
+    kind,
+    ...(id ? { id } : {}),
+    label,
+    text,
+  }
+}
+
+function cloneInspirationBlocks(
+  blocks: UiRefinementDiffInspirationBlock[] | undefined,
+): UiRefinementDiffInspirationBlock[] | undefined {
+  return blocks?.length
+    ? blocks.map((block) => ({ ...block }))
+    : undefined
+}
+
+function buildFallbackPrimaryInspirationBlocks(
+  itemKind: string,
+  item: { id?: string; label?: string; detail?: string } | null | undefined,
+  sourceText?: string,
+): UiRefinementDiffInspirationBlock[] | undefined {
+  const normalizedText = sourceText?.trim()
+  const normalizedLabel = item?.label?.trim()
+  if (!normalizedText || !normalizedLabel) return undefined
+
+  if (itemKind === 'epic' || itemKind === 'user_story' || itemKind === 'bead') {
+    return [
+      buildInspirationBlock(
+        itemKind,
+        normalizedLabel,
+        normalizedText,
+        item?.id?.trim() || undefined,
+      ),
+    ]
+  }
+
+  return undefined
+}
+
+function resolveInspirationBlocks(
+  itemKind: string,
+  sourceCandidate: DiffSourceCandidate | null,
+  fallbackItem: { id?: string; label?: string; detail?: string } | null | undefined,
+  fallbackSourceText?: string,
+): UiRefinementDiffInspirationBlock[] | undefined {
+  return cloneInspirationBlocks(sourceCandidate?.blocks)
+    ?? buildFallbackPrimaryInspirationBlocks(itemKind, fallbackItem, fallbackSourceText)
 }
 
 function findDeterministicInspiration(
@@ -208,11 +274,18 @@ function findDeterministicInspiration(
   if (matches.length !== 1) return null
 
   const match = matches[0]!
+  const blocks = resolveInspirationBlocks(
+    target.itemKind,
+    match,
+    { id: match.id, label: match.label },
+    match.text,
+  )
   return {
     memberId: match.memberId,
     ...(match.id ? { sourceId: match.id } : {}),
     sourceLabel: match.label,
     sourceText: match.text,
+    ...(blocks ? { blocks } : {}),
   }
 }
 
@@ -271,6 +344,12 @@ function buildExplicitRefinementInspiration(
   )
 
   const fallbackSourceText = buildFallbackRefinementSourceText(itemKind, inspiration.item)
+  const blocks = resolveInspirationBlocks(
+    itemKind,
+    sourceCandidate,
+    inspiration.item,
+    sourceCandidate?.text ?? fallbackSourceText,
+  )
 
   return {
     memberId: sourceCandidate?.memberId ?? inspiration.memberId ?? '',
@@ -279,6 +358,7 @@ function buildExplicitRefinementInspiration(
     ...(sourceCandidate?.text || fallbackSourceText
       ? { sourceText: sourceCandidate?.text ?? fallbackSourceText }
       : {}),
+    ...(blocks ? { blocks } : {}),
   }
 }
 
@@ -742,12 +822,19 @@ function buildPrdBlocks(content: string): DiffCandidateBlock[] {
         ? renderNamedSection('Implementation Steps', renderList(epic.implementation_steps))
         : '',
     ].filter(Boolean).join('\n\n')
+    const epicInspirationBlock = buildInspirationBlock(
+      'epic',
+      epic.title.trim(),
+      epicText,
+      epic.id,
+    )
     blocks.push({
       key: `epic:${epic.id}`,
       itemKind: 'epic',
       label: epic.title.trim(),
       id: epic.id,
       text: epicText,
+      inspirationBlocks: [epicInspirationBlock],
     })
 
     for (const story of epic.user_stories ?? []) {
@@ -770,6 +857,10 @@ function buildPrdBlocks(content: string): DiffCandidateBlock[] {
         label: story.title.trim(),
         id: story.id,
         text: storyText,
+        inspirationBlocks: [
+          epicInspirationBlock,
+          buildInspirationBlock('user_story', story.title.trim(), storyText, story.id),
+        ],
       })
     }
   }
@@ -921,7 +1012,78 @@ function buildBeadText(bead: ParsedBeadSubset): string {
   ].filter(Boolean).join('\n\n')
 }
 
-function buildBeadBlocks(content: string): DiffCandidateBlock[] {
+function buildPrdReferenceLookup(content: string): Map<string, UiRefinementDiffInspirationBlock> {
+  const lookup = new Map<string, UiRefinementDiffInspirationBlock>()
+  for (const block of buildPrdBlocks(content)) {
+    if (
+      !block.id
+      || !block.inspirationBlocks?.length
+      || (block.itemKind !== 'epic' && block.itemKind !== 'user_story')
+    ) {
+      continue
+    }
+    const primaryBlock = block.inspirationBlocks[block.inspirationBlocks.length - 1]
+    if (!primaryBlock) continue
+    lookup.set(`${block.itemKind}\u241f${block.id}`, primaryBlock)
+  }
+  return lookup
+}
+
+function extractPrdReferenceIds(prdRefs: string[] | undefined): Array<{
+  kind: 'epic' | 'user_story'
+  id: string
+}> {
+  const results: Array<{ kind: 'epic' | 'user_story'; id: string }> = []
+  const seen = new Set<string>()
+
+  for (const reference of normalizeStringArray(prdRefs)) {
+    const matches = reference.match(/\b(?:EPIC|US)-[A-Za-z0-9-]+\b/g) ?? []
+    for (const match of matches) {
+      const kind = match.startsWith('EPIC-') ? 'epic' : 'user_story'
+      const key = `${kind}\u241f${match}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      results.push({ kind, id: match })
+    }
+  }
+
+  return results
+}
+
+function buildBeadInspirationBlocks(
+  bead: ParsedBeadSubset,
+  prdReferenceLookup?: Map<string, UiRefinementDiffInspirationBlock>,
+): UiRefinementDiffInspirationBlock[] {
+  const title = bead.title?.trim()
+  const id = bead.id?.trim()
+  if (!title || !id) return []
+
+  const beadText = buildBeadText(bead)
+  const blocks: UiRefinementDiffInspirationBlock[] = [
+    buildInspirationBlock('bead', title, beadText, id),
+  ]
+
+  if (!prdReferenceLookup || prdReferenceLookup.size === 0) {
+    return blocks
+  }
+
+  const seen = new Set<string>([`bead\u241f${id}`])
+  for (const reference of extractPrdReferenceIds(bead.prdRefs)) {
+    const block = prdReferenceLookup.get(`${reference.kind}\u241f${reference.id}`)
+    if (!block) continue
+    const key = `${block.kind}\u241f${block.id ?? block.label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    blocks.push({ ...block })
+  }
+
+  return blocks
+}
+
+function buildBeadBlocks(
+  content: string,
+  prdReferenceLookup?: Map<string, UiRefinementDiffInspirationBlock>,
+): DiffCandidateBlock[] {
   return parseBeadSubsetContent(content)
     .filter((bead) => bead.id?.trim() && bead.title?.trim())
     .map((bead) => ({
@@ -930,6 +1092,7 @@ function buildBeadBlocks(content: string): DiffCandidateBlock[] {
       label: bead.title!.trim(),
       id: bead.id!.trim(),
       text: buildBeadText(bead),
+      inspirationBlocks: buildBeadInspirationBlocks(bead, prdReferenceLookup),
     }))
 }
 
@@ -938,11 +1101,16 @@ export function buildBeadsUiRefinementDiffArtifact(params: {
   winnerDraftContent: string
   refinedContent: string
   losingDrafts?: Array<{ memberId: string; content: string }>
+  prdContent?: string
   generatedAt?: string
 }): UiRefinementDiffArtifact {
-  const winnerBlocks = buildBeadBlocks(params.winnerDraftContent)
-  const refinedBlocks = buildBeadBlocks(params.refinedContent)
-  const sourceCandidates = buildSourceCandidates(params.losingDrafts ?? [], buildBeadBlocks)
+  const prdReferenceLookup = params.prdContent ? buildPrdReferenceLookup(params.prdContent) : undefined
+  const winnerBlocks = buildBeadBlocks(params.winnerDraftContent, prdReferenceLookup)
+  const refinedBlocks = buildBeadBlocks(params.refinedContent, prdReferenceLookup)
+  const sourceCandidates = buildSourceCandidates(
+    params.losingDrafts ?? [],
+    (content) => buildBeadBlocks(content, prdReferenceLookup),
+  )
 
   return {
     domain: 'beads',
@@ -958,11 +1126,16 @@ export function buildBeadsUiRefinementDiffArtifactFromChanges(params: {
   winnerDraftContent: string
   refinedContent: string
   losingDrafts?: Array<{ memberId: string; content: string }>
+  prdContent?: string
   generatedAt?: string
 }): UiRefinementDiffArtifact {
-  const winnerBlocks = buildBeadBlocks(params.winnerDraftContent)
-  const refinedBlocks = buildBeadBlocks(params.refinedContent)
-  const sourceCandidates = buildSourceCandidates(params.losingDrafts ?? [], buildBeadBlocks)
+  const prdReferenceLookup = params.prdContent ? buildPrdReferenceLookup(params.prdContent) : undefined
+  const winnerBlocks = buildBeadBlocks(params.winnerDraftContent, prdReferenceLookup)
+  const refinedBlocks = buildBeadBlocks(params.refinedContent, prdReferenceLookup)
+  const sourceCandidates = buildSourceCandidates(
+    params.losingDrafts ?? [],
+    (content) => buildBeadBlocks(content, prdReferenceLookup),
+  )
 
   return buildRefinementUiRefinementDiffArtifactFromChanges({
     domain: 'beads',
@@ -985,6 +1158,23 @@ export function parseUiRefinementDiffArtifact(content: string | null | undefined
     if (typeof parsed.winnerId !== 'string') return null
     if (typeof parsed.generatedAt !== 'string') return null
     if (!Array.isArray(parsed.entries)) return null
+
+    const normalizeInspirationBlocks = (value: unknown): UiRefinementDiffInspirationBlock[] | undefined => {
+      if (!Array.isArray(value)) return undefined
+      const blocks = value.flatMap((block) => {
+        if (!isRecord(block)) return []
+        const kind = block.kind
+        if (kind !== 'epic' && kind !== 'user_story' && kind !== 'bead') return []
+        if (typeof block.label !== 'string' || typeof block.text !== 'string') return []
+        return [{
+          kind,
+          label: block.label,
+          text: block.text,
+          ...(typeof block.id === 'string' ? { id: block.id } : {}),
+        } satisfies UiRefinementDiffInspirationBlock]
+      })
+      return blocks.length > 0 ? blocks : undefined
+    }
 
     const entries = parsed.entries
       .filter((entry): entry is Record<string, unknown> => isRecord(entry))
@@ -1011,12 +1201,16 @@ export function parseUiRefinementDiffArtifact(content: string | null | undefined
           return []
         }
         const inspiration = isRecord(entry.inspiration) && typeof entry.inspiration.memberId === 'string' && typeof entry.inspiration.sourceLabel === 'string'
-          ? {
+          ? (() => {
+              const blocks = normalizeInspirationBlocks(entry.inspiration.blocks)
+              return {
               memberId: entry.inspiration.memberId,
               sourceLabel: entry.inspiration.sourceLabel,
               ...(typeof entry.inspiration.sourceId === 'string' ? { sourceId: entry.inspiration.sourceId } : {}),
               ...(typeof entry.inspiration.sourceText === 'string' ? { sourceText: entry.inspiration.sourceText } : {}),
+              ...(blocks ? { blocks } : {}),
             }
+            })()
           : null
 
         return [{

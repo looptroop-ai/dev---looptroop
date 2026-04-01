@@ -441,10 +441,59 @@ function InterviewInspirationTooltip({ inspiration }: { inspiration: Inspiration
   )
 }
 
-function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId: string; sourceId?: string; sourceLabel: string; sourceText?: string } }) {
+function getRefinementInspirationBlockKindLabel(kind: 'epic' | 'user_story' | 'bead'): string {
+  if (kind === 'epic') return 'Epic'
+  if (kind === 'user_story') return 'User Story'
+  return 'Bead'
+}
+
+function inferRefinementInspirationBlockKind(
+  itemKind: string,
+  sourceId?: string,
+): 'epic' | 'user_story' | 'bead' | null {
+  if (itemKind === 'epic' || itemKind === 'user_story' || itemKind === 'bead') {
+    return itemKind
+  }
+  if (sourceId?.startsWith('EPIC-')) return 'epic'
+  if (sourceId?.startsWith('US-')) return 'user_story'
+  return null
+}
+
+function buildRefinementTooltipBlocks(
+  inspiration: NonNullable<RefinementDiffEntry['inspiration']>,
+  itemKind: string,
+): Array<{
+  kind: 'epic' | 'user_story' | 'bead'
+  id?: string
+  label: string
+  text: string
+}> {
+  if (Array.isArray(inspiration.blocks) && inspiration.blocks.length > 0) {
+    return inspiration.blocks
+  }
+
+  const text = inspiration.sourceText?.trim() || inspiration.sourceLabel?.trim() || ''
+  const label = inspiration.sourceLabel?.trim() || inspiration.sourceId?.trim() || ''
+  const kind = inferRefinementInspirationBlockKind(itemKind, inspiration.sourceId)
+  if (!text || !label || !kind) return []
+
+  return [{
+    kind,
+    label,
+    text,
+    ...(inspiration.sourceId ? { id: inspiration.sourceId } : {}),
+  }]
+}
+
+function RefinementInspirationTooltip({
+  inspiration,
+  itemKind,
+}: {
+  inspiration: NonNullable<RefinementDiffEntry['inspiration']>
+  itemKind: string
+}) {
   const modelName = inspiration.memberId ? getModelDisplayName(inspiration.memberId) : 'Unknown model'
-  const displayText = inspiration.sourceText?.trim() || inspiration.sourceLabel?.trim() || ''
-  const showSourceIdPrefix = Boolean(inspiration.sourceId && displayText && displayText !== inspiration.sourceId)
+  const blocks = buildRefinementTooltipBlocks(inspiration, itemKind)
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
@@ -457,12 +506,21 @@ function RefinementInspirationTooltip({ inspiration }: { inspiration: { memberId
           </span>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-md">
-          <div className="space-y-1">
+          <div className="space-y-2">
             <div className="font-medium">Inspired by {modelName}</div>
-            {displayText && (
-              <div className="max-h-72 overflow-y-auto pr-1 text-[11px] opacity-90 leading-snug whitespace-pre-wrap break-words">
-                {showSourceIdPrefix && <span className="font-mono">{inspiration.sourceId}: </span>}
-                {displayText}
+            {blocks.length > 0 && (
+              <div className="max-h-72 overflow-y-auto pr-1 space-y-2">
+                {blocks.map((block) => (
+                  <div key={`${block.kind}:${block.id ?? block.label}`} className="rounded-sm border border-border/60 bg-background/80 px-2 py-1.5">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {getRefinementInspirationBlockKindLabel(block.kind)}
+                      {block.id ? <span className="ml-1 font-mono normal-case tracking-normal">{block.id}</span> : null}
+                    </div>
+                    <div className="text-[11px] opacity-90 leading-snug whitespace-pre-wrap break-words">
+                      {block.text}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -792,7 +850,7 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
                   {diff.changeType === 'modified' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
                 </span>
                 {diff.inspiration
-                  ? <RefinementInspirationTooltip inspiration={diff.inspiration} />
+                  ? <RefinementInspirationTooltip inspiration={diff.inspiration} itemKind={diff.itemKind} />
                   : diff.attributionStatus && diff.attributionStatus !== 'inspired'
                     ? <ChangeAttributionBadge status={diff.attributionStatus} />
                     : null}

@@ -54,6 +54,10 @@ function buildPrdContent(
     storyOneTitle?: string
     includeStoryTwo?: boolean
     includeStoryThree?: boolean
+    storyThreeId?: string
+    storyThreeTitle?: string
+    storyThreeAcceptanceCriterion?: string
+    storyThreeImplementationStep?: string
     changes?: unknown[]
   } = {},
 ): string {
@@ -112,10 +116,10 @@ function buildPrdContent(
               }]),
           ...(options.includeStoryThree
             ? [{
-                id: 'US-3',
-                title: 'Surface retry metadata',
-                acceptance_criteria: ['Structured retry metadata is preserved for review.'],
-                implementation_steps: ['Expose retry metadata in the final artifact.'],
+                id: options.storyThreeId ?? 'US-3',
+                title: options.storyThreeTitle ?? 'Surface retry metadata',
+                acceptance_criteria: [options.storyThreeAcceptanceCriterion ?? 'Structured retry metadata is preserved for review.'],
+                implementation_steps: [options.storyThreeImplementationStep ?? 'Expose retry metadata in the final artifact.'],
                 verification: {
                   required_commands: ['npm run test'],
                 },
@@ -136,6 +140,36 @@ function buildPrdContent(
   }
 
   return jsYaml.dump(document, { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildExpectedPrdEpicText(title: string): string {
+  return [
+    `Title: ${title}`,
+    '',
+    'Objective: Make PRD refinement exact and auditable.',
+    '',
+    'Implementation Steps:',
+    '- Compare the winner draft against the final refined PRD.',
+  ].join('\n')
+}
+
+function buildExpectedPrdStoryText(
+  title: string,
+  acceptanceCriterion: string,
+  implementationStep: string,
+): string {
+  return [
+    `Title: ${title}`,
+    '',
+    'Acceptance Criteria:',
+    `- ${acceptanceCriterion}`,
+    '',
+    'Implementation Steps:',
+    `- ${implementationStep}`,
+    '',
+    'Verification Commands:',
+    '- npm run test',
+  ].join('\n')
 }
 
 function buildValidRefinementOutput(ticketId: string, options: { omitStoryItemType?: boolean } = {}): string {
@@ -257,7 +291,18 @@ describe('handlePrdRefine', () => {
       winnerId,
       drafts: [
         { memberId: winnerId, outcome: 'completed', content: winnerDraftContent, duration: 1 },
-        { memberId: TEST.councilMembers[1], outcome: 'completed', content: buildPrdContent(ticket.externalId, { includeStoryThree: true }), duration: 1 },
+        {
+          memberId: TEST.councilMembers[1],
+          outcome: 'completed',
+          content: buildPrdContent(ticket.externalId, {
+            includeStoryThree: true,
+            storyThreeId: 'US-8',
+            storyThreeTitle: 'Expose retry telemetry',
+            storyThreeAcceptanceCriterion: 'Review expose retry telemetry.',
+            storyThreeImplementationStep: 'Implement expose retry telemetry.',
+          }),
+          duration: 1,
+        },
       ],
       fullAnswers: [
         { memberId: winnerId, outcome: 'completed', content: interviewContent, duration: 1, questionCount: 1 },
@@ -367,6 +412,33 @@ describe('handlePrdRefine', () => {
             sourceLabel: 'Expose retry telemetry',
           }),
           attributionStatus: 'inspired',
+        }),
+      ]),
+    })
+    expect(JSON.parse(uiDiffArtifact!.content)).toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          afterId: 'US-3',
+          inspiration: expect.objectContaining({
+            blocks: [
+              {
+                kind: 'epic',
+                id: 'EPIC-1',
+                label: 'Prompt hardening',
+                text: buildExpectedPrdEpicText('Prompt hardening'),
+              },
+              {
+                kind: 'user_story',
+                id: 'US-8',
+                label: 'Expose retry telemetry',
+                text: buildExpectedPrdStoryText(
+                  'Expose retry telemetry',
+                  'Review expose retry telemetry.',
+                  'Implement expose retry telemetry.',
+                ),
+              },
+            ],
+          }),
         }),
       ]),
     })
@@ -625,6 +697,10 @@ describe('handlePrdRefine', () => {
         attributionStatus?: string
       }>
       gapResolutions?: Array<{ gap?: string; action?: string }>
+      uiRefinementDiff?: {
+        domain?: string
+        entries?: Array<{ changeType?: string; itemKind?: string }>
+      }
     } | undefined
     expect(parsedCoverageRevision).toBeDefined()
     expect(parsedCoverageRevision?.candidateVersion).toBe(2)
@@ -649,6 +725,15 @@ describe('handlePrdRefine', () => {
         action: 'updated_prd',
       }),
     ])
+    expect(parsedCoverageRevision?.uiRefinementDiff).toMatchObject({
+      domain: 'prd',
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          changeType: 'modified',
+          itemKind: 'epic',
+        }),
+      ]),
+    })
 
     const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
     const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {

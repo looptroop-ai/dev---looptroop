@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
@@ -26,6 +26,62 @@ vi.mock('../runOpenCodePrompt', () => ({
 import { handleBeadsRefine } from '../phases/beadsPhase'
 
 const repoManager = createTestRepoManager('beads-refine')
+
+function buildPrdContent() {
+  return [
+    'schema_version: 1',
+    'ticket_id: PROJ-1',
+    'artifact: prd',
+    'status: draft',
+    'source_interview:',
+    '  content_sha256: mock-sha',
+    'product:',
+    '  problem_statement: "Preserve refinement attribution."',
+    '  target_users:',
+    '    - "LoopTroop maintainers"',
+    'scope:',
+    '  in_scope:',
+    '    - "Refinement diff attribution"',
+    '  out_of_scope:',
+    '    - "Workflow changes outside refinement"',
+    'technical_requirements:',
+    '  architecture_constraints:',
+    '    - "Keep attribution deterministic"',
+    '  data_model: []',
+    '  api_contracts: []',
+    '  security_constraints: []',
+    '  performance_constraints: []',
+    '  reliability_constraints: []',
+    '  error_handling_rules: []',
+    '  tooling_assumptions: []',
+    'epics:',
+    '  - id: "EPIC-1"',
+    '    title: "Preserve refinement attribution"',
+    '    objective: "Keep source lineage visible in spec diffs."',
+    '    user_stories:',
+    '      - id: "US-1"',
+    '        title: "Validate refinement attribution"',
+    '        acceptance_criteria:',
+    '          - "Review validate refinement attribution."',
+    '        implementation_steps:',
+    '          - "Implement validate refinement attribution."',
+    '        verification:',
+    '          required_commands:',
+    '            - "npm run test"',
+    '      - id: "US-2"',
+    '        title: "Review PRD drafts"',
+    '        acceptance_criteria:',
+    '          - "Review review prd drafts."',
+    '        implementation_steps:',
+    '          - "Implement review prd drafts."',
+    '        verification:',
+    '          required_commands:',
+    '            - "npm run test"',
+    'approval:',
+    '  approved_by: ""',
+    '  approved_at: ""',
+  ].join('\n')
+}
 
 function buildBeadSubsetContent(options: {
   includeSecondBead?: boolean
@@ -201,6 +257,7 @@ describe('handleBeadsRefine', () => {
       secondBeadTitle: 'Adopt losing-draft telemetry',
     })
     const validOutput = buildValidRefinementOutput()
+    writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
 
     phaseIntermediate.set(`${ticket.id}:beads`, {
       phase: 'beads',
@@ -263,6 +320,32 @@ describe('handleBeadsRefine', () => {
             sourceLabel: 'Adopt losing-draft telemetry',
           }),
           attributionStatus: 'inspired',
+        }),
+      ]),
+    })
+    expect(JSON.parse(uiDiffArtifact!.content)).toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          afterId: 'bead-2',
+          inspiration: expect.objectContaining({
+            blocks: [
+              expect.objectContaining({
+                kind: 'bead',
+                id: 'bead-9',
+                label: 'Adopt losing-draft telemetry',
+              }),
+              expect.objectContaining({
+                kind: 'epic',
+                id: 'EPIC-1',
+                label: 'Preserve refinement attribution',
+              }),
+              expect.objectContaining({
+                kind: 'user_story',
+                id: 'US-2',
+                label: 'Review PRD drafts',
+              }),
+            ],
+          }),
         }),
       ]),
     })

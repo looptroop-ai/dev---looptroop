@@ -696,12 +696,14 @@ export async function handleBeadsRefine(
         winnerDraftContent: winnerDraft.content,
         refinedContent,
         losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+        ...(prd ? { prdContent: prd } : {}),
       })
     : buildBeadsUiRefinementDiffArtifact({
         winnerId: intermediate.winnerId,
         winnerDraftContent: winnerDraft.content,
         refinedContent,
         losingDrafts: losingDrafts.map((draft) => ({ memberId: draft.memberId, content: draft.content })),
+        ...(prd ? { prdContent: prd } : {}),
       })
 
   insertPhaseArtifact(ticketId, {

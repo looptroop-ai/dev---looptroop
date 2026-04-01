@@ -97,12 +97,24 @@ function buildExpectedPrdStorySourceText(title: string, acceptanceCriterion = `R
   ].join('\n')
 }
 
-function buildExpectedBeadSourceText(title: string, description = `Deliver ${title.toLowerCase()}.`): string {
+function buildExpectedPrdEpicSourceText(title = 'Preserve refinement attribution'): string {
+  return [
+    `Title: ${title}`,
+    '',
+    'Objective: Keep source lineage visible in spec diffs.',
+  ].join('\n')
+}
+
+function buildExpectedBeadSourceText(
+  title: string,
+  description = `Deliver ${title.toLowerCase()}.`,
+  prdRefs: string[] = ['EPIC-1 / US-1'],
+): string {
   return [
     `Title: ${title}`,
     '',
     'PRD References:',
-    '- EPIC-1 / US-1',
+    ...prdRefs.map((ref) => `- ${ref}`),
     '',
     `Description: ${description}`,
     '',
@@ -119,9 +131,18 @@ function buildExpectedBeadSourceText(title: string, description = `Deliver ${tit
   ].join('\n')
 }
 
+function expectBlocks(
+  blocks: Array<{ kind: string; id?: string; label: string; text: string }> | undefined,
+  expected: Array<{ kind: string; id?: string; label: string; text: string }>,
+) {
+  expect(blocks).toEqual(expected)
+}
+
 describe.concurrent('refinement diff artifacts', () => {
   it('uses explicit PRD inspiration metadata when changes provide it', () => {
     const sourceTitle = 'Expose retry telemetry'
+    const epicText = buildExpectedPrdEpicSourceText()
+    const storyText = buildExpectedPrdStorySourceText(sourceTitle)
     const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildPrdDocument({
@@ -168,10 +189,14 @@ describe.concurrent('refinement diff artifacts', () => {
           memberId: 'openai/gpt-5-mini',
           sourceId: 'US-8',
           sourceLabel: sourceTitle,
-          sourceText: buildExpectedPrdStorySourceText(sourceTitle),
+          sourceText: storyText,
         }),
         attributionStatus: 'inspired',
       }),
+    ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      { kind: 'epic', id: 'EPIC-1', label: 'Preserve refinement attribution', text: epicText },
+      { kind: 'user_story', id: 'US-8', label: sourceTitle, text: storyText },
     ])
   })
 
@@ -217,6 +242,55 @@ describe.concurrent('refinement diff artifacts', () => {
         }),
         attributionStatus: 'inspired',
       }),
+    ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      {
+        kind: 'user_story',
+        id: 'US-8',
+        label: sourceTitle,
+        text: `Title: ${sourceTitle}\n\nDetail: ${sourceDetail}`,
+      },
+    ])
+  })
+
+  it('uses only the epic block when PRD inspiration points to an epic', () => {
+    const epicTitle = 'Expose retry telemetry platform-wide'
+    const epicText = buildExpectedPrdEpicSourceText(epicTitle)
+    const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
+      winnerId: 'openai/gpt-5.2',
+      winnerDraftContent: buildPrdDocument({
+        stories: [{ id: 'US-1', title: 'Validate PRD refinement' }],
+      }),
+      refinedContent: buildPrdDocument({
+        epicTitle,
+        stories: [{ id: 'US-1', title: 'Validate PRD refinement' }],
+      }),
+      losingDrafts: [{
+        memberId: 'openai/gpt-5-mini',
+        content: buildPrdDocument({
+          epicTitle,
+          stories: [{ id: 'US-8', title: 'Expose retry telemetry' }],
+        }),
+      }],
+      changes: [{
+        type: 'modified',
+        itemType: 'epic',
+        before: { id: 'EPIC-1', label: 'Preserve refinement attribution' },
+        after: { id: 'EPIC-1', label: epicTitle },
+        inspiration: {
+          draftIndex: 0,
+          memberId: 'openai/gpt-5-mini',
+          item: {
+            id: 'EPIC-1',
+            label: epicTitle,
+          },
+        },
+        attributionStatus: 'inspired',
+      }],
+    })
+
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      { kind: 'epic', id: 'EPIC-1', label: epicTitle, text: epicText },
     ])
   })
 
@@ -298,6 +372,8 @@ describe.concurrent('refinement diff artifacts', () => {
       title: 'Surface retry metadata',
       acceptanceCriterion: 'Show structured retry metadata.',
     }
+    const epicText = buildExpectedPrdEpicSourceText()
+    const storyText = buildExpectedPrdStorySourceText(refinedStory.title, refinedStory.acceptanceCriterion)
     const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildPrdDocument({
@@ -331,14 +407,22 @@ describe.concurrent('refinement diff artifacts', () => {
           memberId: 'openai/gpt-5-mini',
           sourceId: 'US-8',
           sourceLabel: refinedStory.title,
+          sourceText: storyText,
         }),
         attributionStatus: 'inspired',
       }),
+    ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      { kind: 'epic', id: 'EPIC-1', label: 'Preserve refinement attribution', text: epicText },
+      { kind: 'user_story', id: 'US-8', label: refinedStory.title, text: storyText },
     ])
   })
 
   it('uses explicit Beads inspiration metadata when changes provide it', () => {
     const sourceTitle = 'Adopt losing-draft telemetry'
+    const beadText = buildExpectedBeadSourceText(sourceTitle)
+    const epicText = buildExpectedPrdEpicSourceText()
+    const storyText = buildExpectedPrdStorySourceText('Review PRD drafts')
     const artifact = buildBeadsUiRefinementDiffArtifactFromChanges({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildBeadsDocument([{ id: 'bead-1', title: 'Validate refinement attribution' }]),
@@ -368,6 +452,9 @@ describe.concurrent('refinement diff artifacts', () => {
         },
         attributionStatus: 'inspired',
       }],
+      prdContent: buildPrdDocument({
+        stories: [{ id: 'US-1', title: 'Review PRD drafts' }],
+      }),
     })
 
     expect(artifact.entries).toEqual([
@@ -378,10 +465,15 @@ describe.concurrent('refinement diff artifacts', () => {
           memberId: 'openai/gpt-5-mini',
           sourceId: 'bead-9',
           sourceLabel: sourceTitle,
-          sourceText: buildExpectedBeadSourceText(sourceTitle),
+          sourceText: beadText,
         }),
         attributionStatus: 'inspired',
       }),
+    ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      { kind: 'bead', id: 'bead-9', label: sourceTitle, text: beadText },
+      { kind: 'epic', id: 'EPIC-1', label: 'Preserve refinement attribution', text: epicText },
+      { kind: 'user_story', id: 'US-1', label: 'Review PRD drafts', text: storyText },
     ])
   })
 
@@ -424,6 +516,14 @@ describe.concurrent('refinement diff artifacts', () => {
         attributionStatus: 'inspired',
       }),
     ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      {
+        kind: 'bead',
+        id: 'bead-9',
+        label: sourceTitle,
+        text: `Title: ${sourceTitle}\n\nDescription: ${sourceDetail}`,
+      },
+    ])
   })
 
   it('keeps exact-match PRD fallback attribution when no explicit changes metadata exists', () => {
@@ -432,6 +532,8 @@ describe.concurrent('refinement diff artifacts', () => {
       title: 'Surface retry metadata',
       acceptanceCriterion: 'Show structured retry metadata.',
     }
+    const epicText = buildExpectedPrdEpicSourceText()
+    const storyText = buildExpectedPrdStorySourceText(refinedStory.title, refinedStory.acceptanceCriterion)
     const artifact = buildPrdUiRefinementDiffArtifact({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildPrdDocument({
@@ -458,13 +560,21 @@ describe.concurrent('refinement diff artifacts', () => {
           memberId: 'openai/gpt-5-mini',
           sourceId: 'US-8',
           sourceLabel: refinedStory.title,
+          sourceText: storyText,
         }),
         attributionStatus: 'inspired',
       }),
     ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      { kind: 'epic', id: 'EPIC-1', label: 'Preserve refinement attribution', text: epicText },
+      { kind: 'user_story', id: 'US-8', label: refinedStory.title, text: storyText },
+    ])
   })
 
   it('keeps exact-match Beads fallback attribution when no explicit changes metadata exists', () => {
+    const beadText = buildExpectedBeadSourceText('Surface retry metadata', 'Deliver surface retry metadata.', ['EPIC-1 / US-1'])
+    const epicText = buildExpectedPrdEpicSourceText()
+    const storyText = buildExpectedPrdStorySourceText('Review PRD drafts')
     const artifact = buildBeadsUiRefinementDiffArtifact({
       winnerId: 'openai/gpt-5.2',
       winnerDraftContent: buildBeadsDocument([{ id: 'bead-1', title: 'Validate refinement attribution' }]),
@@ -479,6 +589,9 @@ describe.concurrent('refinement diff artifacts', () => {
           { id: 'bead-9', title: 'Surface retry metadata' },
         ]),
       }],
+      prdContent: buildPrdDocument({
+        stories: [{ id: 'US-1', title: 'Review PRD drafts' }],
+      }),
     })
 
     expect(artifact.entries).toEqual([
@@ -488,9 +601,15 @@ describe.concurrent('refinement diff artifacts', () => {
           memberId: 'openai/gpt-5-mini',
           sourceId: 'bead-9',
           sourceLabel: 'Surface retry metadata',
+          sourceText: beadText,
         }),
         attributionStatus: 'inspired',
       }),
+    ])
+    expectBlocks(artifact.entries[0]?.inspiration?.blocks, [
+      { kind: 'bead', id: 'bead-9', label: 'Surface retry metadata', text: beadText },
+      { kind: 'epic', id: 'EPIC-1', label: 'Preserve refinement attribution', text: epicText },
+      { kind: 'user_story', id: 'US-1', label: 'Review PRD drafts', text: storyText },
     ])
   })
 })

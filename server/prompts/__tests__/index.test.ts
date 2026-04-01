@@ -104,6 +104,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(refinePrompt).toContain('Return one YAML artifact')
     expect(refinePrompt).toContain('Do not split the refined PRD and change metadata')
     expect(refinePrompt).toContain('Every epic in the final PRD must include at least one fully populated `user_stories` entry')
+    expect(refinePrompt).toContain('Include `inspiration.item.detail` whenever the source item has useful supporting text')
 
     const coverageResolutionPrompt = buildPromptFromTemplate(PROM13b, [])
     expect(coverageResolutionPrompt).toContain('Every epic in the revised PRD must include at least one fully populated `user_stories` entry')
@@ -177,6 +178,7 @@ describe.concurrent('structured prompt hardening', () => {
     const refinePrompt = buildPromptFromTemplate(PROM22, [])
     expect(refinePrompt).toContain('Return one YAML artifact')
     expect(refinePrompt).toContain('Do not split the refined beads and change metadata')
+    expect(refinePrompt).toContain('Include `inspiration.item.detail` whenever the source item has useful supporting text')
   })
 
   it('keeps PROM23 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {

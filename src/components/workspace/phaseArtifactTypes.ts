@@ -217,6 +217,12 @@ export interface RefinementDiffEntry {
     sourceId?: string
     sourceLabel: string
     sourceText?: string
+    blocks?: Array<{
+      kind: 'epic' | 'user_story' | 'bead'
+      id?: string
+      label: string
+      text: string
+    }>
   } | null
   attributionStatus?: RefinementChangeAttributionStatus
 }
@@ -1015,6 +1021,7 @@ export function buildRefinementDiffEntries(
               sourceId: entry.inspiration.sourceId,
               sourceLabel: entry.inspiration.sourceLabel,
               sourceText: entry.inspiration.sourceText,
+              blocks: entry.inspiration.blocks,
             }
           : null,
         attributionStatus: normalizeRefinementDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
@@ -1052,6 +1059,7 @@ export function buildRefinementDiffEntries(
               sourceId: entry.inspiration.sourceId,
               sourceLabel: entry.inspiration.sourceLabel,
               sourceText: entry.inspiration.sourceText,
+              blocks: entry.inspiration.blocks,
             }
           : null,
         attributionStatus: normalizeRefinementDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
