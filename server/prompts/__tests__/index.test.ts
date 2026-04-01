@@ -181,6 +181,18 @@ describe.concurrent('structured prompt hardening', () => {
     expect(refinePrompt).toContain('Include `inspiration.item.detail` whenever the source item has useful supporting text')
   })
 
+  it('keeps PROM21 explicit about randomized anonymous beads voting and strict scorecards', () => {
+    const votePrompt = buildPromptFromTemplate(PROM21, [])
+
+    expect(PROM21.outputFormat).toContain('top-level `draft_scores` mapping keyed by exact draft labels')
+    expect(votePrompt).toContain('Drafts are presented in randomized order per evaluator')
+    expect(votePrompt).toContain('Do not assume the first draft is the baseline or best')
+    expect(votePrompt).toContain('compare each draft against the final PRD')
+    expect(votePrompt).toContain('The top-level key MUST be `draft_scores`')
+    expect(votePrompt).toContain('Each draft entry MUST contain exactly 6 integer fields on single lines')
+    expect(votePrompt).toContain('Do not output prose, explanations, markdown fences')
+  })
+
   it('keeps PROM23 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {
     const expandPrompt = buildPromptFromTemplate(PROM23, [])
 

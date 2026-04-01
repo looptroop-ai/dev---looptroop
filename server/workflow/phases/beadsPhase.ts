@@ -1,5 +1,5 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
-import type { MemberOutcome, Vote } from '../../council/types'
+import type { DraftResult, MemberOutcome, Vote } from '../../council/types'
 import { CancelledError } from '../../council/types'
 import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
@@ -9,13 +9,14 @@ import { expandBeads, hydrateExpandedBeads, validateBeadExpansion } from '../../
 import type { Bead, BeadSubset } from '../../phases/beads/types'
 import { buildMinimalContext, clearContextCache, type TicketState } from '../../opencode/contextBuilder'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
-import { getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
+import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
 import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
 import { buildPromptFromTemplate, PROM21, PROM22, PROM23 } from '../../prompts/index'
 import { VOTING_RUBRIC_BEADS } from '../../council/types'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
+import jsYaml from 'js-yaml'
 import type { RefinementChange } from '@shared/refinementChanges'
 import {
   buildBeadsUiRefinementDiffArtifact,
@@ -901,57 +902,177 @@ export function buildMockBeadSubsets(context: TicketContext): BeadSubset[] {
   ]
 }
 
+function buildMockBeadDraftContent(context: TicketContext, variantIndex = 0): string {
+  const beadSubsets = buildMockBeadSubsets(context)
+  const variantBeads = beadSubsets.map((bead, beadIndex) => (
+    variantIndex > 0 && beadIndex === 0
+      ? {
+          ...bead,
+          title: `${bead.title} (variant ${variantIndex + 1})`,
+          description: `${bead.description} Variant ${variantIndex + 1} keeps the mock output deterministic.`,
+        }
+      : bead
+  ))
+
+  return jsYaml.dump({ beads: variantBeads }, { lineWidth: 120, noRefs: true }) as string
+}
+
+function buildMockBeadDrafts(
+  members: Array<{ modelId: string; name: string }>,
+  context: TicketContext,
+): DraftResult[] {
+  const beadSubsets = buildMockBeadSubsets(context)
+  const draftMetrics = {
+    beadCount: beadSubsets.length,
+    totalTestCount: beadSubsets.reduce((sum, bead) => sum + bead.tests.length, 0),
+    totalAcceptanceCriteriaCount: beadSubsets.reduce((sum, bead) => sum + bead.acceptanceCriteria.length, 0),
+  }
+
+  return members.map((member, index) => ({
+    memberId: member.modelId,
+    content: buildMockBeadDraftContent(context, index),
+    outcome: 'completed',
+    duration: index + 1,
+    draftMetrics,
+  }))
+}
+
+function buildMockBeadVoteResult(
+  members: Array<{ modelId: string; name: string }>,
+  drafts: DraftResult[],
+): {
+  votes: Vote[]
+  voterOutcomes: Record<string, MemberOutcome>
+  presentationOrders: Record<string, { seed: string; order: string[] }>
+} {
+  const winnerId = drafts[0]?.memberId ?? members[0]?.modelId ?? 'mock-model-1'
+  const winnerScorecards = [
+    [19, 19, 18, 18, 19],
+    [18, 19, 19, 18, 18],
+  ]
+  const challengerScorecards = [
+    [16, 15, 15, 16, 15],
+    [15, 16, 15, 15, 16],
+  ]
+
+  const votes: Vote[] = []
+  const voterOutcomes = members.reduce<Record<string, MemberOutcome>>((acc, member) => {
+    acc[member.modelId] = 'completed'
+    return acc
+  }, {})
+  const presentationOrders: Record<string, { seed: string; order: string[] }> = {}
+
+  members.forEach((member, memberIndex) => {
+    const orderedDrafts = memberIndex % 2 === 0 ? drafts : [...drafts].reverse()
+    presentationOrders[member.modelId] = {
+      seed: `mock-seed-beads-${memberIndex + 1}`,
+      order: orderedDrafts.map((draft) => draft.memberId),
+    }
+
+    orderedDrafts.forEach((draft) => {
+      const scoreTemplate = draft.memberId === winnerId
+        ? winnerScorecards[memberIndex % winnerScorecards.length]!
+        : challengerScorecards[memberIndex % challengerScorecards.length]!
+      const scores = VOTING_RUBRIC_BEADS.map((criterion, scoreIndex) => ({
+        category: criterion.category,
+        score: scoreTemplate[scoreIndex] ?? 15,
+        justification: draft.memberId === winnerId
+          ? `Mock voter ${memberIndex + 1} preferred this beads draft on ${criterion.category.toLowerCase()}.`
+          : `Mock voter ${memberIndex + 1} found this beads draft weaker on ${criterion.category.toLowerCase()}.`,
+      }))
+      const totalScore = scores.reduce((sum, score) => sum + score.score, 0)
+      votes.push({
+        voterId: member.modelId,
+        draftId: draft.memberId,
+        scores,
+        totalScore,
+      })
+    })
+  })
+
+  return { votes, voterOutcomes, presentationOrders }
+}
+
+function readMockBeadsWinnerId(ticketId: string, fallbackWinnerId: string): string {
+  const voteArtifact = getLatestPhaseArtifact(ticketId, 'beads_votes')
+  if (!voteArtifact) return fallbackWinnerId
+
+  try {
+    const parsed = JSON.parse(voteArtifact.content) as { winnerId?: unknown }
+    return typeof parsed.winnerId === 'string' ? parsed.winnerId : fallbackWinnerId
+  } catch {
+    return fallbackWinnerId
+  }
+}
+
 export async function handleMockBeadsDraft(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
-  const refinedContent = JSON.stringify(buildMockBeadSubsets(context))
+  const { members } = resolveCouncilMembers(context)
+  const drafts = buildMockBeadDrafts(members, context)
   insertPhaseArtifact(ticketId, {
     phase: 'DRAFTING_BEADS',
     artifactType: 'beads_drafts',
     content: JSON.stringify({
-      drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: refinedContent }],
-      memberOutcomes: { 'mock-model-1': 'completed' },
+      drafts: drafts.map((draft) => ({
+        memberId: draft.memberId,
+        outcome: draft.outcome,
+        ...(draft.content ? { content: draft.content } : {}),
+      })),
+      memberOutcomes: drafts.reduce<Record<string, MemberOutcome>>((acc, draft) => {
+        acc[draft.memberId] = draft.outcome
+        return acc
+      }, {}),
       isFinal: true,
     }),
   })
   persistUiArtifactCompanionArtifact(ticketId, 'DRAFTING_BEADS', 'beads_drafts', {
-    draftDetails: [{ memberId: 'mock-model-1', duration: 1 }],
+    draftDetails: drafts.map((draft) => ({
+      memberId: draft.memberId,
+      ...(typeof draft.duration === 'number' ? { duration: draft.duration } : {}),
+      ...(draft.draftMetrics ? { draftMetrics: draft.draftMetrics } : {}),
+    })),
   })
   emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'info', 'Mock beads drafts ready.')
   sendEvent({ type: 'DRAFTS_READY' })
 }
 
 export async function handleMockBeadsVote(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
+  const { members } = resolveCouncilMembers(context)
+  const drafts = buildMockBeadDrafts(members, context)
+  const voteResult = buildMockBeadVoteResult(members, drafts)
+  const { winnerId, totalScore } = selectWinner(voteResult.votes, members)
   insertPhaseArtifact(ticketId, {
     phase: 'COUNCIL_VOTING_BEADS',
     artifactType: 'beads_votes',
     content: JSON.stringify({
-      winnerId: 'mock-model-1',
+      winnerId,
       isFinal: true,
     }),
   })
   persistUiArtifactCompanionArtifact(ticketId, 'COUNCIL_VOTING_BEADS', 'beads_votes', {
-    totalScore: 1,
-    voterOutcomes: { 'mock-model-1': 'completed' },
-    presentationOrders: {
-      'mock-model-1': {
-        seed: 'mock-seed-beads',
-        order: ['mock-model-1'],
-      },
-    },
-    votes: [],
-    drafts: [{ memberId: 'mock-model-1', outcome: 'completed', content: JSON.stringify(buildMockBeadSubsets(context)) }],
+    votes: voteResult.votes,
+    voterOutcomes: voteResult.voterOutcomes,
+    presentationOrders: voteResult.presentationOrders,
+    totalScore,
+    drafts: drafts.map((draft) => ({
+      memberId: draft.memberId,
+      outcome: draft.outcome,
+      ...(draft.content ? { content: draft.content } : {}),
+    })),
   })
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'info', 'Mock beads winner selected.')
-  sendEvent({ type: 'WINNER_SELECTED', winner: 'mock-model-1' })
+  sendEvent({ type: 'WINNER_SELECTED', winner: winnerId })
 }
 
 export async function handleMockBeadsRefine(ticketId: string, context: TicketContext, sendEvent: (event: TicketEvent) => void) {
   const paths = getTicketPaths(ticketId)
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+  const { members } = resolveCouncilMembers(context)
+  const winnerId = readMockBeadsWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const beadSubsets = buildMockBeadSubsets(context)
   const expandedBeads = expandBeads(beadSubsets)
-  const refinedContent = JSON.stringify(beadSubsets)
+  const refinedContent = buildMockBeadDraftContent(context)
   const uiDiffArtifact = buildBeadsUiRefinementDiffArtifact({
-    winnerId: 'mock-model-1',
+    winnerId,
     winnerDraftContent: refinedContent,
     refinedContent,
   })
@@ -966,7 +1087,7 @@ export async function handleMockBeadsRefine(ticketId: string, context: TicketCon
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
     artifactType: 'beads_winner',
-    content: JSON.stringify({ winnerId: 'mock-model-1' }),
+    content: JSON.stringify({ winnerId }),
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
   writeJsonl(paths.beadsPath, expandedBeads)

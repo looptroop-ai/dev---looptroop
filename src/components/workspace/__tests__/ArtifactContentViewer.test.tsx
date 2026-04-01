@@ -507,6 +507,108 @@ describe('ArtifactContentViewer', () => {
     expect(screen.queryByText(/Something went wrong rendering this content/i)).not.toBeInTheDocument()
   })
 
+  it('renders Voting on Architecture results with shared vote rankings, presentation order, and processing notices', () => {
+    render(
+      <ArtifactContent
+        artifactId="beads-votes"
+        phase="COUNCIL_VOTING_BEADS"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          drafts: [
+            {
+              memberId: 'openai/gpt-5.1-codex',
+              outcome: 'completed',
+              content: buildBeadsDraftContent({
+                title: 'Validate architecture votes',
+              }),
+            },
+            {
+              memberId: 'openai/gpt-5.2',
+              outcome: 'completed',
+              content: buildBeadsDraftContent({
+                title: 'Surface vote ordering',
+              }),
+            },
+          ],
+          votes: [
+            {
+              voterId: 'openai/gpt-5.1-codex',
+              draftId: 'openai/gpt-5.2',
+              totalScore: 92,
+              scores: [
+                { category: 'Coverage of requirements', score: 19, justification: 'Strong coverage' },
+                { category: 'Correctness / feasibility', score: 18, justification: 'Feasible' },
+                { category: 'Testability', score: 19, justification: 'Testable' },
+                { category: 'Minimal complexity / good decomposition', score: 18, justification: 'Well scoped' },
+                { category: 'Risks / edge cases addressed', score: 18, justification: 'Good risk handling' },
+              ],
+            },
+            {
+              voterId: 'openai/gpt-5.2',
+              draftId: 'openai/gpt-5.2',
+              totalScore: 94,
+              scores: [
+                { category: 'Coverage of requirements', score: 19, justification: 'Strong coverage' },
+                { category: 'Correctness / feasibility', score: 19, justification: 'Feasible' },
+                { category: 'Testability', score: 19, justification: 'Testable' },
+                { category: 'Minimal complexity / good decomposition', score: 18, justification: 'Well scoped' },
+                { category: 'Risks / edge cases addressed', score: 19, justification: 'Good risk handling' },
+              ],
+            },
+          ],
+          voterOutcomes: {
+            'openai/gpt-5.1-codex': 'completed',
+            'openai/gpt-5.2': 'completed',
+          },
+          voterDetails: [
+            {
+              voterId: 'openai/gpt-5.1-codex',
+              structuredOutput: {
+                repairApplied: true,
+                repairWarnings: ['Normalized vote scorecard indentation under the wrapper key.'],
+              },
+            },
+            {
+              voterId: 'openai/gpt-5.2',
+              structuredOutput: {
+                repairApplied: false,
+                repairWarnings: [],
+                autoRetryCount: 1,
+                validationError: 'Malformed scorecard',
+              },
+            },
+          ],
+          presentationOrders: {
+            'openai/gpt-5.1-codex': {
+              seed: 'seed-alpha-1234',
+              order: ['openai/gpt-5.1-codex', 'openai/gpt-5.2'],
+            },
+            'openai/gpt-5.2': {
+              seed: 'seed-beta-5678',
+              order: ['openai/gpt-5.2', 'openai/gpt-5.1-codex'],
+            },
+          },
+          totalScore: 186,
+          isFinal: true,
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Voter Status')).toBeInTheDocument()
+    expect(screen.getByText('Rankings')).toBeInTheDocument()
+    expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
+    expect(screen.getAllByText('Presentation Order')).toHaveLength(2)
+    expect(screen.getByText(/seed seed-alp/i)).toBeInTheDocument()
+    expect(screen.getByText(/seed seed-bet/i)).toBeInTheDocument()
+    expect(screen.getByText(hasExactTextContent('Draft 1: gpt-5.1-codex'))).toBeInTheDocument()
+    expect(screen.getByText(hasExactTextContent('Draft 2: gpt-5.2'))).toBeInTheDocument()
+    expect(screen.getAllByText('LoopTroop adjusted this vote scorecard.')).toHaveLength(2)
+  })
+
   it('keeps legacy string bead guidance working for final bead drafts', () => {
     render(
       <ArtifactContent

@@ -770,6 +770,146 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
   })
 
+  it('keeps Voting on Architecture details on the voting results and winning draft views', () => {
+    const voteArtifact = makeArtifact({
+      phase: 'COUNCIL_VOTING_BEADS',
+      artifactType: 'beads_votes',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        isFinal: true,
+      }),
+    })
+
+    const voteCompanionArtifact = makeArtifact({
+      phase: 'COUNCIL_VOTING_BEADS',
+      artifactType: 'ui_artifact_companion:beads_votes',
+      content: JSON.stringify({
+        baseArtifactType: 'beads_votes',
+        generatedAt: '2026-03-30T09:33:08.166Z',
+        payload: {
+          votes: [
+            {
+              voterId: 'openai/gpt-5.1-codex',
+              draftId: 'openai/gpt-5.2',
+              totalScore: 92,
+              scores: [
+                { category: 'Coverage of requirements', score: 19 },
+                { category: 'Correctness / feasibility', score: 18 },
+                { category: 'Testability', score: 19 },
+                { category: 'Minimal complexity / good decomposition', score: 18 },
+                { category: 'Risks / edge cases addressed', score: 18 },
+              ],
+            },
+            {
+              voterId: 'openai/gpt-5.2',
+              draftId: 'openai/gpt-5.2',
+              totalScore: 94,
+              scores: [
+                { category: 'Coverage of requirements', score: 19 },
+                { category: 'Correctness / feasibility', score: 19 },
+                { category: 'Testability', score: 19 },
+                { category: 'Minimal complexity / good decomposition', score: 18 },
+                { category: 'Risks / edge cases addressed', score: 19 },
+              ],
+            },
+          ],
+          voterOutcomes: {
+            'openai/gpt-5.1-codex': 'completed',
+            'openai/gpt-5.2': 'completed',
+          },
+          voterDetails: [
+            {
+              voterId: 'openai/gpt-5.1-codex',
+              structuredOutput: {
+                repairApplied: true,
+                repairWarnings: ['Normalized vote scorecard indentation under the wrapper key.'],
+              },
+            },
+            {
+              voterId: 'openai/gpt-5.2',
+              structuredOutput: {
+                repairApplied: false,
+                repairWarnings: [],
+                autoRetryCount: 1,
+                validationError: 'Malformed scorecard',
+              },
+            },
+          ],
+          presentationOrders: {
+            'openai/gpt-5.1-codex': {
+              seed: 'seed-alpha-1234',
+              order: ['openai/gpt-5.1-codex', 'openai/gpt-5.2'],
+            },
+            'openai/gpt-5.2': {
+              seed: 'seed-beta-5678',
+              order: ['openai/gpt-5.2', 'openai/gpt-5.1-codex'],
+            },
+          },
+          totalScore: 186,
+        },
+      }),
+    })
+
+    const draftArtifact = makeArtifact({
+      phase: 'COUNCIL_VOTING_BEADS',
+      artifactType: 'beads_drafts',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: buildBeadsDocumentContent([
+              { id: 'bead-1', title: 'Validate architecture votes' },
+              { id: 'bead-2', title: 'Surface vote ordering' },
+            ]),
+          },
+          {
+            memberId: 'openai/gpt-5.1-codex',
+            outcome: 'completed',
+            content: buildBeadsDocumentContent([
+              { id: 'bead-3', title: 'Alternative architecture path' },
+            ]),
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.2': 'completed',
+          'openai/gpt-5.1-codex': 'completed',
+        },
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_VOTING_BEADS"
+        isCompleted={false}
+        councilMemberCount={2}
+        councilMemberNames={['openai/gpt-5.1-codex', 'openai/gpt-5.2']}
+        preloadedArtifacts={[voteArtifact, voteCompanionArtifact, draftArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Voting Details/i }))
+    expect(screen.getByText('Voter Status')).toBeInTheDocument()
+    expect(screen.getByText('Rankings')).toBeInTheDocument()
+    expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
+    expect(screen.getAllByText('Presentation Order')).toHaveLength(2)
+    expect(screen.getByText(/seed seed-alp/i)).toBeInTheDocument()
+    expect(screen.getByText(/seed seed-bet/i)).toBeInTheDocument()
+    expect(screen.getAllByText('LoopTroop adjusted this vote scorecard.')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Winning Beads Draft/i }))
+    expect(screen.getByText('2 beads')).toBeInTheDocument()
+    expect(screen.getByText('Validate architecture votes')).toBeInTheDocument()
+    expect(screen.getByText('Surface vote ordering')).toBeInTheDocument()
+  })
+
   it('keeps later PRD review phases on the structured refined PRD viewer', () => {
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',
