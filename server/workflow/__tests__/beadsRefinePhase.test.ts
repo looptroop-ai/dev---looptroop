@@ -565,10 +565,24 @@ describe('handleBeadsRefine', () => {
       payload: {
         structuredOutput: {
           autoRetryCount: number
+          validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            excerpt?: string
+          }>
         }
       }
     }
     expect(companionArtifact.payload.structuredOutput.autoRetryCount).toBe(1)
+    expect(companionArtifact.payload.structuredOutput.validationError).toContain('preserved Part 1 fields')
+    expect(companionArtifact.payload.structuredOutput.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: expect.stringContaining('preserved Part 1 fields'),
+        excerpt: expect.stringContaining('Rewrite the refinement pipeline around a new metadata transport.'),
+      }),
+    ])
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
   })
 })

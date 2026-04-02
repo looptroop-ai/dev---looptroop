@@ -156,6 +156,12 @@ describe('beads voting workflow', () => {
           repairWarnings: string[]
           autoRetryCount: number
           validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            target?: string
+            excerpt?: string
+          }>
         }
       }) => void,
       buildPromptForVoter?: (entry: {
@@ -224,6 +230,14 @@ describe('beads voting workflow', () => {
           repairWarnings: ['Normalized beads vote scorecard indentation.'],
           autoRetryCount: 1,
           validationError: 'Vote scorecard output required a structured retry',
+          retryDiagnostics: [
+            {
+              attempt: 1,
+              validationError: 'Vote scorecard output required a structured retry',
+              target: 'Draft 2',
+              excerpt: 'Draft 2: score: pending',
+            },
+          ],
         },
       })
       const liveVoteCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:beads_votes', 'COUNCIL_VOTING_BEADS')
@@ -238,6 +252,12 @@ describe('beads voting workflow', () => {
             repairWarnings?: string[]
             autoRetryCount?: number
             validationError?: string
+            retryDiagnostics?: Array<{
+              attempt?: number
+              validationError?: string
+              target?: string
+              excerpt?: string
+            }>
           }
         }>
       } | undefined
@@ -251,6 +271,14 @@ describe('beads voting workflow', () => {
         autoRetryCount: 1,
         validationError: 'Vote scorecard output required a structured retry',
       })
+      expect(liveVoteCompanion?.voterDetails?.[0]?.structuredOutput?.retryDiagnostics).toEqual([
+        expect.objectContaining({
+          attempt: 1,
+          validationError: 'Vote scorecard output required a structured retry',
+          target: 'Draft 2',
+          excerpt: 'Draft 2: score: pending',
+        }),
+      ])
 
       onVoteProgress?.({
         memberId: TEST.councilMembers[1],
@@ -288,6 +316,14 @@ describe('beads voting workflow', () => {
               repairWarnings: ['Normalized beads vote scorecard indentation.'],
               autoRetryCount: 1,
               validationError: 'Vote scorecard output required a structured retry',
+              retryDiagnostics: [
+                {
+                  attempt: 1,
+                  validationError: 'Vote scorecard output required a structured retry',
+                  target: 'Draft 2',
+                  excerpt: 'Draft 2: score: pending',
+                },
+              ],
             },
           },
           {
@@ -322,6 +358,12 @@ describe('beads voting workflow', () => {
           repairWarnings?: string[]
           autoRetryCount?: number
           validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            target?: string
+            excerpt?: string
+          }>
         }
       }>
       drafts?: Array<{ memberId?: string; outcome?: string; content?: string }>
@@ -349,6 +391,14 @@ describe('beads voting workflow', () => {
       autoRetryCount: 1,
       validationError: 'Vote scorecard output required a structured retry',
     })
+    expect(voteCompanion?.voterDetails?.[0]?.structuredOutput?.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'Vote scorecard output required a structured retry',
+        target: 'Draft 2',
+        excerpt: 'Draft 2: score: pending',
+      }),
+    ])
     expect(voteCompanion?.winnerId).toBe(TEST.councilMembers[0])
     expect(voteCompanion?.totalScore).toBe(184)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: TEST.councilMembers[0] })

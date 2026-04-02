@@ -1060,6 +1060,55 @@ describe('ArtifactContentViewer', () => {
     ])
   })
 
+  it('shows retry diagnostics with the failing excerpt in the expanded warning notice', () => {
+    render(
+      <ArtifactContent
+        artifactId="relevant-files-scan"
+        content={JSON.stringify({
+          fileCount: 1,
+          files: [
+            {
+              path: 'src/app.ts',
+              rationale: 'Entry point',
+              relevance: 'high',
+              likely_action: 'modify',
+              contentPreview: 'export const app = true',
+              contentLength: 24,
+            },
+          ],
+          structuredOutput: {
+            repairApplied: false,
+            repairWarnings: [],
+            autoRetryCount: 1,
+            validationError: 'Relevant files output was empty.',
+            retryDiagnostics: [
+              {
+                attempt: 1,
+                validationError: 'Relevant files output was empty.',
+                target: 'files',
+                line: 4,
+                column: 3,
+                excerpt: '  4 | files:\n  5 |   - path: src/app.ts',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    const noticeButton = screen.getByText('LoopTroop adjusted this relevant files scan.').closest('button')
+    expect(noticeButton).toBeInTheDocument()
+    expect(screen.queryByText(/Retry Attempts/i)).not.toBeInTheDocument()
+
+    fireEvent.click(noticeButton!)
+
+    expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
+    expect(screen.getByText('Attempt 1')).toBeInTheDocument()
+    expect(screen.getAllByText('Relevant files output was empty.').length).toBeGreaterThan(0)
+    expect(screen.getByText(/files · line 4, column 3/i)).toBeInTheDocument()
+    expect(screen.getByText(/4 \| files:/i)).toBeInTheDocument()
+  })
+
   it('falls back to generic parser wording for unknown warnings', () => {
     const copy = buildArtifactProcessingNoticeCopy({
       repairApplied: true,
@@ -1381,6 +1430,14 @@ describe('ArtifactContentViewer', () => {
                 repairWarnings: [],
                 autoRetryCount: 1,
                 validationError: 'Malformed scorecard',
+                retryDiagnostics: [
+                  {
+                    attempt: 1,
+                    validationError: 'Malformed scorecard',
+                    target: 'Draft 2',
+                    excerpt: 'Draft 2: score: pending',
+                  },
+                ],
               },
             },
           ],
@@ -1393,8 +1450,15 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
     expect(screen.getByText('Retried 1')).toBeInTheDocument()
 
+    openNotice('LoopTroop adjusted some vote scorecards.')
+    expect(screen.queryByText(/Retry Attempts/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Draft 2: score: pending')).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
     expect(screen.getAllByText('LoopTroop adjusted this vote scorecard.')).toHaveLength(2)
+    fireEvent.click(screen.getAllByText('LoopTroop adjusted this vote scorecard.')[1]!.closest('button')!)
+    expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
+    expect(screen.getByText('Draft 2: score: pending')).toBeInTheDocument()
   })
 
   it('shows a collapsed parser notice for final test results', () => {

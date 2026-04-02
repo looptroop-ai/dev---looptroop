@@ -62,6 +62,13 @@ describe.concurrent('generateFinalTests', () => {
       autoRetryCount: 1,
       validationError: 'No final test command marker found',
     })
+    expect(result.structuredOutput.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'No final test command marker found',
+        excerpt: expect.stringContaining('I added tests to cover the whole ticket.'),
+      }),
+    ])
     expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'parser_fix')).toBe(true)
     expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'retry')).toBe(true)
 
@@ -103,6 +110,13 @@ describe.concurrent('generateFinalTests', () => {
       autoRetryCount: 1,
       validationError: 'No final test command marker found',
     })
+    expect(result.structuredOutput.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'No final test command marker found',
+        excerpt: '[empty response]',
+      }),
+    ])
     expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'retry')).toBe(true)
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)

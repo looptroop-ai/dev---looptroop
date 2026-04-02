@@ -12,6 +12,7 @@ import type {
   InterviewQuestionOption,
   InterviewQuestionSource,
 } from '@shared/interviewSession'
+import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
 import type { StructuredOutputResult } from './types'
 import {
   buildYamlDocument,
@@ -29,6 +30,7 @@ import {
   toStringArray,
   unwrapExplicitWrapperRecord,
 } from './yamlUtils'
+import { buildStructuredOutputFailure } from './failure'
 
 const INTERVIEW_DOCUMENT_NESTED_MAPPING_CHILDREN = {
   generated_by: ['winner_model', 'generated_at', 'canonicalization'],
@@ -412,6 +414,8 @@ export function normalizeInterviewDocumentOutput(
     topLevelHints: ['schema_version', 'ticket_id', 'artifact', 'questions'],
   })
   let lastError = 'No interview document content found'
+  let lastErrorCause: unknown = null
+  let lastRetryDiagnostic: StructuredRetryDiagnostic | undefined
 
   for (const candidate of candidates) {
     try {
@@ -516,15 +520,14 @@ export function normalizeInterviewDocumentOutput(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: lastError,
-    repairApplied: false,
-    repairWarnings: [],
-  }
+  return buildStructuredOutputFailure(rawContent, lastError, {
+    cause: lastErrorCause,
+    retryDiagnostic: lastRetryDiagnostic,
+  })
 }
 
 export function normalizeResolvedInterviewDocumentOutput(
@@ -539,18 +542,19 @@ export function normalizeResolvedInterviewDocumentOutput(
     ticketId: options.ticketId,
   })
   if (!canonicalResult.ok) {
-    return {
-      ok: false,
-      error: `Canonical interview artifact is invalid: ${canonicalResult.error}`,
-      repairApplied: false,
-      repairWarnings: [],
-    }
+    return buildStructuredOutputFailure(
+      options.canonicalInterviewContent,
+      `Canonical interview artifact is invalid: ${canonicalResult.error}`,
+      { retryDiagnostic: canonicalResult.retryDiagnostic },
+    )
   }
 
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['schema_version', 'ticket_id', 'artifact', 'questions'],
   })
   let lastError = 'No resolved interview document content found'
+  let lastErrorCause: unknown = null
+  let lastRetryDiagnostic: StructuredRetryDiagnostic | undefined
 
   for (const candidateContent of candidates) {
     const candidateResult = normalizeInterviewDocumentOutput(candidateContent, {
@@ -559,6 +563,8 @@ export function normalizeResolvedInterviewDocumentOutput(
     })
     if (!candidateResult.ok) {
       lastError = candidateResult.error
+      lastErrorCause = candidateResult.retryDiagnostic
+      lastRetryDiagnostic = candidateResult.retryDiagnostic
       continue
     }
 
@@ -711,15 +717,14 @@ export function normalizeResolvedInterviewDocumentOutput(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: lastError,
-    repairApplied: false,
-    repairWarnings: [],
-  }
+  return buildStructuredOutputFailure(rawContent, lastError, {
+    cause: lastErrorCause,
+    retryDiagnostic: lastRetryDiagnostic,
+  })
 }
 
 export function toDraftInterviewDocument(document: InterviewDocument): InterviewDocument {

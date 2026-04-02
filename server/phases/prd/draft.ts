@@ -21,6 +21,7 @@ import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { validatePrdDraft, validateResolvedInterview } from './validation'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import jsYaml from 'js-yaml'
+import { resolveStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 
 interface StepValidationResult {
   questionCount?: number
@@ -181,12 +182,14 @@ function buildStructuredOutput(
   lastValidationError: string | undefined,
   attemptCount: number,
   failureClass?: DraftStructuredOutputMeta['failureClass'],
+  retryDiagnostics?: DraftStructuredOutputMeta['retryDiagnostics'],
 ): DraftStructuredOutputMeta {
   return {
     repairApplied: validation?.repairApplied ?? false,
     repairWarnings: validation?.repairWarnings ?? [],
     autoRetryCount: attemptCount,
     ...(lastValidationError ? { validationError: lastValidationError } : {}),
+    ...(retryDiagnostics && retryDiagnostics.length > 0 ? { retryDiagnostics } : {}),
     ...(failureClass ? { failureClass } : {}),
   }
 }
@@ -294,6 +297,7 @@ async function executeStructuredStep(
   let validation: StepValidationResult | undefined
   let lastValidationError: string | undefined
   let rawResponse = ''
+  const retryDiagnostics: NonNullable<DraftStructuredOutputMeta['retryDiagnostics']> = []
   const sessionManager = options.ticketId ? new SessionManager(adapter) : null
 
   const sessionOwnership = options.ticketId
@@ -392,7 +396,7 @@ async function executeStructuredStep(
         content: validation.normalizedContent ?? rawResponse,
         questionCount: validation.questionCount,
         draftMetrics: validation.draftMetrics,
-        structuredOutput: buildStructuredOutput(validation, lastValidationError, attemptCount),
+        structuredOutput: buildStructuredOutput(validation, lastValidationError, attemptCount, undefined, retryDiagnostics),
       }
     } catch (error) {
       lastValidationError = error instanceof Error ? error.message : String(error)
@@ -406,11 +410,18 @@ async function executeStructuredStep(
             useStructuredRetryPrompt: false,
           }
         : baseRetryDecision
+      retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+        attempt: attemptCount + 1,
+        rawResponse,
+        validationError: lastValidationError,
+        failureClass: retryDecision.failureClass,
+        error,
+      }))
       if (attemptCount >= 1) {
         throw new StructuredStepError(
           lastValidationError,
           rawResponse,
-          buildStructuredOutput(validation, lastValidationError, attemptCount, retryDecision.failureClass),
+          buildStructuredOutput(validation, lastValidationError, attemptCount, retryDecision.failureClass, retryDiagnostics),
           validation?.questionCount,
           validation?.draftMetrics,
         )

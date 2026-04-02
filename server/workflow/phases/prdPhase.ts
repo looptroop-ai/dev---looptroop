@@ -51,6 +51,8 @@ import {
 import type { OpenCodeStreamState } from './types'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
+import { withStructuredRetryDiagnosticAttempt } from '@shared/structuredRetryDiagnostics'
+import { getStructuredRetryDiagnosticFromError } from '../../lib/structuredRetryDiagnostics'
 
 function requireCanonicalInterviewForPrdDraft(ticketDir: string, ticketExternalId: string): string {
   const interviewPath = resolve(ticketDir, 'interview.yaml')
@@ -840,9 +842,14 @@ export async function handlePrdRefine(
         return { normalizedContent: result.refinedContent }
       } catch (error) {
         const validationError = error instanceof Error ? error.message : String(error)
+        const retryDiagnostic = withStructuredRetryDiagnosticAttempt(
+          getStructuredRetryDiagnosticFromError(error),
+          (structuredMeta.autoRetryCount ?? 0) + 1,
+        )
         structuredMeta = buildStructuredMetadata(structuredMeta, {
           autoRetryCount: Math.max(structuredMeta.autoRetryCount ?? 0, 1),
           validationError,
+          ...(retryDiagnostic ? { retryDiagnostics: [retryDiagnostic] } : {}),
         })
         throw error
       }

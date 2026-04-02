@@ -1,5 +1,6 @@
 import type { BeadChecks } from '../phases/execution/completionSchema'
 import type { StructuredIntervention } from '@shared/structuredInterventions'
+import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
 
 export interface StructuredOutputSuccess<T> {
   ok: true
@@ -14,6 +15,7 @@ export interface StructuredOutputFailure {
   error: string
   repairApplied: boolean
   repairWarnings: string[]
+  retryDiagnostic?: StructuredRetryDiagnostic
 }
 
 export type StructuredOutputResult<T> = StructuredOutputSuccess<T> | StructuredOutputFailure
@@ -23,6 +25,7 @@ export interface StructuredOutputMetadata {
   repairWarnings: string[]
   autoRetryCount: number
   validationError?: string
+  retryDiagnostics?: StructuredRetryDiagnostic[]
   interventions?: StructuredIntervention[]
 }
 

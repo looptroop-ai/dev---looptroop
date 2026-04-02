@@ -104,6 +104,55 @@ describe.concurrent('structured output metadata helpers', () => {
     ])
   })
 
+  it('normalizes and deduplicates retry diagnostics across merges', () => {
+    const once = buildStructuredOutputMetadata(
+      {
+        autoRetryCount: 1,
+        retryDiagnostics: [
+          {
+            attempt: 1,
+            validationError: 'Coverage output missing valid status',
+            target: 'status',
+            excerpt: '  1 | status:',
+          },
+        ],
+      },
+      {
+        retryDiagnostics: [
+          {
+            attempt: 1,
+            validationError: 'Coverage output missing valid status',
+            target: 'status',
+            excerpt: '  1 | status:',
+          },
+          {
+            attempt: 2,
+            validationError: 'Coverage output missing valid status',
+            line: 3,
+            column: 1,
+            excerpt: '  3 | gaps:',
+          },
+        ],
+      },
+    )
+
+    expect(once.retryDiagnostics).toEqual([
+      {
+        attempt: 1,
+        validationError: 'Coverage output missing valid status',
+        target: 'status',
+        excerpt: '  1 | status:',
+      },
+      {
+        attempt: 2,
+        validationError: 'Coverage output missing valid status',
+        line: 3,
+        column: 1,
+        excerpt: '  3 | gaps:',
+      },
+    ])
+  })
+
   it('hydrates fallback rule and exact details for legacy interventions with technicalDetail only', () => {
     const metadata = normalizeStructuredOutputMetadata({
       repairApplied: true,

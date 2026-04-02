@@ -3,6 +3,10 @@ import {
   mergeStructuredInterventions,
   normalizeStructuredInterventions,
 } from '@shared/structuredInterventions'
+import {
+  mergeStructuredRetryDiagnostics,
+  normalizeStructuredRetryDiagnostics,
+} from '@shared/structuredRetryDiagnostics'
 import type { StructuredOutputMetadata } from './types'
 import { isRecord } from './yamlUtils'
 
@@ -33,6 +37,7 @@ export function normalizeStructuredOutputMetadata(value: unknown): StructuredOut
   const validationError = typeof value.validationError === 'string' && value.validationError.trim()
     ? value.validationError
     : undefined
+  const retryDiagnostics = normalizeStructuredRetryDiagnostics(value.retryDiagnostics)
   const interventions = normalizeStructuredInterventions(value.interventions)
 
   return {
@@ -40,6 +45,7 @@ export function normalizeStructuredOutputMetadata(value: unknown): StructuredOut
     repairWarnings,
     autoRetryCount,
     ...(validationError ? { validationError } : {}),
+    ...(retryDiagnostics.length > 0 ? { retryDiagnostics } : {}),
     ...(interventions.length > 0 ? { interventions } : {}),
   }
 }
@@ -60,6 +66,9 @@ export function buildStructuredOutputMetadata(
       : base?.validationError
         ? { validationError: base.validationError }
         : {}),
+    ...(mergeStructuredRetryDiagnostics(base?.retryDiagnostics, extra?.retryDiagnostics).length > 0
+      ? { retryDiagnostics: mergeStructuredRetryDiagnostics(base?.retryDiagnostics, extra?.retryDiagnostics) }
+      : {}),
   }
 
   const interventions = mergeStructuredInterventions(

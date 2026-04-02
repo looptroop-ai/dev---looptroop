@@ -43,6 +43,7 @@ import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 import { PROFILE_DEFAULTS } from '../../db/defaults'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
+import { withStructuredRetryDiagnosticAttempt } from '@shared/structuredRetryDiagnostics'
 
 import { adapter, interviewQASessions, phaseIntermediate, SKIP_ALL_INTERVIEW_COVERAGE_RESPONSE, getOrCreateAbortSignal } from './state'
 import {
@@ -784,6 +785,9 @@ export async function handleInterviewCompile(
         structuredMeta = buildStructuredMetadata(structuredMeta, {
           autoRetryCount: 1,
           validationError: result.error,
+          ...(result.retryDiagnostic
+            ? { retryDiagnostics: [withStructuredRetryDiagnosticAttempt(result.retryDiagnostic, (structuredMeta.autoRetryCount ?? 0) + 1)!] }
+            : {}),
         })
         throw new Error(result.error)
       }

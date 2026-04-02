@@ -158,6 +158,14 @@ describe('handleBeadsDraft', () => {
               repairWarnings: ['Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.'],
               autoRetryCount: 1,
               validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
+              retryDiagnostics: [
+                {
+                  attempt: 1,
+                  validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
+                  target: 'index 0',
+                  excerpt: '1 | beads:',
+                },
+              ],
             },
           },
           {
@@ -239,6 +247,12 @@ describe('handleBeadsDraft', () => {
           repairWarnings?: string[]
           autoRetryCount?: number
           validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            target?: string
+            excerpt?: string
+          }>
         }
       }>
     } | undefined
@@ -255,6 +269,14 @@ describe('handleBeadsDraft', () => {
       validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
     })
     expect(companionPayload?.draftDetails?.[0]?.structuredOutput?.repairWarnings).toContain('Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.')
+    expect(companionPayload?.draftDetails?.[0]?.structuredOutput?.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
+        target: 'index 0',
+        excerpt: '1 | beads:',
+      }),
+    ])
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
     expect(phaseIntermediate.get(`${ticket.id}:beads`)).toBeDefined()
     expect(paths.ticketDir).toContain('.ticket')

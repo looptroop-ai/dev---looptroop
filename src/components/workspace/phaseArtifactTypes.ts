@@ -1,5 +1,7 @@
 import jsYaml from 'js-yaml'
 import type { StructuredIntervention } from '@shared/structuredInterventions'
+import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
+import { normalizeStructuredRetryDiagnostics } from '@shared/structuredRetryDiagnostics'
 import { normalizeStructuredInterventions } from '@shared/structuredInterventions'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
@@ -116,6 +118,7 @@ export interface ArtifactStructuredOutputData {
   repairWarnings?: string[]
   autoRetryCount?: number
   validationError?: string
+  retryDiagnostics?: StructuredRetryDiagnostic[]
   interventions?: StructuredIntervention[]
 }
 
@@ -449,6 +452,7 @@ export function normalizeArtifactStructuredOutput(value: unknown): ArtifactStruc
   const validationError = typeof value.validationError === 'string' && value.validationError.trim()
     ? value.validationError
     : undefined
+  const retryDiagnostics = normalizeStructuredRetryDiagnostics(value.retryDiagnostics)
   const interventions = normalizeStructuredInterventions(value.interventions)
 
   return {
@@ -456,6 +460,7 @@ export function normalizeArtifactStructuredOutput(value: unknown): ArtifactStruc
     repairWarnings,
     autoRetryCount,
     ...(validationError ? { validationError } : {}),
+    ...(retryDiagnostics.length > 0 ? { retryDiagnostics } : {}),
     ...(interventions.length > 0 ? { interventions } : {}),
   }
 }

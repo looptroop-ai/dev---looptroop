@@ -38,6 +38,7 @@ import {
   buildYamlDocument,
 } from './yamlUtils'
 import { MAX_INTERVIEW_BATCH_SIZE } from '../lib/constants'
+import { buildStructuredOutputFailure } from './failure'
 
 const PHASE_ORDER = new Map([
   ['foundation', 0],
@@ -1208,6 +1209,7 @@ function normalizeInterviewCompletePayload(value: unknown, allowQuestionsOnly: b
 
 export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutputResult<InterviewTurnOutput> {
   let lastError = 'No interview batch or completion content found'
+  let lastErrorCause: unknown = null
 
   const completeCandidates = collectTaggedCandidates(rawContent, 'INTERVIEW_COMPLETE')
   for (const candidate of completeCandidates) {
@@ -1232,6 +1234,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
@@ -1263,6 +1266,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
@@ -1292,6 +1296,7 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
 
     try {
@@ -1320,17 +1325,17 @@ export function normalizeInterviewTurnOutput(rawContent: string): StructuredOutp
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Interview output echoed the prompt instead of returning an <INTERVIEW_BATCH> or <INTERVIEW_COMPLETE> artifact'
       : lastError,
-    repairApplied: false,
-    repairWarnings: [],
-  }
+    { cause: lastErrorCause },
+  )
 }
 
 export function normalizeInterviewQuestionsOutput(
@@ -1347,6 +1352,7 @@ export function normalizeInterviewQuestionsOutput(
   })
 
   let lastError = 'No interview question content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     try {
@@ -1376,17 +1382,21 @@ export function normalizeInterviewQuestionsOutput(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Interview question output echoed the prompt instead of returning structured questions'
       : lastError,
-    repairApplied,
-    repairWarnings,
-  }
+    {
+      repairApplied,
+      repairWarnings,
+      cause: lastErrorCause,
+    },
+  )
 }
 
 export function normalizeInterviewRefinementOutput(
@@ -1407,6 +1417,7 @@ export function normalizeInterviewRefinementOutput(
   })
 
   let lastError = 'No interview refinement content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     try {
@@ -1575,17 +1586,21 @@ export function normalizeInterviewRefinementOutput(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Interview refinement output echoed the prompt instead of returning structured refinement YAML'
       : lastError,
-    repairApplied,
-    repairWarnings,
-  }
+    {
+      repairApplied,
+      repairWarnings,
+      cause: lastErrorCause,
+    },
+  )
 }
 
 function normalizeCoverageFollowUpQuestions(value: unknown): {
@@ -1716,6 +1731,7 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
     topLevelHints: ['status', 'gaps', 'follow_up_questions', 'followUpQuestions'],
   })
   let lastError = 'No coverage result content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     let repairWarnings: string[] = []
@@ -1738,6 +1754,7 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
 
       const repairedCandidate = repairCoverageGapStringList(candidate)
       if (!repairedCandidate.repairApplied) {
@@ -1763,16 +1780,16 @@ export function normalizeCoverageResultOutput(rawContent: string): StructuredOut
         }
       } catch (repairError) {
         lastError = repairError instanceof Error ? repairError.message : String(repairError)
+        lastErrorCause = repairError
       }
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Coverage output echoed the prompt instead of returning structured coverage YAML'
       : lastError,
-    repairApplied: false,
-    repairWarnings: [],
-  }
+    { cause: lastErrorCause },
+  )
 }

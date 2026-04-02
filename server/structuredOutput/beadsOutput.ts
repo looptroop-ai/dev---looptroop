@@ -20,6 +20,7 @@ import {
   buildJsonlDocument,
 } from './yamlUtils'
 import { parseRefinementChanges } from './refinementChanges'
+import { buildStructuredOutputFailure } from './failure'
 
 export interface BeadDraftMetrics {
   beadCount: number
@@ -170,6 +171,7 @@ export function normalizeBeadSubsetYamlOutput(
     topLevelHints: ['beads', 'tasks', 'items'],
   })
   let lastError = 'No bead subset content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     try {
@@ -245,17 +247,20 @@ export function normalizeBeadSubsetYamlOutput(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Bead subset output echoed the prompt instead of returning structured bead YAML'
       : lastError,
-    repairApplied: false,
-    repairWarnings,
-  }
+    {
+      repairWarnings,
+      cause: lastErrorCause,
+    },
+  )
 }
 
 function parseJsonLines(content: string): unknown[] {
@@ -356,6 +361,7 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
   const repairWarnings: string[] = []
   const candidates = collectStructuredCandidates(rawContent)
   let lastError = 'No beads JSONL content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     try {
@@ -393,17 +399,20 @@ export function normalizeBeadsJsonlOutput(rawContent: string): StructuredOutputR
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Beads JSONL output echoed the prompt instead of returning bead records'
       : lastError,
-    repairApplied: false,
-    repairWarnings,
-  }
+    {
+      repairWarnings,
+      cause: lastErrorCause,
+    },
+  )
 }
 
 /** Truncate YAML content to only complete file entries when the last entry is incomplete (truncated output) */
@@ -457,6 +466,7 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
   })
 
   let lastError = 'No relevant files content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of uniqueCandidates) {
     const candidateWarnings: string[] = []
@@ -554,15 +564,15 @@ export function normalizeRelevantFilesOutput(rawContent: string): StructuredOutp
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact'
       : lastError,
-    repairApplied: false,
-    repairWarnings: [],
-  }
+    { cause: lastErrorCause },
+  )
 }

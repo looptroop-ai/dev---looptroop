@@ -17,6 +17,7 @@ import {
   appendStructuredCandidateRecoveryWarning,
 } from './yamlUtils'
 import { parseRefinementChanges } from './refinementChanges'
+import { buildStructuredOutputFailure } from './failure'
 
 const PRD_NESTED_MAPPING_CHILDREN = {
   source_interview: ['content_sha256'],
@@ -215,18 +216,17 @@ export function normalizePrdYamlOutput(
   },
 ): StructuredOutputResult<PrdDocument & { changes?: RefinementChange[] }> {
   if (looksLikePromptEcho(rawContent)) {
-    return {
-      ok: false,
-      error: 'PRD output echoed the prompt instead of returning structured PRD YAML',
-      repairApplied: false,
-      repairWarnings: [],
-    }
+    return buildStructuredOutputFailure(
+      rawContent,
+      'PRD output echoed the prompt instead of returning structured PRD YAML',
+    )
   }
 
   const candidates = collectStructuredCandidates(rawContent, {
     topLevelHints: ['schema_version', 'artifact', 'product', 'scope', 'technical_requirements', 'epics'],
   })
   let lastError = 'No PRD content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     const repairWarnings: string[] = []
@@ -332,15 +332,15 @@ export function normalizePrdYamlOutput(
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'PRD output echoed the prompt instead of returning structured PRD YAML'
       : lastError,
-    repairApplied: false,
-    repairWarnings: [],
-  }
+    { cause: lastErrorCause },
+  )
 }

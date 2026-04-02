@@ -18,6 +18,7 @@ import {
   getValueByAliases,
   getRequiredString,
 } from './yamlUtils'
+import { buildStructuredOutputFailure } from './failure'
 
 const COMPLETION_NESTED_MAPPING_CHILDREN = {
   checks: ['tests', 'lint', 'typecheck', 'qualitative'],
@@ -79,16 +80,15 @@ function normalizeCompletionChecks(value: unknown): BeadChecks {
 export function normalizeBeadCompletionMarkerOutput(rawContent: string): StructuredOutputResult<BeadCompletionPayload> {
   const candidates = collectTaggedCandidates(rawContent, 'BEAD_STATUS')
   let lastError = 'No completion marker found'
+  let lastErrorCause: unknown = null
 
   if (candidates.length === 0) {
-    return {
-      ok: false,
-      error: looksLikePromptEcho(rawContent)
+    return buildStructuredOutputFailure(
+      rawContent,
+      looksLikePromptEcho(rawContent)
         ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
         : lastError,
-      repairApplied: false,
-      repairWarnings: [],
-    }
+    )
   }
 
   for (const candidate of candidates) {
@@ -145,32 +145,31 @@ export function normalizeBeadCompletionMarkerOutput(rawContent: string): Structu
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-      ok: false,
-      error: looksLikePromptEcho(rawContent)
-        ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
-        : lastError,
-      repairApplied: false,
-      repairWarnings: [],
-    }
-  }
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
+      ? 'Completion marker output echoed the prompt instead of returning a <BEAD_STATUS> artifact'
+      : lastError,
+    { cause: lastErrorCause },
+  )
+}
 
 export function normalizeFinalTestCommandsOutput(rawContent: string): StructuredOutputResult<FinalTestCommandPayload> {
   const candidates = collectTaggedCandidates(rawContent, 'FINAL_TEST_COMMANDS')
   let lastError = 'No final test command marker found'
+  let lastErrorCause: unknown = null
 
   if (candidates.length === 0) {
-    return {
-      ok: false,
-      error: looksLikePromptEcho(rawContent)
+    return buildStructuredOutputFailure(
+      rawContent,
+      looksLikePromptEcho(rawContent)
         ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
         : lastError,
-      repairApplied: false,
-      repairWarnings: [],
-    }
+    )
   }
 
   for (const candidate of candidates) {
@@ -227,15 +226,15 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
     }
   }
 
-  return {
-      ok: false,
-      error: looksLikePromptEcho(rawContent)
-        ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
-        : lastError,
-      repairApplied: false,
-      repairWarnings: [],
-    }
-  }
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
+      ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
+      : lastError,
+    { cause: lastErrorCause },
+  )
+}

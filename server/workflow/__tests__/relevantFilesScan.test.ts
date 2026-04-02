@@ -151,12 +151,30 @@ describe('handleRelevantFilesScan', () => {
       structuredOutput?: {
         repairWarnings?: string[]
         interventions?: Array<{ code?: string }>
+        autoRetryCount?: number
+        validationError?: string
+        retryDiagnostics?: Array<{
+          attempt?: number
+          validationError?: string
+          excerpt?: string
+        }>
       }
     }
     expect(artifact.fileCount).toBe(1)
     expect(artifact.files?.[0]?.path).toBe('src/main.ts')
     expect(artifact.structuredOutput?.repairWarnings?.length).toBe(new Set(artifact.structuredOutput?.repairWarnings ?? []).size)
     expect(artifact.structuredOutput?.interventions?.length).toBe(new Set((artifact.structuredOutput?.interventions ?? []).map((intervention) => intervention.code)).size)
+    expect(artifact.structuredOutput).toMatchObject({
+      autoRetryCount: 1,
+      validationError: 'Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact',
+    })
+    expect(artifact.structuredOutput?.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'Relevant files output echoed the prompt instead of returning a <RELEVANT_FILES_RESULT> artifact',
+        excerpt: expect.stringContaining('CRITICAL OUTPUT RULE'),
+      }),
+    ])
   })
 
   it('emits ERROR after the retry is exhausted so the ticket can block', async () => {
@@ -249,14 +267,32 @@ describe('handleRelevantFilesScan', () => {
         repairApplied?: boolean
         repairWarnings?: string[]
         interventions?: Array<{ code?: string }>
+        autoRetryCount?: number
+        validationError?: string
+        retryDiagnostics?: Array<{
+          attempt?: number
+          validationError?: string
+          excerpt?: string
+          failureClass?: string
+        }>
       }
     }
     expect(artifact.structuredOutput).toMatchObject({
       repairApplied: false,
       repairWarnings: [],
+      autoRetryCount: 1,
+      validationError: 'Relevant files output was empty.',
     })
     expect(artifact.structuredOutput?.interventions).toEqual([
       expect.objectContaining({ code: 'retry_after_validation_failure' }),
+    ])
+    expect(artifact.structuredOutput?.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'Relevant files output was empty.',
+        excerpt: '[empty response]',
+        failureClass: 'empty_response',
+      }),
     ])
   })
 

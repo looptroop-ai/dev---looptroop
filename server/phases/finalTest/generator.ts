@@ -15,6 +15,7 @@ import { SessionManager } from '../../opencode/sessionManager'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import type { StructuredOutputMetadata } from '../../structuredOutput/types'
+import { resolveStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 
 const FINAL_TEST_SCHEMA_REMINDER = [
   'Return exactly one <FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS> block and nothing else.',
@@ -103,6 +104,7 @@ export async function generateFinalTests(
 
   let response = result.response
   let commandPlan = parseFinalTestCommands(response)
+  const retryDiagnostics: NonNullable<StructuredOutputMetadata['retryDiagnostics']> = []
   let structuredOutput = buildStructuredOutputMetadata({
     autoRetryCount: 0,
     repairApplied: Boolean(commandPlan.repairApplied),
@@ -110,11 +112,19 @@ export async function generateFinalTests(
     ...(commandPlan.validationError ? { validationError: commandPlan.validationError } : {}),
   })
   if (commandPlan.errors.length > 0) {
+    const retryDecision = getStructuredRetryDecision(response, result.responseMeta)
+    retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+      attempt: 1,
+      rawResponse: response,
+      validationError: commandPlan.validationError ?? commandPlan.errors.join('; '),
+      failureClass: retryDecision.failureClass,
+      retryDiagnostic: commandPlan.retryDiagnostic,
+    }))
     structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
       autoRetryCount: 1,
       validationError: commandPlan.validationError,
+      retryDiagnostics,
     })
-    const retryDecision = getStructuredRetryDecision(response, result.responseMeta)
     try {
       if (retryDecision.reuseSession) {
         const retryParts = buildStructuredRetryPrompt([], {
@@ -209,6 +219,17 @@ export async function generateFinalTests(
       repairWarnings: commandPlan.repairWarnings ?? [],
       ...(commandPlan.validationError ? { validationError: commandPlan.validationError } : {}),
     })
+    if (commandPlan.errors.length > 0) {
+      retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+        attempt: 2,
+        rawResponse: response,
+        validationError: commandPlan.validationError ?? commandPlan.errors.join('; '),
+        retryDiagnostic: commandPlan.retryDiagnostic,
+      }))
+      structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
+        retryDiagnostics,
+      })
+    }
   }
 
   if (activeSessionId && sessionManager) {

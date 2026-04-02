@@ -6,6 +6,7 @@ import {
   normalizePrdYamlOutput,
   normalizeResolvedInterviewDocumentOutput,
 } from '../../structuredOutput'
+import { attachStructuredRetryDiagnostic, buildStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 
 export interface ValidatedResolvedInterview {
   document: InterviewDocument
@@ -34,7 +35,15 @@ export function validatePrdDraft(
 ): ValidatedPrdDraft {
   const result = normalizePrdYamlOutput(content, options)
   if (!result.ok) {
-    throw new Error(result.error)
+    const error = new Error(result.error)
+    throw attachStructuredRetryDiagnostic(
+      error,
+      result.retryDiagnostic ?? buildStructuredRetryDiagnostic({
+        attempt: 1,
+        rawResponse: content,
+        validationError: result.error,
+      }),
+    )
   }
 
   const { changes, ...document } = result.value
@@ -59,7 +68,15 @@ export function validateResolvedInterview(
 ): ValidatedResolvedInterview {
   const result = normalizeResolvedInterviewDocumentOutput(content, options)
   if (!result.ok) {
-    throw new Error(result.error)
+    const error = new Error(result.error)
+    throw attachStructuredRetryDiagnostic(
+      error,
+      result.retryDiagnostic ?? buildStructuredRetryDiagnostic({
+        attempt: 1,
+        rawResponse: content,
+        validationError: result.error,
+      }),
+    )
   }
 
   return {

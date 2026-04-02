@@ -89,7 +89,17 @@ describe('handlePrdDraft', () => {
         duration?: number
         content?: string
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
-        structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
+        structuredOutput?: {
+          repairApplied?: boolean
+          repairWarnings?: string[]
+          autoRetryCount?: number
+          validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            excerpt?: string
+          }>
+        }
       }) => void,
       onFullAnswersProgress?: (entry: {
         memberId: string
@@ -99,7 +109,17 @@ describe('handlePrdDraft', () => {
         duration?: number
         content?: string
         questionCount?: number
-        structuredOutput?: { repairApplied?: boolean; repairWarnings?: string[]; autoRetryCount?: number; validationError?: string }
+        structuredOutput?: {
+          repairApplied?: boolean
+          repairWarnings?: string[]
+          autoRetryCount?: number
+          validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            excerpt?: string
+          }>
+        }
       }) => void,
     ) => {
       expect(ticketState.ticketId).toBe(ticket.externalId)
@@ -169,6 +189,13 @@ describe('handlePrdDraft', () => {
           repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
           autoRetryCount: 1,
           validationError: 'PRD output is not a YAML/JSON object',
+          retryDiagnostics: [
+            {
+              attempt: 1,
+              validationError: 'PRD output is not a YAML/JSON object',
+              excerpt: 'I am still thinking through the PRD format.',
+            },
+          ],
         },
       })
       onDraftProgress?.({
@@ -231,6 +258,13 @@ describe('handlePrdDraft', () => {
               repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
               autoRetryCount: 1,
               validationError: 'PRD output is not a YAML/JSON object',
+              retryDiagnostics: [
+                {
+                  attempt: 1,
+                  validationError: 'PRD output is not a YAML/JSON object',
+                  excerpt: 'I am still thinking through the PRD format.',
+                },
+              ],
             },
           },
           {
@@ -290,6 +324,11 @@ describe('handlePrdDraft', () => {
           repairWarnings?: string[]
           autoRetryCount?: number
           validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            excerpt?: string
+          }>
           interventions?: Array<{ category?: string; code?: string }>
         }
       }>
@@ -307,6 +346,13 @@ describe('handlePrdDraft', () => {
       autoRetryCount: 1,
       validationError: 'PRD output is not a YAML/JSON object',
     })
+    expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput?.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'PRD output is not a YAML/JSON object',
+        excerpt: 'I am still thinking through the PRD format.',
+      }),
+    ])
     expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput?.interventions).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'cleanup', code: 'cleanup_content_hash' }),
       expect.objectContaining({ category: 'retry' }),

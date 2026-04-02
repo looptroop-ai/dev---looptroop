@@ -1,4 +1,5 @@
 import { normalizeFinalTestCommandsOutput } from '../../structuredOutput'
+import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
 
 export const FINAL_TEST_COMMANDS_MARKER = '<FINAL_TEST_COMMANDS>'
 export const FINAL_TEST_COMMANDS_END = '</FINAL_TEST_COMMANDS>'
@@ -11,6 +12,7 @@ export interface FinalTestCommandPlan {
   repairApplied?: boolean
   repairWarnings?: string[]
   validationError?: string
+  retryDiagnostic?: StructuredRetryDiagnostic
 }
 
 export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
@@ -24,6 +26,7 @@ export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
       repairApplied: normalized.repairApplied,
       repairWarnings: normalized.repairWarnings,
       validationError: normalized.error,
+      retryDiagnostic: normalized.retryDiagnostic,
     }
   }
 

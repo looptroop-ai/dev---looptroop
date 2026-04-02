@@ -10,6 +10,7 @@ import {
   getValueByAliases,
   buildYamlDocument,
 } from './yamlUtils'
+import { buildStructuredOutputFailure } from './failure'
 
 function normalizeVoteDraftLabel(label: string): string | null {
   const match = label.trim().match(/draft\s*(\d+)/i)
@@ -101,6 +102,7 @@ export function normalizeVoteScorecardOutput(
     topLevelHints: ['draft_scores'],
   })
   let lastError = 'No vote scorecard content found'
+  let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
     const repairedCandidate = repairVoteScorecardIndentation(candidate, draftLabels, rubricCategories)
@@ -194,16 +196,19 @@ export function normalizeVoteScorecardOutput(
         }
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error)
+        lastErrorCause = error
       }
     }
   }
 
-  return {
-    ok: false,
-    error: looksLikePromptEcho(rawContent)
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
       ? 'Vote scorecard output echoed the prompt instead of returning a structured scorecard'
       : lastError,
-    repairApplied: false,
-    repairWarnings,
-  }
+    {
+      repairWarnings,
+      cause: lastErrorCause,
+    },
+  )
 }

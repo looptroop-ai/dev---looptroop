@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
 import type { RefinementChange } from '@shared/refinementChanges'
+import { withStructuredRetryDiagnosticAttempt } from '@shared/structuredRetryDiagnostics'
 import {
   buildBeadsUiRefinementDiffArtifact,
   buildBeadsUiRefinementDiffArtifactFromChanges,
@@ -44,6 +45,11 @@ import {
   buildStructuredMetadata,
   mapCouncilStageToStatus,
 } from './helpers'
+import {
+  attachStructuredRetryDiagnostic,
+  getStructuredRetryDiagnosticFromError,
+  resolveStructuredRetryDiagnostic,
+} from '../../lib/structuredRetryDiagnostics'
 import type { OpenCodeStreamState } from './types'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
@@ -126,7 +132,14 @@ async function executeBeadsExpandStep(params: {
     try {
       const expandedResult = normalizeBeadsJsonlOutput(response)
       if (!expandedResult.ok) {
-        throw new Error(expandedResult.error)
+        throw attachStructuredRetryDiagnostic(
+          new Error(expandedResult.error),
+          expandedResult.retryDiagnostic ?? {
+            attempt: 1,
+            validationError: expandedResult.error,
+            excerpt: response.trim() || '[empty response]',
+          },
+        )
       }
 
       structuredMeta = buildStructuredMetadata(structuredMeta, {
@@ -145,7 +158,14 @@ async function executeBeadsExpandStep(params: {
       const hydratedContent = hydratedBeads.map((bead) => JSON.stringify(bead)).join('\n')
       const hydratedResult = normalizeBeadsJsonlOutput(hydratedContent)
       if (!hydratedResult.ok) {
-        throw new Error(`Hydrated bead graph failed validation: ${hydratedResult.error}`)
+        throw attachStructuredRetryDiagnostic(
+          new Error(`Hydrated bead graph failed validation: ${hydratedResult.error}`),
+          hydratedResult.retryDiagnostic ?? {
+            attempt: 1,
+            validationError: hydratedResult.error,
+            excerpt: hydratedContent.trim() || '[empty response]',
+          },
+        )
       }
 
       return {
@@ -156,10 +176,21 @@ async function executeBeadsExpandStep(params: {
       }
     } catch (error) {
       const validationError = error instanceof Error ? error.message : String(error)
+      const retryDiagnostic = withStructuredRetryDiagnosticAttempt(
+        resolveStructuredRetryDiagnostic({
+          attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: response,
+          validationError,
+          error,
+          retryDiagnostic: getStructuredRetryDiagnosticFromError(error),
+        }),
+        (structuredMeta.autoRetryCount ?? 0) + 1,
+      )
       if (attempt >= 1) {
         structuredMeta = buildStructuredMetadata(structuredMeta, {
           autoRetryCount: 1,
           validationError,
+          ...(retryDiagnostic ? { retryDiagnostics: [retryDiagnostic] } : {}),
         })
         throw error
       }
@@ -167,6 +198,7 @@ async function executeBeadsExpandStep(params: {
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         autoRetryCount: 1,
         validationError,
+        ...(retryDiagnostic ? { retryDiagnostics: [retryDiagnostic] } : {}),
       })
       promptParts = buildBeadsExpandRetryPrompt(baseParts, {
         validationError,
@@ -654,8 +686,18 @@ export async function handleBeadsRefine(
           refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
             autoRetryCount: 1,
             validationError: result.error,
+            ...(result.retryDiagnostic
+              ? { retryDiagnostics: [withStructuredRetryDiagnosticAttempt(result.retryDiagnostic, (refineStructuredMeta.autoRetryCount ?? 0) + 1)!] }
+              : {}),
           })
-          throw new Error(result.error)
+          throw attachStructuredRetryDiagnostic(
+            new Error(result.error),
+            result.retryDiagnostic ?? {
+              attempt: 1,
+              validationError: result.error,
+              excerpt: content.trim() || '[empty response]',
+            },
+          )
         }
         refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
           repairApplied: result.repairApplied,

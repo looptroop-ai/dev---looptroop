@@ -1,6 +1,7 @@
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import type { StructuredIntervention } from '@shared/structuredInterventions'
+import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
 import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
 import jsYaml from 'js-yaml'
 import {
@@ -41,6 +42,7 @@ interface DraftLike {
     repairWarnings?: string[]
     autoRetryCount?: number
     validationError?: string
+    retryDiagnostics?: StructuredRetryDiagnostic[]
     interventions?: StructuredIntervention[]
   }
   questionCount?: number
@@ -74,6 +76,7 @@ interface CouncilResultLike {
       repairWarnings?: string[]
       autoRetryCount?: number
       validationError?: string
+      retryDiagnostics?: StructuredRetryDiagnostic[]
       interventions?: StructuredIntervention[]
     }
   }>

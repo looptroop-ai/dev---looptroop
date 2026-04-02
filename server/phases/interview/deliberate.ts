@@ -5,6 +5,7 @@ import { buildPromptFromTemplate, PROM1 } from '../../prompts/index'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { normalizeInterviewQuestionsOutput } from '../../structuredOutput'
+import { attachStructuredRetryDiagnostic, buildStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 
 interface InterviewDeliberationOptions {
   draftTimeoutMs: number
@@ -60,7 +61,16 @@ export async function deliberateInterview(
     onDraftProgress,
     (content) => {
       const result = normalizeInterviewQuestionsOutput(content, options.maxInitialQuestions)
-      if (!result.ok) throw new Error(result.error)
+      if (!result.ok) {
+        throw attachStructuredRetryDiagnostic(
+          new Error(result.error),
+          result.retryDiagnostic ?? buildStructuredRetryDiagnostic({
+            attempt: 1,
+            rawResponse: content,
+            validationError: result.error,
+          }),
+        )
+      }
       return {
         questionCount: result.value.questionCount,
         normalizedContent: result.normalizedContent,

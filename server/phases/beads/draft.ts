@@ -7,6 +7,7 @@ import { buildMinimalContext } from '../../opencode/contextBuilder'
 import type { TicketState } from '../../opencode/contextBuilder'
 import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import { normalizeBeadSubsetYamlOutput } from '../../structuredOutput'
+import { attachStructuredRetryDiagnostic, buildStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 
 /** Build a context builder that returns PROM21 (vote) or PROM22 (refine) context. */
 export function buildBeadsContextBuilder(ticketState: TicketState) {
@@ -63,7 +64,16 @@ export async function draftBeads(
     onDraftProgress,
     (content) => {
       const result = normalizeBeadSubsetYamlOutput(content)
-      if (!result.ok) throw new Error(result.error)
+      if (!result.ok) {
+        throw attachStructuredRetryDiagnostic(
+          new Error(result.error),
+          result.retryDiagnostic ?? buildStructuredRetryDiagnostic({
+            attempt: 1,
+            rawResponse: content,
+            validationError: result.error,
+          }),
+        )
+      }
       return {
         normalizedContent: result.normalizedContent,
         repairApplied: result.repairApplied,

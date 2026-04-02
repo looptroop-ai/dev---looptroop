@@ -77,16 +77,13 @@ import {
 import { readTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
+import { resolveStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
+import { buildStructuredOutputFailure } from '../../structuredOutput/failure'
 
 export function validateRelevantFilesScanResponse(response: string): StructuredOutputResult<RelevantFilesOutputPayload> {
   const trimmed = response.trim()
   if (!trimmed) {
-    return {
-      ok: false,
-      error: 'Relevant files output was empty.',
-      repairApplied: false,
-      repairWarnings: [],
-    }
+    return buildStructuredOutputFailure(response, 'Relevant files output was empty.')
   }
 
   const normalized = normalizeRelevantFilesOutput(trimmed)
@@ -106,12 +103,14 @@ export function validateRelevantFilesScanResponse(response: string): StructuredO
   }
 
   if (openTagCount !== 1 || closeTagCount !== 1) {
-    return {
-      ok: false,
-      error: `Relevant files output must contain exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block (found open=${openTagCount}, close=${closeTagCount}). Parse error: ${normalized.error}`,
-      repairApplied: false,
-      repairWarnings: normalized.repairWarnings,
-    }
+    return buildStructuredOutputFailure(
+      response,
+      `Relevant files output must contain exactly one <RELEVANT_FILES_RESULT>...</RELEVANT_FILES_RESULT> block (found open=${openTagCount}, close=${closeTagCount}). Parse error: ${normalized.error}`,
+      {
+        repairWarnings: normalized.repairWarnings,
+        retryDiagnostic: normalized.retryDiagnostic,
+      },
+    )
   }
 
   return normalized
@@ -333,6 +332,11 @@ async function runPrdCoverageAuditPrompt(params: {
           structuredMeta = buildStructuredMetadata(structuredMeta, {
             autoRetryCount: 1,
             validationError: prdCoverageNormalization.validationError,
+            retryDiagnostics: [resolveStructuredRetryDiagnostic({
+              attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+              rawResponse: response,
+              validationError: prdCoverageNormalization.validationError,
+            })],
           })
           throw new Error(`PRD coverage output failed semantic validation after retry: ${prdCoverageNormalization.validationError}`)
         }
@@ -340,6 +344,11 @@ async function runPrdCoverageAuditPrompt(params: {
         structuredMeta = buildStructuredMetadata(structuredMeta, {
           autoRetryCount: 1,
           validationError: prdCoverageNormalization.validationError,
+          retryDiagnostics: [resolveStructuredRetryDiagnostic({
+            attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+            rawResponse: response,
+            validationError: prdCoverageNormalization.validationError,
+          })],
         })
         promptParts = buildStructuredRetryPrompt([{ type: 'text', content: params.promptContent }], {
           validationError: prdCoverageNormalization.validationError,
@@ -367,6 +376,12 @@ async function runPrdCoverageAuditPrompt(params: {
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         autoRetryCount: 1,
         validationError: coverageEnvelope.error,
+        retryDiagnostics: [resolveStructuredRetryDiagnostic({
+          attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: response,
+          validationError: coverageEnvelope.error,
+          retryDiagnostic: coverageEnvelope.retryDiagnostic,
+        })],
       })
       throw new Error(`Coverage output failed validation after retry: ${coverageEnvelope.error}`)
     }
@@ -374,6 +389,12 @@ async function runPrdCoverageAuditPrompt(params: {
     structuredMeta = buildStructuredMetadata(structuredMeta, {
       autoRetryCount: 1,
       validationError: coverageEnvelope.error,
+      retryDiagnostics: [resolveStructuredRetryDiagnostic({
+        attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+        rawResponse: response,
+        validationError: coverageEnvelope.error,
+        retryDiagnostic: coverageEnvelope.retryDiagnostic,
+      })],
     })
     promptParts = buildStructuredRetryPrompt([{ type: 'text', content: params.promptContent }], {
       validationError: coverageEnvelope.error,
@@ -517,6 +538,12 @@ async function runPrdCoverageResolutionPrompt(params: {
         structuredMeta = buildStructuredMetadata(structuredMeta, {
           autoRetryCount: 1,
           validationError,
+          retryDiagnostics: [resolveStructuredRetryDiagnostic({
+            attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+            rawResponse: response,
+            validationError,
+            error,
+          })],
         })
         throw new Error(`PRD coverage resolution output failed validation after retry: ${validationError}`)
       }
@@ -524,6 +551,12 @@ async function runPrdCoverageResolutionPrompt(params: {
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         autoRetryCount: 1,
         validationError,
+        retryDiagnostics: [resolveStructuredRetryDiagnostic({
+          attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: response,
+          validationError,
+          error,
+        })],
       })
       promptParts = buildPrdCoverageRevisionRetryPrompt([{ type: 'text', content: params.promptContent }], {
         validationError,
@@ -881,6 +914,13 @@ export async function handleRelevantFilesScan(
       retryMeta = buildStructuredMetadata(retryMeta, {
         autoRetryCount: 1,
         validationError: normalized.error,
+        retryDiagnostics: [resolveStructuredRetryDiagnostic({
+          attempt: (retryMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: result.response,
+          validationError: normalized.error,
+          failureClass: retryDecision.failureClass,
+          retryDiagnostic: normalized.retryDiagnostic,
+        })],
       })
       emitPhaseLog(
         ticketId,
@@ -1447,6 +1487,11 @@ export async function handleCoverageVerification(
         structuredMeta = buildStructuredMetadata(structuredMeta, {
           autoRetryCount: 1,
           validationError: interviewCoverageResolution.validationError,
+          retryDiagnostics: [resolveStructuredRetryDiagnostic({
+            attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+            rawResponse: response,
+            validationError: interviewCoverageResolution.validationError,
+          })],
         })
         promptParts = buildStructuredRetryPrompt([{ type: 'text', content: promptContent }], {
           validationError: interviewCoverageResolution.validationError,
@@ -1468,6 +1513,12 @@ export async function handleCoverageVerification(
       structuredMeta = buildStructuredMetadata(structuredMeta, {
         autoRetryCount: 1,
         validationError: coverageEnvelope.error,
+        retryDiagnostics: [resolveStructuredRetryDiagnostic({
+          attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: response,
+          validationError: coverageEnvelope.error,
+          retryDiagnostic: coverageEnvelope.retryDiagnostic,
+        })],
       })
       const msg = `Coverage output failed validation after retry: ${coverageEnvelope.error}`
       emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
@@ -1478,6 +1529,12 @@ export async function handleCoverageVerification(
     structuredMeta = buildStructuredMetadata(structuredMeta, {
       autoRetryCount: 1,
       validationError: coverageEnvelope.error,
+      retryDiagnostics: [resolveStructuredRetryDiagnostic({
+        attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+        rawResponse: response,
+        validationError: coverageEnvelope.error,
+        retryDiagnostic: coverageEnvelope.retryDiagnostic,
+      })],
     })
     promptParts = buildStructuredRetryPrompt([{ type: 'text', content: promptContent }], {
       validationError: coverageEnvelope.error,

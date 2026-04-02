@@ -1,12 +1,7 @@
 import type { OpenCodeResponseMeta } from '../opencode/assistantMessageAnalysis'
+import type { StructuredFailureClass } from '@shared/structuredRetryDiagnostics'
 
-export type StructuredFailureClass =
-  | 'validation_error'
-  | 'empty_response'
-  | 'provider_error'
-  | 'connection_reset'
-  | 'session_protocol_error'
-  | 'transport_error'
+export type { StructuredFailureClass } from '@shared/structuredRetryDiagnostics'
 
 export interface StructuredRetryDecision {
   failureClass: StructuredFailureClass

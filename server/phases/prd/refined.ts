@@ -13,6 +13,7 @@ import type {
 import { getPrdDraftMetrics, normalizePrdYamlOutput } from '../../structuredOutput'
 import { normalizeStructuredOutputMetadata } from '../../structuredOutput/metadata'
 import { normalizeKey } from '../../structuredOutput/yamlUtils'
+import { attachStructuredRetryDiagnostic, buildStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 
 type PrdRefinementItemType = 'epic' | 'user_story'
 type PrdEpic = PrdDocument['epics'][number]
@@ -442,7 +443,14 @@ export function validatePrdRefinementOutput(
     losingDraftMeta: options.losingDraftMeta,
   })
   if (!refinementResult.ok) {
-    throw new Error(refinementResult.error)
+    throw attachStructuredRetryDiagnostic(
+      new Error(refinementResult.error),
+      refinementResult.retryDiagnostic ?? buildStructuredRetryDiagnostic({
+        attempt: 1,
+        rawResponse: rawContent,
+        validationError: refinementResult.error,
+      }),
+    )
   }
 
   const { changes = [], ...refinedDocument } = refinementResult.value

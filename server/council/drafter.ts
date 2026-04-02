@@ -15,6 +15,7 @@ import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../lib/constants'
 import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError, classifyDraftFailure } from './draftUtils'
 import { getStructuredRetryDecision } from '../lib/structuredOutputRetry'
+import { resolveStructuredRetryDiagnostic } from '../lib/structuredRetryDiagnostics'
 
 interface DraftValidationResult {
   questionCount?: number
@@ -132,6 +133,7 @@ export async function generateDrafts(
     let closed = false
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
     let lastFailureClass: DraftStructuredOutputMeta['failureClass']
+    const retryDiagnostics: NonNullable<DraftStructuredOutputMeta['retryDiagnostics']> = []
 
     const buildStructuredOutput = (): DraftStructuredOutputMeta | undefined => {
       if (!validation && attemptCount === 0 && !lastValidationError) return undefined
@@ -140,6 +142,7 @@ export async function generateDrafts(
         repairWarnings: validation?.repairWarnings ?? [],
         autoRetryCount: attemptCount,
         ...(lastValidationError ? { validationError: lastValidationError } : {}),
+        ...(retryDiagnostics.length > 0 ? { retryDiagnostics: [...retryDiagnostics] } : {}),
         ...(lastFailureClass ? { failureClass: lastFailureClass } : {}),
       }
     }
@@ -243,6 +246,13 @@ export async function generateDrafts(
           lastValidationError = validationError
           const retryDecision = getStructuredRetryDecision(content, result.responseMeta)
           lastFailureClass = retryDecision.failureClass
+          retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+            attempt: attemptCount + 1,
+            rawResponse: content,
+            validationError,
+            failureClass: retryDecision.failureClass,
+            error,
+          }))
           if (attemptCount >= maxStructuredRetries) {
             throw error
           }

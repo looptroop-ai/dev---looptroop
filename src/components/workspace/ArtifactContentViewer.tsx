@@ -8,6 +8,10 @@ import {
 import type {
   StructuredIntervention,
 } from '@shared/structuredInterventions'
+import {
+  mergeStructuredRetryDiagnostics,
+  type StructuredRetryDiagnostic,
+} from '@shared/structuredRetryDiagnostics'
 import { encode } from 'gpt-tokenizer'
 import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
@@ -428,7 +432,7 @@ function InterviewInspirationTooltip({ inspiration }: { inspiration: Inspiration
             <Lightbulb className="h-3 w-3 text-amber-500" />
           </span>
         </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs">
+        <TooltipContent side="top" className="max-w-xs border border-border bg-popover text-popover-foreground shadow-lg">
           <div className="space-y-1">
             <div className="font-medium">Inspired by {modelName}</div>
             {inspiration.question && (
@@ -505,18 +509,18 @@ function RefinementInspirationTooltip({
             <Lightbulb className="h-3 w-3 text-amber-500" />
           </span>
         </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-md">
+        <TooltipContent side="top" className="max-w-md border border-border bg-popover text-popover-foreground shadow-lg">
           <div className="space-y-2">
             <div className="font-medium">Inspired by {modelName}</div>
             {blocks.length > 0 && (
               <div className="max-h-72 overflow-y-auto pr-1 space-y-2">
                 {blocks.map((block) => (
-                  <div key={`${block.kind}:${block.id ?? block.label}`} className="rounded-sm border border-border/60 bg-background/80 px-2 py-1.5">
+                  <div key={`${block.kind}:${block.id ?? block.label}`} className="rounded-sm border border-border/80 bg-muted/70 px-2 py-1.5 text-foreground">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {getRefinementInspirationBlockKindLabel(block.kind)}
                       {block.id ? <span className="ml-1 font-mono normal-case tracking-normal">{block.id}</span> : null}
                     </div>
-                    <div className="text-[11px] opacity-90 leading-snug whitespace-pre-wrap break-words">
+                    <div className="text-[11px] leading-snug whitespace-pre-wrap break-words">
                       {block.text}
                     </div>
                   </div>
@@ -588,6 +592,9 @@ function mergeStructuredOutputMetadata(
     repairApplied: Boolean(merged.repairApplied || output.repairApplied),
     repairWarnings: [...(merged.repairWarnings ?? []), ...getStructuredOutputWarnings(output)],
     autoRetryCount: Math.max(merged.autoRetryCount ?? 0, output.autoRetryCount ?? 0),
+    ...(mergeStructuredRetryDiagnostics(merged.retryDiagnostics, output.retryDiagnostics).length > 0
+      ? { retryDiagnostics: mergeStructuredRetryDiagnostics(merged.retryDiagnostics, output.retryDiagnostics) }
+      : {}),
     interventions: mergeStructuredInterventions(
       normalizeStructuredInterventions(merged.interventions),
       normalizeStructuredInterventions(output.interventions),
@@ -749,6 +756,66 @@ function ArtifactInterventionBreakdown({ interventions }: { interventions: Struc
   )
 }
 
+function formatRetryDiagnosticLocation(diagnostic: StructuredRetryDiagnostic): string | null {
+  const parts: string[] = []
+  if (diagnostic.target) parts.push(diagnostic.target)
+  if (diagnostic.line) {
+    parts.push(
+      diagnostic.column
+        ? `line ${diagnostic.line}, column ${diagnostic.column}`
+        : `line ${diagnostic.line}`,
+    )
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+function ArtifactRetryDiagnostics({ diagnostics }: { diagnostics: StructuredRetryDiagnostic[] }) {
+  if (diagnostics.length === 0) return null
+
+  const orderedDiagnostics = [...diagnostics].sort((left, right) => left.attempt - right.attempt)
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
+        Retry Attempts <span className="normal-case tracking-normal opacity-70">({orderedDiagnostics.length})</span>
+      </div>
+      <div className="space-y-2">
+        {orderedDiagnostics.map((diagnostic) => {
+          const location = formatRetryDiagnosticLocation(diagnostic)
+          const excerptLabel = location ? 'Failing excerpt' : 'Best-effort excerpt'
+          return (
+            <div
+              key={`${diagnostic.attempt}:${diagnostic.validationError}:${diagnostic.excerpt}`}
+              className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-xs font-semibold">Attempt {diagnostic.attempt}</div>
+                {diagnostic.failureClass ? (
+                  <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                    {diagnostic.failureClass}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1 space-y-1 text-[11px] leading-5">
+                <div><span className="font-medium">Why:</span> {diagnostic.validationError}</div>
+                {location ? (
+                  <div><span className="font-medium">Where:</span> {location}</div>
+                ) : null}
+                <div className="space-y-1">
+                  <div className="font-medium">{excerptLabel}:</div>
+                  <pre className="overflow-x-auto rounded border border-border bg-background px-2 py-2 font-mono text-[10px] leading-4 text-muted-foreground whitespace-pre-wrap">
+                    {diagnostic.excerpt}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ArtifactInterventionOwnerBreakdown({
   owners,
 }: {
@@ -786,6 +853,9 @@ function ArtifactProcessingNotice({
   if (!copy) {
     return null
   }
+  const retryDiagnostics = kind === 'vote-aggregate'
+    ? []
+    : structuredOutput?.retryDiagnostics ?? []
 
   return (
     <CollapsibleWarningNotice
@@ -795,6 +865,7 @@ function ArtifactProcessingNotice({
         <div className="space-y-3">
           <div className="leading-5">{copy.body}</div>
           <ArtifactInterventionBreakdown interventions={copy.interventions} />
+          <ArtifactRetryDiagnostics diagnostics={retryDiagnostics} />
           {context?.ownerInterventions?.length ? (
             <ArtifactInterventionOwnerBreakdown owners={context.ownerInterventions} />
           ) : null}

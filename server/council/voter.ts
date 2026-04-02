@@ -18,6 +18,8 @@ import { VOTING_RUBRIC, getVotingRubricForPhase } from './types'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../workflow/runOpenCodePrompt'
 import { buildStructuredRetryPrompt, normalizeVoteScorecardOutput } from '../structuredOutput'
 import { buildStructuredOutputMetadata } from '../structuredOutput/metadata'
+import { resolveStructuredRetryDiagnostic } from '../lib/structuredRetryDiagnostics'
+import { getStructuredRetryDecision } from '../lib/structuredOutputRetry'
 import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError } from './draftUtils'
 
 export { parseScore } from './scoreParser'
@@ -142,12 +144,14 @@ export async function conductVoting(
     repairWarnings: string[],
     autoRetryCount: number,
     validationError?: string,
+    retryDiagnostics?: DraftStructuredOutputMeta['retryDiagnostics'],
   ): DraftStructuredOutputMeta {
     return buildStructuredOutputMetadata(undefined, {
       repairApplied,
       repairWarnings,
       autoRetryCount,
       ...(validationError ? { validationError } : {}),
+      ...(retryDiagnostics && retryDiagnostics.length > 0 ? { retryDiagnostics } : {}),
     })
   }
 
@@ -228,6 +232,7 @@ export async function conductVoting(
       let attemptCount = 0
       let lastValidationError: string | undefined
       const maxStructuredRetries = 1
+      const retryDiagnostics: NonNullable<DraftStructuredOutputMeta['retryDiagnostics']> = []
 
       while (true) {
         result = await runOpenCodePrompt({
@@ -301,6 +306,7 @@ export async function conductVoting(
             scorecardResult.repairWarnings,
             attemptCount,
             lastValidationError,
+            retryDiagnostics,
           )
           for (const [draftIndex, draft] of anonymized.entries()) {
             const draftLabel = `Draft ${draftIndex + 1}`
@@ -324,12 +330,21 @@ export async function conductVoting(
         }
 
         lastValidationError = scorecardResult.error
+        const retryDecision = getStructuredRetryDecision(response, result.responseMeta)
+        retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+          attempt: attemptCount + 1,
+          rawResponse: response,
+          validationError: scorecardResult.error,
+          failureClass: retryDecision.failureClass,
+          retryDiagnostic: scorecardResult.retryDiagnostic,
+        }))
         if (attemptCount >= maxStructuredRetries) {
           const structuredOutput = buildStructuredOutputMeta(
             scorecardResult.repairApplied,
             scorecardResult.repairWarnings,
             attemptCount,
             scorecardResult.error,
+            retryDiagnostics,
           )
           recordOutcome(
             voter.modelId,
