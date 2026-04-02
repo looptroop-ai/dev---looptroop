@@ -18,6 +18,11 @@ describe.concurrent('parseFinalTestCommands', () => {
       repairApplied: false,
       repairWarnings: [],
       validationError: 'No final test command marker found',
+      retryDiagnostic: {
+        attempt: 1,
+        excerpt: '  1 | Run these commands:\n  2 | ```bash\n  3 | npm test\n  4 | ```',
+        validationError: 'No final test command marker found',
+      },
     })
   })
 

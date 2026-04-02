@@ -11,7 +11,7 @@ import { buildMinimalContext, clearContextCache, type TicketState } from '../../
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
-import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
+import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadRefinementOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
 import { buildPromptFromTemplate, PROM21, PROM22, PROM23 } from '../../prompts/index'
 import { VOTING_RUBRIC_BEADS } from '../../council/types'
 import { existsSync, readFileSync } from 'fs'
@@ -681,8 +681,8 @@ export async function handleBeadsRefine(
       },
       undefined,
       (content) => {
-        const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId }))
-        const result = normalizeBeadSubsetYamlOutput(content, losingDraftMeta)
+        const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId, content: d.content }))
+        const result = normalizeBeadRefinementOutput(content, winnerDraft.content, losingDraftMeta)
         if (!result.ok) {
           refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
             autoRetryCount: 1,
@@ -704,7 +704,7 @@ export async function handleBeadsRefine(
           repairApplied: result.repairApplied,
           repairWarnings: result.repairWarnings,
         })
-        validatedChanges = Array.isArray(result.value.changes) ? result.value.changes : []
+        validatedChanges = result.value.changes
         return { normalizedContent: result.normalizedContent }
       },
       PROM22.outputFormat,

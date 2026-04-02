@@ -42,10 +42,11 @@ export { normalizePrdYamlOutput, getPrdDraftMetrics } from './prdOutput'
 
 export {
   normalizeBeadSubsetYamlOutput,
+  normalizeBeadRefinementOutput,
   normalizeBeadsJsonlOutput,
   normalizeRelevantFilesOutput,
 } from './beadsOutput'
-export type { BeadDraftMetrics } from './beadsOutput'
+export type { BeadDraftMetrics, ValidatedBeadRefinementResult } from './beadsOutput'
 
 export { normalizeVoteScorecardOutput } from './voteOutput'
 

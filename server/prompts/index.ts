@@ -99,6 +99,7 @@ const PRD_OUTPUT_FORMAT = [
   '```',
 ].join('\n')
 const INTERVIEW_PHASE_ORDER_RULE = 'Phase Order Is Mandatory: all `foundation` questions first, then all `structure` questions, then all `assembly` questions. Never go backwards to an earlier phase once you have entered a later phase.'
+const BEADS_ORDER_PRESERVATION_RULE = 'Order Is Mandatory: Preserve the bead list order from the winning draft exactly. When adding new beads, insert them at a logical position that respects dependency ordering, but do not reorder, merge, or split existing beads. The app executes beads sequentially and derives `priority` from this list order.'
 const BEAD_SUBSET_OUTPUT_FORMAT = [
   'YAML with a single top-level `beads` key containing a list.',
   'Each bead item must include exactly these fields:',
@@ -549,6 +550,7 @@ export const PROM22: PromptTemplate = {
     'Optional Inspiration Attribution: When a change was directly inspired by an alternative draft, include `inspiration` with `alternative_draft` and the inspiring `item`. Include `inspiration.item.detail` whenever the source item has useful supporting text (for example description, acceptance, tests, or dependency detail). If a change was not directly inspired by a losing draft, omit `inspiration` or set it to null.',
     'Formatting: Output only this single refined Beads artifact with its top-level `changes` list.',
     'Schema Preservation: keep the same bead subset schema and output a single top-level `beads` list. Do not wrap it in prose or additional objects.',
+    BEADS_ORDER_PRESERVATION_RULE,
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: `${BEAD_SUBSET_OUTPUT_FORMAT} Also include a top-level \`changes\` list. Each change item: {type, item_type, before, after, inspiration?}. \`type\` must be one of {modified, added, removed}. \`item_type\` must be \`bead\`. \`before\` and \`after\` use {id, label, detail?} or null when appropriate. Optional \`inspiration\` uses {alternative_draft, item}. Keep everything in one YAML artifact.`,

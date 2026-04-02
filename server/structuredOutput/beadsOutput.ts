@@ -1,5 +1,5 @@
 import jsYaml from 'js-yaml'
-import type { RefinementChange } from '@shared/refinementChanges'
+import type { RefinementChange, RefinementChangeItem } from '@shared/refinementChanges'
 import type { Bead, BeadSubset, BeadContextGuidance, BeadDependencies } from '../phases/beads/types'
 import { looksLikePromptEcho } from '../lib/promptEcho'
 import type { StructuredOutputResult, RelevantFilesOutputEntry, RelevantFilesOutputPayload } from './types'
@@ -260,6 +260,400 @@ export function normalizeBeadSubsetYamlOutput(
       repairWarnings,
       cause: lastErrorCause,
     },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Bead refinement output validation
+// Mirrors the deeper validation that Interview and PRD refinement phases
+// apply: canonicalization, no-op detection, synthesis, and inspiration hydration.
+// ---------------------------------------------------------------------------
+
+interface NormalizedBeadItem {
+  id: string
+  label: string
+  detail: string
+  contentFingerprint: string
+}
+
+function buildBeadItemFromSubset(bead: BeadSubset): NormalizedBeadItem {
+  const label = bead.title
+  const detail = bead.description
+  return {
+    id: bead.id,
+    label,
+    detail,
+    contentFingerprint: `${bead.id}\x1f${label}\x1f${detail}\x1f${bead.acceptanceCriteria.join('|')}\x1f${bead.tests.join('|')}`,
+  }
+}
+
+function buildBeadLookup(items: NormalizedBeadItem[]): {
+  byId: Map<string, NormalizedBeadItem>
+  byLabel: Map<string, NormalizedBeadItem[]>
+} {
+  const byId = new Map<string, NormalizedBeadItem>()
+  const byLabel = new Map<string, NormalizedBeadItem[]>()
+  for (const item of items) {
+    byId.set(item.id, item)
+    const key = item.label.toLowerCase().trim()
+    const existing = byLabel.get(key) ?? []
+    existing.push(item)
+    byLabel.set(key, existing)
+  }
+  return { byId, byLabel }
+}
+
+function resolveBeadChangeItem(
+  raw: { id: string; label: string; detail?: string } | null | undefined,
+  lookup: ReturnType<typeof buildBeadLookup>,
+): NormalizedBeadItem | null {
+  if (!raw) return null
+
+  // Direct ID match
+  const byId = lookup.byId.get(raw.id)
+  if (byId) return byId
+
+  // Fallback: match by label
+  const byLabel = lookup.byLabel.get(raw.label.toLowerCase().trim())
+  if (byLabel?.length === 1) return byLabel[0]!
+
+  return null
+}
+
+export interface ValidatedBeadRefinementResult {
+  beads: BeadSubset[]
+  changes: RefinementChange[]
+  normalizedContent: string
+  repairApplied: boolean
+  repairWarnings: string[]
+}
+
+/**
+ * Full validation for PROM22 (beads refinement) output.
+ * Mirrors the sophistication of Interview and PRD refinement validators:
+ *  - Canonicalizes changes against winner and refined bead items
+ *  - Detects and drops no-op changes
+ *  - Synthesizes omitted changes for beads modified but not listed
+ *  - Hydrates inspiration attribution with losing draft metadata
+ */
+export function normalizeBeadRefinementOutput(
+  rawContent: string,
+  winnerDraftContent: string,
+  losingDraftMeta?: Array<{ memberId: string; content?: string }>,
+): StructuredOutputResult<ValidatedBeadRefinementResult> {
+  // Step 1: Parse the refined output using existing normalizer
+  const refinedResult = normalizeBeadSubsetYamlOutput(rawContent, losingDraftMeta)
+  if (!refinedResult.ok) {
+    return refinedResult as StructuredOutputResult<ValidatedBeadRefinementResult>
+  }
+
+  const refinedBeads: BeadSubset[] = refinedResult.value
+  const rawChanges: RefinementChange[] = Array.isArray(refinedResult.value.changes)
+    ? refinedResult.value.changes
+    : []
+
+  // Step 2: Parse the winner draft
+  const winnerResult = normalizeBeadSubsetYamlOutput(winnerDraftContent)
+  if (!winnerResult.ok) {
+    // If winner draft can't be parsed, fall through with basic validation
+    return {
+      ok: true,
+      value: {
+        beads: refinedBeads,
+        changes: rawChanges,
+        normalizedContent: refinedResult.normalizedContent,
+        repairApplied: refinedResult.repairApplied,
+        repairWarnings: [
+          ...refinedResult.repairWarnings,
+          'Could not parse winner draft for cross-validation — using raw changes without canonicalization.',
+        ],
+      },
+      normalizedContent: refinedResult.normalizedContent,
+      repairApplied: true,
+      repairWarnings: [
+        ...refinedResult.repairWarnings,
+        'Could not parse winner draft for cross-validation — using raw changes without canonicalization.',
+      ],
+    }
+  }
+
+  const winnerBeads: BeadSubset[] = winnerResult.value
+  const repairWarnings = [...refinedResult.repairWarnings]
+  let repairApplied = refinedResult.repairApplied
+
+  // If no changes were provided, try to synthesize all of them
+  if (rawChanges.length === 0) {
+    const winnerItems = winnerBeads.map(buildBeadItemFromSubset)
+    const refinedItems = refinedBeads.map(buildBeadItemFromSubset)
+    const synthesized = synthesizeAllBeadChanges(winnerItems, refinedItems)
+    if (synthesized.changes.length > 0) {
+      repairApplied = true
+      repairWarnings.push(...synthesized.repairWarnings)
+    }
+
+    return {
+      ok: true,
+      value: {
+        beads: refinedBeads,
+        changes: synthesized.changes,
+        normalizedContent: refinedResult.normalizedContent,
+        repairApplied,
+        repairWarnings,
+      },
+      normalizedContent: refinedResult.normalizedContent,
+      repairApplied,
+      repairWarnings,
+    }
+  }
+
+  // Step 3: Build lookups
+  const winnerItems = winnerBeads.map(buildBeadItemFromSubset)
+  const refinedItems = refinedBeads.map(buildBeadItemFromSubset)
+  const winnerLookup = buildBeadLookup(winnerItems)
+  const refinedLookup = buildBeadLookup(refinedItems)
+
+  const usedBeforeIds = new Set<string>()
+  const usedAfterIds = new Set<string>()
+  const validatedChanges: RefinementChange[] = []
+
+  // Step 4: Canonicalize, validate, and filter changes
+  for (const [index, change] of rawChanges.entries()) {
+    const before = change.before
+      ? resolveBeadChangeItem(change.before, winnerLookup)
+      : null
+    const after = change.after
+      ? resolveBeadChangeItem(change.after, refinedLookup)
+      : null
+
+    // Type-specific validation (lenient — log warnings instead of throwing)
+    if (change.type === 'modified') {
+      if (!before && !after) {
+        repairApplied = true
+        repairWarnings.push(`Skipped beads refinement change at index ${index}: modified change has no resolvable before or after item.`)
+        continue
+      }
+    } else if (change.type === 'added') {
+      if (!after) {
+        repairApplied = true
+        repairWarnings.push(`Skipped beads refinement change at index ${index}: added change has no resolvable after item.`)
+        continue
+      }
+    } else if (change.type === 'removed') {
+      if (!before) {
+        repairApplied = true
+        repairWarnings.push(`Skipped beads refinement change at index ${index}: removed change has no resolvable before item.`)
+        continue
+      }
+    }
+
+    // No-op detection: drop changes where before and after are identical
+    if (before && after && before.contentFingerprint === after.contentFingerprint) {
+      repairApplied = true
+      repairWarnings.push(`Dropped no-op beads refinement modified change at index ${index} because the winning and refined bead "${before.id}" are identical.`)
+      continue
+    }
+
+    // Track used IDs for synthesis
+    if (before) usedBeforeIds.add(before.id)
+    if (after) usedAfterIds.add(after.id)
+
+    // Hydrate inspiration attribution
+    let inspiration = change.inspiration ?? null
+    let attributionStatus = change.attributionStatus ?? (inspiration ? 'inspired' : 'model_unattributed')
+
+    if (inspiration) {
+      const losingDraft = losingDraftMeta?.[inspiration.draftIndex]
+      if (!losingDraft) {
+        const draftNumber = inspiration.draftIndex + 1
+        inspiration = null
+        attributionStatus = 'invalid_unattributed'
+        repairApplied = true
+        repairWarnings.push(`Cleared out-of-range beads refinement inspiration at index ${index} because alternative draft ${draftNumber} does not exist.`)
+      } else {
+        // Hydrate with losing draft memberId and optionally enrich item
+        const enrichedItem = enrichInspirationFromLosingDraft(inspiration, losingDraft)
+        inspiration = {
+          ...inspiration,
+          memberId: losingDraft.memberId,
+          ...(enrichedItem ? { item: enrichedItem } : {}),
+        }
+        attributionStatus = 'inspired'
+      }
+    } else if (attributionStatus === 'inspired') {
+      attributionStatus = 'model_unattributed'
+    }
+
+    validatedChanges.push({
+      type: change.type,
+      itemType: 'bead',
+      before: before ? { id: before.id, label: before.label, detail: before.detail } : change.before ?? null,
+      after: after ? { id: after.id, label: after.label, detail: after.detail } : change.after ?? null,
+      inspiration,
+      attributionStatus,
+    })
+  }
+
+  // Step 5: Synthesize omitted changes
+  const synthesized = synthesizeOmittedBeadChanges(
+    winnerItems,
+    refinedItems,
+    usedBeforeIds,
+    usedAfterIds,
+  )
+  if (synthesized.changes.length > 0) {
+    repairApplied = true
+    repairWarnings.push(...synthesized.repairWarnings)
+    validatedChanges.push(...synthesized.changes)
+  }
+
+  return {
+    ok: true,
+    value: {
+      beads: refinedBeads,
+      changes: validatedChanges,
+      normalizedContent: refinedResult.normalizedContent,
+      repairApplied,
+      repairWarnings,
+    },
+    normalizedContent: refinedResult.normalizedContent,
+    repairApplied,
+    repairWarnings,
+  }
+}
+
+/**
+ * Enrich inspiration item with content from the losing draft (if available).
+ */
+function enrichInspirationFromLosingDraft(
+  inspiration: NonNullable<RefinementChange['inspiration']>,
+  losingDraft: { memberId: string; content?: string },
+): RefinementChangeItem | null {
+  if (!losingDraft.content || !inspiration.item) return null
+
+  const losingResult = normalizeBeadSubsetYamlOutput(losingDraft.content)
+  if (!losingResult.ok) return null
+
+  const losingBeads: BeadSubset[] = losingResult.value
+  const inspirationId = inspiration.item.id
+  const inspirationLabel = inspiration.item.label?.toLowerCase().trim()
+
+  for (const bead of losingBeads) {
+    if (
+      bead.id === inspirationId
+      || bead.title.toLowerCase().trim() === inspirationLabel
+    ) {
+      return {
+        id: bead.id,
+        label: bead.title,
+        detail: inspiration.item.detail || bead.description,
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Synthesize changes for beads that were modified (different content fingerprint)
+ * but not listed in the explicit changes array.
+ */
+function synthesizeOmittedBeadChanges(
+  winnerItems: NormalizedBeadItem[],
+  refinedItems: NormalizedBeadItem[],
+  usedBeforeIds: Set<string>,
+  usedAfterIds: Set<string>,
+): {
+  changes: RefinementChange[]
+  repairWarnings: string[]
+} {
+  const changes: RefinementChange[] = []
+  const repairWarnings: string[] = []
+  const refinedById = new Map(refinedItems.map((item) => [item.id, item]))
+
+  for (const winnerItem of winnerItems) {
+    if (usedBeforeIds.has(winnerItem.id)) continue
+
+    const refinedItem = refinedById.get(winnerItem.id)
+    if (!refinedItem) continue
+    if (usedAfterIds.has(refinedItem.id)) continue
+
+    // Same ID exists in both — check if content actually changed
+    if (winnerItem.contentFingerprint === refinedItem.contentFingerprint) continue
+
+    usedBeforeIds.add(winnerItem.id)
+    usedAfterIds.add(refinedItem.id)
+    changes.push({
+      type: 'modified',
+      itemType: 'bead',
+      before: { id: winnerItem.id, label: winnerItem.label, detail: winnerItem.detail },
+      after: { id: refinedItem.id, label: refinedItem.label, detail: refinedItem.detail },
+      inspiration: null,
+      attributionStatus: 'synthesized_unattributed',
+    })
+    repairWarnings.push(
+      `Synthesized omitted beads refinement modified change for bead "${winnerItem.id}" by matching id across the winning and refined drafts.`,
+    )
+  }
+
+  // Detect added beads (in refined but not in winner)
+  const winnerIds = new Set(winnerItems.map((item) => item.id))
+  for (const refinedItem of refinedItems) {
+    if (usedAfterIds.has(refinedItem.id)) continue
+    if (winnerIds.has(refinedItem.id)) continue
+
+    usedAfterIds.add(refinedItem.id)
+    changes.push({
+      type: 'added',
+      itemType: 'bead',
+      before: null,
+      after: { id: refinedItem.id, label: refinedItem.label, detail: refinedItem.detail },
+      inspiration: null,
+      attributionStatus: 'synthesized_unattributed',
+    })
+    repairWarnings.push(
+      `Synthesized omitted beads refinement added change for bead "${refinedItem.id}" (present in refined output but not in winner draft).`,
+    )
+  }
+
+  // Detect removed beads (in winner but not in refined)
+  const refinedIds = new Set(refinedItems.map((item) => item.id))
+  for (const winnerItem of winnerItems) {
+    if (usedBeforeIds.has(winnerItem.id)) continue
+    if (refinedIds.has(winnerItem.id)) continue
+
+    usedBeforeIds.add(winnerItem.id)
+    changes.push({
+      type: 'removed',
+      itemType: 'bead',
+      before: { id: winnerItem.id, label: winnerItem.label, detail: winnerItem.detail },
+      after: null,
+      inspiration: null,
+      attributionStatus: 'synthesized_unattributed',
+    })
+    repairWarnings.push(
+      `Synthesized omitted beads refinement removed change for bead "${winnerItem.id}" (present in winner draft but not in refined output).`,
+    )
+  }
+
+  return { changes, repairWarnings }
+}
+
+/**
+ * When no changes list is provided at all, synthesize the full diff
+ * by comparing winner and refined bead sets.
+ */
+function synthesizeAllBeadChanges(
+  winnerItems: NormalizedBeadItem[],
+  refinedItems: NormalizedBeadItem[],
+): {
+  changes: RefinementChange[]
+  repairWarnings: string[]
+} {
+  return synthesizeOmittedBeadChanges(
+    winnerItems,
+    refinedItems,
+    new Set(),
+    new Set(),
   )
 }
 
