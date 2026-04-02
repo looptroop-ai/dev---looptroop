@@ -2072,9 +2072,6 @@ export function BeadsDraftView({ content }: { content: string }) {
                       #{order}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{title}</span>
-                    <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0', tone.statusBadge)}>
-                      {status.replace(/_/g, ' ')}
-                    </span>
                   </span>
                 )}
               >

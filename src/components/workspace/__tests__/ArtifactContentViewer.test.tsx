@@ -498,12 +498,15 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
+    expect(screen.queryByText(/^pending$/i)).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByText('Render structured guidance safely').closest('button')!)
 
     expect(screen.getByText('Patterns')).toBeInTheDocument()
     expect(screen.getByText('Anti-patterns')).toBeInTheDocument()
     expect(screen.getByText('Reuse the shared bead viewer for every artifact path.')).toBeInTheDocument()
     expect(screen.getByText('Do not render structured guidance objects directly into JSX.')).toBeInTheDocument()
+    expect(screen.queryByText(/^pending$/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Something went wrong rendering this content/i)).not.toBeInTheDocument()
   })
 

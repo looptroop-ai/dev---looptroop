@@ -416,6 +416,8 @@ describe('Interview approval UI', () => {
 
     await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
 
+    expect(screen.queryByText(/^pending$/i)).not.toBeInTheDocument()
+
     fireEvent.click((await screen.findByText('Review approval metadata')).closest('button')!)
 
     expect(screen.getByText('Target Files')).toBeInTheDocument()
@@ -428,5 +430,6 @@ describe('Interview approval UI', () => {
 
     expect(screen.getByText('Issue Type')).toBeInTheDocument()
     expect(screen.getByText('Lifecycle')).toBeInTheDocument()
+    expect(screen.getByText(/^pending$/i)).toBeInTheDocument()
   }, 30_000)
 })
