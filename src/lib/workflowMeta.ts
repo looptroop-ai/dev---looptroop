@@ -45,11 +45,11 @@ export function getCascadeEditWarningMessage(
 
   const affectedPhases: string[] = []
 
-  if (artifactType === 'interview' && hasReachedStatus(currentStatus, 'DRAFTING_PRD')) {
+  if (artifactType === 'interview' && hasReachedStatus(currentStatus, 'DRAFTING_BEADS')) {
     affectedPhases.push('PRD')
   }
 
-  if (hasReachedStatus(currentStatus, 'DRAFTING_BEADS')) {
+  if (hasReachedStatus(currentStatus, 'PRE_FLIGHT_CHECK')) {
     affectedPhases.push('Beads')
   }
 

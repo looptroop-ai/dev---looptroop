@@ -7,26 +7,22 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
     expect(getCascadeEditWarningMessage('WAITING_INTERVIEW_APPROVAL', 'interview')).toBeNull()
   })
 
-  it('warns only about PRD when editing interview during the PRD phase', () => {
-    expect(getCascadeEditWarningMessage('WAITING_PRD_APPROVAL', 'interview')).toBe(
+  it('does not warn when editing interview at PRD approval (PRD not yet approved)', () => {
+    expect(getCascadeEditWarningMessage('WAITING_PRD_APPROVAL', 'interview')).toBeNull()
+  })
+
+  it('warns only about PRD when editing interview at Beads approval (PRD approved, Beads not)', () => {
+    expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'interview')).toBe(
       'Editing Interview Results will restart the PRD phase. All previous PRD data will be lost.',
     )
   })
 
-  it('warns about PRD and Beads when both downstream phases have started', () => {
-    expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'interview')).toBe(
-      'Editing Interview Results will restart the PRD and Beads phases. All previous PRD and Beads data will be lost.',
-    )
-  })
-
-  it('does not warn when editing PRD before Beads has started', () => {
+  it('does not warn when editing PRD before Beads has been approved', () => {
     expect(getCascadeEditWarningMessage('WAITING_PRD_APPROVAL', 'prd')).toBeNull()
   })
 
-  it('warns about Beads when editing PRD after the Beads phase has started', () => {
-    expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'prd')).toBe(
-      'Editing the PRD will restart the Beads phase. All previous Beads data will be lost.',
-    )
+  it('does not warn when editing PRD at Beads approval (Beads not yet approved)', () => {
+    expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'prd')).toBeNull()
   })
 
   it('never warns when editing beads', () => {
