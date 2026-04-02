@@ -253,6 +253,26 @@ describe('PrdApprovalPane', () => {
     })
   })
 
+  it('shows a cascade warning before editing when beads work has already started', async () => {
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'DRAFTING_BEADS' })} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByText('Cascading Edit Warning')).toBeInTheDocument()
+    expect(screen.getByText('Editing the PRD will restart the Beads phase. All previous Beads data will be lost.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('structured-prd-editor')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Proceed with Edit' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('structured-prd-editor')).toBeInTheDocument()
+    })
+  })
+
   it('confirms before discarding dirty structured edits when switching to YAML', async () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 

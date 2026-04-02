@@ -21,8 +21,16 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
     expect(getCascadeEditWarningMessage('WAITING_PRD_APPROVAL', 'prd')).toBeNull()
   })
 
-  it('does not warn when editing PRD at Beads approval (Beads not yet approved)', () => {
-    expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'prd')).toBeNull()
+  it('warns when editing PRD once Beads drafting has started', () => {
+    expect(getCascadeEditWarningMessage('DRAFTING_BEADS', 'prd')).toBe(
+      'Editing the PRD will restart the Beads phase. All previous Beads data will be lost.',
+    )
+  })
+
+  it('keeps warning when editing PRD during later execution phases', () => {
+    expect(getCascadeEditWarningMessage('PRE_FLIGHT_CHECK', 'prd')).toBe(
+      'Editing the PRD will restart the Beads phase. All previous Beads data will be lost.',
+    )
   })
 
   it('never warns when editing beads', () => {

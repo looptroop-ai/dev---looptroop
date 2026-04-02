@@ -49,7 +49,11 @@ export function getCascadeEditWarningMessage(
     affectedPhases.push('PRD')
   }
 
-  if (hasReachedStatus(currentStatus, 'PRE_FLIGHT_CHECK')) {
+  const shouldWarnAboutBeads = artifactType === 'prd'
+    ? hasReachedStatus(currentStatus, 'DRAFTING_BEADS')
+    : hasReachedStatus(currentStatus, 'PRE_FLIGHT_CHECK')
+
+  if (shouldWarnAboutBeads) {
     affectedPhases.push('Beads')
   }
 
