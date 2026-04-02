@@ -243,33 +243,11 @@ function parseExactOptionLabelSelections(
   return [trimmed]
 }
 
-function normalizeChoiceQuestionAnswer(
+function buildCanonicalOptionLabelMap(
   canonicalQuestion: InterviewDocumentQuestion,
-  candidateQuestion: InterviewDocumentQuestion,
-): { selectedOptionIds: string[]; freeText: string } {
-  const optionIdSet = new Set(canonicalQuestion.options.map((option) => option.id))
-  const explicitSelections = Array.from(new Set(candidateQuestion.answer.selected_option_ids))
-
-  if (explicitSelections.length > 0) {
-    const invalidSelection = explicitSelections.find((optionId) => !optionIdSet.has(optionId))
-    if (invalidSelection) {
-      throw new Error(`Resolved interview selected unknown option id "${invalidSelection}" for canonical question ${canonicalQuestion.id}`)
-    }
-    if (canonicalQuestion.answer_type === 'single_choice' && explicitSelections.length !== 1) {
-      throw new Error(`Resolved interview must select exactly one option for canonical question ${canonicalQuestion.id}`)
-    }
-    return {
-      selectedOptionIds: explicitSelections,
-      freeText: candidateQuestion.answer.free_text,
-    }
-  }
-
-  const labels = parseExactOptionLabelSelections(candidateQuestion.answer.free_text, canonicalQuestion.answer_type)
-  if (labels.length === 0) {
-    throw new Error(`Resolved interview left skipped question unanswered: ${canonicalQuestion.id}`)
-  }
-
+): Map<string, string> {
   const normalizedOptionLabels = new Map<string, string>()
+
   for (const option of canonicalQuestion.options) {
     const normalized = normalizeKey(option.label)
     if (normalizedOptionLabels.has(normalized)) {
@@ -278,8 +256,79 @@ function normalizeChoiceQuestionAnswer(
     normalizedOptionLabels.set(normalized, option.id)
   }
 
+  return normalizedOptionLabels
+}
+
+function resolveCanonicalOptionIdFromAnswerText(
+  answerText: string,
+  canonicalQuestion: InterviewDocumentQuestion,
+  normalizedOptionLabels: Map<string, string>,
+): string | null {
+  const trimmed = answerText.trim()
+  if (!trimmed) return null
+
+  const exactMatch = normalizedOptionLabels.get(normalizeKey(trimmed))
+  if (exactMatch) return exactMatch
+
+  const lowerTrimmed = trimmed.toLowerCase()
+  const prefixMatches = canonicalQuestion.options.filter((option) => {
+    const label = option.label.trim()
+    if (!label) return false
+    if (!lowerTrimmed.startsWith(label.toLowerCase())) return false
+
+    const remainder = trimmed.slice(label.length)
+    return remainder.length === 0 || /^[\s]*[.,;:!?()[\]{}'"`-]/.test(remainder)
+  })
+
+  return prefixMatches.length === 1 ? prefixMatches[0]!.id : null
+}
+
+function normalizeChoiceQuestionAnswer(
+  canonicalQuestion: InterviewDocumentQuestion,
+  candidateQuestion: InterviewDocumentQuestion,
+): { selectedOptionIds: string[]; freeText: string; repairedSelectionIds: boolean } {
+  const optionIdSet = new Set(canonicalQuestion.options.map((option) => option.id))
+  const normalizedOptionLabels = buildCanonicalOptionLabelMap(canonicalQuestion)
+  const explicitSelections = Array.from(new Set(candidateQuestion.answer.selected_option_ids))
+
+  if (explicitSelections.length > 0) {
+    let repairedSelectionIds = false
+    const selectedOptionIds = explicitSelections.map((optionId) => {
+      if (optionIdSet.has(optionId)) {
+        return optionId
+      }
+
+      const candidateOption = candidateQuestion.options.find((option) => option.id === optionId)
+      const repairedOptionId = candidateOption
+        ? resolveCanonicalOptionIdFromAnswerText(candidateOption.label, canonicalQuestion, normalizedOptionLabels)
+        : null
+
+      if (!repairedOptionId) {
+        throw new Error(`Resolved interview selected unknown option id "${optionId}" for canonical question ${canonicalQuestion.id}`)
+      }
+
+      repairedSelectionIds = true
+      return repairedOptionId
+    })
+
+    const uniqueSelections = Array.from(new Set(selectedOptionIds))
+    if (canonicalQuestion.answer_type === 'single_choice' && explicitSelections.length !== 1) {
+      throw new Error(`Resolved interview must select exactly one option for canonical question ${canonicalQuestion.id}`)
+    }
+    return {
+      selectedOptionIds: uniqueSelections,
+      freeText: candidateQuestion.answer.free_text,
+      repairedSelectionIds,
+    }
+  }
+
+  const labels = parseExactOptionLabelSelections(candidateQuestion.answer.free_text, canonicalQuestion.answer_type)
+  if (labels.length === 0) {
+    throw new Error(`Resolved interview left skipped question unanswered: ${canonicalQuestion.id}`)
+  }
+
   const selectedOptionIds = labels.map((label) => {
-    const optionId = normalizedOptionLabels.get(normalizeKey(label))
+    const optionId = resolveCanonicalOptionIdFromAnswerText(label, canonicalQuestion, normalizedOptionLabels)
     if (!optionId) {
       throw new Error(`Resolved interview answer for canonical question ${canonicalQuestion.id} does not map exactly to canonical options`)
     }
@@ -294,6 +343,7 @@ function normalizeChoiceQuestionAnswer(
   return {
     selectedOptionIds: uniqueSelections,
     freeText: candidateQuestion.answer.free_text,
+    repairedSelectionIds: false,
   }
 }
 
@@ -646,6 +696,8 @@ export function normalizeResolvedInterviewDocumentOutput(
         const normalizedChoiceAnswer = normalizeChoiceQuestionAnswer(canonicalQuestion, candidateQuestion)
         if (candidateQuestion.answer.selected_option_ids.length === 0) {
           repairWarnings.push(`Mapped free_text to canonical option ids for AI-filled question ${canonicalQuestion.id}.`)
+        } else if (normalizedChoiceAnswer.repairedSelectionIds) {
+          repairWarnings.push(`Mapped selected option ids to canonical option ids for AI-filled question ${canonicalQuestion.id}.`)
         }
 
         return {

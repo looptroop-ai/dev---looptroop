@@ -1141,6 +1141,26 @@ describe('ArtifactContentViewer', () => {
     ])
   })
 
+  it('shows specific cleanup copy for selected option id repairs in Full Answers notices', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: [
+        'Mapped selected option ids to canonical option ids for AI-filled question Q01.',
+      ],
+      autoRetryCount: 0,
+    }, 'full-answers')
+
+    expect(copy?.title).toBe('LoopTroop adjusted these Full Answers.')
+    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({
+        category: 'cleanup',
+        code: 'cleanup_mapped_free_text',
+        exactCorrection: 'Mapped the answer content to canonical option IDs for question Q01.',
+      }),
+    ])
+  })
+
   it('uses reused-approved-interview wording for synthetic Full Answers artifacts', () => {
     const copy = buildArtifactProcessingNoticeCopy({
       repairApplied: true,

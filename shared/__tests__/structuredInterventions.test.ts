@@ -279,6 +279,11 @@ describe('cleanup interventions', () => {
     expectIntervention(i, { code: 'cleanup_mapped_free_text', stage: 'normalize', category: 'cleanup' })
   })
 
+  it('maps selected option id repair warnings', () => {
+    const i = deriveOne('Mapped selected option ids to canonical option ids for AI-filled question Q4.')
+    expectIntervention(i, { code: 'cleanup_mapped_free_text', stage: 'normalize', category: 'cleanup' })
+  })
+
   it('maps restored answered question', () => {
     const i = deriveOne('Restored answered canonical question Q2 from the approved Interview Results artifact.')
     expectIntervention(i, { code: 'cleanup_restored_answered', stage: 'normalize', category: 'cleanup' })
@@ -449,7 +454,7 @@ describe('exact correction details', () => {
     expect(cleanupStatus.exactCorrection).toBe('Resolved the interview status field to the expected workflow value.')
 
     const mappedOption = deriveOne('Mapped free_text to canonical option ids for AI-filled question Q02.')
-    expect(mappedOption.exactCorrection).toBe('Mapped the free-text answer to canonical option IDs for question Q02.')
+    expect(mappedOption.exactCorrection).toBe('Mapped the answer content to canonical option IDs for question Q02.')
 
     const answeredBy = deriveOne('Canonicalized answered_by to ai_skip for AI-filled question FU1.')
     expect(answeredBy.exactCorrection).toBe('Set answered_by to "ai_skip" for question FU1.')

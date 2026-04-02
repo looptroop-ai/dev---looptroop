@@ -468,7 +468,7 @@ function buildExactInterventionDetails(
 
   if (code === 'cleanup_mapped_free_text') {
     const targetMatch = warning.match(/question\s+(Q\d+|FU\d+)/i)
-    return { exactCorrection: targetMatch ? `Mapped the free-text answer to canonical option IDs for question ${targetMatch[1]}.` : 'Mapped the generated free-text answer to the closest canonical option IDs.' }
+    return { exactCorrection: targetMatch ? `Mapped the answer content to canonical option IDs for question ${targetMatch[1]}.` : 'Mapped the generated answer content to the closest canonical option IDs.' }
   }
 
   if (code === 'cleanup_context_guidance') {
@@ -1092,15 +1092,15 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
     })
   }
 
-  if (/mapped free_text/i.test(normalized)) {
+  if (/mapped free_text|mapped selected option ids/i.test(normalized)) {
     return buildIntervention(warning, {
       code: 'cleanup_mapped_free_text',
       stage: 'normalize',
       category: 'cleanup',
-      title: 'Mapped free-text answers to canonical option IDs',
-      summary: 'The model provided free-text answers instead of selecting from the defined option set for a multiple-choice question.',
+      title: 'Mapped answer content to canonical option IDs',
+      summary: 'The model provided non-canonical choice data instead of using the approved option IDs directly.',
       why: 'Downstream processing requires canonical option identifiers, not free-form text, for structured question responses.',
-      how: 'LoopTroop matched the free-text content to the closest canonical option identifiers and recorded the mapping.',
+      how: 'LoopTroop matched the provided option labels or answer text to the canonical option identifiers and recorded the mapping.',
     })
   }
 
