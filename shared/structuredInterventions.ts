@@ -282,6 +282,18 @@ function buildExactInterventionDetails(
     }
   }
 
+  if (code === 'synthesized_omitted_refinement') {
+    const synthMatch = warning.match(/Synthesized omitted (.+?) refinement/i)
+    if (synthMatch) {
+      return { exactCorrection: `Synthesized an omitted ${synthMatch[1]} refinement change.` }
+    }
+    return { exactCorrection: 'Synthesized an omitted refinement change.' }
+  }
+
+  if (code === 'synthesized_missing_detail') {
+    return { exactCorrection: 'Synthesized missing machine-readable detail from validated records.' }
+  }
+
   if (code === 'dropped_no_op_change') {
     const droppedMatch = warning.match(/^Dropped no-op .* refinement (.+?)(?: change)? at index (\d+)/i)
     if (droppedMatch) {
@@ -289,6 +301,31 @@ function buildExactInterventionDetails(
         exactCorrection: `Removed the no-op ${droppedMatch[1]} change entry at index ${droppedMatch[2]} from the saved diff.`,
       }
     }
+    return { exactCorrection: 'Removed a no-op change entry from the saved diff.' }
+  }
+
+  if (code === 'dropped_invalid_change') {
+    const skippedMatch = warning.match(/^Skipped .*refinement change.* at index (\d+)/i)
+    if (skippedMatch) {
+      return { exactCorrection: `Removed the invalid refinement change entry at index ${skippedMatch[1]}.` }
+    }
+    return { exactCorrection: 'Removed an invalid refinement change entry.' }
+  }
+
+  if (code === 'dropped_unsupported_or_partial_data') {
+    return { exactCorrection: 'Removed unsupported or partial data that conflicted with the expected artifact contract.' }
+  }
+
+  if (code === 'attribution_out_of_range') {
+    const outOfRangeMatch = warning.match(/index (\d+).*draft (\d+)/i)
+    if (outOfRangeMatch) {
+      return { exactCorrection: `Cleared the out-of-range inspiration reference at index ${outOfRangeMatch[1]} pointing to non-existent draft ${outOfRangeMatch[2]}.` }
+    }
+    return { exactCorrection: 'Cleared an out-of-range inspiration reference.' }
+  }
+
+  if (code === 'attribution_repaired') {
+    return { exactCorrection: 'Repaired change attribution fields to align with validated artifacts.' }
   }
 
   if (code === 'parser_wrapper_key') {
@@ -379,6 +416,10 @@ function buildExactInterventionDetails(
     }
   }
 
+  if (code === 'parser_repair') {
+    return { exactCorrection: 'Cleaned a parser-level formatting issue to safely read the structured payload.' }
+  }
+
   if (code === 'cleanup_schema_version') {
     const example = buildBeforeAfterExample('schema_version', '[invalid]', '1')
     return {
@@ -412,36 +453,71 @@ function buildExactInterventionDetails(
   }
 
   if (code === 'cleanup_restored_answered') {
-    return {
-      exactCorrection: 'Restored the approved answered question record from the canonical interview artifact.',
-    }
+    const questionMatch = warning.match(/canonical question (Q\d+|FU\d+)/i)
+    return { exactCorrection: questionMatch ? `Restored the approved answered record for question ${questionMatch[1]}.` : 'Restored the approved answered question record from the canonical interview artifact.' }
   }
 
   if (code === 'cleanup_answered_by') {
     const targetMatch = warning.match(/question\s+(Q\d+|FU\d+)/i)
     const example = buildBeforeAfterExample(targetMatch?.[1], undefined, 'ai_skip')
     return {
-      exactCorrection: 'Set answered_by to "ai_skip" for the AI-filled question.',
+      exactCorrection: targetMatch ? `Set answered_by to "ai_skip" for question ${targetMatch[1]}.` : 'Set answered_by to "ai_skip" for the AI-filled question.',
       ...(example ? { examples: [example] } : {}),
     }
   }
 
   if (code === 'cleanup_mapped_free_text') {
-    return {
-      exactCorrection: 'Mapped the generated free-text answer to the closest canonical option IDs.',
-    }
+    const targetMatch = warning.match(/question\s+(Q\d+|FU\d+)/i)
+    return { exactCorrection: targetMatch ? `Mapped the free-text answer to canonical option IDs for question ${targetMatch[1]}.` : 'Mapped the generated free-text answer to the closest canonical option IDs.' }
   }
 
   if (code === 'cleanup_context_guidance') {
-    return {
-      exactCorrection: 'Converted inline context guidance text into the canonical patterns / anti_patterns object.',
-    }
+    return { exactCorrection: 'Converted inline context guidance text into the canonical patterns / anti_patterns object.' }
   }
 
   if (code === 'cleanup_change_type_correction') {
-    return {
-      exactCorrection: 'Reclassified or reapplied the refinement change so the declared change list matched the validated content.',
-    }
+    return { exactCorrection: 'Reclassified or reapplied the refinement change so the declared change list matched the validated content.' }
+  }
+
+  if (code === 'cleanup_collapsed_duplicate') {
+    return { exactCorrection: 'Collapsed the duplicate refinement change entry.' }
+  }
+
+  if (code === 'cleanup_recomputed_score') {
+    return { exactCorrection: 'Recomputed the total score from individual dimension scores.' }
+  }
+
+  if (code === 'cleanup_trimmed_empty') {
+    return { exactCorrection: 'Trimmed empty entries before saving.' }
+  }
+
+  if (code === 'cleanup_reordering') {
+    return { exactCorrection: 'Re-sorted the items into their correct canonical sequence.' }
+  }
+
+  if (code === 'cleanup_interview_status') {
+    return { exactCorrection: 'Resolved the interview status field to the expected workflow value.' }
+  }
+
+  if (code === 'cleanup_no_prd_refs') {
+    const beadMatch = warning.match(/Bead "([^"]+)"/i)
+    return { exactCorrection: beadMatch ? `Flagged bead "${beadMatch[1]}" for having no PRD references.` : 'Flagged a bead for having no PRD references.' }
+  }
+
+  if (code === 'cleanup_preserved_narrative_substantive') {
+    return { exactCorrection: 'Replaced a substantive narrative rewrite with the canonical preserved field content.' }
+  }
+
+  if (code === 'cleanup_preserved_narrative') {
+    return { exactCorrection: 'Restored the exact canonical preserved field content after detecting cosmetic drift.' }
+  }
+
+  if (code === 'cleanup_affected_label') {
+    return { exactCorrection: 'Canonicalized the affected_items label to match the authoritative source.' }
+  }
+
+  if (code === 'cleanup_canonicalization') {
+    return { exactCorrection: 'Normalized the saved artifact detail to the canonical validated value.' }
   }
 
   if (code === 'retry_after_validation_failure') {

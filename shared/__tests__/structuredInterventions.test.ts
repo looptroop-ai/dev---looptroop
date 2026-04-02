@@ -437,6 +437,26 @@ describe('exact correction details', () => {
       },
     ])
   })
+
+  it('derives explicit extracted details for dropped, attribution, and cleanup actions', () => {
+    const droppedInvalid = deriveOne('Skipped non-object refinement change at index 2.')
+    expect(droppedInvalid.exactCorrection).toBe('Removed the invalid refinement change entry at index 2.')
+
+    const attributionOut = deriveOne('Cleared out-of-range PRD refinement inspiration at index 4 because alternative draft 10 does not exist.')
+    expect(attributionOut.exactCorrection).toBe('Cleared the out-of-range inspiration reference at index 4 pointing to non-existent draft 10.')
+
+    const cleanupStatus = deriveOne('Resolved interview status to the expected value.')
+    expect(cleanupStatus.exactCorrection).toBe('Resolved the interview status field to the expected workflow value.')
+
+    const mappedOption = deriveOne('Mapped free_text to canonical option ids for AI-filled question Q02.')
+    expect(mappedOption.exactCorrection).toBe('Mapped the free-text answer to canonical option IDs for question Q02.')
+
+    const answeredBy = deriveOne('Canonicalized answered_by to ai_skip for AI-filled question FU1.')
+    expect(answeredBy.exactCorrection).toBe('Set answered_by to "ai_skip" for question FU1.')
+    
+    const noPrdRefs = deriveOne('Bead "bead-abc" has no PRD references (prdRefs is empty).')
+    expect(noPrdRefs.exactCorrection).toBe('Flagged bead "bead-abc" for having no PRD references.')
+  })
 })
 
 // ── deriveStructuredInterventions ───────────────────────────────────
