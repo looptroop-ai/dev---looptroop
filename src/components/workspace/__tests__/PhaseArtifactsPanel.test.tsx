@@ -31,6 +31,11 @@ async function expectFirstInspirationTooltip(bodyText: string | string[]) {
   }
 }
 
+function expectCoverageAttributionUiHidden() {
+  expect(document.querySelector('.lucide-lightbulb')).toBeNull()
+  expect(screen.queryAllByText('No source recorded')).toHaveLength(0)
+}
+
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -1218,13 +1223,13 @@ describe('PhaseArtifactsPanel', () => {
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase="WAITING_PRD_APPROVAL"
+        phase="REFINING_PRD"
         isCompleted={false}
         preloadedArtifacts={[refinedArtifact]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     const leafTextMatcher = (text: string) => (_content: string, node: Element | null) => {
@@ -1238,6 +1243,385 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText(leafTextMatcher('Original PRD review'))).toBeInTheDocument()
     expect(screen.getAllByText(leafTextMatcher('Refined PRD review')).length).toBeGreaterThan(0)
     expect(screen.getAllByText(leafTextMatcher('Inspect refined PRD sections')).length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    { phase: 'VERIFYING_PRD_COVERAGE' as const, buttonName: /PRD Candidate v2/i },
+    { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate v2/i },
+  ])('hides PRD attribution UI in $phase while keeping system badges', ({ phase, buttonName }) => {
+    const coverageRevisionArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_revision',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        candidateVersion: 2,
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Original PRD review',
+          storyTitle: 'Inspect original PRD sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Coverage revised PRD review',
+          storyTitle: 'Inspect revised PRD sections',
+        }),
+        uiRefinementDiff: {
+          domain: 'prd',
+          winnerId: 'openai/gpt-5.2',
+          generatedAt: '2026-03-12T11:49:34.000Z',
+          entries: [
+            {
+              key: 'epic:EPIC-1',
+              changeType: 'modified',
+              itemKind: 'epic',
+              label: 'Coverage revised PRD review',
+              beforeId: 'EPIC-1',
+              afterId: 'EPIC-1',
+              beforeText: 'Title: Original PRD review',
+              afterText: 'Title: Coverage revised PRD review',
+              inspiration: {
+                memberId: 'openai/gpt-5-mini',
+                sourceId: 'EPIC-9',
+                sourceLabel: 'Alternative PRD review',
+                sourceText: 'Alternative epic wording from a losing draft.',
+              },
+              attributionStatus: 'inspired',
+            },
+            {
+              key: 'user_story:US-2',
+              changeType: 'added',
+              itemKind: 'user_story',
+              label: 'Inspect revised PRD sections',
+              afterId: 'US-2',
+              afterText: 'Title: Inspect revised PRD sections',
+              inspiration: null,
+              attributionStatus: 'model_unattributed',
+            },
+            {
+              key: 'user_story:US-3',
+              changeType: 'removed',
+              itemKind: 'user_story',
+              label: 'Carry forward missing diff context',
+              beforeId: 'US-3',
+              beforeText: 'Title: Carry forward missing diff context',
+              inspiration: null,
+              attributionStatus: 'synthesized_unattributed',
+            },
+            {
+              key: 'user_story:US-4',
+              changeType: 'modified',
+              itemKind: 'user_story',
+              label: 'Clear broken attribution safely',
+              beforeId: 'US-4',
+              afterId: 'US-4',
+              beforeText: 'Title: Clear broken attribution',
+              afterText: 'Title: Clear broken attribution safely',
+              inspiration: null,
+              attributionStatus: 'invalid_unattributed',
+            },
+          ],
+        },
+        changes: [
+          {
+            type: 'modified',
+            itemType: 'epic',
+            before: { id: 'EPIC-1', label: 'Original PRD review' },
+            after: { id: 'EPIC-1', label: 'Coverage revised PRD review' },
+            inspiration: {
+              memberId: 'openai/gpt-5-mini',
+              item: {
+                id: 'EPIC-9',
+                label: 'Alternative PRD review',
+                detail: 'Alternative epic wording from a losing draft.',
+              },
+            },
+            attributionStatus: 'inspired',
+          },
+          {
+            type: 'added',
+            itemType: 'user_story',
+            before: null,
+            after: { id: 'US-2', label: 'Inspect revised PRD sections' },
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
+          },
+          {
+            type: 'removed',
+            itemType: 'user_story',
+            before: { id: 'US-3', label: 'Carry forward missing diff context' },
+            after: null,
+            inspiration: null,
+            attributionStatus: 'synthesized_unattributed',
+          },
+          {
+            type: 'modified',
+            itemType: 'user_story',
+            before: { id: 'US-4', label: 'Clear broken attribution' },
+            after: { id: 'US-4', label: 'Clear broken attribution safely' },
+            inspiration: null,
+            attributionStatus: 'invalid_unattributed',
+          },
+        ],
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase={phase}
+        isCompleted={false}
+        preloadedArtifacts={[coverageRevisionArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: buttonName }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
+
+    expectCoverageAttributionUiHidden()
+    expect(screen.getByText('Auto-detected diff')).toBeInTheDocument()
+    expect(screen.getByText('Attribution cleared')).toBeInTheDocument()
+    expect(screen.getByText('Coverage revised PRD review')).toBeInTheDocument()
+    expect(screen.getByText('Inspect revised PRD sections')).toBeInTheDocument()
+  })
+
+  it('hides PRD attribution UI in the coverage report changes tab', async () => {
+    const coverageArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        hasGaps: true,
+        coverageRunNumber: 1,
+        maxCoveragePasses: 2,
+        limitReached: false,
+      }),
+    })
+
+    const coverageRevisionArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_revision',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        candidateVersion: 2,
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Audit input candidate',
+          storyTitle: 'Inspect the audit input',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Coverage revised candidate',
+          storyTitle: 'Inspect the revised candidate',
+        }),
+        changes: [
+          {
+            type: 'modified',
+            itemType: 'epic',
+            before: { id: 'EPIC-1', label: 'Audit input candidate' },
+            after: { id: 'EPIC-1', label: 'Coverage revised candidate' },
+            inspiration: {
+              memberId: 'openai/gpt-5-mini',
+              item: {
+                id: 'EPIC-8',
+                label: 'Alternative audit wording',
+                detail: 'Alternative epic wording from the losing draft.',
+              },
+            },
+            attributionStatus: 'inspired',
+          },
+          {
+            type: 'added',
+            itemType: 'user_story',
+            before: null,
+            after: { id: 'US-2', label: 'Inspect the revised candidate' },
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
+          },
+        ],
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="VERIFYING_PRD_COVERAGE"
+        isCompleted={false}
+        preloadedArtifacts={[coverageArtifact, coverageRevisionArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Changes/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+    })
+    expectCoverageAttributionUiHidden()
+    expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
+    expect(screen.getByText('Inspect the revised candidate')).toBeInTheDocument()
+  })
+
+  it.each([
+    { phase: 'VERIFYING_INTERVIEW_COVERAGE' as const },
+    { phase: 'WAITING_INTERVIEW_APPROVAL' as const },
+  ])('hides interview attribution UI in $phase fallback diff view', ({ phase }) => {
+    const voteArtifact = makeArtifact({
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: [
+              'questions:',
+              '  - id: Q01',
+              '    phase: foundation',
+              '    question: "Original winner question?"',
+              '  - id: Q02',
+              '    phase: structure',
+              '    question: "Replacement source question?"',
+            ].join('\n'),
+          },
+        ],
+      }),
+    })
+
+    const compiledArtifact = makeArtifact({
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_compiled',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: [
+          'questions:',
+          '  - id: Q01',
+          '    phase: foundation',
+          '    question: "Refined winner question?"',
+          '  - id: Q03',
+          '    phase: structure',
+          '    question: "Replacement target question?"',
+          '  - id: Q04',
+          '    phase: assembly',
+          '    question: "Added follow-up question?"',
+        ].join('\n'),
+      }),
+    })
+
+    const winnerArtifact = makeArtifact({
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'interview_winner',
+      content: JSON.stringify({ winnerId: 'openai/gpt-5.2' }),
+    })
+
+    const uiDiffArtifact = makeArtifact({
+      phase: 'COMPILING_INTERVIEW',
+      artifactType: 'ui_refinement_diff:interview',
+      content: JSON.stringify({
+        domain: 'interview',
+        winnerId: 'openai/gpt-5.2',
+        generatedAt: '2026-03-12T11:49:34.000Z',
+        entries: [
+          {
+            key: 'Q03:replaced:0',
+            changeType: 'replaced',
+            itemKind: 'question',
+            label: 'Q03',
+            beforeId: 'Q02',
+            afterId: 'Q03',
+            beforeText: 'Replacement source question?',
+            afterText: 'Replacement target question?',
+            inspiration: {
+              memberId: 'openai/gpt-5.1-codex',
+              sourceId: 'Q07',
+              sourceLabel: 'Q07',
+              sourceText: 'Alternative draft replacement question?',
+            },
+            attributionStatus: 'inspired',
+          },
+          {
+            key: 'Q04:added:1',
+            changeType: 'added',
+            itemKind: 'question',
+            label: 'Q04',
+            afterId: 'Q04',
+            afterText: 'Added follow-up question?',
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
+          },
+        ],
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase={phase}
+        isCompleted={false}
+        preloadedArtifacts={[voteArtifact, compiledArtifact, winnerArtifact, uiDiffArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Diff \(2\)/i }))
+
+    expectCoverageAttributionUiHidden()
+    expect(screen.getByText('Q03')).toBeInTheDocument()
+    expect(screen.getByText('Q04')).toBeInTheDocument()
+    expect(getByTextContent('Replacement target question?')).toBeInTheDocument()
+  })
+
+  it.each([
+    { phase: 'VERIFYING_BEADS_COVERAGE' as const },
+    { phase: 'WAITING_BEADS_APPROVAL' as const },
+  ])('hides Beads attribution UI in $phase', ({ phase }) => {
+    const refinedArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_refined',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Validate refinement attribution' },
+        ]),
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Validate refinement attribution safely' },
+          { id: 'bead-2', title: 'Surface retry metadata' },
+        ]),
+        changes: [
+          {
+            type: 'added',
+            itemType: 'bead',
+            before: null,
+            after: { id: 'bead-2', label: 'Surface retry metadata' },
+            inspiration: {
+              memberId: 'openai/gpt-5-mini',
+              item: {
+                id: 'bead-9',
+                label: 'Adopt losing-draft telemetry',
+                detail: 'Description: Surface retry metadata in the diff viewer.',
+              },
+            },
+            attributionStatus: 'inspired',
+          },
+          {
+            type: 'modified',
+            itemType: 'bead',
+            before: { id: 'bead-1', label: 'Validate refinement attribution' },
+            after: { id: 'bead-1', label: 'Validate refinement attribution safely' },
+            inspiration: null,
+            attributionStatus: 'model_unattributed',
+          },
+        ],
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase={phase}
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
+
+    expectCoverageAttributionUiHidden()
+    expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
+    expect(screen.getByText('Validate refinement attribution safely')).toBeInTheDocument()
   })
 
   it.each([
@@ -1589,13 +1973,13 @@ describe('PhaseArtifactsPanel', () => {
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase="WAITING_INTERVIEW_APPROVAL"
+        phase="COMPILING_INTERVIEW"
         isCompleted={false}
         preloadedArtifacts={[voteArtifact, compiledArtifact, compiledCompanionArtifact, winnerArtifact, uiDiffArtifact]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Interview Results/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Final Interview Results/i }))
     fireEvent.click(screen.getByRole('button', { name: /Diff \(1\)/i }))
 
     expect(screen.queryByText('No source recorded')).not.toBeInTheDocument()
@@ -1603,7 +1987,6 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it.each([
-    { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate/i },
     { phase: 'REFINING_PRD' as const, buttonName: /PRD Candidate v1/i },
   ])('shows PRD inspiration tooltip text in $phase', async ({ phase, buttonName }) => {
     const epicText = [
@@ -1693,7 +2076,6 @@ describe('PhaseArtifactsPanel', () => {
   })
 
   it.each([
-    { phase: 'WAITING_BEADS_APPROVAL' as const, buttonName: /Refined Beads/i },
     { phase: 'REFINING_BEADS' as const, buttonName: /Final Blueprint Draft/i },
   ])('shows Beads inspiration tooltip text in $phase', async ({ phase, buttonName }) => {
     const beadText = [

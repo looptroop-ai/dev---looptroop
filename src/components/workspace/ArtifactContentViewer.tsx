@@ -69,6 +69,19 @@ import type {
   ArtifactProcessingStatus,
 } from './artifactProcessingNotice'
 
+const COVERAGE_ATTRIBUTION_HIDDEN_PHASES = new Set([
+  'VERIFYING_INTERVIEW_COVERAGE',
+  'WAITING_INTERVIEW_APPROVAL',
+  'VERIFYING_PRD_COVERAGE',
+  'WAITING_PRD_APPROVAL',
+  'VERIFYING_BEADS_COVERAGE',
+  'WAITING_BEADS_APPROVAL',
+])
+
+function shouldHideCoverageAttributionUi(phase?: string): boolean {
+  return phase ? COVERAGE_ATTRIBUTION_HIDDEN_PHASES.has(phase) : false
+}
+
 export function CollapsibleSection({
   title,
   defaultOpen = false,
@@ -536,6 +549,15 @@ function RefinementInspirationTooltip({
 
 type DiffAttributionStatus = NonNullable<InterviewDiffEntry['attributionStatus'] | RefinementDiffEntry['attributionStatus']>
 
+function shouldShowChangeAttributionBadge(
+  status: DiffAttributionStatus | undefined,
+  hideCoverageAttributionUi: boolean,
+): status is DiffAttributionStatus {
+  if (!status || status === 'inspired') return false
+  if (hideCoverageAttributionUi && status === 'model_unattributed') return false
+  return true
+}
+
 function getDiffAttributionCopy(status: DiffAttributionStatus): { label: string; description: string; className: string } {
   if (status === 'synthesized_unattributed') {
     return {
@@ -921,8 +943,9 @@ function getFullAnswersNoticeContext(content: string): ArtifactProcessingNoticeC
   return undefined
 }
 
-function RefinementDiffView({ content, domain }: { content: string; domain: 'prd' | 'beads' }) {
+function RefinementDiffView({ content, domain, phase }: { content: string; domain: 'prd' | 'beads'; phase?: string }) {
   const diffs = buildRefinementDiffEntries(content, domain)
+  const hideCoverageAttributionUi = shouldHideCoverageAttributionUi(phase)
   const modifiedCount = diffs.filter((d) => d.changeType === 'modified').length
   const addedCount = diffs.filter((d) => d.changeType === 'added').length
   const removedCount = diffs.filter((d) => d.changeType === 'removed').length
@@ -962,9 +985,9 @@ function RefinementDiffView({ content, domain }: { content: string; domain: 'prd
                 >
                   {diff.changeType === 'modified' ? 'Modified' : diff.changeType === 'added' ? 'Added' : 'Removed'}
                 </span>
-                {diff.inspiration
+                {!hideCoverageAttributionUi && diff.inspiration
                   ? <RefinementInspirationTooltip inspiration={diff.inspiration} itemKind={diff.itemKind} />
-                  : diff.attributionStatus && diff.attributionStatus !== 'inspired'
+                  : shouldShowChangeAttributionBadge(diff.attributionStatus, hideCoverageAttributionUi)
                     ? <ChangeAttributionBadge status={diff.attributionStatus} />
                     : null}
               </span>
@@ -1012,7 +1035,7 @@ function formatRefinementDiffItemKind(itemKind: string): string {
     .replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
-function InterviewDraftDiffView({ content }: { content: string }) {
+function InterviewDraftDiffView({ content, phase }: { content: string; phase?: string }) {
   let parsed: InterviewDiffArtifactData | null = null
   try {
     parsed = JSON.parse(content) as InterviewDiffArtifactData
@@ -1021,6 +1044,7 @@ function InterviewDraftDiffView({ content }: { content: string }) {
   }
 
   const diffs = buildInterviewDiffEntries(content)
+  const hideCoverageAttributionUi = shouldHideCoverageAttributionUi(phase)
   const modifiedCount = diffs.filter((diff) => diff.changeType === 'modified').length
   const replacedCount = diffs.filter((diff) => diff.changeType === 'replaced').length
   const addedCount = diffs.filter((diff) => diff.changeType === 'added').length
@@ -1071,9 +1095,9 @@ function InterviewDraftDiffView({ content }: { content: string }) {
                             ? 'Added'
                             : 'Removed'}
                     </span>
-                    {diff.inspiration
+                    {!hideCoverageAttributionUi && diff.inspiration
                       ? <InterviewInspirationTooltip inspiration={diff.inspiration} />
-                      : diff.attributionStatus && diff.attributionStatus !== 'inspired'
+                      : shouldShowChangeAttributionBadge(diff.attributionStatus, hideCoverageAttributionUi)
                         ? <ChangeAttributionBadge status={diff.attributionStatus} />
                         : null}
                   </span>
@@ -1111,11 +1135,13 @@ function FinalInterviewArtifactView({
   header,
   hideAiAnswerBadge,
   showDiffTab = true,
+  phase,
 }: {
   content: string
   header?: React.ReactNode
   hideAiAnswerBadge?: boolean
   showDiffTab?: boolean
+  phase?: string
 }) {
   const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>('final')
   const parsedContent = tryParseStructuredContent(content)
@@ -1198,7 +1224,7 @@ function FinalInterviewArtifactView({
         : (
           <div className="space-y-3">
             {notice}
-            <InterviewDraftDiffView content={content} />
+            <InterviewDraftDiffView content={content} phase={phase} />
           </div>
         )}
     </div>
@@ -1211,12 +1237,14 @@ function FinalPrdDraftView({
   isBeads,
   defaultTab = 'final',
   finalLabel,
+  phase,
 }: {
   content: string
   header?: React.ReactNode
   isBeads?: boolean
   defaultTab?: 'final' | 'diff' | 'raw'
   finalLabel?: string
+  phase?: string
 }) {
   const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>(defaultTab)
 
@@ -1272,7 +1300,7 @@ function FinalPrdDraftView({
         : (
           <div className="space-y-3">
             {notice}
-            <RefinementDiffView content={content} domain={domain} />
+            <RefinementDiffView content={content} domain={domain} phase={phase} />
           </div>
         )}
     </div>
@@ -1400,7 +1428,7 @@ function CoverageReportView({ content, phase }: { content: string; phase?: strin
       {resolvedTab === 'changes' && revisionContent && (() => {
         const candidateVersion = revisionPayload?.candidateVersion
         const finalLabel = candidateVersion ? `PRD Candidate v${candidateVersion}` : 'PRD Candidate'
-        return <FinalPrdDraftView content={revisionContent} defaultTab="diff" finalLabel={finalLabel} />
+        return <FinalPrdDraftView content={revisionContent} defaultTab="diff" finalLabel={finalLabel} phase={phase} />
       })()}
       {resolvedTab === 'notes' && revisionContent && (
         <CoverageResolutionNotesInner content={revisionContent} phase={phase} />
@@ -2829,25 +2857,26 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         header={header}
         hideAiAnswerBadge={isCanonicalInterviewPhase}
         showDiffTab={phase !== 'WAITING_INTERVIEW_ANSWERS'}
+        phase={phase}
       />
     )
   }
   if (artifactId === 'final-prd-draft') {
     const header = <div className="text-xs font-semibold px-1">PRD Candidate v1</div>
-    return <FinalPrdDraftView content={content} header={header} finalLabel="PRD Candidate v1" />
+    return <FinalPrdDraftView content={content} header={header} finalLabel="PRD Candidate v1" phase={phase} />
   }
   if (artifactId === 'refined-prd') {
     const candidateVersion = parseRefinementArtifact(content)?.candidateVersion ?? 1
     const label = `PRD Candidate v${candidateVersion}`
     const header = <div className="text-xs font-semibold px-1">{label}</div>
-    return <FinalPrdDraftView content={content} header={header} finalLabel={label} />
+    return <FinalPrdDraftView content={content} header={header} finalLabel={label} phase={phase} />
   }
   if (artifactId === 'coverage-report') {
     return <CoverageReportView content={content} phase={phase} />
   }
   if (artifactId === 'final-beads-draft') {
     const header = <div className="text-xs font-semibold px-1">Final Blueprint Draft</div>
-    return <FinalPrdDraftView content={content} header={header} isBeads />
+    return <FinalPrdDraftView content={content} header={header} isBeads phase={phase} />
   }
   if (artifactId === 'interview-answers') {
     const header = <div className="text-xs font-semibold px-1">Interview Answers</div>
@@ -2942,7 +2971,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
             )}
           </div>
         )}
-        diffContent={hasChanges ? <RefinementDiffView content={content} domain={'beads'} /> : undefined}
+        diffContent={hasChanges ? <RefinementDiffView content={content} domain={'beads'} phase={phase} /> : undefined}
       />
     )
   }
