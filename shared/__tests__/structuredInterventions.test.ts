@@ -324,6 +324,11 @@ describe('cleanup interventions', () => {
     expectIntervention(i, { code: 'cleanup_preserved_narrative', stage: 'normalize', category: 'cleanup' })
   })
 
+  it('maps preserved narrative fields restoration after substantive drift', () => {
+    const i = deriveOne('Restored preserved Part 1 narrative fields from the refined blueprint for expanded bead at index 2 (B-003) after substantive drift in: description, acceptanceCriteria.')
+    expectIntervention(i, { code: 'cleanup_preserved_narrative_substantive', stage: 'normalize', category: 'cleanup' })
+  })
+
   it('maps converted change type', () => {
     const i = deriveOne('Converted interview refinement change at index 3 from "added" to "replaced" because Q5 already existed in the winning draft with different content.')
     expectIntervention(i, { code: 'cleanup_change_type_correction', stage: 'semantic_validation', category: 'cleanup' })

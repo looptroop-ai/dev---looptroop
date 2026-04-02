@@ -115,6 +115,7 @@ function buildDefaultRule(code: string): StructuredInterventionRule {
     parser_xml_tags: 'XML Tag Strip',
     cleanup_duplicate_ids: 'Duplicate ID Repair',
     cleanup_filled_missing: 'Missing Field Fill',
+    cleanup_preserved_narrative_substantive: 'Preserved Narrative Restore',
     cleanup_status_normalized: 'Status Normalize',
     cleanup_ticket_id: 'Ticket ID',
     cleanup_winner_model: 'Winner Model',
@@ -1108,6 +1109,18 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
       summary: 'An affected_items label did not match the authoritative source and was corrected.',
       why: 'The label must exactly match the canonical label from the source artifact to maintain consistent cross-referencing.',
       how: 'LoopTroop looked up the canonical label from the source artifact and replaced the model-provided label.',
+    })
+  }
+
+  if (/preserved.*narrative fields/i.test(normalized) && /substantive drift/i.test(normalized)) {
+    return buildIntervention(warning, {
+      code: 'cleanup_preserved_narrative_substantive',
+      stage: 'normalize',
+      category: 'cleanup',
+      title: 'Restored preserved narrative fields after substantive drift',
+      summary: 'Part 1 narrative fields were rewritten during expansion and were restored from the canonical refined blueprint.',
+      why: 'Only AI-owned fields may change during expansion, so narrative rewrites in preserved Part 1 fields must not be persisted.',
+      how: 'LoopTroop kept the expanded AI-owned fields, restored the canonical Part 1 narrative fields from the refined blueprint, and recorded the repair.',
     })
   }
 

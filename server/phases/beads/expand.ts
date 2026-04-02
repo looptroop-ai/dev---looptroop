@@ -70,6 +70,11 @@ function compareExactStringArrays(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
+interface PreservedNarrativeDrift {
+  cosmeticPaths: string[]
+  substantivePaths: string[]
+}
+
 function normalizeNarrativeText(value: string): string {
   return value
     .trim()
@@ -77,23 +82,35 @@ function normalizeNarrativeText(value: string): string {
     .replace(/[.!?]+$/u, '')
 }
 
-function collectNarrativeStringDrift(fieldPath: string, left: string, right: string): string[] | null {
-  if (left === right) return []
-  return normalizeNarrativeText(left) === normalizeNarrativeText(right) ? [fieldPath] : null
+function collectNarrativeStringDrift(fieldPath: string, left: string, right: string): PreservedNarrativeDrift {
+  if (left === right) return { cosmeticPaths: [], substantivePaths: [] }
+  return normalizeNarrativeText(left) === normalizeNarrativeText(right)
+    ? { cosmeticPaths: [fieldPath], substantivePaths: [] }
+    : { cosmeticPaths: [], substantivePaths: [fieldPath] }
 }
 
-function collectNarrativeArrayDrift(fieldPath: string, left: string[], right: string[]): string[] | null {
-  if (left.length !== right.length) return null
-  const driftPaths: string[] = []
+function collectNarrativeArrayDrift(fieldPath: string, left: string[], right: string[]): PreservedNarrativeDrift {
+  if (compareExactStringArrays(left, right)) {
+    return { cosmeticPaths: [], substantivePaths: [] }
+  }
+  if (left.length !== right.length) {
+    return { cosmeticPaths: [], substantivePaths: [fieldPath] }
+  }
+
+  const cosmeticPaths: string[] = []
+  const substantivePaths: string[] = []
   for (let index = 0; index < left.length; index += 1) {
     const itemDrift = collectNarrativeStringDrift(`${fieldPath}[${index}]`, left[index] ?? '', right[index] ?? '')
-    if (itemDrift == null) return null
-    driftPaths.push(...itemDrift)
+    cosmeticPaths.push(...itemDrift.cosmeticPaths)
+    substantivePaths.push(...itemDrift.substantivePaths)
   }
-  return driftPaths
+  return { cosmeticPaths, substantivePaths }
 }
 
-function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): string[] | null {
+function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): PreservedNarrativeDrift | null {
+  if (subset.title !== bead.title) {
+    return null
+  }
   if (!compareExactStringArrays(subset.prdRefs, bead.prdRefs)) {
     return null
   }
@@ -101,44 +118,42 @@ function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): string[] | 
     return null
   }
 
-  const driftPaths: string[] = []
-  const titleDrift = collectNarrativeStringDrift('title', subset.title, bead.title)
-  if (titleDrift == null) return null
-  driftPaths.push(...titleDrift)
+  const cosmeticPaths: string[] = []
+  const substantivePaths: string[] = []
 
   const descriptionDrift = collectNarrativeStringDrift('description', subset.description, bead.description)
-  if (descriptionDrift == null) return null
-  driftPaths.push(...descriptionDrift)
+  cosmeticPaths.push(...descriptionDrift.cosmeticPaths)
+  substantivePaths.push(...descriptionDrift.substantivePaths)
 
   const patternDrift = collectNarrativeArrayDrift(
     'contextGuidance.patterns',
     subset.contextGuidance.patterns,
     bead.contextGuidance.patterns,
   )
-  if (patternDrift == null) return null
-  driftPaths.push(...patternDrift)
+  cosmeticPaths.push(...patternDrift.cosmeticPaths)
+  substantivePaths.push(...patternDrift.substantivePaths)
 
   const antiPatternDrift = collectNarrativeArrayDrift(
     'contextGuidance.anti_patterns',
     subset.contextGuidance.anti_patterns,
     bead.contextGuidance.anti_patterns,
   )
-  if (antiPatternDrift == null) return null
-  driftPaths.push(...antiPatternDrift)
+  cosmeticPaths.push(...antiPatternDrift.cosmeticPaths)
+  substantivePaths.push(...antiPatternDrift.substantivePaths)
 
   const acceptanceCriteriaDrift = collectNarrativeArrayDrift(
     'acceptanceCriteria',
     subset.acceptanceCriteria,
     bead.acceptanceCriteria,
   )
-  if (acceptanceCriteriaDrift == null) return null
-  driftPaths.push(...acceptanceCriteriaDrift)
+  cosmeticPaths.push(...acceptanceCriteriaDrift.cosmeticPaths)
+  substantivePaths.push(...acceptanceCriteriaDrift.substantivePaths)
 
   const testsDrift = collectNarrativeArrayDrift('tests', subset.tests, bead.tests)
-  if (testsDrift == null) return null
-  driftPaths.push(...testsDrift)
+  cosmeticPaths.push(...testsDrift.cosmeticPaths)
+  substantivePaths.push(...testsDrift.substantivePaths)
 
-  return driftPaths
+  return { cosmeticPaths, substantivePaths }
 }
 
 function isProjectRelativePath(filePath: string): boolean {
@@ -170,9 +185,14 @@ export function validateBeadExpansion(subsetBeads: BeadSubset[], expandedBeads: 
     if (preservedFieldDrift == null) {
       throw new Error(`Expanded bead at index ${index} changed preserved Part 1 fields or order`)
     }
-    if (preservedFieldDrift.length > 0) {
+    if (preservedFieldDrift.cosmeticPaths.length > 0) {
       repairWarnings.push(
-        `Restored preserved Part 1 narrative fields from the refined blueprint for expanded bead at index ${index} (${subset.id}) after punctuation/whitespace-only drift in: ${preservedFieldDrift.join(', ')}.`,
+        `Restored preserved Part 1 narrative fields from the refined blueprint for expanded bead at index ${index} (${subset.id}) after punctuation/whitespace-only drift in: ${preservedFieldDrift.cosmeticPaths.join(', ')}.`,
+      )
+    }
+    if (preservedFieldDrift.substantivePaths.length > 0) {
+      repairWarnings.push(
+        `Restored preserved Part 1 narrative fields from the refined blueprint for expanded bead at index ${index} (${subset.id}) after substantive drift in: ${preservedFieldDrift.substantivePaths.join(', ')}.`,
       )
     }
 

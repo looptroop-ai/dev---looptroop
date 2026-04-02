@@ -224,6 +224,7 @@ function buildBeadsExpandRetryPrompt(
         options.schemaReminder,
         'Preserved-field correction:',
         '- Copy every Part 1 field from `### beads_draft` verbatim, including punctuation.',
+        '- Start from the matching bead in `### beads_draft` and mechanically replace only the five AI-owned fields.',
         '- Edit only `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`.',
         '- Do not rewrite `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, or `testCommands`.',
       ].filter(Boolean).join('\n')

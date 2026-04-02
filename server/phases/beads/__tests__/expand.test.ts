@@ -53,7 +53,6 @@ describe.concurrent('validateBeadExpansion', () => {
     const expanded = buildExpandedBeads(subsets)
     expanded[0] = {
       ...expanded[0]!,
-      title: '  Validate refinement attribution!  ',
       description: 'Preserve explicit   inspiration in refinement diffs!',
       contextGuidance: {
         patterns: ['Keep repairs deterministic'],
@@ -69,6 +68,41 @@ describe.concurrent('validateBeadExpansion', () => {
     expect(warnings[0]).toContain('bead at index 0')
     expect(warnings[0]).toContain('contextGuidance.patterns[0]')
     expect(warnings[0]).toContain('tests[0]')
+  })
+
+  it('restores substantive drift in preserved narrative fields when identity anchors still match', () => {
+    const subsets = buildSubsetBeads()
+    const expanded = buildExpandedBeads(subsets)
+    expanded[0] = {
+      ...expanded[0]!,
+      description: 'Rewrite the refinement pipeline around a new metadata transport.',
+      contextGuidance: {
+        patterns: ['Route refinement attribution through a transport adapter.'],
+        anti_patterns: ['Avoid using the canonical refined blueprint as the source of truth.'],
+      },
+      acceptanceCriteria: ['Transport adapter persists all refinement metadata'],
+      tests: ['Integration tests verify the transport adapter round-trip'],
+    }
+
+    const warnings = validateBeadExpansion(subsets, expanded)
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('substantive drift')
+    expect(warnings[0]).toContain('description')
+    expect(warnings[0]).toContain('acceptanceCriteria')
+  })
+
+  it('still fails when title changes', () => {
+    const subsets = buildSubsetBeads()
+    const expanded = buildExpandedBeads(subsets)
+    expanded[0] = {
+      ...expanded[0]!,
+      title: 'Validate refined attribution',
+    }
+
+    expect(() => validateBeadExpansion(subsets, expanded)).toThrow(
+      'Expanded bead at index 0 changed preserved Part 1 fields or order',
+    )
   })
 
   it('still fails when prdRefs change', () => {
@@ -100,19 +134,6 @@ describe.concurrent('validateBeadExpansion', () => {
   it('still fails when beads are reordered', () => {
     const subsets = buildSubsetBeads()
     const expanded = buildExpandedBeads(subsets).reverse()
-
-    expect(() => validateBeadExpansion(subsets, expanded)).toThrow(
-      'Expanded bead at index 0 changed preserved Part 1 fields or order',
-    )
-  })
-
-  it('still fails on substantive narrative rewrites', () => {
-    const subsets = buildSubsetBeads()
-    const expanded = buildExpandedBeads(subsets)
-    expanded[0] = {
-      ...expanded[0]!,
-      description: 'Rewrite the refinement pipeline around a new metadata transport.',
-    }
 
     expect(() => validateBeadExpansion(subsets, expanded)).toThrow(
       'Expanded bead at index 0 changed preserved Part 1 fields or order',

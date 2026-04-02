@@ -382,10 +382,10 @@ describe('handleBeadsRefine', () => {
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
   })
 
-  it('salvages punctuation-only preserved-field drift and records a repair warning', async () => {
+  it('salvages substantive preserved-field drift and records a repair warning without retrying', async () => {
     const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
       title: 'Salvage near-miss bead expansion drift',
-      description: 'Keep beads expansion strict but tolerate punctuation-only preserved-field drift.',
+      description: 'Keep beads expansion strict but restore preserved narrative fields from the refined blueprint.',
     })
     const sendEvent = vi.fn()
     const winnerId = TEST.councilMembers[0]
@@ -432,10 +432,13 @@ describe('handleBeadsRefine', () => {
       response: buildValidExpansionOutput({
         mutateFirstBead: (bead) => ({
           ...bead,
+          description: 'Rewrite the refinement pipeline around a new metadata transport.',
           contextGuidance: {
-            patterns: ['Keep repairs deterministic'],
-            anti_patterns: bead.contextGuidance.anti_patterns,
+            patterns: ['Route refinement attribution through a transport adapter.'],
+            anti_patterns: ['Avoid using the refined blueprint as the canonical source of truth.'],
           },
+          acceptanceCriteria: ['Transport adapter persists all refinement metadata'],
+          tests: ['Integration tests verify the transport adapter round-trip'],
         }),
       }),
       messages: [],
@@ -452,8 +455,16 @@ describe('handleBeadsRefine', () => {
     const persistedBeads = readFileSync(paths.beadsPath, 'utf-8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as { contextGuidance: { patterns: string[] } })
+      .map((line) => JSON.parse(line) as {
+        description: string
+        contextGuidance: { patterns: string[] }
+        acceptanceCriteria: string[]
+        tests: string[]
+      })
+    expect(persistedBeads[0]?.description).toBe('Preserve explicit inspiration in refinement diffs.')
     expect(persistedBeads[0]?.contextGuidance.patterns[0]).toBe('Keep repairs deterministic.')
+    expect(persistedBeads[0]?.acceptanceCriteria[0]).toBe('Validate attribution survives refinement')
+    expect(persistedBeads[0]?.tests[0]).toBe('Shared tests cover refinement attribution')
 
     const companionArtifact = JSON.parse(readFileSync(
       resolve(paths.ticketDir, 'ui', 'artifact-companions', 'beads_expanded.json'),
@@ -470,8 +481,9 @@ describe('handleBeadsRefine', () => {
     expect(companionArtifact.payload.structuredOutput.repairApplied).toBe(true)
     expect(companionArtifact.payload.structuredOutput.autoRetryCount).toBe(0)
     expect(companionArtifact.payload.structuredOutput.repairWarnings).toEqual([
-      expect.stringContaining('punctuation/whitespace-only drift'),
+      expect.stringContaining('substantive drift'),
     ])
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
   })
 
@@ -526,7 +538,7 @@ describe('handleBeadsRefine', () => {
         response: buildValidExpansionOutput({
           mutateFirstBead: (bead) => ({
             ...bead,
-            description: 'Rewrite the refinement pipeline around a new metadata transport.',
+            title: 'Validate refined attribution transport',
           }),
         }),
         messages: [],
@@ -555,6 +567,7 @@ describe('handleBeadsRefine', () => {
     const secondCall = runOpenCodePromptMock.mock.calls[1]?.[0] as { parts: Array<{ content: string }> }
     const retryPromptText = secondCall.parts.map((part) => part.content).join('\n')
     expect(retryPromptText).toContain('Copy every Part 1 field from `### beads_draft` verbatim, including punctuation.')
+    expect(retryPromptText).toContain('Start from the matching bead in `### beads_draft` and mechanically replace only the five AI-owned fields.')
     expect(retryPromptText).toContain('Edit only `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`.')
     expect(retryPromptText).toContain('Do not rewrite `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, or `testCommands`.')
 
@@ -580,7 +593,7 @@ describe('handleBeadsRefine', () => {
       expect.objectContaining({
         attempt: 1,
         validationError: expect.stringContaining('preserved Part 1 fields'),
-        excerpt: expect.stringContaining('Rewrite the refinement pipeline around a new metadata transport.'),
+        excerpt: expect.stringContaining('Validate refined attribution transport'),
       }),
     ])
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
