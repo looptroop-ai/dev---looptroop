@@ -169,7 +169,7 @@ function buildFullAnswersRetryPrompt(
         'If the final free-form question has nothing else to add, write a short explicit `free_text` response such as "Nothing else to add." instead of `""`.',
         'If an earlier answer makes a follow-up question not applicable, say that explicitly in `free_text`; never leave the follow-up blank.',
         'For single_choice and multiple_choice questions, `selected_option_ids` must still use the existing canonical option IDs.',
-        'Treat those options as hints rather than an exhaustive truth set: choose the best-fit canonical IDs, and use concise `free_text` to capture the actual answer whenever the option set is approximate, incomplete, or needs nuance.',
+        'Treat single_choice and multiple_choice options as orientation only, not as the full answer: choose the best-fit canonical IDs when they help anchor the answer, and use concise `free_text` when nuance, caveats, or a better suggestion matter.',
         'If any free_text contains `:`, emit it as a quoted scalar or a `>-` block scalar.',
         'Keep `artifact` as the scalar value `interview`, not an object wrapper.',
         'Keep `generated_by` as a mapping with `winner_model`, `generated_at`, and `canonicalization`.',
