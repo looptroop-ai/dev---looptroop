@@ -203,6 +203,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     if (artifactDef.id === 'refined-prd') {
       const coverageArtifact = findExactArtifact('prd_coverage_input')
       const coverageCompanion = findCompanionArtifact('prd_coverage_input')
+      const coverageReviewArtifact = findExactArtifact('prd_coverage')
+      const coverageReviewCompanion = findCompanionArtifact('prd_coverage')
       const revisionArtifact = findExactArtifact('prd_coverage_revision')
       const revisionCompanion = findCompanionArtifact('prd_coverage_revision')
       const refinedArtifact = findExactArtifact('prd_refined')
@@ -211,6 +213,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       const uiDiffArtifact = findExactArtifact('ui_refinement_diff:prd')
       const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'prd_coverage_input')
         ?? coverageArtifact?.content
+      const coverageReviewContent = buildCoverageArtifactContent(coverageReviewArtifact?.content, coverageReviewCompanion?.content)
+        ?? coverageReviewArtifact?.content
       const latestRevisionContent = unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'prd_coverage_revision')
         ?? revisionArtifact?.content
       return buildFinalRefinementArtifactContent(
@@ -220,6 +224,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         refinedCompanion?.content,
         winnerArtifact?.content,
         latestRevisionContent,
+        coverageReviewContent,
       )
         ?? latestRevisionContent
         ?? coverageInputContent
@@ -244,35 +249,41 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
 
     if (artifactDef.id === 'coverage-report') {
-      const coverageArtifact = findExactArtifact('prd_coverage')
-      const coverageCompanion = findCompanionArtifact('prd_coverage')
-      const coverageReviewContent = buildCoverageArtifactContent(coverageArtifact?.content, coverageCompanion?.content)
+      const baseArtifactType = phase.includes('BEADS') ? 'beads_coverage' : 'prd_coverage'
+      const coverageArtifact = findExactArtifact(baseArtifactType)
+      const coverageCompanion = findCompanionArtifact(baseArtifactType)
+      return buildCoverageArtifactContent(coverageArtifact?.content, coverageCompanion?.content)
         ?? coverageArtifact?.content
         ?? null
-      const revisionArtifact = findExactArtifact('prd_coverage_revision')
-      const revisionCompanion = findCompanionArtifact('prd_coverage_revision')
-      const revisionContent = unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'prd_coverage_revision')
-        ?? revisionArtifact?.content
-        ?? null
-      return JSON.stringify({ coverageReviewContent, revisionContent })
     }
 
     if (artifactDef.id === 'refined-beads') {
       const coverageArtifact = findExactArtifact('beads_coverage_input')
       const coverageCompanion = findCompanionArtifact('beads_coverage_input')
+      const coverageReviewArtifact = findExactArtifact('beads_coverage')
+      const coverageReviewCompanion = findCompanionArtifact('beads_coverage')
+      const revisionArtifact = findExactArtifact('beads_coverage_revision')
+      const revisionCompanion = findCompanionArtifact('beads_coverage_revision')
       const refinedArtifact = findExactArtifact('beads_expanded') ?? findExactArtifact('beads_refined')
       const refinedCompanion = findCompanionArtifact('beads_expanded') ?? findCompanionArtifact('beads_refined')
       const winnerArtifact = findExactArtifact('beads_winner')
       const uiDiffArtifact = findExactArtifact('ui_refinement_diff:beads')
       const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'beads_coverage_input')
         ?? coverageArtifact?.content
+      const coverageReviewContent = buildCoverageArtifactContent(coverageReviewArtifact?.content, coverageReviewCompanion?.content)
+        ?? coverageReviewArtifact?.content
+      const latestRevisionContent = unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'beads_coverage_revision')
+        ?? revisionArtifact?.content
       return buildFinalRefinementArtifactContent(
         refinedArtifact?.content,
         uiDiffArtifact?.content,
         coverageInputContent,
         refinedCompanion?.content,
         winnerArtifact?.content,
+        latestRevisionContent,
+        coverageReviewContent,
       )
+        ?? latestRevisionContent
         ?? coverageInputContent
         ?? refinedArtifact?.content
         ?? null
@@ -319,15 +330,30 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         }
       }
 
+      if (artifact.id === 'refined-beads') {
+        const content = findDbContent(artifact)
+        const candidateVersion = content ? parseRefinementArtifact(content)?.candidateVersion ?? 1 : 1
+        return {
+          ...artifact,
+          label: `Implementation Plan v${candidateVersion}`,
+          description: phase === 'VERIFYING_BEADS_COVERAGE'
+            ? 'The implementation plan version currently being checked.'
+            : 'Latest implementation plan awaiting approval',
+        }
+      }
+
       return artifact
     })
 
-    if (phase !== 'VERIFYING_PRD_COVERAGE') {
+    if (phase !== 'VERIFYING_PRD_COVERAGE' && phase !== 'VERIFYING_BEADS_COVERAGE') {
       return baseArtifacts
     }
 
-    const hasCoverageReview = !!findExactArtifact('prd_coverage')
-    const hasRevision = !!findExactArtifact('prd_coverage_revision') || !!findCompanionArtifact('prd_coverage_revision')
+    const isBeadsCoveragePhase = phase === 'VERIFYING_BEADS_COVERAGE'
+    const baseArtifactType = isBeadsCoveragePhase ? 'beads_coverage' : 'prd_coverage'
+    const revisionArtifactType = isBeadsCoveragePhase ? 'beads_coverage_revision' : 'prd_coverage_revision'
+    const hasCoverageReview = !!findExactArtifact(baseArtifactType)
+    const hasRevision = !!findExactArtifact(revisionArtifactType) || !!findCompanionArtifact(revisionArtifactType)
 
     return [
       ...baseArtifacts,
@@ -335,9 +361,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ? [{
             id: 'coverage-report',
             label: 'Coverage Report',
-            description: phase === 'VERIFYING_PRD_COVERAGE'
-              ? 'Shows what the check found, what changed, and why.'
-              : 'Coverage audit results, changes, and resolution notes',
+            description: 'Shows what each coverage pass found, what changed, and why.',
             icon: <FileText className="h-3.5 w-3.5" />,
           } satisfies ArtifactDef]
         : []),

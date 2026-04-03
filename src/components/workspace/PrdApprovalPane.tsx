@@ -6,9 +6,10 @@ import { LoadingText } from '@/components/ui/LoadingText'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
+import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
 import { PrdApprovalEditor } from './PrdApprovalEditor'
 import { PrdDocumentView } from './PrdDocumentView'
-import { clearTicketArtifactsCache } from '@/hooks/useTicketArtifacts'
+import { clearTicketArtifactsCache, useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 import { useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 import {
@@ -58,6 +59,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
     },
     staleTime: 5 * 60 * 1000,
   })
+  const { artifacts } = useTicketArtifacts(ticket.id)
 
   const prdDocument = useMemo(
     () => normalizePrdDocumentLike(parsePrdDocument(fetchedContent) ?? parsePrdDocumentContent(fetchedContent ?? '').document),
@@ -93,6 +95,10 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
   const structuredEditorUnavailable = editTab === 'structured' && structuredDraft === null
   const hasUnsavedChanges = editTab === 'structured' ? hasStructuredChanges : hasYamlChanges
   const yamlValidation = editTab === 'yaml' ? parsePrdDocumentContent(yamlDraft) : null
+  const coverageWarning = useMemo(
+    () => resolveCoverageApprovalWarning(artifacts, 'prd'),
+    [artifacts],
+  )
 
   useEffect(() => {
     restoredDraftRef.current = false
@@ -383,6 +389,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
 
         {saveError ? <p className="text-xs text-red-500">{saveError}</p> : null}
         {approveError ? <p className="text-xs text-red-500">{approveError}</p> : null}
+        {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
       </div>
 
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">

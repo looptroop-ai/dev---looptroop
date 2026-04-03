@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTicketAction, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
+import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
@@ -9,6 +10,7 @@ import type { Ticket } from '@/hooks/useTickets'
 import { InterviewApprovalPane } from './InterviewApprovalPane'
 import { PrdApprovalPane } from './PrdApprovalPane'
 import { BeadsDraftView } from './ArtifactContentViewer'
+import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
 
 interface ApprovalViewProps {
   ticket: Ticket
@@ -37,6 +39,7 @@ function GenericApprovalView({ ticket }: { ticket: Ticket }) {
     [ticket.lockedCouncilMembers],
   )
   const councilMemberCount = councilMemberNames.length || 3
+  const { artifacts } = useTicketArtifacts(ticket.id)
 
   const { data: fetchedContent, isLoading } = useQuery({
     queryKey: ['artifact', ticket.id, 'beads'],
@@ -112,6 +115,10 @@ function GenericApprovalView({ ticket }: { ticket: Ticket }) {
   }, [editedContent, ticket.id, queryClient])
 
   const hasChanges = editedContent !== fileContent
+  const coverageWarning = useMemo(
+    () => resolveCoverageApprovalWarning(artifacts, 'beads'),
+    [artifacts],
+  )
 
   useEffect(() => {
     if (isLoading || !restoredDraftRef.current) return
@@ -177,6 +184,7 @@ function GenericApprovalView({ ticket }: { ticket: Ticket }) {
           </div>
         )}
         {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+        {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
       </div>
 
       {/* Artifact content */}

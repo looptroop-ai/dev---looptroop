@@ -609,6 +609,28 @@ export const PROM24: PromptTemplate = {
   toolPolicy: 'disabled',
 }
 
+export const PROM24b: PromptTemplate = {
+  id: 'PROM24b',
+  description: 'Beads Coverage Resolution Prompt',
+  systemRole: 'You are a meticulous Technical Lead resolving concrete implementation-plan coverage gaps.',
+  task: 'Revise the current Beads candidate to address the provided coverage gaps while preserving the candidate as the baseline. Return one updated execution-ready Beads artifact plus machine-readable gap-resolution metadata.',
+  instructions: [
+    'Primary Truth: Treat the approved PRD as the source of truth.',
+    'Baseline Rule: Treat the provided current implementation plan as the baseline. Do not rewrite from scratch.',
+    'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
+    'Preservation Rule: Keep the existing bead order, IDs, and unaffected fields unless a provided gap requires a concrete change. If you add a new bead, insert it at the minimal valid position that preserves dependency order.',
+    'Execution-Ready Rule: Return full execution-ready bead records, not subset beads. Each bead must include the normal fields used by the Beads artifact.',
+    'Gap Resolution Accounting: Include a top-level `gap_resolutions` list with exactly one entry per provided gap.',
+    'Gap Resolution Actions: Each `gap_resolutions` entry must include `gap`, `action`, `rationale`, and `affected_items`. `action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`.',
+    'Affected Items: `affected_items` must be a YAML list of `{ item_type, id, label }` entries referencing bead items. Use an empty list when no bead mapping applies.',
+    'Output Discipline: Return only one YAML artifact with a top-level `beads` list plus top-level `gap_resolutions`. Do not add wrappers or prose.',
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: 'YAML with a top-level `beads` list of full execution-ready bead objects and a top-level `gap_resolutions` list. Each `gap_resolutions` item: {gap, action, rationale, affected_items}. `action` must be one of {updated_beads, already_covered, left_unresolved}. Each `affected_items` entry: {item_type, id, label}, where `item_type` must be `bead`.',
+  contextInputs: ['prd', 'beads', 'coverage_gaps'],
+  toolPolicy: 'disabled',
+}
+
 // Execution Prompts
 export const PROM51: PromptTemplate = {
   id: 'PROM51',
@@ -717,6 +739,7 @@ export const ALL_PROMPTS = {
   PROM22,
   PROM23,
   PROM24,
+  PROM24b,
   PROM51,
   PROM52,
 }

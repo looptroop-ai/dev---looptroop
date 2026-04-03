@@ -1065,7 +1065,7 @@ describe('PhaseArtifactsPanel', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
-    expect(screen.getByText('Shows what the check found, what changed, and why.')).toBeInTheDocument()
+    expect(screen.getByText('Shows what each coverage pass found, what changed, and why.')).toBeInTheDocument()
   })
 
   it('hides stale PRD diff metadata in approval when coverage did not revise the candidate', () => {
@@ -1456,50 +1456,74 @@ describe('PhaseArtifactsPanel', () => {
       artifactType: 'prd_coverage',
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
-        hasGaps: true,
+        hasGaps: false,
+        status: 'clean',
+        summary: 'No remaining coverage gaps found in PRD Candidate v2.',
         coverageRunNumber: 1,
         maxCoveragePasses: 2,
         limitReached: false,
-      }),
-    })
-
-    const coverageRevisionArtifact = makeArtifact({
-      phase: 'VERIFYING_PRD_COVERAGE',
-      artifactType: 'prd_coverage_revision',
-      content: JSON.stringify({
-        winnerId: 'openai/gpt-5.2',
-        candidateVersion: 2,
-        winnerDraftContent: buildPrdDocumentContent({
-          epicTitle: 'Audit input candidate',
-          storyTitle: 'Inspect the audit input',
-        }),
-        refinedContent: buildPrdDocumentContent({
-          epicTitle: 'Coverage revised candidate',
-          storyTitle: 'Inspect the revised candidate',
-        }),
-        changes: [
+        finalCandidateVersion: 2,
+        transitions: [
           {
-            type: 'modified',
-            itemType: 'epic',
-            before: { id: 'EPIC-1', label: 'Audit input candidate' },
-            after: { id: 'EPIC-1', label: 'Coverage revised candidate' },
-            inspiration: {
-              memberId: 'openai/gpt-5-mini',
-              item: {
-                id: 'EPIC-8',
-                label: 'Alternative audit wording',
-                detail: 'Alternative epic wording from the losing draft.',
+            fromVersion: 1,
+            toVersion: 2,
+            summary: 'Coverage found 2 gaps in PRD Candidate v1 and created PRD Candidate v2.',
+            gaps: ['Gap A', 'Gap B'],
+            auditNotes: 'status: gaps',
+            fromContent: buildPrdDocumentContent({
+              epicTitle: 'Audit input candidate',
+              storyTitle: 'Inspect the audit input',
+            }),
+            toContent: buildPrdDocumentContent({
+              epicTitle: 'Coverage revised candidate',
+              storyTitle: 'Inspect the revised candidate',
+            }),
+            gapResolutions: [
+              {
+                gap: 'Gap A',
+                action: 'updated_prd',
+                rationale: 'Resolved gap A.',
+                affectedItems: [
+                  { itemType: 'epic', id: 'EPIC-1', label: 'Coverage revised candidate' },
+                ],
               },
+            ],
+            resolutionNotes: ['Resolved gap A.'],
+            uiRefinementDiff: {
+              domain: 'prd',
+              winnerId: 'openai/gpt-5.2',
+              generatedAt: '2026-03-25T10:18:32.000Z',
+              entries: [
+                {
+                  key: 'EPIC-1:modified:0',
+                  changeType: 'modified',
+                  itemKind: 'epic',
+                  label: 'Coverage revised candidate',
+                  beforeId: 'EPIC-1',
+                  afterId: 'EPIC-1',
+                  beforeText: 'Audit input candidate',
+                  afterText: 'Coverage revised candidate',
+                  inspiration: {
+                    memberId: 'openai/gpt-5-mini',
+                    sourceId: 'EPIC-8',
+                    sourceLabel: 'Alternative audit wording',
+                    sourceText: 'Alternative epic wording from the losing draft.',
+                    blocks: [],
+                  },
+                  attributionStatus: 'inspired',
+                },
+                {
+                  key: 'US-2:added:1',
+                  changeType: 'added',
+                  itemKind: 'user_story',
+                  label: 'Inspect the revised candidate',
+                  afterId: 'US-2',
+                  afterText: 'Inspect the revised candidate',
+                  inspiration: null,
+                  attributionStatus: 'model_unattributed',
+                },
+              ],
             },
-            attributionStatus: 'inspired',
-          },
-          {
-            type: 'added',
-            itemType: 'user_story',
-            before: null,
-            after: { id: 'US-2', label: 'Inspect the revised candidate' },
-            inspiration: null,
-            attributionStatus: 'model_unattributed',
           },
         ],
       }),
@@ -1509,19 +1533,20 @@ describe('PhaseArtifactsPanel', () => {
       <PhaseArtifactsPanel
         phase="VERIFYING_PRD_COVERAGE"
         isCompleted={false}
-        preloadedArtifacts={[coverageArtifact, coverageRevisionArtifact]}
+        preloadedArtifacts={[coverageArtifact]}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
-    fireEvent.click(screen.getByRole('button', { name: /Changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: /v1 > v2/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Diff$/i }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+      expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
     })
     expectCoverageAttributionUiHidden()
     expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
-    expect(screen.getByText('Inspect the revised candidate')).toBeInTheDocument()
+    expect(screen.getAllByText('Inspect the revised candidate').length).toBeGreaterThan(0)
   })
 
   it.each([
@@ -1685,7 +1710,7 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Implementation Plan v1/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expectCoverageAttributionUiHidden()
@@ -1736,7 +1761,7 @@ describe('PhaseArtifactsPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Implementation Plan v1/i }))
 
     expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
     expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()

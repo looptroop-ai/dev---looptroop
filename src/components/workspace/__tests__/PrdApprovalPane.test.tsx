@@ -7,6 +7,7 @@ import { PrdApprovalPane } from '../PrdApprovalPane'
 
 const mockSaveUiState = vi.fn()
 const mockClearTicketArtifactsCache = vi.fn()
+const mockUseTicketArtifacts = vi.fn()
 
 vi.mock('@/hooks/useTickets', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useTickets')>('@/hooks/useTickets')
@@ -21,6 +22,7 @@ vi.mock('@/hooks/useTickets', async () => {
 
 vi.mock('@/hooks/useTicketArtifacts', () => ({
   clearTicketArtifactsCache: (...args: unknown[]) => mockClearTicketArtifactsCache(...args),
+  useTicketArtifacts: (...args: unknown[]) => mockUseTicketArtifacts(...args),
 }))
 
 vi.mock('../PrdApprovalEditor', () => ({
@@ -145,6 +147,8 @@ describe('PrdApprovalPane', () => {
     currentContent = buildPrdDocumentYaml(buildPrdDocument())
     mockSaveUiState.mockReset()
     mockClearTicketArtifactsCache.mockReset()
+    mockUseTicketArtifacts.mockReset()
+    mockUseTicketArtifacts.mockReturnValue({ artifacts: [], isLoading: false })
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = String(input)
@@ -296,5 +300,49 @@ describe('PrdApprovalPane', () => {
     const yamlEditor = await screen.findByLabelText('YAML editor')
     expect(yamlEditor).toHaveValue(buildPrdDocumentYaml(buildPrdDocument()))
     expect(screen.queryByDisplayValue('Unsaved PRD draft.')).not.toBeInTheDocument()
+  })
+
+  it('shows unresolved PRD coverage gaps as a collapsible warning during approval', async () => {
+    mockUseTicketArtifacts.mockReturnValue({
+      artifacts: [
+        {
+          id: 901,
+          ticketId: TEST.ticketId,
+          phase: 'WAITING_PRD_APPROVAL',
+          artifactType: 'prd_coverage',
+          filePath: null,
+          createdAt: '2026-04-03T14:22:00.000Z',
+          content: JSON.stringify({
+            status: 'gaps',
+            summary: 'Coverage gaps remain after the final PRD audit.',
+            finalCandidateVersion: 3,
+            hasRemainingGaps: true,
+            remainingGaps: [
+              'Missing explicit approval guidance when coverage reaches the retry cap.',
+            ],
+            auditNotes: 'status: gaps\ngaps:\n  - Missing explicit approval guidance when coverage reaches the retry cap.',
+          }),
+        },
+      ],
+      isLoading: false,
+    })
+
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+    })
+
+    const warningToggle = screen.getByRole('button', { name: /Coverage Warning/i })
+    expect(warningToggle).toBeInTheDocument()
+    expect(screen.queryByText('Remaining Gaps')).not.toBeInTheDocument()
+
+    fireEvent.click(warningToggle)
+
+    expect(screen.getByText('Coverage gaps remain after the final PRD audit.')).toBeInTheDocument()
+    expect(screen.getByText('PRD Candidate v3')).toBeInTheDocument()
+    expect(screen.getByText('Missing explicit approval guidance when coverage reaches the retry cap.')).toBeInTheDocument()
+    expect(screen.getByText(/status: gaps/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve' })).not.toBeDisabled()
   })
 })

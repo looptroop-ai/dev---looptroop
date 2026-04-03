@@ -17,6 +17,7 @@ import {
   PROM22,
   PROM23,
   PROM24,
+  PROM24b,
   PROM51,
   PROM52,
   buildPromptFromTemplate,
@@ -69,6 +70,7 @@ describe.concurrent('structured prompt hardening', () => {
       PROM20,
       PROM21,
       PROM22,
+      PROM24b,
       PROM24,
     ]) {
       expect(prompt.toolPolicy).toBe('disabled')
@@ -166,6 +168,15 @@ describe.concurrent('structured prompt hardening', () => {
     const coveragePrompt = buildPromptFromTemplate(PROM24, [])
     expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
     expect(coveragePrompt).toContain('backticks, or punctuation')
+  })
+
+  it('keeps beads coverage resolution explicit about full-plan output and gap accounting', () => {
+    const coverageResolutionPrompt = buildPromptFromTemplate(PROM24b, [])
+    expect(coverageResolutionPrompt).toContain('current implementation plan as the baseline')
+    expect(coverageResolutionPrompt).toContain('Return full execution-ready bead records')
+    expect(coverageResolutionPrompt).toContain('top-level `gap_resolutions` list with exactly one entry per provided gap')
+    expect(coverageResolutionPrompt).toContain('`action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`')
+    expect(coverageResolutionPrompt).toContain('top-level `beads` list')
   })
 
   it('requires the bead subset schema consistently in draft and refine prompts', () => {

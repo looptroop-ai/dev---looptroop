@@ -20,7 +20,10 @@ import { cn } from '@/lib/utils'
 import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
 import type {
   ArtifactStructuredOutputData,
+  CoverageArtifactData,
+  CoverageAttemptData,
   CoverageGapResolutionData,
+  CoverageTransitionData,
   InterviewArtifactData,
   InterviewArtifactQuestion,
   InterviewDiffArtifactData,
@@ -229,12 +232,13 @@ export function WithRawTab({
   )
 }
 
-function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent, notice }: {
+function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent, notice, diffLabel = 'Diff' }: {
   content: string
   hasChanges: boolean
   sectionsContent: React.ReactNode
   diffContent?: React.ReactNode
   notice?: React.ReactNode
+  diffLabel?: string
 }) {
   const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(hasChanges ? 'diff' : 'sections')
   const tokenCount = useMemo(() => encode(content).length, [content])
@@ -256,11 +260,11 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
           {hasChanges && (
             <button
               onClick={() => setActiveTab('diff')}
-              className={activeTab === 'diff'
-                ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-                : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+            className={activeTab === 'diff'
+              ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+              : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
             >
-              Diff
+              {diffLabel}
             </button>
           )}
           <button
@@ -1256,7 +1260,8 @@ function FinalPrdDraftView({
 
   const domain = isBeads ? 'beads' : 'prd'
   const diffEntries = buildRefinementDiffEntries(content, domain)
-  const hasDiffTab = diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent)
+  const diffLabel = parsed?.coverageDiffLabel ?? 'Diff'
+  const hasDiffTab = diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent) || Boolean(parsed?.coverageBaselineContent)
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
   const notice = <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />
 
@@ -1275,7 +1280,7 @@ function FinalPrdDraftView({
           </button>
           {hasDiffTab && (
             <button onClick={() => setActiveTab('diff')} className={tabButtonClass('diff')}>
-              Diff{diffEntries.length > 0 ? ` (${diffEntries.length})` : ''}
+              {diffLabel}{diffEntries.length > 0 ? ` (${diffEntries.length})` : ''}
             </button>
           )}
           <button onClick={() => setActiveTab('raw')} className={tabButtonClass('raw')}>
@@ -1309,23 +1314,35 @@ function FinalPrdDraftView({
 
 function formatCoverageResolutionAction(action: CoverageGapResolutionData['action']): string {
   if (action === 'updated_prd') return 'Updated PRD'
+  if (action === 'updated_beads') return 'Updated Plan'
   if (action === 'already_covered') return 'Already Covered'
   return 'Left Unresolved'
 }
 
 function getCoverageResolutionTone(action: CoverageGapResolutionData['action']): string {
   if (action === 'updated_prd') return 'border-green-200 bg-green-100/70 text-green-800 dark:border-green-800/60 dark:bg-green-900/30 dark:text-green-200'
+  if (action === 'updated_beads') return 'border-green-200 bg-green-100/70 text-green-800 dark:border-green-800/60 dark:bg-green-900/30 dark:text-green-200'
   if (action === 'already_covered') return 'border-blue-200 bg-blue-100/70 text-blue-800 dark:border-blue-800/60 dark:bg-blue-900/30 dark:text-blue-200'
   return 'border-amber-200 bg-amber-100/70 text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/30 dark:text-amber-200'
 }
 
-function CoverageResolutionNotesInner({ content, phase }: { content: string; phase?: string }) {
+function formatCoverageAffectedItem(item: CoverageGapResolutionData['affectedItems'][number]): string {
+  if (item.itemType === 'epic') return `Epic ${item.id}: ${item.label}`
+  if (item.itemType === 'user_story') return `User Story ${item.id}: ${item.label}`
+  return `Bead ${item.id}: ${item.label}`
+}
+
+function CoverageResolutionNotesInner({ content, phase, isBeads = false }: { content: string; phase?: string; isBeads?: boolean }) {
   const parsed = parseRefinementArtifact(content)
   const gapResolutions = parsed?.gapResolutions ?? []
   if (!gapResolutions.length) return <RawContentWithCopy content={content} />
 
-  const candidateVersionLabel = parsed?.candidateVersion ? `PRD Candidate v${parsed.candidateVersion}` : 'PRD Candidate'
-  const summaryText = phase === 'VERIFYING_PRD_COVERAGE'
+  const candidateVersionLabel = parsed?.candidateVersion
+    ? `${isBeads ? 'Implementation Plan' : 'PRD Candidate'} v${parsed.candidateVersion}`
+    : isBeads
+      ? 'Implementation Plan'
+      : 'PRD Candidate'
+  const summaryText = phase === 'VERIFYING_PRD_COVERAGE' || phase === 'VERIFYING_BEADS_COVERAGE'
     ? `Latest notes about how coverage gaps were handled for ${candidateVersionLabel}.`
     : `Latest coverage-driven resolution notes for ${candidateVersionLabel}.`
 
@@ -1358,12 +1375,12 @@ function CoverageResolutionNotesInner({ content, phase }: { content: string; pha
                       key={`${resolution.gap}:${item.itemType}:${item.id}`}
                       className="rounded-full border border-border bg-background px-2 py-1 text-[10px] text-foreground"
                     >
-                      {item.itemType === 'epic' ? 'Epic' : 'User Story'} {item.id}: {item.label}
+                      {formatCoverageAffectedItem(item)}
                     </span>
                   ))}
                 </div>
               ) : (
-                <div className="text-xs text-muted-foreground">No epic or user story was directly mapped for this resolution.</div>
+                <div className="text-xs text-muted-foreground">No directly affected items were recorded for this resolution.</div>
               )}
             </div>
           </div>
@@ -1373,21 +1390,120 @@ function CoverageResolutionNotesInner({ content, phase }: { content: string; pha
   )
 }
 
-function CoverageReportView({ content, phase }: { content: string; phase?: string }) {
+function buildCoverageTransitionArtifactContent(transition: CoverageTransitionData): string {
+  return JSON.stringify({
+    refinedContent: transition.toContent,
+    candidateVersion: transition.toVersion,
+    gapResolutions: transition.gapResolutions,
+    coverageBaselineContent: transition.fromContent,
+    coverageBaselineVersion: transition.fromVersion,
+    coverageDiffLabel: `Diff v${transition.fromVersion} -> v${transition.toVersion}`,
+    coverageUiRefinementDiff: transition.uiRefinementDiff ?? undefined,
+    structuredOutput: transition.structuredOutput,
+  })
+}
+
+function CoverageTransitionDetailsView({
+  transition,
+  phase,
+}: {
+  transition: CoverageTransitionData
+  phase?: string
+}) {
+  const isBeads = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
+  const [activeTab, setActiveTab] = useState<'gaps' | 'notes' | 'diff'>(
+    transition.gapResolutions.length > 0 ? 'notes' : 'gaps',
+  )
+  const artifactContent = buildCoverageTransitionArtifactContent(transition)
+  const tabs: Array<{ key: 'gaps' | 'notes' | 'diff'; label: string }> = [
+    { key: 'gaps', label: 'Gaps Found' },
+    ...(transition.gapResolutions.length > 0 || transition.resolutionNotes.length > 0
+      ? [{ key: 'notes', label: 'Resolution Notes' }]
+      : []),
+    { key: 'diff', label: 'Diff' },
+  ]
+  const resolvedTab = tabs.find((tab) => tab.key === activeTab)?.key ?? tabs[0]!.key
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1 border-b border-border">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={cn(
+              'px-3 py-1.5 text-xs font-medium transition-colors border-b-2 -mb-px',
+              resolvedTab === tab.key
+                ? 'border-foreground text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {resolvedTab === 'gaps' && (
+        <div className="space-y-3">
+          <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+            {transition.summary}
+          </div>
+          {transition.gaps.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gaps Found</div>
+              <div className="space-y-2">
+                {transition.gaps.map((gap, index) => (
+                  <div key={`${gap}:${index}`} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                    {gap}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {transition.auditNotes.trim() && (
+            <CollapsibleSection title="Audit Notes">
+              <RawContentView content={transition.auditNotes} />
+            </CollapsibleSection>
+          )}
+        </div>
+      )}
+
+      {resolvedTab === 'notes' && (
+        transition.gapResolutions.length > 0
+          ? <CoverageResolutionNotesInner content={artifactContent} phase={phase} isBeads={isBeads} />
+          : (
+            <div className="space-y-2">
+              {transition.resolutionNotes.map((note, index) => (
+                <div key={`${note}:${index}`} className="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                  {note}
+                </div>
+              ))}
+            </div>
+            )
+      )}
+
+      {resolvedTab === 'diff' && (
+        <div className="space-y-3">
+          <ArtifactProcessingNotice structuredOutput={transition.structuredOutput} kind="diff" />
+          <RefinementDiffView content={artifactContent} domain={isBeads ? 'beads' : 'prd'} phase={phase} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LegacyCoverageReportView({
+  coverageReviewContent,
+  revisionContent,
+  phase,
+}: {
+  coverageReviewContent: string | null
+  revisionContent: string | null
+  phase?: string
+}) {
   const [activeTab, setActiveTab] = useState<'audit' | 'changes' | 'notes'>('audit')
-
-  let coverageReviewContent: string | null = null
-  let revisionContent: string | null = null
-  try {
-    const envelope = JSON.parse(content)
-    coverageReviewContent = envelope.coverageReviewContent ?? null
-    revisionContent = envelope.revisionContent ?? null
-  } catch {
-    coverageReviewContent = content
-  }
-
   const revisionPayload = revisionContent ? parseRefinementArtifact(revisionContent) : null
-  const hasChanges = !!(revisionPayload?.changes?.length || revisionPayload?.winnerDraftContent)
+  const hasChanges = !!(revisionPayload?.changes?.length || revisionPayload?.winnerDraftContent || revisionPayload?.coverageBaselineContent)
   const hasNotes = !!(revisionPayload?.gapResolutions?.length)
 
   const tabs: Array<{ key: 'audit' | 'changes' | 'notes'; label: string }> = []
@@ -1395,17 +1511,17 @@ function CoverageReportView({ content, phase }: { content: string; phase?: strin
   if (hasChanges) tabs.push({ key: 'changes', label: 'Changes' })
   if (hasNotes) tabs.push({ key: 'notes', label: 'Resolution Notes' })
 
-  const resolvedTab = tabs.find(t => t.key === activeTab) ? activeTab : tabs[0]?.key ?? 'audit'
+  const resolvedTab = tabs.find((tab) => tab.key === activeTab)?.key ?? tabs[0]?.key ?? 'audit'
 
   if (tabs.length === 0) {
-    return <RawContentWithCopy content={content} />
+    return <RawContentWithCopy content={JSON.stringify({ coverageReviewContent, revisionContent })} />
   }
 
   return (
     <div className="space-y-3">
       {tabs.length > 1 && (
         <div className="flex gap-1 border-b border-border">
-          {tabs.map(tab => (
+          {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
@@ -1425,16 +1541,100 @@ function CoverageReportView({ content, phase }: { content: string; phase?: strin
       {resolvedTab === 'audit' && coverageReviewContent && (
         <CoverageResultView content={coverageReviewContent} phase={phase} />
       )}
-      {resolvedTab === 'changes' && revisionContent && (() => {
-        const candidateVersion = revisionPayload?.candidateVersion
-        const finalLabel = candidateVersion ? `PRD Candidate v${candidateVersion}` : 'PRD Candidate'
-        return <FinalPrdDraftView content={revisionContent} defaultTab="diff" finalLabel={finalLabel} phase={phase} />
-      })()}
+      {resolvedTab === 'changes' && revisionContent && (
+        (() => {
+          const candidateVersion = revisionPayload?.candidateVersion
+          const finalLabel = candidateVersion ? `PRD Candidate v${candidateVersion}` : 'PRD Candidate'
+          return <FinalPrdDraftView content={revisionContent} defaultTab="diff" finalLabel={finalLabel} phase={phase} />
+        })()
+      )}
       {resolvedTab === 'notes' && revisionContent && (
         <CoverageResolutionNotesInner content={revisionContent} phase={phase} />
       )}
     </div>
   )
+}
+
+function VersionedCoverageReportView({
+  coverageResult,
+  content,
+  phase,
+}: {
+  coverageResult: CoverageArtifactData
+  content: string
+  phase?: string
+}) {
+  const transitions = coverageResult.transitions ?? []
+  if (transitions.length === 0) {
+    return <CoverageResultView content={content} phase={phase} />
+  }
+
+  const [activeTransitionKey, setActiveTransitionKey] = useState(`transition:0`)
+  const primaryTabs = transitions.map((transition, index) => ({
+    key: `transition:${index}`,
+    label: `v${transition.fromVersion} > v${transition.toVersion}`,
+    transition,
+  }))
+  const resolvedTab = primaryTabs.find((tab) => tab.key === activeTransitionKey)?.key ?? primaryTabs[0]!.key
+  const activeTransition = primaryTabs.find((tab) => tab.key === resolvedTab)?.transition ?? primaryTabs[0]!.transition
+
+  return (
+    <div className="space-y-4">
+      <CoverageResultView content={content} phase={phase} />
+
+      <div className="space-y-3">
+        <div className="flex gap-2 border-b border-border">
+          {primaryTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTransitionKey(tab.key)}
+              className={cn(
+                'px-4 py-2 text-sm font-semibold transition-colors border-b-2 -mb-px',
+                resolvedTab === tab.key
+                  ? 'border-foreground text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <CoverageTransitionDetailsView transition={activeTransition} phase={phase} />
+      </div>
+    </div>
+  )
+}
+
+function CoverageReportView({ content, phase }: { content: string; phase?: string }) {
+  let coverageReviewContent: string | null = null
+  let revisionContent: string | null = null
+  try {
+    const envelope = JSON.parse(content) as { coverageReviewContent?: string | null; revisionContent?: string | null }
+    if (typeof envelope.coverageReviewContent === 'string' || typeof envelope.revisionContent === 'string') {
+      coverageReviewContent = envelope.coverageReviewContent ?? null
+      revisionContent = envelope.revisionContent ?? null
+    }
+  } catch {
+    // Treat as direct coverage artifact content.
+  }
+
+  if (coverageReviewContent || revisionContent) {
+    return (
+      <LegacyCoverageReportView
+        coverageReviewContent={coverageReviewContent}
+        revisionContent={revisionContent}
+        phase={phase}
+      />
+    )
+  }
+
+  const coverageResult = parseCoverageArtifact(content)
+  if (!coverageResult) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  return <VersionedCoverageReportView coverageResult={coverageResult} content={content} phase={phase} />
 }
 
 export function InterviewAnswersView({ content, hideSummary = false, hideAiAnswerBadge = false }: { content: string; hideSummary?: boolean; hideAiAnswerBadge?: boolean }) {
@@ -2476,6 +2676,47 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
   )
 }
 
+function getCoverageCandidateLabel(phase?: string, candidateVersion?: number): string {
+  if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
+    return candidateVersion ? `PRD Candidate v${candidateVersion}` : 'current PRD candidate'
+  }
+  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
+    return candidateVersion ? `Implementation Plan v${candidateVersion}` : 'current implementation plan'
+  }
+  if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
+    return 'compiled interview'
+  }
+  return 'current draft'
+}
+
+function getCoverageReviewedAgainst(phase?: string): string {
+  if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') return 'approved interview'
+  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') return 'approved PRD'
+  if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') return 'submitted answers'
+  return 'source material'
+}
+
+function buildCoverageSummaryText(coverageResult: CoverageArtifactData, phase?: string): string {
+  if (coverageResult.summary?.trim()) {
+    return coverageResult.summary
+  }
+
+  const status = coverageResult.status ?? coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
+  const finalCandidateVersion = coverageResult.finalCandidateVersion ?? coverageResult.attempts?.[coverageResult.attempts.length - 1]?.candidateVersion
+  const gaps = coverageResult.remainingGaps?.length
+    ? coverageResult.remainingGaps
+    : coverageResult.gaps ?? coverageResult.parsed?.gaps ?? []
+  const reviewedArtifact = getCoverageCandidateLabel(phase, finalCandidateVersion)
+  const reviewedAgainst = getCoverageReviewedAgainst(phase)
+  const isVerifyPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE'
+
+  return status === 'gaps'
+    ? gaps.length > 0
+      ? `This ${isVerifyPrdCoverage ? 'check' : 'pass'} found ${gaps.length === 1 ? '1 gap' : `${gaps.length} gaps`} between the ${reviewedArtifact} and the ${reviewedAgainst}.`
+      : `This ${isVerifyPrdCoverage ? 'check' : 'pass'} found coverage gaps between the ${reviewedArtifact} and the ${reviewedAgainst}.`
+    : `The ${reviewedArtifact} covers the ${reviewedAgainst}. No gaps were ${isVerifyPrdCoverage ? 'found in this check' : 'flagged in this pass'}.`
+}
+
 function CoverageResultView({ content, header, phase }: { content: string; header?: React.ReactNode; phase?: string }) {
   const coverageResult = parseCoverageArtifact(content)
   if (!coverageResult) {
@@ -2488,36 +2729,18 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
   }
 
   const isPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL'
-  const isVerifyPrdCoverage = phase === 'VERIFYING_PRD_COVERAGE'
-  const isInterviewCoverage = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
-  const isBeadsCoverage = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
-  const status = coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
-  const gaps = Array.isArray(coverageResult.parsed?.gaps) ? coverageResult.parsed.gaps : []
+  const status = coverageResult.status ?? coverageResult.parsed?.status ?? (coverageResult.hasGaps ? 'gaps' : 'clean')
+  const finalCandidateVersion = coverageResult.finalCandidateVersion ?? coverageResult.attempts?.[coverageResult.attempts.length - 1]?.candidateVersion
+  const gaps = coverageResult.remainingGaps?.length
+    ? coverageResult.remainingGaps
+    : coverageResult.gaps ?? (Array.isArray(coverageResult.parsed?.gaps) ? coverageResult.parsed.gaps : [])
   const followUpQuestions = isPrdCoverage
     ? []
     : normalizeCoverageFollowUpArtifacts(
         coverageResult.parsed?.followUpQuestions ?? coverageResult.parsed?.follow_up_questions,
     )
   const hasStructuredCoverage = gaps.length > 0 || status === 'clean' || (!isPrdCoverage && followUpQuestions.length > 0)
-  const reviewedArtifact = isPrdCoverage
-    ? 'current PRD candidate'
-    : isInterviewCoverage
-      ? 'compiled interview'
-      : isBeadsCoverage
-        ? 'current implementation plan'
-        : 'current draft'
-  const reviewedAgainst = isPrdCoverage
-    ? 'approved interview'
-    : isInterviewCoverage
-      ? 'submitted answers'
-      : isBeadsCoverage
-        ? 'approved PRD'
-        : 'source material'
-  const summaryText = status === 'gaps'
-    ? gaps.length > 0
-      ? `This ${isVerifyPrdCoverage ? 'check' : 'pass'} found ${gaps.length === 1 ? '1 gap' : `${gaps.length} gaps`} between the ${reviewedArtifact} and the ${reviewedAgainst}.`
-      : `This ${isVerifyPrdCoverage ? 'check' : 'pass'} found coverage gaps between the ${reviewedArtifact} and the ${reviewedAgainst}.`
-    : `The ${reviewedArtifact} covers the ${reviewedAgainst}. No gaps were ${isVerifyPrdCoverage ? 'found in this check' : 'flagged in this pass'}.`
+  const summaryText = buildCoverageSummaryText(coverageResult, phase)
   const terminationSummary = coverageResult.terminationReason === 'coverage_pass_limit_reached'
     ? 'Retry cap reached; moving to approval with unresolved gaps.'
     : coverageResult.terminationReason === 'follow_up_budget_exhausted'
@@ -2525,6 +2748,11 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
       : coverageResult.terminationReason === 'follow_up_generation_failed'
         ? 'Follow-up questions could not be recovered; moving to approval with unresolved gaps.'
         : null
+  const technicalDetails = coverageResult.auditNotes
+    ?? coverageResult.attempts?.[coverageResult.attempts.length - 1]?.auditNotes
+    ?? coverageResult.response
+    ?? coverageResult.normalizedContent
+    ?? ''
 
   return (
     <div className="space-y-4">
@@ -2535,7 +2763,11 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
           ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'
           : 'border-green-300 bg-green-50 text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200'
       }`}>
-        {status === 'gaps' ? 'Coverage review found gaps' : 'No coverage gaps found'}
+        {status === 'gaps'
+          ? 'Coverage review found gaps'
+          : finalCandidateVersion && finalCandidateVersion > 1
+            ? 'No remaining coverage gaps found'
+            : 'No coverage gaps found'}
       </div>
 
       <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
@@ -2592,9 +2824,9 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
         </div>
       )}
 
-      {(coverageResult.response || coverageResult.normalizedContent) && (
+      {technicalDetails && (
         <CollapsibleSection title="Technical Details">
-          <RawContentView content={coverageResult.response || coverageResult.normalizedContent || ''} />
+          <RawContentView content={technicalDetails} />
         </CollapsibleSection>
       )}
     </div>
@@ -2931,12 +3163,14 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
 
   if (parsedCoverageInput && artifactId === 'refined-beads') {
     const diffEntries = buildRefinementDiffEntries(content, 'beads')
-    const hasChanges = diffEntries.length > 0 || Boolean(parseRefinementArtifact(content)?.winnerDraftContent)
+    const parsedRefinement = parseRefinementArtifact(content)
+    const hasChanges = diffEntries.length > 0 || Boolean(parsedRefinement?.winnerDraftContent) || Boolean(parsedRefinement?.coverageBaselineContent)
     return (
       <RefinedArtifactTabs
         content={content}
         hasChanges={hasChanges}
-        notice={<ArtifactProcessingNotice structuredOutput={parseRefinementArtifact(content)?.structuredOutput} kind="diff" />}
+        diffLabel={parsedRefinement?.coverageDiffLabel ?? 'Diff'}
+        notice={<ArtifactProcessingNotice structuredOutput={parsedRefinement?.structuredOutput} kind="diff" />}
         sectionsContent={(
           <div className="space-y-6">
             {parsedCoverageInput.interview && (

@@ -148,8 +148,23 @@ function readYamlRecord<T>(content: string): T | null {
 }
 
 function readYamlArray<T>(content: string): T[] | null {
+  const trimmed = content.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('{')) {
+    try {
+      return trimmed
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as T)
+    } catch {
+      return null
+    }
+  }
+
   try {
-    const parsed = jsYaml.load(content)
+    const parsed = jsYaml.load(trimmed)
     return Array.isArray(parsed)
       ? parsed as T[]
       : isRecord(parsed) && Array.isArray(parsed.beads)

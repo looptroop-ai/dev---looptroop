@@ -4,12 +4,13 @@ import type { PromptPart } from '../../opencode/types'
 import { CancelledError, throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
-import { buildPromptFromTemplate, PROM0, PROM13b } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM0, PROM13b, PROM24b } from '../../prompts/index'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts } from '../../storage/tickets'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../runOpenCodePrompt'
 import { safeAtomicWrite } from '../../io/atomicWrite'
 import { buildRelevantFilesArtifact, type RelevantFilesData } from '../../ticket/relevantFiles'
 import {
+  normalizeBeadsJsonlOutput,
   normalizeRelevantFilesOutput,
   normalizeCoverageResultOutput,
   buildStructuredRetryPrompt,
@@ -35,6 +36,11 @@ import {
   buildPrdCoverageRevisionUiDiff,
   validatePrdCoverageRevisionOutput,
 } from '../../phases/prd/coverageRevision'
+import {
+  buildBeadsCoverageRevisionArtifact,
+  buildBeadsCoverageRevisionRetryPrompt,
+  validateBeadsCoverageRevisionOutput,
+} from '../../phases/beads/coverageRevision'
 import { clearContextCache } from '../../opencode/contextBuilder'
 import {
   countCoverageFollowUpQuestions,
@@ -74,11 +80,13 @@ import {
   buildCoverageFollowUpCommentary,
   readMockInterviewWinnerId,
 } from './interviewPhase'
-import { readTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
+import { readTicketBeads, updateTicketProgressFromBeads, writeTicketBeads } from './beadsPhase'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { resolveStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
 import { buildStructuredOutputFailure } from '../../structuredOutput/failure'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
+import type { UiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 
 export function validateRelevantFilesScanResponse(response: string): StructuredOutputResult<RelevantFilesOutputPayload> {
   const trimmed = response.trim()
@@ -146,6 +154,163 @@ function loadRecoveredPrdCoverageContent(ticketId: string) {
   }
 }
 
+type CoverageAttemptHistoryEntry = {
+  candidateVersion: number
+  status: 'clean' | 'gaps'
+  summary: string
+  gaps: string[]
+  auditNotes: string
+  response: string
+  normalizedContent: string
+  structuredOutput: ReturnType<typeof buildStructuredMetadata>
+  coverageRunNumber: number
+  maxCoveragePasses: number
+  limitReached: boolean
+  terminationReason: string | null
+}
+
+type CoverageTransitionHistoryEntry = {
+  fromVersion: number
+  toVersion: number
+  summary: string
+  gaps: string[]
+  auditNotes: string
+  fromContent: string
+  toContent: string
+  gapResolutions: Array<{
+    gap: string
+    action: string
+    rationale: string
+    affectedItems: Array<{ itemType: string; id: string; label: string }>
+  }>
+  resolutionNotes: string[]
+  uiRefinementDiff: UiRefinementDiffArtifact | null
+  structuredOutput: ReturnType<typeof buildStructuredMetadata>
+}
+
+type CoverageHistorySnapshot = {
+  attempts: CoverageAttemptHistoryEntry[]
+  transitions: CoverageTransitionHistoryEntry[]
+  finalCandidateVersion?: number
+}
+
+function persistVersionedCoverageArtifact(params: {
+  ticketId: string
+  stateLabel: string
+  phase: 'prd' | 'beads'
+  winnerId: string
+  response: string
+  normalizedContent: string
+  parsed: CoverageResultEnvelope
+  structuredOutput: ReturnType<typeof buildStructuredMetadata>
+  attemptEntry: CoverageAttemptHistoryEntry
+  attempts: CoverageAttemptHistoryEntry[]
+  transitions: CoverageTransitionHistoryEntry[]
+  coverageRunNumber: number
+  maxCoveragePasses: number
+  limitReached: boolean
+  terminationReason?: string | null
+  finalCandidateVersion: number
+  hasRemainingGaps: boolean
+  remainingGaps: string[]
+}) {
+  insertPhaseArtifact(params.ticketId, {
+    phase: params.stateLabel,
+    artifactType: `${params.phase}_coverage`,
+    content: JSON.stringify({
+      winnerId: params.winnerId,
+      hasGaps: params.attemptEntry.status === 'gaps',
+      status: params.attemptEntry.status,
+      gaps: params.attemptEntry.gaps,
+      summary: params.attemptEntry.summary,
+      coverageRunNumber: params.coverageRunNumber,
+      maxCoveragePasses: params.maxCoveragePasses,
+      limitReached: params.limitReached,
+      terminationReason: params.terminationReason ?? null,
+      finalCandidateVersion: params.finalCandidateVersion,
+      hasRemainingGaps: params.hasRemainingGaps,
+      remainingGaps: params.remainingGaps,
+    }),
+  })
+
+  persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, `${params.phase}_coverage`, {
+    response: params.response,
+    normalizedContent: params.normalizedContent,
+    parsed: params.parsed,
+    structuredOutput: params.structuredOutput,
+    status: params.attemptEntry.status,
+    summary: params.attemptEntry.summary,
+    gaps: params.attemptEntry.gaps,
+    finalCandidateVersion: params.finalCandidateVersion,
+    attempts: params.attempts,
+    transitions: params.transitions,
+    hasRemainingGaps: params.hasRemainingGaps,
+    remainingGaps: params.remainingGaps,
+    auditNotes: params.attemptEntry.auditNotes,
+  })
+}
+
+function getVersionedCoveragePassLimit(phase: 'interview' | 'prd' | 'beads', configuredMax: number): number {
+  if (phase === 'interview') return configuredMax
+  return Math.min(Math.max(configuredMax, 1), 3)
+}
+
+function buildCoverageAttemptSummary(params: {
+  phase: 'prd' | 'beads'
+  status: 'clean' | 'gaps'
+  candidateVersion: number
+  gaps: string[]
+  remaining: boolean
+}): string {
+  const candidateLabel = params.phase === 'prd'
+    ? `PRD Candidate v${params.candidateVersion}`
+    : `Implementation Plan v${params.candidateVersion}`
+
+  if (params.status === 'clean') {
+    return params.candidateVersion > 1
+      ? `No remaining coverage gaps found in ${candidateLabel}.`
+      : `No coverage gaps found in ${candidateLabel}.`
+  }
+
+  const gapLabel = params.gaps.length === 1 ? '1 gap' : `${params.gaps.length} gaps`
+  return params.remaining
+    ? `${candidateLabel} still has ${gapLabel}.`
+    : `Coverage found ${gapLabel} in ${candidateLabel}.`
+}
+
+function buildCoverageTransitionSummary(params: {
+  phase: 'prd' | 'beads'
+  fromVersion: number
+  toVersion: number
+  gaps: string[]
+}): string {
+  const candidateLabel = params.phase === 'prd' ? 'PRD Candidate' : 'Implementation Plan'
+  const gapLabel = params.gaps.length === 1 ? '1 gap' : `${params.gaps.length} gaps`
+  return `Coverage found ${gapLabel} in ${candidateLabel} v${params.fromVersion} and created ${candidateLabel} v${params.toVersion}.`
+}
+
+function loadCoverageHistorySnapshot(
+  ticketId: string,
+  phase: 'prd' | 'beads',
+  stateLabel: string,
+): CoverageHistorySnapshot {
+  const artifact = getLatestPhaseArtifact(ticketId, `ui_artifact_companion:${phase}_coverage`, stateLabel)
+  if (!artifact) {
+    return { attempts: [], transitions: [] }
+  }
+
+  const parsed = parseUiArtifactCompanionArtifact(artifact.content)?.payload as Record<string, unknown> | undefined
+  if (!parsed) {
+    return { attempts: [], transitions: [] }
+  }
+
+  return {
+    attempts: Array.isArray(parsed.attempts) ? parsed.attempts as CoverageAttemptHistoryEntry[] : [],
+    transitions: Array.isArray(parsed.transitions) ? parsed.transitions as CoverageTransitionHistoryEntry[] : [],
+    finalCandidateVersion: typeof parsed.finalCandidateVersion === 'number' ? parsed.finalCandidateVersion : undefined,
+  }
+}
+
 function normalizePrdCoverageEnvelope(envelope: CoverageResultEnvelope): {
   envelope: CoverageResultEnvelope
   repairWarnings: string[]
@@ -197,6 +362,69 @@ function normalizePrdCoverageEnvelope(envelope: CoverageResultEnvelope): {
 
   if (sanitizedGaps.length !== envelope.gaps.length) {
     repairWarnings.push('Trimmed empty PRD coverage gap strings before persisting the normalized result.')
+  }
+
+  return {
+    envelope: {
+      status: 'gaps',
+      gaps: sanitizedGaps,
+      followUpQuestions: sanitizedFollowUpQuestions,
+    },
+    repairWarnings,
+  }
+}
+
+function normalizeBeadsCoverageEnvelope(envelope: CoverageResultEnvelope): {
+  envelope: CoverageResultEnvelope
+  repairWarnings: string[]
+  validationError?: string
+} {
+  const repairWarnings: string[] = []
+  const sanitizedFollowUpQuestions: CoverageResultEnvelope['followUpQuestions'] = []
+
+  if (envelope.followUpQuestions.length > 0) {
+    repairWarnings.push('Beads coverage follow_up_questions were ignored because beads coverage is envelope-only.')
+  }
+
+  const sanitizedGaps = envelope.gaps.map(gap => gap.trim()).filter((gap): gap is string => gap.length > 0)
+
+  if (envelope.status === 'clean') {
+    if (sanitizedGaps.length > 0) {
+      return {
+        envelope: {
+          status: 'clean',
+          gaps: sanitizedGaps,
+          followUpQuestions: sanitizedFollowUpQuestions,
+        },
+        repairWarnings,
+        validationError: 'Beads coverage reported status clean but also returned gaps. Return status gaps for unresolved coverage and keep gaps empty when status is clean.',
+      }
+    }
+
+    return {
+      envelope: {
+        status: 'clean',
+        gaps: [],
+        followUpQuestions: sanitizedFollowUpQuestions,
+      },
+      repairWarnings,
+    }
+  }
+
+  if (sanitizedGaps.length === 0) {
+    return {
+      envelope: {
+        status: 'gaps',
+        gaps: [],
+        followUpQuestions: sanitizedFollowUpQuestions,
+      },
+      repairWarnings,
+      validationError: 'Beads coverage reported status gaps but did not return any non-empty gap strings. Return at least one concrete gap string.',
+    }
+  }
+
+  if (sanitizedGaps.length !== envelope.gaps.length) {
+    repairWarnings.push('Trimmed empty beads coverage gap strings before persisting the normalized result.')
   }
 
   return {
@@ -568,6 +796,360 @@ async function runPrdCoverageResolutionPrompt(params: {
   throw new Error('PRD coverage resolution finished without a validated structured result.')
 }
 
+async function runBeadsCoverageAuditPrompt(params: {
+  ticketId: string
+  externalId: string
+  stateLabel: string
+  winnerId: string
+  worktreePath: string
+  promptContent: string
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  signal: AbortSignal
+}): Promise<{
+  response: string
+  envelope: CoverageResultEnvelope
+  normalizedContent: string
+  structuredMeta: ReturnType<typeof buildStructuredMetadata>
+}> {
+  throwIfAborted(params.signal, params.ticketId)
+
+  const streamState = createOpenCodeStreamState()
+  let sessionId = ''
+  let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>> | undefined
+  let response = ''
+  let coverageEnvelope: ReturnType<typeof normalizeCoverageResultOutput> | null = null
+  let promptParts: PromptPart[] = [{ type: 'text', content: params.promptContent }]
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
+    try {
+      runResult = await runOpenCodePrompt({
+        adapter,
+        projectPath: params.worktreePath,
+        parts: promptParts,
+        signal: params.signal,
+        timeoutMs: params.councilSettings.draftTimeoutMs,
+        model: params.winnerId,
+        variant: 'coverage',
+        toolPolicy: getCoveragePromptTemplate('beads').toolPolicy,
+        sessionOwnership: {
+          ticketId: params.ticketId,
+          phase: params.stateLabel,
+          memberId: params.winnerId,
+        },
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          emitAiMilestone(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            `OpenCode coverage: sending beads verification prompt to ${params.winnerId} (session=${session.id}).`,
+            `${params.stateLabel}:${session.id}:beads-coverage-audit-created`,
+            {
+              modelId: params.winnerId,
+              sessionId: session.id,
+              source: `model:${params.winnerId}`,
+            },
+          )
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          emitOpenCodeStreamEvent(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            sessionId,
+            event,
+            streamState,
+          )
+        },
+        onPromptDispatched: (event) => {
+          emitOpenCodePromptLog(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            event,
+          )
+        },
+      })
+    } catch (error) {
+      if (error instanceof CancelledError) throw error
+      if (error instanceof Error && error.message === 'Timeout') {
+        throw new Error('Coverage verification failed: Timeout')
+      }
+      throwIfCancelled(error, params.signal, params.ticketId)
+      throw error
+    }
+
+    throwIfAborted(params.signal, params.ticketId)
+    response = runResult.response
+
+    emitOpenCodeSessionLogs(
+      params.ticketId,
+      params.externalId,
+      params.stateLabel,
+      params.winnerId,
+      runResult.session.id,
+      'coverage',
+      response,
+      runResult.messages,
+      streamState,
+    )
+
+    coverageEnvelope = normalizeCoverageResultOutput(response)
+    if (coverageEnvelope.ok) {
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: coverageEnvelope.repairApplied,
+        repairWarnings: coverageEnvelope.repairWarnings,
+      })
+
+      const beadsCoverageNormalization = normalizeBeadsCoverageEnvelope(coverageEnvelope.value)
+      if (beadsCoverageNormalization.repairWarnings.length > 0) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          repairWarnings: beadsCoverageNormalization.repairWarnings,
+        })
+      }
+
+      if (beadsCoverageNormalization.validationError) {
+        if (attempt === 1) {
+          structuredMeta = buildStructuredMetadata(structuredMeta, {
+            autoRetryCount: 1,
+            validationError: beadsCoverageNormalization.validationError,
+            retryDiagnostics: [resolveStructuredRetryDiagnostic({
+              attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+              rawResponse: response,
+              validationError: beadsCoverageNormalization.validationError,
+            })],
+          })
+          throw new Error(`Beads coverage output failed semantic validation after retry: ${beadsCoverageNormalization.validationError}`)
+        }
+
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError: beadsCoverageNormalization.validationError,
+          retryDiagnostics: [resolveStructuredRetryDiagnostic({
+            attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+            rawResponse: response,
+            validationError: beadsCoverageNormalization.validationError,
+          })],
+        })
+        promptParts = buildStructuredRetryPrompt([{ type: 'text', content: params.promptContent }], {
+          validationError: beadsCoverageNormalization.validationError,
+          rawResponse: response,
+          schemaReminder: getCoveragePromptTemplate('beads').outputFormat,
+        })
+        continue
+      }
+
+      coverageEnvelope = {
+        ...coverageEnvelope,
+        value: beadsCoverageNormalization.envelope,
+        normalizedContent: buildYamlDocument({
+          status: beadsCoverageNormalization.envelope.status,
+          gaps: beadsCoverageNormalization.envelope.gaps,
+          follow_up_questions: beadsCoverageNormalization.envelope.followUpQuestions,
+        }),
+        repairApplied: coverageEnvelope.repairApplied || beadsCoverageNormalization.repairWarnings.length > 0,
+        repairWarnings: [...coverageEnvelope.repairWarnings, ...beadsCoverageNormalization.repairWarnings],
+      }
+      break
+    }
+
+    if (attempt === 1) {
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError: coverageEnvelope.error,
+        retryDiagnostics: [resolveStructuredRetryDiagnostic({
+          attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: response,
+          validationError: coverageEnvelope.error,
+          retryDiagnostic: coverageEnvelope.retryDiagnostic,
+        })],
+      })
+      throw new Error(`Coverage output failed validation after retry: ${coverageEnvelope.error}`)
+    }
+
+    structuredMeta = buildStructuredMetadata(structuredMeta, {
+      autoRetryCount: 1,
+      validationError: coverageEnvelope.error,
+      retryDiagnostics: [resolveStructuredRetryDiagnostic({
+        attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+        rawResponse: response,
+        validationError: coverageEnvelope.error,
+        retryDiagnostic: coverageEnvelope.retryDiagnostic,
+      })],
+    })
+    promptParts = buildStructuredRetryPrompt([{ type: 'text', content: params.promptContent }], {
+      validationError: coverageEnvelope.error,
+      rawResponse: response,
+      schemaReminder: getCoveragePromptTemplate('beads').outputFormat,
+    })
+  }
+
+  if (!coverageEnvelope?.ok || !runResult) {
+    throw new Error('Coverage verification finished without a parseable structured result.')
+  }
+
+  return {
+    response,
+    envelope: coverageEnvelope.value,
+    normalizedContent: coverageEnvelope.normalizedContent,
+    structuredMeta,
+  }
+}
+
+async function runBeadsCoverageResolutionPrompt(params: {
+  ticketId: string
+  externalId: string
+  stateLabel: string
+  winnerId: string
+  worktreePath: string
+  promptContent: string
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  signal: AbortSignal
+  currentCandidateContent: string
+  coverageGaps: string[]
+}): Promise<{
+  response: string
+  revision: ReturnType<typeof validateBeadsCoverageRevisionOutput>
+  structuredMeta: ReturnType<typeof buildStructuredMetadata>
+}> {
+  throwIfAborted(params.signal, params.ticketId)
+
+  const streamState = createOpenCodeStreamState()
+  let sessionId = ''
+  let response = ''
+  let promptParts: PromptPart[] = [{ type: 'text', content: params.promptContent }]
+  let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
+
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
+    let runResult: Awaited<ReturnType<typeof runOpenCodePrompt>>
+    try {
+      runResult = await runOpenCodePrompt({
+        adapter,
+        projectPath: params.worktreePath,
+        parts: promptParts,
+        signal: params.signal,
+        timeoutMs: params.councilSettings.draftTimeoutMs,
+        model: params.winnerId,
+        variant: 'coverage',
+        toolPolicy: PROM24b.toolPolicy,
+        sessionOwnership: {
+          ticketId: params.ticketId,
+          phase: params.stateLabel,
+          memberId: params.winnerId,
+        },
+        onSessionCreated: (session) => {
+          sessionId = session.id
+          emitAiMilestone(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            `OpenCode coverage: sending beads coverage resolution prompt to ${params.winnerId} (session=${session.id}).`,
+            `${params.stateLabel}:${session.id}:beads-coverage-resolution-created`,
+            {
+              modelId: params.winnerId,
+              sessionId: session.id,
+              source: `model:${params.winnerId}`,
+            },
+          )
+        },
+        onStreamEvent: (event) => {
+          if (!sessionId) return
+          emitOpenCodeStreamEvent(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            sessionId,
+            event,
+            streamState,
+          )
+        },
+        onPromptDispatched: (event) => {
+          emitOpenCodePromptLog(
+            params.ticketId,
+            params.externalId,
+            params.stateLabel,
+            params.winnerId,
+            event,
+          )
+        },
+      })
+    } catch (error) {
+      if (error instanceof CancelledError) throw error
+      if (error instanceof Error && error.message === 'Timeout') {
+        throw new Error('Beads coverage resolution failed: Timeout')
+      }
+      throwIfCancelled(error, params.signal, params.ticketId)
+      throw error
+    }
+
+    throwIfAborted(params.signal, params.ticketId)
+    response = runResult.response
+
+    emitOpenCodeSessionLogs(
+      params.ticketId,
+      params.externalId,
+      params.stateLabel,
+      params.winnerId,
+      runResult.session.id,
+      'coverage',
+      response,
+      runResult.messages,
+      streamState,
+    )
+
+    try {
+      const revision = validateBeadsCoverageRevisionOutput(response, {
+        currentCandidateContent: params.currentCandidateContent,
+        coverageGaps: params.coverageGaps,
+      })
+
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        repairApplied: revision.repairApplied,
+        repairWarnings: revision.repairWarnings,
+      })
+
+      return { response, revision, structuredMeta }
+    } catch (error) {
+      const validationError = error instanceof Error ? error.message : String(error)
+      if (attempt === 1) {
+        structuredMeta = buildStructuredMetadata(structuredMeta, {
+          autoRetryCount: 1,
+          validationError,
+          retryDiagnostics: [resolveStructuredRetryDiagnostic({
+            attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+            rawResponse: response,
+            validationError,
+            error,
+          })],
+        })
+        throw new Error(`Beads coverage resolution output failed validation after retry: ${validationError}`)
+      }
+
+      structuredMeta = buildStructuredMetadata(structuredMeta, {
+        autoRetryCount: 1,
+        validationError,
+        retryDiagnostics: [resolveStructuredRetryDiagnostic({
+          attempt: (structuredMeta.autoRetryCount ?? 0) + 1,
+          rawResponse: response,
+          validationError,
+          error,
+        })],
+      })
+      promptParts = buildBeadsCoverageRevisionRetryPrompt([{ type: 'text', content: params.promptContent }], {
+        validationError,
+        rawResponse: response,
+      })
+    }
+  }
+
+  throw new Error('Beads coverage resolution finished without a validated structured result.')
+}
+
 async function handlePrdCoverageVerificationLoop(params: {
   ticketId: string
   context: TicketContext
@@ -585,18 +1167,23 @@ async function handlePrdCoverageVerificationLoop(params: {
 }) {
   const prdPath = resolve(params.ticketDir, 'prd.yaml')
   let currentCandidateContent = params.effectivePrdContent.trim()
-  let currentCandidateVersion = countPhaseArtifacts(params.ticketId, 'prd_coverage_revision', params.stateLabel) + 1
+  const historySnapshot = loadCoverageHistorySnapshot(params.ticketId, 'prd', params.stateLabel)
+  const maxCoveragePasses = getVersionedCoveragePassLimit('prd', params.coverageSettings.maxCoveragePasses)
+  let attempts = [...historySnapshot.attempts]
+  let transitions = [...historySnapshot.transitions]
+  let currentCandidateVersion = historySnapshot.finalCandidateVersion
+    ?? (countPhaseArtifacts(params.ticketId, 'prd_coverage_revision', params.stateLabel) + 1)
 
   while (true) {
-    const completedCoveragePasses = countPhaseArtifacts(params.ticketId, 'prd_coverage', params.stateLabel)
-    const coverageRunState = resolveCoverageRunState(completedCoveragePasses, params.coverageSettings.maxCoveragePasses)
+    const completedCoveragePasses = attempts.length
+    const coverageRunState = resolveCoverageRunState(completedCoveragePasses, maxCoveragePasses)
     if (coverageRunState.limitAlreadyReached) {
       emitPhaseLog(
         params.ticketId,
         params.context.externalId,
         params.stateLabel,
         'info',
-        `Coverage retry cap already reached for prd (${completedCoveragePasses}/${params.coverageSettings.maxCoveragePasses}). Routing to approval without another coverage execution.`,
+        `Coverage retry cap already reached for prd (${completedCoveragePasses}/${maxCoveragePasses}). Routing to approval without another coverage execution.`,
       )
       params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
       return
@@ -610,7 +1197,7 @@ async function handlePrdCoverageVerificationLoop(params: {
     const coveragePromptConfiguration = buildCoveragePromptConfiguration({
       phase: 'prd',
       coverageRunNumber,
-      maxCoveragePasses: params.coverageSettings.maxCoveragePasses,
+      maxCoveragePasses,
       isFinalAllowedRun,
     })
     const auditPromptContent = buildPromptFromTemplate(
@@ -627,7 +1214,7 @@ async function handlePrdCoverageVerificationLoop(params: {
       promptContent: auditPromptContent,
       councilSettings: params.councilSettings,
       coverageRunNumber,
-      maxCoveragePasses: params.coverageSettings.maxCoveragePasses,
+      maxCoveragePasses,
       signal: params.signal,
     })
 
@@ -655,28 +1242,50 @@ async function handlePrdCoverageVerificationLoop(params: {
       hasFollowUpQuestions: false,
       remainingInterviewBudget: undefined,
     })
-
-    insertPhaseArtifact(params.ticketId, {
-      phase: params.stateLabel,
-      artifactType: 'prd_coverage',
-      content: JSON.stringify({
-        winnerId: params.winnerId,
-        hasGaps: detectedGaps,
-        coverageRunNumber,
-        maxCoveragePasses: params.coverageSettings.maxCoveragePasses,
-        limitReached: gapDisposition.limitReached,
-        terminationReason: gapDisposition.terminationReason,
+    const attemptEntry: CoverageAttemptHistoryEntry = {
+      candidateVersion: currentCandidateVersion,
+      status: auditResult.envelope.status,
+      summary: buildCoverageAttemptSummary({
+        phase: 'prd',
+        status: auditResult.envelope.status,
+        candidateVersion: currentCandidateVersion,
+        gaps: auditResult.envelope.gaps,
+        remaining: detectedGaps,
       }),
-    })
-
-    persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'prd_coverage', {
+      gaps: [...auditResult.envelope.gaps],
+      auditNotes: auditResult.normalizedContent,
       response: auditResult.response,
       normalizedContent: auditResult.normalizedContent,
-      parsed: auditResult.envelope,
       structuredOutput: auditResult.structuredMeta,
-    })
+      coverageRunNumber,
+      maxCoveragePasses,
+      limitReached: gapDisposition.limitReached,
+      terminationReason: gapDisposition.terminationReason ?? null,
+    }
+    const nextAttempts = [...attempts, attemptEntry]
 
     if (!detectedGaps) {
+      persistVersionedCoverageArtifact({
+        ticketId: params.ticketId,
+        stateLabel: params.stateLabel,
+        phase: 'prd',
+        winnerId: params.winnerId,
+        response: auditResult.response,
+        normalizedContent: auditResult.normalizedContent,
+        parsed: auditResult.envelope,
+        structuredOutput: auditResult.structuredMeta,
+        attemptEntry,
+        attempts: nextAttempts,
+        transitions,
+        coverageRunNumber,
+        maxCoveragePasses,
+        limitReached: false,
+        terminationReason: gapDisposition.terminationReason,
+        finalCandidateVersion: currentCandidateVersion,
+        hasRemainingGaps: false,
+        remainingGaps: [],
+      })
+      attempts = nextAttempts
       emitModelSystemLog(
         params.ticketId,
         params.context.externalId,
@@ -690,6 +1299,27 @@ async function handlePrdCoverageVerificationLoop(params: {
     }
 
     if (!gapDisposition.shouldLoopBack) {
+      persistVersionedCoverageArtifact({
+        ticketId: params.ticketId,
+        stateLabel: params.stateLabel,
+        phase: 'prd',
+        winnerId: params.winnerId,
+        response: auditResult.response,
+        normalizedContent: auditResult.normalizedContent,
+        parsed: auditResult.envelope,
+        structuredOutput: auditResult.structuredMeta,
+        attemptEntry,
+        attempts: nextAttempts,
+        transitions,
+        coverageRunNumber,
+        maxCoveragePasses,
+        limitReached: gapDisposition.limitReached,
+        terminationReason: gapDisposition.terminationReason,
+        finalCandidateVersion: currentCandidateVersion,
+        hasRemainingGaps: true,
+        remainingGaps: auditResult.envelope.gaps,
+      })
+      attempts = nextAttempts
       const reviewReason = `Coverage gaps detected by winning model ${params.winnerId}, but ${describeCoverageTerminationReason(gapDisposition.terminationReason)}. Routing to approval with unresolved gaps for manual review.`
       emitModelSystemLog(
         params.ticketId,
@@ -768,6 +1398,52 @@ async function handlePrdCoverageVerificationLoop(params: {
       draftMetrics: revisionArtifact.draftMetrics,
       structuredOutput: revisionArtifact.structuredOutput ?? null,
       uiRefinementDiff: uiDiffArtifact,
+      coverageBaselineContent: revisionArtifact.winnerDraftContent,
+      coverageBaselineVersion: currentCandidateVersion,
+      coverageUiRefinementDiff: uiDiffArtifact,
+    })
+
+    const nextTransitions = [
+      ...transitions,
+      {
+        fromVersion: currentCandidateVersion,
+        toVersion: nextCandidateVersion,
+        summary: buildCoverageTransitionSummary({
+          phase: 'prd',
+          fromVersion: currentCandidateVersion,
+          toVersion: nextCandidateVersion,
+          gaps: auditResult.envelope.gaps,
+        }),
+        gaps: [...auditResult.envelope.gaps],
+        auditNotes: auditResult.normalizedContent,
+        fromContent: currentCandidateContent,
+        toContent: revisionArtifact.refinedContent,
+        gapResolutions: revisionArtifact.gapResolutions,
+        resolutionNotes: revisionArtifact.gapResolutions.map((resolution) => resolution.rationale),
+        uiRefinementDiff: uiDiffArtifact,
+        structuredOutput: revisionRun.structuredMeta,
+      } satisfies CoverageTransitionHistoryEntry,
+    ]
+
+    persistVersionedCoverageArtifact({
+      ticketId: params.ticketId,
+      stateLabel: params.stateLabel,
+      phase: 'prd',
+      winnerId: params.winnerId,
+      response: auditResult.response,
+      normalizedContent: auditResult.normalizedContent,
+      parsed: auditResult.envelope,
+      structuredOutput: auditResult.structuredMeta,
+      attemptEntry,
+      attempts: nextAttempts,
+      transitions: nextTransitions,
+      coverageRunNumber,
+      maxCoveragePasses,
+      limitReached: gapDisposition.limitReached,
+      terminationReason: gapDisposition.terminationReason,
+      finalCandidateVersion: nextCandidateVersion,
+      hasRemainingGaps: true,
+      remainingGaps: auditResult.envelope.gaps,
     })
 
     safeAtomicWrite(prdPath, revisionArtifact.refinedContent)
@@ -803,6 +1479,343 @@ async function handlePrdCoverageVerificationLoop(params: {
       params.winnerId,
     )
 
+    attempts = nextAttempts
+    transitions = nextTransitions
+    currentCandidateContent = revisionArtifact.refinedContent
+    currentCandidateVersion = nextCandidateVersion
+  }
+}
+
+async function handleBeadsCoverageVerificationLoop(params: {
+  ticketId: string
+  context: TicketContext
+  sendEvent: (event: TicketEvent) => void
+  signal: AbortSignal
+  worktreePath: string
+  winnerId: string
+  stateLabel: string
+  ticketState: TicketState
+  effectivePrdContent: string
+  effectiveBeadsContent: string
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  coverageSettings: ReturnType<typeof resolveCoverageRuntimeSettings>
+}) {
+  let currentCandidateContent = params.effectiveBeadsContent.trim()
+  const historySnapshot = loadCoverageHistorySnapshot(params.ticketId, 'beads', params.stateLabel)
+  const maxCoveragePasses = getVersionedCoveragePassLimit('beads', params.coverageSettings.maxCoveragePasses)
+  let attempts = [...historySnapshot.attempts]
+  let transitions = [...historySnapshot.transitions]
+  let currentCandidateVersion = historySnapshot.finalCandidateVersion
+    ?? (countPhaseArtifacts(params.ticketId, 'beads_coverage_revision', params.stateLabel) + 1)
+
+  while (true) {
+    const completedCoveragePasses = attempts.length
+    const coverageRunState = resolveCoverageRunState(completedCoveragePasses, maxCoveragePasses)
+    if (coverageRunState.limitAlreadyReached) {
+      emitPhaseLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `Coverage retry cap already reached for beads (${completedCoveragePasses}/${maxCoveragePasses}). Routing to approval without another coverage execution.`,
+      )
+      params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
+      return
+    }
+
+    const { coverageRunNumber, isFinalAllowedRun } = coverageRunState
+    params.ticketState.prd = params.effectivePrdContent
+    params.ticketState.beads = currentCandidateContent
+    clearContextCache(params.context.externalId)
+
+    const coverageContext = buildMinimalContext('beads_coverage', params.ticketState)
+    const coveragePromptConfiguration = buildCoveragePromptConfiguration({
+      phase: 'beads',
+      coverageRunNumber,
+      maxCoveragePasses,
+      isFinalAllowedRun,
+    })
+    const auditPromptContent = buildPromptFromTemplate(
+      getCoveragePromptTemplate('beads'),
+      [...coverageContext, coveragePromptConfiguration],
+    )
+
+    const auditResult = await runBeadsCoverageAuditPrompt({
+      ticketId: params.ticketId,
+      externalId: params.context.externalId,
+      stateLabel: params.stateLabel,
+      winnerId: params.winnerId,
+      worktreePath: params.worktreePath,
+      promptContent: auditPromptContent,
+      councilSettings: params.councilSettings,
+      signal: params.signal,
+    })
+
+    insertPhaseArtifact(params.ticketId, {
+      phase: params.stateLabel,
+      artifactType: 'beads_coverage_input',
+      content: JSON.stringify({
+        candidateVersion: currentCandidateVersion,
+        refinedContent: currentCandidateContent,
+      }),
+    })
+    persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'beads_coverage_input', {
+      prd: params.effectivePrdContent,
+      beads: currentCandidateContent,
+      refinedContent: currentCandidateContent,
+      candidateVersion: currentCandidateVersion,
+    })
+
+    const detectedGaps = auditResult.envelope.status === 'gaps'
+    const gapDisposition = resolveCoverageGapDisposition({
+      phase: 'beads',
+      hasGaps: detectedGaps,
+      isFinalAllowedRun,
+      hasFollowUpQuestions: false,
+      remainingInterviewBudget: undefined,
+    })
+    const attemptEntry: CoverageAttemptHistoryEntry = {
+      candidateVersion: currentCandidateVersion,
+      status: auditResult.envelope.status,
+      summary: buildCoverageAttemptSummary({
+        phase: 'beads',
+        status: auditResult.envelope.status,
+        candidateVersion: currentCandidateVersion,
+        gaps: auditResult.envelope.gaps,
+        remaining: detectedGaps,
+      }),
+      gaps: [...auditResult.envelope.gaps],
+      auditNotes: auditResult.normalizedContent,
+      response: auditResult.response,
+      normalizedContent: auditResult.normalizedContent,
+      structuredOutput: auditResult.structuredMeta,
+      coverageRunNumber,
+      maxCoveragePasses,
+      limitReached: gapDisposition.limitReached,
+      terminationReason: gapDisposition.terminationReason ?? null,
+    }
+    const nextAttempts = [...attempts, attemptEntry]
+
+    if (!detectedGaps) {
+      persistVersionedCoverageArtifact({
+        ticketId: params.ticketId,
+        stateLabel: params.stateLabel,
+        phase: 'beads',
+        winnerId: params.winnerId,
+        response: auditResult.response,
+        normalizedContent: auditResult.normalizedContent,
+        parsed: auditResult.envelope,
+        structuredOutput: auditResult.structuredMeta,
+        attemptEntry,
+        attempts: nextAttempts,
+        transitions,
+        coverageRunNumber,
+        maxCoveragePasses,
+        limitReached: false,
+        terminationReason: gapDisposition.terminationReason,
+        finalCandidateVersion: currentCandidateVersion,
+        hasRemainingGaps: false,
+        remainingGaps: [],
+      })
+      attempts = nextAttempts
+      emitModelSystemLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `Coverage verification passed (winning model: ${params.winnerId}) for Implementation Plan v${currentCandidateVersion}.`,
+        params.winnerId,
+      )
+      params.sendEvent({ type: 'COVERAGE_CLEAN' })
+      return
+    }
+
+    if (!gapDisposition.shouldLoopBack) {
+      persistVersionedCoverageArtifact({
+        ticketId: params.ticketId,
+        stateLabel: params.stateLabel,
+        phase: 'beads',
+        winnerId: params.winnerId,
+        response: auditResult.response,
+        normalizedContent: auditResult.normalizedContent,
+        parsed: auditResult.envelope,
+        structuredOutput: auditResult.structuredMeta,
+        attemptEntry,
+        attempts: nextAttempts,
+        transitions,
+        coverageRunNumber,
+        maxCoveragePasses,
+        limitReached: gapDisposition.limitReached,
+        terminationReason: gapDisposition.terminationReason,
+        finalCandidateVersion: currentCandidateVersion,
+        hasRemainingGaps: true,
+        remainingGaps: auditResult.envelope.gaps,
+      })
+      attempts = nextAttempts
+      const reviewReason = `Coverage gaps detected by winning model ${params.winnerId}, but ${describeCoverageTerminationReason(gapDisposition.terminationReason)}. Routing to approval with unresolved gaps for manual review.`
+      emitModelSystemLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        reviewReason,
+        params.winnerId,
+      )
+      params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
+      return
+    }
+
+    emitModelSystemLog(
+      params.ticketId,
+      params.context.externalId,
+      params.stateLabel,
+      'info',
+      `Coverage found ${auditResult.envelope.gaps.length} gap(s) in Implementation Plan v${currentCandidateVersion}. Revising candidate before the next audit pass.`,
+      params.winnerId,
+    )
+
+    params.ticketState.prd = params.effectivePrdContent
+    params.ticketState.beads = currentCandidateContent
+    clearContextCache(params.context.externalId)
+    const revisionContext = buildMinimalContext('beads_coverage', params.ticketState)
+    const revisionPromptContent = buildPromptFromTemplate(PROM24b, [
+      ...revisionContext,
+      {
+        type: 'text',
+        source: 'coverage_gaps',
+        content: buildYamlDocument({ gaps: auditResult.envelope.gaps }),
+      },
+    ])
+
+    const revisionRun = await runBeadsCoverageResolutionPrompt({
+      ticketId: params.ticketId,
+      externalId: params.context.externalId,
+      stateLabel: params.stateLabel,
+      winnerId: params.winnerId,
+      worktreePath: params.worktreePath,
+      promptContent: revisionPromptContent,
+      councilSettings: params.councilSettings,
+      signal: params.signal,
+      currentCandidateContent,
+      coverageGaps: auditResult.envelope.gaps,
+    })
+
+    const nextCandidateVersion = currentCandidateVersion + 1
+    const revisionArtifact = buildBeadsCoverageRevisionArtifact(
+      params.winnerId,
+      nextCandidateVersion,
+      revisionRun.revision,
+      revisionRun.structuredMeta,
+      params.effectivePrdContent,
+    )
+
+    insertPhaseArtifact(params.ticketId, {
+      phase: params.stateLabel,
+      artifactType: 'beads_coverage_revision',
+      content: JSON.stringify({
+        winnerId: revisionArtifact.winnerId,
+        refinedContent: revisionArtifact.refinedContent,
+        candidateVersion: revisionArtifact.candidateVersion,
+      }),
+    })
+    persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'beads_coverage_revision', {
+      winnerId: revisionArtifact.winnerId,
+      candidateVersion: revisionArtifact.candidateVersion,
+      beforeContent: revisionArtifact.winnerDraftContent,
+      afterContent: revisionArtifact.refinedContent,
+      winnerDraftContent: revisionArtifact.winnerDraftContent,
+      refinedContent: revisionArtifact.refinedContent,
+      gapResolutions: revisionArtifact.gapResolutions,
+      structuredOutput: revisionArtifact.structuredOutput ?? null,
+      uiRefinementDiff: revisionArtifact.uiRefinementDiff,
+      coverageBaselineContent: revisionArtifact.winnerDraftContent,
+      coverageBaselineVersion: currentCandidateVersion,
+      coverageUiRefinementDiff: revisionArtifact.uiRefinementDiff,
+    })
+
+    const nextTransitions = [
+      ...transitions,
+      {
+        fromVersion: currentCandidateVersion,
+        toVersion: nextCandidateVersion,
+        summary: buildCoverageTransitionSummary({
+          phase: 'beads',
+          fromVersion: currentCandidateVersion,
+          toVersion: nextCandidateVersion,
+          gaps: auditResult.envelope.gaps,
+        }),
+        gaps: [...auditResult.envelope.gaps],
+        auditNotes: auditResult.normalizedContent,
+        fromContent: currentCandidateContent,
+        toContent: revisionArtifact.refinedContent,
+        gapResolutions: revisionArtifact.gapResolutions,
+        resolutionNotes: revisionArtifact.gapResolutions.map((resolution) => resolution.rationale),
+        uiRefinementDiff: revisionArtifact.uiRefinementDiff,
+        structuredOutput: revisionRun.structuredMeta,
+      } satisfies CoverageTransitionHistoryEntry,
+    ]
+
+    persistVersionedCoverageArtifact({
+      ticketId: params.ticketId,
+      stateLabel: params.stateLabel,
+      phase: 'beads',
+      winnerId: params.winnerId,
+      response: auditResult.response,
+      normalizedContent: auditResult.normalizedContent,
+      parsed: auditResult.envelope,
+      structuredOutput: auditResult.structuredMeta,
+      attemptEntry,
+      attempts: nextAttempts,
+      transitions: nextTransitions,
+      coverageRunNumber,
+      maxCoveragePasses,
+      limitReached: gapDisposition.limitReached,
+      terminationReason: gapDisposition.terminationReason,
+      finalCandidateVersion: nextCandidateVersion,
+      hasRemainingGaps: true,
+      remainingGaps: auditResult.envelope.gaps,
+    })
+
+    const normalizedBeads = normalizeBeadsJsonlOutput(revisionArtifact.refinedContent)
+    if (!normalizedBeads.ok) {
+      throw new Error(`Validated beads coverage revision failed to normalize for persistence: ${normalizedBeads.error}`)
+    }
+    writeTicketBeads(params.ticketId, normalizedBeads.value)
+    updateTicketProgressFromBeads(params.ticketId, normalizedBeads.value)
+    clearContextCache(params.context.externalId)
+
+    if (revisionRun.revision.repairWarnings.length > 0) {
+      emitModelSystemLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `Beads coverage resolution normalization applied repairs: ${revisionRun.revision.repairWarnings.join(' | ')}`,
+        params.winnerId,
+      )
+    }
+    if ((revisionRun.structuredMeta.autoRetryCount ?? 0) > 0 && revisionRun.structuredMeta.validationError) {
+      emitModelSystemLog(
+        params.ticketId,
+        params.context.externalId,
+        params.stateLabel,
+        'info',
+        `Beads coverage resolution required ${revisionRun.structuredMeta.autoRetryCount} structured retry attempt(s): ${revisionRun.structuredMeta.validationError}`,
+        params.winnerId,
+      )
+    }
+
+    emitModelSystemLog(
+      params.ticketId,
+      params.context.externalId,
+      params.stateLabel,
+      'info',
+      `Revised Implementation Plan v${currentCandidateVersion} into Implementation Plan v${nextCandidateVersion}.`,
+      params.winnerId,
+    )
+
+    attempts = nextAttempts
+    transitions = nextTransitions
     currentCandidateContent = revisionArtifact.refinedContent
     currentCandidateVersion = nextCandidateVersion
   }
@@ -1125,8 +2138,9 @@ export async function handleCoverageVerification(
   const promptTemplate = getCoveragePromptTemplate(phase)
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const coverageSettings = resolveCoverageRuntimeSettings(context)
+  const effectiveMaxCoveragePasses = getVersionedCoveragePassLimit(phase, coverageSettings.maxCoveragePasses)
   const completedCoveragePasses = countPhaseArtifacts(ticketId, `${phase}_coverage`, stateLabel)
-  const coverageRunState = resolveCoverageRunState(completedCoveragePasses, coverageSettings.maxCoveragePasses)
+  const coverageRunState = resolveCoverageRunState(completedCoveragePasses, effectiveMaxCoveragePasses)
 
   if (coverageRunState.limitAlreadyReached) {
     emitPhaseLog(
@@ -1134,7 +2148,7 @@ export async function handleCoverageVerification(
       context.externalId,
       stateLabel,
       'info',
-      `Coverage retry cap already reached for ${phase} (${completedCoveragePasses}/${coverageSettings.maxCoveragePasses}). Routing to approval without another coverage execution.`,
+      `Coverage retry cap already reached for ${phase} (${completedCoveragePasses}/${effectiveMaxCoveragePasses}). Routing to approval without another coverage execution.`,
     )
     sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
     return
@@ -1185,7 +2199,7 @@ export async function handleCoverageVerification(
     context.externalId,
     stateLabel,
     'info',
-    `Coverage verification started using winning model: ${winnerId} (run ${coverageRunNumber}/${coverageSettings.maxCoveragePasses}).`,
+    `Coverage verification started using winning model: ${winnerId} (run ${coverageRunNumber}/${effectiveMaxCoveragePasses}).`,
     winnerId,
   )
 
@@ -1217,6 +2231,7 @@ export async function handleCoverageVerification(
     ? loadCanonicalInterview(ticketDir)
     : undefined
   let effectivePrdContent: string | undefined
+  let effectiveBeadsContent: string | undefined
 
   if (phase === 'interview' && !canonicalInterview) {
     if (!interviewSnapshot) {
@@ -1282,6 +2297,56 @@ export async function handleCoverageVerification(
     }
   }
 
+  if (phase === 'beads') {
+    const prdPath = resolve(ticketDir, 'prd.yaml')
+    const diskPrdContent = existsSync(prdPath) ? readFileSync(prdPath, 'utf-8').trim() : ''
+    if (!diskPrdContent) {
+      const msg = 'Beads coverage requires an approved PRD, but prd.yaml was not available.'
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+    effectivePrdContent = diskPrdContent
+
+    if (!paths) {
+      const msg = 'Beads coverage requires a ticket workspace path, but it was not available.'
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+
+    const beadsPath = paths.beadsPath
+    const diskBeadsContent = existsSync(beadsPath) ? readFileSync(beadsPath, 'utf-8').trim() : ''
+    if (diskBeadsContent.length > 0) {
+      effectiveBeadsContent = diskBeadsContent
+    } else if (refinedContent?.trim()) {
+      effectiveBeadsContent = refinedContent.trim()
+      const normalizedBeads = normalizeBeadsJsonlOutput(effectiveBeadsContent)
+      if (!normalizedBeads.ok) {
+        const msg = `Failed to restore beads.jsonl from the validated refined beads artifact before coverage: ${normalizedBeads.error}`
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+
+      try {
+        writeTicketBeads(ticketId, normalizedBeads.value)
+        updateTicketProgressFromBeads(ticketId, normalizedBeads.value)
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', 'Recovered missing beads.jsonl from the validated refined beads artifact before coverage.')
+      } catch (err) {
+        const msg = `Failed to restore beads.jsonl from the validated refined beads artifact before coverage: ${err instanceof Error ? err.message : String(err)}`
+        emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+        sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+        return
+      }
+    } else {
+      const msg = 'Beads coverage requires a canonical beads.jsonl or recovered beads_expanded artifact, but neither was available.'
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+      return
+    }
+  }
+
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
@@ -1300,6 +2365,12 @@ export async function handleCoverageVerification(
       : {}),
     ...(phase === 'prd' && effectivePrdContent
       ? { prd: effectivePrdContent }
+      : {}),
+    ...(phase === 'beads' && effectivePrdContent
+      ? { prd: effectivePrdContent }
+      : {}),
+    ...(phase === 'beads' && effectiveBeadsContent
+      ? { beads: effectiveBeadsContent }
       : {}),
     ...(phase === 'interview'
       ? { userAnswers: buildInterviewAnswerSummary(interviewSnapshot) }
@@ -1321,13 +2392,6 @@ export async function handleCoverageVerification(
       })()
     : null
 
-  if (phase === 'beads' && paths) {
-    const beadsPath = paths.beadsPath
-    if (beadsPath && existsSync(beadsPath)) {
-      try { ticketState.beads = readFileSync(beadsPath, 'utf-8') } catch { /* ignore */ }
-    }
-  }
-
   if (phase === 'prd') {
     await handlePrdCoverageVerificationLoop({
       ticketId,
@@ -1347,12 +2411,30 @@ export async function handleCoverageVerification(
     return
   }
 
+  if (phase === 'beads') {
+    await handleBeadsCoverageVerificationLoop({
+      ticketId,
+      context,
+      sendEvent,
+      signal,
+      worktreePath,
+      winnerId,
+      stateLabel,
+      ticketState,
+      effectivePrdContent: effectivePrdContent ?? '',
+      effectiveBeadsContent: effectiveBeadsContent ?? '',
+      councilSettings,
+      coverageSettings,
+    })
+    return
+  }
+
   clearContextCache(context.externalId)
   const coverageContext = buildMinimalContext(contextPhase, ticketState)
   const coveragePromptConfiguration = buildCoveragePromptConfiguration({
     phase,
     coverageRunNumber,
-    maxCoveragePasses: coverageSettings.maxCoveragePasses,
+    maxCoveragePasses: effectiveMaxCoveragePasses,
     isFinalAllowedRun,
     ...(phase === 'interview' && interviewCoverageBudget
       ? {
@@ -1582,7 +2664,7 @@ export async function handleCoverageVerification(
       winnerId,
       hasGaps: detectedGaps,
       coverageRunNumber,
-      maxCoveragePasses: coverageSettings.maxCoveragePasses,
+      maxCoveragePasses: effectiveMaxCoveragePasses,
       limitReached: gapDisposition.limitReached,
       terminationReason: gapDisposition.terminationReason,
     }),

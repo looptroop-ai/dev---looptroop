@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { getLatestPhaseArtifact } from '../../storage/tickets'
+import jsYaml from 'js-yaml'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
+import { getLatestPhaseArtifact, insertPhaseArtifact } from '../../storage/tickets'
 import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
 import { phaseIntermediate, phaseResults } from '../phases/state'
 
@@ -24,6 +26,7 @@ vi.mock('../runOpenCodePrompt', () => ({
 }))
 
 import { handleBeadsRefine } from '../phases/beadsPhase'
+import { handleCoverageVerification } from '../phases/verificationPhase'
 
 const repoManager = createTestRepoManager('beads-refine')
 
@@ -227,6 +230,43 @@ function buildValidExpansionOutput(options?: {
   ]
 
   return beads.map((bead) => JSON.stringify(bead)).join('\n')
+}
+
+function buildValidBeadsCoverageRevisionOutput(coverageGap: string): string {
+  const revisedBeads = buildExpansionRecords()
+  revisedBeads[1] = {
+    ...revisedBeads[1]!,
+    title: 'Render coverage warning state',
+    description: 'Surface unresolved coverage gaps during beads approval without blocking manual review.',
+    contextGuidance: {
+      patterns: ['Keep approval warnings collapsible and version-aware.'],
+      anti_patterns: ['Do not hide unresolved gaps behind raw-only output.'],
+    },
+    acceptanceCriteria: ['Approval shows unresolved coverage warning details.'],
+    tests: ['Approval tests render the remaining coverage gaps warning.'],
+    testCommands: ['npm test -- ApprovalView'],
+    targetFiles: ['src/components/workspace/ApprovalView.tsx'],
+  }
+
+  return jsYaml.dump({
+    result: {
+      beads: revisedBeads,
+      gap_resolutions: [
+        {
+          gap: coverageGap,
+          action: 'updated_beads',
+          rationale: 'Added an approval-path bead that surfaces unresolved coverage gaps without blocking manual review.',
+          affected_items: [
+            {
+              item_type: 'bead',
+              id: revisedBeads[1]!.id,
+              label: revisedBeads[1]!.title,
+            },
+          ],
+        },
+      ],
+    },
+  }, { lineWidth: 120, noRefs: true }) as string
 }
 
 describe('handleBeadsRefine', () => {
@@ -597,5 +637,137 @@ describe('handleBeadsRefine', () => {
       }),
     ])
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
+  })
+
+  it('revises beads in-place during coverage and persists versioned history', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Revise beads during coverage',
+      description: 'Persist per-transition beads coverage history and carry the final plan forward.',
+    })
+    const sendEvent = vi.fn()
+    const winnerId = TEST.councilMembers[0]
+    const coverageGap = 'Missing a bead that surfaces unresolved coverage warnings during approval.'
+    const prdContent = buildPrdContent()
+    const beadsContent = buildValidExpansionOutput()
+
+    writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), prdContent, 'utf-8')
+    writeFileSync(paths.beadsPath, beadsContent, 'utf-8')
+
+    phaseResults.delete(`${ticket.id}:beads`)
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_expanded',
+      content: JSON.stringify({
+        winnerId,
+        refinedContent: beadsContent,
+      }),
+    })
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-2', projectPath: paths.worktreePath },
+        response: buildValidBeadsCoverageRevisionOutput(coverageGap),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-3', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+        ].join('\n'),
+        messages: [],
+      })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'beads', new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(3)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+
+    const coverageArtifact = getLatestPhaseArtifact(ticket.id, 'beads_coverage', 'VERIFYING_BEADS_COVERAGE')
+    expect(coverageArtifact).toBeDefined()
+    expect(JSON.parse(coverageArtifact!.content)).toMatchObject({
+      status: 'clean',
+      finalCandidateVersion: 2,
+      hasRemainingGaps: false,
+      remainingGaps: [],
+    })
+
+    const coverageCompanion = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:beads_coverage', 'VERIFYING_BEADS_COVERAGE')
+    const parsedCoverageCompanion = parseUiArtifactCompanionArtifact(coverageCompanion!.content)?.payload as {
+      attempts?: Array<{ candidateVersion?: number; status?: string; gaps?: string[] }>
+      transitions?: Array<{ fromVersion?: number; toVersion?: number; gaps?: string[]; fromContent?: string; toContent?: string }>
+      finalCandidateVersion?: number
+      hasRemainingGaps?: boolean
+      remainingGaps?: string[]
+    } | undefined
+    expect(parsedCoverageCompanion).toMatchObject({
+      finalCandidateVersion: 2,
+      hasRemainingGaps: false,
+      remainingGaps: [],
+      attempts: [
+        expect.objectContaining({
+          candidateVersion: 1,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 2,
+          status: 'clean',
+          gaps: [],
+        }),
+      ],
+      transitions: [
+        expect.objectContaining({
+          fromVersion: 1,
+          toVersion: 2,
+          gaps: [coverageGap],
+          fromContent: expect.stringContaining('Surface retry metadata'),
+          toContent: expect.stringContaining('Render coverage warning state'),
+        }),
+      ],
+    })
+
+    const coverageRevision = getLatestPhaseArtifact(ticket.id, 'beads_coverage_revision', 'VERIFYING_BEADS_COVERAGE')
+    expect(coverageRevision).toBeDefined()
+    expect(JSON.parse(coverageRevision!.content)).toMatchObject({
+      winnerId,
+      candidateVersion: 2,
+      refinedContent: expect.stringContaining('Render coverage warning state'),
+    })
+
+    const coverageRevisionCompanion = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:beads_coverage_revision', 'VERIFYING_BEADS_COVERAGE')
+    const parsedCoverageRevision = parseUiArtifactCompanionArtifact(coverageRevisionCompanion!.content)?.payload as {
+      candidateVersion?: number
+      coverageBaselineVersion?: number
+      gapResolutions?: Array<{ gap?: string; action?: string }>
+      refinedContent?: string
+    } | undefined
+    expect(parsedCoverageRevision).toMatchObject({
+      candidateVersion: 2,
+      coverageBaselineVersion: 1,
+      refinedContent: expect.stringContaining('Render coverage warning state'),
+      gapResolutions: [
+        expect.objectContaining({
+          gap: coverageGap,
+          action: 'updated_beads',
+        }),
+      ],
+    })
+
+    expect(readFileSync(paths.beadsPath, 'utf-8')).toContain('Render coverage warning state')
   })
 })

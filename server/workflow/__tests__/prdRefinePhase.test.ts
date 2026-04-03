@@ -677,6 +677,50 @@ describe('handlePrdRefine', () => {
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(3)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
 
+    const coverageArtifact = getLatestPhaseArtifact(ticket.id, 'prd_coverage', 'VERIFYING_PRD_COVERAGE')
+    expect(coverageArtifact).toBeDefined()
+    expect(JSON.parse(coverageArtifact!.content)).toMatchObject({
+      status: 'clean',
+      finalCandidateVersion: 2,
+      hasRemainingGaps: false,
+      remainingGaps: [],
+    })
+
+    const coverageCompanion = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage', 'VERIFYING_PRD_COVERAGE')
+    const parsedCoverageCompanion = parseUiArtifactCompanionArtifact(coverageCompanion!.content)?.payload as {
+      attempts?: Array<{ candidateVersion?: number; status?: string; gaps?: string[] }>
+      transitions?: Array<{ fromVersion?: number; toVersion?: number; gaps?: string[]; fromContent?: string; toContent?: string }>
+      finalCandidateVersion?: number
+      hasRemainingGaps?: boolean
+      remainingGaps?: string[]
+    } | undefined
+    expect(parsedCoverageCompanion).toMatchObject({
+      finalCandidateVersion: 2,
+      hasRemainingGaps: false,
+      remainingGaps: [],
+      attempts: [
+        expect.objectContaining({
+          candidateVersion: 1,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 2,
+          status: 'clean',
+          gaps: [],
+        }),
+      ],
+      transitions: [
+        expect.objectContaining({
+          fromVersion: 1,
+          toVersion: 2,
+          gaps: [coverageGap],
+          fromContent: expect.stringContaining('Prompt hardening and refinement safety'),
+          toContent: expect.stringContaining('Prompt hardening and approval safety'),
+        }),
+      ],
+    })
+
     const coverageRevision = getLatestPhaseArtifact(ticket.id, 'prd_coverage_revision', 'VERIFYING_PRD_COVERAGE')
     expect(coverageRevision).toBeDefined()
     expect(JSON.parse(coverageRevision!.content)).toMatchObject({

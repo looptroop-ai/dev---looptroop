@@ -9,6 +9,7 @@ const mockUseInterviewQuestions = vi.fn()
 const mockUseTicketUIState = vi.fn()
 const mockSaveUiState = vi.fn()
 const mockClearTicketArtifactsCache = vi.fn()
+const mockUseTicketArtifacts = vi.fn()
 
 vi.mock('@/hooks/useTickets', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useTickets')>('@/hooks/useTickets')
@@ -22,6 +23,7 @@ vi.mock('@/hooks/useTickets', async () => {
 
 vi.mock('@/hooks/useTicketArtifacts', () => ({
   clearTicketArtifactsCache: (...args: unknown[]) => mockClearTicketArtifactsCache(...args),
+  useTicketArtifacts: (...args: unknown[]) => mockUseTicketArtifacts(...args),
 }))
 
 vi.mock('../PhaseArtifactsPanel', () => ({
@@ -206,6 +208,8 @@ describe('Interview approval UI', () => {
     })
     mockSaveUiState.mockReset()
     mockClearTicketArtifactsCache.mockReset()
+    mockUseTicketArtifacts.mockReset()
+    mockUseTicketArtifacts.mockReturnValue({ artifacts: [], isLoading: false })
   })
 
   afterEach(() => {
@@ -431,5 +435,84 @@ describe('Interview approval UI', () => {
     expect(screen.getByText('Issue Type')).toBeInTheDocument()
     expect(screen.getByText('Lifecycle')).toBeInTheDocument()
     expect(screen.getByText(/^pending$/i)).toBeInTheDocument()
+  }, 30_000)
+
+  it('shows unresolved beads coverage gaps as a collapsible warning during approval', async () => {
+    mockUseTicketArtifacts.mockReturnValue({
+      artifacts: [
+        {
+          id: 902,
+          ticketId: TEST.ticketId,
+          phase: 'WAITING_BEADS_APPROVAL',
+          artifactType: 'beads_coverage',
+          filePath: null,
+          createdAt: '2026-04-03T14:25:00.000Z',
+          content: JSON.stringify({
+            status: 'gaps',
+            summary: 'Coverage gaps remain after the final implementation-plan audit.',
+            finalCandidateVersion: 3,
+            hasRemainingGaps: true,
+            remainingGaps: [
+              'Missing a bead that verifies the approval warning behavior when gaps remain.',
+            ],
+            auditNotes: 'status: gaps\ngaps:\n  - Missing a bead that verifies the approval warning behavior when gaps remain.',
+          }),
+        },
+      ],
+      isLoading: false,
+    })
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url === `/api/tickets/${TEST.ticketId}/beads`) {
+        return createJsonResponse([
+          {
+            id: 'proj-1-coverage-warning',
+            title: 'Render coverage warning state',
+            prdRefs: ['EPIC-1'],
+            description: 'Show unresolved coverage gaps during beads approval.',
+            contextGuidance: {
+              patterns: ['Keep the approval warning collapsible.'],
+              anti_patterns: ['Do not block manual approval.'],
+            },
+            acceptanceCriteria: ['Approval shows unresolved coverage warning details.'],
+            tests: ['Render the warning with remaining gaps.'],
+            testCommands: ['npm test -- ApprovalView'],
+            priority: 1,
+            status: 'pending',
+            issueType: 'task',
+            externalRef: TEST.externalId,
+            labels: ['ticket:PROJ-1'],
+            dependencies: { blocked_by: [], blocks: [] },
+            targetFiles: ['src/components/workspace/ApprovalView.tsx'],
+            notes: '',
+            iteration: 1,
+            createdAt: '2026-03-31T10:00:00.000Z',
+            updatedAt: '2026-03-31T10:00:00.000Z',
+            completedAt: '',
+            startedAt: '',
+            beadStartCommit: null,
+          },
+        ])
+      }
+      if (url === `/api/tickets/${TEST.ticketId}/artifacts`) {
+        return createJsonResponse([])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
+
+    const warningToggle = await screen.findByRole('button', { name: /Coverage Warning/i })
+    expect(warningToggle).toBeInTheDocument()
+    expect(screen.queryByText('Remaining Gaps')).not.toBeInTheDocument()
+
+    fireEvent.click(warningToggle)
+
+    expect(screen.getByText('Coverage gaps remain after the final implementation-plan audit.')).toBeInTheDocument()
+    expect(screen.getByText('Implementation Plan v3')).toBeInTheDocument()
+    expect(screen.getByText('Missing a bead that verifies the approval warning behavior when gaps remain.')).toBeInTheDocument()
+    expect(screen.getByText(/status: gaps/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Approve/i })).not.toBeDisabled()
   }, 30_000)
 })
