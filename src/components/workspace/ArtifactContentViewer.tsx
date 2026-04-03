@@ -655,10 +655,10 @@ function CollapsibleWarningNotice({
   return (
     <CollapsibleSection
       title={(
-        <span className="flex min-w-0 flex-col items-start gap-0.5">
-          <span className="font-medium">{title}</span>
+        <span className="flex min-w-0 flex-col items-start gap-0">
+          <span className="text-[10px] font-medium leading-[0.85rem]">{title}</span>
           {summary ? (
-            <span className="text-[11px] font-normal leading-4 opacity-80">
+            <span className="text-[9px] font-normal leading-[0.8rem] opacity-80">
               {summary}
             </span>
           ) : null}
@@ -668,7 +668,7 @@ function CollapsibleWarningNotice({
       scrollOnOpen={false}
       className="border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20"
       headerActions={headerActions}
-      triggerClassName="text-amber-950 hover:bg-amber-100/60 dark:text-amber-100 dark:hover:bg-amber-900/20"
+      triggerClassName="gap-0.5 px-2 py-1 text-amber-950 hover:bg-amber-100/60 dark:text-amber-100 dark:hover:bg-amber-900/20"
       contentClassName="pt-0 text-amber-950 dark:text-amber-100"
     >
       {body ? <div className="leading-5">{body}</div> : null}
