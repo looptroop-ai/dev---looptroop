@@ -1,16 +1,12 @@
-import { useState } from 'react'
+export const WELCOME_DISCLAIMER_STORAGE_KEY = 'looptroop-welcome-seen'
 
-export function WelcomeDisclaimer() {
-  const [show, setShow] = useState(() => {
-    try { return !localStorage.getItem('looptroop-welcome-seen') } catch { return true }
-  })
+interface WelcomeDisclaimerProps {
+  open: boolean
+  onDismiss: () => void
+}
 
-  const dismiss = () => {
-    localStorage.setItem('looptroop-welcome-seen', 'true')
-    setShow(false)
-  }
-
-  if (!show) return null
+export function WelcomeDisclaimer({ open, onDismiss }: WelcomeDisclaimerProps) {
+  if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -39,7 +35,7 @@ export function WelcomeDisclaimer() {
         </p>
 
         <button
-          onClick={dismiss}
+          onClick={onDismiss}
           className="w-full bg-white text-black rounded-lg py-2.5 font-medium hover:bg-gray-100 transition-colors"
         >
           Got it, let's go!

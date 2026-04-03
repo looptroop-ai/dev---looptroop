@@ -7,11 +7,16 @@ import { ProfileSetup } from '@/components/config/ProfileSetup'
 import { ProjectsPanel } from '@/components/project/ProjectsPanel'
 import { TicketForm } from '@/components/ticket/TicketForm'
 import { KeyboardShortcuts } from '@/components/shared/KeyboardShortcuts'
+import { StartupRestorePopup } from '@/components/shared/StartupRestorePopup'
 import { ToastProvider } from '@/components/shared/Toast'
-import { WelcomeDisclaimer } from '@/components/shared/WelcomeDisclaimer'
+import {
+  WelcomeDisclaimer,
+  WELCOME_DISCLAIMER_STORAGE_KEY,
+} from '@/components/shared/WelcomeDisclaimer'
 import { useUI } from '@/context/useUI'
 import { useTickets } from '@/hooks/useTickets'
 import { useProfile } from '@/hooks/useProfile'
+import { useStartupStatus } from '@/hooks/useStartupStatus'
 import { useQueryClient } from '@tanstack/react-query'
 import { clearOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 
@@ -25,6 +30,7 @@ function getInitialModal(pathname: string): 'profile' | 'project' | 'ticket' | n
 function App() {
   const initialModal = getInitialModal(window.location.pathname)
   useProfile() // Preload profile for faster Configuration open
+  const { data: startupStatus } = useStartupStatus()
   const { state, dispatch } = useUI()
   const queryClient = useQueryClient()
   const { data: tickets } = useTickets()
@@ -34,14 +40,33 @@ function App() {
   const [showProfile, setShowProfile] = useState(() => initialModal === 'profile')
   const [showProject, setShowProject] = useState(() => initialModal === 'project')
   const [showTicket, setShowTicket] = useState(() => initialModal === 'ticket')
-  const isModalOpen = showProfile || showProject || showTicket
+  const [showWelcome, setShowWelcome] = useState(() => {
+    try {
+      return !localStorage.getItem(WELCOME_DISCLAIMER_STORAGE_KEY)
+    } catch {
+      return true
+    }
+  })
   const prevPathRef = useRef('/')
+  const showRestorePopup = !showWelcome
+    && startupStatus?.storage.kind === 'restored'
+    && startupStatus.ui.restoreNotice.shouldShow === true
+  const isModalOpen = showProfile || showProject || showTicket || showWelcome || showRestorePopup
 
   useEffect(() => {
     if (initialModal === 'profile') {
       clearOpenCodeModelsQuery(queryClient)
     }
   }, [initialModal, queryClient])
+
+  const dismissWelcome = () => {
+    try {
+      localStorage.setItem(WELCOME_DISCLAIMER_STORAGE_KEY, 'true')
+    } catch {
+      // ignore storage errors
+    }
+    setShowWelcome(false)
+  }
 
   // Resolve ticket from URL externalId when tickets load
   useEffect(() => {
@@ -106,7 +131,13 @@ function App() {
 
   return (
     <ToastProvider>
-      <WelcomeDisclaimer />
+      <WelcomeDisclaimer open={showWelcome} onDismiss={dismissWelcome} />
+      {startupStatus && (
+        <StartupRestorePopup
+          open={showRestorePopup}
+          startupStatus={startupStatus}
+        />
+      )}
       <AppShell
         onOpenProfile={openProfile}
         onOpenProject={openProject}

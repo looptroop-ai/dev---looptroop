@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { getOpenCodeAdapter } from '../opencode/factory'
+import { dismissStartupRestoreNotice, getStartupStatus } from '../startupState'
 
 const health = new Hono()
 
@@ -20,6 +21,14 @@ health.get('/health/opencode', async (c) => {
     models: result.models ?? [],
     ...(result.error ? { error: result.error } : {}),
   })
+})
+
+health.get('/health/startup', (c) => {
+  return c.json(getStartupStatus())
+})
+
+health.post('/health/startup/restore-notice/dismiss', (c) => {
+  return c.json(dismissStartupRestoreNotice())
 })
 
 export { health }

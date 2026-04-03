@@ -106,6 +106,12 @@ export function initializeDatabase() {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS attached_projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       folder_path TEXT NOT NULL UNIQUE,

@@ -8,6 +8,11 @@ import { SessionManager } from './opencode/sessionManager'
 import { opencodeSessions } from './db/schema'
 import { getProjectContextById, listProjects } from './storage/projects'
 import { findTicketRefByLocalId } from './storage/tickets'
+import {
+  formatStartupStorageSummary,
+  getStartupStateDebugLine,
+  initializeStartupState,
+} from './startupState'
 
 export function startupSequence() {
   console.log('[startup] Step 1: Initialize database')
@@ -15,6 +20,12 @@ export function startupSequence() {
 
   console.log('[startup] Step 1b: Create indexes')
   createIndexes()
+
+  const startupStatus = initializeStartupState()
+  console.log(`[startup] ${formatStartupStorageSummary(startupStatus.storage)}`)
+  if (process.env.LOOPTROOP_DEV_VERBOSE === '1') {
+    console.log(`[startup] ${getStartupStateDebugLine()}`)
+  }
 
   console.log('[startup] Step 2: Start WAL checkpoint timer')
   startWalCheckpoint()

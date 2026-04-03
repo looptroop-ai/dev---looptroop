@@ -18,6 +18,12 @@ export const profiles = sqliteTable('profiles', {
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
 
+export const appMeta = sqliteTable('app_meta', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
 export const attachedProjects = sqliteTable('attached_projects', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   folderPath: text('folder_path').notNull().unique(),
