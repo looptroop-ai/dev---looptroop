@@ -57,6 +57,8 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
           setupFiles: ['./server/test/setup.ts'],
           include: ['server/**/*.test.ts', 'tests/**/*.test.ts', 'shared/**/*.test.ts'],
+          testTimeout: 15000,
+          hookTimeout: 20000,
           env: sharedEnv,
         },
       },

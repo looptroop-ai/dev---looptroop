@@ -11,13 +11,19 @@ import { buildMinimalContext, clearContextCache, type TicketState } from '../../
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
-import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadRefinementOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
+import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
+import {
+  validateBeadsRefinementOutput,
+  buildBeadsRefinedArtifact,
+  getBeadsDraftMetrics,
+  BEADS_PIPELINE_STEPS,
+  type ValidatedBeadsRefinement,
+} from '../../phases/beads/refined'
 import { buildPromptFromTemplate, PROM21, PROM22, PROM23 } from '../../prompts/index'
 import { VOTING_RUBRIC_BEADS } from '../../council/types'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import jsYaml from 'js-yaml'
-import type { RefinementChange } from '@shared/refinementChanges'
 import { withStructuredRetryDiagnosticAttempt } from '@shared/structuredRetryDiagnostics'
 import {
   buildBeadsUiRefinementDiffArtifact,
@@ -627,7 +633,8 @@ export async function handleBeadsRefine(
 
   if (signal.aborted) throw new CancelledError(ticketId)
   let refineStructuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
-  let validatedChanges: RefinementChange[] = []
+  let validatedChanges: import('@shared/refinementChanges').RefinementChange[] = []
+  let refinementResult = null as ValidatedBeadsRefinement | null
   let refinedContent: string
   try {
     refinedContent = await refineDraft(
@@ -682,30 +689,29 @@ export async function handleBeadsRefine(
       undefined,
       (content) => {
         const losingDraftMeta = losingDrafts.map((d) => ({ memberId: d.memberId, content: d.content }))
-        const result = normalizeBeadRefinementOutput(content, winnerDraft.content, losingDraftMeta)
-        if (!result.ok) {
+        try {
+          const validated = validateBeadsRefinementOutput(content, {
+            winnerDraftContent: winnerDraft.content,
+            losingDraftMeta,
+          })
+          refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
+            repairApplied: validated.repairApplied,
+            repairWarnings: validated.repairWarnings,
+          })
+          validatedChanges = validated.changes
+          refinementResult = validated
+          return { normalizedContent: validated.refinedContent }
+        } catch (error) {
+          const diagnostic = getStructuredRetryDiagnosticFromError(error)
           refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
             autoRetryCount: 1,
-            validationError: result.error,
-            ...(result.retryDiagnostic
-              ? { retryDiagnostics: [withStructuredRetryDiagnosticAttempt(result.retryDiagnostic, (refineStructuredMeta.autoRetryCount ?? 0) + 1)!] }
+            validationError: error instanceof Error ? error.message : String(error),
+            ...(diagnostic
+              ? { retryDiagnostics: [withStructuredRetryDiagnosticAttempt(diagnostic, (refineStructuredMeta.autoRetryCount ?? 0) + 1)!] }
               : {}),
           })
-          throw attachStructuredRetryDiagnostic(
-            new Error(result.error),
-            result.retryDiagnostic ?? {
-              attempt: 1,
-              validationError: result.error,
-              excerpt: content.trim() || '[empty response]',
-            },
-          )
+          throw error
         }
-        refineStructuredMeta = buildStructuredMetadata(refineStructuredMeta, {
-          repairApplied: result.repairApplied,
-          repairWarnings: result.repairWarnings,
-        })
-        validatedChanges = result.value.changes
-        return { normalizedContent: result.normalizedContent }
       },
       PROM22.outputFormat,
       undefined,
@@ -725,14 +731,21 @@ export async function handleBeadsRefine(
   // Clean up intermediate data
   phaseIntermediate.delete(`${ticketId}:beads`)
 
-  // Parse refined content as bead subsets and expand to full beads
-  const beadSubsetResult = normalizeBeadSubsetYamlOutput(refinedContent)
-  if (!beadSubsetResult.ok) {
-    throw new Error(`PROM22 refinement output failed validation: ${beadSubsetResult.error}`)
-  }
-  const beadSubsets: BeadSubset[] = beadSubsetResult.value
+  // Use validated beadSubsets from the refinement result (already parsed & validated)
+  const beadSubsets: BeadSubset[] = refinementResult
+    ? refinementResult.beadSubsets
+    : (() => {
+        const beadSubsetResult = normalizeBeadSubsetYamlOutput(refinedContent)
+        if (!beadSubsetResult.ok) {
+          throw new Error(`PROM22 refinement output failed validation: ${beadSubsetResult.error}`)
+        }
+        return beadSubsetResult.value
+      })()
+  const draftMetrics = refinementResult
+    ? refinementResult.metrics
+    : getBeadsDraftMetrics(beadSubsets)
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Substep blueprint_refine completed with ${beadSubsets.length} beads.`)
+    `Substep blueprint_refine completed — ${draftMetrics.beadCount} beads, ${draftMetrics.totalTestCount} tests, ${draftMetrics.totalAcceptanceCriteriaCount} acceptance criteria.`)
 
   const uiDiffArtifact = validatedChanges.length > 0
     ? buildBeadsUiRefinementDiffArtifactFromChanges({
@@ -751,17 +764,29 @@ export async function handleBeadsRefine(
         ...(prd ? { prdContent: prd } : {}),
       })
 
+  const beadsRefinedArtifact = refinementResult
+    ? buildBeadsRefinedArtifact(
+        intermediate.winnerId,
+        winnerDraft.content,
+        refinementResult,
+        refineStructuredMeta,
+      )
+    : {
+        winnerId: intermediate.winnerId,
+        refinedContent,
+        winnerDraftContent: winnerDraft.content,
+        draftMetrics,
+        pipelineSteps: BEADS_PIPELINE_STEPS,
+      }
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
     artifactType: 'beads_refined',
-    content: JSON.stringify({
-      winnerId: intermediate.winnerId,
-      refinedContent,
-    }),
+    content: JSON.stringify(beadsRefinedArtifact),
   })
   persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_refined', {
     winnerDraftContent: winnerDraft.content,
     structuredOutput: refineStructuredMeta,
+    draftMetrics,
   })
   insertPhaseArtifact(ticketId, {
     phase: 'REFINING_BEADS',
@@ -853,6 +878,8 @@ export async function handleBeadsRefine(
   })
   persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_expanded', {
     structuredOutput: expansionResult.structuredMeta,
+    draftMetrics,
+    pipelineSteps: BEADS_PIPELINE_STEPS,
   })
 
   writeJsonl(beadsPath, expansionResult.hydratedBeads)
@@ -865,7 +892,7 @@ export async function handleBeadsRefine(
   })
 
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Substep beads_expand completed with ${expansionResult.hydratedBeads.length} hydrated beads written to ${beadsPath}.`)
+    `Substep beads_expand completed — ${expansionResult.hydratedBeads.length} hydrated beads written to ${beadsPath}. Winner: ${intermediate.winnerId}, ${draftMetrics.beadCount} beads, ${draftMetrics.totalTestCount} tests, ${draftMetrics.totalAcceptanceCriteriaCount} AC.`)
 
   sendEvent({ type: 'REFINED' })
 }

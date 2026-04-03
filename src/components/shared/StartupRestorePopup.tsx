@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Database, FolderOpen, Settings } from 'lucide-react'
 import { useToast } from '@/components/shared/useToast'
 import {
@@ -42,24 +42,16 @@ function formatRestoreBody(startupStatus: StartupStatus['storage']) {
 export function StartupRestorePopup({ open, startupStatus }: StartupRestorePopupProps) {
   const { addToast } = useToast()
   const dismissRestoreNotice = useDismissStartupRestoreNotice()
-  const [dismissedLocally, setDismissedLocally] = useState(false)
-
-  useEffect(() => {
-    setDismissedLocally(false)
-  }, [
-    open,
-    startupStatus.storage.kind,
-    startupStatus.storage.profileRestored,
-    startupStatus.storage.restoredProjectCount,
-    startupStatus.ui.restoreNotice.dismissedAt,
-  ])
+  const depKey = `${open}-${startupStatus.storage.kind}-${startupStatus.storage.profileRestored}-${startupStatus.storage.restoredProjectCount}-${startupStatus.ui.restoreNotice.dismissedAt}`
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
+  const dismissedLocally = dismissedVersion === depKey
 
   if (!open || dismissedLocally) return null
 
   const handleDismiss = () => {
     dismissRestoreNotice.mutate(undefined, {
       onSuccess: () => {
-        setDismissedLocally(true)
+        setDismissedVersion(depKey)
       },
       onError: (error) => {
         const message = error instanceof Error ? error.message : 'Failed to dismiss restore notice'
