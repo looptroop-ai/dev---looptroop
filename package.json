@@ -4,7 +4,7 @@
   "description": "",
   "main": "eslint.config.js",
   "scripts": {
-    "predev": "tsx scripts/dev-preflight.ts",
+    "predev": "node scripts/dev-preflight.mjs",
     "dev": "tsx scripts/dev.ts",
     "dev:app": "concurrently -n fe,be -c blue,green \"npm:dev:frontend\" \"npm:dev:backend\"",
     "dev:opencode": "tsx scripts/dev-opencode.ts",
