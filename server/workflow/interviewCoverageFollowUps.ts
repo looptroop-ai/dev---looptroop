@@ -1,5 +1,8 @@
 import type { InterviewSessionQuestion, InterviewSessionSnapshot } from '@shared/interviewSession'
-import { countCoverageFollowUpQuestions, extractCoverageFollowUpQuestions } from '../phases/interview/sessionState'
+import {
+  countCoverageFollowUpQuestions,
+  extractCoverageFollowUpQuestionsWithMetadata,
+} from '../phases/interview/sessionState'
 import type { CoverageFollowUpQuestion, CoverageResultEnvelope } from '../structuredOutput'
 
 export const INTERVIEW_COVERAGE_FOLLOW_UP_VALIDATION_ERROR = 'Coverage returned `status: gaps` but no machine-parseable follow-up question objects in `follow_up_questions`. Return `follow_up_questions` as YAML objects with `id`, `question`, `phase`, `priority`, and `rationale`.'
@@ -52,21 +55,28 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
   }
 
   const structuredFollowUps = input.structuredFollowUps.length > 0
-    ? extractCoverageFollowUpQuestions(
+    ? extractCoverageFollowUpQuestionsWithMetadata(
         normalizeCoverageQuestionsToYaml(input.structuredFollowUps),
         input.snapshot,
       )
-    : []
-  const followUpQuestions = structuredFollowUps.length > 0
-    ? structuredFollowUps
-    : extractCoverageFollowUpQuestions(input.rawResponse, input.snapshot)
+    : { questions: [], repairWarnings: [] }
+  const rawFollowUps = structuredFollowUps.questions.length > 0
+    ? { questions: [], repairWarnings: [] }
+    : extractCoverageFollowUpQuestionsWithMetadata(input.rawResponse, input.snapshot)
+  const followUpQuestions = structuredFollowUps.questions.length > 0
+    ? structuredFollowUps.questions
+    : rawFollowUps.questions
+  const repairWarnings = [
+    ...structuredFollowUps.repairWarnings,
+    ...rawFollowUps.repairWarnings,
+  ]
 
   if (remainingBudget === 0) {
     return {
       followUpQuestions: [],
       shouldRetry: false,
       validationError: null,
-      repairWarnings: [],
+      repairWarnings,
       budget,
     }
   }
@@ -77,6 +87,7 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
       shouldRetry: false,
       validationError: `${INTERVIEW_COVERAGE_FOLLOW_UP_BUDGET_ERROR} Remaining budget=${remainingBudget}, requested=${followUpQuestions.length}, already_used=${usedFollowUps}, max_follow_ups=${maxFollowUps}.`,
       repairWarnings: [
+        ...repairWarnings,
         `Coverage follow-up questions exceeded the remaining budget and were truncated to ${remainingBudget}.`,
       ],
       budget,
@@ -88,7 +99,7 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
       followUpQuestions,
       shouldRetry: false,
       validationError: null,
-      repairWarnings: [],
+      repairWarnings,
       budget,
     }
   }
@@ -98,7 +109,7 @@ export function resolveInterviewCoverageFollowUpResolution(input: {
     followUpQuestions: [],
     shouldRetry: input.attempt < maxRetries,
     validationError: INTERVIEW_COVERAGE_FOLLOW_UP_VALIDATION_ERROR,
-    repairWarnings: [],
+    repairWarnings,
     budget,
   }
 }

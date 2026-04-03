@@ -333,6 +333,289 @@ describe.concurrent('draftPRD', () => {
     ])
   })
 
+  it.each([
+    {
+      scenario: 'tracks only skipped compiled questions when no coverage follow-ups are skipped',
+      canonicalInterview: makeInterviewYaml({
+        questions: [
+          makeInterviewQuestion({
+            id: 'Q01',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the approved answer verbatim.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'Q02',
+            phase: 'Structure',
+            prompt: 'Which parts must stay minimal?',
+          }),
+          makeInterviewQuestion({
+            id: 'Q03',
+            phase: 'Assembly',
+            prompt: 'Which areas can be deferred?',
+          }),
+        ],
+      }),
+      resolvedInterview: makeInterviewYaml({
+        status: 'draft',
+        generated_by: GENERATED_BY,
+        questions: [
+          makeInterviewQuestion({
+            id: 'Q01',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the approved answer verbatim.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'Q02',
+            phase: 'Structure',
+            prompt: 'Which parts must stay minimal?',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Limit the change to theme selection and shared tokens.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'Q03',
+            phase: 'Assembly',
+            prompt: 'Which areas can be deferred?',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Defer any theme-system redesign.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+        ],
+      }),
+      expectedSkippedIds: 'skipped_question_ids: [Q02, Q03]',
+      preservedAnswers: ['Keep the approved answer verbatim.'],
+    },
+    {
+      scenario: 'tracks only skipped coverage follow-ups when compiled questions are already answered',
+      canonicalInterview: makeInterviewYaml({
+        questions: [
+          makeInterviewQuestion({
+            id: 'Q01',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the approved answer verbatim.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU1',
+            phase: 'Assembly',
+            prompt: 'Which exact pink palette should be used?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+          }),
+          makeInterviewQuestion({
+            id: 'CFU2',
+            phase: 'Assembly',
+            prompt: 'Should pink persist like the other themes?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer_type: 'single_choice',
+            options: [
+              { id: 'yes', label: 'Yes' },
+              { id: 'no', label: 'No' },
+            ],
+          }),
+        ],
+        follow_up_rounds: [{ round_number: 1, source: 'coverage', question_ids: ['CFU1', 'CFU2'] }],
+      }),
+      resolvedInterview: makeInterviewYaml({
+        status: 'draft',
+        generated_by: GENERATED_BY,
+        questions: [
+          makeInterviewQuestion({
+            id: 'Q01',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the approved answer verbatim.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU1',
+            phase: 'Assembly',
+            prompt: 'Which exact pink palette should be used?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Use a soft pink palette with #EC4899 as the primary token.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU2',
+            phase: 'Assembly',
+            prompt: 'Should pink persist like the other themes?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer_type: 'single_choice',
+            options: [
+              { id: 'yes', label: 'Yes' },
+              { id: 'no', label: 'No' },
+            ],
+            answer: {
+              skipped: false,
+              selected_option_ids: ['yes'],
+              free_text: 'Yes',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+        ],
+        follow_up_rounds: [{ round_number: 1, source: 'coverage', question_ids: ['CFU1', 'CFU2'] }],
+      }),
+      expectedSkippedIds: 'skipped_question_ids: [CFU1, CFU2]',
+      preservedAnswers: ['Keep the approved answer verbatim.'],
+    },
+    {
+      scenario: 'keeps mixed compiled and coverage skip tracking question-granular',
+      canonicalInterview: makeInterviewYaml({
+        questions: [
+          makeInterviewQuestion({
+            id: 'Q01',
+            prompt: 'Which theme behavior still needs a fallback?',
+          }),
+          makeInterviewQuestion({
+            id: 'Q02',
+            phase: 'Structure',
+            prompt: 'What answer is already locked in?',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Preserve the existing theme selector.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU1',
+            phase: 'Assembly',
+            prompt: 'Which palette note was already confirmed?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the palette note concise.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU2',
+            phase: 'Assembly',
+            prompt: 'Which remaining coverage detail should be inferred?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+          }),
+        ],
+        follow_up_rounds: [{ round_number: 1, source: 'coverage', question_ids: ['CFU1', 'CFU2'] }],
+      }),
+      resolvedInterview: makeInterviewYaml({
+        status: 'draft',
+        generated_by: GENERATED_BY,
+        questions: [
+          makeInterviewQuestion({
+            id: 'Q01',
+            prompt: 'Which theme behavior still needs a fallback?',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Infer the fallback from the current light-theme behavior.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'Q02',
+            phase: 'Structure',
+            prompt: 'What answer is already locked in?',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Preserve the existing theme selector.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU1',
+            phase: 'Assembly',
+            prompt: 'Which palette note was already confirmed?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the palette note concise.',
+              answered_by: 'user',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'CFU2',
+            phase: 'Assembly',
+            prompt: 'Which remaining coverage detail should be inferred?',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Infer the remaining detail from the approved selector behavior.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+        ],
+        follow_up_rounds: [{ round_number: 1, source: 'coverage', question_ids: ['CFU1', 'CFU2'] }],
+      }),
+      expectedSkippedIds: 'skipped_question_ids: [Q01, CFU2]',
+      preservedAnswers: ['Preserve the existing theme selector.', 'Keep the palette note concise.'],
+    },
+  ])('$scenario', async ({ canonicalInterview, resolvedInterview, expectedSkippedIds, preservedAnswers }) => {
+    const adapter = new TestOpenCodeAdapter([resolvedInterview, makePrdYaml()])
+
+    const result = await draftPRD(adapter, COUNCIL,
+      ticket('Respect question-level skipped answers', 'Keep PRD full answers scoped to truly skipped questions.', canonicalInterview),
+      '/tmp/test', DRAFT_OPTS,
+    )
+
+    const firstPrompt = adapter.promptCalls[0]?.parts.map((part) => part.content).join('\n') ?? ''
+
+    expect(result.fullAnswers[0]?.outcome).toBe('completed')
+    expect(firstPrompt).toContain('### full_answers_runtime_checklist')
+    expect(firstPrompt).toContain(expectedSkippedIds)
+    for (const preservedAnswer of preservedAnswers) {
+      expect(firstPrompt).toContain(preservedAnswer)
+      expect(result.fullAnswers[0]?.content).toContain(preservedAnswer)
+    }
+  })
+
   it('retries invalid structured PRD output and keeps normalized metrics', async () => {
     const adapter = new TestOpenCodeAdapter([
       resolvedYaml(),

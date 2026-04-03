@@ -100,6 +100,40 @@ describe.concurrent('resolveInterviewCoverageFollowUpResolution', () => {
     })
   })
 
+  it('remaps colliding coverage ids to CFU ids and records repair warnings', () => {
+    const snapshot = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: [{ id: 'Q01', phase: 'Foundation', question: 'What problem are we solving?' }],
+      maxInitialQuestions: 2,
+    })
+
+    const resolution = resolveInterviewCoverageFollowUpResolution({
+      status: 'gaps',
+      structuredFollowUps: [{
+        id: 'Q01',
+        question: 'Should the existing theme be replaced?',
+        phase: 'Foundation',
+        priority: 'high',
+        rationale: 'Coverage needs an explicit decision.',
+      }],
+      rawResponse: 'status: gaps',
+      snapshot,
+      attempt: 0,
+    })
+
+    expect(resolution.shouldRetry).toBe(false)
+    expect(resolution.validationError).toBeNull()
+    expect(resolution.followUpQuestions).toHaveLength(1)
+    expect(resolution.followUpQuestions[0]).toMatchObject({
+      id: 'CFU1',
+      source: 'coverage_follow_up',
+      roundNumber: 1,
+    })
+    expect(resolution.repairWarnings).toEqual([
+      'Coverage follow-up id Q01 remapped to CFU1 to avoid canonical question overwrite.',
+    ])
+  })
+
   it('repairs malformed coverage gap scalars before the semantic follow-up retry decision', () => {
     const snapshot = createInterviewSessionSnapshot({
       winnerId: 'openai/gpt-5-mini',

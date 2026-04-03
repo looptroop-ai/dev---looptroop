@@ -90,8 +90,19 @@ function upsertQuestion(
 ) {
   const existingIndex = snapshot.questions.findIndex((entry) => entry.id === question.id)
   if (existingIndex >= 0) {
+    const existing = snapshot.questions[existingIndex]!
+    const existingRound = existing.roundNumber ?? null
+    const incomingRound = question.roundNumber ?? null
+    if (existing.source !== question.source || existingRound !== incomingRound) {
+      throw new Error(
+        `Interview session question id collision for ${question.id}: cannot replace existing ${existing.source} question`
+        + `${existingRound === null ? '' : ` (round ${existingRound})`}`
+        + ` with ${question.source} question`
+        + `${incomingRound === null ? '' : ` (round ${incomingRound})`}.`,
+      )
+    }
     snapshot.questions[existingIndex] = {
-      ...snapshot.questions[existingIndex],
+      ...existing,
       ...question,
     }
     return

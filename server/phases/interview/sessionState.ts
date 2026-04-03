@@ -16,6 +16,7 @@ export {
   parseInterviewSessionSnapshot,
   serializeInterviewSessionSnapshot,
   buildCanonicalInterviewYaml,
+  extractCoverageFollowUpQuestionsWithMetadata,
   extractCoverageFollowUpQuestions,
   buildInterviewQuestionViews,
 } from './sessionSerializer'

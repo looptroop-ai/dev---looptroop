@@ -237,6 +237,63 @@ function normalizeCoverageQuestion(question: BatchQuestion, roundNumber: number)
   return normalizeQuestion(question, 'coverage_follow_up', roundNumber)
 }
 
+export interface ExtractedCoverageFollowUpQuestionsResult {
+  questions: InterviewSessionQuestion[]
+  repairWarnings: string[]
+}
+
+function nextCoverageFollowUpId(usedIds: Set<string>): string {
+  let index = 1
+  while (usedIds.has(`CFU${index}`)) {
+    index += 1
+  }
+  return `CFU${index}`
+}
+
+function normalizeCoverageFollowUpQuestionIds(
+  questions: InterviewSessionQuestion[],
+  snapshot: InterviewSessionSnapshot,
+): ExtractedCoverageFollowUpQuestionsResult {
+  const usedIds = new Set<string>([
+    'QFF1',
+    ...snapshot.questions.map((question) => question.id.trim()).filter((id) => id.length > 0),
+  ])
+  const canonicalIds = new Set<string>(usedIds)
+  const repairWarnings: string[] = []
+
+  const normalizedQuestions = questions.map((question) => {
+    const normalizedId = question.id.trim()
+    if (normalizedId.length > 0 && !usedIds.has(normalizedId)) {
+      usedIds.add(normalizedId)
+      return {
+        ...question,
+        id: normalizedId,
+      }
+    }
+
+    const nextId = nextCoverageFollowUpId(usedIds)
+    usedIds.add(nextId)
+
+    if (normalizedId.length > 0) {
+      repairWarnings.push(
+        canonicalIds.has(normalizedId)
+          ? `Coverage follow-up id ${normalizedId} remapped to ${nextId} to avoid canonical question overwrite.`
+          : `Coverage follow-up id ${normalizedId} remapped to ${nextId} to avoid duplicate question ids in the same batch.`,
+      )
+    }
+
+    return {
+      ...question,
+      id: nextId,
+    }
+  })
+
+  return {
+    questions: normalizedQuestions,
+    repairWarnings,
+  }
+}
+
 function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
   try {
     const parsed = parseYamlOrJsonCandidate(response)
@@ -321,27 +378,41 @@ function parseCoverageYamlQuestions(response: string): BatchQuestion[] {
   }
 }
 
-export function extractCoverageFollowUpQuestions(
+export function extractCoverageFollowUpQuestionsWithMetadata(
   response: string,
   snapshot: InterviewSessionSnapshot,
-): InterviewSessionQuestion[] {
+): ExtractedCoverageFollowUpQuestionsResult {
+  const roundNumber = snapshot.followUpRounds
+    .filter((round) => round.source === 'coverage')
+    .reduce((max, round) => Math.max(max, round.roundNumber), 0) + 1
+
   const parsedYamlQuestions = parseCoverageYamlQuestions(response)
   if (parsedYamlQuestions.length > 0) {
-    const roundNumber = snapshot.followUpRounds
-      .filter((round) => round.source === 'coverage')
-      .reduce((max, round) => Math.max(max, round.roundNumber), 0) + 1
-    return parsedYamlQuestions.map((question) => normalizeCoverageQuestion(question, roundNumber))
+    return normalizeCoverageFollowUpQuestionIds(
+      parsedYamlQuestions.map((question) => normalizeCoverageQuestion(question, roundNumber)),
+      snapshot,
+    )
   }
 
   try {
     const parsedQuestions = parseInterviewQuestions(response, { allowTopLevelArray: true })
-    const roundNumber = snapshot.followUpRounds
-      .filter((round) => round.source === 'coverage')
-      .reduce((max, round) => Math.max(max, round.roundNumber), 0) + 1
-    return parsedQuestions.map((question) => normalizeQuestion(question, 'coverage_follow_up', roundNumber))
+    return normalizeCoverageFollowUpQuestionIds(
+      parsedQuestions.map((question) => normalizeQuestion(question, 'coverage_follow_up', roundNumber)),
+      snapshot,
+    )
   } catch {
-    return []
+    return {
+      questions: [],
+      repairWarnings: [],
+    }
   }
+}
+
+export function extractCoverageFollowUpQuestions(
+  response: string,
+  snapshot: InterviewSessionSnapshot,
+): InterviewSessionQuestion[] {
+  return extractCoverageFollowUpQuestionsWithMetadata(response, snapshot).questions
 }
 
 export function buildInterviewQuestionViews(

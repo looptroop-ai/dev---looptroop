@@ -233,6 +233,97 @@ describe('interview session state', () => {
     })
   })
 
+  it('remaps colliding coverage follow-up ids and preserves original answers when the coverage batch is skipped', () => {
+    const base = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: [{ id: 'Q01', phase: 'Foundation', question: 'Should pink be a new selectable theme?' }],
+      maxInitialQuestions: 1,
+    })
+
+    const initialBatch = buildPersistedBatch({
+      questions: [
+        { id: 'Q01', phase: 'Foundation', question: 'Should pink be a new selectable theme?' },
+      ],
+      progress: { current: 1, total: 1 },
+      isComplete: false,
+      isFinalFreeForm: false,
+      aiCommentary: 'Confirm the main theme direction.',
+      batchNumber: 1,
+    }, 'prom4', base)
+
+    const answered = recordBatchAnswers(
+      recordPreparedBatch(base, initialBatch),
+      { Q01: 'Yes, add pink as a selectable theme.' },
+    )
+
+    const followUpQuestions = extractCoverageFollowUpQuestions([
+      'status: gaps',
+      'follow_up_questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    question: "Should pink be a new selectable theme?"',
+      '    priority: high',
+      '    rationale: Confirm the main product decision.',
+    ].join('\n'), answered)
+
+    expect(followUpQuestions).toHaveLength(1)
+    expect(followUpQuestions[0]).toMatchObject({
+      id: 'CFU1',
+      source: 'coverage_follow_up',
+      roundNumber: 1,
+    })
+
+    const followUpBatch = buildCoverageFollowUpBatch(answered, followUpQuestions, 'Coverage follow-up needed.')
+    const withCoverageBatch = recordPreparedBatch(clearInterviewSessionBatch(answered), followUpBatch)
+    const completed = markInterviewSessionComplete(recordBatchAnswers(withCoverageBatch, { CFU1: '' }))
+    const parsed = jsYaml.load(buildCanonicalInterviewYaml(TEST.ticketId, completed)) as {
+      questions: Array<{ id: string; answer: { skipped: boolean; free_text: string } }>
+      follow_up_rounds: Array<{ round_number: number; source: string; question_ids: string[] }>
+    }
+
+    expect(parsed.questions.map((question) => question.id)).toEqual(['Q01', 'CFU1'])
+    expect(parsed.questions[0]).toMatchObject({
+      id: 'Q01',
+      answer: {
+        skipped: false,
+        free_text: 'Yes, add pink as a selectable theme.',
+      },
+    })
+    expect(parsed.questions[1]).toMatchObject({
+      id: 'CFU1',
+      answer: {
+        skipped: true,
+        free_text: '',
+      },
+    })
+    expect(parsed.follow_up_rounds).toContainEqual({
+      round_number: 1,
+      source: 'coverage',
+      question_ids: ['CFU1'],
+    })
+  })
+
+  it('rejects cross-source interview question id collisions during batch persistence', () => {
+    const base = createInterviewSessionSnapshot({
+      winnerId: 'openai/gpt-5-mini',
+      compiledQuestions: [{ id: 'Q01', phase: 'Foundation', question: 'What problem are we solving?' }],
+      maxInitialQuestions: 1,
+    })
+
+    const followUpBatch = buildCoverageFollowUpBatch(base, [{
+      id: 'Q01',
+      question: 'Which files are most likely to change?',
+      phase: 'Assembly',
+      priority: 'high',
+      rationale: 'Coverage follow-up required to close interview gaps.',
+      source: 'coverage_follow_up',
+      roundNumber: 1,
+    }], 'Coverage follow-up needed.')
+
+    expect(() => recordPreparedBatch(clearInterviewSessionBatch(base), followUpBatch))
+      .toThrow(/Interview session question id collision for Q01/)
+  })
+
   it('accepts string-based coverage follow-up questions with default metadata', () => {
     const snapshot = createInterviewSessionSnapshot({
       winnerId: 'openai/gpt-5-mini',

@@ -181,4 +181,39 @@ describe('InterviewApprovalNavigator', () => {
     expect(screen.queryByText('Summary')).not.toBeInTheDocument()
     expect(screen.getByText('Coverage Follow-ups · Round 1')).toBeInTheDocument()
   })
+
+  it('keeps answered compiled questions visible alongside remapped coverage follow-ups', async () => {
+    const data = buildInterviewData()
+    data.document!.questions[1] = {
+      id: 'CFU1',
+      phase: 'Assembly',
+      prompt: 'Which remaining coverage detail still needs a fallback?',
+      source: 'coverage_follow_up',
+      follow_up_round: 1,
+      answer_type: 'free_text',
+      options: [],
+      answer: {
+        skipped: true,
+        selected_option_ids: [],
+        free_text: '',
+        answered_by: 'ai_skip',
+        answered_at: '',
+      },
+    }
+    data.document!.follow_up_rounds = [{
+      round_number: 1,
+      source: 'coverage',
+      question_ids: ['CFU1'],
+    }]
+
+    renderWithProviders(<InterviewApprovalNavigator ticketId={TEST.ticketId} />, data)
+
+    await waitFor(() => {
+      expect(screen.getByText('Foundation')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Coverage Follow-ups · Round 1')).toBeInTheDocument()
+    expect(screen.getByText('What outcome matters most?')).toBeInTheDocument()
+    expect(screen.getByText('Which remaining coverage detail still needs a fallback?')).toBeInTheDocument()
+  })
 })

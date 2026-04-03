@@ -323,6 +323,7 @@ export const PROM5: PromptTemplate = {
     'Identify Gaps: List any specific gaps or discrepancies found between the source material and the Interview Results.',
     'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report any unresolved gaps clearly without assuming another retry exists.',
     'Follow-up Budget: Treat `coverage_follow_up_budget_percent`, `follow_up_budget_total`, `follow_up_budget_used`, and `follow_up_budget_remaining` from the context as hard limits. If gaps exist, generate only the targeted follow-up questions strictly necessary to resolve them and never exceed `follow_up_budget_remaining`. If `follow_up_budget_remaining` is `0`, you must return `follow_up_questions: []`.',
+    'Coverage Follow-up ID Rule: Every generated follow-up question must use a new ID that does not reuse any existing canonical interview question ID or `QFF1`. When you need a new coverage-specific ID, prefer the `CFU<n>` form.',
     'If no gaps exist, confirm that the Interview Results are complete and ready for interview approval, and make clear that PRD generation begins only after that approval step.',
     'Output Envelope: return only YAML with top-level `status`, `gaps`, and `follow_up_questions`.',
     'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
