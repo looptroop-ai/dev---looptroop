@@ -1059,11 +1059,80 @@ describe('PhaseArtifactsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
     expect(screen.getByText('The PRD version currently being checked.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop adjusted this diff.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Close/i }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
     expect(screen.getByText('Shows what the check found, what changed, and why.')).toBeInTheDocument()
+  })
+
+  it('hides stale PRD diff metadata in approval when coverage did not revise the candidate', () => {
+    const refinedArtifact = makeArtifact({
+      phase: 'REFINING_PRD',
+      artifactType: 'prd_refined',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildPrdDocumentContent({
+          epicTitle: 'Winner PRD draft',
+          storyTitle: 'Inspect winner draft sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Initial PRD candidate',
+          storyTitle: 'Inspect initial candidate sections',
+        }),
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: ['Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.'],
+        },
+      }),
+    })
+
+    const coverageInputArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage_input',
+      content: JSON.stringify({
+        candidateVersion: 1,
+        interview: buildInterviewDocumentContent(),
+        fullAnswers: buildInterviewDocumentContent(),
+        prd: buildPrdDocumentContent({
+          epicTitle: 'Initial PRD candidate',
+          storyTitle: 'Inspect initial candidate sections',
+        }),
+        refinedContent: buildPrdDocumentContent({
+          epicTitle: 'Initial PRD candidate',
+          storyTitle: 'Inspect initial candidate sections',
+        }),
+      }),
+    })
+
+    const coverageArtifact = makeArtifact({
+      phase: 'VERIFYING_PRD_COVERAGE',
+      artifactType: 'prd_coverage',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        hasGaps: false,
+        coverageRunNumber: 1,
+        maxCoveragePasses: 2,
+        limitReached: false,
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="WAITING_PRD_APPROVAL"
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, coverageInputArtifact, coverageArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
+
+    expect(screen.getByText('Initial PRD candidate')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop adjusted this diff.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Some saved diff details did not line up with the validated artifact/i)).not.toBeInTheDocument()
   })
 
   it('prefers the latest coverage revision in approval without exposing a separate coverage report artifact', async () => {
@@ -1622,6 +1691,57 @@ describe('PhaseArtifactsPanel', () => {
     expectCoverageAttributionUiHidden()
     expect(screen.getByText('Surface retry metadata')).toBeInTheDocument()
     expect(screen.getByText('Validate refinement attribution safely')).toBeInTheDocument()
+  })
+
+  it.each([
+    { phase: 'VERIFYING_BEADS_COVERAGE' as const },
+    { phase: 'WAITING_BEADS_APPROVAL' as const },
+  ])('hides stale beads diff in $phase when coverage is reviewing the current plan', ({ phase }) => {
+    const refinedArtifact = makeArtifact({
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_refined',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        winnerDraftContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Winner bead draft' },
+        ]),
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Current beads candidate' },
+        ]),
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: ['Dropped no-op beads refinement modified change at index 0 because the winning and final records are identical.'],
+        },
+      }),
+    })
+
+    const coverageInputArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage_input',
+      content: JSON.stringify({
+        beads: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Current beads candidate' },
+        ]),
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Current beads candidate' },
+        ]),
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase={phase}
+        isCompleted={false}
+        preloadedArtifacts={[refinedArtifact, coverageInputArtifact]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Refined Beads/i }))
+
+    expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
+    expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('LoopTroop adjusted this diff.')).not.toBeInTheDocument()
   })
 
   it.each([

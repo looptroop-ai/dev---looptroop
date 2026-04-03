@@ -844,6 +844,21 @@ export function buildFinalRefinementArtifactContent(
         : sourceArtifact?.refinedContent ?? '')
   if (!nextRefinedContent.trim()) return null
 
+  // Coverage views should show the current artifact under review, not reuse the
+  // earlier winner-to-refined diff when no coverage-driven revision exists yet.
+  if (coverageRecord && !latestRevisionArtifact) {
+    const payload: RefinementDiffArtifactData & CoverageInputData = {
+      ...(coverageRecord as CoverageInputData),
+      winnerId: sourceArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
+      refinedContent: nextRefinedContent,
+      candidateVersion: typeof coverageRecord.candidateVersion === 'number'
+        ? coverageRecord.candidateVersion
+        : sourceArtifact?.candidateVersion,
+    }
+
+    return JSON.stringify(payload)
+  }
+
   const payload: RefinementDiffArtifactData & CoverageInputData = {
     ...(coverageRecord ? coverageRecord as CoverageInputData : {}),
     winnerId: sourceArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
