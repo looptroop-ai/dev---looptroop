@@ -114,6 +114,7 @@ function buildDefaultRule(code: string): StructuredInterventionRule {
     parser_wrapper_key: 'Wrapper Key',
     parser_xml_tags: 'XML Tag Strip',
     cleanup_duplicate_ids: 'Duplicate ID Repair',
+    cleanup_final_free_form_empty: 'Final Free-Form Empty Answer',
     cleanup_filled_missing: 'Missing Field Fill',
     cleanup_preserved_narrative_substantive: 'Preserved Narrative Restore',
     cleanup_status_normalized: 'Status Normalize',
@@ -453,12 +454,12 @@ function buildExactInterventionDetails(
   }
 
   if (code === 'cleanup_restored_answered') {
-    const questionMatch = warning.match(/canonical question (Q\d+|FU\d+)/i)
+    const questionMatch = warning.match(/canonical question (QFF\d+|Q\d+|FU\d+)/i)
     return { exactCorrection: questionMatch ? `Restored the approved answered record for question ${questionMatch[1]}.` : 'Restored the approved answered question record from the canonical interview artifact.' }
   }
 
   if (code === 'cleanup_answered_by') {
-    const targetMatch = warning.match(/question\s+(Q\d+|FU\d+)/i)
+    const targetMatch = warning.match(/question\s+(QFF\d+|Q\d+|FU\d+)/i)
     const example = buildBeforeAfterExample(targetMatch?.[1], undefined, 'ai_skip')
     return {
       exactCorrection: targetMatch ? `Set answered_by to "ai_skip" for question ${targetMatch[1]}.` : 'Set answered_by to "ai_skip" for the AI-filled question.',
@@ -467,8 +468,17 @@ function buildExactInterventionDetails(
   }
 
   if (code === 'cleanup_mapped_free_text') {
-    const targetMatch = warning.match(/question\s+(Q\d+|FU\d+)/i)
+    const targetMatch = warning.match(/question\s+(QFF\d+|Q\d+|FU\d+)/i)
     return { exactCorrection: targetMatch ? `Mapped the answer content to canonical option IDs for question ${targetMatch[1]}.` : 'Mapped the generated answer content to the closest canonical option IDs.' }
+  }
+
+  if (code === 'cleanup_final_free_form_empty') {
+    const targetMatch = warning.match(/question\s+(QFF\d+|Q\d+|FU\d+)/i)
+    return {
+      exactCorrection: targetMatch
+        ? `Accepted the empty final free-form answer for question ${targetMatch[1]} as an explicit no-additions response.`
+        : 'Accepted the empty final free-form answer as an explicit no-additions response.',
+    }
   }
 
   if (code === 'cleanup_context_guidance') {
@@ -646,6 +656,7 @@ export function dedupeStructuredInterventions(interventions: StructuredIntervent
 
 function extractTargetFromWarning(warning: string): string | undefined {
   const matches = [
+    warning.match(/\b(QFF\d{1,3})\b/i),
     warning.match(/\b(Q\d{1,3})\b/),
     warning.match(/\b(FU\d{1,3})\b/),
     warning.match(/\b(EPIC-[A-Za-z0-9-]+)\b/i),
@@ -1101,6 +1112,18 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
       summary: 'The model provided non-canonical choice data instead of using the approved option IDs directly.',
       why: 'Downstream processing requires canonical option identifiers, not free-form text, for structured question responses.',
       how: 'LoopTroop matched the provided option labels or answer text to the canonical option identifiers and recorded the mapping.',
+    })
+  }
+
+  if (/accepted empty final_free_form answer/i.test(normalized)) {
+    return buildIntervention(warning, {
+      code: 'cleanup_final_free_form_empty',
+      stage: 'normalize',
+      category: 'cleanup',
+      title: 'Accepted an empty final free-form answer',
+      summary: 'The model marked the final free-form question as answered but left its text empty, and LoopTroop treated that as an explicit no-additions response.',
+      why: 'For the final free-form question only, an empty answer can safely mean "nothing else to add" when the model already marked it answered and supplied an answer timestamp.',
+      how: 'LoopTroop preserved the answered state, kept the empty text, and recorded the normalization as a cleanup warning instead of inventing content.',
     })
   }
 

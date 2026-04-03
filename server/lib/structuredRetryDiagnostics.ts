@@ -89,7 +89,7 @@ function inferStructuredRetryTarget(validationError: string): string | undefined
   const questionMatch = normalized.match(/\b(?:canonical\s+)?question\s+([A-Za-z]+\d+)\b/i)
   if (questionMatch?.[1]) return `Question ${questionMatch[1].toUpperCase()}`
 
-  const questionIdMatch = normalized.match(/\b(Q\d+)\b/i)
+  const questionIdMatch = normalized.match(/\b(QFF\d+|FU\d+|Q\d+)\b/i)
   if (questionIdMatch?.[1]) return `Question ${questionIdMatch[1].toUpperCase()}`
 
   const beadMatch = normalized.match(/\bbead\s+["']?([^"'\s:.,)]+)["']?/i)

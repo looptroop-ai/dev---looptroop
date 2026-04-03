@@ -203,6 +203,18 @@ function answerHasContent(answer: InterviewDocumentQuestion['answer']): boolean 
   return answer.free_text.trim().length > 0 || answer.selected_option_ids.length > 0
 }
 
+function isAcceptedEmptyFinalFreeFormAnswer(
+  canonicalQuestion: InterviewDocumentQuestion,
+  candidateQuestion: InterviewDocumentQuestion,
+): boolean {
+  return canonicalQuestion.source === 'final_free_form'
+    && canonicalQuestion.answer_type === 'free_text'
+    && !candidateQuestion.answer.skipped
+    && candidateQuestion.answer.selected_option_ids.length === 0
+    && candidateQuestion.answer.free_text.trim().length === 0
+    && candidateQuestion.answer.answered_at.trim().length > 0
+}
+
 function compareSummary(
   left: InterviewDocument['summary'],
   right: InterviewDocument['summary'],
@@ -694,7 +706,8 @@ export function normalizeResolvedInterviewDocumentOutput(
           return canonicalQuestion
         }
 
-        if (candidateQuestion.answer.skipped || !answerHasContent(candidateQuestion.answer)) {
+        const acceptedEmptyFinalFreeForm = isAcceptedEmptyFinalFreeFormAnswer(canonicalQuestion, candidateQuestion)
+        if (candidateQuestion.answer.skipped || (!answerHasContent(candidateQuestion.answer) && !acceptedEmptyFinalFreeForm)) {
           throw new Error(`Resolved interview left skipped question unanswered: ${canonicalQuestion.id}`)
         }
 
@@ -704,6 +717,9 @@ export function normalizeResolvedInterviewDocumentOutput(
 
         if (candidateQuestion.answer.answered_by !== 'ai_skip') {
           repairWarnings.push(`Canonicalized answered_by to ai_skip for AI-filled question ${canonicalQuestion.id}.`)
+        }
+        if (acceptedEmptyFinalFreeForm) {
+          repairWarnings.push(`Accepted empty final_free_form answer as an explicit no-additions response for AI-filled question ${canonicalQuestion.id}.`)
         }
 
         if (canonicalQuestion.answer_type === 'free_text') {

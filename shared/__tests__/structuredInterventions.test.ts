@@ -294,6 +294,12 @@ describe('cleanup interventions', () => {
     expectIntervention(i, { code: 'cleanup_answered_by', stage: 'normalize', category: 'cleanup' })
   })
 
+  it('maps accepted empty final free-form answers', () => {
+    const i = deriveOne('Accepted empty final_free_form answer as an explicit no-additions response for AI-filled question QFF1.')
+    expectIntervention(i, { code: 'cleanup_final_free_form_empty', stage: 'normalize', category: 'cleanup' })
+    expect(i.target).toBe('QFF1')
+  })
+
   it('maps follow_up_rounds', () => {
     const i = deriveOne('Canonicalized follow_up_rounds to match the approved Interview Results artifact.')
     expectIntervention(i, { code: 'cleanup_follow_up_rounds', stage: 'normalize', category: 'cleanup' })
@@ -458,6 +464,9 @@ describe('exact correction details', () => {
 
     const answeredBy = deriveOne('Canonicalized answered_by to ai_skip for AI-filled question FU1.')
     expect(answeredBy.exactCorrection).toBe('Set answered_by to "ai_skip" for question FU1.')
+
+    const emptyFinal = deriveOne('Accepted empty final_free_form answer as an explicit no-additions response for AI-filled question QFF1.')
+    expect(emptyFinal.exactCorrection).toBe('Accepted the empty final free-form answer for question QFF1 as an explicit no-additions response.')
     
     const noPrdRefs = deriveOne('Bead "bead-abc" has no PRD references (prdRefs is empty).')
     expect(noPrdRefs.exactCorrection).toBe('Flagged bead "bead-abc" for having no PRD references.')
