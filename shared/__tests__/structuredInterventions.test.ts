@@ -484,6 +484,8 @@ describe('deriveStructuredInterventions', () => {
     expect(result[0]!.category).toBe('retry')
     expect(result[0]!.stage).toBe('retry')
     expect(result[0]!.summary).toContain('2')
+    expect(result[0]!.how).toBe('LoopTroop issued a structured retry attempt after the earlier validation failure and recorded the resulting artifact state.')
+    expect(result[0]!.rule).toEqual({ id: 'retry_after_validation_failure', label: 'Validation Retry' })
   })
 
   it('appends validation failure when validationError is provided', () => {

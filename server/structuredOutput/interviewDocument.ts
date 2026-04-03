@@ -213,6 +213,32 @@ function compareSummary(
     && left.final_free_form_answer === right.final_free_form_answer
 }
 
+function buildResolvedInterviewQuestionMismatchError(
+  canonicalIds: string[],
+  candidateIds: string[],
+): string {
+  const candidateIdSet = new Set(candidateIds)
+  const canonicalIdSet = new Set(canonicalIds)
+  const missingCanonicalIds = canonicalIds.filter((id) => !candidateIdSet.has(id))
+  const unexpectedIds = candidateIds.filter((id) => !canonicalIdSet.has(id))
+  const duplicateCandidateIds = candidateIds.filter((id, index) => candidateIds.indexOf(id) !== index)
+  const details: string[] = []
+
+  if (missingCanonicalIds.length > 0) {
+    details.push(`missing canonical ids: ${missingCanonicalIds.join(', ')}`)
+  }
+  if (unexpectedIds.length > 0) {
+    details.push(`unexpected ids: ${unexpectedIds.join(', ')}`)
+  }
+  if (duplicateCandidateIds.length > 0) {
+    details.push(`duplicate candidate ids: ${Array.from(new Set(duplicateCandidateIds)).join(', ')}`)
+  }
+
+  return details.length > 0
+    ? `Resolved interview must preserve all ${canonicalIds.length} canonical questions (${details.join('; ')})`
+    : `Resolved interview must preserve all ${canonicalIds.length} canonical questions`
+}
+
 function parseExactOptionLabelSelections(
   answerText: string,
   answerType: InterviewQuestionAnswerType,
@@ -622,13 +648,13 @@ export function normalizeResolvedInterviewDocumentOutput(
       const repairWarnings = [...candidateResult.repairWarnings]
       const canonical = canonicalResult.value
       const candidate = candidateResult.value
-
-      if (candidate.questions.length !== canonical.questions.length) {
-        throw new Error(`Resolved interview must preserve all ${canonical.questions.length} canonical questions`)
-      }
-
       const canonicalIds = canonical.questions.map((question) => question.id)
       const candidateIds = candidate.questions.map((question) => question.id)
+
+      if (candidate.questions.length !== canonical.questions.length) {
+        throw new Error(buildResolvedInterviewQuestionMismatchError(canonicalIds, candidateIds))
+      }
+
       const candidateIdSet = new Set(candidateIds)
       const canonicalIdSet = new Set(canonicalIds)
       const missingCanonicalIds = canonicalIds.filter((id) => !candidateIdSet.has(id))

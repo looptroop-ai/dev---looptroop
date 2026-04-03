@@ -4563,6 +4563,7 @@ describe.concurrent('structured output normalization', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toContain('must preserve all 2 canonical questions')
+    expect(result.error).toContain('missing canonical ids: Q02')
   })
 
   it('keeps truncated resolved interview artifacts invalid', () => {

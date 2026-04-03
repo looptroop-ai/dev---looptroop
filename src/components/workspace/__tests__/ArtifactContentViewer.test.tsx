@@ -1515,5 +1515,9 @@ describe('ArtifactContentViewer', () => {
 
     expect(screen.getByText(/LoopTroop validated this final test plan and recorded the intervention details below/i)).toBeInTheDocument()
     expect(screen.getByText(/Missing final test marker on first pass/i)).toBeInTheDocument()
+    expect(screen.getByText('Retried after validation failed and recorded the resulting artifact state.')).toBeInTheDocument()
+    expect(screen.getByText('LoopTroop issued a structured retry attempt after the earlier validation failure and recorded the resulting artifact state.')).toBeInTheDocument()
+    expect(screen.queryByText(/successful validated result/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/successful pass/i)).not.toBeInTheDocument()
   })
 })

@@ -9,6 +9,7 @@ import type {
   Session,
   StreamEvent,
 } from '../../../opencode/types'
+import { buildMinimalContext, clearContextCache } from '../../../opencode/contextBuilder'
 import { draftPRD } from '../draft'
 import { buildPrdVotePrompt } from '../../../workflow/phases/prdPhase'
 import { TEST, makeInterviewYaml, makeInterviewQuestion, makePrdYaml } from '../../../test/factories'
@@ -152,6 +153,102 @@ describe.concurrent('draftPRD', () => {
     expect(rendered).toContain('Use the exact PROM11 `draft_scores` YAML schema')
     expect(rendered).toContain('Coverage of requirements')
     expect(rendered).toContain('Correctness / feasibility')
+  })
+
+  it('clears stale cached interview context before building Full Answers prompts and adds the runtime checklist', async () => {
+    clearContextCache(TEST.externalId)
+
+    try {
+      const answeredByUser = {
+        skipped: false,
+        selected_option_ids: [],
+        free_text: 'Keep the approved answer verbatim.',
+        answered_by: 'user' as const,
+        answered_at: TEST.timestamp,
+      }
+      const staleInterview = makeInterviewYaml({
+        questions: [
+          makeInterviewQuestion({ id: 'Q01', answer: answeredByUser }),
+          makeInterviewQuestion({ id: 'Q02', phase: 'Structure', prompt: 'What scope stays minimal?' }),
+        ],
+      })
+      const canonicalInterview = makeInterviewYaml({
+        questions: [
+          makeInterviewQuestion({ id: 'Q01', answer: answeredByUser }),
+          makeInterviewQuestion({ id: 'Q02', phase: 'Structure', prompt: 'What scope stays minimal?' }),
+          makeInterviewQuestion({
+            id: 'Q02_confirm',
+            phase: 'Structure',
+            prompt: 'Confirm the same minimal scope for PRD drafting.',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+          }),
+        ],
+        follow_up_rounds: [{ round_number: 1, source: 'coverage', question_ids: ['Q02_confirm'] }],
+      })
+      const resolvedInterview = makeInterviewYaml({
+        status: 'draft',
+        generated_by: GENERATED_BY,
+        questions: [
+          makeInterviewQuestion({ id: 'Q01', answer: answeredByUser }),
+          makeInterviewQuestion({
+            id: 'Q02',
+            phase: 'Structure',
+            prompt: 'What scope stays minimal?',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Keep the scope minimal.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+          makeInterviewQuestion({
+            id: 'Q02_confirm',
+            phase: 'Structure',
+            prompt: 'Confirm the same minimal scope for PRD drafting.',
+            source: 'coverage_follow_up',
+            follow_up_round: 1,
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Yes, keep the same minimal scope.',
+              answered_by: 'ai_skip',
+              answered_at: TEST.timestamp,
+            },
+          }),
+        ],
+        follow_up_rounds: [{ round_number: 1, source: 'coverage', question_ids: ['Q02_confirm'] }],
+      })
+      buildMinimalContext('prd_draft', {
+        ticketId: TEST.externalId,
+        title: 'Seed stale cache',
+        description: 'Old prompt context that should be discarded.',
+        interview: staleInterview,
+      })
+
+      const adapter = new TestOpenCodeAdapter([resolvedInterview, makePrdYaml()])
+
+      const result = await draftPRD(adapter, COUNCIL,
+        ticket('Refresh cached interview context', 'Ensure the current canonical interview is used.', canonicalInterview),
+        '/tmp/test', DRAFT_OPTS,
+      )
+
+      const firstPrompt = adapter.promptCalls[0]?.parts.map((part) => part.content).join('\n') ?? ''
+
+      expect(result.fullAnswers[0]?.outcome).toBe('completed')
+      expect(firstPrompt).toContain('### full_answers_runtime_checklist')
+      expect(firstPrompt).toContain('canonical_question_count: 3')
+      expect(firstPrompt).toContain('canonical_question_ids: [Q01, Q02, Q02_confirm]')
+      expect(firstPrompt).toContain('skipped_question_ids: [Q02, Q02_confirm]')
+      expect(firstPrompt).toContain('coverage_follow_up questions are canonical questions too and must not be omitted')
+      expect(firstPrompt).toContain('- id: Q02_confirm')
+      expect(firstPrompt).not.toContain('canonical_question_count: 2')
+      expect(firstPrompt).toContain('# Ticket: Refresh cached interview context')
+      expect(firstPrompt).not.toContain('# Ticket: Seed stale cache')
+    } finally {
+      clearContextCache(TEST.externalId)
+    }
   })
 
   it('salvages near-miss full answers without using a structured retry', async () => {

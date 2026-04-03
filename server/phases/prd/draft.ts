@@ -9,7 +9,7 @@ import type {
 } from '../../council/types'
 import { CancelledError } from '../../council/types'
 import { classifyDraftFailure, isAbortError, isPhaseDeadlineError, PHASE_DEADLINE_ERROR } from '../../council/draftUtils'
-import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
+import { buildMinimalContext, clearContextCache, type TicketState } from '../../opencode/contextBuilder'
 import type { OpenCodeToolPolicy } from '../../opencode/toolPolicy'
 import type { Message, PromptPart, Session, StreamEvent } from '../../opencode/types'
 import { SessionManager } from '../../opencode/sessionManager'
@@ -120,6 +120,27 @@ function stripGeneratedByForRetry(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { generated_by: _generatedBy, ...sanitized } = normalizedInterviewDocument
   return (jsYaml.dump(sanitized, { lineWidth: 120, noRefs: true }) as string).trim()
+}
+
+function buildFullAnswersRuntimeChecklist(
+  canonicalInterviewDocument: InterviewDocument,
+): PromptPart {
+  const canonicalQuestionIds = canonicalInterviewDocument.questions.map((question) => question.id)
+  const skippedQuestionIds = canonicalInterviewDocument.questions
+    .filter((question) => question.answer.skipped)
+    .map((question) => question.id)
+
+  return {
+    type: 'text',
+    source: 'full_answers_runtime_checklist',
+    content: [
+      'Runtime checklist for this approved interview:',
+      `canonical_question_count: ${canonicalQuestionIds.length}`,
+      `canonical_question_ids: [${canonicalQuestionIds.join(', ')}]`,
+      `skipped_question_ids: [${skippedQuestionIds.length > 0 ? skippedQuestionIds.join(', ') : 'none'}]`,
+      'coverage_follow_up questions are canonical questions too and must not be omitted from the final artifact.',
+    ].join('\n'),
+  }
 }
 
 function buildFullAnswersRetryPrompt(
@@ -241,7 +262,7 @@ function shouldRestartFullAnswersInFreshSession(validationError: string): boolea
 
   return [
     /^No resolved interview document content found$/i,
-    /^Resolved interview must preserve all \d+ canonical questions$/i,
+    /^Resolved interview must preserve all \d+ canonical questions\b/i,
     /^Resolved interview must preserve canonical question ids\b/i,
     /^Resolved interview is missing canonical question\b/i,
     /^Resolved interview left skipped question unanswered\b/i,
@@ -485,6 +506,10 @@ export async function draftPRD(
   onFullAnswersProgress?: (entry: DraftProgressEvent) => void,
   onStepEvent?: (entry: PrdDraftStepEvent) => void,
 ): Promise<PrdDraftPhaseResult> {
+  if (ticketState.ticketId) {
+    clearContextCache(ticketState.ticketId)
+  }
+
   const canonicalInterview = ticketState.interview ?? ''
   if (!canonicalInterview.trim()) {
     throw new Error('Canonical interview artifact is required before PRD drafting')
@@ -611,10 +636,15 @@ export async function draftPRD(
         onStepEvent?.({ memberId: member.modelId, step: 'full_answers', status: 'started' })
         const gapResolutionParts = buildPromptParts(
           PROM10a,
-          buildMinimalContext('prd_draft', {
-            ...ticketState,
-            fullAnswers: undefined,
-          }),
+          [
+            ...buildMinimalContext('prd_draft', {
+              ...ticketState,
+              fullAnswers: undefined,
+            }),
+            ...(canonicalInterviewResult?.ok
+              ? [buildFullAnswersRuntimeChecklist(canonicalInterviewResult.value)]
+              : []),
+          ],
         )
 
         const fullAnswersStep = await executeStructuredStep(adapter, member, projectPath, gapResolutionParts, {

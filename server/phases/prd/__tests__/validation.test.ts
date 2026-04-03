@@ -365,6 +365,105 @@ describe.concurrent('validatePrdDraft', () => {
     expect(result.document.questions[0]?.answer.free_text).toContain('user\'s non-goal of "Add human approval step"')
   })
 
+  it('reports exact missing and unexpected ids when a resolved interview omits canonical questions', () => {
+    const canonicalInterviewContent = skippedInterviewYaml
+
+    expect(() => validateResolvedInterview([
+      'schema_version: 1',
+      `ticket_id: ${TEST.externalId}`,
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: Which workflow guardrails are mandatory?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: Preserve council retries and strict normalization.',
+      '      answered_by: ai_skip',
+      '      answered_at: 2026-03-23T09:11:00.000Z',
+      '  - id: Q99',
+      '    phase: Structure',
+      '    prompt: Which unexpected question slipped in?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: This should not be accepted.',
+      '      answered_by: ai_skip',
+      '      answered_at: 2026-03-23T09:12:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: TEST.externalId,
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })).toThrowError(
+      /Resolved interview must preserve canonical question ids \(missing canonical ids: Q02; unexpected ids: Q99\)/,
+    )
+  })
+
+  it('keeps omitted skipped canonical questions invalid', () => {
+    const canonicalInterviewContent = skippedInterviewYaml
+
+    expect(() => validateResolvedInterview([
+      'schema_version: 1',
+      `ticket_id: ${TEST.externalId}`,
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-23T09:10:00.000Z',
+      'questions:',
+      '  - id: Q02',
+      '    phase: Structure',
+      '    prompt: Which downstream phases are out of scope for this pass?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: PRD approval and coverage stay out of scope.',
+      '      answered_by: user',
+      '      answered_at: 2026-03-23T09:04:00.000Z',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'), {
+      ticketId: TEST.externalId,
+      canonicalInterviewContent,
+      memberId: 'openai/gpt-5',
+    })).toThrowError(
+      /Resolved interview must preserve all 2 canonical questions \(missing canonical ids: Q01\)/,
+    )
+  })
+
   it('restores canonical metadata, question order, and answered user questions instead of failing', () => {
     const canonicalInterviewContent = skippedInterviewYaml
 
