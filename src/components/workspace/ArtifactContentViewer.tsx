@@ -232,15 +232,19 @@ export function WithRawTab({
   )
 }
 
-function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent, notice, diffLabel = 'Diff' }: {
+function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent, notice, diffLabel = 'Diff', defaultTab, showDiffTab = true }: {
   content: string
   hasChanges: boolean
   sectionsContent: React.ReactNode
   diffContent?: React.ReactNode
   notice?: React.ReactNode
   diffLabel?: string
+  defaultTab?: 'sections' | 'diff' | 'raw'
+  showDiffTab?: boolean
 }) {
-  const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(hasChanges ? 'diff' : 'sections')
+  const hasDiffTab = showDiffTab && hasChanges && Boolean(diffContent)
+  const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(defaultTab ?? (hasDiffTab ? 'diff' : 'sections'))
+  const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'sections')
   const tokenCount = useMemo(() => encode(content).length, [content])
   const lineCount = content.split('\n').length
   const charCount = content.length
@@ -251,16 +255,16 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
         <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ml-auto">
           <button
             onClick={() => setActiveTab('sections')}
-            className={activeTab === 'sections'
+            className={currentTab === 'sections'
               ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
               : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
           >
             Sections
           </button>
-          {hasChanges && (
+          {hasDiffTab && (
             <button
               onClick={() => setActiveTab('diff')}
-            className={activeTab === 'diff'
+            className={currentTab === 'diff'
               ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
               : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
             >
@@ -269,17 +273,17 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
           )}
           <button
             onClick={() => setActiveTab('raw')}
-            className={activeTab === 'raw'
+            className={currentTab === 'raw'
               ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
               : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
           >
             Raw
           </button>
-          {activeTab === 'raw' && <CopyButton content={content} />}
+          {currentTab === 'raw' && <CopyButton content={content} />}
         </div>
       </div>
 
-      {activeTab === 'raw' && (
+      {currentTab === 'raw' && (
         <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
           <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
           <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
@@ -287,17 +291,17 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
         </div>
       )}
 
-      {activeTab === 'sections' ? (
+      {currentTab === 'sections' ? (
         <>
-          {notice}
+          {hasDiffTab ? notice : null}
           {sectionsContent}
         </>
-      ) : activeTab === 'diff' && diffContent ? (
+      ) : currentTab === 'diff' && diffContent ? (
         <>
-          {notice}
+          {hasDiffTab ? notice : null}
           {diffContent}
         </>
-      ) : activeTab === 'raw' ? (
+      ) : currentTab === 'raw' ? (
         <div className="min-w-0 w-full overflow-hidden">
           <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
             {content}
@@ -1240,6 +1244,7 @@ function FinalPrdDraftView({
   header,
   isBeads,
   defaultTab = 'final',
+  showDiffTab,
   finalLabel,
   phase,
 }: {
@@ -1247,6 +1252,7 @@ function FinalPrdDraftView({
   header?: React.ReactNode
   isBeads?: boolean
   defaultTab?: 'final' | 'diff' | 'raw'
+  showDiffTab?: boolean
   finalLabel?: string
   phase?: string
 }) {
@@ -1261,9 +1267,11 @@ function FinalPrdDraftView({
   const domain = isBeads ? 'beads' : 'prd'
   const diffEntries = buildRefinementDiffEntries(content, domain)
   const diffLabel = parsed?.coverageDiffLabel ?? 'Diff'
-  const hasDiffTab = diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent) || Boolean(parsed?.coverageBaselineContent)
+  const hideDiffInApproval = phase === 'WAITING_PRD_APPROVAL' || phase === 'WAITING_BEADS_APPROVAL'
+  const shouldShowDiffTab = showDiffTab ?? !hideDiffInApproval
+  const hasDiffTab = shouldShowDiffTab && (diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent) || Boolean(parsed?.coverageBaselineContent))
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
-  const notice = <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />
+  const notice = hasDiffTab ? <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" /> : null
 
   const tabButtonClass = (tab: string) =>
     currentTab === tab
@@ -1545,7 +1553,7 @@ function LegacyCoverageReportView({
         (() => {
           const candidateVersion = revisionPayload?.candidateVersion
           const finalLabel = candidateVersion ? `PRD Candidate v${candidateVersion}` : 'PRD Candidate'
-          return <FinalPrdDraftView content={revisionContent} defaultTab="diff" finalLabel={finalLabel} phase={phase} />
+          return <FinalPrdDraftView content={revisionContent} defaultTab="diff" showDiffTab finalLabel={finalLabel} phase={phase} />
         })()
       )}
       {resolvedTab === 'notes' && revisionContent && (
@@ -3165,11 +3173,17 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
     const diffEntries = buildRefinementDiffEntries(content, 'beads')
     const parsedRefinement = parseRefinementArtifact(content)
     const hasChanges = diffEntries.length > 0 || Boolean(parsedRefinement?.winnerDraftContent) || Boolean(parsedRefinement?.coverageBaselineContent)
+    const defaultBeadsTab = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
+      ? 'sections'
+      : undefined
+    const showBeadsDiffTab = phase !== 'WAITING_BEADS_APPROVAL'
     return (
       <RefinedArtifactTabs
         content={content}
         hasChanges={hasChanges}
         diffLabel={parsedRefinement?.coverageDiffLabel ?? 'Diff'}
+        defaultTab={defaultBeadsTab}
+        showDiffTab={showBeadsDiffTab}
         notice={<ArtifactProcessingNotice structuredOutput={parsedRefinement?.structuredOutput} kind="diff" />}
         sectionsContent={(
           <div className="space-y-6">

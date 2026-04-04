@@ -1260,7 +1260,7 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v2/i }))
     expect(screen.getByText('Coverage revised candidate')).toBeInTheDocument()
     expect(screen.queryByText('Audit input candidate')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
     expect(screen.queryByText('Resolution Notes')).not.toBeInTheDocument()
   })
 
@@ -1315,10 +1315,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getAllByText(leafTextMatcher('Inspect refined PRD sections')).length).toBeGreaterThan(0)
   })
 
-  it.each([
-    { phase: 'VERIFYING_PRD_COVERAGE' as const, buttonName: /PRD Candidate v2/i },
-    { phase: 'WAITING_PRD_APPROVAL' as const, buttonName: /PRD Candidate v2/i },
-  ])('hides PRD attribution UI in $phase while keeping system badges', ({ phase, buttonName }) => {
+  it('hides PRD attribution UI in coverage while keeping system badges', () => {
     const coverageRevisionArtifact = makeArtifact({
       phase: 'VERIFYING_PRD_COVERAGE',
       artifactType: 'prd_coverage_revision',
@@ -1435,13 +1432,13 @@ describe('PhaseArtifactsPanel', () => {
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase={phase}
+        phase="VERIFYING_PRD_COVERAGE"
         isCompleted={false}
         preloadedArtifacts={[coverageRevisionArtifact]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: buttonName }))
+    fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v2/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
 
     expectCoverageAttributionUiHidden()
@@ -1659,10 +1656,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(getByTextContent('Replacement target question?')).toBeInTheDocument()
   })
 
-  it.each([
-    { phase: 'VERIFYING_BEADS_COVERAGE' as const },
-    { phase: 'WAITING_BEADS_APPROVAL' as const },
-  ])('hides Beads attribution UI in $phase', ({ phase }) => {
+  it('hides Beads attribution UI in coverage', () => {
     const refinedArtifact = makeArtifact({
       phase: 'VERIFYING_BEADS_COVERAGE',
       artifactType: 'beads_refined',
@@ -1705,7 +1699,7 @@ describe('PhaseArtifactsPanel', () => {
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase={phase}
+        phase="VERIFYING_BEADS_COVERAGE"
         isCompleted={false}
         preloadedArtifacts={[refinedArtifact]}
       />,
@@ -1772,6 +1766,114 @@ describe('PhaseArtifactsPanel', () => {
 
   it.each([
     {
+      phase: 'VERIFYING_BEADS_COVERAGE' as const,
+      version: 2,
+      priorTitle: 'Audit input implementation plan',
+      revisedTitle: 'Coverage revised implementation plan',
+    },
+    {
+      phase: 'WAITING_BEADS_APPROVAL' as const,
+      version: 3,
+      priorTitle: 'Reviewed implementation plan',
+      revisedTitle: 'Approved implementation plan',
+    },
+  ])('defaults revised beads candidates to sections in $phase', ({ phase, version, priorTitle, revisedTitle }) => {
+    const refinedArtifact = makeArtifact({
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_refined',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: priorTitle },
+        ]),
+        candidateVersion: version - 1,
+      }),
+    })
+
+    const coverageInputArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage_input',
+      content: JSON.stringify({
+        beads: buildBeadsDocumentContent([
+          { id: 'bead-1', title: priorTitle },
+        ]),
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: priorTitle },
+        ]),
+        candidateVersion: version - 1,
+      }),
+    })
+
+    const coverageRevisionArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage_revision',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        candidateVersion: version,
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: revisedTitle },
+        ]),
+      }),
+    })
+
+    const coverageRevisionCompanionArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'ui_artifact_companion:beads_coverage_revision',
+      content: JSON.stringify({
+        baseArtifactType: 'beads_coverage_revision',
+        generatedAt: '2026-04-04T10:18:32.000Z',
+        payload: {
+          winnerId: 'openai/gpt-5.2',
+          candidateVersion: version,
+          winnerDraftContent: buildBeadsDocumentContent([
+            { id: 'bead-1', title: priorTitle },
+          ]),
+          refinedContent: buildBeadsDocumentContent([
+            { id: 'bead-1', title: revisedTitle },
+          ]),
+          changes: [
+            {
+              type: 'modified',
+              itemType: 'bead',
+              before: { id: 'bead-1', label: priorTitle },
+              after: { id: 'bead-1', label: revisedTitle },
+              inspiration: null,
+              attributionStatus: 'model_unattributed',
+            },
+          ],
+        },
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase={phase}
+        isCompleted={false}
+        preloadedArtifacts={[
+          refinedArtifact,
+          coverageInputArtifact,
+          coverageRevisionArtifact,
+          coverageRevisionCompanionArtifact,
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`Implementation Plan v${version}`, 'i') }))
+
+    expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
+    expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
+    expect(screen.getByText(priorTitle)).toBeInTheDocument()
+    expect(screen.getByText(revisedTitle)).toBeInTheDocument()
+    if (phase === 'VERIFYING_BEADS_COVERAGE') {
+      expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()
+      expect(screen.queryByText('Modified')).not.toBeInTheDocument()
+    } else {
+      expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
+    }
+  })
+
+  it.each([
+    {
       scenario: 'shows cleanup notice for no-op refinement warnings',
       repairWarnings: [
         'Dropped no-op PRD refinement modified change at index 0 because the winning and final records are identical.',
@@ -1825,7 +1927,7 @@ describe('PhaseArtifactsPanel', () => {
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase="WAITING_PRD_APPROVAL"
+        phase="REFINING_PRD"
         isCompleted={false}
         preloadedArtifacts={[refinedArtifact]}
       />,
@@ -1872,7 +1974,7 @@ describe('PhaseArtifactsPanel', () => {
 
     renderWithProviders(
       <PhaseArtifactsPanel
-        phase="WAITING_PRD_APPROVAL"
+        phase="REFINING_PRD"
         isCompleted={false}
         preloadedArtifacts={[refinedArtifact]}
       />,

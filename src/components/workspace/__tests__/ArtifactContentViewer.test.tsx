@@ -456,6 +456,11 @@ describe('ArtifactContentViewer', () => {
         phase="WAITING_PRD_APPROVAL"
         content={JSON.stringify({
           winnerId: 'openai/gpt-5.2',
+          winnerDraftContent: buildPrdDocumentContent({
+            epicTitle: 'Original PRD candidate',
+            storyTitle: 'Inspect original stories',
+            acceptanceCriterion: 'Keep the older candidate available for coverage diffing.',
+          }),
           refinedContent: buildPrdDocumentContent({
             epicTitle: 'Refine the winning PRD',
             storyTitle: 'Inspect refined stories',
@@ -467,6 +472,7 @@ describe('ArtifactContentViewer', () => {
 
     expect(screen.getByText('Epics (1)')).toBeInTheDocument()
     expect(screen.getByText('Refine the winning PRD')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
 
     // Expand the epic section to reveal user stories
     fireEvent.click(screen.getByText('Refine the winning PRD').closest('button')!)
@@ -862,7 +868,7 @@ describe('ArtifactContentViewer', () => {
     render(
       <ArtifactContent
         artifactId="refined-prd"
-        phase="WAITING_PRD_APPROVAL"
+        phase="REFINING_PRD"
         content={JSON.stringify({
           winnerId: 'openai/gpt-5.2',
           winnerDraftContent: buildPrdDocumentContent({
