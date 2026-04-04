@@ -75,7 +75,7 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+        <DialogContent closeButtonVariant="dashboard" className="max-w-lg max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{phaseLabel}</DialogTitle>
             <DialogDescription>{phaseMeta.description}</DialogDescription>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, Fragment, type ReactNode } from 'react'
 import { ChevronRight, ChevronLeft, Copy, Check } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -6,10 +6,10 @@ import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
-import { ModelBadge } from '@/components/shared/ModelBadge'
 import { LoadingText } from '@/components/ui/LoadingText'
+import { ModelBadge } from '@/components/shared/ModelBadge'
 import type { Ticket } from '@/hooks/useTickets'
-import { filterEntries, PHASE_LOG_DESCRIPTIONS, MULTI_MODEL_PHASES } from './logFormat'
+import { filterEntries, MULTI_MODEL_PHASES } from './logFormat'
 import { LogEntryRow } from './LogLine'
 
 interface PhaseLogPanelProps {
@@ -17,6 +17,8 @@ interface PhaseLogPanelProps {
   logs?: LogEntry[]
   ticket?: Ticket
   hideHeader?: boolean
+  toolbarPrefix?: ReactNode
+  onNaturalHeightChange?: (height: number) => void
 }
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
@@ -32,13 +34,21 @@ const TAB_TOOLTIPS: Record<string, string> = {
   DEBUG: 'Verbose internal debugging events and data.',
 }
 
-export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = false }: PhaseLogPanelProps) {
+export function PhaseLogPanel({
+  phase,
+  logs: propLogs,
+  ticket,
+  hideHeader = false,
+  toolbarPrefix,
+  onNaturalHeightChange,
+}: PhaseLogPanelProps) {
   const logCtx = useLogs()
   const isLoadingLogs = logCtx?.isLoadingLogs ?? false
   const phaseLogs: LogEntry[] = useMemo(
     () => propLogs ?? logCtx?.getLogsForPhase(phase) ?? [],
     [propLogs, logCtx, phase],
   )
+  const hasToolbarPrefix = toolbarPrefix != null
   const [activeTab, setActiveTab] = useState<string>('ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)
@@ -50,6 +60,8 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
   // ── Smart auto-scroll ──────────────────────────────────────────────
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const autoScrollEnabledRef = useRef(true)
   const previousViewRef = useRef<string | null>(null)
   const previousVisibleTailRef = useRef<string | null>(null)
@@ -112,6 +124,32 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
     return () => observer.disconnect()
   }, [scheduleScrollToBottom])
 
+  const reportNaturalHeight = useCallback(() => {
+    if (!onNaturalHeightChange) return
+
+    const contentHeight = contentRef.current?.scrollHeight ?? 0
+    const toolbarHeight = toolbarRef.current?.offsetHeight ?? 0
+    const headerHeight = !hideHeader && !hasToolbarPrefix ? (headerRef.current?.offsetHeight ?? 0) : 0
+
+    onNaturalHeightChange(contentHeight + toolbarHeight + headerHeight)
+  }, [hasToolbarPrefix, hideHeader, onNaturalHeightChange])
+
+  useEffect(() => {
+    if (!onNaturalHeightChange) return
+
+    reportNaturalHeight()
+
+    const observer = new ResizeObserver(() => {
+      reportNaturalHeight()
+    })
+
+    if (headerRef.current) observer.observe(headerRef.current)
+    if (toolbarRef.current) observer.observe(toolbarRef.current)
+    if (contentRef.current) observer.observe(contentRef.current)
+
+    return () => observer.disconnect()
+  }, [onNaturalHeightChange, reportNaturalHeight])
+
   const configuredModelIds = useMemo(() => {
     return lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0)
   }, [lockedCouncilMembers])
@@ -158,7 +196,6 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
   const filteredLogs = filterEntries(phaseLogs, effectiveTab)
   const showModelNameInLogTags = effectiveTab === 'ALL' || effectiveTab === 'AI'
   const hasLogs = filteredLogs.length > 0
-
   const [copied, setCopied] = useState(false)
   const handleCopyLogs = useCallback(() => {
     if (!filteredLogs.length) return
@@ -184,8 +221,6 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
       lastEntry.op,
     ].join('|')
   }, [filteredLogs])
-  const description = PHASE_LOG_DESCRIPTIONS[phase] ?? <LoadingText text="Processing" />
-
   // Pin the latest visible logs on mount/view changes, then keep following
   // the tail until the user scrolls away from the bottom.
   useEffect(() => {
@@ -209,15 +244,23 @@ export function PhaseLogPanel({ phase, logs: propLogs, ticket, hideHeader = fals
 
   return (
     <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-      {!hideHeader && (
-        <div className="px-1 py-1.5 flex items-center gap-2">
+      {!hideHeader && !hasToolbarPrefix && (
+        <div ref={headerRef} className="px-1 py-1.5 flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Log — {getStatusUserLabel(phase)}
           </span>
         </div>
       )}
-      <div className="text-xs text-muted-foreground px-1 mb-1">{description}</div>
-      <div className="flex gap-1 px-1 py-1 items-center flex-wrap">
+      <div ref={toolbarRef} className={cn(
+        'flex px-1 py-1 items-center flex-wrap',
+        hasToolbarPrefix ? 'gap-2' : 'gap-1',
+      )}>
+        {toolbarPrefix ? (
+          <>
+            {toolbarPrefix}
+            <span className="text-xs text-muted-foreground shrink-0">—</span>
+          </>
+        ) : null}
         {FIXED_TABS.map(tab => {
           const tooltipContent = TAB_TOOLTIPS[tab]
 

@@ -1,12 +1,11 @@
 import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle2, Eye, CalendarDays, Loader2 } from 'lucide-react'
+import { CalendarDays, Loader2 } from 'lucide-react'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 
 import type { Ticket } from '@/hooks/useTickets'
-import { getStatusUserLabel } from '@/lib/workflowMeta'
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'Very High', 2: 'High', 3: 'Normal', 4: 'Low', 5: 'Very Low' }
 
@@ -16,11 +15,6 @@ interface PhaseReviewViewProps {
 }
 
 export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
-  const label = getStatusUserLabel(phase, {
-    currentBead: ticket.currentBead,
-    totalBeads: ticket.totalBeads,
-    errorMessage: ticket.errorMessage,
-  })
   const councilMemberNames = useMemo(
     () => ticket.lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0),
     [ticket.lockedCouncilMembers],
@@ -43,17 +37,6 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="p-4 space-y-3 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Eye className="h-4 w-4 text-muted-foreground" />
-            {label}
-          </div>
-          <Badge variant="secondary" className="text-xs gap-1">
-            <CheckCircle2 className="h-3 w-3 text-green-600" />
-            Completed
-          </Badge>
-        </div>
-
         {!isDraft && (
           <PhaseArtifactsPanel phase={phase} isCompleted={true} ticketId={ticket.id} councilMemberCount={councilMemberCount} councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined} preloadedArtifacts={preloadedArtifacts} />
         )}

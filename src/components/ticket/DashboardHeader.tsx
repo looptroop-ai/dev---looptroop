@@ -205,7 +205,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
       </div>
 
       <Dialog open={showDetails} onOpenChange={(open) => { setShowDetails(open); if (open) detailsScrollInit() }}>
-        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+        <DialogContent closeButtonVariant="dashboard" className="max-w-lg max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-sm">Ticket Details</DialogTitle>
           </DialogHeader>

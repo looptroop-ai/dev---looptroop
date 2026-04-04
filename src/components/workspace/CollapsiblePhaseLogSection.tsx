@@ -1,7 +1,6 @@
-import { useId, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { PhaseLogPanel } from './PhaseLogPanel'
 import type { LogEntry } from '@/context/LogContext'
@@ -30,44 +29,121 @@ export function CollapsiblePhaseLogSection({
 }: CollapsiblePhaseLogSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [height, setHeight] = useState(defaultHeight)
+  const [fillNaturalHeight, setFillNaturalHeight] = useState<number | null>(null)
+  const [fillAvailableHeight, setFillAvailableHeight] = useState<number | null>(null)
   const panelId = useId()
-  const label = getStatusUserLabel(phase, {
-    currentBead: ticket?.currentBead,
-    totalBeads: ticket?.totalBeads,
-    errorMessage: ticket?.errorMessage,
-  })
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const rootClassName = cn(
     'min-w-0 flex flex-col',
-    variant === 'fill'
-      ? (expanded ? 'flex-1 min-h-0' : 'mt-auto shrink-0')
-      : 'shrink-0',
+    variant === 'fill' ? 'mt-auto shrink-0' : 'shrink-0',
     className,
   )
 
-  const rootStyle = variant === 'bottom' && expanded
-    ? { height, minHeight: 0 }
-    : undefined
+  const handleToggleExpanded = useCallback(() => {
+    setExpanded((value) => {
+      const nextValue = !value
+      if (variant === 'fill') {
+        if (nextValue) {
+          setFillNaturalHeight(null)
+        } else {
+          setFillAvailableHeight(null)
+        }
+      }
+      return nextValue
+    })
+  }, [variant])
+
+  const measureFillAvailableHeight = useCallback(() => {
+    if (variant !== 'fill' || !expanded) {
+      setFillAvailableHeight(null)
+      return
+    }
+
+    const rootEl = rootRef.current
+    const parentEl = rootEl?.parentElement
+    if (!rootEl || !parentEl) {
+      setFillAvailableHeight(null)
+      return
+    }
+
+    const parentRect = parentEl.getBoundingClientRect()
+    const rootRect = rootEl.getBoundingClientRect()
+    const nextHeight = Math.floor(parentRect.bottom - rootRect.top)
+
+    setFillAvailableHeight(nextHeight > 0 ? nextHeight : null)
+  }, [expanded, variant])
+
+  useEffect(() => {
+    if (variant !== 'fill' || !expanded) return
+
+    const rootEl = rootRef.current
+    const parentEl = rootEl?.parentElement
+    if (!rootEl || !parentEl) return
+    const frame = requestAnimationFrame(() => {
+      measureFillAvailableHeight()
+    })
+
+    const observer = new ResizeObserver(() => {
+      measureFillAvailableHeight()
+    })
+
+    observer.observe(parentEl)
+    Array.from(parentEl.children).forEach((child) => {
+      if (child !== rootEl) observer.observe(child)
+    })
+
+    window.addEventListener('resize', measureFillAvailableHeight)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('resize', measureFillAvailableHeight)
+    }
+  }, [expanded, measureFillAvailableHeight, variant])
+
+  const rootStyle = (() => {
+    if (!expanded) return undefined
+    if (variant === 'bottom') return { height, minHeight: 0, maxHeight: '100%' }
+    if (variant !== 'fill' || fillAvailableHeight === null) return undefined
+
+    return {
+      height: fillNaturalHeight === null ? fillAvailableHeight : Math.min(fillNaturalHeight, fillAvailableHeight),
+      minHeight: 0,
+      maxHeight: '100%',
+    }
+  })()
+
+  const logToggleButton = (
+    <button
+      type="button"
+      onClick={handleToggleExpanded}
+      aria-expanded={expanded}
+      aria-controls={panelId}
+      className="flex items-center gap-1 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground shrink-0"
+    >
+      <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-90')} />
+      <span>Log</span>
+    </button>
+  )
 
   return (
     <>
       {variant === 'bottom' && expanded && resizeContainerRef ? (
         <VerticalResizeHandle onResize={setHeight} containerRef={resizeContainerRef} />
       ) : null}
-      <div className={rootClassName} style={rootStyle}>
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          aria-expanded={expanded}
-          aria-controls={panelId}
-          className="flex items-center gap-1 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
-        >
-          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-90')} />
-          <span>Log — {label}</span>
-        </button>
+      <div ref={rootRef} className={rootClassName} style={rootStyle}>
+        {!expanded ? logToggleButton : null}
         {expanded ? (
           <div id={panelId} className="flex-1 min-h-0 flex flex-col">
-            <PhaseLogPanel phase={phase} logs={logs} ticket={ticket} hideHeader />
+            <PhaseLogPanel
+              phase={phase}
+              logs={logs}
+              ticket={ticket}
+              hideHeader
+              toolbarPrefix={logToggleButton}
+              onNaturalHeightChange={variant === 'fill' ? setFillNaturalHeight : undefined}
+            />
           </div>
         ) : null}
       </div>

@@ -122,7 +122,7 @@ describe('PhaseReviewView', () => {
 
     expect(screen.getByText('Description')).toBeInTheDocument()
     expect(screen.getByText('Add a planning gate before the interview starts.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Log — Backlog$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Log$/i })).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByText(/Start requested\./i)).toBeInTheDocument()
@@ -149,7 +149,7 @@ describe('PhaseReviewView', () => {
       </LogProvider>,
     )
 
-    expect(screen.getByRole('button', { name: /^Log — Backlog$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Log$/i })).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByText(/No log entries yet\. Logs will stream here during execution\./i)).toBeInTheDocument()
