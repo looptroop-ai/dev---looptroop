@@ -45,6 +45,7 @@ export {
   normalizeBeadRefinementOutput,
   normalizeBeadsJsonlOutput,
   normalizeRelevantFilesOutput,
+  getBeadDraftMetrics,
 } from './beadsOutput'
 export type { BeadDraftMetrics, ValidatedBeadRefinementResult } from './beadsOutput'
 

@@ -75,6 +75,8 @@ export function verifyBeadsCoverage(
     if (!bead.description) gaps.push(`Bead ${bead.id} missing description`)
     if (bead.acceptanceCriteria.length === 0) gaps.push(`Bead ${bead.id} missing acceptance criteria`)
     if (bead.tests.length === 0) gaps.push(`Bead ${bead.id} missing tests`)
+    if (bead.testCommands.length === 0) gaps.push(`Bead ${bead.id} missing test commands`)
+    if (bead.prdRefs.length === 0) gaps.push(`Bead ${bead.id} missing prdRefs mapping`)
   }
 
   return { passed: gaps.length === 0, gaps }

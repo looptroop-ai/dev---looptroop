@@ -157,7 +157,7 @@ describe('DraftView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /start ticket/i }))
 
-    expect(screen.getByRole('button', { name: /^Log — /i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Log$/i })).toBeInTheDocument()
     expect(screen.getByText(/No log entries yet\. Logs will stream here during execution\./i)).toBeInTheDocument()
 
     startResponse.resolve()
@@ -165,7 +165,7 @@ describe('DraftView', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Council member models are not configured in OpenCode')
     expect(alert).toHaveTextContent('Update Configuration to choose currently available models, then try again.')
-    expect(screen.getByRole('button', { name: /^Log — /i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Log$/i })).toBeInTheDocument()
   })
 
   it('renders streamed draft logs through LogProvider once the start viewer is open', async () => {

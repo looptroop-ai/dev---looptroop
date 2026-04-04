@@ -21,7 +21,6 @@ import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
 import type {
   ArtifactStructuredOutputData,
   CoverageArtifactData,
-  CoverageAttemptData,
   CoverageGapResolutionData,
   CoverageTransitionData,
   InterviewArtifactData,
@@ -1426,9 +1425,9 @@ function CoverageTransitionDetailsView({
   const tabs: Array<{ key: 'gaps' | 'notes' | 'diff'; label: string }> = [
     { key: 'gaps', label: 'Gaps Found' },
     ...(transition.gapResolutions.length > 0 || transition.resolutionNotes.length > 0
-      ? [{ key: 'notes', label: 'Resolution Notes' }]
+      ? [{ key: 'notes' as const, label: 'Resolution Notes' }]
       : []),
-    { key: 'diff', label: 'Diff' },
+    { key: 'diff' as const, label: 'Diff' },
   ]
   const resolvedTab = tabs.find((tab) => tab.key === activeTab)?.key ?? tabs[0]!.key
 
@@ -1573,11 +1572,11 @@ function VersionedCoverageReportView({
   phase?: string
 }) {
   const transitions = coverageResult.transitions ?? []
+  const [activeTransitionKey, setActiveTransitionKey] = useState(`transition:0`)
   if (transitions.length === 0) {
     return <CoverageResultView content={content} phase={phase} />
   }
 
-  const [activeTransitionKey, setActiveTransitionKey] = useState(`transition:0`)
   const primaryTabs = transitions.map((transition, index) => ({
     key: `transition:${index}`,
     label: `v${transition.fromVersion} > v${transition.toVersion}`,

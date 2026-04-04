@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { findLatestArtifactByType, findLatestCompanionArtifact } from './artifactCompanionUtils'
 import { CollapsibleSection } from './ArtifactContentViewer'

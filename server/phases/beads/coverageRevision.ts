@@ -1,6 +1,7 @@
 import { buildBeadsUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import type { RefinementChange } from '@shared/refinementChanges'
 import type { PromptPart } from '../../opencode/types'
-import { normalizeBeadSubsetYamlOutput, type StructuredOutputMetadata } from '../../structuredOutput'
+import { normalizeBeadSubsetYamlOutput, normalizeBeadRefinementOutput, getBeadDraftMetrics, type BeadDraftMetrics, type StructuredOutputMetadata } from '../../structuredOutput'
 import {
   buildYamlDocument,
   collectStructuredCandidates,
@@ -30,7 +31,9 @@ export interface BeadsCoverageGapResolution {
 export interface ValidatedBeadsCoverageRevision {
   refinedContent: string
   priorCandidateContent: string
+  changes: RefinementChange[]
   gapResolutions: BeadsCoverageGapResolution[]
+  draftMetrics: BeadDraftMetrics
   repairApplied: boolean
   repairWarnings: string[]
 }
@@ -39,7 +42,9 @@ export interface BeadsCoverageRevisionArtifact {
   winnerId: string
   refinedContent: string
   winnerDraftContent: string
+  changes: RefinementChange[]
   gapResolutions: BeadsCoverageGapResolution[]
+  draftMetrics: BeadDraftMetrics
   candidateVersion: number
   structuredOutput?: StructuredOutputMetadata
   uiRefinementDiff: ReturnType<typeof buildBeadsUiRefinementDiffArtifact>
@@ -215,25 +220,28 @@ export function validateBeadsCoverageRevisionOutput(
     throw new Error('Beads coverage revision output must include a top-level beads list')
   }
 
-  const normalizedRevision = normalizeBeadSubsetYamlOutput(buildYamlDocument({ beads: rawBeads }))
-  if (!normalizedRevision.ok) {
-    throw new Error(normalizedRevision.error)
+  const beadsYaml = buildYamlDocument({ beads: rawBeads })
+  const refinementResult = normalizeBeadRefinementOutput(beadsYaml, options.currentCandidateContent)
+  if (!refinementResult.ok) {
+    throw new Error(refinementResult.error)
   }
 
-  const refinedContent = buildBlueprintYaml(normalizedRevision.value)
+  const refinedContent = buildBlueprintYaml(refinementResult.value.beads)
   const parsedGapResolutions = parseGapResolutions(
     parsed,
     options.coverageGaps,
     currentCandidateBeads,
-    normalizedRevision.value,
+    refinementResult.value.beads,
   )
 
   return {
     refinedContent,
     priorCandidateContent: options.currentCandidateContent,
+    changes: refinementResult.value.changes,
     gapResolutions: parsedGapResolutions.gapResolutions,
-    repairApplied: normalizedRevision.repairApplied || parsedGapResolutions.repairWarnings.length > 0,
-    repairWarnings: [...normalizedRevision.repairWarnings, ...parsedGapResolutions.repairWarnings],
+    draftMetrics: getBeadDraftMetrics(refinementResult.value.beads),
+    repairApplied: refinementResult.repairApplied || parsedGapResolutions.repairWarnings.length > 0,
+    repairWarnings: [...refinementResult.repairWarnings, ...parsedGapResolutions.repairWarnings],
   }
 }
 
@@ -260,7 +268,9 @@ export function buildBeadsCoverageRevisionArtifact(
     winnerId: normalizedWinnerId,
     refinedContent: revision.refinedContent,
     winnerDraftContent: revision.priorCandidateContent,
+    changes: revision.changes,
     gapResolutions: revision.gapResolutions,
+    draftMetrics: revision.draftMetrics,
     candidateVersion,
     ...(structuredOutput ? { structuredOutput } : {}),
     uiRefinementDiff,
@@ -274,6 +284,7 @@ function stripLegacyTopLevelKeysFromYaml(rawResponse: string): string {
       const parsed = parseCoverageRevisionRecord(candidate)
       delete parsed.gap_resolutions
       delete parsed.gapResolutions
+      delete parsed.changes
       return JSON.stringify(parsed, null, 2)
     } catch {
       // fall through to regex cleanup
@@ -282,6 +293,7 @@ function stripLegacyTopLevelKeysFromYaml(rawResponse: string): string {
 
   return rawResponse.trim()
     .replace(/\ngap_resolutions:\n(?: {2,}.*\n?)*/u, '')
+    .replace(/\nchanges:\n(?: {2,}.*\n?)*/u, '')
     .trim()
 }
 
@@ -305,8 +317,10 @@ export function buildBeadsCoverageRevisionRetryPrompt(
         'Return only one corrected YAML artifact.',
         'Requirements:',
         '- Use a top-level `beads` list of semantic Part 1 bead records only.',
+        '- Include a top-level `changes` list that fully accounts for the diff between the current Beads candidate and the revised Beads candidate. Each entry: {type, id, title, summary}.',
         '- Include a top-level `gap_resolutions` list with exactly one entry per provided coverage gap.',
         '- Preserve existing bead order and IDs unless a provided gap requires a concrete change.',
+        '- Every bead must include non-empty `acceptanceCriteria`, `tests`, and `testCommands`.',
         '- Use `affected_items` only for bead references. Leave it empty when no bead mapping applies.',
         '',
         'Previous invalid response:',

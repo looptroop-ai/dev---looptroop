@@ -25,7 +25,17 @@ import { buildStructuredOutputFailure } from './failure'
 export interface BeadDraftMetrics {
   beadCount: number
   totalTestCount: number
+  totalTestCommandCount: number
   totalAcceptanceCriteriaCount: number
+}
+
+export function getBeadDraftMetrics(beads: BeadSubset[]): BeadDraftMetrics {
+  return {
+    beadCount: beads.length,
+    totalTestCount: beads.reduce((sum, b) => sum + b.tests.length, 0),
+    totalTestCommandCount: beads.reduce((sum, b) => sum + b.testCommands.length, 0),
+    totalAcceptanceCriteriaCount: beads.reduce((sum, b) => sum + b.acceptanceCriteria.length, 0),
+  }
 }
 
 function cleanString(value: string): string {
