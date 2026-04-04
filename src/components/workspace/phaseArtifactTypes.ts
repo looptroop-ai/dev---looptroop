@@ -384,6 +384,7 @@ function countBeadsInContent(content: string): number {
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray((parsed as { beads?: unknown[] }).beads)) {
     return (parsed as { beads: unknown[] }).beads.length
   }
+  if (parsed !== null) return 0
 
   const trimmed = content.trim()
   if (trimmed.startsWith('{')) {

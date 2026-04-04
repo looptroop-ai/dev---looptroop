@@ -1055,6 +1055,7 @@ describe('PhaseArtifactsPanel', () => {
 
     expect(screen.getByRole('button', { name: /PRD Candidate v1/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Coverage Report/i })).toBeInTheDocument()
+    expect(screen.queryByText('1 beads')).not.toBeInTheDocument()
     expect(screen.queryByText(/GPT-5\.2/i)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
