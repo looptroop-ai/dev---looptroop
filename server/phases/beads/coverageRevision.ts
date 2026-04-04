@@ -1,7 +1,8 @@
 import { buildBeadsUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
 import type { PromptPart } from '../../opencode/types'
-import { normalizeBeadsJsonlOutput, type StructuredOutputMetadata } from '../../structuredOutput'
+import { normalizeBeadSubsetYamlOutput, type StructuredOutputMetadata } from '../../structuredOutput'
 import {
+  buildYamlDocument,
   collectStructuredCandidates,
   getValueByAliases,
   isRecord,
@@ -9,7 +10,7 @@ import {
   parseYamlOrJsonCandidate,
   unwrapExplicitWrapperRecord,
 } from '../../structuredOutput/yamlUtils'
-import type { Bead } from './types'
+import type { BeadSubset } from './types'
 
 export type BeadsCoverageGapResolutionAction = 'updated_beads' | 'already_covered' | 'left_unresolved'
 
@@ -44,12 +45,12 @@ export interface BeadsCoverageRevisionArtifact {
   uiRefinementDiff: ReturnType<typeof buildBeadsUiRefinementDiffArtifact>
 }
 
-function buildJsonl(beads: Bead[]): string {
-  return beads.map((bead) => JSON.stringify(bead)).join('\n')
+function buildBlueprintYaml(beads: BeadSubset[]): string {
+  return buildYamlDocument({ beads })
 }
 
-function parseBeadsJsonl(content: string): Bead[] {
-  const normalized = normalizeBeadsJsonlOutput(content)
+function parseBeadSubsetYaml(content: string): BeadSubset[] {
+  const normalized = normalizeBeadSubsetYamlOutput(content)
   if (!normalized.ok) {
     throw new Error(normalized.error)
   }
@@ -78,47 +79,7 @@ function parseCoverageRevisionRecord(rawContent: string): Record<string, unknown
   throw new Error('Beads coverage revision output is not a valid YAML/JSON object')
 }
 
-function canonicalizeRevisedBeads(currentCandidateBeads: Bead[], revisedBeads: Bead[]): Bead[] {
-  const currentById = new Map(currentCandidateBeads.map((bead) => [bead.id, bead] as const))
-  const now = new Date().toISOString()
-  const hydrated = revisedBeads.map((bead, index) => {
-    const current = currentById.get(bead.id)
-    return {
-      ...bead,
-      priority: index + 1,
-      status: current?.status ?? 'pending',
-      externalRef: current?.externalRef ?? bead.externalRef,
-      notes: current?.notes ?? '',
-      iteration: current?.iteration ?? 1,
-      createdAt: current?.createdAt ?? now,
-      updatedAt: current?.updatedAt ?? (current ? current.updatedAt : now),
-      completedAt: current?.completedAt ?? '',
-      startedAt: current?.startedAt ?? '',
-      beadStartCommit: current?.beadStartCommit ?? null,
-      dependencies: {
-        blocked_by: [...bead.dependencies.blocked_by],
-        blocks: [],
-      },
-    } satisfies Bead
-  })
-
-  const blocksById = new Map(hydrated.map((bead) => [bead.id, [] as string[]] as const))
-  for (const bead of hydrated) {
-    for (const dependencyId of bead.dependencies.blocked_by) {
-      blocksById.set(dependencyId, [...(blocksById.get(dependencyId) ?? []), bead.id])
-    }
-  }
-
-  return hydrated.map((bead) => ({
-    ...bead,
-    dependencies: {
-      blocked_by: [...bead.dependencies.blocked_by],
-      blocks: [...(blocksById.get(bead.id) ?? [])],
-    },
-  }))
-}
-
-function buildBeadLookup(beads: Bead[]) {
+function buildBeadLookup(beads: BeadSubset[]) {
   return new Map(
     beads
       .filter((bead) => bead.id.trim() && bead.title.trim())
@@ -129,8 +90,8 @@ function buildBeadLookup(beads: Bead[]) {
 function parseGapResolutions(
   parsed: Record<string, unknown>,
   coverageGaps: string[],
-  currentCandidateBeads: Bead[],
-  revisedBeads: Bead[],
+  currentCandidateBeads: BeadSubset[],
+  revisedBeads: BeadSubset[],
 ): {
   gapResolutions: BeadsCoverageGapResolution[]
   repairWarnings: string[]
@@ -248,24 +209,23 @@ export function validateBeadsCoverageRevisionOutput(
   },
 ): ValidatedBeadsCoverageRevision {
   const parsed = parseCoverageRevisionRecord(rawContent)
-  const currentCandidateBeads = parseBeadsJsonl(options.currentCandidateContent)
+  const currentCandidateBeads = parseBeadSubsetYaml(options.currentCandidateContent)
   const rawBeads = getValueByAliases(parsed, ['beads'])
   if (!Array.isArray(rawBeads)) {
     throw new Error('Beads coverage revision output must include a top-level beads list')
   }
 
-  const normalizedRevision = normalizeBeadsJsonlOutput(rawBeads.map((bead) => JSON.stringify(bead)).join('\n'))
+  const normalizedRevision = normalizeBeadSubsetYamlOutput(buildYamlDocument({ beads: rawBeads }))
   if (!normalizedRevision.ok) {
     throw new Error(normalizedRevision.error)
   }
 
-  const canonicalBeads = canonicalizeRevisedBeads(currentCandidateBeads, normalizedRevision.value)
-  const refinedContent = buildJsonl(canonicalBeads)
+  const refinedContent = buildBlueprintYaml(normalizedRevision.value)
   const parsedGapResolutions = parseGapResolutions(
     parsed,
     options.coverageGaps,
     currentCandidateBeads,
-    canonicalBeads,
+    normalizedRevision.value,
   )
 
   return {
@@ -344,7 +304,7 @@ export function buildBeadsCoverageRevisionRetryPrompt(
         '',
         'Return only one corrected YAML artifact.',
         'Requirements:',
-        '- Use a top-level `beads` list of full execution-ready bead records.',
+        '- Use a top-level `beads` list of semantic Part 1 bead records only.',
         '- Include a top-level `gap_resolutions` list with exactly one entry per provided coverage gap.',
         '- Preserve existing bead order and IDs unless a provided gap requires a concrete change.',
         '- Use `affected_items` only for bead references. Leave it empty when no bead mapping applies.',

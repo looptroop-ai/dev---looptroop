@@ -218,7 +218,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'REFINING_BEADS',
     label: 'Finalizing Plan',
-    description: 'Part 1 keeps the winning draft as the backbone and selectively pulls in stronger tasks, tests, constraints, and edge cases from losing drafts. Part 2 turns that refined blueprint into execution-ready beads by filling the remaining system-owned fields, and the app records companion metadata.',
+    description: 'Winning draft is consolidated into the final semantic beads blueprint using the strongest ideas from the losing drafts.',
     kanbanPhase: 'in_progress',
     groupId: 'beads',
     uiView: 'council',
@@ -229,13 +229,13 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'VERIFYING_BEADS_COVERAGE',
     label: 'Coverage Check (Beads)',
-    description: 'Coverage check for beads vs PRD scope.',
+    description: 'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint, checks again, then expands the final version into execution-ready beads before approval.',
     kanbanPhase: 'in_progress',
     groupId: 'beads',
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['prd', 'beads', 'tests'],
+    contextSummary: ['prd', 'beads'],
   },
   {
     id: 'WAITING_BEADS_APPROVAL',

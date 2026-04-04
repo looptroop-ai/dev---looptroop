@@ -4,7 +4,7 @@ import type { LogEventType, LogSource } from '../../log/types'
 import { type TicketState } from '../../opencode/contextBuilder'
 import { analyzeAssistantMessages } from '../../opencode/assistantMessageAnalysis'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
-import { PROM5, PROM13, PROM24 } from '../../prompts/index'
+import { PROM5, PROM13, PROM23 } from '../../prompts/index'
 import type {
   DraftProgressEvent,
   DraftResult,
@@ -806,7 +806,7 @@ export function getCoverageContextPhase(phase: 'interview' | 'prd' | 'beads'): '
 }
 
 export function getCoveragePromptTemplate(phase: 'interview' | 'prd' | 'beads') {
-  return phase === 'interview' ? PROM5 : phase === 'prd' ? PROM13 : PROM24
+  return phase === 'interview' ? PROM5 : phase === 'prd' ? PROM13 : PROM23
 }
 
 export function describeCoverageTerminationReason(reason: string): string {

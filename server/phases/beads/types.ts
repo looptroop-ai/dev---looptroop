@@ -10,7 +10,7 @@ export interface BeadContextGuidance {
 
 export interface Bead {
   // Subset fields (draft phase — PROM20)
-  id: string                              // Field 1 (draft uses simple kebab-case; PROM23 assigns hierarchical ID)
+  id: string                              // Field 1 (draft uses simple kebab-case; PROM25 assigns hierarchical ID)
   title: string                           // Field 2
   prdRefs: string[]                       // Field 7 — PRD epic/story references
   description: string                     // Field 9
@@ -19,7 +19,7 @@ export interface Bead {
   tests: string[]                         // Field 14
   testCommands: string[]                  // Field 15
 
-  // Expanded fields (expansion phase — PROM23)
+  // Expanded fields (terminal expansion phase — PROM25)
   priority: number                        // Field 3 — sequential execution order
   status: 'pending' | 'in_progress' | 'done' | 'error'  // Field 4
   issueType: string                       // Field 5 — "task", "bug", "chore", etc.

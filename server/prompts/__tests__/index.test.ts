@@ -17,7 +17,7 @@ import {
   PROM22,
   PROM23,
   PROM24,
-  PROM24b,
+  PROM25,
   PROM51,
   PROM52,
   buildPromptFromTemplate,
@@ -46,7 +46,7 @@ describe.concurrent('structured prompt hardening', () => {
   })
 
   it('uses the shared coverage envelope for interview, PRD, and beads coverage prompts', () => {
-    for (const prompt of [PROM5, PROM13, PROM24]) {
+    for (const prompt of [PROM5, PROM13, PROM23]) {
       expect(prompt.outputFormat).toContain('status')
       expect(prompt.outputFormat).toContain('gaps')
       expect(prompt.outputFormat).toContain('follow_up_questions')
@@ -70,14 +70,14 @@ describe.concurrent('structured prompt hardening', () => {
       PROM20,
       PROM21,
       PROM22,
-      PROM24b,
+      PROM23,
       PROM24,
     ]) {
       expect(prompt.toolPolicy).toBe('disabled')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
 
-    for (const prompt of [PROM0, PROM23, PROM51, PROM52]) {
+    for (const prompt of [PROM0, PROM25, PROM51, PROM52]) {
       expect(prompt.toolPolicy).toBe('default')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
@@ -165,15 +165,15 @@ describe.concurrent('structured prompt hardening', () => {
   })
 
   it('keeps beads coverage explicit about quoted gap strings', () => {
-    const coveragePrompt = buildPromptFromTemplate(PROM24, [])
+    const coveragePrompt = buildPromptFromTemplate(PROM23, [])
     expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
     expect(coveragePrompt).toContain('backticks, or punctuation')
   })
 
-  it('keeps beads coverage resolution explicit about full-plan output and gap accounting', () => {
-    const coverageResolutionPrompt = buildPromptFromTemplate(PROM24b, [])
+  it('keeps beads coverage resolution explicit about semantic-plan output and gap accounting', () => {
+    const coverageResolutionPrompt = buildPromptFromTemplate(PROM24, [])
     expect(coverageResolutionPrompt).toContain('current implementation plan as the baseline')
-    expect(coverageResolutionPrompt).toContain('Return full execution-ready bead records')
+    expect(coverageResolutionPrompt).toContain('Return semantic Part 1 bead records only')
     expect(coverageResolutionPrompt).toContain('top-level `gap_resolutions` list with exactly one entry per provided gap')
     expect(coverageResolutionPrompt).toContain('`action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`')
     expect(coverageResolutionPrompt).toContain('top-level `beads` list')
@@ -212,8 +212,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(votePrompt).toContain('Do not output prose, explanations, markdown fences')
   })
 
-  it('keeps PROM23 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {
-    const expandPrompt = buildPromptFromTemplate(PROM23, [])
+  it('keeps PROM25 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {
+    const expandPrompt = buildPromptFromTemplate(PROM25, [])
 
     expect(expandPrompt).toContain('Order Is Mandatory')
     expect(expandPrompt).toContain('The app executes beads sequentially in this order')

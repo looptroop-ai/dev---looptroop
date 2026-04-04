@@ -5,7 +5,7 @@ import { conductVoting, selectWinner } from '../../council/voter'
 import { refineDraft } from '../../council/refiner'
 import { checkMemberResponseQuorum, checkQuorum } from '../../council/quorum'
 import { draftBeads, buildBeadsContextBuilder } from '../../phases/beads/draft'
-import { expandBeads, hydrateExpandedBeads, validateBeadExpansion } from '../../phases/beads/expand'
+import { hydrateExpandedBeads, validateBeadExpansion } from '../../phases/beads/expand'
 import type { Bead, BeadSubset } from '../../phases/beads/types'
 import { buildMinimalContext, clearContextCache, type TicketState } from '../../opencode/contextBuilder'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
@@ -19,7 +19,7 @@ import {
   BEADS_PIPELINE_STEPS,
   type ValidatedBeadsRefinement,
 } from '../../phases/beads/refined'
-import { buildPromptFromTemplate, PROM21, PROM22, PROM23 } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM21, PROM22, PROM25 } from '../../prompts/index'
 import { VOTING_RUBRIC_BEADS } from '../../council/types'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
@@ -61,9 +61,10 @@ import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../runOpenCodePrompt'
 
-async function executeBeadsExpandStep(params: {
+export async function executeBeadsExpandStep(params: {
   ticketId: string
   externalId: string
+  phaseLabel: string
   worktreePath: string
   winnerId: string
   externalRef: string
@@ -71,6 +72,7 @@ async function executeBeadsExpandStep(params: {
   signal: AbortSignal
   ticketState: TicketState
   beadSubsets: BeadSubset[]
+  variant?: string
   onSessionLog: (entry: {
     memberId: string
     sessionId: string
@@ -86,7 +88,7 @@ async function executeBeadsExpandStep(params: {
   structuredMeta: ReturnType<typeof buildStructuredMetadata>
 }> {
   clearContextCache(params.externalId)
-  const baseParts: PromptPart[] = [{ type: 'text', content: buildPromptFromTemplate(PROM23, buildMinimalContext('beads_expand', params.ticketState)) }]
+  const baseParts: PromptPart[] = [{ type: 'text', content: buildPromptFromTemplate(PROM25, buildMinimalContext('beads_expand', params.ticketState)) }]
   let promptParts: PromptPart[] = baseParts
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
 
@@ -99,11 +101,11 @@ async function executeBeadsExpandStep(params: {
       signal: params.signal,
       timeoutMs: params.timeoutMs,
       model: params.winnerId,
-      variant: 'refine',
-      toolPolicy: PROM23.toolPolicy,
+      variant: params.variant ?? 'refine',
+      toolPolicy: PROM25.toolPolicy,
       sessionOwnership: {
         ticketId: params.ticketId,
-        phase: 'REFINING_BEADS',
+        phase: params.phaseLabel,
         phaseAttempt: 1,
         memberId: params.winnerId,
         step: 'expand',
@@ -209,7 +211,7 @@ async function executeBeadsExpandStep(params: {
       promptParts = buildBeadsExpandRetryPrompt(baseParts, {
         validationError,
         rawResponse: response,
-        schemaReminder: PROM23.outputFormat,
+        schemaReminder: PROM25.outputFormat,
       })
     }
   }
@@ -602,7 +604,7 @@ export async function handleBeadsRefine(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
-  const { ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
+  const { ticketDir } = loadTicketDirContext(context)
   const intermediate = phaseIntermediate.get(`${ticketId}:beads`)
   if (!intermediate || !intermediate.winnerId) {
     throw new Error('No Beads vote results found — cannot refine')
@@ -620,7 +622,6 @@ export async function handleBeadsRefine(
   if (!paths) {
     throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   }
-  const beadsPath = paths.beadsPath
   const prdPath = resolve(ticketDir, 'prd.yaml')
   const prd = existsSync(prdPath)
     ? readFileSync(prdPath, 'utf-8')
@@ -794,105 +795,8 @@ export async function handleBeadsRefine(
     content: JSON.stringify({ winnerId: intermediate.winnerId }),
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
-
   emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Substep beads_expand started with fresh context (prd=${prd ? 'loaded' : 'missing'}, relevant_files=${relevantFiles ? 'loaded' : 'missing'}).`)
-
-  const expandStreamStates = new Map<string, OpenCodeStreamState>()
-  let expansionResult: Awaited<ReturnType<typeof executeBeadsExpandStep>>
-  try {
-    expansionResult = await executeBeadsExpandStep({
-      ticketId,
-      externalId: context.externalId,
-      worktreePath: intermediate.worktreePath,
-      winnerId: intermediate.winnerId,
-      externalRef: context.externalId,
-      timeoutMs: councilSettings.draftTimeoutMs,
-      signal,
-      ticketState: {
-        ticketId: context.externalId,
-        title: context.title,
-        description: ticket?.description ?? '',
-        relevantFiles,
-        prd,
-        beadsDraft: refinedContent,
-      },
-      beadSubsets,
-      onSessionLog: (entry) => {
-        const streamState = expandStreamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
-        expandStreamStates.set(entry.sessionId, streamState)
-        emitOpenCodeSessionLogs(
-          ticketId,
-          context.externalId,
-          'REFINING_BEADS',
-          entry.memberId,
-          entry.sessionId,
-          'refine',
-          entry.response,
-          entry.messages,
-          streamState,
-        )
-      },
-      onStreamEvent: (entry) => {
-        const streamState = expandStreamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
-        expandStreamStates.set(entry.sessionId, streamState)
-        emitOpenCodeStreamEvent(
-          ticketId,
-          context.externalId,
-          'REFINING_BEADS',
-          entry.memberId,
-          entry.sessionId,
-          entry.event,
-          streamState,
-        )
-      },
-      onPromptDispatched: (entry) => {
-        emitOpenCodePromptLog(
-          ticketId,
-          context.externalId,
-          'REFINING_BEADS',
-          entry.memberId,
-          entry.event,
-        )
-      },
-    })
-  } catch (error) {
-    emitPhaseLog(
-      ticketId,
-      context.externalId,
-      'REFINING_BEADS',
-      'error',
-      `Substep beads_expand failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
-    throw error
-  }
-
-  insertPhaseArtifact(ticketId, {
-    phase: 'REFINING_BEADS',
-    artifactType: 'beads_expanded',
-    content: JSON.stringify({
-      winnerId: intermediate.winnerId,
-      refinedContent: expansionResult.hydratedContent,
-      expandedContent: expansionResult.expandedModelContent,
-    }),
-  })
-  persistUiArtifactCompanionArtifact(ticketId, 'REFINING_BEADS', 'beads_expanded', {
-    structuredOutput: expansionResult.structuredMeta,
-    draftMetrics,
-    pipelineSteps: BEADS_PIPELINE_STEPS,
-  })
-
-  writeJsonl(beadsPath, expansionResult.hydratedBeads)
-
-  clearContextCache(context.externalId)
-  patchTicket(ticketId, {
-    totalBeads: expansionResult.hydratedBeads.length,
-    currentBead: 0,
-    percentComplete: 0,
-  })
-
-  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info',
-    `Substep beads_expand completed — ${expansionResult.hydratedBeads.length} hydrated beads written to ${beadsPath}. Winner: ${intermediate.winnerId}, ${draftMetrics.beadCount} beads, ${draftMetrics.totalTestCount} tests, ${draftMetrics.totalAcceptanceCriteriaCount} AC.`)
+    `Final semantic blueprint persisted. Expansion into execution-ready beads now happens after beads coverage completes. Winner: ${intermediate.winnerId}, ${draftMetrics.beadCount} beads, ${draftMetrics.totalTestCount} tests, ${draftMetrics.totalAcceptanceCriteriaCount} AC.`)
 
   sendEvent({ type: 'REFINED' })
 }
@@ -1138,8 +1042,6 @@ export async function handleMockBeadsRefine(ticketId: string, context: TicketCon
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
   const { members } = resolveCouncilMembers(context)
   const winnerId = readMockBeadsWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
-  const beadSubsets = buildMockBeadSubsets(context)
-  const expandedBeads = expandBeads(beadSubsets)
   const refinedContent = buildMockBeadDraftContent(context)
   const uiDiffArtifact = buildBeadsUiRefinementDiffArtifact({
     winnerId,
@@ -1160,12 +1062,6 @@ export async function handleMockBeadsRefine(ticketId: string, context: TicketCon
     content: JSON.stringify({ winnerId }),
   })
   persistUiRefinementDiffArtifact(ticketId, 'REFINING_BEADS', paths.ticketDir, uiDiffArtifact)
-  writeJsonl(paths.beadsPath, expandedBeads)
-  patchTicket(ticketId, {
-    totalBeads: expandedBeads.length,
-    currentBead: 0,
-    percentComplete: 0,
-  })
-  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info', `Mock beads expanded to ${expandedBeads.length} tasks.`)
+  emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'info', 'Mock beads semantic blueprint persisted.')
   sendEvent({ type: 'REFINED' })
 }

@@ -566,11 +566,52 @@ export const PROM22: PromptTemplate = {
 
 export const PROM23: PromptTemplate = {
   id: 'PROM23',
+  description: 'Beads Coverage Verification Prompt',
+  systemRole: 'You are a meticulous Quality Assurance Lead.',
+  task: 'Re-read the final PRD as the source of truth and compare it against the current Beads blueprint to ensure complete coverage before execution planning is finalized.',
+  instructions: [
+    'Coverage Check: Detect uncovered PRD requirements, oversized beads, vague work splits, and missing verification steps.',
+    'Identify Gaps: List any specific gaps or discrepancies found between the PRD and the Beads breakdown.',
+    'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
+    'Resolution: Use concrete gap strings to describe the additions or modifications still needed. Ensure each in-scope PRD requirement maps to at least one semantic bead with explicit verification. If no gaps exist, confirm ready for the final expansion step.',
+    'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. For beads coverage, `follow_up_questions` should usually be an empty list; use `status: gaps` plus concrete gap strings to trigger another refinement pass.',
+    'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: COVERAGE_OUTPUT_FORMAT,
+  contextInputs: ['prd', 'beads'],
+  toolPolicy: 'disabled',
+}
+
+export const PROM24: PromptTemplate = {
+  id: 'PROM24',
+  description: 'Beads Coverage Resolution Prompt',
+  systemRole: 'You are a meticulous Technical Lead resolving concrete implementation-plan coverage gaps.',
+  task: 'Revise the current Beads blueprint to address the provided coverage gaps while preserving the current blueprint as the baseline. Return one updated semantic Beads artifact plus machine-readable gap-resolution metadata.',
+  instructions: [
+    'Primary Truth: Treat the approved PRD as the source of truth.',
+    'Baseline Rule: Treat the provided current implementation plan as the baseline. Do not rewrite from scratch.',
+    'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
+    'Preservation Rule: Keep the existing bead order, IDs, and unaffected fields unless a provided gap requires a concrete change. If you add a new bead, insert it at the minimal valid position that preserves dependency order.',
+    'Semantic Blueprint Rule: Return semantic Part 1 bead records only. Each bead must include exactly the Beads blueprint fields: `id`, `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, and `testCommands`.',
+    'Gap Resolution Accounting: Include a top-level `gap_resolutions` list with exactly one entry per provided gap.',
+    'Gap Resolution Actions: Each `gap_resolutions` entry must include `gap`, `action`, `rationale`, and `affected_items`. `action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`.',
+    'Affected Items: `affected_items` must be a YAML list of `{ item_type, id, label }` entries referencing bead items. Use an empty list when no bead mapping applies.',
+    'Output Discipline: Return only one YAML artifact with a top-level `beads` list plus top-level `gap_resolutions`. Do not add wrappers or prose.',
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: `${BEAD_SUBSET_OUTPUT_FORMAT} Also include a top-level \`gap_resolutions\` list. Each \`gap_resolutions\` item: {gap, action, rationale, affected_items}. \`action\` must be one of {updated_beads, already_covered, left_unresolved}. Each \`affected_items\` entry: {item_type, id, label}, where \`item_type\` must be \`bead\`.`,
+  contextInputs: ['prd', 'beads', 'coverage_gaps'],
+  toolPolicy: 'disabled',
+}
+
+export const PROM25: PromptTemplate = {
+  id: 'PROM25',
   description: 'Beads Semantic Expansion Prompt',
   systemRole: "You are the Lead Architect and the winner of the AI Council's Beads phase.",
-  task: 'Take the final refined Beads blueprint from Part 1 and expand each bead into the final execution-ready Beads list by adding only the AI-owned fields.',
+  task: 'Take the latest validated Beads blueprint and expand each bead into the final execution-ready Beads list by adding only the AI-owned fields.',
   instructions: [
-    'Fresh Context Contract: This prompt includes only the approved final PRD, the final blueprint draft from Part 1, ticket details, and `relevant_files`. Use this refreshed context as your full working set; do not assume any prior conversation state.',
+    'Fresh Context Contract: This prompt includes only the approved final PRD, the latest validated blueprint, ticket details, and `relevant_files`. Use this refreshed context as your full working set; do not assume any prior conversation state.',
     'Expansion Only: Preserve these Part 1 fields exactly for every bead: `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, and `testCommands`.',
     'Order Is Mandatory: Preserve bead list order exactly. The app executes beads sequentially in this order and derives `priority` from this order. Do not reorder, merge, split, add, or remove beads.',
     'AI-Owned Fields Only: Add only these fields per bead: `id`, `issueType`, `labels`, `dependencies.blocked_by`, and `targetFiles`.',
@@ -588,47 +629,6 @@ export const PROM23: PromptTemplate = {
   outputFormat: BEADS_JSONL_OUTPUT_FORMAT,
   contextInputs: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
   toolPolicy: 'default',
-}
-
-export const PROM24: PromptTemplate = {
-  id: 'PROM24',
-  description: 'Beads Coverage Verification Prompt',
-  systemRole: 'You are a meticulous Quality Assurance Lead.',
-  task: 'Re-read the final PRD as the source of truth and compare it against the Beads graph and tests to ensure complete coverage.',
-  instructions: [
-    'Coverage Check: Detect uncovered PRD requirements, missing dependency edges, oversized beads, and missing verification steps.',
-    'Identify Gaps: List any specific gaps or discrepancies found between the PRD and the Beads breakdown.',
-    'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
-    'Resolution: Use concrete gap strings to describe the additions or modifications still needed. Ensure each in-scope PRD requirement maps to at least one bead with explicit verification. If no gaps exist, confirm ready for Execution.',
-    'Output Envelope: return YAML with `status`, `gaps`, and `follow_up_questions`. For beads coverage, `follow_up_questions` should usually be an empty list; use `status: gaps` plus concrete gap strings to trigger another refinement pass.',
-    'YAML Validity: Every item in `gaps` must be a double-quoted YAML string, even when the text contains code identifiers, paths, flags, backticks, or punctuation.',
-    STRUCTURED_SELF_CHECK,
-  ],
-  outputFormat: COVERAGE_OUTPUT_FORMAT,
-  contextInputs: ['prd', 'beads', 'tests'],
-  toolPolicy: 'disabled',
-}
-
-export const PROM24b: PromptTemplate = {
-  id: 'PROM24b',
-  description: 'Beads Coverage Resolution Prompt',
-  systemRole: 'You are a meticulous Technical Lead resolving concrete implementation-plan coverage gaps.',
-  task: 'Revise the current Beads candidate to address the provided coverage gaps while preserving the candidate as the baseline. Return one updated execution-ready Beads artifact plus machine-readable gap-resolution metadata.',
-  instructions: [
-    'Primary Truth: Treat the approved PRD as the source of truth.',
-    'Baseline Rule: Treat the provided current implementation plan as the baseline. Do not rewrite from scratch.',
-    'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
-    'Preservation Rule: Keep the existing bead order, IDs, and unaffected fields unless a provided gap requires a concrete change. If you add a new bead, insert it at the minimal valid position that preserves dependency order.',
-    'Execution-Ready Rule: Return full execution-ready bead records, not subset beads. Each bead must include the normal fields used by the Beads artifact.',
-    'Gap Resolution Accounting: Include a top-level `gap_resolutions` list with exactly one entry per provided gap.',
-    'Gap Resolution Actions: Each `gap_resolutions` entry must include `gap`, `action`, `rationale`, and `affected_items`. `action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`.',
-    'Affected Items: `affected_items` must be a YAML list of `{ item_type, id, label }` entries referencing bead items. Use an empty list when no bead mapping applies.',
-    'Output Discipline: Return only one YAML artifact with a top-level `beads` list plus top-level `gap_resolutions`. Do not add wrappers or prose.',
-    STRUCTURED_SELF_CHECK,
-  ],
-  outputFormat: 'YAML with a top-level `beads` list of full execution-ready bead objects and a top-level `gap_resolutions` list. Each `gap_resolutions` item: {gap, action, rationale, affected_items}. `action` must be one of {updated_beads, already_covered, left_unresolved}. Each `affected_items` entry: {item_type, id, label}, where `item_type` must be `bead`.',
-  contextInputs: ['prd', 'beads', 'coverage_gaps'],
-  toolPolicy: 'disabled',
 }
 
 // Execution Prompts
@@ -739,7 +739,7 @@ export const ALL_PROMPTS = {
   PROM22,
   PROM23,
   PROM24,
-  PROM24b,
+  PROM25,
   PROM51,
   PROM52,
 }

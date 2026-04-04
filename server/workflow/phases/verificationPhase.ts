@@ -4,13 +4,13 @@ import type { PromptPart } from '../../opencode/types'
 import { CancelledError, throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
-import { buildPromptFromTemplate, PROM0, PROM13b, PROM24b } from '../../prompts/index'
+import { buildPromptFromTemplate, PROM0, PROM13b, PROM24 } from '../../prompts/index'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts } from '../../storage/tickets'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../runOpenCodePrompt'
 import { safeAtomicWrite } from '../../io/atomicWrite'
 import { buildRelevantFilesArtifact, type RelevantFilesData } from '../../ticket/relevantFiles'
 import {
-  normalizeBeadsJsonlOutput,
+  normalizeBeadSubsetYamlOutput,
   normalizeRelevantFilesOutput,
   normalizeCoverageResultOutput,
   buildStructuredRetryPrompt,
@@ -41,6 +41,7 @@ import {
   buildBeadsCoverageRevisionRetryPrompt,
   validateBeadsCoverageRevisionOutput,
 } from '../../phases/beads/coverageRevision'
+import { BEADS_PIPELINE_STEPS, getBeadsDraftMetrics } from '../../phases/beads/refined'
 import { clearContextCache } from '../../opencode/contextBuilder'
 import {
   countCoverageFollowUpQuestions,
@@ -81,6 +82,7 @@ import {
   readMockInterviewWinnerId,
 } from './interviewPhase'
 import { readTicketBeads, updateTicketProgressFromBeads, writeTicketBeads } from './beadsPhase'
+import { executeBeadsExpandStep } from './beadsPhase'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { resolveStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
@@ -149,6 +151,19 @@ function loadRecoveredPrdCoverageContent(ticketId: string) {
   try {
     const parsed = parsePrdRefinedArtifact(artifact.content)
     return parsed.refinedContent
+  } catch {
+    return null
+  }
+}
+
+function loadRecoveredBeadsCoverageContent(ticketId: string) {
+  const artifact = getLatestPhaseArtifact(ticketId, 'beads_coverage_revision', 'VERIFYING_BEADS_COVERAGE')
+    ?? getLatestPhaseArtifact(ticketId, 'beads_refined', 'REFINING_BEADS')
+  if (!artifact) return null
+
+  try {
+    const parsed = JSON.parse(artifact.content) as { refinedContent?: unknown }
+    return typeof parsed.refinedContent === 'string' ? parsed.refinedContent : null
   } catch {
     return null
   }
@@ -1035,7 +1050,7 @@ async function runBeadsCoverageResolutionPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
-        toolPolicy: PROM24b.toolPolicy,
+        toolPolicy: PROM24.toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
           phase: params.stateLabel,
@@ -1148,6 +1163,121 @@ async function runBeadsCoverageResolutionPrompt(params: {
   }
 
   throw new Error('Beads coverage resolution finished without a validated structured result.')
+}
+
+async function finalizeBeadsCoverageExpansion(params: {
+  ticketId: string
+  externalId: string
+  stateLabel: string
+  winnerId: string
+  worktreePath: string
+  signal: AbortSignal
+  councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
+  ticketState: TicketState
+  candidateContent: string
+  candidateVersion: number
+}) {
+  const normalizedBlueprint = normalizeBeadSubsetYamlOutput(params.candidateContent)
+  if (!normalizedBlueprint.ok) {
+    throw new Error(`Final beads expansion requires a valid semantic blueprint: ${normalizedBlueprint.error}`)
+  }
+
+  const beadSubsets = normalizedBlueprint.value
+  const draftMetrics = getBeadsDraftMetrics(beadSubsets)
+  const streamStates = new Map<string, OpenCodeStreamState>()
+
+  emitModelSystemLog(
+    params.ticketId,
+    params.externalId,
+    params.stateLabel,
+    'info',
+    `Coverage finished for Implementation Plan v${params.candidateVersion}. Running the final expansion step on the validated semantic blueprint.`,
+    params.winnerId,
+  )
+
+  const expansionResult = await executeBeadsExpandStep({
+    ticketId: params.ticketId,
+    externalId: params.externalId,
+    phaseLabel: params.stateLabel,
+    worktreePath: params.worktreePath,
+    winnerId: params.winnerId,
+    externalRef: params.externalId,
+    timeoutMs: params.councilSettings.draftTimeoutMs,
+    signal: params.signal,
+    ticketState: {
+      ...params.ticketState,
+      beadsDraft: params.candidateContent,
+    },
+    beadSubsets,
+    variant: 'coverage',
+    onSessionLog: (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeSessionLogs(
+        params.ticketId,
+        params.externalId,
+        params.stateLabel,
+        entry.memberId,
+        entry.sessionId,
+        'coverage',
+        entry.response,
+        entry.messages,
+        streamState,
+      )
+    },
+    onStreamEvent: (entry) => {
+      const streamState = streamStates.get(entry.sessionId) ?? createOpenCodeStreamState()
+      streamStates.set(entry.sessionId, streamState)
+      emitOpenCodeStreamEvent(
+        params.ticketId,
+        params.externalId,
+        params.stateLabel,
+        entry.memberId,
+        entry.sessionId,
+        entry.event,
+        streamState,
+      )
+    },
+    onPromptDispatched: (entry) => {
+      emitOpenCodePromptLog(
+        params.ticketId,
+        params.externalId,
+        params.stateLabel,
+        entry.memberId,
+        entry.event,
+      )
+    },
+  })
+
+  insertPhaseArtifact(params.ticketId, {
+    phase: params.stateLabel,
+    artifactType: 'beads_expanded',
+    content: JSON.stringify({
+      winnerId: params.winnerId,
+      refinedContent: expansionResult.hydratedContent,
+      expandedContent: expansionResult.expandedModelContent,
+      candidateVersion: params.candidateVersion,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'beads_expanded', {
+    structuredOutput: expansionResult.structuredMeta,
+    draftMetrics,
+    pipelineSteps: BEADS_PIPELINE_STEPS,
+    candidateVersion: params.candidateVersion,
+  })
+
+  writeTicketBeads(params.ticketId, expansionResult.hydratedBeads)
+  updateTicketProgressFromBeads(params.ticketId, expansionResult.hydratedBeads)
+  clearContextCache(params.externalId)
+
+  emitModelSystemLog(
+    params.ticketId,
+    params.externalId,
+    params.stateLabel,
+    'info',
+    `Final beads expansion completed for Implementation Plan v${params.candidateVersion}. Persisted ${expansionResult.hydratedBeads.length} execution-ready beads.`,
+    params.winnerId,
+  )
 }
 
 async function handlePrdCoverageVerificationLoop(params: {
@@ -1517,8 +1647,20 @@ async function handleBeadsCoverageVerificationLoop(params: {
         params.context.externalId,
         params.stateLabel,
         'info',
-        `Coverage retry cap already reached for beads (${completedCoveragePasses}/${maxCoveragePasses}). Routing to approval without another coverage execution.`,
+        `Coverage retry cap already reached for beads (${completedCoveragePasses}/${maxCoveragePasses}). Finalizing the execution-ready blueprint before approval.`,
       )
+      await finalizeBeadsCoverageExpansion({
+        ticketId: params.ticketId,
+        externalId: params.context.externalId,
+        stateLabel: params.stateLabel,
+        winnerId: params.winnerId,
+        worktreePath: params.worktreePath,
+        signal: params.signal,
+        councilSettings: params.councilSettings,
+        ticketState: params.ticketState,
+        candidateContent: currentCandidateContent,
+        candidateVersion: currentCandidateVersion,
+      })
       params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
       return
     }
@@ -1626,6 +1768,18 @@ async function handleBeadsCoverageVerificationLoop(params: {
         `Coverage verification passed (winning model: ${params.winnerId}) for Implementation Plan v${currentCandidateVersion}.`,
         params.winnerId,
       )
+      await finalizeBeadsCoverageExpansion({
+        ticketId: params.ticketId,
+        externalId: params.context.externalId,
+        stateLabel: params.stateLabel,
+        winnerId: params.winnerId,
+        worktreePath: params.worktreePath,
+        signal: params.signal,
+        councilSettings: params.councilSettings,
+        ticketState: params.ticketState,
+        candidateContent: currentCandidateContent,
+        candidateVersion: currentCandidateVersion,
+      })
       params.sendEvent({ type: 'COVERAGE_CLEAN' })
       return
     }
@@ -1661,6 +1815,18 @@ async function handleBeadsCoverageVerificationLoop(params: {
         reviewReason,
         params.winnerId,
       )
+      await finalizeBeadsCoverageExpansion({
+        ticketId: params.ticketId,
+        externalId: params.context.externalId,
+        stateLabel: params.stateLabel,
+        winnerId: params.winnerId,
+        worktreePath: params.worktreePath,
+        signal: params.signal,
+        councilSettings: params.councilSettings,
+        ticketState: params.ticketState,
+        candidateContent: currentCandidateContent,
+        candidateVersion: currentCandidateVersion,
+      })
       params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
       return
     }
@@ -1678,7 +1844,7 @@ async function handleBeadsCoverageVerificationLoop(params: {
     params.ticketState.beads = currentCandidateContent
     clearContextCache(params.context.externalId)
     const revisionContext = buildMinimalContext('beads_coverage', params.ticketState)
-    const revisionPromptContent = buildPromptFromTemplate(PROM24b, [
+    const revisionPromptContent = buildPromptFromTemplate(PROM24, [
       ...revisionContext,
       {
         type: 'text',
@@ -1775,13 +1941,6 @@ async function handleBeadsCoverageVerificationLoop(params: {
       hasRemainingGaps: true,
       remainingGaps: auditResult.envelope.gaps,
     })
-
-    const normalizedBeads = normalizeBeadsJsonlOutput(revisionArtifact.refinedContent)
-    if (!normalizedBeads.ok) {
-      throw new Error(`Validated beads coverage revision failed to normalize for persistence: ${normalizedBeads.error}`)
-    }
-    writeTicketBeads(params.ticketId, normalizedBeads.value)
-    updateTicketProgressFromBeads(params.ticketId, normalizedBeads.value)
     clearContextCache(params.context.externalId)
 
     if (revisionRun.revision.repairWarnings.length > 0) {
@@ -2210,9 +2369,11 @@ export async function handleCoverageVerification(
       ? 'interview_compiled'
       : phase === 'prd'
         ? 'prd_refined'
-        : 'beads_expanded'
-    const compiledArtifact = getLatestPhaseArtifact(ticketId, compiledArtifactType)
-      ?? (phase === 'beads' ? getLatestPhaseArtifact(ticketId, 'beads_refined') : null)
+        : 'beads_refined'
+    const compiledArtifact = phase === 'beads'
+      ? getLatestPhaseArtifact(ticketId, 'beads_coverage_revision', 'VERIFYING_BEADS_COVERAGE')
+        ?? getLatestPhaseArtifact(ticketId, 'beads_refined', 'REFINING_BEADS')
+      : getLatestPhaseArtifact(ticketId, compiledArtifactType)
     if (compiledArtifact) {
       try {
         refinedContent = phase === 'prd'
@@ -2315,32 +2476,30 @@ export async function handleCoverageVerification(
       return
     }
 
-    const beadsPath = paths.beadsPath
-    const diskBeadsContent = existsSync(beadsPath) ? readFileSync(beadsPath, 'utf-8').trim() : ''
-    if (diskBeadsContent.length > 0) {
-      effectiveBeadsContent = diskBeadsContent
-    } else if (refinedContent?.trim()) {
+    if (refinedContent?.trim()) {
       effectiveBeadsContent = refinedContent.trim()
-      const normalizedBeads = normalizeBeadsJsonlOutput(effectiveBeadsContent)
-      if (!normalizedBeads.ok) {
-        const msg = `Failed to restore beads.jsonl from the validated refined beads artifact before coverage: ${normalizedBeads.error}`
+    } else {
+      const recoveredBeadsContent = loadRecoveredBeadsCoverageContent(ticketId)
+      if (!recoveredBeadsContent) {
+        const msg = 'Beads coverage requires a canonical semantic beads blueprint or recovered beads coverage revision artifact, but neither was available.'
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
         sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
         return
       }
 
-      try {
-        writeTicketBeads(ticketId, normalizedBeads.value)
-        updateTicketProgressFromBeads(ticketId, normalizedBeads.value)
-        emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', 'Recovered missing beads.jsonl from the validated refined beads artifact before coverage.')
-      } catch (err) {
-        const msg = `Failed to restore beads.jsonl from the validated refined beads artifact before coverage: ${err instanceof Error ? err.message : String(err)}`
+      effectiveBeadsContent = recoveredBeadsContent.trim()
+      if (!effectiveBeadsContent) {
+        const msg = 'Recovered beads coverage content was empty.'
         emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
         sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
         return
       }
-    } else {
-      const msg = 'Beads coverage requires a canonical beads.jsonl or recovered beads_expanded artifact, but neither was available.'
+      emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', 'Recovered semantic beads blueprint from the latest persisted refinement artifact before coverage.')
+    }
+
+    const normalizedBlueprint = normalizeBeadSubsetYamlOutput(effectiveBeadsContent)
+    if (!normalizedBlueprint.ok) {
+      const msg = `Beads coverage requires a valid semantic blueprint, but the recovered artifact failed validation: ${normalizedBlueprint.error}`
       emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
       sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
       return

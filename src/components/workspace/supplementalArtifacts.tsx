@@ -36,7 +36,7 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     return [{ id: 'refined-prd', label: 'PRD Candidate', description: 'Latest PRD candidate under coverage review', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'REFINING_BEADS') {
-    return [{ id: 'final-beads-draft', label: 'Final Blueprint Draft', description: 'Part 1 merges the strongest ideas from losing drafts into the winning blueprint. Part 2 expands the refined plan into execution-ready beads by adding IDs, issue types, labels, dependencies, and target files, while the app attaches companion metadata.', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'final-beads-draft', label: 'Final Blueprint Draft', description: 'Semantic blueprint consolidated from the winning draft with the strongest ideas from the losing drafts.', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COUNCIL_VOTING_BEADS') {
     return [
@@ -45,7 +45,7 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     ]
   }
   if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
-    return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Winning beads with improvements', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'refined-beads', label: 'Refined Beads', description: 'Latest blueprint candidate under coverage review, then expanded into execution-ready beads before approval.', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'SCANNING_RELEVANT_FILES') {
     return [{ id: 'relevant-files-scan', label: 'Relevant Files', description: 'Source files identified as relevant by AI analysis', icon: <FileText className="h-3.5 w-3.5" /> }]

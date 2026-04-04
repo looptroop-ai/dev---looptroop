@@ -355,12 +355,14 @@ The primary panel displays the main content for the ticket's current phase. When
 *   **Observation:** LoopTroop implements only the Beads methodology — it does not provide the Beads project's CLI or daemon; the MVP does not require installing the Beads CLI (`bd`) or running a Beads daemon, and the artifacts in the `.ticket/` folder (inside the ticket worktree) are the source of truth.
 *   **Generation:** Context is refreshed; now each model gets codebase map, ticket details, and the final PRD. Each model creates its own version of the Beads draft (subset fields only) using PROM20. (AIC)
 *   **Comparison:** SYS anonymizes and randomizes draft order per voter before voting. Context is refreshed; now each model gets codebase map, ticket details, the final PRD, and all proposed beads drafts. Models review all proposed bead drafts and vote on the best architecture using PROM21. (AIC). Winning model is decided by SYS based on the highest score.
-*   **Refinement:** Context is refreshed; the winning model refines its draft by incorporating improvements from losing drafts using PROM22. Context is refreshed again; the winning model expands the beads draft with all 22 required fields per bead using PROM23. (Winning AIC)
+*   **Refinement:** Context is refreshed; the winning model refines its draft by incorporating improvements from losing drafts using PROM22. The result is the final semantic beads blueprint only. (Winning AIC)
 *   **Coverage Verification Pass (winning AIC):**
-    *   Compare final PRD against Beads graph + tests using PROM24.
+    *   Compare the approved PRD against the semantic beads blueprint using PROM23.
+    *   If gaps are found, revise the semantic beads blueprint with PROM24 and re-run coverage.
+    *   After the loop finishes, run PROM25 once to add the AI-owned execution fields. SYS then hydrates app-owned fields, writes the final `beads.jsonl`, and routes to approval.
     *   Do not continue to Execution until each in-scope PRD requirement is mapped to at least one bead with explicit verification.
-*   **Output:** A per-ticket Beads workspace is created/updated (containing the task list, dependencies, and verification tests) by the winning AIC. SYS gives USR the possibility to review and edit the bead file before approving and moving to the next phase.
-    *   CRITICAL OUTPUT RULE: The AI response must consist of NOTHING except the exact requested artifact (JSONL). No explanations, no markdown fences, no "Here is the result", no extra newlines before/after.
+*   **Output:** A per-ticket Beads workspace is finalized only after coverage exits. The winning AIC produces the terminal expansion artifact, SYS hydrates the remaining app-owned fields, and USR can then review/edit the final execution-ready bead file before approving and moving to the next phase.
+    *   CRITICAL OUTPUT RULE: PROM23 and PROM24 return YAML only. PROM25 returns JSONL only. No explanations, no markdown fences, no "Here is the result", no extra newlines before/after.
 
 ### C. Execution Phase
 
@@ -435,8 +437,8 @@ The primary panel displays the main content for the ticket's current phase. When
 | | 11 | VERIFYING_PRD_COVERAGE | Coverage Check (PRD) | AIC winner | Winning model verifies PRD against Interview Results and constraints. | If gaps: 10. If clean: 12. |
 | | 13 | DRAFTING_BEADS | Architecting Beads | AI | Models break PRD epics into individual beads (tasks & tests). | Drafts ready. |
 | | 14 | COUNCIL_VOTING_BEADS | Voting on Architecture | AI | Models vote on the best implementation flow/bead breakdown. | Winner selected. |
-| | 15 | REFINING_BEADS | Finalizing Plan | AI | Part 1 keeps the winning draft as the backbone and selectively pulls in stronger tasks, tests, constraints, and edge cases from losing drafts. Part 2 turns that refined blueprint into execution-ready beads by filling the remaining system-owned fields, and the app records companion metadata. | Candidate Beads ready → Move to 16. |
-| | 16 | VERIFYING_BEADS_COVERAGE | Coverage Check (Beads) | AIC winner | Winning model verifies all in-scope PRD requirements map to beads + verification steps. | If gaps: 15. If clean: 17. |
+| | 15 | REFINING_BEADS | Finalizing Plan | AI | Winning draft stays the backbone while the model pulls in stronger tasks, tests, constraints, and edge cases from losing drafts to produce the final semantic beads blueprint. | Candidate Beads ready → Move to 16. |
+| | 16 | VERIFYING_BEADS_COVERAGE | Coverage Check (Beads) | AIC winner | Winning model checks the semantic beads blueprint against the approved PRD, revises it until clean or limit-reached, then expands the final candidate into execution-ready beads before approval. | If gaps: 15. If clean: 17. |
 | | 18 | PRE_FLIGHT_CHECK | Initializing Agent | AI | Verifying git status, context, and permissions. | Checks pass → Move to 19. |
 | | 19 | CODING | Implementing (Bead X/Y) | AI | Executing beads in ticket worktree. | All beads marked "Done". |
 | | 20 | RUNNING_FINAL_TEST | Self-Testing | AI | Running larger test created by main implementer based on ticket scope and complexity on the unsquashed ticket branch state. | Tests pass → Move to 21. |
@@ -974,7 +976,7 @@ MVP generation rules:
 | 21 | `started_at` | ISO 8601 | Timestamp when status is set to `in_progress` (filled by SYS at runtime; empty during planning) |
 | 22 | `bead_start_commit` | string | Git commit SHA recorded by SYS when the bead begins execution; used to reset the worktree on context wipe (`git reset --hard`). Empty during planning |
 
-Example issue line — see PROM24 `output_file.example` in the Prompt Catalog for a complete JSONL example with all 22 fields.
+Example issue line — see PROM25 in the Prompt Catalog for a complete JSONL example with all 22 fields.
 
 **5) .ticket/runtime/execution-log.jsonl**
 - Append-only operational log for reproducibility and recovery.
@@ -1525,49 +1527,45 @@ PROM22:
   output_format: "YAML — same bead list format as PROM20 output"
 
 PROM23:
-  description: "Beads Full Fields Expansion Prompt"
-  context_input: "Codebase map + ticket details + final PRD + refined beads draft (from PROM22)"
-  system_role: "You are the Lead Architect and the winner of the AI Council's Beads phase."
-  task: "Take the refined Beads draft (which contains only the subset fields: title, PRD references, description, context guidance, acceptance criteria, bead-scoped tests, test commands) and create the final Beads breakdown by adding all remaining required fields per bead."
-  instructions:
-    - |
-      Expansion Fields.
-      Each bead has 22 fields total. The refined draft already contains some fields.
-      For each bead, read the existing fields and add the following remaining fields while preserving all existing content:
-        1.  ID — unique hierarchical bead ID including ticket name and structure for epics/tasks/subtasks, plus a short 4-character suffix hash for uniqueness (e.g., "PROJ-1-EPIC-1-US-1-task4-sub1-h3fa").
-        3.  Priority — numeric execution priority (sequential order: 1 for the first bead to execute, 2 for the second, etc.).
-        4.  Status — set to "pending" (lifecycle: pending → in_progress → done / error).
-        5.  Issue type — "task", "bug", "chore", etc. (included for future use).
-        6.  External reference — parent ticket ID (e.g., PROJ-1).
-        8.  Labels — every bead must map to at least one user story and one epic (if epics exist); additional labels allowed (e.g., "backend", "frontend", "database") for future filtering and stats.
-        12. Dependencies — two arrays: "blocked_by" (bead IDs that must complete before this bead can start) and "blocks" (bead IDs that cannot start until this bead completes).
-        13. Target files — name and path (in project folder) of files explicitly targeted by the bead, only necessary ones to reduce context size.
-        16. Notes — errors and learnings from previous attempts to help the agent learn from mistakes; empty on first attempt; each failed attempt appends its details until max iterations is reached.
-        17. Iteration number — starts at 1, increases on each retry.
-        18. Created at — timestamp (when the bead record was created during planning).
-        19. Updated at — timestamp (updated by SYS when the bead record is modified).
-        20. Completed at — timestamp (filled when status is set to "done").
-        21. Started at — timestamp (filled by SYS when status is set to "in_progress"; empty during planning).
-        22. Bead start commit — git commit SHA recorded by SYS when the bead begins execution; used to reset the worktree on context wipe (git reset --hard). Empty during planning.
-    - "Dependency Graph: Ensure all dependency edges (field 12) are valid — no dangling references, no self-dependencies, no circular dependencies. Priority order (field 3) should respect dependency ordering."
-    - "Output Format: Output the complete final Beads breakdown with all 22 fields per bead, in dependency order. Output only the final artifact."
-  output_format: "JSONL — one JSON object per line per bead, matching the schema defined in PROM24.output_file"
-
-PROM24:
   description: "Beads Coverage Verification Prompt"
   executed_by: "winning AIC only"
-  context_input: "Final PRD + Beads graph + tests"
+  context_input: "Final PRD + semantic beads blueprint"
   system_role: "You are a meticulous Quality Assurance Lead."
-  task: "Re-read the final PRD as the source of truth and compare it against the Beads graph and tests to ensure complete coverage."
+  task: "Re-read the approved PRD as the source of truth and compare it against the current semantic beads blueprint to ensure complete coverage."
   instructions:
-    - "Coverage Check: Detect uncovered PRD requirements, missing dependency edges, oversized beads, and missing verification steps."
-    - "Identify Gaps: List any specific gaps or discrepancies found between the PRD and the Beads breakdown."
-    - "Resolution: Provide the necessary additions or modifications to the Beads breakdown to resolve any identified gaps. Ensure each in-scope PRD requirement is mapped to at least one bead with explicit verification. If no gaps exist, confirm that the Beads breakdown is complete and ready for Execution."
-  output_format: "JSONL"
-  output_file:
-    path: "<worktree>/.ticket/beads/<flow-id>/.beads/issues.jsonl"
-    format: "JSONL — one JSON object per line, each line is a single bead. Append new beads; update existing beads in-place by rewriting their line."
-    example: {"id":"PROJ-1-EPIC-1-US-1-task1-sub1-h7qd","priority":1,"title":"Implement login error state","status":"pending","issue_type":"task","external_ref":"PROJ-1","prd_references":"EPIC-1 / US-1: Login error feedback. Other beads in this story handle form reset (sub2) and analytics event (sub3).","labels":["ticket:PROJ-1","epic:EPIC-1","story:US-1","frontend"],"description":"Add inline error handling for login form: catch 401 responses, display non-blocking error banner, preserve form values.","context_guidance":{"patterns":["Use the AppError class for exceptions","Follow the Container/Presenter pattern defined in src/components"],"anti_patterns":["Do not use alert() for error display","Do not clear form values on error"]},"acceptance_criteria":"Show non-blocking inline message on invalid credentials.","dependencies":{"blocked_by":["PROJ-1-EPIC-1-US-1-task1-sub0-m4k9"],"blocks":["PROJ-1-EPIC-1-US-1-task2-sub1-z8p1"]},"target_files":["src/auth/LoginForm.tsx","src/auth/useAuth.ts"],"tests":["Login error banner appears on invalid credentials","Form values are preserved after failed login"],"test_commands":["npm test -- --grep \"login error\"","npx eslint src/auth/"],"notes":"","iteration":1,"created_at":"2026-02-06T16:10:00Z","updated_at":"2026-02-06T16:10:00Z","completed_at":"","started_at":"","bead_start_commit":""}
+    - "Coverage Check: Detect uncovered PRD requirements, missing verification, missing edge cases, and semantic decomposition problems."
+    - "Identify Gaps: Return only a coverage envelope with status, gaps, and follow_up_questions."
+    - "Do not rewrite the beads blueprint in this prompt. `follow_up_questions` must remain empty for beads coverage."
+  output_format: "YAML envelope with top-level `status`, `gaps`, and `follow_up_questions`."
+
+PROM24:
+  description: "Beads Coverage Resolution Prompt"
+  executed_by: "winning AIC only"
+  context_input: "Final PRD + current semantic beads blueprint + explicit coverage gaps"
+  system_role: "You are the winning architect resolving coverage gaps in the implementation plan."
+  task: "Update the semantic beads blueprint so each provided coverage gap is either resolved by bead changes, marked already covered, or left unresolved with rationale."
+  instructions:
+    - "Return semantic Part 1 bead records only: id, title, prdRefs, description, contextGuidance, acceptanceCriteria, tests, and testCommands."
+    - "Include a top-level `gap_resolutions` list with exactly one entry per provided coverage gap."
+    - "Preserve bead order and preserved fields unless a specific gap requires a concrete semantic change."
+  output_format: "YAML object with top-level `beads` and top-level `gap_resolutions`."
+
+PROM25:
+  description: "Terminal Beads Expansion Prompt"
+  context_input: "Relevant files + ticket details + final PRD + validated semantic beads blueprint"
+  system_role: "You are the Lead Architect and the winner of the AI Council's Beads phase."
+  task: "Take the validated semantic beads blueprint and add only the AI-owned execution fields needed to produce the final execution-ready bead list."
+  instructions:
+    - |
+      Add only these AI-owned fields per bead while preserving every semantic Part 1 field exactly:
+        1.  ID — final execution-ready hierarchical bead ID.
+        2.  Issue type — "task", "bug", "chore", etc.
+        3.  Labels — every bead must map to the right ticket/story context; extra labels allowed.
+        4.  Dependencies.blocked_by — valid dependency edges only; no dangling refs, self-dependencies, or cycles.
+        5.  Target files — the smallest credible set of file paths the implementer should inspect or edit.
+    - "Do not generate app-owned fields such as priority, status, externalRef, dependencies.blocks, notes, iteration, timestamps, or bead_start_commit."
+    - "Preserve bead order exactly. SYS hydrates the app-owned fields after this prompt finishes."
+  output_format: "JSONL — one JSON object per line per bead for the final execution-ready expansion input."
 ```
 
 ### Execution Prompts

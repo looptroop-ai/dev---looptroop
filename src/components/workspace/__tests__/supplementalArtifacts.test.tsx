@@ -6,7 +6,16 @@ describe.concurrent('getSupplementalArtifacts', () => {
     expect(getSupplementalArtifacts('REFINING_BEADS')).toContainEqual(
       expect.objectContaining({
         id: 'final-beads-draft',
-        description: 'Part 1 merges the strongest ideas from losing drafts into the winning blueprint. Part 2 expands the refined plan into execution-ready beads by adding IDs, issue types, labels, dependencies, and target files, while the app attaches companion metadata.',
+        description: 'Semantic blueprint consolidated from the winning draft with the strongest ideas from the losing drafts.',
+      }),
+    )
+  })
+
+  it('describes the coverage-stage beads artifact as review plus final expansion', () => {
+    expect(getSupplementalArtifacts('VERIFYING_BEADS_COVERAGE')).toContainEqual(
+      expect.objectContaining({
+        id: 'refined-beads',
+        description: 'Latest blueprint candidate under coverage review, then expanded into execution-ready beads before approval.',
       }),
     )
   })

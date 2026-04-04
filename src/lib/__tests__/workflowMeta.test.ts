@@ -57,7 +57,16 @@ describe.concurrent('workflow metadata', () => {
     const beadsRefinePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'REFINING_BEADS')
 
     expect(beadsRefinePhase?.description).toBe(
-      'Part 1 keeps the winning draft as the backbone and selectively pulls in stronger tasks, tests, constraints, and edge cases from losing drafts. Part 2 turns that refined blueprint into execution-ready beads by filling the remaining system-owned fields, and the app records companion metadata.',
+      'Winning draft is consolidated into the final semantic beads blueprint using the strongest ideas from the losing drafts.',
     )
+  })
+
+  it('describes beads coverage as semantic review followed by final expansion', () => {
+    const beadsCoveragePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'VERIFYING_BEADS_COVERAGE')
+
+    expect(beadsCoveragePhase?.description).toBe(
+      'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint, checks again, then expands the final version into execution-ready beads before approval.',
+    )
+    expect(beadsCoveragePhase?.contextSummary).toEqual(['prd', 'beads'])
   })
 })

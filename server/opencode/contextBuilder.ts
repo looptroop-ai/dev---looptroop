@@ -29,10 +29,10 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   beads_vote: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
   // PROM22: "Relevant files + ticket details + final PRD + all bead drafts"
   beads_refine: ['relevant_files', 'ticket_details', 'prd', 'drafts'],
-  // PROM23: "Relevant files + ticket details + final PRD + refined beads draft"
+  // PROM25: "Relevant files + ticket details + final PRD + refined beads draft"
   beads_expand: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
-  // PROM24: "Final PRD + Beads graph + tests"
-  beads_coverage: ['prd', 'beads', 'tests'],
+  // PROM23: "Final PRD + semantic Beads blueprint"
+  beads_coverage: ['prd', 'beads'],
   // Execution: bead data + notes from previous iterations
   coding: ['bead_data', 'bead_notes'],
   // PROM51: "Current bead data + error context from failed iteration"

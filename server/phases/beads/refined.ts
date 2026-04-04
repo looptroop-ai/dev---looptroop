@@ -57,7 +57,7 @@ export const BEADS_PIPELINE_STEPS: BeadsPipelineStep[] = [
   },
   {
     step: 'beads_expand',
-    description: 'Refined beads are expanded with AI-owned execution fields (PROM23): id, issueType, labels, dependencies.blocked_by, and targetFiles. Part 1 fields (title, prdRefs, description, contextGuidance, acceptanceCriteria, tests, testCommands) are preserved byte-for-byte from the refined blueprint.',
+    description: 'After beads coverage finishes, LoopTroop runs the final expansion step (PROM25). The validated semantic blueprint is expanded with AI-owned execution fields: id, issueType, labels, dependencies.blocked_by, and targetFiles. LoopTroop then hydrates the app-owned execution fields.',
   },
 ]
 
