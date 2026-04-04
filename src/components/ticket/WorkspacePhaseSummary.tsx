@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { cn } from '@/lib/utils'
 import type { Ticket } from '@/hooks/useTickets'
 import { getWorkflowPhaseMeta } from '@shared/workflowMeta'
 
@@ -23,7 +25,9 @@ function DetailsList({ items }: { items: readonly string[] }) {
 
 export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: WorkspacePhaseSummaryProps) {
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const phaseMeta = getWorkflowPhaseMeta(phase)
+  const descriptionId = useId()
 
   const phaseLabel = useMemo(() => getStatusUserLabel(phase, {
     currentBead: ticket.runtime.currentBead,
@@ -36,27 +40,38 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
   return (
     <>
       <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Status
-        </div>
-        <div className="mt-1 text-sm font-medium text-foreground">{phaseLabel}</div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {phaseMeta.description}
-          {' '}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setOpen(true)}
-                className="underline underline-offset-2 transition-colors hover:text-foreground"
-                aria-label={`Show detailed explanation for ${phaseLabel}`}
-              >
-                (details)
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">See a full breakdown of what happens in this status.</TooltipContent>
-          </Tooltip>
-        </p>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-controls={descriptionId}
+          className="flex items-center gap-1 py-1 text-sm font-medium text-foreground transition-colors hover:text-foreground/80"
+        >
+          <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
+          <span>{phaseLabel}</span>
+        </button>
+        {expanded ? (
+          <p id={descriptionId} className="mt-1 ml-5 text-[11px] text-muted-foreground">
+            {phaseMeta.description}
+            {' '}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setOpen(true)
+                  }}
+                  className="underline underline-offset-2 transition-colors hover:text-foreground"
+                  aria-label={`Show detailed explanation for ${phaseLabel}`}
+                >
+                  (details)
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">See a full breakdown of what happens in this status.</TooltipContent>
+            </Tooltip>
+          </p>
+        ) : null}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

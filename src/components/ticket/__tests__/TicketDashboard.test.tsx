@@ -512,6 +512,50 @@ describe('TicketDashboard', () => {
     })
   })
 
+  it('keeps the workspace summary collapsed while navigating phases on the same ticket', async () => {
+    const initialTicket = makeTicket({ status: 'DRAFTING_PRD', id: selectedTicketId })
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        return createJsonResponse(initialTicket)
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Drafting Specs' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Models produce competing PRD drafts.')).not.toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select backlog' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Ticket created but inactive; backlog item waiting for Start.')).not.toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to live' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Models produce competing PRD drafts.')).not.toBeInTheDocument()
+    })
+  })
+
   it('switches to interview approval and forwards workspace navigation focus', async () => {
     const initialTicket = makeTicket({ status: 'WAITING_PRD_APPROVAL', id: selectedTicketId })
 

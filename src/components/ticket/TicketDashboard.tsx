@@ -514,6 +514,7 @@ export function TicketDashboard() {
           {/* Active Workspace */}
           <div className="flex flex-col flex-1 overflow-hidden">
             <WorkspacePhaseSummary
+              key={effectiveTicket.id}
               phase={summaryPhase}
               ticket={effectiveTicket}
               errorMessage={summaryErrorMessage}

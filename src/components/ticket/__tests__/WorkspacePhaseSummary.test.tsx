@@ -21,6 +21,23 @@ describe('WorkspacePhaseSummary', () => {
     expect(screen.getByText('When enough valid PRD drafts are ready, the workflow advances to Voting on Specs.')).toBeInTheDocument()
   })
 
+  it('collapses and re-expands the description when clicking the phase name', () => {
+    const ticket = makeTicket({ status: 'DRAFTING_PRD' })
+
+    renderWithProviders(
+      <WorkspacePhaseSummary phase="DRAFTING_PRD" ticket={ticket} />,
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Drafting Specs' })
+    expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    expect(screen.queryByText('Models produce competing PRD drafts.')).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+  })
+
   it('uses the error reason when rendering the blocked-error label', () => {
     const ticket = makeTicket({ status: 'BLOCKED_ERROR' })
 
