@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { VerticalResizeHandle } from './VerticalResizeHandle'
 import { PhaseLogPanel } from './PhaseLogPanel'
+import { getFillDrawerAvailableHeight, resolveStickyFillNaturalHeight, type StickyFillNaturalHeight } from './logDrawerSizing'
 import type { LogEntry } from '@/context/LogContext'
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -29,7 +30,7 @@ export function CollapsiblePhaseLogSection({
 }: CollapsiblePhaseLogSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [height, setHeight] = useState(defaultHeight)
-  const [fillNaturalHeight, setFillNaturalHeight] = useState<number | null>(null)
+  const [fillNaturalHeight, setFillNaturalHeight] = useState<StickyFillNaturalHeight | null>(null)
   const [fillAvailableHeight, setFillAvailableHeight] = useState<number | null>(null)
   const panelId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -54,6 +55,10 @@ export function CollapsiblePhaseLogSection({
     })
   }, [variant])
 
+  const effectiveFillNaturalHeight = fillNaturalHeight?.phase === phase
+    ? fillNaturalHeight.height
+    : null
+
   const measureFillAvailableHeight = useCallback(() => {
     if (variant !== 'fill' || !expanded) {
       setFillAvailableHeight(null)
@@ -66,12 +71,7 @@ export function CollapsiblePhaseLogSection({
       setFillAvailableHeight(null)
       return
     }
-
-    const parentRect = parentEl.getBoundingClientRect()
-    const rootRect = rootEl.getBoundingClientRect()
-    const nextHeight = Math.floor(parentRect.bottom - rootRect.top)
-
-    setFillAvailableHeight(nextHeight > 0 ? nextHeight : null)
+    setFillAvailableHeight(getFillDrawerAvailableHeight(parentEl, rootEl))
   }, [expanded, variant])
 
   useEffect(() => {
@@ -108,11 +108,15 @@ export function CollapsiblePhaseLogSection({
     if (variant !== 'fill' || fillAvailableHeight === null) return undefined
 
     return {
-      height: fillNaturalHeight === null ? fillAvailableHeight : Math.min(fillNaturalHeight, fillAvailableHeight),
+      height: effectiveFillNaturalHeight === null ? fillAvailableHeight : Math.min(effectiveFillNaturalHeight, fillAvailableHeight),
       minHeight: 0,
       maxHeight: '100%',
     }
   })()
+
+  const handleFillNaturalHeightChange = useCallback((nextHeight: number) => {
+    setFillNaturalHeight((current) => resolveStickyFillNaturalHeight(current, phase, nextHeight))
+  }, [phase])
 
   const logToggleButton = (
     <button
@@ -142,7 +146,7 @@ export function CollapsiblePhaseLogSection({
               ticket={ticket}
               hideHeader
               toolbarPrefix={logToggleButton}
-              onNaturalHeightChange={variant === 'fill' ? setFillNaturalHeight : undefined}
+              onNaturalHeightChange={variant === 'fill' ? handleFillNaturalHeightChange : undefined}
             />
           </div>
         ) : null}

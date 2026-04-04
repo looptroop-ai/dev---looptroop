@@ -76,6 +76,35 @@ describe.concurrent('workflow metadata', () => {
     expect(beadsCoveragePhase?.description).toBe(
       'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint, checks again, then expands the final version into execution-ready beads before approval.',
     )
-    expect(beadsCoveragePhase?.contextSummary).toEqual(['prd', 'beads'])
+    expect(beadsCoveragePhase?.contextSummary).toEqual(['prd', 'beads', 'relevant_files', 'ticket_details', 'beads_draft'])
+    expect(beadsCoveragePhase?.contextSections).toEqual([
+      {
+        label: 'Part 1',
+        description: 'Coverage Review',
+        keys: ['prd', 'beads'],
+      },
+      {
+        label: 'Part 2',
+        description: 'Final Expansion',
+        keys: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
+      },
+    ])
+  })
+
+  it('describes PRD drafting as full answers first and PRD drafts second', () => {
+    const prdDraftPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'DRAFTING_PRD')
+
+    expect(prdDraftPhase?.contextSections).toEqual([
+      {
+        label: 'Part 1',
+        description: 'Answering Skipped Questions',
+        keys: ['relevant_files', 'ticket_details', 'interview'],
+      },
+      {
+        label: 'Part 2',
+        description: 'Generating PRD Drafts',
+        keys: ['relevant_files', 'ticket_details', 'full_answers'],
+      },
+    ])
   })
 })

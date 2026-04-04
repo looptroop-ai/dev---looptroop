@@ -39,11 +39,28 @@ export interface WorkflowPhaseMeta {
   reviewArtifactType?: EditableArtifactType
   progressKind?: 'questions' | 'beads'
   contextSummary: WorkflowContextKey[]
+  contextSections?: readonly WorkflowContextSection[]
 }
 
 export interface WorkflowGroupMeta {
   id: WorkflowGroupId
   label: string
+}
+
+export interface WorkflowContextSection {
+  label: string
+  description?: string
+  keys: readonly WorkflowContextKey[]
+}
+
+function mergeContextSections(sections: readonly WorkflowContextSection[]): WorkflowContextKey[] {
+  const merged: WorkflowContextKey[] = []
+  for (const section of sections) {
+    for (const key of section.keys) {
+      if (!merged.includes(key)) merged.push(key)
+    }
+  }
+  return merged
 }
 
 const WORKFLOW_PHASE_DETAILS = {
@@ -589,6 +606,32 @@ export const WORKFLOW_GROUPS: WorkflowGroupMeta[] = [
   { id: 'done', label: 'Done' },
 ]
 
+const DRAFTING_PRD_CONTEXT_SECTIONS = [
+  {
+    label: 'Part 1',
+    description: 'Answering Skipped Questions',
+    keys: ['relevant_files', 'ticket_details', 'interview'],
+  },
+  {
+    label: 'Part 2',
+    description: 'Generating PRD Drafts',
+    keys: ['relevant_files', 'ticket_details', 'full_answers'],
+  },
+] as const satisfies readonly WorkflowContextSection[]
+
+const VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS = [
+  {
+    label: 'Part 1',
+    description: 'Coverage Review',
+    keys: ['prd', 'beads'],
+  },
+  {
+    label: 'Part 2',
+    description: 'Final Expansion',
+    keys: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
+  },
+] as const satisfies readonly WorkflowContextSection[]
+
 export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'DRAFT',
@@ -698,7 +741,8 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: true,
-    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'full_answers'],
+    contextSummary: mergeContextSections(DRAFTING_PRD_CONTEXT_SECTIONS),
+    contextSections: DRAFTING_PRD_CONTEXT_SECTIONS,
   },
   {
     id: 'COUNCIL_VOTING_PRD',
@@ -795,7 +839,8 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['prd', 'beads'],
+    contextSummary: mergeContextSections(VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS),
+    contextSections: VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS,
   },
   {
     id: 'WAITING_BEADS_APPROVAL',

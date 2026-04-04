@@ -3,7 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
-import type { WorkflowContextKey } from '@shared/workflowMeta'
+import type { WorkflowContextKey, WorkflowContextSection } from '@shared/workflowMeta'
 
 interface ContextTreeProps {
   selectedPhase: string
@@ -68,15 +68,15 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
   },
   beads: {
     id: 'beads',
-    label: 'Beads Graph',
+    label: 'Beads Plan',
     icon: '🔗',
-    description: 'Bead tasks, dependencies, and status graph.',
+    description: 'Current beads artifact, including semantic blueprint content during coverage and execution-ready graph data after expansion.',
   },
   beads_draft: {
     id: 'beads_draft',
-    label: 'Refined Beads Draft',
+    label: 'Semantic Blueprint',
     icon: '🧩',
-    description: 'Refined beads draft before expansion.',
+    description: 'Refined semantic beads blueprint used as the source for the final expansion step.',
   },
   tests: {
     id: 'tests',
@@ -110,6 +110,21 @@ function getAllowedContextItems(keys: WorkflowContextKey[]): ContextItem[] {
     .filter((item): item is ContextItem => Boolean(item))
 }
 
+function getAllowedContextSections(
+  sections: readonly WorkflowContextSection[] | undefined,
+  fallbackKeys: WorkflowContextKey[],
+): Array<{ label?: string; description?: string; items: ContextItem[] }> {
+  if (!sections || sections.length === 0) {
+    return [{ items: getAllowedContextItems(fallbackKeys) }]
+  }
+
+  return sections.map((section) => ({
+    label: section.label,
+    description: section.description,
+    items: getAllowedContextItems([...section.keys]),
+  }))
+}
+
 function ContextRow({ item }: { item: ContextItem }) {
   return (
     <div
@@ -125,7 +140,15 @@ function ContextRow({ item }: { item: ContextItem }) {
 export function ContextTree({ selectedPhase }: ContextTreeProps) {
   const { phaseMap } = useWorkflowMeta()
   const [collapsed, setCollapsed] = useState(true)
-  const items = getAllowedContextItems(phaseMap[selectedPhase]?.contextSummary ?? ['ticket_details'])
+  const phaseMeta = phaseMap[selectedPhase]
+  const sections = getAllowedContextSections(
+    phaseMeta?.contextSections,
+    phaseMeta?.contextSummary ?? ['ticket_details'],
+  )
+  const usesParts = sections.length > 1
+  const summaryText = usesParts
+    ? `${sections.length} parts`
+    : `${sections[0]?.items.length ?? 0}`
 
   return (
     <div className="p-2">
@@ -135,13 +158,32 @@ export function ContextTree({ selectedPhase }: ContextTreeProps) {
       >
         <ChevronRight className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-90')} />
         Allowed Context
-        <span className="ml-auto text-[10px] font-normal normal-case">{items.length}</span>
+        <span className="ml-auto text-[10px] font-normal normal-case">{summaryText}</span>
       </button>
       {!collapsed && (
         <ScrollArea className="max-h-[250px]">
-          <div className="space-y-0.5">
-            {items.map(item => (
-              <ContextRow key={item.id} item={item} />
+          <div className="space-y-2">
+            {sections.map((section, index) => (
+              <div
+                key={`${section.label ?? 'context'}-${index}`}
+                className={cn(index > 0 && 'border-t border-border/40 pt-2')}
+              >
+                {section.label ? (
+                  <div className="px-2 pb-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[11px] font-semibold text-foreground/80">{section.label}</span>
+                      {section.description ? (
+                        <span className="text-[11px] text-muted-foreground">- {section.description}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="space-y-0.5">
+                  {section.items.map(item => (
+                    <ContextRow key={`${section.label ?? 'context'}:${item.id}`} item={item} />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </ScrollArea>

@@ -7,8 +7,60 @@ vi.mock('../VerticalResizeHandle', () => ({
 }))
 
 import { CollapsiblePhaseLogSection } from '../CollapsiblePhaseLogSection'
+import { getFillDrawerAvailableHeight, resolveStickyFillNaturalHeight } from '../logDrawerSizing'
+
+function makeRect(height: number): DOMRect {
+  return {
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    bottom: height,
+    right: 0,
+    width: 0,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect
+}
 
 describe('CollapsiblePhaseLogSection', () => {
+  it('derives available fill height from the space left after the content above the log', () => {
+    const parent = document.createElement('div')
+    const artifacts = document.createElement('div')
+    const details = document.createElement('div')
+    const root = document.createElement('div')
+
+    Object.defineProperty(parent, 'clientHeight', {
+      configurable: true,
+      get: () => 720,
+    })
+
+    vi.spyOn(artifacts, 'getBoundingClientRect').mockReturnValue(makeRect(260))
+    vi.spyOn(details, 'getBoundingClientRect').mockReturnValue(makeRect(140))
+    vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(makeRect(80))
+
+    parent.append(artifacts, details, root)
+
+    expect(getFillDrawerAvailableHeight(parent, root)).toBe(320)
+  })
+
+  it('keeps the largest natural height within a phase but resets for a new phase', () => {
+    expect(resolveStickyFillNaturalHeight(null, 'CODING', 240)).toEqual({
+      phase: 'CODING',
+      height: 240,
+    })
+
+    expect(resolveStickyFillNaturalHeight({ phase: 'CODING', height: 240 }, 'CODING', 80)).toEqual({
+      phase: 'CODING',
+      height: 240,
+    })
+
+    expect(resolveStickyFillNaturalHeight({ phase: 'CODING', height: 240 }, 'REVIEWING', 120)).toEqual({
+      phase: 'REVIEWING',
+      height: 120,
+    })
+  })
+
   it('renders expanded by default as a bottom-anchored log drawer', () => {
     const { container } = renderWithProviders(<CollapsiblePhaseLogSection phase="CODING" />)
     const root = container.firstElementChild as HTMLElement
