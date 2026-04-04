@@ -36,7 +36,7 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     return [{ id: 'refined-prd', label: 'PRD Candidate', description: 'Latest PRD candidate under coverage review', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'REFINING_BEADS') {
-    return [{ id: 'final-beads-draft', label: 'Final Blueprint Draft', description: 'Final refined blueprint from the winning model', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return [{ id: 'final-beads-draft', label: 'Final Blueprint Draft', description: 'Part 1 merges the strongest ideas from losing drafts into the winning blueprint. Part 2 expands the refined plan into execution-ready beads by adding IDs, issue types, labels, dependencies, and target files, while the app attaches companion metadata.', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'COUNCIL_VOTING_BEADS') {
     return [

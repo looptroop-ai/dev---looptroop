@@ -52,4 +52,12 @@ describe.concurrent('workflow metadata', () => {
       'LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again.',
     )
   })
+
+  it('describes the two-step beads finalization flow', () => {
+    const beadsRefinePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'REFINING_BEADS')
+
+    expect(beadsRefinePhase?.description).toBe(
+      'Part 1 keeps the winning draft as the backbone and selectively pulls in stronger tasks, tests, constraints, and edge cases from losing drafts. Part 2 turns that refined blueprint into execution-ready beads by filling the remaining system-owned fields, and the app records companion metadata.',
+    )
+  })
 })

@@ -435,7 +435,7 @@ The primary panel displays the main content for the ticket's current phase. When
 | | 11 | VERIFYING_PRD_COVERAGE | Coverage Check (PRD) | AIC winner | Winning model verifies PRD against Interview Results and constraints. | If gaps: 10. If clean: 12. |
 | | 13 | DRAFTING_BEADS | Architecting Beads | AI | Models break PRD epics into individual beads (tasks & tests). | Drafts ready. |
 | | 14 | COUNCIL_VOTING_BEADS | Voting on Architecture | AI | Models vote on the best implementation flow/bead breakdown. | Winner selected. |
-| | 15 | REFINING_BEADS | Finalizing Plan | AI | Winner incorporates smart tasks/tests from losing drafts. | Candidate Beads ready → Move to 16. |
+| | 15 | REFINING_BEADS | Finalizing Plan | AI | Part 1 keeps the winning draft as the backbone and selectively pulls in stronger tasks, tests, constraints, and edge cases from losing drafts. Part 2 turns that refined blueprint into execution-ready beads by filling the remaining system-owned fields, and the app records companion metadata. | Candidate Beads ready → Move to 16. |
 | | 16 | VERIFYING_BEADS_COVERAGE | Coverage Check (Beads) | AIC winner | Winning model verifies all in-scope PRD requirements map to beads + verification steps. | If gaps: 15. If clean: 17. |
 | | 18 | PRE_FLIGHT_CHECK | Initializing Agent | AI | Verifying git status, context, and permissions. | Checks pass → Move to 19. |
 | | 19 | CODING | Implementing (Bead X/Y) | AI | Executing beads in ticket worktree. | All beads marked "Done". |

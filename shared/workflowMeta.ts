@@ -218,7 +218,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'REFINING_BEADS',
     label: 'Finalizing Plan',
-    description: 'Winner refines beads with best details from alternatives.',
+    description: 'Part 1 keeps the winning draft as the backbone and selectively pulls in stronger tasks, tests, constraints, and edge cases from losing drafts. Part 2 turns that refined blueprint into execution-ready beads by filling the remaining system-owned fields, and the app records companion metadata.',
     kanbanPhase: 'in_progress',
     groupId: 'beads',
     uiView: 'council',
