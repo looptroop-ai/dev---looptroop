@@ -7,6 +7,7 @@ import { queryClient } from '@/lib/queryClient'
 import { makeTicket } from '@/test/factories'
 import { patchTicketStatusInCache } from '@/hooks/ticketStatusCache'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT } from '@/lib/workspaceNavigation'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 const selectedTicketId = '1:T-42'
 const dispatchMock = vi.fn()
@@ -134,7 +135,9 @@ function createJsonResponse(payload: unknown) {
 function renderDashboard() {
   return render(
     <QueryClientProvider client={queryClient}>
-      <TicketDashboard />
+      <TooltipProvider>
+        <TicketDashboard />
+      </TooltipProvider>
     </QueryClientProvider>,
   )
 }
@@ -468,6 +471,44 @@ describe('TicketDashboard', () => {
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('DRAFT')
       expect(screen.getByTestId('active-workspace')).toHaveTextContent('DRAFT')
       expect(screen.getByRole('button', { name: 'Log — Backlog' })).toBeInTheDocument()
+    })
+  })
+
+  it('updates the workspace phase summary when the selected phase changes', async () => {
+    const initialTicket = makeTicket({ status: 'DRAFTING_PRD', id: selectedTicketId })
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        return createJsonResponse(initialTicket)
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select backlog' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Ticket created but inactive; backlog item waiting for Start.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to live' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
     })
   })
 

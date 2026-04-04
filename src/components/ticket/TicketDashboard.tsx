@@ -7,6 +7,7 @@ import { useLogs } from '@/context/useLogContext'
 import { DashboardHeader } from './DashboardHeader'
 import { NavigatorPanel } from './NavigatorPanel'
 import { ActiveWorkspace } from './ActiveWorkspace'
+import { WorkspacePhaseSummary } from './WorkspacePhaseSummary'
 import { ResizeHandle } from './ResizeHandle'
 import { Menu, X } from 'lucide-react'
 import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
@@ -430,6 +431,10 @@ export function TicketDashboard() {
 
   const activePhase = selectedPhase ?? currentStatus
   const activeErrorOccurrenceId = liveErrorOccurrence?.id ?? selectedErrorOccurrenceId
+  const summaryPhase = activeErrorOccurrenceId ? 'BLOCKED_ERROR' : activePhase
+  const summaryErrorMessage = selectedErrorOccurrence?.errorMessage
+    ?? liveErrorOccurrence?.errorMessage
+    ?? effectiveTicket.errorMessage
 
   return (
     <LogProvider key={ticketId} ticketId={ticketId} currentStatus={currentStatus}>
@@ -508,6 +513,11 @@ export function TicketDashboard() {
           <ResizeHandle onResize={setNavWidth} />
           {/* Active Workspace */}
           <div className="flex flex-col flex-1 overflow-hidden">
+            <WorkspacePhaseSummary
+              phase={summaryPhase}
+              ticket={effectiveTicket}
+              errorMessage={summaryErrorMessage}
+            />
             <ActiveWorkspace
               ticket={effectiveTicket}
               selectedPhase={activePhase}

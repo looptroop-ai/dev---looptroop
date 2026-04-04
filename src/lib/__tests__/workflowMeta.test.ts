@@ -39,6 +39,15 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
 })
 
 describe.concurrent('workflow metadata', () => {
+  it('provides long-form details for every workflow phase', () => {
+    for (const phase of WORKFLOW_PHASES) {
+      expect(phase.details.overview.trim().length).toBeGreaterThan(0)
+      expect(phase.details.steps.length).toBeGreaterThan(0)
+      expect(phase.details.outputs.length).toBeGreaterThan(0)
+      expect(phase.details.transitions.length).toBeGreaterThan(0)
+    }
+  })
+
   it('shows only ticket details as allowed context while scanning relevant files', () => {
     const scanningPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'SCANNING_RELEVANT_FILES')
 
