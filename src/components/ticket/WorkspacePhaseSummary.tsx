@@ -9,20 +9,20 @@ import type { WorkflowContextKey } from '@shared/workflowMeta'
 import { getWorkflowPhaseMeta } from '@shared/workflowMeta'
 
 const CONTEXT_KEY_LABELS: Record<WorkflowContextKey, { label: string; description: string }> = {
-  ticket_details: { label: 'Ticket Details', description: 'Title, description, and ticket metadata.' },
-  relevant_files: { label: 'Relevant Files', description: 'Source file contents identified as relevant to this ticket by AI analysis.' },
-  drafts: { label: 'Competing Drafts', description: 'Alternative model drafts used for voting/refinement.' },
-  interview: { label: 'Interview Results', description: 'Interview question/answer artifact content.' },
-  full_answers: { label: 'Full Answers', description: 'Model-specific interview results with skipped questions filled in by AI.' },
-  user_answers: { label: 'User Answers', description: 'Collected user responses during interview loop.' },
-  votes: { label: 'Council Votes', description: 'Scoring/vote output from council phase.' },
-  prd: { label: 'PRD', description: 'Product requirements artifact.' },
-  beads: { label: 'Beads Plan', description: 'Current beads artifact, including semantic blueprint content during coverage and execution-ready graph data after expansion.' },
-  beads_draft: { label: 'Semantic Blueprint', description: 'Refined semantic beads blueprint used as the source for the final expansion step.' },
-  tests: { label: 'Verification Tests', description: 'Coverage/final test context and test intent.' },
-  bead_data: { label: 'Current Bead Data', description: 'Active bead specification and acceptance criteria.' },
-  bead_notes: { label: 'Bead Notes', description: 'Iteration notes and prior-attempt context.' },
-  error_context: { label: 'Error Context', description: 'Failure context from previous blocked iteration.' },
+  ticket_details: { label: 'Ticket Details', description: 'The ticket title, full description text, priority level, project metadata, and any user-supplied implementation notes. This is the root context that every planning phase receives.' },
+  relevant_files: { label: 'Relevant Files', description: 'Source file contents identified as relevant by the AI scan phase. Includes file paths, content excerpts, relevance ratings, and rationales explaining why each file matters to this ticket.' },
+  drafts: { label: 'Competing Drafts', description: 'The set of independently generated candidate drafts from each council member. Used during voting to compare approaches side-by-side and during refinement to merge the strongest ideas from losing drafts into the winner.' },
+  interview: { label: 'Interview Results', description: 'The canonical interview artifact containing the finalized questions, user answers, skip decisions, and any follow-up rounds. This is the approved version that downstream phases treat as authoritative.' },
+  full_answers: { label: 'Full Answers', description: 'Model-generated interview results where skipped questions have been filled in by the AI. Created during the PRD drafting phase so the council has a complete working basis even when some interview questions were skipped by the user.' },
+  user_answers: { label: 'User Answers', description: 'The raw user responses collected during the interview loop, including answer text, skip/unskip decisions, and batch submission history across initial and follow-up rounds.' },
+  votes: { label: 'Council Votes', description: 'Structured vote payloads from each council member, including rubric scores, rankings, and outcome metadata. Used to select the winning draft and provide audit transparency.' },
+  prd: { label: 'PRD', description: 'The product requirements document artifact — either the latest coverage-checked candidate or the user-approved version. Contains requirements, acceptance criteria, edge cases, and test intent.' },
+  beads: { label: 'Beads Plan', description: 'The current beads artifact. During coverage phases this contains the semantic blueprint with task descriptions and acceptance criteria. After the expansion step, it contains execution-ready bead records with dependency graphs, commands, and runtime fields.' },
+  beads_draft: { label: 'Semantic Blueprint', description: 'The refined semantic beads blueprint before final expansion. Contains high-level task decomposition, acceptance criteria, and test intent without execution-specific fields. Used as input to the expansion step that produces execution-ready bead records.' },
+  tests: { label: 'Verification Tests', description: 'Coverage and final test context including test commands, expected outcomes, and test intent derived from the PRD and beads plan. Used during self-testing and integration phases.' },
+  bead_data: { label: 'Current Bead Data', description: 'The active bead specification being executed, including its description, acceptance criteria, dependencies, file targets, and any retry/iteration context from previous attempts.' },
+  bead_notes: { label: 'Bead Notes', description: 'Accumulated iteration notes and prior-attempt context for the current bead. Includes error messages, partial progress, and diagnostic hints from failed attempts to help the next retry succeed.' },
+  error_context: { label: 'Error Context', description: 'Failure context from the most recent blocked error, including the error message, error codes, the phase where the failure occurred, occurrence timing, and diagnostic details to help with retry decisions.' },
 }
 
 const KANBAN_PHASE_LABELS: Record<string, string> = {
@@ -100,7 +100,7 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent closeButtonVariant="dashboard" className="max-w-lg max-h-[80vh] flex flex-col">
+        <DialogContent closeButtonVariant="dashboard" className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{phaseLabel}</DialogTitle>
             <DialogDescription>{phaseMeta.description}</DialogDescription>
@@ -178,6 +178,10 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
             <section className="space-y-2">
               <h3 className="text-sm font-semibold text-foreground">Workflow Info</h3>
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                <dt className="text-muted-foreground">Status ID</dt>
+                <dd className="font-mono text-foreground">{phase}</dd>
+                <dt className="text-muted-foreground">Phase Type</dt>
+                <dd className="text-foreground">{phaseMeta.kanbanPhase === 'needs_input' ? 'User Input' : 'AI-Driven'}</dd>
                 <dt className="text-muted-foreground">Kanban Phase</dt>
                 <dd className="text-foreground">{KANBAN_PHASE_LABELS[phaseMeta.kanbanPhase] ?? phaseMeta.kanbanPhase}</dd>
                 <dt className="text-muted-foreground">Group</dt>

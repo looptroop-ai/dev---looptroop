@@ -16,9 +16,9 @@ describe('WorkspacePhaseSummary', () => {
     fireEvent.click(screen.getByRole('button', { name: /show detailed explanation for drafting specs/i }))
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('LoopTroop loads the approved interview, ticket details, and relevant-files context into the PRD drafting prompt.')).toBeInTheDocument()
-    expect(screen.getByText('Competing PRD drafts.')).toBeInTheDocument()
-    expect(screen.getByText('When enough valid PRD drafts are ready, the workflow advances to Voting on Specs.')).toBeInTheDocument()
+    expect(screen.getByText(/Part 1 — Answering Skipped Questions/)).toBeInTheDocument()
+    expect(screen.getByText(/Competing PRD drafts — one from each council member\./)).toBeInTheDocument()
+    expect(screen.getByText(/When enough valid PRD drafts are ready \(quorum met\), the workflow advances to Voting on Specs\./)).toBeInTheDocument()
   })
 
   it('collapses and re-expands the description when clicking the phase name', () => {

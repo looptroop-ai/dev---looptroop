@@ -65,15 +65,15 @@ function mergeContextSections(sections: readonly WorkflowContextSection[]): Work
 
 const WORKFLOW_PHASE_DETAILS = {
   DRAFT: {
-    overview: 'The ticket exists as a backlog item only. No AI work, planning run, or execution state has started yet.',
+    overview: 'The ticket exists as a backlog item only. No AI work, planning run, or execution state has started yet. The ticket is fully user-controlled and editable — you can change the title, description, priority, and project assignment before launching the workflow.',
     steps: [
       'LoopTroop stores the ticket title, description, priority, project, and other editable metadata.',
       'The workspace stays user-driven: you can refine the title or description before any workflow artifacts are generated.',
       'No relevant-files scan, interview artifact, PRD, beads plan, or runtime worktree activity is performed in this state.',
-      'When Start is triggered, LoopTroop initializes the ticket workspace and begins the planning pipeline from the first active AI phase.',
+      'When Start is triggered, LoopTroop locks the council configuration (main implementer and council members), initializes the ticket workspace directory, and begins the planning pipeline from the first active AI phase.',
     ],
     outputs: [
-      'Ticket metadata only.',
+      'Ticket metadata only (title, description, priority, project association).',
       'No planning artifacts beyond the ticket record itself.',
       'Status is still fully user-controlled through Start or Cancel actions.',
     ],
@@ -84,21 +84,22 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'This is the only phase where the ticket is intentionally inactive.',
       'No AI-owned files are expected to exist yet.',
+      'Context received: Ticket Details only.',
     ],
   },
   SCANNING_RELEVANT_FILES: {
-    overview: 'LoopTroop performs a focused codebase scan before council work starts so later phases can reference the right files instead of guessing.',
+    overview: 'LoopTroop performs a focused codebase scan before council work starts so later phases can reference the right files instead of guessing. This is a single-model phase using the locked main implementer — not a multi-council step.',
     steps: [
-      'LoopTroop builds a minimal prompt from the ticket title and description and sends it to the locked main implementer.',
+      'LoopTroop builds a minimal prompt from the ticket title and description (Ticket Details context) and sends it to the locked main implementer.',
       'The model identifies likely relevant files, explains why they matter, and returns structured file excerpts for downstream context.',
-      'LoopTroop validates the structured output. If validation fails, it automatically retries once, either in the same session or in a fresh session.',
+      'LoopTroop validates the structured output against expected schema. If validation fails, it automatically retries once, either in the same session or in a fresh session.',
       'On success, LoopTroop writes the canonical `relevant-files.yaml` artifact and stores a summarized scan artifact for UI review.',
       'Phase logs capture the session lifecycle, prompt dispatch, retries, and final extracted file count.',
     ],
     outputs: [
-      'Canonical `relevant-files.yaml` inside the ticket workspace.',
+      'Canonical `relevant-files.yaml` inside the ticket workspace — this becomes a reusable context artifact for all subsequent phases.',
       'Structured scan artifact with file paths, rationales, relevance levels, and content previews.',
-      'Relevant-file context that later interview, PRD, and beads phases can reuse.',
+      'Relevant-file context that later interview, PRD, and beads phases can reuse without re-scanning.',
     ],
     transitions: [
       'A valid scan advances the ticket to AI Council Thinking.',
@@ -107,10 +108,11 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'This phase is single-model, not multi-council.',
       'The scan is context-building only; it does not modify source files.',
+      'Context received: Ticket Details only.',
     ],
   },
   COUNCIL_DELIBERATING: {
-    overview: 'The interview council creates competing interview/question drafts so the system can compare multiple approaches before asking you anything.',
+    overview: 'The interview council creates competing interview/question drafts so the system can compare multiple approaches before asking you anything. This is the first multi-model phase — each configured council member works independently and in parallel.',
     steps: [
       'LoopTroop loads the ticket details and relevant-files artifact as the shared prompt context for the council.',
       'Each configured council model drafts an interview approach independently instead of collaborating on a single first draft.',
@@ -118,48 +120,52 @@ const WORKFLOW_PHASE_DETAILS = {
       'Each completed draft is persisted as a council artifact for later review and for the voting phase.',
     ],
     outputs: [
-      'A set of competing interview drafts.',
-      'Per-model draft progress and session logs.',
-      'Persisted council draft artifacts for side-by-side comparison.',
+      'A set of competing interview drafts — one from each council member.',
+      'Per-model draft progress and session logs viewable in the phase log panel.',
+      'Persisted council draft artifacts for side-by-side comparison in the voting phase.',
     ],
     transitions: [
-      'When enough valid drafts are complete, the workflow advances to Selecting Best Questions.',
+      'When enough valid drafts are complete (quorum met), the workflow advances to Selecting Best Questions.',
       'Council failures such as missing quorum, unrecoverable generation errors, or cancellation route to Blocked Error or Canceled as appropriate.',
     ],
     notes: [
       'This is the first multi-model phase in the workflow.',
+      'Context received: Relevant Files + Ticket Details.',
     ],
   },
   COUNCIL_VOTING_INTERVIEW: {
-    overview: 'The council scores the interview drafts against the voting rubric and selects the strongest candidate to become the canonical interview basis.',
+    overview: 'The council scores the interview drafts against the voting rubric and selects the strongest candidate to become the canonical interview basis. Each member scores all drafts, not just their own.',
     steps: [
-      'LoopTroop anonymizes the available interview drafts and builds the interview vote prompt with the scoring rubric.',
-      'Council members score every draft rather than voting only for their own output.',
-      'LoopTroop records presentation order, vote payloads, quorum state, and member outcomes.',
-      'The vote resolver totals the scores and identifies the winning draft for refinement/compilation.',
+      'LoopTroop anonymizes the available interview drafts so models cannot identify their own output, and builds the interview vote prompt with the scoring rubric.',
+      'Council members score every draft independently rather than voting only for their own output.',
+      'LoopTroop records presentation order, vote payloads, quorum state, and member outcomes for audit purposes.',
+      'The vote resolver totals the scores across all members and identifies the winning draft for refinement/compilation.',
     ],
     outputs: [
-      'Voting artifacts with scores and model outcomes.',
-      'A resolved winning interview draft.',
-      'Audit data showing how the council arrived at the selection.',
+      'Voting artifacts with per-model rubric scores and outcomes.',
+      'A resolved winning interview draft reference.',
+      'Audit data showing how the council arrived at the selection, including score spread and presentation order.',
     ],
     transitions: [
       'A successful winner selection advances the workflow to Preparing Interview.',
       'Voting failures, invalid vote structure, or quorum collapse route the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Relevant Files + Ticket Details + Competing Drafts.',
+    ],
   },
   COMPILING_INTERVIEW: {
-    overview: 'LoopTroop turns the winning interview draft into the normalized interview session structure that the user can answer.',
+    overview: 'LoopTroop turns the winning interview draft into the normalized interview session structure that the user can answer. This is a single-model phase using the winning model.',
     steps: [
-      'The winning interview draft is consolidated into a single normalized interview artifact.',
+      'The winning interview draft is consolidated into a single normalized interview artifact with standardized question format.',
       'LoopTroop builds the interview session snapshot, including question views, ordering, batch state, and completion bookkeeping.',
       'The canonical interview YAML and session artifacts are written into the ticket workspace.',
-      'UI-friendly companion artifacts are generated so the interview screen can render structured questions cleanly.',
+      'UI-friendly companion artifacts are generated so the interview screen can render structured questions with proper types (free-text, choice, etc.).',
     ],
     outputs: [
-      'Canonical interview artifact.',
-      'Interview session snapshot and current batch state.',
-      'Normalized question set ready for user interaction.',
+      'Canonical interview artifact in the ticket workspace.',
+      'Interview session snapshot with batch state and question ordering.',
+      'Normalized question set ready for user interaction in the interview UI.',
     ],
     transitions: [
       'Once the interview session is ready, the workflow moves to Interviewing.',
@@ -167,19 +173,20 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'This phase produces the first user-facing artifact in the planning flow.',
+      'Context received: Relevant Files + Ticket Details + Competing Drafts.',
     ],
   },
   WAITING_INTERVIEW_ANSWERS: {
-    overview: 'LoopTroop pauses for user input and runs an adaptive interview loop until the current question set is answered or explicitly skipped.',
+    overview: 'LoopTroop pauses for user input and runs an adaptive interview loop until the current question set is answered or explicitly skipped. This is a user-input phase — no AI work happens until you submit or skip the current batch.',
     steps: [
-      'The workspace presents the current interview batch, any previously answered questions, and the editable answer controls.',
+      'The workspace presents the current interview batch, any previously answered questions, and the editable answer controls (free-text or choice-based depending on question type).',
       'As you answer, skip, or unskip items, LoopTroop updates the in-memory batch draft state and later persists the submitted answers into the interview session snapshot.',
       'Submitted batches are normalized into the canonical interview state so downstream phases see a clean record of answered and skipped items.',
-      'If coverage later finds missing information, the workflow can return here with a targeted follow-up batch instead of restarting the entire interview.',
+      'If coverage later finds missing information, the workflow can return here with a targeted follow-up batch instead of restarting the entire interview — so you may see this phase more than once.',
       'You can also skip all remaining questions, which finalizes the current answers and lets coverage decide whether the interview is sufficient.',
     ],
     outputs: [
-      'Recorded user answers and skip decisions.',
+      'Recorded user answers and skip decisions persisted into the interview session.',
       'Updated interview session snapshot and canonical interview YAML.',
       'Question history grouped across initial and follow-up rounds.',
     ],
@@ -190,38 +197,42 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'This is a user-input phase, so the workflow is intentionally paused until you act.',
+      'Context received: Relevant Files + Ticket Details + Interview Results + User Answers.',
+      'This phase may appear multiple times if coverage generates follow-up rounds.',
     ],
   },
   VERIFYING_INTERVIEW_COVERAGE: {
-    overview: 'The interview winner re-checks the ticket description and all recorded answers against the current interview results to decide whether more questions are still needed.',
+    overview: 'The interview winner re-checks the ticket description and all recorded answers against the current interview results to decide whether more questions are still needed. This is a budgeted loop — it tracks how many follow-up rounds have been used.',
     steps: [
       'LoopTroop loads the canonical interview, the ticket description, and a normalized answer summary for the winning interview model.',
-      'The model returns a structured coverage result indicating whether the interview is clean or still has gaps.',
+      'The model returns a structured coverage result indicating whether the interview is clean (all needed info collected) or still has gaps.',
       'If gaps remain and the follow-up budget allows it, LoopTroop generates targeted follow-up questions, records them in the session snapshot, and prepares a new interview batch.',
       'If the interview is clean, LoopTroop refreshes the canonical interview artifact and stores the clean coverage result for audit and UI review.',
       'Coverage history artifacts capture the response, parsed result, follow-up budget usage, and any structural repair metadata.',
     ],
     outputs: [
       'Interview coverage artifact describing clean status or remaining gaps.',
-      'Potentially new follow-up questions and updated batch state.',
-      'A refreshed canonical interview artifact when the interview is finalized.',
+      'Potentially new follow-up questions and updated batch state (if gaps found).',
+      'A refreshed canonical interview artifact when the interview is finalized as clean.',
     ],
     transitions: [
-      'If follow-up questions are needed, the workflow returns to Interviewing.',
+      'If follow-up questions are needed, the workflow returns to Interviewing (WAITING_INTERVIEW_ANSWERS).',
       'If the interview is clean, the workflow advances to Approving Interview.',
       'Coverage execution failures route the ticket to Blocked Error.',
     ],
     notes: [
       'Coverage can loop more than once, but it is budgeted and explicitly tracked.',
+      'Context received: Ticket Details + User Answers + Interview Results.',
     ],
   },
   WAITING_INTERVIEW_APPROVAL: {
-    overview: 'The interview is ready for human review. You can inspect, edit, and approve the normalized interview before PRD drafting begins.',
+    overview: 'The interview is ready for human review. You can inspect, edit, and approve the normalized interview before PRD drafting begins. This is a user-input gate — no AI work proceeds until you approve.',
     steps: [
       'LoopTroop exposes the canonical interview in structured and raw-editing forms so the approved version is explicit.',
       'You can adjust answers or the raw YAML, and the UI keeps temporary unsaved draft state between view changes.',
       'Saving writes the updated interview artifact back to the ticket workspace and refreshes ticket caches.',
-      'Approval locks in the current interview results as the source material for PRD drafting.',
+      'Approval locks in the current interview results as the authoritative source material for PRD drafting.',
+      'Editing interview results after approval (if you navigate back) will trigger a cascade warning because PRD and beads data may need to be regenerated.',
     ],
     outputs: [
       'Approved interview artifact or user-edited replacement.',
@@ -232,56 +243,64 @@ const WORKFLOW_PHASE_DETAILS = {
       'Approve advances the workflow to Drafting Specs.',
       'Cancel moves the ticket to Canceled.',
     ],
+    notes: [
+      'This is the review artifact gate for the interview phase.',
+      'No context is passed to AI in this phase — it is entirely user-driven.',
+    ],
   },
   DRAFTING_PRD: {
-    overview: 'The PRD council produces competing specification drafts from the approved interview, relevant files, and ticket context.',
+    overview: 'The PRD council produces competing specification drafts from the approved interview, relevant files, and ticket context. This is a 2-part phase: Part 1 fills in any skipped interview answers with AI-generated responses, and Part 2 uses the complete answer set to generate the PRD drafts.',
     steps: [
-      'LoopTroop loads the approved interview, ticket details, and relevant-files context into the PRD drafting prompt.',
-      'Where skipped interview answers exist, supporting full-answer context can be generated so the PRD council has a consistent working basis.',
-      'Each council model independently produces a PRD candidate rather than editing a shared draft.',
-      'LoopTroop normalizes draft output, records draft metrics, and persists the draft artifacts for later voting.',
+      'Part 1 — Answering Skipped Questions: LoopTroop loads the relevant files, ticket details, and interview results. Where skipped interview answers exist, the model generates full-answer context so the PRD council has a complete working basis.',
+      'Part 2 — Generating PRD Drafts: LoopTroop loads the relevant files, ticket details, and full answers (including AI-filled responses). Each council model independently produces a PRD candidate rather than editing a shared draft.',
+      'LoopTroop normalizes draft output, records draft metrics and structured-output diagnostics, and persists the draft artifacts for later voting.',
+      'Each completed draft follows a consistent structure with requirements, acceptance criteria, edge cases, and test intent.',
     ],
     outputs: [
-      'Competing PRD drafts.',
+      'Competing PRD drafts — one from each council member.',
       'Draft metrics and structured-output diagnostics.',
-      'Optional full-answer context used to fill interview gaps during PRD generation.',
+      'Full-answer context artifact used to fill interview gaps during PRD generation (produced in Part 1).',
     ],
     transitions: [
-      'When enough valid PRD drafts are ready, the workflow advances to Voting on Specs.',
+      'When enough valid PRD drafts are ready (quorum met), the workflow advances to Voting on Specs.',
       'Draft generation failures or quorum problems route the ticket to Blocked Error.',
     ],
     notes: [
+      'This phase has 2 internal parts with different context inputs: Part 1 receives Relevant Files + Ticket Details + Interview Results; Part 2 receives Relevant Files + Ticket Details + Full Answers.',
       'The PRD phase is the first stage that converts interview intent into a formal implementation specification.',
     ],
   },
   COUNCIL_VOTING_PRD: {
-    overview: 'The council scores the PRD candidates against the PRD rubric to choose the strongest specification baseline.',
+    overview: 'The council scores the PRD candidates against the PRD rubric to choose the strongest specification baseline. Each member scores all drafts independently.',
     steps: [
       'LoopTroop anonymizes the PRD drafts and prepares the PRD voting prompt with weighted rubric categories.',
       'Council members score every draft independently and submit structured vote payloads.',
-      'Vote order, scoring, and member outcomes are persisted for later review.',
-      'The vote resolver totals scores and chooses the winning PRD draft.',
+      'Vote order, scoring, and member outcomes are persisted for later review and audit.',
+      'The vote resolver totals scores across all members and chooses the winning PRD draft.',
     ],
     outputs: [
-      'PRD vote artifacts with rubric scores.',
+      'PRD vote artifacts with per-model rubric scores.',
       'A winning PRD draft reference.',
-      'Audit data showing the selected draft and its score spread.',
+      'Audit data showing the selected draft, score spread, and presentation order.',
     ],
     transitions: [
       'Winner selection advances the workflow to Refining Specs.',
       'Voting failures or malformed vote output route the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Relevant Files + Ticket Details + Interview Results + Competing Drafts.',
+    ],
   },
   REFINING_PRD: {
-    overview: 'The winning PRD draft is upgraded into PRD Candidate v1 by pulling useful improvements from the losing drafts without losing the winning structure.',
+    overview: 'The winning PRD draft is upgraded into PRD Candidate v1 by pulling useful improvements from the losing drafts without losing the winning structure. The winning model performs this refinement.',
     steps: [
       'LoopTroop gives the winning model the winning draft plus the losing drafts so it can selectively merge stronger requirements, tests, and edge cases.',
-      'The refinement output is normalized and validated as a proper PRD document.',
+      'The refinement output is normalized and validated as a proper PRD document with consistent structure.',
       'LoopTroop persists the refined PRD candidate and any UI diff metadata that explains how the winner changed during refinement.',
       'The resulting PRD Candidate v1 becomes the baseline for coverage verification.',
     ],
     outputs: [
-      'Refined PRD candidate artifact.',
+      'Refined PRD candidate artifact (PRD Candidate v1).',
       'Optional refinement diff metadata for UI inspection.',
       'Normalized PRD content ready for coverage passes.',
     ],
@@ -289,11 +308,14 @@ const WORKFLOW_PHASE_DETAILS = {
       'A valid refined candidate advances to Coverage Check (PRD).',
       'Refinement validation failures route the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Relevant Files + Ticket Details + Full Answers + Competing Drafts.',
+    ],
   },
   VERIFYING_PRD_COVERAGE: {
-    overview: 'LoopTroop runs a versioned PRD coverage loop against the approved interview, revising the PRD until it is clean or the configured retry cap is reached.',
+    overview: 'LoopTroop runs a versioned PRD coverage loop against the approved interview, revising the PRD until it is clean or the configured retry cap is reached. Unlike the interview coverage loop, gap resolution stays inside this same phase rather than bouncing back to a separate phase.',
     steps: [
-      'The winning PRD model compares the current PRD candidate against the approved interview and returns a structured coverage result.',
+      'The winning PRD model compares the current PRD candidate against the approved interview and full answers, returning a structured coverage result.',
       'If gaps are found, LoopTroop records the attempt, asks for a revision, validates the revision, and promotes the next candidate version inside the same phase.',
       'Coverage attempts and transitions are persisted so the UI can show what changed between PRD versions and why.',
       'If the PRD becomes clean, the clean result is recorded and the current candidate becomes the approval candidate.',
@@ -311,15 +333,17 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'Unlike the interview loop, PRD gap resolution stays inside the same phase rather than bouncing back to refinement.',
+      'Context received: Interview Results + Full Answers + PRD.',
     ],
   },
   WAITING_PRD_APPROVAL: {
-    overview: 'The latest PRD candidate is ready for human review and approval before architecture planning starts.',
+    overview: 'The latest PRD candidate is ready for human review and approval before architecture planning starts. This is a user-input gate — no AI work proceeds until you approve.',
     steps: [
       'LoopTroop renders the PRD in structured and raw YAML modes so you can review it at either level.',
       'Edits are saved back into the canonical PRD file, with temporary UI draft state preserved while you work.',
       'Coverage warnings remain visible if the latest candidate advanced after reaching the retry cap rather than becoming fully clean.',
       'Approval confirms the current PRD as the authoritative input for beads drafting.',
+      'Editing the PRD after approval (if you navigate back) will trigger a cascade warning because beads data may need to be regenerated.',
     ],
     outputs: [
       'Approved PRD artifact or user-edited replacement.',
@@ -330,49 +354,59 @@ const WORKFLOW_PHASE_DETAILS = {
       'Approve advances the workflow to Architecting Beads.',
       'Cancel moves the ticket to Canceled.',
     ],
+    notes: [
+      'This is the review artifact gate for the PRD phase.',
+      'No context is passed to AI in this phase — it is entirely user-driven.',
+    ],
   },
   DRAFTING_BEADS: {
-    overview: 'The beads council decomposes the approved PRD into implementable tasks, tests, and execution guidance.',
+    overview: 'The beads council decomposes the approved PRD into implementable tasks, tests, and execution guidance. Each council member independently proposes a semantic beads blueprint — a task-level breakdown of the implementation plan.',
     steps: [
       'LoopTroop loads the approved PRD, ticket details, and relevant-files context into the beads drafting prompt.',
-      'Each council member independently proposes a semantic beads blueprint with task descriptions, acceptance criteria, and test intent.',
-      'Draft output is normalized, validated, and stored as council draft artifacts with draft metrics.',
+      'Each council member independently proposes a semantic beads blueprint with task descriptions, acceptance criteria, dependencies, and test intent.',
+      'Draft output is normalized, validated against expected schema, and stored as council draft artifacts with draft metrics (task counts, structure depth).',
       'The resulting drafts become the candidate architecture plans for council voting.',
     ],
     outputs: [
-      'Competing beads blueprint drafts.',
-      'Draft metrics for task counts and structure.',
+      'Competing beads blueprint drafts — one from each council member.',
+      'Draft metrics for task counts, structure, and dependency analysis.',
       'Council artifacts for later voting and refinement.',
     ],
     transitions: [
-      'Valid drafts advance the workflow to Voting on Architecture.',
+      'Valid drafts (quorum met) advance the workflow to Voting on Architecture.',
       'Drafting failures or quorum issues route the ticket to Blocked Error.',
+    ],
+    notes: [
+      'Context received: Relevant Files + Ticket Details + PRD.',
     ],
   },
   COUNCIL_VOTING_BEADS: {
-    overview: 'The council ranks the competing beads blueprints to pick the most credible implementation plan.',
+    overview: 'The council ranks the competing beads blueprints to pick the most credible implementation plan. Each member scores all blueprints for decomposition quality, feasibility, and testability.',
     steps: [
       'LoopTroop anonymizes the beads drafts and prepares the beads voting prompt with the architecture rubric.',
-      'Council members score every blueprint for decomposition quality, feasibility, and testability.',
-      'Votes, presentation order, and model outcomes are stored as artifacts.',
+      'Council members score every blueprint independently for decomposition quality, feasibility, and testability.',
+      'Votes, presentation order, and model outcomes are stored as artifacts for audit.',
       'The vote resolver selects the winning beads draft for final refinement.',
     ],
     outputs: [
-      'Beads voting artifacts and scorecards.',
-      'A winning semantic blueprint.',
-      'Audit history showing why the blueprint won.',
+      'Beads voting artifacts with per-model scorecards.',
+      'A winning semantic blueprint reference.',
+      'Audit history showing why the blueprint won, including score spread.',
     ],
     transitions: [
       'Winner selection advances the workflow to Finalizing Plan.',
       'Voting failures route the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Relevant Files + Ticket Details + PRD + Competing Drafts.',
+    ],
   },
   REFINING_BEADS: {
-    overview: 'The winning beads draft stays the backbone while LoopTroop pulls in stronger tasks, tests, constraints, and edge cases from the losing drafts.',
+    overview: 'The winning beads draft stays the backbone while LoopTroop pulls in stronger tasks, tests, constraints, and edge cases from the losing drafts. The refined output remains a semantic plan — execution-specific fields are added later during expansion.',
     steps: [
       'The winning model receives the winning and losing beads drafts and produces a single refined semantic blueprint.',
       'LoopTroop normalizes the refinement output, preserves attribution metadata where possible, and stores UI diff artifacts for review.',
-      'The refined semantic blueprint stays intentionally pre-execution at this point; execution-only fields are not final yet.',
+      'The refined semantic blueprint stays intentionally pre-execution at this point; execution-only fields (commands, runtime paths) are not final yet.',
       'The refined candidate is then handed to the beads coverage loop for final validation.',
     ],
     outputs: [
@@ -386,21 +420,22 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'This phase still works on the semantic plan, not the final execution-expanded bead records.',
+      'Context received: Relevant Files + Ticket Details + PRD + Competing Drafts.',
     ],
   },
   VERIFYING_BEADS_COVERAGE: {
-    overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revises it until acceptable, and then expands the final blueprint into execution-ready bead records.',
+    overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revises it until acceptable, and then expands the final blueprint into execution-ready bead records. This is a 2-part phase: Part 1 is the coverage review loop, and Part 2 is the final expansion that transforms the semantic blueprint into execution-ready bead data.',
     steps: [
-      'The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result.',
-      'If gaps remain, LoopTroop records the attempt, requests a targeted revision, validates the revision, and promotes the next blueprint version inside the same phase.',
+      'Part 1 — Coverage Review: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result.',
+      'Part 1 continued: If gaps remain, LoopTroop records the attempt, requests a targeted revision, validates the revision, and promotes the next blueprint version inside the same phase. This can repeat until clean or until the retry cap is reached.',
       'Coverage attempt history is persisted so unresolved gaps and candidate transitions stay inspectable.',
-      'After the blueprint is clean, or after the retry cap is reached, LoopTroop runs the final expansion step that adds execution-oriented bead fields and writes the runtime bead data.',
+      'Part 2 — Final Expansion: After the blueprint is clean (or the retry cap is reached), LoopTroop runs the expansion step that adds execution-oriented fields (commands, runtime paths, dependency graph) and writes the runtime bead data.',
       'The expanded output becomes the approval candidate shown in the beads approval UI.',
     ],
     outputs: [
       'Versioned beads coverage history.',
       'Latest refined semantic blueprint.',
-      'Expanded execution-ready beads data and associated artifacts.',
+      'Expanded execution-ready beads data and associated artifacts (produced in Part 2).',
     ],
     transitions: [
       'After expansion, the workflow advances to Approving Blueprint.',
@@ -408,15 +443,16 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'This is the only planning phase that ends with an explicit semantic-to-execution expansion step.',
+      'This phase has 2 internal parts with different context inputs: Part 1 receives PRD + Beads (semantic blueprint); Part 2 receives Relevant Files + Ticket Details + PRD + Semantic Blueprint (beads_draft).',
     ],
   },
   WAITING_BEADS_APPROVAL: {
-    overview: 'The final expanded beads plan is ready for human review before any coding begins.',
+    overview: 'The final expanded beads plan is ready for human review before any coding begins. This is the last user-input gate before execution starts.',
     steps: [
       'LoopTroop shows the execution-ready beads breakdown, including descriptions, dependencies, acceptance criteria, and test commands.',
       'You can review the plan in structured form or edit the raw representation before approving it.',
       'Coverage warnings remain visible if the latest candidate advanced after exhausting the coverage retry budget.',
-      'Approval confirms the execution plan that the coding loop will consume.',
+      'Approval confirms the execution plan that the coding loop will consume bead-by-bead.',
     ],
     outputs: [
       'Approved execution-ready beads plan or user-edited replacement.',
@@ -427,9 +463,13 @@ const WORKFLOW_PHASE_DETAILS = {
       'Approve advances the workflow to Initializing Agent.',
       'Cancel moves the ticket to Canceled.',
     ],
+    notes: [
+      'This is the review artifact gate for the beads phase and the last approval step before execution.',
+      'No context is passed to AI in this phase — it is entirely user-driven.',
+    ],
   },
   PRE_FLIGHT_CHECK: {
-    overview: 'LoopTroop validates that execution prerequisites are healthy before the first bead is allowed to run.',
+    overview: 'LoopTroop validates that execution prerequisites are healthy before the first bead is allowed to run. This includes checking connectivity, workspace integrity, and the bead dependency graph.',
     steps: [
       'LoopTroop loads the approved beads and runs the pre-flight doctor against the current ticket workspace.',
       'The doctor checks OpenCode connectivity, ticket directory existence, relevant-files presence, bead availability, and dependency graph integrity.',
@@ -445,18 +485,21 @@ const WORKFLOW_PHASE_DETAILS = {
       'Passing checks advance the workflow to Implementing.',
       'Any critical failure routes the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Relevant Files + Ticket Details.',
+    ],
   },
   CODING: {
-    overview: 'LoopTroop runs the approved beads one at a time, choosing the next runnable bead, executing it with the coding agent, and updating progress after each attempt.',
+    overview: 'LoopTroop runs the approved beads one at a time, choosing the next runnable bead, executing it with the coding agent, and updating progress after each attempt. Only beads whose dependencies are satisfied can be picked. The status label shows current bead progress (e.g., "Implementing (Bead 3/7)").',
     steps: [
       'LoopTroop reads the authoritative bead tracker, finds the next runnable bead based on dependency state, and marks it `in_progress`.',
-      'It assembles bead-specific context and launches the locked main implementer with the configured retry and timeout settings.',
+      'It assembles bead-specific context (bead description, acceptance criteria, iteration notes from prior attempts) and launches the locked main implementer with the configured retry and timeout settings.',
       'Execution events, prompts, session lifecycle, and bead results are streamed into the phase log while the agent works.',
-      'On success, LoopTroop marks the bead done, records the execution artifact, updates ticket progress, and broadcasts bead completion.',
-      'If more runnable beads remain, the state stays in Coding and the loop continues with the next bead. If a bead fails, the bead is marked error and execution stops for manual intervention.',
+      'On success, LoopTroop marks the bead done, records the execution artifact, updates ticket progress counters, and broadcasts bead completion.',
+      'If more runnable beads remain, the state stays in Coding and the loop continues with the next bead. If a bead fails after retries, the bead is marked error and execution stops for manual intervention.',
     ],
     outputs: [
-      'Updated bead statuses and ticket progress.',
+      'Updated bead statuses and ticket progress (visible in the UI progress ring).',
       'Per-bead execution artifacts and session logs.',
       'Incremental coding progress visible in the UI.',
     ],
@@ -467,10 +510,11 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'Only runnable beads whose dependencies are satisfied can be picked.',
+      'Context received: Current Bead Data + Bead Notes (iteration history from prior attempts).',
     ],
   },
   RUNNING_FINAL_TEST: {
-    overview: 'After all beads finish, LoopTroop asks the main implementer to generate final ticket-level test commands and then executes them on the current ticket branch state.',
+    overview: 'After all beads finish, LoopTroop asks the main implementer to generate final ticket-level test commands and then executes them on the current ticket branch state. This is a verification gate before integration.',
     steps: [
       'LoopTroop loads ticket details plus the canonical interview, PRD, and beads artifacts to give the final test generator the full implementation context.',
       'The locked main implementer generates a structured final-test plan and command list.',
@@ -486,9 +530,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'Passing final tests advances the workflow to Finalizing Code.',
       'Failed tests or final-test generation failures route the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Ticket Details + PRD + Beads Plan + Verification Tests.',
+    ],
   },
   INTEGRATING_CHANGES: {
-    overview: 'LoopTroop turns the unsquashed ticket branch state into a single reviewable candidate commit for human verification.',
+    overview: 'LoopTroop turns the unsquashed ticket branch state into a single reviewable candidate commit for human verification. This produces a clean squash commit on the ticket branch.',
     steps: [
       'LoopTroop resolves the ticket worktree and base branch, then calculates the merge base and current HEAD information.',
       'It performs a soft reset back to the merge base, stages the ticket changes, and creates a single candidate commit with LoopTroop commit metadata.',
@@ -496,7 +543,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'If no staged changes exist or git operations fail, the phase records the failure and stops before manual verification.',
     ],
     outputs: [
-      'Integration report artifact.',
+      'Integration report artifact with commit details.',
       'Candidate squash commit ready for manual inspection.',
       'Recorded pre-squash metadata for audit and troubleshooting.',
     ],
@@ -504,9 +551,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'A successful candidate commit advances the workflow to Ready for Review.',
       'Integration failure routes the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+    ],
   },
   WAITING_MANUAL_VERIFICATION: {
-    overview: 'LoopTroop stops automation and waits for a human to inspect the candidate branch state before final cleanup and closure.',
+    overview: 'LoopTroop stops automation and waits for a human to inspect the candidate branch state before final cleanup and closure. This is the last user-input gate — no AI work happens until you verify.',
     steps: [
       'The workspace shows the candidate branch or commit information generated during integration.',
       'No further AI execution happens automatically in this state; the system is waiting for an explicit human verification decision.',
@@ -523,17 +573,20 @@ const WORKFLOW_PHASE_DETAILS = {
       'Cancel moves the ticket to Canceled.',
       'If a new blocking system error is recorded here, the workflow can still route to Blocked Error.',
     ],
+    notes: [
+      'Context received: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+    ],
   },
   CLEANING_ENV: {
     overview: 'LoopTroop removes temporary runtime resources created during the ticket run while preserving the artifacts needed for audit, review, and restart history.',
     steps: [
       'LoopTroop runs the cleanup routine against the ticket workspace and runtime directories.',
       'Transient runtime data such as lock files, session folders, stream buffers, temp files, and runtime state are removed when present.',
-      'Planning artifacts, the execution log, and the beads data are intentionally preserved instead of being deleted.',
+      'Planning artifacts (interview, PRD, beads), the execution log, and the beads data are intentionally preserved instead of being deleted.',
       'The cleanup report is persisted so the UI can show what was removed, preserved, or failed.',
     ],
     outputs: [
-      'Cleanup report artifact.',
+      'Cleanup report artifact detailing what was removed and preserved.',
       'Removed transient runtime paths.',
       'Preserved planning and audit artifacts.',
     ],
@@ -541,9 +594,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'Successful cleanup advances the workflow to Done.',
       'Cleanup failures route the ticket to Blocked Error.',
     ],
+    notes: [
+      'Context received: Ticket Details + Beads Plan.',
+    ],
   },
   COMPLETED: {
-    overview: 'The ticket has finished its full workflow and is now closed as a successful terminal state.',
+    overview: 'The ticket has finished its full workflow and is now closed as a successful terminal state. All lifecycle artifacts remain accessible for review.',
     steps: [
       'LoopTroop marks the ticket status as completed after cleanup finishes.',
       'The workspace becomes read-only from a workflow perspective, with lifecycle artifacts available for review.',
@@ -551,15 +607,18 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     outputs: [
       'Terminal completed status.',
-      'Full lifecycle history for review.',
+      'Full lifecycle history for review (interview, PRD, beads, test reports, integration report).',
       'No further workflow actions except external inspection.',
     ],
     transitions: [
       'This is a terminal state with no forward workflow transitions.',
     ],
+    notes: [
+      'Context received: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+    ],
   },
   CANCELED: {
-    overview: 'The ticket was stopped by user action before normal completion and now sits in a terminal canceled state.',
+    overview: 'The ticket was stopped by user action before normal completion and now sits in a terminal canceled state. History up to the cancellation point is preserved.',
     steps: [
       'LoopTroop records the cancellation and closes the active workflow run.',
       'The UI keeps the completed portion of the lifecycle reviewable up to the stored review cutoff status.',
@@ -573,9 +632,12 @@ const WORKFLOW_PHASE_DETAILS = {
     transitions: [
       'This is a terminal state with no forward workflow transitions.',
     ],
+    notes: [
+      'Context received: Ticket Details only.',
+    ],
   },
   BLOCKED_ERROR: {
-    overview: 'A blocking failure interrupted the workflow and LoopTroop is waiting for a human decision before it can continue.',
+    overview: 'A blocking failure interrupted the workflow and LoopTroop is waiting for a human decision before it can continue. The error is tied to the phase where the failure happened, and the previous status is preserved so retry knows where to return.',
     steps: [
       'LoopTroop records the error message, error codes, occurrence timing, and the status where the failure happened.',
       'The blocked error becomes the active workflow state while preserving the previous status so retry knows where to return.',
@@ -593,6 +655,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'Past error occurrences remain reviewable even after the ticket moves on or is canceled.',
+      'Context received: Current Bead Data (if failed during coding) + Error Context.',
     ],
   },
 } satisfies Record<string, WorkflowPhaseDetails>
