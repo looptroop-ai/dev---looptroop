@@ -575,6 +575,36 @@ function normalizeCoverageGapResolutions(value: unknown): CoverageGapResolutionD
   })
 }
 
+function buildRefinementCoveragePayload(
+  coverageArtifact: CoverageArtifactData | null,
+): Partial<CoverageArtifactData> {
+  if (!coverageArtifact) return {}
+
+  return {
+    response: coverageArtifact.response,
+    hasGaps: coverageArtifact.hasGaps,
+    normalizedContent: coverageArtifact.normalizedContent,
+    coverageRunNumber: coverageArtifact.coverageRunNumber,
+    maxCoveragePasses: coverageArtifact.maxCoveragePasses,
+    limitReached: coverageArtifact.limitReached,
+    terminationReason: coverageArtifact.terminationReason,
+    followUpBudgetPercent: coverageArtifact.followUpBudgetPercent,
+    followUpBudgetTotal: coverageArtifact.followUpBudgetTotal,
+    followUpBudgetUsed: coverageArtifact.followUpBudgetUsed,
+    followUpBudgetRemaining: coverageArtifact.followUpBudgetRemaining,
+    status: coverageArtifact.status,
+    summary: coverageArtifact.summary,
+    gaps: coverageArtifact.gaps,
+    auditNotes: coverageArtifact.auditNotes,
+    finalCandidateVersion: coverageArtifact.finalCandidateVersion,
+    attempts: coverageArtifact.attempts,
+    transitions: coverageArtifact.transitions,
+    hasRemainingGaps: coverageArtifact.hasRemainingGaps,
+    remainingGaps: coverageArtifact.remainingGaps,
+    parsed: coverageArtifact.parsed,
+  }
+}
+
 export function parseRefinementArtifact(content: string): RefinementDiffArtifactData | null {
   const parsed = tryParseStructuredContent(content)
   if (!isRecord(parsed)) return null
@@ -893,6 +923,7 @@ export function buildFinalRefinementArtifactContent(
   const coverageRecord = isRecord(coverageInput) ? coverageInput : null
   const refinedCompanion = parseArtifactCompanionPayload(refinedCompanionContent)
   const sourceArtifact = latestRevisionArtifact ?? refinedArtifact
+  const coveragePayload = buildRefinementCoveragePayload(coverageArtifact)
 
   const nextRefinedContent = latestCoverageTransition?.toContent
     ?? latestRevisionArtifact?.refinedContent
@@ -907,6 +938,7 @@ export function buildFinalRefinementArtifactContent(
   // earlier winner-to-refined diff when no coverage-driven revision exists yet.
   if (coverageRecord && !hasCoverageTransitions && !latestRevisionArtifact) {
     const payload: RefinementDiffArtifactData & CoverageInputData = {
+      ...coveragePayload,
       ...(coverageRecord as CoverageInputData),
       winnerId: sourceArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
       refinedContent: nextRefinedContent,
@@ -919,6 +951,7 @@ export function buildFinalRefinementArtifactContent(
   }
 
   const payload: RefinementDiffArtifactData & CoverageInputData = {
+    ...coveragePayload,
     ...(coverageRecord ? coverageRecord as CoverageInputData : {}),
     winnerId: sourceArtifact?.winnerId ?? readWinnerIdFromArtifactContent(winnerArtifactContent),
     refinedContent: nextRefinedContent,
@@ -936,7 +969,9 @@ export function buildFinalRefinementArtifactContent(
           uiRefinementDiff: sourceArtifact?.uiRefinementDiff ?? normalizeUiRefinementDiff(uiDiffContent),
         }),
     draftMetrics: sourceArtifact?.draftMetrics ?? normalizeRefinementDraftMetrics(refinedCompanion?.draftMetrics),
-    structuredOutput: sourceArtifact?.structuredOutput ?? normalizeArtifactStructuredOutput(refinedCompanion?.structuredOutput),
+    structuredOutput: sourceArtifact?.structuredOutput
+      ?? normalizeArtifactStructuredOutput(refinedCompanion?.structuredOutput)
+      ?? coverageArtifact?.structuredOutput,
     candidateVersion: coverageArtifact?.finalCandidateVersion
       ?? latestRevisionArtifact?.candidateVersion
       ?? (typeof coverageRecord?.candidateVersion === 'number'

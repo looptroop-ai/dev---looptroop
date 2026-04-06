@@ -1258,6 +1258,7 @@ function FinalPrdDraftView({
   const [activeTab, setActiveTab] = useState<'final' | 'diff' | 'raw'>(defaultTab)
 
   const parsed = parseRefinementArtifact(content)
+  const coverageResult = parseCoverageArtifact(content)
   if (!parsed) return <RawContentWithCopy content={content} />
 
   const refinedContent = parsed?.refinedContent ?? ''
@@ -1305,6 +1306,7 @@ function FinalPrdDraftView({
       ) : currentTab === 'final'
         ? (
           <div className="space-y-3">
+            <CleanCoverageCallout coverageResult={coverageResult} phase={phase} fallbackCandidateVersion={parsed?.candidateVersion} />
             {notice}
             {isBeads ? <BeadsDraftView content={refinedContent} /> : <PrdDraftView content={refinedContent} />}
           </div>
@@ -2724,6 +2726,33 @@ function buildCoverageSummaryText(coverageResult: CoverageArtifactData, phase?: 
     : `The ${reviewedArtifact} covers the ${reviewedAgainst}. No gaps were ${isVerifyPrdCoverage ? 'found in this check' : 'flagged in this pass'}.`
 }
 
+function CleanCoverageCallout({
+  coverageResult,
+  phase,
+  fallbackCandidateVersion,
+}: {
+  coverageResult: CoverageArtifactData | null
+  phase?: string
+  fallbackCandidateVersion?: number
+}) {
+  const coverageStatus = coverageResult?.status ?? coverageResult?.parsed?.status
+  if (coverageStatus !== 'clean' || !coverageResult) return null
+
+  const finalCandidateVersion = coverageResult.finalCandidateVersion ?? fallbackCandidateVersion
+  const summaryText = buildCoverageSummaryText(
+    finalCandidateVersion && finalCandidateVersion !== coverageResult.finalCandidateVersion
+      ? { ...coverageResult, finalCandidateVersion }
+      : coverageResult,
+    phase,
+  )
+
+  return (
+    <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200">
+      {summaryText}
+    </div>
+  )
+}
+
 function CoverageResultView({ content, header, phase }: { content: string; header?: React.ReactNode; phase?: string }) {
   const coverageResult = parseCoverageArtifact(content)
   if (!coverageResult) {
@@ -3171,6 +3200,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   if (parsedCoverageInput && artifactId === 'refined-beads') {
     const diffEntries = buildRefinementDiffEntries(content, 'beads')
     const parsedRefinement = parseRefinementArtifact(content)
+    const coverageResult = parseCoverageArtifact(content)
     const hasChanges = diffEntries.length > 0 || Boolean(parsedRefinement?.winnerDraftContent) || Boolean(parsedRefinement?.coverageBaselineContent)
     const defaultBeadsTab = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
       ? 'sections'
@@ -3186,6 +3216,7 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
         notice={<ArtifactProcessingNotice structuredOutput={parsedRefinement?.structuredOutput} kind="diff" />}
         sectionsContent={(
           <div className="space-y-6">
+            <CleanCoverageCallout coverageResult={coverageResult} phase={phase} fallbackCandidateVersion={parsedRefinement?.candidateVersion} />
             {parsedCoverageInput.interview && (
               <div>
                 <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Approved Interview</div>

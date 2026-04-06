@@ -1114,9 +1114,12 @@ describe('PhaseArtifactsPanel', () => {
       content: JSON.stringify({
         winnerId: 'openai/gpt-5.2',
         hasGaps: false,
+        status: 'clean',
+        summary: 'No coverage gaps found in PRD Candidate v1.',
         coverageRunNumber: 1,
         maxCoveragePasses: 2,
         limitReached: false,
+        finalCandidateVersion: 1,
       }),
     })
 
@@ -1130,6 +1133,7 @@ describe('PhaseArtifactsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /PRD Candidate v1/i }))
 
+    expect(screen.getByText('No coverage gaps found in PRD Candidate v1.')).toBeInTheDocument()
     expect(screen.getByText('Initial PRD candidate')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
     expect(screen.queryByText('LoopTroop adjusted this diff.')).not.toBeInTheDocument()
@@ -1739,6 +1743,7 @@ describe('PhaseArtifactsPanel', () => {
       phase: 'VERIFYING_BEADS_COVERAGE',
       artifactType: 'beads_coverage_input',
       content: JSON.stringify({
+        candidateVersion: 1,
         beads: buildBeadsDocumentContent([
           { id: 'bead-1', title: 'Current beads candidate' },
         ]),
@@ -1748,16 +1753,32 @@ describe('PhaseArtifactsPanel', () => {
       }),
     })
 
+    const coverageArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        hasGaps: false,
+        status: 'clean',
+        summary: 'No coverage gaps found in Implementation Plan v1.',
+        coverageRunNumber: 1,
+        maxCoveragePasses: 2,
+        limitReached: false,
+        finalCandidateVersion: 1,
+      }),
+    })
+
     renderWithProviders(
       <PhaseArtifactsPanel
         phase={phase}
         isCompleted={false}
-        preloadedArtifacts={[refinedArtifact, coverageInputArtifact]}
+        preloadedArtifacts={[refinedArtifact, coverageInputArtifact, coverageArtifact]}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Implementation Plan v1/i }))
 
+    expect(screen.getByText('No coverage gaps found in Implementation Plan v1.')).toBeInTheDocument()
     expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
     expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
