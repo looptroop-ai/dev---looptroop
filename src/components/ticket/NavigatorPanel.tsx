@@ -37,6 +37,7 @@ export function NavigatorPanel({
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex-1 overflow-hidden">
           <PhaseTimeline
+            ticket={ticket}
             currentStatus={currentStatus}
             reviewCutoffStatus={reviewCutoffStatus}
             previousStatus={previousStatus}

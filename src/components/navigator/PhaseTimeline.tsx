@@ -6,6 +6,7 @@ import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STATUS_DESCRIPTIONS, getStatusUserLabel } from '@/lib/workflowMeta'
 import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
+import type { Ticket } from '@/hooks/useTickets'
 
 interface PhaseTimelineProps {
   currentStatus: string
@@ -15,6 +16,7 @@ interface PhaseTimelineProps {
   selectedPhase?: string | null
   showBlockedErrorPhase?: boolean
   footer?: ReactNode
+  ticket?: Ticket
 }
 
 type PhaseIndicatorStatus = 'completed' | 'active' | 'pending' | 'error' | 'completed-final' | 'canceled'
@@ -111,6 +113,7 @@ export function PhaseTimeline({
   selectedPhase,
   showBlockedErrorPhase = currentStatus === 'BLOCKED_ERROR',
   footer,
+  ticket,
 }: PhaseTimelineProps) {
   const { groups, phases } = useWorkflowMeta()
   const visiblePhases = useMemo(
@@ -186,7 +189,10 @@ export function PhaseTimeline({
                     const isCurrent = phase.id === currentStatus
                     const isSelectable = !isFuture || isCurrent
 
-                    const phaseLabel = getStatusUserLabel(phase.id)
+                    const phaseLabel = getStatusUserLabel(phase.id, {
+                      currentBead: ticket?.runtime?.currentBead ?? ticket?.currentBead,
+                      totalBeads: ticket?.runtime?.totalBeads ?? ticket?.totalBeads,
+                    })
 
                     return (
                       <Tooltip key={phase.id}>
