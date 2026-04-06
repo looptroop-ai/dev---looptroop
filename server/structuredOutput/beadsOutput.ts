@@ -184,8 +184,12 @@ export function normalizeBeadSubsetYamlOutput(
   let lastErrorCause: unknown = null
 
   for (const candidate of candidates) {
+    const candidateWarnings: string[] = []
+
     try {
-      const rawParsed = parseYamlOrJsonCandidate(candidate)
+      const rawParsed = parseYamlOrJsonCandidate(candidate, {
+        repairWarnings: candidateWarnings,
+      })
 
       // Extract changes before unwrapping (unwrapping would lose the changes key)
       let rawChanges: unknown
@@ -196,7 +200,7 @@ export function normalizeBeadSubsetYamlOutput(
         }
       }
       const parsedRefinementChanges = parseRefinementChanges(rawChanges, losingDraftMeta)
-      repairWarnings.push(...parsedRefinementChanges.repairWarnings)
+      candidateWarnings.push(...parsedRefinementChanges.repairWarnings)
 
       const parsed = maybeUnwrapRecord(rawParsed, [
         'beads',
@@ -218,7 +222,7 @@ export function normalizeBeadSubsetYamlOutput(
         throw new Error('Bead subset output is empty')
       }
 
-      const subsets = entries.map((entry, index) => normalizeBeadSubsetEntry(entry, index, repairWarnings))
+      const subsets = entries.map((entry, index) => normalizeBeadSubsetEntry(entry, index, candidateWarnings))
 
       // Detect and repair duplicate bead IDs
       const seenIds = new Set<string>()
@@ -228,7 +232,7 @@ export function normalizeBeadSubsetYamlOutput(
           let counter = 2
           while (seenIds.has(`${originalId}-${counter}`)) counter++
           subset.id = `${originalId}-${counter}`
-          repairWarnings.push(`Renumbered duplicate bead id "${originalId}" to "${subset.id}".`)
+          candidateWarnings.push(`Renumbered duplicate bead id "${originalId}" to "${subset.id}".`)
         }
         seenIds.add(subset.id)
       }
@@ -236,7 +240,7 @@ export function normalizeBeadSubsetYamlOutput(
       // Warn about beads with empty prdRefs
       for (const subset of subsets) {
         if (subset.prdRefs.length === 0) {
-          repairWarnings.push(`Bead "${subset.id}" has no PRD references (prdRefs is empty).`)
+          candidateWarnings.push(`Bead "${subset.id}" has no PRD references (prdRefs is empty).`)
         }
         if (subset.contextGuidance.patterns.length === 0 || subset.contextGuidance.anti_patterns.length === 0) {
           throw new Error(`Bead "${subset.id}" contextGuidance must include both patterns and anti_patterns`)
@@ -247,17 +251,18 @@ export function normalizeBeadSubsetYamlOutput(
       const valueWithChanges = parsedRefinementChanges.changes.length > 0
         ? Object.assign(subsets, { changes: parsedRefinementChanges.changes })
         : subsets
-      appendStructuredCandidateRecoveryWarning(repairWarnings, rawContent, candidate)
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate)
       return {
         ok: true,
         value: valueWithChanges,
         normalizedContent,
-        repairApplied: candidate !== rawContent.trim() || repairWarnings.length > 0,
-        repairWarnings,
+        repairApplied: candidate !== rawContent.trim() || candidateWarnings.length > 0,
+        repairWarnings: candidateWarnings,
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
       lastErrorCause = error
+      repairWarnings.splice(0, repairWarnings.length, ...candidateWarnings)
     }
   }
 

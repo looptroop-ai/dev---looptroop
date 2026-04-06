@@ -1838,6 +1838,36 @@ describe.concurrent('structured output normalization', () => {
     expect(result.normalizedContent).toContain('beads:')
   })
 
+  it('accepts bead subset YAML after repairing malformed quoted scalar items', () => {
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Tighten theme typing',
+      '    prdRefs:',
+      '      - EPIC-1 / US-1',
+      '    description: Keep UIState theme values typed and explicit.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Keep UIState as the source of truth for theme values.',
+      '      anti_patterns:',
+      '        - Do not widen theme to string.',
+      '    acceptanceCriteria:',
+      "      - 'pink' is accepted as a valid theme value in UIState.",
+      '    tests:',
+      '      - Theme reducer tests cover the pink path.',
+      '    testCommands:',
+      '      - npm run test:server',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Repaired improperly quoted YAML scalar value.')
+    expect(result.value[0]?.acceptanceCriteria).toEqual([
+      '\'pink\' is accepted as a valid theme value in UIState.',
+    ])
+  })
+
   it('canonicalizes object-form bead context guidance into the runtime string format', () => {
     const result = normalizeBeadSubsetYamlOutput([
       'beads:',

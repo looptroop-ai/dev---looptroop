@@ -661,6 +661,116 @@ function splitYamlValueAndComment(value: string): { value: string; comment: stri
   return { value: value.trimEnd(), comment: '' }
 }
 
+function findLeadingQuotedScalarFragmentEnd(value: string): number | null {
+  const openingQuote = value[0]
+  if (openingQuote !== '\'' && openingQuote !== '"') return null
+
+  for (let index = 1; index < value.length; index += 1) {
+    const char = value[index]!
+
+    if (openingQuote === '\'') {
+      if (char !== '\'') continue
+      if (value[index + 1] === '\'') {
+        index += 1
+        continue
+      }
+      return index
+    }
+
+    if (char !== '"') continue
+
+    let backslashes = 0
+    for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+      backslashes += 1
+    }
+    if (backslashes % 2 === 0) {
+      return index
+    }
+  }
+
+  return null
+}
+
+function repairLeadingQuotedScalarFragment(value: string): string | null {
+  if (!value.startsWith('"') && !value.startsWith('\'')) return null
+
+  const { value: scalarValue, comment } = splitYamlValueAndComment(value)
+  const fragmentEnd = findLeadingQuotedScalarFragmentEnd(scalarValue)
+  if (fragmentEnd === null) return null
+
+  const trailingText = scalarValue.slice(fragmentEnd + 1)
+  if (!/^\s+\S/.test(trailingText)) return null
+
+  return `${JSON.stringify(scalarValue)}${comment ? ` ${comment}` : ''}`
+}
+
+/**
+ * Repair YAML scalars that start with a closed quoted fragment and then
+ * continue as plain text on the same line.
+ *
+ * Models sometimes emit values like `- 'pink' is accepted...` or
+ * `description: "pink" remains supported...`. YAML rejects these because a
+ * quoted scalar cannot resume as plain text after the closing quote. This
+ * repair wraps the full visible scalar in double quotes while preserving any
+ * trailing comment.
+ */
+export function repairYamlQuotedScalarFragments(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+    if (insideBlockScalar) {
+      if (indent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    const mappingMatch = line.match(/^(\s*(?:-\s+)?[A-Za-z_][\w_-]*\s*:\s+)(.+)$/)
+    if (mappingMatch) {
+      const prefix = mappingMatch[1]!
+      const repairedValue = repairLeadingQuotedScalarFragment(mappingMatch[2]!)
+      if (repairedValue !== null) {
+        result.push(`${prefix}${repairedValue}`)
+        continue
+      }
+    }
+
+    const listScalarMatch = line.match(/^(\s*-\s+)(.+)$/)
+    if (listScalarMatch && !/^[A-Za-z_][\w_-]*\s*:/.test(listScalarMatch[2]!)) {
+      const prefix = listScalarMatch[1]!
+      const repairedValue = repairLeadingQuotedScalarFragment(listScalarMatch[2]!)
+      if (repairedValue !== null) {
+        result.push(`${prefix}${repairedValue}`)
+        continue
+      }
+    }
+
+    if (BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      insideBlockScalar = true
+      blockScalarBaseIndent = indent
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}
+
 /**
  * Quote pseudo-type union scalars so YAML treats them as plain strings.
  *

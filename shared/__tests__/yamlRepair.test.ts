@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe.concurrent('repairYamlListDashSpace', () => {
   it.each([
@@ -364,6 +364,51 @@ describe('repairYamlFreeTextScalars', () => {
     expect(parsed.answer.free_text).toContain('No human approval checkpoint.')
     expect(parsed.answer.free_text).toContain('user\'s non-goal of "Add human approval step"')
     expect(parsed.answer.answered_by).toBe('ai_skip')
+  })
+})
+
+describe('repairYamlQuotedScalarFragments', () => {
+  it('repairs list scalars with a leading quoted fragment and trailing text', () => {
+    const input = [
+      'acceptanceCriteria:',
+      "  - 'pink' is accepted as a valid theme value in UIState.",
+    ].join('\n')
+
+    const repaired = repairYamlQuotedScalarFragments(input)
+    expect(repaired).toBe([
+      'acceptanceCriteria:',
+      '  - "\'pink\' is accepted as a valid theme value in UIState."',
+    ].join('\n'))
+
+    const parsed = jsYaml.load(repaired) as { acceptanceCriteria: string[] }
+    expect(parsed.acceptanceCriteria).toEqual([
+      '\'pink\' is accepted as a valid theme value in UIState.',
+    ])
+  })
+
+  it('repairs mapping values with the same malformed quoted-fragment pattern', () => {
+    const input = 'description: "pink" remains a supported theme in UIState.'
+    const repaired = repairYamlQuotedScalarFragments(input)
+
+    expect(repaired).toBe('description: "\\"pink\\" remains a supported theme in UIState."')
+
+    const parsed = jsYaml.load(repaired) as { description: string }
+    expect(parsed.description).toBe('"pink" remains a supported theme in UIState.')
+  })
+
+  it('preserves inner quotes and trailing comments when wrapping the full scalar', () => {
+    const input = 'description: "pink" remains the "marketing" label in UIState. # preserve comment'
+    const repaired = repairYamlQuotedScalarFragments(input)
+
+    expect(repaired).toBe('description: "\\"pink\\" remains the \\"marketing\\" label in UIState." # preserve comment')
+
+    const parsed = jsYaml.load(repaired) as { description: string }
+    expect(parsed.description).toBe('"pink" remains the "marketing" label in UIState.')
+  })
+
+  it('leaves already-valid fully quoted scalars unchanged', () => {
+    const input = 'description: "\'pink\' is accepted as a valid theme value in UIState."'
+    expect(repairYamlQuotedScalarFragments(input)).toBe(input)
   })
 })
 

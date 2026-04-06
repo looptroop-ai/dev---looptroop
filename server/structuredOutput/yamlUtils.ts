@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -131,6 +131,7 @@ const NESTED_MAPPING_CHILDREN_WARNING = 'Repaired inconsistent YAML indentation 
 const XML_STYLE_TAGS_WARNING = 'Stripped XML-style tags from the payload before parsing.'
 const CANDIDATE_RECOVERY_WARNING = 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.'
 const WRAPPER_KEY_WARNING = 'Removed wrapper key from top level.'
+const QUOTED_SCALAR_WARNING = 'Repaired improperly quoted YAML scalar value.'
 
 function appendRepairWarningOnce(repairWarnings: string[] | undefined, warning: string) {
   if (!repairWarnings?.includes(warning)) {
@@ -606,6 +607,21 @@ export function parseYamlOrJsonCandidate(
             // Try combined: unclosed-quote + indentation repair
             try {
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(quoteRepaired)), appliedPreParseRepairs)
+            } catch { /* fall through */ }
+          }
+        }
+
+        const quotedScalarRepaired = repairYamlQuotedScalarFragments(base)
+        if (quotedScalarRepaired !== base) {
+          try {
+            const parsed = jsYaml.load(quotedScalarRepaired)
+            appendRepairWarningOnce(options?.repairWarnings, QUOTED_SCALAR_WARNING)
+            return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
+          } catch {
+            try {
+              const parsed = jsYaml.load(repairYamlIndentation(quotedScalarRepaired))
+              appendRepairWarningOnce(options?.repairWarnings, QUOTED_SCALAR_WARNING)
+              return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
