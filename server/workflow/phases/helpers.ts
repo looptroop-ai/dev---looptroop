@@ -826,6 +826,7 @@ export function buildCoveragePromptConfiguration(input: {
   followUpBudgetUsed?: number
   followUpBudgetRemaining?: number
 }): PromptPart {
+  const remainingCoverageRuns = Math.max(input.maxCoveragePasses - input.coverageRunNumber, 0)
   const lines = [
     '## Coverage Configuration',
     `coverage_domain: ${input.phase}`,
@@ -834,7 +835,9 @@ export function buildCoveragePromptConfiguration(input: {
     `is_final_coverage_run: ${input.isFinalAllowedRun ? 'true' : 'false'}`,
     input.isFinalAllowedRun
       ? 'This is the final allowed coverage run. If gaps remain, report them clearly and do not assume another retry or refinement loop exists.'
-      : 'At most one more coverage run may occur after this one if real gaps remain.',
+      : remainingCoverageRuns === 1
+        ? 'At most one more coverage run may occur after this one if real gaps remain.'
+        : `Up to ${remainingCoverageRuns} more coverage runs may occur after this one if real gaps remain.`,
   ]
 
   if (input.phase === 'interview') {

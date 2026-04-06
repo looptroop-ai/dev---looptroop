@@ -267,7 +267,7 @@ function persistVersionedCoverageArtifact(params: {
 
 function getVersionedCoveragePassLimit(phase: 'interview' | 'prd' | 'beads', configuredMax: number): number {
   if (phase === 'interview') return configuredMax
-  return Math.min(Math.max(configuredMax, 1), 3)
+  return 3
 }
 
 function buildCoverageAttemptSummary(params: {
@@ -3145,6 +3145,7 @@ export async function handleMockCoverage(
   const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const stateLabel = getCoverageStateLabel(phase)
   const coverageSettings = resolveCoverageRuntimeSettings(context)
+  const effectiveMaxCoveragePasses = getVersionedCoveragePassLimit(phase, coverageSettings.maxCoveragePasses)
   const coverageRunNumber = countPhaseArtifacts(ticketId, `${phase}_coverage`, stateLabel) + 1
   const interviewSnapshot = phase === 'interview'
     ? readInterviewSessionSnapshotArtifact(ticketId)
@@ -3175,7 +3176,7 @@ export async function handleMockCoverage(
       winnerId,
       hasGaps: false,
       coverageRunNumber,
-      maxCoveragePasses: coverageSettings.maxCoveragePasses,
+      maxCoveragePasses: effectiveMaxCoveragePasses,
       limitReached: false,
       terminationReason: 'clean',
     }),

@@ -182,7 +182,11 @@ function buildValidRefinementOutput(): string {
   ].join('\n')
 }
 
-function buildExpansionRecords() {
+function buildExpansionRecords(options: {
+  secondBeadId?: string
+  secondBeadTitle?: string
+  secondBeadDescription?: string
+} = {}) {
   return [
     {
       id: 'proj-1-validate-refinement-attribution',
@@ -202,15 +206,15 @@ function buildExpansionRecords() {
       targetFiles: ['server/workflow/phases/beadsPhase.ts'],
     },
     {
-      id: 'proj-1-render-coverage-warning-state',
-      title: 'Render coverage warning state',
+      id: options.secondBeadId ?? 'proj-1-render-coverage-warning-state',
+      title: options.secondBeadTitle ?? 'Render coverage warning state',
       prdRefs: ['EPIC-1 / US-2'],
-      description: 'Surface unresolved coverage gaps during beads approval without blocking manual review.',
+      description: options.secondBeadDescription ?? 'Surface unresolved coverage gaps during beads approval without blocking manual review.',
       contextGuidance: {
         patterns: ['Keep approval warnings collapsible and version-aware.'],
         anti_patterns: ['Do not hide unresolved gaps behind raw-only output.'],
       },
-      acceptanceCriteria: ['Approval shows unresolved coverage warning details.'],
+      acceptanceCriteria: [`${options.secondBeadTitle ?? 'Render coverage warning state'} shows unresolved coverage warning details.`],
       tests: ['Approval tests render the remaining coverage gaps warning.'],
       testCommands: ['npm test -- ApprovalView'],
       issueType: 'task',
@@ -221,50 +225,24 @@ function buildExpansionRecords() {
   ]
 }
 
-function buildValidExpansionOutput(): string {
-  return buildExpansionRecords().map((bead) => JSON.stringify(bead)).join('\n')
+function buildValidExpansionOutput(options?: {
+  secondBeadId?: string
+  secondBeadTitle?: string
+  secondBeadDescription?: string
+}): string {
+  return buildExpansionRecords(options).map((bead) => JSON.stringify(bead)).join('\n')
 }
 
-function buildInitialBlueprintExpansionOutput(): string {
-  return [
-    {
-      id: 'proj-1-validate-refinement-attribution',
-      title: 'Validate refinement attribution',
-      prdRefs: ['EPIC-1 / US-1'],
-      description: 'Preserve explicit inspiration in refinement diffs.',
-      contextGuidance: {
-        patterns: ['Keep repairs deterministic.'],
-        anti_patterns: ['Do not widen the repair scope unnecessarily.'],
-      },
-      acceptanceCriteria: ['Validate attribution survives refinement'],
-      tests: ['Shared tests cover refinement attribution'],
-      testCommands: ['npm run test:server'],
-      issueType: 'task',
-      labels: ['ticket:PROJ-1', 'story:US-1'],
-      dependencies: { blocked_by: [] },
-      targetFiles: ['server/workflow/phases/beadsPhase.ts'],
-    },
-    {
-      id: 'proj-1-surface-retry-metadata',
-      title: 'Surface retry metadata',
-      prdRefs: ['EPIC-1 / US-2'],
-      description: 'Surface refinement retry metadata in the diff viewer.',
-      contextGuidance: {
-        patterns: ['Keep attribution deterministic.'],
-        anti_patterns: ['Do not remove inspiration metadata.'],
-      },
-      acceptanceCriteria: ['Surface retry metadata is covered in approval and review flows'],
-      tests: ['UI tests show the correct inspiration tooltip'],
-      testCommands: ['npm run test:server'],
-      issueType: 'task',
-      labels: ['ticket:PROJ-1', 'story:US-2'],
-      dependencies: { blocked_by: ['proj-1-validate-refinement-attribution'] },
-      targetFiles: ['src/components/workspace/ArtifactContentViewer.tsx'],
-    },
-  ].map((bead) => JSON.stringify(bead)).join('\n')
-}
-
-function buildValidBeadsCoverageRevisionOutput(coverageGap: string): string {
+function buildValidBeadsCoverageRevisionOutput(
+  coverageGap: string,
+  options: {
+    secondBeadTitle?: string
+    secondBeadDescription?: string
+    affectedItemLabel?: string
+    rationale?: string
+  } = {},
+): string {
+  const secondBeadTitle = options.secondBeadTitle ?? 'Render coverage warning state'
   return jsYaml.dump({
     result: {
       beads: [
@@ -283,9 +261,9 @@ function buildValidBeadsCoverageRevisionOutput(coverageGap: string): string {
         },
         {
           id: 'bead-2',
-          title: 'Render coverage warning state',
+          title: secondBeadTitle,
           prdRefs: ['EPIC-1 / US-2'],
-          description: 'Surface unresolved coverage gaps during beads approval without blocking manual review.',
+          description: options.secondBeadDescription ?? 'Surface unresolved coverage gaps during beads approval without blocking manual review.',
           contextGuidance: {
             patterns: ['Keep approval warnings collapsible and version-aware.'],
             anti_patterns: ['Do not hide unresolved gaps behind raw-only output.'],
@@ -299,12 +277,12 @@ function buildValidBeadsCoverageRevisionOutput(coverageGap: string): string {
         {
           gap: coverageGap,
           action: 'updated_beads',
-          rationale: 'Added a semantic bead that surfaces unresolved coverage gaps during approval.',
+          rationale: options.rationale ?? 'Added a semantic bead that surfaces unresolved coverage gaps during approval.',
           affected_items: [
             {
               item_type: 'bead',
               id: 'bead-2',
-              label: 'Render coverage warning state',
+              label: options.affectedItemLabel ?? secondBeadTitle,
             },
           ],
         },
@@ -586,17 +564,16 @@ describe('handleBeadsRefine', () => {
     expect(storedTicket?.runtime.percentComplete).toBe(0)
   })
 
-  it('still runs the terminal bead expansion before approval when coverage ends with unresolved gaps', async () => {
+  it('supports a second beads coverage revision before a final clean v3 pass', async () => {
     const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
-      title: 'Expand final beads even when coverage caps out',
-      description: 'Coverage warnings should survive into approval, but the final expanded beads must still exist.',
+      title: 'Revise beads to a final v3 candidate during coverage',
+      description: 'Persist a second semantic coverage revision before the clean terminal expansion.',
     })
     const sendEvent = vi.fn()
     const winnerId = TEST.councilMembers[0]
-    const coverageGap = 'Missing a bead that surfaces unresolved coverage warnings during approval.'
+    const coverageGap = 'Missing a final beads warning state that stays version-aware during approval.'
     const initialBlueprint = buildBeadSubsetContent({ includeSecondBead: true })
 
-    context.lockedMaxCoveragePasses = 1
     writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
 
     phaseResults.delete(`${ticket.id}:beads`)
@@ -616,7 +593,215 @@ describe('handleBeadsRefine', () => {
 
     runOpenCodePromptMock
       .mockResolvedValueOnce({
-        session: { id: 'beads-coverage-final-run', projectPath: paths.worktreePath },
+        session: { id: 'beads-coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-2', projectPath: paths.worktreePath },
+        response: buildValidBeadsCoverageRevisionOutput(coverageGap),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-3', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-4', projectPath: paths.worktreePath },
+        response: buildValidBeadsCoverageRevisionOutput(coverageGap, {
+          secondBeadTitle: 'Render final coverage warning state',
+          secondBeadDescription: 'Surface final unresolved coverage gaps during beads approval without blocking manual review.',
+          affectedItemLabel: 'Render final coverage warning state',
+          rationale: 'Updated the semantic bead so the final approval warning stays version-aware.',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-5', projectPath: paths.worktreePath },
+        response: [
+          'status: clean',
+          'gaps: []',
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-expand-session-6', projectPath: paths.worktreePath },
+        response: buildValidExpansionOutput({
+          secondBeadId: 'proj-1-render-final-coverage-warning-state',
+          secondBeadTitle: 'Render final coverage warning state',
+          secondBeadDescription: 'Surface final unresolved coverage gaps during beads approval without blocking manual review.',
+        }),
+        messages: [],
+      })
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'beads', new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(6)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+
+    const coverageArtifact = getLatestPhaseArtifact(ticket.id, 'beads_coverage', 'VERIFYING_BEADS_COVERAGE')
+    expect(coverageArtifact).toBeDefined()
+    expect(JSON.parse(coverageArtifact!.content)).toMatchObject({
+      status: 'clean',
+      coverageRunNumber: 3,
+      maxCoveragePasses: 3,
+      finalCandidateVersion: 3,
+      hasRemainingGaps: false,
+      remainingGaps: [],
+      terminationReason: 'clean',
+    })
+
+    const coverageCompanion = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:beads_coverage', 'VERIFYING_BEADS_COVERAGE')
+    const parsedCoverageCompanion = parseUiArtifactCompanionArtifact(coverageCompanion!.content)?.payload as {
+      attempts?: Array<{ candidateVersion?: number; status?: string; gaps?: string[] }>
+      transitions?: Array<{ fromVersion?: number; toVersion?: number; gaps?: string[] }>
+      finalCandidateVersion?: number
+      hasRemainingGaps?: boolean
+      remainingGaps?: string[]
+    } | undefined
+    expect(parsedCoverageCompanion).toMatchObject({
+      finalCandidateVersion: 3,
+      hasRemainingGaps: false,
+      remainingGaps: [],
+      attempts: [
+        expect.objectContaining({
+          candidateVersion: 1,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 2,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 3,
+          status: 'clean',
+          gaps: [],
+        }),
+      ],
+      transitions: [
+        expect.objectContaining({
+          fromVersion: 1,
+          toVersion: 2,
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          fromVersion: 2,
+          toVersion: 3,
+          gaps: [coverageGap],
+        }),
+      ],
+    })
+
+    const coverageRevision = getLatestPhaseArtifact(ticket.id, 'beads_coverage_revision', 'VERIFYING_BEADS_COVERAGE')
+    expect(coverageRevision).toBeDefined()
+    expect(JSON.parse(coverageRevision!.content)).toMatchObject({
+      winnerId,
+      candidateVersion: 3,
+      refinedContent: expect.stringContaining('Render final coverage warning state'),
+    })
+
+    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'VERIFYING_BEADS_COVERAGE')
+    expect(expandedArtifact).toBeDefined()
+    expect(JSON.parse(expandedArtifact!.content)).toMatchObject({
+      winnerId,
+      candidateVersion: 3,
+      expandedContent: expect.stringContaining('proj-1-render-final-coverage-warning-state'),
+      refinedContent: expect.stringContaining('"status":"pending"'),
+    })
+
+    const persistedBeads = readPersistedBeads(paths.beadsPath)
+    expect(persistedBeads).toHaveLength(2)
+    expect(persistedBeads[1]).toMatchObject({
+      id: 'proj-1-render-final-coverage-warning-state',
+      title: 'Render final coverage warning state',
+      status: 'pending',
+    })
+
+    const storedTicket = getTicketByRef(ticket.id)
+    expect(storedTicket?.runtime.totalBeads).toBe(2)
+    expect(storedTicket?.runtime.currentBead).toBe(1)
+    expect(storedTicket?.runtime.percentComplete).toBe(0)
+  })
+
+  it('still runs the terminal bead expansion before approval when beads coverage reaches v3 with unresolved gaps', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Expand final beads even when coverage caps out',
+      description: 'Coverage warnings should survive into approval, but the final expanded beads must still exist.',
+    })
+    const sendEvent = vi.fn()
+    const winnerId = TEST.councilMembers[0]
+    const coverageGap = 'Missing a bead that surfaces unresolved coverage warnings during approval.'
+    const initialBlueprint = buildBeadSubsetContent({ includeSecondBead: true })
+
+    writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
+
+    phaseResults.delete(`${ticket.id}:beads`)
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_refined',
+      content: JSON.stringify({
+        winnerId,
+        refinedContent: initialBlueprint,
+      }),
+    })
+
+    runOpenCodePromptMock
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-1', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-2', projectPath: paths.worktreePath },
+        response: buildValidBeadsCoverageRevisionOutput(coverageGap),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-3', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-4', projectPath: paths.worktreePath },
+        response: buildValidBeadsCoverageRevisionOutput(coverageGap, {
+          secondBeadTitle: 'Render final coverage warning state',
+          secondBeadDescription: 'Surface final unresolved coverage gaps during beads approval without blocking manual review.',
+          affectedItemLabel: 'Render final coverage warning state',
+          rationale: 'Updated the semantic bead so the final approval warning stays version-aware.',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'beads-coverage-session-5', projectPath: paths.worktreePath },
         response: [
           'status: gaps',
           'gaps:',
@@ -627,20 +812,26 @@ describe('handleBeadsRefine', () => {
       })
       .mockResolvedValueOnce({
         session: { id: 'beads-expand-after-limit', projectPath: paths.worktreePath },
-        response: buildInitialBlueprintExpansionOutput(),
+        response: buildValidExpansionOutput({
+          secondBeadId: 'proj-1-render-final-coverage-warning-state',
+          secondBeadTitle: 'Render final coverage warning state',
+          secondBeadDescription: 'Surface final unresolved coverage gaps during beads approval without blocking manual review.',
+        }),
         messages: [],
       })
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'beads', new AbortController().signal)
 
-    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(2)
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(6)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_LIMIT_REACHED' })
 
     const coverageArtifact = getLatestPhaseArtifact(ticket.id, 'beads_coverage', 'VERIFYING_BEADS_COVERAGE')
     expect(coverageArtifact).toBeDefined()
     expect(JSON.parse(coverageArtifact!.content)).toMatchObject({
       status: 'gaps',
-      finalCandidateVersion: 1,
+      coverageRunNumber: 3,
+      maxCoveragePasses: 3,
+      finalCandidateVersion: 3,
       limitReached: true,
       hasRemainingGaps: true,
       remainingGaps: [coverageGap],
@@ -651,15 +842,16 @@ describe('handleBeadsRefine', () => {
     expect(expandedArtifact).toBeDefined()
     expect(JSON.parse(expandedArtifact!.content)).toMatchObject({
       winnerId,
-      candidateVersion: 1,
-      expandedContent: expect.stringContaining('proj-1-surface-retry-metadata'),
+      candidateVersion: 3,
+      expandedContent: expect.stringContaining('proj-1-render-final-coverage-warning-state'),
       refinedContent: expect.stringContaining('"status":"pending"'),
     })
 
     const persistedBeads = readPersistedBeads(paths.beadsPath)
     expect(persistedBeads).toHaveLength(2)
     expect(persistedBeads[1]).toMatchObject({
-      id: 'proj-1-surface-retry-metadata',
+      id: 'proj-1-render-final-coverage-warning-state',
+      title: 'Render final coverage warning state',
       status: 'pending',
     })
 

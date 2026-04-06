@@ -84,7 +84,7 @@ describe('ProfileSetup', () => {
 
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
     expect(screen.getByText('Coverage Follow-Up Budget (%)')).toBeInTheDocument()
-    expect(screen.getByText('Max Coverage Passes')).toBeInTheDocument()
+    expect(screen.getByText('Interview Coverage Passes')).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
     expect(screen.queryByText('Icon')).not.toBeInTheDocument()

@@ -313,13 +313,13 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   VERIFYING_PRD_COVERAGE: {
-    overview: 'LoopTroop runs a versioned PRD coverage loop against the approved interview, revising the PRD until it is clean or the configured retry cap is reached. Unlike the interview coverage loop, gap resolution stays inside this same phase rather than bouncing back to a separate phase.',
+    overview: 'LoopTroop runs a versioned PRD coverage loop against the approved interview, revising the PRD until it is clean or the fixed PRD coverage cap is reached. PRD coverage can produce up to PRD Candidate v3. Unlike the interview coverage loop, gap resolution stays inside this same phase rather than bouncing back to a separate phase.',
     steps: [
       'The winning PRD model compares the current PRD candidate against the approved interview and full answers, returning a structured coverage result.',
-      'If gaps are found, LoopTroop records the attempt, asks for a revision, validates the revision, and promotes the next candidate version inside the same phase.',
+      'If gaps are found, LoopTroop records the attempt, asks for a revision, validates the revision, and promotes the next candidate version inside the same phase, up to PRD Candidate v3.',
       'Coverage attempts and transitions are persisted so the UI can show what changed between PRD versions and why.',
       'If the PRD becomes clean, the clean result is recorded and the current candidate becomes the approval candidate.',
-      'If the retry cap is reached, LoopTroop still advances using the latest candidate while preserving the unresolved-gap history for approval review.',
+      'If the fixed PRD coverage cap is reached, LoopTroop still advances using the latest candidate while preserving the unresolved-gap history for approval review.',
     ],
     outputs: [
       'Versioned PRD coverage attempts and transition history.',
@@ -328,7 +328,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     transitions: [
       'A clean candidate advances to Approving Specs.',
-      'If the configured coverage cap is reached, the latest candidate still advances to Approving Specs with warnings preserved.',
+      'If the PRD coverage cap is reached, the latest candidate still advances to Approving Specs with warnings preserved.',
       'Coverage execution or revision failures route the ticket to Blocked Error.',
     ],
     notes: [
@@ -341,7 +341,7 @@ const WORKFLOW_PHASE_DETAILS = {
     steps: [
       'LoopTroop renders the PRD in structured and raw YAML modes so you can review it at either level.',
       'Edits are saved back into the canonical PRD file, with temporary UI draft state preserved while you work.',
-      'Coverage warnings remain visible if the latest candidate advanced after reaching the retry cap rather than becoming fully clean.',
+      'Coverage warnings remain visible if the latest PRD candidate advanced after exhausting the fixed PRD coverage loop rather than becoming fully clean.',
       'Approval confirms the current PRD as the authoritative input for beads drafting.',
       'Editing the PRD after approval (if you navigate back) will trigger a cascade warning because beads data may need to be regenerated.',
     ],
@@ -427,9 +427,9 @@ const WORKFLOW_PHASE_DETAILS = {
     overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revises it until acceptable, and then expands the final blueprint into execution-ready bead records. This is a 2-part phase: Part 1 is the coverage review loop, and Part 2 is the final expansion that transforms the semantic blueprint into execution-ready bead data.',
     steps: [
       'Part 1 — Coverage Review: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result.',
-      'Part 1 continued: If gaps remain, LoopTroop records the attempt, requests a targeted revision, validates the revision, and promotes the next blueprint version inside the same phase. This can repeat until clean or until the retry cap is reached.',
+      'Part 1 continued: If gaps remain, LoopTroop records the attempt, requests a targeted revision, validates the revision, and promotes the next blueprint version inside the same phase. This can repeat until clean or until the fixed beads coverage cap is reached.',
       'Coverage attempt history is persisted so unresolved gaps and candidate transitions stay inspectable.',
-      'Part 2 — Final Expansion: After the blueprint is clean (or the retry cap is reached), LoopTroop runs the expansion step that adds execution-oriented fields (commands, runtime paths, dependency graph) and writes the runtime bead data.',
+      'Part 2 — Final Expansion: After the blueprint is clean (or the beads coverage cap is reached), LoopTroop runs the expansion step that adds execution-oriented fields (commands, runtime paths, dependency graph) and writes the runtime bead data.',
       'The expanded output becomes the approval candidate shown in the beads approval UI.',
     ],
     outputs: [
@@ -451,7 +451,7 @@ const WORKFLOW_PHASE_DETAILS = {
     steps: [
       'LoopTroop shows the execution-ready beads breakdown, including descriptions, dependencies, acceptance criteria, and test commands.',
       'You can review the plan in structured form or edit the raw representation before approving it.',
-      'Coverage warnings remain visible if the latest candidate advanced after exhausting the coverage retry budget.',
+      'Coverage warnings remain visible if the latest implementation plan advanced after exhausting the fixed beads coverage loop.',
       'Approval confirms the execution plan that the coding loop will consume bead-by-bead.',
     ],
     outputs: [

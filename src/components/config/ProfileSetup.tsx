@@ -312,7 +312,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
           </div>
           <div className="grid grid-cols-2 gap-3 mt-3">
             <NumericField fieldKey="coverageFollowUpBudgetPercent" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum interview follow-up budget for coverage passes (0–100%)" />
-            <NumericField fieldKey="maxCoveragePasses" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Total coverage executions allowed per phase (1–10)" />
+            <NumericField fieldKey="maxCoveragePasses" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Interview coverage executions allowed before approval fallback (1–10). PRD and Beads use a fixed 3-pass loop." />
           </div>
 
           <Separator />

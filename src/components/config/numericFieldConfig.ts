@@ -7,7 +7,7 @@ export const numericFields = {
   minCouncilQuorum: { min: 1, max: 4, label: 'Min Council Quorum', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   interviewQuestions: { min: 0, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   coverageFollowUpBudgetPercent: { min: 0, max: 100, label: 'Coverage Follow-Up Budget', fromStore: (v: number) => String(v), toStore: (v: number) => v },
-  maxCoveragePasses: { min: 1, max: 10, label: 'Max Coverage Passes', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+  maxCoveragePasses: { min: 1, max: 10, label: 'Interview Coverage Passes', fromStore: (v: number) => String(v), toStore: (v: number) => v },
 } as const
 
 export type NumericFieldKey = keyof typeof numericFields
