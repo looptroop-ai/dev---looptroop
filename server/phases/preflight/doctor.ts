@@ -9,12 +9,29 @@ import { getRunnable } from '../execution/scheduler'
 import { getCurrentBranch } from '../../git/repository'
 import { fetchConnectedModelIds } from '../../opencode/providerCatalog'
 
+export interface DoctorDeps {
+  fileExists: (path: string) => boolean
+  getTicketPaths: typeof getTicketPaths
+  getCurrentBranch: typeof getCurrentBranch
+  getLatestPhaseArtifact: typeof getLatestPhaseArtifact
+  fetchConnectedModelIds: typeof fetchConnectedModelIds
+}
+
+export const defaultDoctorDeps: DoctorDeps = {
+  fileExists: existsSync,
+  getTicketPaths,
+  getCurrentBranch,
+  getLatestPhaseArtifact,
+  fetchConnectedModelIds,
+}
+
 export async function runPreFlightChecks(
   adapter: OpenCodeAdapter,
   ticketId: string,
   beads: Bead[],
   preFlightContext: PreFlightContext,
   signal?: AbortSignal,
+  deps: DoctorDeps = defaultDoctorDeps,
 ): Promise<PreFlightReport> {
   const checks: DiagnosticCheck[] = []
 
@@ -40,13 +57,13 @@ export async function runPreFlightChecks(
   }
 
   // 2. Ticket directory exists
-  const paths = getTicketPaths(ticketId)
+  const paths = deps.getTicketPaths(ticketId)
   const ticketDir = paths?.ticketDir
   checks.push({
     name: 'Ticket Directory',
     category: 'artifacts',
-    result: ticketDir && existsSync(ticketDir) ? 'pass' : 'fail',
-    message: ticketDir && existsSync(ticketDir) ? 'Ticket directory exists' : 'Ticket directory not found',
+    result: ticketDir && deps.fileExists(ticketDir) ? 'pass' : 'fail',
+    message: ticketDir && deps.fileExists(ticketDir) ? 'Ticket directory exists' : 'Ticket directory not found',
   })
 
   // 3. Relevant files artifact exists
@@ -54,8 +71,8 @@ export async function runPreFlightChecks(
   checks.push({
     name: 'Relevant Files',
     category: 'artifacts',
-    result: relevantFiles && existsSync(relevantFiles) ? 'pass' : 'warning',
-    message: relevantFiles && existsSync(relevantFiles) ? 'Relevant files artifact exists' : 'Relevant files artifact not found',
+    result: relevantFiles && deps.fileExists(relevantFiles) ? 'pass' : 'warning',
+    message: relevantFiles && deps.fileExists(relevantFiles) ? 'Relevant files artifact exists' : 'Relevant files artifact not found',
   })
 
   // 4. Beads validation
@@ -199,7 +216,7 @@ export async function runPreFlightChecks(
 
   // 9. Git safety — verify worktree and branch
   if (paths?.worktreePath) {
-    const worktreeExists = existsSync(paths.worktreePath)
+    const worktreeExists = deps.fileExists(paths.worktreePath)
     if (!worktreeExists) {
       checks.push({
         name: 'Git Worktree',
@@ -209,7 +226,7 @@ export async function runPreFlightChecks(
       })
     } else {
       try {
-        const currentBranch = getCurrentBranch(paths.worktreePath)
+      const currentBranch = deps.getCurrentBranch(paths.worktreePath)
         if (currentBranch) {
           checks.push({
             name: 'Git Worktree',
@@ -244,7 +261,7 @@ export async function runPreFlightChecks(
   }
 
   // 10. Beads approval receipt
-  const approvalReceipt = getLatestPhaseArtifact(ticketId, 'approval_receipt', 'WAITING_BEADS_APPROVAL')
+  const approvalReceipt = deps.getLatestPhaseArtifact(ticketId, 'approval_receipt', 'WAITING_BEADS_APPROVAL')
   checks.push({
     name: 'Beads Approval',
     category: 'artifacts',
@@ -256,7 +273,7 @@ export async function runPreFlightChecks(
   if (preFlightContext.lockedMainImplementer) {
     try {
       throwIfAborted(signal, ticketId)
-      const connectedIds = await raceWithCancel(fetchConnectedModelIds(), signal, ticketId)
+      const connectedIds = await raceWithCancel(deps.fetchConnectedModelIds(), signal, ticketId)
       throwIfAborted(signal, ticketId)
       const connected = new Set(connectedIds)
       if (connected.has(preFlightContext.lockedMainImplementer)) {
