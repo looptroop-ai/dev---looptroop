@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -18,15 +18,35 @@ interface KanbanColumnProps {
 
 export function KanbanColumn({ column, tickets, projectMap }: KanbanColumnProps) {
   const [currentPage, setCurrentPage] = useState(1)
-  const [prevLength, setPrevLength] = useState(tickets.length)
-  if (prevLength !== tickets.length) {
-    setPrevLength(tickets.length)
-    setCurrentPage(1)
-  }
+  const [pageInput, setPageInput] = useState('1')
 
-  const totalPages = Math.ceil(tickets.length / PAGE_SIZE)
+  useEffect(() => {
+    setCurrentPage(1)
+    setPageInput('1')
+  }, [tickets.length])
+
+  useEffect(() => {
+    setPageInput(String(currentPage))
+  }, [currentPage])
+
+  const totalPages = Math.max(1, Math.ceil(tickets.length / PAGE_SIZE))
   const sortedTickets = useMemo(() => [...tickets].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()), [tickets])
   const paginatedTickets = sortedTickets.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  const setPage = (nextPage: number) => {
+    const clampedPage = Math.min(totalPages, Math.max(1, nextPage))
+    setCurrentPage(clampedPage)
+    setPageInput(String(clampedPage))
+  }
+
+  const commitPageInput = (value: string) => {
+    if (!value) {
+      setPageInput(String(currentPage))
+      return
+    }
+
+    setPage(Number.parseInt(value, 10))
+  }
 
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -64,17 +84,44 @@ export function KanbanColumn({ column, tickets, projectMap }: KanbanColumnProps)
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage(currentPage - 1)}
                 disabled={currentPage === 1}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-30"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <span className="text-xs text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </span>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span>Page</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  aria-label={`${column.title} current page`}
+                  value={pageInput}
+                  onChange={(event) => {
+                    setPageInput(event.target.value.replace(/\D/g, ''))
+                  }}
+                  onBlur={() => commitPageInput(pageInput)}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      event.currentTarget.blur()
+                    }
+
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setPageInput(String(currentPage))
+                      event.currentTarget.blur()
+                    }
+                  }}
+                  className="h-6 rounded border border-input bg-background px-1 text-center text-xs text-foreground tabular-nums"
+                  style={{ width: `${Math.max(2, String(totalPages).length) + 1}ch` }}
+                />
+                <span>of {totalPages}</span>
+              </div>
               <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => setPage(currentPage + 1)}
                 disabled={currentPage === totalPages}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-30"
               >
