@@ -3,6 +3,7 @@ import type { RefinementChange } from '../refinementChanges'
 import {
   buildBeadsUiRefinementDiffArtifact,
   buildBeadsUiRefinementDiffArtifactFromChanges,
+  buildInterviewUiRefinementDiffArtifactFromChanges,
   buildPrdUiRefinementDiffArtifact,
   buildPrdUiRefinementDiffArtifactFromChanges,
 } from '../refinementDiffArtifacts'
@@ -323,6 +324,27 @@ describe.concurrent('refinement diff artifacts', () => {
     ])
   })
 
+  it('drops explicit no-op PRD modified entries when before and after render identically', () => {
+    const content = buildPrdDocument({
+      stories: [{ id: 'US-1', title: 'Validate PRD refinement' }],
+    })
+    const artifact = buildPrdUiRefinementDiffArtifactFromChanges({
+      winnerId: 'openai/gpt-5.2',
+      winnerDraftContent: content,
+      refinedContent: content,
+      changes: [{
+        type: 'modified',
+        itemType: 'user_story',
+        before: { id: 'US-1', label: 'Validate PRD refinement' },
+        after: { id: 'US-1', label: 'Validate PRD refinement' },
+        inspiration: null,
+        attributionStatus: 'model_unattributed',
+      }],
+    })
+
+    expect(artifact.entries).toEqual([])
+  })
+
   it('keeps invalid PRD attribution cleared instead of backfilling a deterministic source', () => {
     const changes: RefinementChange[] = [{
       type: 'added',
@@ -524,6 +546,49 @@ describe.concurrent('refinement diff artifacts', () => {
         text: `Title: ${sourceTitle}\n\nDescription: ${sourceDetail}`,
       },
     ])
+  })
+
+  it('drops explicit no-op beads modified entries when before and after render identically', () => {
+    const content = buildBeadsDocument([{ id: 'bead-1', title: 'Validate refinement attribution' }])
+    const artifact = buildBeadsUiRefinementDiffArtifactFromChanges({
+      winnerId: 'openai/gpt-5.2',
+      winnerDraftContent: content,
+      refinedContent: content,
+      changes: [{
+        type: 'modified',
+        itemType: 'bead',
+        before: { id: 'bead-1', label: 'Validate refinement attribution' },
+        after: { id: 'bead-1', label: 'Validate refinement attribution' },
+        inspiration: null,
+        attributionStatus: 'model_unattributed',
+      }],
+    })
+
+    expect(artifact.entries).toEqual([])
+  })
+
+  it('drops explicit no-op interview modified and replaced entries when before and after text match', () => {
+    const artifact = buildInterviewUiRefinementDiffArtifactFromChanges({
+      winnerId: 'openai/gpt-5.2',
+      changes: [
+        {
+          type: 'modified',
+          before: { id: 'Q01', phase: 'Foundation', question: 'Keep the existing menu layout?' },
+          after: { id: 'Q01', phase: 'Foundation', question: 'Keep the existing menu layout?' },
+          inspiration: null,
+          attributionStatus: 'model_unattributed',
+        },
+        {
+          type: 'replaced',
+          before: { id: 'Q02', phase: 'Structure', question: 'Verify the active state?' },
+          after: { id: 'Q03', phase: 'Structure', question: 'Verify the active state?' },
+          inspiration: null,
+          attributionStatus: 'model_unattributed',
+        },
+      ],
+    })
+
+    expect(artifact.entries).toEqual([])
   })
 
   it('keeps exact-match PRD fallback attribution when no explicit changes metadata exists', () => {

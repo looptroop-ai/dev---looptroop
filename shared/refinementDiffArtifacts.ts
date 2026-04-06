@@ -651,6 +651,16 @@ export function buildInterviewUiRefinementDiffArtifact(params: {
   }
 }
 
+function shouldDropNoOpUiRefinementDiffEntry(
+  changeType: string,
+  beforeText: string | undefined,
+  afterText: string | undefined,
+): boolean {
+  if (changeType !== 'modified' && changeType !== 'replaced') return false
+  if (typeof beforeText !== 'string' || typeof afterText !== 'string') return false
+  return beforeText.trim() === afterText.trim()
+}
+
 export function buildInterviewUiRefinementDiffArtifactFromChanges(params: {
   winnerId: string
   changes: InterviewQuestionChange[]
@@ -670,6 +680,11 @@ export function buildInterviewUiRefinementDiffArtifactFromChanges(params: {
     const before = change.before ?? null
     const after = change.after ?? null
     const label = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
+    const beforeText = before?.question
+    const afterText = after?.question
+    if (shouldDropNoOpUiRefinementDiffEntry(changeType, beforeText, afterText)) {
+      return []
+    }
     const inspiration = change.inspiration
       ? {
           memberId: change.inspiration.memberId ?? '',
@@ -688,8 +703,8 @@ export function buildInterviewUiRefinementDiffArtifactFromChanges(params: {
       label,
       ...(before?.id ? { beforeId: before.id } : {}),
       ...(after?.id ? { afterId: after.id } : {}),
-      ...(before?.question ? { beforeText: before.question } : {}),
-      ...(after?.question ? { afterText: after.question } : {}),
+      ...(beforeText ? { beforeText } : {}),
+      ...(afterText ? { afterText } : {}),
       inspiration,
       attributionStatus: change.attributionStatus ?? (inspiration ? 'inspired' : 'model_unattributed'),
     } satisfies UiRefinementDiffEntry]
@@ -730,6 +745,9 @@ function buildRefinementUiRefinementDiffArtifactFromChanges(params: {
     const afterBlock = after?.id ? refinedLookup.get(`${itemKind}\u241f${after.id}`) : undefined
     const beforeText = beforeBlock?.text ?? buildFallbackRefinementItemText(before)
     const afterText = afterBlock?.text ?? buildFallbackRefinementItemText(after)
+    if (shouldDropNoOpUiRefinementDiffEntry(changeType, beforeText, afterText)) {
+      return []
+    }
     const { inspiration, attributionStatus } = resolveRefinementChangeInspiration({
       change,
       itemKind,

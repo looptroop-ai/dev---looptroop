@@ -151,12 +151,12 @@ describe('ticketRouter POST /tickets/:id/start', () => {
     expect(getDraftLogMessages(ticket.id)).toEqual([
       'Start requested.',
       'Validating model availability.',
-      'Model validation passed. Main implementer openai/codex-mini-latest; council size 3.',
-      'Initializing worktree and ticket directories.',
-      `Ticket workspace ready on branch ${ticket.externalId}. Created new worktree and ticket directories.`,
+      '✓ Model Availability: Main implementer openai/codex-mini-latest; council size 3.',
+      'Initializing workspace and ticket directories.',
+      `✓ Workspace Init: Ready on branch ${ticket.externalId} (new worktree and ticket directories created).`,
       'Locking start configuration.',
-      'Start configuration locked.',
-      'Dispatching workflow start.',
+      '✓ Start Config: Configuration locked.',
+      '✓ Workflow Dispatch: Start dispatched.',
     ])
 
     const emittedDraftLogs = broadcastSpy.mock.calls
@@ -166,12 +166,12 @@ describe('ticketRouter POST /tickets/:id/start', () => {
     expect(emittedDraftLogs).toEqual([
       'Start requested.',
       'Validating model availability.',
-      'Model validation passed. Main implementer openai/codex-mini-latest; council size 3.',
-      'Initializing worktree and ticket directories.',
-      `Ticket workspace ready on branch ${ticket.externalId}. Created new worktree and ticket directories.`,
+      '✓ Model Availability: Main implementer openai/codex-mini-latest; council size 3.',
+      'Initializing workspace and ticket directories.',
+      `✓ Workspace Init: Ready on branch ${ticket.externalId} (new worktree and ticket directories created).`,
       'Locking start configuration.',
-      'Start configuration locked.',
-      'Dispatching workflow start.',
+      '✓ Start Config: Configuration locked.',
+      '✓ Workflow Dispatch: Start dispatched.',
     ])
 
     broadcaster.clearTicket(ticket.id)
@@ -196,7 +196,7 @@ describe('ticketRouter POST /tickets/:id/start', () => {
     expect(getDraftLogMessages(ticket.id)).toEqual([
       'Start requested.',
       'Validating model availability.',
-      'Model validation failed: No configured OpenCode models are available.',
+      '✗ Model Availability: No configured OpenCode models are available.',
     ])
 
     broadcaster.clearTicket(ticket.id)
@@ -225,9 +225,9 @@ describe('ticketRouter POST /tickets/:id/start', () => {
     expect(getDraftLogMessages(ticket.id)).toEqual([
       'Start requested.',
       'Validating model availability.',
-      'Model validation passed. Main implementer openai/codex-mini-latest; council size 3.',
-      'Initializing worktree and ticket directories.',
-      'Initialization failed: Worktree initialization exploded.',
+      '✓ Model Availability: Main implementer openai/codex-mini-latest; council size 3.',
+      'Initializing workspace and ticket directories.',
+      '✗ Workspace Init: Worktree initialization exploded.',
     ])
 
     broadcaster.clearTicket(ticket.id)

@@ -640,6 +640,16 @@ function extractLegacySynthesizedInterviewIds(repairWarnings: string[] | undefin
   return synthesizedIds
 }
 
+function shouldSuppressNoOpUiDiffEntry(
+  changeType: string,
+  beforeText: string | undefined,
+  afterText: string | undefined,
+): boolean {
+  if (changeType !== 'modified' && changeType !== 'replaced') return false
+  if (typeof beforeText !== 'string' || typeof afterText !== 'string') return false
+  return beforeText.trim() === afterText.trim()
+}
+
 export function buildInterviewDiffEntries(content: string | undefined): InterviewDiffEntry[] {
   if (!content) return []
   try {
@@ -658,6 +668,9 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
               questionId: entry.inspiration.sourceId,
             }
           : null
+        if (shouldSuppressNoOpUiDiffEntry(entry.changeType, entry.beforeText, entry.afterText)) {
+          return []
+        }
 
         return [{
           key: entry.key,
@@ -688,6 +701,8 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
         const after = normalizeInterviewDiffQuestionRecord(change.after, index)
         const id = after?.id || before?.id || `Q${String(index + 1).padStart(2, '0')}`
         const phase = after?.phase || before?.phase
+        const beforeText = before?.question
+        const afterText = after?.question
 
         const inspiration: InspirationDiffSource | null | undefined = change.inspiration
           ? {
@@ -703,14 +718,17 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
             : synthesizedIds.has(id)
               ? 'synthesized_unattributed'
               : 'model_unattributed')
+        if (shouldSuppressNoOpUiDiffEntry(normalizedType, beforeText, afterText)) {
+          return []
+        }
 
         return [{
           key: `${id}:${normalizedType}:${index}`,
           id,
           changeType: normalizedType as InterviewDiffEntry['changeType'],
           phase,
-          before: before?.question,
-          after: after?.question,
+          before: beforeText,
+          after: afterText,
           ...(inspiration !== undefined ? { inspiration } : {}),
           attributionStatus,
         }]
@@ -1229,6 +1247,7 @@ export function buildRefinementDiffEntries(
   if (preferredUiDiff && (preferredUiDiff.domain === 'prd' || preferredUiDiff.domain === 'beads')) {
     return preferredUiDiff.entries.flatMap((entry) => {
       if (entry.changeType === 'replaced') return []
+      if (shouldSuppressNoOpUiDiffEntry(entry.changeType, entry.beforeText, entry.afterText)) return []
       return [{
         key: entry.key,
         changeType: entry.changeType,

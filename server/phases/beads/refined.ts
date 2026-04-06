@@ -283,7 +283,11 @@ function synthesizeOmittedBeadChanges(params: {
 
     const winnerContentKey = buildBeadItemContentKey(winnerItem)
     const refinedContentKey = buildBeadItemContentKey(refinedMatch)
-    if (winnerContentKey === refinedContentKey) continue
+    if (winnerContentKey === refinedContentKey) {
+      params.usedBeforeIds.add(winnerItem.id)
+      params.usedAfterIds.add(refinedMatch.id)
+      continue
+    }
 
     if (params.usedBeforeIds.has(winnerItem.id) || params.usedAfterIds.has(refinedMatch.id)) {
       continue
@@ -323,6 +327,8 @@ function synthesizeOmittedBeadChanges(params: {
 
     const winnerContentKey = buildBeadItemContentKey(winnerItem)
     const refinedContentKey = buildBeadItemContentKey(refinedMatch)
+    if (winnerItem.id === refinedMatch.id) continue
+    if (winnerContentKey === refinedContentKey) continue
 
     params.usedBeforeIds.add(winnerItem.id)
     params.usedAfterIds.add(refinedMatch.id)

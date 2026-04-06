@@ -2965,6 +2965,20 @@ export async function handlePreFlight(
   }
   const report = await runPreFlightChecks(adapter, ticketId, beads, preFlightContext, signal)
   throwIfAborted(signal, ticketId)
+
+  // Emit individual per-check SYS log entries so each diagnostic result
+  // is visible in the SYS tab (not only stored in the JSON artifact).
+  for (const check of report.checks) {
+    const icon = check.result === 'pass' ? '✓' : check.result === 'warning' ? '⚠' : '✗'
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'PRE_FLIGHT_CHECK',
+      check.result === 'fail' ? 'error' : 'info',
+      `${icon} ${check.name}: ${check.message}`,
+    )
+  }
+
   insertPhaseArtifact(ticketId, {
     phase: 'PRE_FLIGHT_CHECK',
     artifactType: 'preflight_report',

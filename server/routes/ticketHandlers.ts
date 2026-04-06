@@ -440,7 +440,7 @@ export async function handleStartTicket(c: Context) {
       ticketId,
       startPhase,
       'info',
-      `Model validation passed. Main implementer ${modelSelection.mainImplementer}; council size ${modelSelection.councilMembers.length}.`,
+      `✓ Model Availability: Main implementer ${modelSelection.mainImplementer}; council size ${modelSelection.councilMembers.length}.`,
       {
         mainImplementer: modelSelection.mainImplementer,
         councilMembers: modelSelection.councilMembers,
@@ -448,13 +448,13 @@ export async function handleStartTicket(c: Context) {
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Invalid model configuration'
-    emitRoutePhaseLog(ticketId, startPhase, 'error', `Model validation failed: ${message}`, {
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `✗ Model Availability: ${message}`, {
       error: message,
     })
     return c.json({ error: message }, 400)
   }
 
-  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Initializing worktree and ticket directories.')
+  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Initializing workspace and ticket directories.')
   let init: ReturnType<typeof initializeTicket>
   try {
     init = initializeTicket({
@@ -466,8 +466,8 @@ export async function handleStartTicket(c: Context) {
       startPhase,
       'info',
       init.reused
-        ? `Ticket workspace ready on branch ${init.branchName}. Reused existing worktree.`
-        : `Ticket workspace ready on branch ${init.branchName}. Created new worktree and ticket directories.`,
+        ? `✓ Workspace Init: Ready on branch ${init.branchName} (reused existing worktree).`
+        : `✓ Workspace Init: Ready on branch ${init.branchName} (new worktree and ticket directories created).`,
       {
         branchName: init.branchName,
         baseBranch: init.baseBranch,
@@ -479,7 +479,7 @@ export async function handleStartTicket(c: Context) {
     const initErr = err instanceof TicketInitializationError
       ? err
       : new TicketInitializationError('INIT_UNKNOWN', err instanceof Error ? err.message : String(err))
-    emitRoutePhaseLog(ticketId, startPhase, 'error', `Initialization failed: ${initErr.message}`, {
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `✗ Workspace Init: ${initErr.message}`, {
       code: initErr.code,
       error: initErr.message,
     })
@@ -534,6 +534,7 @@ export async function handleStartTicket(c: Context) {
   const startedAt = new Date().toISOString()
 
   emitRoutePhaseLog(ticketId, startPhase, 'info', 'Locking start configuration.')
+  // Note: The individual lock steps below use ✓/✗ formatting for consistency with pre-flight checks.
   try {
     const lockedTicket = lockTicketStartConfiguration(ticketId, {
       branchName: init.branchName,
@@ -547,16 +548,16 @@ export async function handleStartTicket(c: Context) {
       lockedMaxCoveragePasses,
     })
     if (!lockedTicket) {
-      emitRoutePhaseLog(ticketId, startPhase, 'error', 'Failed to persist ticket start configuration: Ticket not found.')
+      emitRoutePhaseLog(ticketId, startPhase, 'error', '✗ Start Config: Ticket not found.')
       return c.json({ error: 'Ticket not found' }, 404)
     }
-    emitRoutePhaseLog(ticketId, startPhase, 'info', 'Start configuration locked.', {
+    emitRoutePhaseLog(ticketId, startPhase, 'info', '✓ Start Config: Configuration locked.', {
       branchName: init.branchName,
       startedAt,
     })
   } catch (err) {
     const details = err instanceof Error ? err.message : String(err)
-    emitRoutePhaseLog(ticketId, startPhase, 'error', `Failed to persist ticket start configuration: ${details}`, {
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `✗ Start Config: ${details}`, {
       error: details,
     })
     return c.json({
@@ -565,7 +566,7 @@ export async function handleStartTicket(c: Context) {
     }, 500)
   }
 
-  emitRoutePhaseLog(ticketId, startPhase, 'info', 'Dispatching workflow start.')
+  emitRoutePhaseLog(ticketId, startPhase, 'info', '✓ Workflow Dispatch: Start dispatched.')
   try {
     ensureActorForTicket(ticketId)
     sendTicketEvent(ticketId, {
@@ -579,7 +580,7 @@ export async function handleStartTicket(c: Context) {
       lockedMaxCoveragePasses,
     })
   } catch (err) {
-    emitRoutePhaseLog(ticketId, startPhase, 'error', `Failed to dispatch workflow start: ${String(err)}`, {
+    emitRoutePhaseLog(ticketId, startPhase, 'error', `✗ Workflow Dispatch: ${String(err)}`, {
       error: String(err),
     })
     console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)

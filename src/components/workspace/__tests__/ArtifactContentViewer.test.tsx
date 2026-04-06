@@ -675,6 +675,86 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Do not special-case the review view with a different renderer.')).toBeInTheDocument()
   })
 
+  it('hides persisted no-op beads ui diff entries in rendered bead diffs', () => {
+    const beadsContent = buildBeadsDraftContent({
+      title: 'Keep the switcher bead unchanged',
+    })
+
+    render(
+      <ArtifactContent
+        artifactId="final-beads-draft"
+        phase="REFINING_BEADS"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          winnerDraftContent: beadsContent,
+          refinedContent: beadsContent,
+          uiRefinementDiff: {
+            domain: 'beads',
+            winnerId: 'openai/gpt-5.2',
+            generatedAt: '2026-04-06T11:38:37.016Z',
+            entries: [
+              {
+                key: 'bead:bead-1',
+                changeType: 'modified',
+                itemKind: 'bead',
+                label: 'Keep the switcher bead unchanged',
+                beforeId: 'bead-1',
+                afterId: 'bead-1',
+                beforeText: 'Title: Keep the switcher bead unchanged',
+                afterText: '  Title: Keep the switcher bead unchanged  ',
+                attributionStatus: 'synthesized_unattributed',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
+
+    expect(screen.getByText('No refinement changes recorded.')).toBeInTheDocument()
+  })
+
+  it('hides persisted no-op PRD ui diff entries in rendered PRD diffs', () => {
+    const prdContent = buildPrdDocumentContent({
+      storyTitle: 'Keep the switcher bead unchanged',
+    })
+
+    render(
+      <ArtifactContent
+        artifactId="final-prd-draft"
+        phase="REFINING_PRD"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          winnerDraftContent: prdContent,
+          refinedContent: prdContent,
+          uiRefinementDiff: {
+            domain: 'prd',
+            winnerId: 'openai/gpt-5.2',
+            generatedAt: '2026-04-06T11:38:37.016Z',
+            entries: [
+              {
+                key: 'user_story:US-1',
+                changeType: 'modified',
+                itemKind: 'user_story',
+                label: 'Keep the switcher bead unchanged',
+                beforeId: 'US-1',
+                afterId: 'US-1',
+                beforeText: 'Title: Keep the switcher bead unchanged',
+                afterText: 'Title: Keep the switcher bead unchanged',
+                attributionStatus: 'model_unattributed',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i }))
+
+    expect(screen.getByText('No refinement changes recorded.')).toBeInTheDocument()
+  })
+
   it('renders coverage report with changes tab when only revision content is provided', () => {
     const revisionContent = JSON.stringify({
       winnerId: 'openai/gpt-5.2',
