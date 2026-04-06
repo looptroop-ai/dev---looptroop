@@ -10,13 +10,12 @@ import {
 import { PROFILE_DEFAULTS } from '../../db/defaults'
 import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
-import { buildCompletionInstructions } from './completionSchema'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
-import { BEAD_EXECUTION_TIMEOUT_MS } from '../../lib/constants'
+import { BEAD_EXECUTION_TIMEOUT_MS, COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
+import { buildPromptFromTemplate, PROM_CODING, PROM51 } from '../../prompts/index'
 
-const COMPLETION_INSTRUCTIONS = buildCompletionInstructions()
 const BEAD_STATUS_SCHEMA_REMINDER = [
   'Return exactly one <BEAD_STATUS>...</BEAD_STATUS> block and nothing else.',
   'Inside the marker, return a single JSON or YAML object with: bead_id, status, checks.',
@@ -31,6 +30,44 @@ export interface ExecutionResult {
   iteration: number
   output: string
   errors: string[]
+}
+
+async function generateContextWipeNote(
+  adapter: OpenCodeAdapter,
+  bead: Bead,
+  projectPath: string,
+  iterationErrors: string[],
+  lastOutput: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const errorContext: PromptPart = {
+    type: 'text',
+    source: 'error_context',
+    content: [
+      `## Failed Iteration Errors`,
+      iterationErrors.join('\n'),
+      '',
+      `## Last Output (truncated)`,
+      lastOutput.slice(0, 2000),
+    ].join('\n'),
+  }
+
+  const beadData: PromptPart = {
+    type: 'text',
+    source: 'bead_data',
+    content: JSON.stringify(bead, null, 2),
+  }
+
+  const promptContent = buildPromptFromTemplate(PROM51, [beadData, errorContext])
+  const result = await runOpenCodePrompt({
+    adapter,
+    projectPath,
+    parts: [{ type: 'text', content: promptContent }],
+    signal,
+    timeoutMs: COUNCIL_RESPONSE_TIMEOUT_MS,
+  })
+
+  return result.response
 }
 
 export async function executeBead(
@@ -48,6 +85,7 @@ export async function executeBead(
     onSessionCreated?: (sessionId: string, iteration: number) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; iteration: number; event: StreamEvent }) => void
     onPromptDispatched?: (entry: { sessionId: string; iteration: number; event: OpenCodePromptDispatchEvent }) => void
+    onNotesUpdated?: (beadId: string, notes: string) => void
   },
 ): Promise<ExecutionResult> {
   let iteration = 0
@@ -62,19 +100,11 @@ export async function executeBead(
 
     try {
       let sessionId = ''
+      const promptContent = buildPromptFromTemplate(PROM_CODING, contextParts)
       const beadPrompt: PromptPart[] = [
-        ...contextParts,
         {
           type: 'text',
-          content: [
-            `## Active Bead`,
-            `ID: ${bead.id}`,
-            `Title: ${bead.title}`,
-            'Use the bead_data and bead_notes context above as the source of truth for requirements, files, tests, and prior failures.',
-            'Update the worktree until every required quality gate passes.',
-            '',
-            COMPLETION_INSTRUCTIONS,
-          ].join('\n'),
+          content: promptContent,
         },
       ]
 
@@ -86,6 +116,7 @@ export async function executeBead(
         timeoutMs: timeout,
         model: callbacks?.model,
         variant: callbacks?.variant,
+        toolPolicy: PROM_CODING.toolPolicy,
         ...(callbacks?.ticketId
           ? {
               sessionOwnership: {
@@ -185,6 +216,17 @@ export async function executeBead(
       }
 
       errors.push(`Iteration ${iteration}: ${result.errors.join(', ') || 'Incomplete'}`)
+
+      // Generate context wipe note via PROM51 in a fresh session
+      try {
+        const note = await generateContextWipeNote(adapter, bead, projectPath, errors, lastOutput, signal)
+        if (note) {
+          bead.notes = bead.notes ? `${bead.notes}\n\n---\n\n${note}` : note
+          callbacks?.onNotesUpdated?.(bead.id, bead.notes)
+        }
+      } catch {
+        // Non-blocking: if PROM51 fails, continue without notes
+      }
     } catch (err) {
       if (activeSessionId && sessionManager) {
         await sessionManager.abandonSession(activeSessionId)

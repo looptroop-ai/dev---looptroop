@@ -24,6 +24,7 @@ import { safeAtomicWrite } from '../io/atomicWrite'
 // tickets.start.test.ts uses `importOriginal` on this module.
 function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { logCommand } = require('../log/commandLogger') as typeof import('../log/commandLogger')
     logCommand(bin, args, result)
   } catch {

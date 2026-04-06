@@ -3,6 +3,7 @@ import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { isMockOpenCodeMode } from '../../opencode/factory'
 import { executeBead } from '../../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../../phases/execution/scheduler'
+import { recordBeadStartCommit, commitBeadChanges, resetToBeadStart } from '../../phases/execution/gitOps'
 import { throwIfAborted } from '../../council/types'
 import { broadcaster } from '../../sse/broadcaster'
 import { adapter } from './state'
@@ -65,6 +66,17 @@ export async function handleCoding(
 
   emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
 
+  // Record bead start commit for potential reset on context wipe
+  let beadStartCommit: string | null = null
+  try {
+    beadStartCommit = recordBeadStartCommit(paths.worktreePath)
+    const beadsWithCommit = readTicketBeads(ticketId).map(b =>
+      b.id === nextBead.id ? { ...b, beadStartCommit } : b)
+    writeTicketBeads(ticketId, beadsWithCommit)
+  } catch (err) {
+    emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not record bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+  }
+
   const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
   throwIfAborted(signal, ticketId)
   const executionSettings = resolveExecutionRuntimeSettings(context)
@@ -117,6 +129,20 @@ export async function handleCoding(
           event,
         )
       },
+      onNotesUpdated: (beadId, notes) => {
+        const currentBeads = readTicketBeads(ticketId)
+        const updated = currentBeads.map(b => b.id === beadId ? { ...b, notes } : b)
+        writeTicketBeads(ticketId, updated)
+
+        // Reset to bead start commit on context wipe
+        if (beadStartCommit) {
+          try {
+            resetToBeadStart(paths.worktreePath, beadStartCommit)
+          } catch (err) {
+            emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not reset to bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+          }
+        }
+      },
     },
   )
   throwIfAborted(signal, ticketId)
@@ -127,9 +153,13 @@ export async function handleCoding(
     content: JSON.stringify(result),
   })
 
+  // Reload beads from disk to avoid overwriting fields (notes, beadStartCommit)
+  // that were persisted during execution via callbacks
+  const freshBeads = readTicketBeads(ticketId)
+
   if (!result.success) {
     const nowStr = new Date().toISOString()
-    const failedBeads = inProgressBeads.map(bead => bead.id === nextBead.id
+    const failedBeads = freshBeads.map(bead => bead.id === nextBead.id
       ? {
           ...bead,
           status: 'error' as const,
@@ -149,7 +179,7 @@ export async function handleCoding(
   }
 
   const doneNow = new Date().toISOString()
-  const completedBeads = inProgressBeads.map(bead => bead.id === nextBead.id
+  const completedBeads = freshBeads.map(bead => bead.id === nextBead.id
     ? {
         ...bead,
         status: 'done' as const,
@@ -160,6 +190,19 @@ export async function handleCoding(
     : bead)
   writeTicketBeads(ticketId, completedBeads)
   updateTicketProgressFromBeads(ticketId, completedBeads)
+
+  // Commit and push bead changes
+  try {
+    const gitResult = commitBeadChanges(paths.worktreePath, nextBead.id, nextBead.title)
+    if (gitResult.error) {
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Git operation warning for bead ${nextBead.id}: ${gitResult.error}`, { source: 'system', modelId: codingModelId })
+    }
+    if (gitResult.committed) {
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Committed bead ${nextBead.id} changes${gitResult.pushed ? ' and pushed' : ' (push pending)'}`, { source: 'system', modelId: codingModelId })
+    }
+  } catch (err) {
+    emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not commit bead changes: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+  }
 
   broadcaster.broadcast(ticketId, 'bead_complete', {
     ticketId,

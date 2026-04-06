@@ -2,6 +2,7 @@ import type { PromptPart } from '../opencode/types'
 import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { VOTING_RUBRIC_BEADS, VOTING_RUBRIC_INTERVIEW, VOTING_RUBRIC_PRD } from '../council/types'
 import { GLOBAL_RULES, CONVERSATIONAL_RULES } from './globalRules'
+import { buildCompletionInstructions } from '../phases/execution/completionSchema'
 
 interface PromptTemplate {
   id: string
@@ -639,6 +640,27 @@ export const PROM25: PromptTemplate = {
 }
 
 // Execution Prompts
+export const PROM_CODING: PromptTemplate = {
+  id: 'PROM_CODING',
+  description: 'Bead Implementation Prompt — guides the AI implementer through executing a single bead',
+  systemRole: 'You are an expert AI implementer executing a specific implementation task (bead) within a larger ticket. You have full tool access to read, write, and run commands in the worktree.',
+  task: 'Implement the active bead requirements in the worktree, pass all quality gates (tests, lint, typecheck, qualitative review), and output a structured completion marker.',
+  instructions: [
+    'Read and Understand: Read the bead specification from the context — including description, acceptance criteria, target files, and test commands. The `bead_data` and `active_bead` context sections identify which bead you are implementing.',
+    'Check Prior Notes: If bead notes exist from prior iteration failures, carefully read them and avoid repeating the same mistakes. These notes describe what went wrong previously and what to do differently.',
+    'Implement Changes: Make the necessary code changes in the worktree to fulfill the bead requirements. Follow existing code patterns and conventions in the project.',
+    'Run Tests: Execute the bead\'s test commands and fix any test failures before proceeding.',
+    'Run Lint & Typecheck: Run the project\'s lint and typecheck commands. Fix any errors introduced by your changes.',
+    'Self-Verify Quality: Review each acceptance criterion and confirm the implementation satisfies it qualitatively. Check edge cases and error handling.',
+    `Completion Marker:\n${buildCompletionInstructions()}`,
+    'Output Discipline: Return exactly one <BEAD_STATUS>...</BEAD_STATUS> block as the final output marker. Inside the marker, return only the machine-readable JSON object. No markdown fences, commentary, or wrapper keys.',
+    STRUCTURED_SELF_CHECK,
+  ],
+  outputFormat: 'JSON inside <BEAD_STATUS>...</BEAD_STATUS> tags with bead_id, status, checks (tests, lint, typecheck, qualitative), and optional reason',
+  contextInputs: ['bead_data', 'bead_notes'],
+  toolPolicy: 'default',
+}
+
 export const PROM51: PromptTemplate = {
   id: 'PROM51',
   description: 'Context Wipe Note Summary Prompt',
@@ -747,6 +769,7 @@ export const ALL_PROMPTS = {
   PROM23,
   PROM24,
   PROM25,
+  PROM_CODING,
   PROM51,
   PROM52,
 }

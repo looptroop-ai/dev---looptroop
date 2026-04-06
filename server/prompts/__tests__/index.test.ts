@@ -18,6 +18,7 @@ import {
   PROM23,
   PROM24,
   PROM25,
+  PROM_CODING,
   PROM51,
   PROM52,
   buildPromptFromTemplate,
@@ -77,7 +78,7 @@ describe.concurrent('structured prompt hardening', () => {
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
 
-    for (const prompt of [PROM0, PROM25, PROM51, PROM52]) {
+    for (const prompt of [PROM0, PROM25, PROM_CODING, PROM51, PROM52]) {
       expect(prompt.toolPolicy).toBe('default')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
@@ -210,6 +211,16 @@ describe.concurrent('structured prompt hardening', () => {
     expect(votePrompt).toContain('The top-level key MUST be `draft_scores`')
     expect(votePrompt).toContain('Each draft entry MUST contain exactly 6 integer fields on single lines')
     expect(votePrompt).toContain('Do not output prose, explanations, markdown fences')
+  })
+
+  it('PROM_CODING includes completion instructions, bead context guidance, and self-check', () => {
+    const prompt = buildPromptFromTemplate(PROM_CODING, [])
+    expect(prompt).toContain('BEAD_STATUS')
+    expect(prompt).toContain('bead_data')
+    expect(prompt).toContain('bead notes')
+    expect(prompt).toContain('Final Self-Check')
+    expect(prompt).toContain('quality gates')
+    expect(PROM_CODING.contextInputs).toEqual(['bead_data', 'bead_notes'])
   })
 
   it('keeps PROM25 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {
