@@ -141,7 +141,7 @@ export function CollapsibleSection({
   )
 }
 
-export function CopyButton({ content, className = '' }: { content: string; className?: string }) {
+export function CopyButton({ content, className = '', title = 'Copy raw output' }: { content: string; className?: string; title?: string }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -157,9 +157,32 @@ export function CopyButton({ content, className = '' }: { content: string; class
     <button
       onClick={handleCopy}
       className={`inline-flex items-center justify-center p-1 rounded hover:bg-muted transition-colors ${className}`}
-      title="Copy raw output"
+      title={title}
     >
       {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+    </button>
+  )
+}
+
+export function TextCopyButton({ content, title, className = '' }: { content: string; title: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80 focus:opacity-100 outline-none ${className}`}
+      title={title}
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
     </button>
   )
 }
@@ -1002,8 +1025,11 @@ function RefinementDiffView({ content, domain, phase }: { content: string; domai
           >
             <div className="space-y-3">
               {diff.beforeText && (
-                <div className="rounded-md border border-red-200 bg-red-100/80 px-3 py-2 dark:border-red-800/60 dark:bg-red-900/30">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
+                <div className="group relative rounded-md border border-red-200 bg-red-100/80 px-3 py-2 dark:border-red-800/60 dark:bg-red-900/30">
+                  <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">
+                    <span>Before</span>
+                    <TextCopyButton content={diff.beforeText} title="Copy before" />
+                  </div>
                   <div className="text-xs leading-5 text-red-950 dark:text-red-100 whitespace-pre-wrap">
                     {diff.beforeId && <span className="font-mono mr-1">{diff.beforeId}:</span>}
                     {renderQuestionDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).before, 'removed')}
@@ -1011,8 +1037,11 @@ function RefinementDiffView({ content, domain, phase }: { content: string; domai
                 </div>
               )}
               {diff.afterText && (
-                <div className="rounded-md border border-green-200 bg-green-100/80 px-3 py-2 dark:border-green-800/60 dark:bg-green-900/30">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
+                <div className="group relative rounded-md border border-green-200 bg-green-100/80 px-3 py-2 dark:border-green-800/60 dark:bg-green-900/30">
+                  <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">
+                    <span>After</span>
+                    <TextCopyButton content={diff.afterText} title="Copy after" />
+                  </div>
                   <div className="text-xs leading-5 text-green-950 dark:text-green-100 whitespace-pre-wrap">
                     {diff.afterId && <span className="font-mono mr-1">{diff.afterId}:</span>}
                     {renderQuestionDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).after, 'added')}
@@ -1112,16 +1141,22 @@ function InterviewDraftDiffView({ content, phase }: { content: string; phase?: s
               >
                 <div className="space-y-3">
                   {diff.before && (
-                    <div className="rounded-md border border-red-200 bg-red-100/80 px-3 py-2 dark:border-red-800/60 dark:bg-red-900/30">
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Before</div>
+                    <div className="group relative rounded-md border border-red-200 bg-red-100/80 px-3 py-2 dark:border-red-800/60 dark:bg-red-900/30">
+                      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">
+                        <span>Before</span>
+                        <TextCopyButton content={diff.before} title="Copy before" />
+                      </div>
                       <div className="text-xs leading-5 text-red-950 dark:text-red-100">
                         {renderQuestionDiffSegments(questionDiff.before, 'removed')}
                       </div>
                     </div>
                   )}
                   {diff.after && (
-                    <div className="rounded-md border border-green-200 bg-green-100/80 px-3 py-2 dark:border-green-800/60 dark:bg-green-900/30">
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">After</div>
+                    <div className="group relative rounded-md border border-green-200 bg-green-100/80 px-3 py-2 dark:border-green-800/60 dark:bg-green-900/30">
+                      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">
+                        <span>After</span>
+                        <TextCopyButton content={diff.after} title="Copy after" />
+                      </div>
                       <div className="text-xs leading-5 text-green-950 dark:text-green-100">
                         {renderQuestionDiffSegments(questionDiff.after, 'added')}
                       </div>
