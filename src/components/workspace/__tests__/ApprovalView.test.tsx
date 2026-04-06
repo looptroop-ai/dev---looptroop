@@ -505,6 +505,7 @@ describe('Interview approval UI', () => {
 
     const warningToggle = await screen.findByRole('button', { name: /Coverage Warning/i })
     expect(warningToggle).toBeInTheDocument()
+    expect(warningToggle.closest('.overflow-auto')).not.toBeNull()
     expect(screen.queryByText('Remaining Gaps')).not.toBeInTheDocument()
 
     fireEvent.click(warningToggle)

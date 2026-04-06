@@ -57,6 +57,19 @@ vi.mock('@/hooks/useTicketArtifacts', async () => {
 })
 
 describe('ActiveWorkspace', () => {
+  it('renders the selected workspace inside a constrained flex container', () => {
+    const { container } = renderWithProviders(
+      <ActiveWorkspace
+        ticket={makeTicket({ status: 'WAITING_BEADS_APPROVAL' })}
+        selectedPhase="WAITING_BEADS_APPROVAL"
+        previousStatus="VERIFYING_BEADS_COVERAGE"
+      />,
+    )
+
+    expect(container.firstElementChild).toHaveClass('flex-1', 'min-h-0', 'overflow-hidden')
+    expect(screen.getByText('approval view')).toBeInTheDocument()
+  })
+
   it('opens live error mode when the ticket is currently blocked', () => {
     const ticket = makeTicket({ status: 'BLOCKED_ERROR' })
     ticket.errorOccurrences = [

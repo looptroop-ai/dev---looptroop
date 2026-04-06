@@ -389,60 +389,62 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
 
         {saveError ? <p className="text-xs text-red-500">{saveError}</p> : null}
         {approveError ? <p className="text-xs text-red-500">{approveError}</p> : null}
-        {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
       </div>
 
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
-        {isLoading || isPreparingStructuredPrd ? (
-          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-            <div className="text-center space-y-2">
-              <LoadingText text={isPreparingStructuredPrd ? 'Preparing PRD approval view' : 'Loading PRD'} className="text-sm font-medium animate-pulse" />
-              <p className="text-[10px]">
-                {isPreparingStructuredPrd
-                  ? 'Building the structured approval view.'
-                  : 'Fetching the latest PRD artifact.'}
-              </p>
+        <div className="space-y-3">
+          {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
+          {isLoading || isPreparingStructuredPrd ? (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+              <div className="text-center space-y-2">
+                <LoadingText text={isPreparingStructuredPrd ? 'Preparing PRD approval view' : 'Loading PRD'} className="text-sm font-medium animate-pulse" />
+                <p className="text-[10px]">
+                  {isPreparingStructuredPrd
+                    ? 'Building the structured approval view.'
+                    : 'Fetching the latest PRD artifact.'}
+                </p>
+              </div>
             </div>
-          </div>
-        ) : editMode ? (
-          <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
-            {editTab === 'yaml' ? (
-              <div className="space-y-3">
-                <div className="rounded-xl border border-border bg-background/80 p-3 text-xs text-muted-foreground">
-                  YAML mode gives full control over the canonical PRD artifact. Saving rewrites it into the server&apos;s canonical form and clears PRD approval metadata.
+          ) : editMode ? (
+            <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
+              {editTab === 'yaml' ? (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-border bg-background/80 p-3 text-xs text-muted-foreground">
+                    YAML mode gives full control over the canonical PRD artifact. Saving rewrites it into the server&apos;s canonical form and clears PRD approval metadata.
+                  </div>
+                  <YamlEditor value={yamlDraft} onChange={setYamlDraft} className="min-h-[520px] rounded-xl border border-border bg-background" />
+                  {yamlValidation?.error ? (
+                    <div className="rounded-md border border-red-200 bg-red-50/70 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-200">
+                      {yamlValidation.error}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-200">
+                      YAML looks structurally valid. Saving will canonicalize the document.
+                    </div>
+                  )}
                 </div>
-                <YamlEditor value={yamlDraft} onChange={setYamlDraft} className="min-h-[520px] rounded-xl border border-border bg-background" />
-                {yamlValidation?.error ? (
-                  <div className="rounded-md border border-red-200 bg-red-50/70 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-200">
-                    {yamlValidation.error}
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-200">
-                    YAML looks structurally valid. Saving will canonicalize the document.
-                  </div>
-                )}
-              </div>
-            ) : structuredDraft ? (
-              <PrdApprovalEditor
-                draft={structuredDraft}
-                disabled={saving}
-                onChange={setStructuredDraft}
-              />
-            ) : (
-              <div className="rounded-md border border-red-200 bg-red-50/70 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-200">
-                The final PRD artifact could not be parsed. Switch to YAML mode to inspect the raw document.
-              </div>
-            )}
-          </div>
-        ) : prdDocument ? (
-          <PrdDocumentView document={prdDocument as PrdDocument} />
-        ) : rawContent ? (
-          <div className="rounded-xl border border-border bg-background p-4">
-            <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawContent}</pre>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No PRD artifact available yet.</div>
-        )}
+              ) : structuredDraft ? (
+                <PrdApprovalEditor
+                  draft={structuredDraft}
+                  disabled={saving}
+                  onChange={setStructuredDraft}
+                />
+              ) : (
+                <div className="rounded-md border border-red-200 bg-red-50/70 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-200">
+                  The final PRD artifact could not be parsed. Switch to YAML mode to inspect the raw document.
+                </div>
+              )}
+            </div>
+          ) : prdDocument ? (
+            <PrdDocumentView document={prdDocument as PrdDocument} />
+          ) : rawContent ? (
+            <div className="rounded-xl border border-border bg-background p-4">
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawContent}</pre>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No PRD artifact available yet.</div>
+          )}
+        </div>
       </div>
 
       <CollapsiblePhaseLogSection

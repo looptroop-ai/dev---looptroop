@@ -335,6 +335,7 @@ describe('PrdApprovalPane', () => {
 
     const warningToggle = screen.getByRole('button', { name: /Coverage Warning/i })
     expect(warningToggle).toBeInTheDocument()
+    expect(warningToggle.closest('.overflow-auto')).not.toBeNull()
     expect(screen.queryByText('Remaining Gaps')).not.toBeInTheDocument()
 
     fireEvent.click(warningToggle)

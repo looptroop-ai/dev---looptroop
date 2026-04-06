@@ -184,18 +184,20 @@ function GenericApprovalView({ ticket }: { ticket: Ticket }) {
           </div>
         )}
         {saveError && <p className="text-xs text-red-500">{saveError}</p>}
-        {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
       </div>
 
       {/* Artifact content */}
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading artifacts…</div>
-        ) : editMode ? (
-          <YamlEditor value={editedContent} onChange={setEditedContent} className="border rounded-md" />
-        ) : fileContent ? (
-          <BeadsDraftView content={fileContent} />
-        ) : null}
+        <div className="space-y-3">
+          {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading artifacts…</div>
+          ) : editMode ? (
+            <YamlEditor value={editedContent} onChange={setEditedContent} className="border rounded-md" />
+          ) : fileContent ? (
+            <BeadsDraftView content={fileContent} />
+          ) : null}
+        </div>
       </div>
 
       <CollapsiblePhaseLogSection

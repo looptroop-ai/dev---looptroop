@@ -56,44 +56,56 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
     && activeErrorOccurrence.id === liveErrorOccurrence.id
     && activeErrorOccurrence.resolvedAt === null,
   )
+  let content: React.ReactNode
 
   if (activeErrorOccurrence) {
-    return <ErrorView ticket={ticket} occurrence={activeErrorOccurrence} readOnly={!isLiveErrorOccurrence} />
-  }
-
-  // If viewing a past/completed phase, show the review view with logs + artifacts
-  // Exception: past approval phases remain editable until execution starts
-  if (isViewingPast) {
+    content = <ErrorView ticket={ticket} occurrence={activeErrorOccurrence} readOnly={!isLiveErrorOccurrence} />
+  } else if (isViewingPast) {
     const pastPhaseMeta = phaseMap[selectedPhase]
     if (
       pastPhaseMeta?.uiView === 'approval'
       && pastPhaseMeta.reviewArtifactType
       && isBeforeExecution(ticket.status)
     ) {
-      return <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} />
+      content = <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} />
+    } else {
+      content = <PhaseReviewView phase={selectedPhase} ticket={ticket} />
     }
-    return <PhaseReviewView phase={selectedPhase} ticket={ticket} />
+  } else {
+    switch (phaseMeta?.uiView) {
+      case 'draft':
+        content = <DraftView ticket={ticket} />
+        break
+      case 'interview_qa':
+        content = <InterviewQAView ticket={ticket} />
+        break
+      case 'approval':
+        content = phaseMeta.reviewArtifactType
+          ? <ApprovalView ticket={ticket} artifactType={phaseMeta.reviewArtifactType} />
+          : <PhaseReviewView phase={selectedPhase} ticket={ticket} />
+        break
+      case 'coding':
+        content = <CodingView ticket={ticket} />
+        break
+      case 'error':
+        content = <ErrorView ticket={ticket} />
+        break
+      case 'done':
+        content = <DoneView />
+        break
+      case 'canceled':
+        content = <CanceledView />
+        break
+      case 'council':
+      default:
+        content = <CouncilView phase={selectedPhase} ticket={ticket} />
+        break
+    }
   }
 
-  switch (phaseMeta?.uiView) {
-    case 'draft':
-      return <DraftView ticket={ticket} />
-    case 'interview_qa':
-      return <InterviewQAView ticket={ticket} />
-    case 'approval':
-      return phaseMeta.reviewArtifactType
-        ? <ApprovalView ticket={ticket} artifactType={phaseMeta.reviewArtifactType} />
-        : <PhaseReviewView phase={selectedPhase} ticket={ticket} />
-    case 'coding':
-      return <CodingView ticket={ticket} />
-    case 'error':
-      return <ErrorView ticket={ticket} />
-    case 'done':
-      return <DoneView />
-    case 'canceled':
-      return <CanceledView />
-    case 'council':
-    default:
-      return <CouncilView phase={selectedPhase} ticket={ticket} />
-  }
+  return (
+    <div className="flex-1 min-h-0 overflow-hidden">
+      {content}
+    </div>
+  )
 }
