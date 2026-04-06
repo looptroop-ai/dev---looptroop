@@ -1076,14 +1076,14 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'PRE_FLIGHT_CHECK',
     label: 'Initializing Agent',
-    description: 'Running checks before coding starts.',
+    description: 'Running checks before coding starts. This status does not use context for AI models.',
     details: WORKFLOW_PHASE_DETAILS.PRE_FLIGHT_CHECK,
     kanbanPhase: 'in_progress',
     groupId: 'execution',
     uiView: 'coding',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['relevant_files', 'ticket_details'],
+    contextSummary: [],
   },
   {
     id: 'CODING',
