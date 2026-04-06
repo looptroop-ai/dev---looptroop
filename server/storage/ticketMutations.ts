@@ -2,6 +2,16 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import { existsSync, mkdirSync, rmSync } from 'fs'
 import { resolve } from 'path'
 import { execFileSync } from 'child_process'
+
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    const { logCommand } = require('../log/commandLogger') as typeof import('../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded.
+  }
+}
 import { getProjectContextById } from './projects'
 import { opencodeSessions, phaseArtifacts, projects, ticketErrorOccurrences, ticketStatusHistory, tickets } from '../db/schema'
 import { getTicketDir, getTicketWorktreePath } from './paths'
@@ -169,7 +179,15 @@ function assertLockedModelConfigurationMutable(
 }
 
 function runGit(projectRoot: string, args: string[]) {
-  execFileSync('git', ['-C', projectRoot, ...args], { stdio: 'ignore' })
+  const fullArgs = ['-C', projectRoot, ...args]
+  try {
+    execFileSync('git', fullArgs, { stdio: 'ignore' })
+    logCmd('git', fullArgs, { ok: true })
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    logCmd('git', fullArgs, { ok: false, error: detail })
+    throw err
+  }
 }
 
 function removeTicketFilesystem(projectRoot: string, externalId: string, branchName?: string | null) {

@@ -1,23 +1,39 @@
 import { execFileSync } from 'node:child_process'
 
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    const { logCommand } = require('../log/commandLogger') as typeof import('../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded.
+  }
+}
+
 function runGit(
   projectPath: string,
   args: string[],
   options: { stdio?: 'ignore' | 'pipe' } = {},
 ): string {
-  return execFileSync('git', ['-C', projectPath, ...args], {
+  const fullArgs = ['-C', projectPath, ...args]
+  const stdout = execFileSync('git', fullArgs, {
     encoding: 'utf8',
     stdio: ['ignore', options.stdio ?? 'pipe', 'pipe'],
   }).trim()
+  logCmd('git', fullArgs, { ok: true, stdout })
+  return stdout
 }
 
 function gitCommandSucceeds(projectPath: string, args: string[]) {
+  const fullArgs = ['-C', projectPath, ...args]
   try {
-    execFileSync('git', ['-C', projectPath, ...args], {
+    execFileSync('git', fullArgs, {
       stdio: ['ignore', 'ignore', 'ignore'],
     })
+    logCmd('git', fullArgs, { ok: true })
     return true
   } catch {
+    logCmd('git', fullArgs, { ok: false, error: 'command returned non-zero' })
     return false
   }
 }

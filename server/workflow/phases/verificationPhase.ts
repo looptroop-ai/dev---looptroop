@@ -1,4 +1,5 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
+import { withCommandLoggingAsync } from '../../log/commandLogger'
 import { handleMockExecutionUnsupported } from './executionPhase'
 import type { PromptPart } from '../../opencode/types'
 import { CancelledError, throwIfAborted } from '../../council/types'
@@ -2958,6 +2959,9 @@ export async function handlePreFlight(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
+  return withCommandLoggingAsync(
+    ticketId, context.externalId, 'PRE_FLIGHT_CHECK',
+    async () => {
   const beads = readTicketBeads(ticketId)
   const preFlightContext = {
     lockedMainImplementer: context.lockedMainImplementer,
@@ -2996,6 +3000,9 @@ export async function handlePreFlight(
   updateTicketProgressFromBeads(ticketId, beads)
   emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'info', `Pre-flight checks passed with ${beads.length} beads ready.`)
   sendEvent({ type: 'CHECKS_PASSED' })
+    },
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+  )
 }
 
 export async function handleFinalTest(

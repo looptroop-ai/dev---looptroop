@@ -1,6 +1,16 @@
 import { execFileSync } from 'node:child_process'
 import { resolveBaseBranchRef } from '../../git/repository'
 
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    const { logCommand } = require('../../log/commandLogger') as typeof import('../../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded.
+  }
+}
+
 export interface SquashResult {
   success: boolean
   message: string
@@ -16,10 +26,21 @@ export function prepareSquashCandidate(
   ticketTitle: string,
   ticketId: string,
 ): SquashResult {
-  const runGit = (args: string[]) => execFileSync('git', ['-C', worktreePath, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim()
+  const runGit = (args: string[]) => {
+    const fullArgs = ['-C', worktreePath, ...args]
+    try {
+      const stdout = execFileSync('git', fullArgs, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim()
+      logCmd('git', fullArgs, { ok: true, stdout })
+      return stdout
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      logCmd('git', fullArgs, { ok: false, error: detail })
+      throw err
+    }
+  }
 
   try {
     const baseBranchRef = resolveBaseBranchRef(worktreePath, baseBranch)

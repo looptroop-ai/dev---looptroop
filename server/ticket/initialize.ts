@@ -20,6 +20,17 @@ import {
 import { getTicketBeadsDir, updateTicketMeta } from './metadata'
 import { safeAtomicWrite } from '../io/atomicWrite'
 
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock when
+// tickets.start.test.ts uses `importOriginal` on this module.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    const { logCommand } = require('../log/commandLogger') as typeof import('../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded (e.g. in test isolation).
+  }
+}
+
 interface InitializeOptions {
   externalId: string
   projectFolder: string
@@ -60,24 +71,31 @@ export function getTicketDir(projectRoot: string, externalId: string): string {
 }
 
 function runGit(args: string[], cwd: string, code: string, message: string): string {
+  const fullArgs = ['-C', cwd, ...args]
   try {
-    return execFileSync('git', ['-C', cwd, ...args], {
+    const stdout = execFileSync('git', fullArgs, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim()
+    logCmd('git', fullArgs, { ok: true, stdout })
+    return stdout
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
+    logCmd('git', fullArgs, { ok: false, error: detail })
     throw new TicketInitializationError(code, `${message}: ${detail}`)
   }
 }
 
 function gitCommandSucceeds(args: string[], cwd: string): boolean {
+  const fullArgs = ['-C', cwd, ...args]
   try {
-    execFileSync('git', ['-C', cwd, ...args], {
+    execFileSync('git', fullArgs, {
       stdio: ['ignore', 'ignore', 'ignore'],
     })
+    logCmd('git', fullArgs, { ok: true })
     return true
   } catch {
+    logCmd('git', fullArgs, { ok: false, error: 'command returned non-zero' })
     return false
   }
 }

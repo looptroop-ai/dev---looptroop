@@ -4,6 +4,7 @@ import { isMockOpenCodeMode } from '../../opencode/factory'
 import { prepareSquashCandidate } from '../../phases/integration/squash'
 import { emitPhaseLog } from './helpers'
 import { handleMockExecutionUnsupported } from './executionPhase'
+import { withCommandLoggingAsync } from '../../log/commandLogger'
 
 export async function handleIntegration(
   ticketId: string,
@@ -15,6 +16,9 @@ export async function handleIntegration(
     return
   }
 
+  return withCommandLoggingAsync(
+    ticketId, context.externalId, 'INTEGRATING_CHANGES',
+    async () => {
   const paths = getTicketPaths(ticketId)
   if (!paths) {
     throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
@@ -58,4 +62,7 @@ export async function handleIntegration(
     `Integration phase completed. Candidate commit ${report.candidateCommitSha} is ready on ${context.externalId}.`,
   )
   sendEvent({ type: 'INTEGRATION_DONE' })
+    },
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+  )
 }

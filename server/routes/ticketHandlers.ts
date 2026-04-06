@@ -19,6 +19,7 @@ import { appendLogEvent } from '../log/executionLog'
 import { cancelTicket, handleInterviewQABatch, processInterviewBatchAsync, skipAllInterviewQuestionsToApproval } from '../workflow/runner'
 import { createTicket as createTicketRecord } from '../ticket/create'
 import { TicketInitializationError, initializeTicket } from '../ticket/initialize'
+import { withCommandLogging } from '../log/commandLogger'
 import { getProjectContextById } from '../storage/projects'
 import { validateModelSelection } from '../opencode/modelValidation'
 import {
@@ -457,10 +458,16 @@ export async function handleStartTicket(c: Context) {
   emitRoutePhaseLog(ticketId, startPhase, 'info', 'Initializing workspace and ticket directories.')
   let init: ReturnType<typeof initializeTicket>
   try {
-    init = initializeTicket({
-      externalId: ticketContext.externalId,
-      projectFolder: ticketContext.projectRoot,
-    })
+    init = withCommandLogging(
+      ticketId,
+      ticketContext.externalId,
+      startPhase,
+      () => initializeTicket({
+        externalId: ticketContext.externalId,
+        projectFolder: ticketContext.projectRoot,
+      }),
+      (phase, type, content) => emitRoutePhaseLog(ticketId, phase, type, content),
+    )
     emitRoutePhaseLog(
       ticketId,
       startPhase,
