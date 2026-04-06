@@ -14,3 +14,8 @@ export interface PreFlightReport {
   criticalFailures: DiagnosticCheck[]
   warnings: DiagnosticCheck[]
 }
+
+export interface PreFlightContext {
+  lockedMainImplementer: string | null
+  maxIterations: number
+}

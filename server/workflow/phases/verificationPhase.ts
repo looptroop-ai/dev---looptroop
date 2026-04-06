@@ -2959,7 +2959,11 @@ export async function handlePreFlight(
   signal: AbortSignal,
 ) {
   const beads = readTicketBeads(ticketId)
-  const report = await runPreFlightChecks(adapter, ticketId, beads, signal)
+  const preFlightContext = {
+    lockedMainImplementer: context.lockedMainImplementer,
+    maxIterations: context.maxIterations,
+  }
+  const report = await runPreFlightChecks(adapter, ticketId, beads, preFlightContext, signal)
   throwIfAborted(signal, ticketId)
   insertPhaseArtifact(ticketId, {
     phase: 'PRE_FLIGHT_CHECK',
