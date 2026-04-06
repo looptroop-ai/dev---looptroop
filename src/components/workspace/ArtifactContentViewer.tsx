@@ -2299,8 +2299,8 @@ export function BeadsDraftView({ content }: { content: string }) {
             const metadataId = getBeadStringValue(bead, ['id'])
             const { blockedBy, blocks } = getBeadDependencies(bead)
             return (
+              <div key={`${metadataId || 'bead'}-${index}`} id={`bead-${index}`}>
               <CollapsibleSection
-                key={`${metadataId || 'bead'}-${index}`}
                 className={tone.card}
                 headerClassName={tone.header}
                 title={(
@@ -2443,6 +2443,7 @@ export function BeadsDraftView({ content }: { content: string }) {
                   </CollapsibleSection>
                 </div>
               </CollapsibleSection>
+              </div>
             )
           })()
         ))}

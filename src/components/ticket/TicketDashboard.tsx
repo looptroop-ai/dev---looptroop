@@ -16,6 +16,7 @@ import { WORKFLOW_PHASE_IDS } from '@shared/workflowMeta'
 import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
 import { INTERVIEW_APPROVAL_FOCUS_EVENT } from '@/lib/interviewDocument'
 import { PRD_APPROVAL_FOCUS_EVENT } from '@/lib/prdDocument'
+import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT, type WorkspacePhaseNavigateDetail } from '@/lib/workspaceNavigation'
 
 function toDebugJson(data: Record<string, unknown>) {
@@ -341,7 +342,9 @@ export function TicketDashboard() {
       ? INTERVIEW_APPROVAL_FOCUS_EVENT
       : pendingWorkspaceNavigation.phase === 'WAITING_PRD_APPROVAL'
         ? PRD_APPROVAL_FOCUS_EVENT
-        : null
+        : pendingWorkspaceNavigation.phase === 'WAITING_BEADS_APPROVAL'
+          ? BEADS_APPROVAL_FOCUS_EVENT
+          : null
 
     if (!focusEventType) return
 

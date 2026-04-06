@@ -53,6 +53,7 @@ import {
   savePrdStructuredContent,
   savePrdRawContent,
 } from '../phases/prd/document'
+import { approveBeadsDocument } from '../phases/beads/document'
 import type { PrdDocument } from '../structuredOutput/types'
 import { isBeforeExecution, isStatusAtOrPast } from '@shared/workflowMeta'
 import { existsSync, readFileSync } from 'node:fs'
@@ -277,29 +278,6 @@ function buildInterviewPayload(ticketId: string): {
       questions,
     }
   }
-}
-
-function approveSpecific(
-  ticketId: string,
-  expectedStatus: string,
-  failureMessage: string,
-  successMessage: string,
-): { type: 'success'; message: string } | { type: 'response'; body: { error: string; details?: string }; status: 404 | 409 | 500 } {
-  const ticket = getTicketByRef(ticketId)
-  if (!ticket) return { type: 'response' as const, body: { error: 'Ticket not found' }, status: 404 }
-  if (ticket.status !== expectedStatus) {
-    return { type: 'response' as const, body: { error: failureMessage }, status: 409 }
-  }
-
-  try {
-    ensureActorForTicket(ticketId)
-    sendTicketEvent(ticketId, { type: 'APPROVE' })
-  } catch (err) {
-    console.error(`[tickets] Failed to approve ${ticketId}:`, err)
-    return { type: 'response' as const, body: { error: `Failed to approve ticket`, details: String(err) }, status: 500 }
-  }
-
-  return { type: 'success' as const, message: successMessage }
 }
 
 export function handleListTickets(c: Context) {
@@ -623,6 +601,12 @@ export function handleApproveTicket(c: Context) {
 
   if (ticket.status === 'WAITING_INTERVIEW_APPROVAL') {
     return handleApproveInterview(c)
+  }
+  if (ticket.status === 'WAITING_PRD_APPROVAL') {
+    return handleApprovePrd(c)
+  }
+  if (ticket.status === 'WAITING_BEADS_APPROVAL') {
+    return handleApproveBeads(c)
   }
 
   try {
@@ -995,15 +979,30 @@ export function handleApprovePrd(c: Context) {
 }
 
 export function handleApproveBeads(c: Context) {
-  const result = approveSpecific(
-    getTicketParam(c),
-    'WAITING_BEADS_APPROVAL',
-    'Ticket is not waiting for beads approval',
-    'Beads approved',
-  )
   const ticketId = getTicketParam(c)
-  if (result.type === 'response') return c.json(result.body, result.status)
-  return respondWithState(c, ticketId, result.message)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_BEADS_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for beads approval' }, 409)
+  }
+
+  try {
+    approveBeadsDocument(ticketId)
+    ensureActorForTicket(ticketId)
+
+    const phase = 'WAITING_BEADS_APPROVAL'
+    emitRoutePhaseLog(ticketId, phase, 'info', 'Beads approved by user.')
+
+    sendTicketEvent(ticketId, { type: 'APPROVE' })
+  } catch (err) {
+    console.error(`[tickets] Failed to approve beads for ${ticketId}:`, err)
+    return c.json({
+      error: 'Failed to approve beads',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
+
+  return respondWithState(c, ticketId, 'Beads approved')
 }
 
 export function handleVerifyTicket(c: Context) {

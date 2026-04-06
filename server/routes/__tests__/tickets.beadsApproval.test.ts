@@ -1,0 +1,315 @@
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Hono } from 'hono'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { initializeDatabase } from '../../db/init'
+import { sqlite } from '../../db/index'
+import { clearProjectDatabaseCache } from '../../db/project'
+import { attachProject } from '../../storage/projects'
+import {
+  createTicket,
+  getLatestPhaseArtifact,
+  getTicketPaths,
+  patchTicket,
+} from '../../storage/tickets'
+import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import { initializeTicket } from '../../ticket/initialize'
+import { ticketRouter } from '../tickets'
+import { beadsRouter } from '../beads'
+
+vi.mock('../../machines/persistence', async () => {
+  const storage = await import('../../storage/tickets')
+
+  return {
+    createTicketActor: vi.fn(),
+    ensureActorForTicket: vi.fn(() => ({ id: 'mock-actor' })),
+    sendTicketEvent: vi.fn((ticketRef: string | number, event: { type: string }) => {
+      if (event.type === 'APPROVE') {
+        storage.patchTicket(String(ticketRef), { status: 'PRE_FLIGHT_CHECK' })
+      }
+      return { value: event.type }
+    }),
+    getTicketState: vi.fn((ticketRef: string | number) => {
+      const ticket = storage.getTicketByRef(String(ticketRef))
+      if (!ticket) return null
+      return { state: ticket.status, context: {}, status: 'active' }
+    }),
+    stopActor: vi.fn(() => true),
+  }
+})
+
+const repoManager = createFixtureRepoManager({
+  templatePrefix: 'looptroop-ticket-route-beads-approval-',
+  files: {
+    'README.md': '# LoopTroop Beads Approval Test\n',
+  },
+})
+
+function sampleBeadsJsonl(): string {
+  const beads = [
+    {
+      id: 'bead-001',
+      title: 'Setup database schema',
+      description: 'Create the initial database schema.',
+      prdRefs: ['E01-S01'],
+      acceptanceCriteria: ['Schema is created', 'Migrations run'],
+      tests: ['verify schema exists'],
+      testCommands: ['npm test'],
+      targetFiles: ['src/db/schema.ts'],
+      contextGuidance: { patterns: ['use drizzle'], anti_patterns: ['raw SQL'] },
+      dependencies: { blocked_by: [], blocks: ['bead-002'] },
+      priority: 1,
+      status: 'pending',
+      issueType: 'task',
+      labels: [],
+    },
+    {
+      id: 'bead-002',
+      title: 'Implement API endpoints',
+      description: 'Create REST endpoints for the resource.',
+      prdRefs: ['E01-S02'],
+      acceptanceCriteria: ['GET returns 200', 'POST creates resource'],
+      tests: ['API returns correct status codes'],
+      testCommands: ['npm test'],
+      targetFiles: ['src/routes/api.ts'],
+      contextGuidance: { patterns: ['use Hono'], anti_patterns: ['express'] },
+      dependencies: { blocked_by: ['bead-001'], blocks: [] },
+      priority: 2,
+      status: 'pending',
+      issueType: 'task',
+      labels: [],
+    },
+  ]
+  return beads.map((b) => JSON.stringify(b)).join('\n') + '\n'
+}
+
+function setupBeadsApprovalTicket() {
+  const repoDir = repoManager.createRepo()
+  const project = attachProject({
+    folderPath: repoDir,
+    name: 'LoopTroop',
+    shortname: 'LOOP',
+  })
+  const ticket = createTicket({
+    projectId: project.id,
+    title: 'Beads approval',
+    description: 'Verify the beads approval routes.',
+  })
+
+  const init = initializeTicket({
+    projectFolder: repoDir,
+    externalId: ticket.externalId,
+  })
+
+  patchTicket(ticket.id, {
+    status: 'WAITING_BEADS_APPROVAL',
+    branchName: init.branchName,
+  })
+
+  const paths = getTicketPaths(ticket.id)
+  if (!paths) {
+    throw new Error('Ticket workspace not initialized')
+  }
+
+  // Write beads JSONL file
+  const beadsDir = dirname(paths.beadsPath)
+  mkdirSync(beadsDir, { recursive: true })
+  const beadsContent = sampleBeadsJsonl()
+  writeFileSync(paths.beadsPath, beadsContent)
+
+  const app = new Hono()
+  app.route('/api', ticketRouter)
+  app.route('/api', beadsRouter)
+
+  return { app, ticket, paths, beadsContent }
+}
+
+describe('ticketRouter beads approval routes', () => {
+  beforeEach(() => {
+    clearProjectDatabaseCache()
+    initializeDatabase()
+    sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
+  })
+
+  afterAll(() => {
+    clearProjectDatabaseCache()
+    repoManager.cleanup()
+  })
+
+  it('approves beads, stamps approval receipt, and advances the ticket', async () => {
+    const { app, ticket } = setupBeadsApprovalTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as { status?: string; message?: string }
+    expect(payload.message).toBe('Beads approved')
+    expect(payload.status).toBe('PRE_FLIGHT_CHECK')
+
+    // Approval receipt stored as phase artifact
+    const receipt = getLatestPhaseArtifact(ticket.id, 'approval_receipt', 'WAITING_BEADS_APPROVAL')
+    expect(receipt).toBeDefined()
+    const receiptData = JSON.parse(receipt!.content)
+    expect(receiptData.approved_by).toBe('user')
+    expect(receiptData.approved_at).toBeTruthy()
+    expect(receiptData.bead_count).toBe(2)
+  })
+
+  it('dispatches beads approval through the generic approve route', async () => {
+    const { app, ticket } = setupBeadsApprovalTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as { status?: string; message?: string }
+    expect(payload.message).toBe('Beads approved')
+    expect(payload.status).toBe('PRE_FLIGHT_CHECK')
+
+    // Approval receipt is also stamped through the generic route
+    const receipt = getLatestPhaseArtifact(ticket.id, 'approval_receipt', 'WAITING_BEADS_APPROVAL')
+    expect(receipt).toBeDefined()
+  })
+
+  it('rejects approval when ticket is not in WAITING_BEADS_APPROVAL status', async () => {
+    const { app, ticket } = setupBeadsApprovalTicket()
+
+    patchTicket(ticket.id, { status: 'DRAFTING_BEADS' })
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(409)
+    const payload = (await response.json()) as { error: string }
+    expect(payload.error).toContain('not waiting for beads approval')
+  })
+
+  it('returns 404 when ticket does not exist', async () => {
+    const { app } = setupBeadsApprovalTicket()
+
+    const response = await app.request('/api/tickets/9999/approve-beads', {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(404)
+    const payload = (await response.json()) as { error: string }
+    expect(payload.error).toContain('not found')
+  })
+
+  it('returns 500 when beads file is missing', async () => {
+    const { app, ticket, paths } = setupBeadsApprovalTicket()
+
+    // Remove beads file
+    const { unlinkSync } = await import('node:fs')
+    unlinkSync(paths.beadsPath)
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(500)
+    const payload = (await response.json()) as { error: string; details: string }
+    expect(payload.details).toContain('not found')
+  })
+
+  it('returns 500 when beads file contains invalid JSON', async () => {
+    const { app, ticket, paths } = setupBeadsApprovalTicket()
+
+    // Write invalid JSON — first line has valid id+title, second has bad JSON
+    writeFileSync(paths.beadsPath, '{"id":"bead-001","title":"Valid bead"}\nnot valid json\n')
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(500)
+    const payload = (await response.json()) as { error: string; details: string }
+    expect(payload.details).toContain('Invalid JSON at bead line 2')
+  })
+
+  it('preserves beads file content after approval (no mutation)', async () => {
+    const { app, ticket, paths, beadsContent } = setupBeadsApprovalTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+
+    // Beads JSONL file should remain unchanged
+    const { readFileSync } = await import('node:fs')
+    const afterContent = readFileSync(paths.beadsPath, 'utf-8')
+    expect(afterContent).toBe(beadsContent)
+  })
+
+  it('handles empty beads file gracefully', async () => {
+    const { app, ticket, paths } = setupBeadsApprovalTicket()
+
+    writeFileSync(paths.beadsPath, '\n')
+
+    const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(500)
+    const payload = (await response.json()) as { error: string; details: string }
+    expect(payload.details).toContain('empty')
+  })
+
+  it('reads beads via GET endpoint', async () => {
+    const { app, ticket } = setupBeadsApprovalTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/beads`)
+
+    expect(response.status).toBe(200)
+    const data = (await response.json()) as unknown[]
+    expect(Array.isArray(data)).toBe(true)
+    expect(data).toHaveLength(2)
+    expect((data[0] as Record<string, unknown>).id).toBe('bead-001')
+    expect((data[1] as Record<string, unknown>).id).toBe('bead-002')
+  })
+
+  it('saves edited beads via PUT endpoint', async () => {
+    const { app, ticket, paths } = setupBeadsApprovalTicket()
+
+    const editedBeads = [
+      {
+        id: 'bead-001',
+        title: 'Updated title',
+        description: 'Updated description.',
+        prdRefs: ['E01-S01'],
+        acceptanceCriteria: ['Updated criterion'],
+        tests: ['updated test'],
+        testCommands: ['npm test'],
+        targetFiles: ['src/db/schema.ts'],
+        contextGuidance: { patterns: ['use drizzle'], anti_patterns: [] },
+        dependencies: { blocked_by: [], blocks: [] },
+        priority: 1,
+        status: 'pending',
+        issueType: 'task',
+        labels: [],
+      },
+    ]
+
+    const response = await app.request(`/api/tickets/${ticket.id}/beads`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editedBeads),
+    })
+
+    expect(response.status).toBe(200)
+
+    const { readFileSync } = await import('node:fs')
+    const savedContent = readFileSync(paths.beadsPath, 'utf-8')
+    const lines = savedContent.split('\n').filter((l) => l.trim())
+    expect(lines).toHaveLength(1)
+
+    const savedBead = JSON.parse(lines[0]!)
+    expect(savedBead.title).toBe('Updated title')
+    expect(savedBead.description).toBe('Updated description.')
+  })
+})

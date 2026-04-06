@@ -339,7 +339,7 @@ describe('ticketRouter PRD approval routes', () => {
     expect(getLatestPhaseArtifact(ticket.id, 'ui_state:approval_beads', 'UI_STATE')).toBeUndefined()
   })
 
-  it('does not stamp PRD approval metadata through the generic approve route', async () => {
+  it('stamps PRD approval metadata through the generic approve route', async () => {
     const { app, ticket, paths } = setupPrdApprovalTicket()
 
     const response = await app.request(`/api/tickets/${ticket.id}/approve`, {
@@ -348,14 +348,13 @@ describe('ticketRouter PRD approval routes', () => {
 
     expect(response.status).toBe(200)
     const payload = await response.json() as { message?: string; status?: string }
-    expect(payload.message).toBe('Approve action accepted')
+    expect(payload.message).toBe('PRD approved')
     expect(payload.status).toBe('DRAFTING_BEADS')
 
     const savedRaw = readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')
-    expect(savedRaw).toContain('status: draft')
-    expect(savedRaw).toContain("approved_by: ''")
-    expect(savedRaw).toContain("approved_at: ''")
-    expect(savedRaw).not.toContain('approved_by: user')
+    expect(savedRaw).toContain('status: approved')
+    expect(savedRaw).toContain('approved_by: user')
+    expect(savedRaw).toMatch(/approved_at: .+/)
   })
 
   it('rejects approval when ticket is not in WAITING_PRD_APPROVAL status', async () => {

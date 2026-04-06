@@ -30,7 +30,7 @@ export function NavigatorPanel({
   onSelectErrorOccurrence,
   contextPhase,
 }: NavigatorPanelProps) {
-  const isApprovalNavigatorPhase = contextPhase === 'WAITING_INTERVIEW_APPROVAL' || contextPhase === 'WAITING_PRD_APPROVAL'
+  const isApprovalNavigatorPhase = contextPhase === 'WAITING_INTERVIEW_APPROVAL' || contextPhase === 'WAITING_PRD_APPROVAL' || contextPhase === 'WAITING_BEADS_APPROVAL'
 
   return (
     <div className="h-full flex flex-col">
