@@ -126,6 +126,13 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
               <DetailsList items={phaseMeta.details.transitions} />
             </section>
 
+            {phaseMeta.details.equivalents && phaseMeta.details.equivalents.length > 0 ? (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">Equivalent Steps in Other Phases</h3>
+                <DetailsList items={phaseMeta.details.equivalents} />
+              </section>
+            ) : null}
+
             {phaseMeta.details.notes && phaseMeta.details.notes.length > 0 ? (
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold text-foreground">Notes</h3>

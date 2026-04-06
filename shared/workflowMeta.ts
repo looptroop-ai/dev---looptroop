@@ -24,6 +24,7 @@ export interface WorkflowPhaseDetails {
   outputs: readonly string[]
   transitions: readonly string[]
   notes?: readonly string[]
+  equivalents?: readonly string[]
 }
 
 export interface WorkflowPhaseMeta {
@@ -141,6 +142,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context available: Relevant Files + Ticket Details. The council does not yet have interview answers, PRD, or beads — it is creating the interview that will gather those answers.',
       'Why multiple drafts? A single model might focus narrowly on one aspect of the ticket. By having multiple models independently draft interview approaches, the system captures a wider range of relevant questions and perspectives.',
     ],
+    equivalents: [
+      'This is the "multi-model drafting" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Drafting Specs" (where council members independently write competing PRD documents from the approved interview) and in the Blueprint (Beads) phase as "Architecting Beads" (where council members independently propose competing task decompositions from the approved PRD).',
+      'All three drafting phases share the same mechanics: parallel independent generation → quorum check → advance to voting. The difference is what is being drafted (interview questions vs. specification document vs. implementation plan) and what context each council member receives.',
+    ],
   },
   COUNCIL_VOTING_INTERVIEW: {
     overview: 'The council scores the interview drafts against a structured voting rubric and selects the strongest candidate to become the canonical interview basis. Each member scores all drafts — not just their own — and the drafts are anonymized so models cannot identify or favor their own output. This ensures the selection is based purely on quality, not authorship bias.',
@@ -167,6 +172,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'The voting rubric is consistent across all council members to ensure scores are comparable.',
       'Why vote instead of just picking one? Voting aggregates multiple perspectives on quality. A draft that impresses all council members is more likely to be genuinely strong than one that a single model happened to prefer.',
     ],
+    equivalents: [
+      'This is the "council voting" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Voting on Specs" (where the council scores competing PRD drafts using a PRD-specific rubric) and in the Blueprint (Beads) phase as "Voting on Architecture" (where the council scores competing beads blueprints using an architecture rubric).',
+      'All three voting phases share the same mechanics: anonymization → randomized presentation → independent scoring → vote resolution → winner selection. The difference is the scoring rubric used: interview voting evaluates question relevance and coverage; PRD voting evaluates requirement completeness and acceptance criteria quality; beads voting evaluates decomposition quality and dependency correctness.',
+    ],
   },
   COMPILING_INTERVIEW: {
     overview: 'LoopTroop turns the winning interview draft into the normalized, interactive interview session that you will actually answer. This is a single-model phase using the winning model from the vote. The compilation step standardizes question formats, sets up batch state tracking, and produces the UI-ready interview artifact that the interview screen renders.',
@@ -192,6 +201,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'The compilation is done by the winning model (from the vote), not the main implementer or all council members.',
       'Context available: Relevant Files + Ticket Details + Competing Drafts (used for reference during normalization).',
       'The session snapshot is designed to support multiple interview rounds — if coverage later adds follow-up questions, the same snapshot structure accommodates them.',
+    ],
+    equivalents: [
+      'This is the "refinement/compilation" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts) and in the Blueprint (Beads) phase as "Finalizing Plan" (where the winning blueprint is enhanced with ideas from losing blueprints).',
+      'All three use the winning model to consolidate the best output. The interview phase calls it "compiling" because it normalizes the draft into an interactive format; the PRD and beads phases call it "refining" because they merge improvements from losing drafts into the winner. The underlying principle is the same: take the best candidate and make it stronger.',
     ],
   },
   WAITING_INTERVIEW_ANSWERS: {
@@ -251,6 +264,11 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context available: Ticket Details + User Answers + Interview Results.',
       'Why budget the loop? Without a budget, a model could theoretically keep finding minor gaps and generating follow-up questions forever. The budget ensures the interview converges to a usable state within a reasonable number of rounds.',
     ],
+    equivalents: [
+      'This is the "coverage check" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Coverage Check (PRD)" (where the PRD is checked against the approved interview) and in the Blueprint (Beads) phase as "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
+      'All three coverage checks share the goal of verifying completeness, but they differ in how gaps are resolved: Interview coverage sends you back to answer follow-up questions (user-facing loop). PRD coverage revises the document automatically within the same phase (AI-internal loop, up to 3 versions). Beads coverage also revises automatically, then performs a final expansion step to produce execution-ready bead records.',
+      'Each coverage check has a budget or cap to ensure convergence — interview has a follow-up round budget, PRD has a 3-version cap, and beads has its own coverage cap plus the expansion step.',
+    ],
   },
   WAITING_INTERVIEW_APPROVAL: {
     overview: 'The interview is ready for human review and approval. This is a user-input gate — no AI work proceeds until you explicitly approve. You can inspect the full interview results (questions, answers, and skip decisions), make edits to answers or the raw YAML representation, and only approve when you are satisfied that the interview captures your intent correctly. The approved interview becomes the authoritative source material that drives PRD generation.',
@@ -277,6 +295,11 @@ const WORKFLOW_PHASE_DETAILS = {
       'Tip: Review skipped questions carefully. Skipped questions will have AI-generated answers filled in during PRD drafting. If you have opinions about those topics, it is better to provide real answers now than to rely on AI guesses later.',
       'Tip: This is your last easy chance to influence the interview before it feeds into the PRD. Editing after approval is possible but triggers cascade regeneration of downstream artifacts.',
     ],
+    equivalents: [
+      'This is the "approval gate" of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Approving Specs" (where you review and approve the PRD before beads planning) and in the Blueprint (Beads) phase as "Approving Blueprint" (where you review and approve the execution plan before coding starts).',
+      'All three approval gates share the same mechanics: human review → optional editing → explicit approval to advance. Each gate controls what feeds into the next major phase: approved interview → PRD drafting, approved PRD → beads drafting, approved beads → coding execution.',
+      'Post-approval edits trigger cascade warnings in all three cases — because downstream artifacts were built on the approved version and would need regeneration.',
+    ],
   },
   DRAFTING_PRD: {
     overview: 'The PRD council produces competing specification drafts from the approved interview, relevant files, and ticket context. This is a 2-part phase: Part 1 fills in any skipped interview answers with AI-generated responses so the council has a complete working basis, and Part 2 uses the complete answer set to generate full PRD drafts. Each council member independently produces their own PRD — they do not collaborate or see each other\'s work.',
@@ -300,6 +323,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'This phase has 2 internal parts with different context inputs: Part 1 receives Relevant Files + Ticket Details + Interview Results; Part 2 receives Relevant Files + Ticket Details + Full Answers.',
       'The PRD phase is the first stage that converts interview intent into a formal implementation specification — it bridges the gap between "what do you want" (interview) and "what should be built" (specification).',
       'The Full Answers artifact from Part 1 is reused by all council members in Part 2, ensuring consistency in how skipped questions are handled.',
+    ],
+    equivalents: [
+      'This is the "multi-model drafting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "AI Council Thinking" (where council members independently draft competing interview questions) and in the Blueprint (Beads) phase is "Architecting Beads" (where council members independently propose competing task decompositions).',
+      'Unlike the Interview drafting phase, PRD drafting has a 2-part structure: Part 1 fills in skipped interview answers first, then Part 2 generates actual PRD drafts. This extra step ensures all council members work from the same complete answer set. The Interview and Beads drafting phases are single-part.',
     ],
   },
   COUNCIL_VOTING_PRD: {
@@ -326,6 +353,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'The winning draft is not the final PRD — it still goes through refinement and coverage checking before approval.',
       'The voting rubric is weighted, meaning some categories (like requirement completeness) may count more than others (like structural coherence) in the final score.',
     ],
+    equivalents: [
+      'This is the "council voting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Selecting Best Questions" (where the council votes on competing interview drafts) and in the Blueprint (Beads) phase is "Voting on Architecture" (where the council votes on competing beads blueprints).',
+      'The PRD voting rubric differs from the other two: it is weighted and focuses on requirement completeness, acceptance criteria quality, edge case coverage, test intent clarity, and structural coherence. Interview voting focuses on question relevance and coverage breadth. Beads voting focuses on decomposition quality, feasibility, and dependency correctness.',
+    ],
   },
   REFINING_PRD: {
     overview: 'The winning PRD draft is upgraded into PRD Candidate v1 by selectively pulling in useful improvements from the losing drafts — additional requirements, stronger acceptance criteria, edge cases, or test scenarios that the winner missed. The winning model performs this refinement, preserving its own structure while incorporating the best elements from competitors.',
@@ -350,6 +381,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context available: Relevant Files + Ticket Details + Full Answers + Competing Drafts (the winner is labeled, losers are provided for mining improvements).',
       'PRD Candidate v1 is a versioned identifier — coverage may produce v2 or v3 if gaps are found and revisions are needed.',
       'Why refine? The winning draft scored highest overall, but losing drafts often contain individual insights that the winner lacks. Refinement captures those insights without losing the winning structure.',
+    ],
+    equivalents: [
+      'This is the "refinement" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Preparing Interview" (where the winning interview draft is compiled into the interactive format) and in the Blueprint (Beads) phase is "Finalizing Plan" (where the winning blueprint is enhanced with ideas from losing blueprints).',
+      'PRD and Beads refinement are very similar — both merge improvements from losing drafts into the winner. Interview compilation differs slightly because it also transforms the format (from a raw draft into a normalized, interactive session structure), but the core idea is the same: take the winning output and strengthen it.',
     ],
   },
   VERIFYING_PRD_COVERAGE: {
@@ -378,6 +413,11 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context available: Interview Results + Full Answers + PRD (current candidate version).',
       'Why cap at 3 versions? Diminishing returns: most meaningful gaps are caught in the first revision. The cap prevents the loop from endlessly polishing minor details while delaying your approval review.',
     ],
+    equivalents: [
+      'This is the "coverage check" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Blueprint (Beads) phase is "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
+      'Key difference from Interview coverage: PRD coverage resolves gaps automatically (the model revises the PRD within this same phase) rather than sending you back for more user input. Key difference from Beads coverage: Beads coverage includes a final expansion step that transforms the semantic blueprint into execution-ready bead records — PRD coverage does not have an equivalent expansion.',
+      'What is being verified against what: Interview coverage checks interview answers against the ticket description. PRD coverage checks the PRD against the approved interview. Beads coverage checks the beads blueprint against the approved PRD. Each layer verifies against the previous approved artifact.',
+    ],
   },
   WAITING_PRD_APPROVAL: {
     overview: 'The latest PRD candidate is ready for human review and approval before architecture planning starts. This is a user-input gate — no AI work proceeds until you explicitly approve. You can review the specification in structured or raw form, edit any section, and check whether coverage warnings exist from the coverage loop. The approved PRD becomes the authoritative input that drives beads (implementation task) planning.',
@@ -404,6 +444,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'Tip: Pay special attention to acceptance criteria — they directly determine how the AI will verify its own implementation during the coding phase.',
       'Tip: If coverage warnings exist, read the unresolved gaps carefully. Minor gaps may be acceptable, but gaps in core requirements could lead to an incomplete implementation.',
     ],
+    equivalents: [
+      'This is the "approval gate" of the Specs (PRD) phase. The equivalent in the Interview phase is "Approving Interview" (where you review and approve the interview results before PRD drafting) and in the Blueprint (Beads) phase is "Approving Blueprint" (where you review and approve the execution plan before coding starts).',
+      'All three approval gates serve as quality checkpoints between major pipeline stages. This one sits between interview → PRD (upstream) and PRD → beads (downstream). Approving here locks the PRD as authoritative input for beads planning, just as approving the interview locks it for PRD drafting.',
+    ],
   },
   DRAFTING_BEADS: {
     overview: 'The beads council decomposes the approved PRD into implementable tasks — called "beads" — that the coding agent will later execute one by one. Each council member independently proposes a semantic beads blueprint: a task-level breakdown with descriptions, acceptance criteria, dependencies, and test intent. The blueprints at this stage are still "semantic" (describing what to do) rather than "execution-ready" (containing exact commands and file paths).',
@@ -426,6 +470,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context available: Relevant Files + Ticket Details + PRD.',
       'Blueprints at this stage are semantic — they describe tasks conceptually without execution-specific fields like shell commands or exact file paths. Those are added later during the expansion step.',
       'Why independent drafting? Different models may identify different natural task boundaries. Voting on competing blueprints helps select the most logical and implementable decomposition.',
+    ],
+    equivalents: [
+      'This is the "multi-model drafting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "AI Council Thinking" (where council members draft competing interview questions) and in the Specs (PRD) phase is "Drafting Specs" (where council members draft competing PRD documents).',
+      'Unlike PRD drafting (which has a 2-part structure with skipped-answer filling), beads drafting is a single-part phase. The output is also fundamentally different: instead of a document (interview questions or specification), each council member produces a task decomposition graph with dependencies — making this the most architecturally complex drafting phase.',
     ],
   },
   COUNCIL_VOTING_BEADS: {
@@ -451,6 +499,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'The architecture rubric differs from the PRD and interview rubrics — it focuses on implementation feasibility and dependency structure rather than requirement coverage.',
       'The winning blueprint is not the final plan — it still goes through refinement, coverage checking, and expansion before becoming execution-ready beads.',
     ],
+    equivalents: [
+      'This is the "council voting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Selecting Best Questions" (where the council votes on competing interview drafts) and in the Specs (PRD) phase is "Voting on Specs" (where the council votes on competing PRD drafts).',
+      'The architecture rubric used here is the most technically focused of the three voting rubrics: it evaluates decomposition quality, feasibility, dependency correctness, and testability. By contrast, interview voting evaluates question relevance and coverage, while PRD voting evaluates requirement completeness and acceptance criteria quality.',
+    ],
   },
   REFINING_BEADS: {
     overview: 'The winning beads blueprint stays the backbone while LoopTroop pulls in stronger tasks, tests, constraints, and edge cases from the losing blueprints. The refined output remains a semantic plan — execution-specific fields (shell commands, exact file paths, runtime configuration) are added later during the expansion step in the coverage phase.',
@@ -474,6 +526,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'This phase still works on the semantic plan, not execution-ready bead records. Execution fields are added in the next phase\'s expansion step.',
       'Context available: Relevant Files + Ticket Details + PRD + Competing Drafts.',
       'Why refine before expansion? Semantic-level refinement is cheaper and more flexible. It is easier to add or modify task descriptions than to redo execution-specific fields after expansion.',
+    ],
+    equivalents: [
+      'This is the "refinement" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Preparing Interview" (where the winning interview draft is compiled into the interactive format) and in the Specs (PRD) phase is "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts).',
+      'Beads refinement is very similar to PRD refinement — both merge improvements from losing drafts. The key difference is that beads refinement stays at the semantic level (task descriptions and acceptance criteria) because the execution-ready fields (commands, file paths) are added later during the expansion step in the next phase. PRD refinement produces the near-final document directly.',
     ],
   },
   VERIFYING_BEADS_COVERAGE: {
@@ -502,6 +558,11 @@ const WORKFLOW_PHASE_DETAILS = {
       'The beads coverage cap ensures convergence — the loop cannot run indefinitely.',
       'Why expand separately? Expansion is expensive and adds execution-specific detail. By doing coverage at the semantic level first, LoopTroop avoids wasting expansion effort on a blueprint that would need revision.',
     ],
+    equivalents: [
+      'This is the "coverage check" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Specs (PRD) phase is "Coverage Check (PRD)" (where the PRD is checked against the approved interview).',
+      'Beads coverage is the most complex of the three coverage checks because it has a 2-part structure: Part 1 is the standard coverage loop (similar to PRD coverage — automatic revisions within the same phase), and Part 2 is the unique "expansion" step that transforms the semantic blueprint into execution-ready bead records with commands, file targets, and dependency graphs. Neither Interview nor PRD coverage has an equivalent expansion step.',
+      'What is being verified against what: Interview coverage checks answers against the ticket. PRD coverage checks the PRD against the approved interview. Beads coverage checks the blueprint against the approved PRD. This creates a chain of verification where each artifact is validated against its predecessor.',
+    ],
   },
   WAITING_BEADS_APPROVAL: {
     overview: 'The final expanded beads plan is ready for human review before any coding begins. This is the last user-input gate before execution starts — once you approve, the coding agent will begin implementing beads one by one. You can review the full execution plan including task descriptions, dependencies, acceptance criteria, and test commands, and edit the plan if needed.',
@@ -527,6 +588,10 @@ const WORKFLOW_PHASE_DETAILS = {
       'No AI context is passed in this phase — it is entirely user-driven.',
       'Tip: Review the dependency chain carefully. Incorrect dependencies could cause beads to run before their prerequisites are ready, leading to implementation errors.',
       'Tip: Check that acceptance criteria are specific and testable. The coding agent uses acceptance criteria to verify its own work — vague criteria may lead to incomplete implementations.',
+    ],
+    equivalents: [
+      'This is the "approval gate" of the Blueprint (Beads) phase — the last of three approval gates in the planning pipeline. The equivalent in the Interview phase is "Approving Interview" (the first gate) and in the Specs (PRD) phase is "Approving Specs" (the second gate).',
+      'This is the most consequential approval gate because it is the last human checkpoint before automated code execution begins. Approving the interview feeds into PRD drafting (a planning step). Approving the PRD feeds into beads drafting (still a planning step). But approving beads feeds directly into the coding agent — which will start modifying files in your repository.',
     ],
   },
   PRE_FLIGHT_CHECK: {
