@@ -1827,8 +1827,9 @@ describe('PhaseArtifactsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Implementation Plan v1/i }))
 
     expect(screen.getByText('No coverage gaps found in Implementation Plan v1.')).toBeInTheDocument()
-    expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
-    expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
+    expect(screen.getByText('Beads')).toBeInTheDocument()
+    expect(screen.queryByText('Prior Context (Beads)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Under Verification (Beads)')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).not.toBeInTheDocument()
     expect(screen.queryByText('LoopTroop adjusted this diff.')).not.toBeInTheDocument()
   })
@@ -1929,9 +1930,9 @@ describe('PhaseArtifactsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`Implementation Plan v${version}`, 'i') }))
 
-    expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
-    expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
-    expect(screen.getByText(priorTitle)).toBeInTheDocument()
+    expect(screen.getByText('Beads')).toBeInTheDocument()
+    expect(screen.queryByText('Prior Context (Beads)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Under Verification (Beads)')).not.toBeInTheDocument()
     expect(screen.getByText(revisedTitle)).toBeInTheDocument()
     if (phase === 'VERIFYING_BEADS_COVERAGE') {
       expect(screen.getByRole('button', { name: /^Diff(?: \(\d+\))?$/i })).toBeInTheDocument()

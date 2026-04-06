@@ -661,17 +661,16 @@ describe('ArtifactContentViewer', () => {
             },
           }),
         })}
-      />,
+      />
     )
 
-    expect(screen.getByText('Prior Context (Beads)')).toBeInTheDocument()
-    expect(screen.getByText('Under Verification (Beads)')).toBeInTheDocument()
+    // Merged into a single "Beads" section showing refinedContent (diff tab shows differences)
+    expect(screen.getByText('Beads')).toBeInTheDocument()
+    expect(screen.queryByText('Prior Context (Beads)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Under Verification (Beads)')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('Review prior bead guidance').closest('button')!)
     fireEvent.click(screen.getByText('Review refined bead guidance').closest('button')!)
 
-    expect(screen.getByText('Carry forward the prior patterns list in review mode.')).toBeInTheDocument()
-    expect(screen.getByText('Do not lose structured guidance in the prior-context section.')).toBeInTheDocument()
     expect(screen.getByText('Render refined guidance with explicit list headings.')).toBeInTheDocument()
     expect(screen.getByText('Do not special-case the review view with a different renderer.')).toBeInTheDocument()
   })

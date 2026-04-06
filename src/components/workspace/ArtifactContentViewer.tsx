@@ -3382,16 +3382,10 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
                 <div className="opacity-80"><PrdDraftView content={parsedCoverageInput.prd} /></div>
               </div>
             )}
-            {parsedCoverageInput.beads && (
+            {(parsedCoverageInput.refinedContent || parsedCoverageInput.beads) && (
               <div>
-                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Prior Context (Beads)</div>
-                <div className="opacity-80"><BeadsDraftView content={parsedCoverageInput.beads} /></div>
-              </div>
-            )}
-            {parsedCoverageInput.refinedContent && (
-              <div className="border-t border-border pt-4">
-                <div className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">Under Verification (Beads)</div>
-                {<BeadsDraftView content={parsedCoverageInput.refinedContent} />}
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Beads</div>
+                <BeadsDraftView content={parsedCoverageInput.refinedContent || parsedCoverageInput.beads!} />
               </div>
             )}
           </div>
