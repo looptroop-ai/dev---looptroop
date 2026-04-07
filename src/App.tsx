@@ -33,7 +33,8 @@ function App() {
   const { data: startupStatus } = useStartupStatus()
   const { state, dispatch } = useUI()
   const queryClient = useQueryClient()
-  const { data: tickets } = useTickets()
+  const ticketsQuery = useTickets()
+  const tickets = ticketsQuery.data
   const ticketsRef = useRef(tickets)
   useEffect(() => { ticketsRef.current = tickets }, [tickets])
   const initialUrlProcessed = useRef(false)
@@ -58,6 +59,12 @@ function App() {
       clearOpenCodeModelsQuery(queryClient)
     }
   }, [initialModal, queryClient])
+
+  useEffect(() => {
+    if (!state.selectedTicketId || !ticketsQuery.isFetched || !Array.isArray(tickets)) return
+    if (tickets.some(ticket => ticket.id === state.selectedTicketId)) return
+    dispatch({ type: 'CLOSE_TICKET' })
+  }, [dispatch, state.selectedTicketId, tickets, ticketsQuery.isFetched])
 
   const dismissWelcome = () => {
     try {

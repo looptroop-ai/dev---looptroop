@@ -63,6 +63,6 @@ export async function handleIntegration(
   )
   sendEvent({ type: 'INTEGRATION_DONE' })
     },
-    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all' }),
   )
 }

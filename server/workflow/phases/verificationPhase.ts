@@ -3001,7 +3001,7 @@ export async function handlePreFlight(
   emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'info', `Pre-flight checks passed with ${beads.length} beads ready.`)
   sendEvent({ type: 'CHECKS_PASSED' })
     },
-    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all' }),
   )
 }
 
@@ -3162,7 +3162,7 @@ export async function handleFinalTest(
   })
   sendEvent({ type: 'TESTS_FAILED' })
     },
-    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all' }),
   )
 }
 

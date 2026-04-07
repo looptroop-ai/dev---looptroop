@@ -1,4 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { clearPersistedTicketLogs } from '@/context/logUtils'
+import { clearErrorTicketSeen } from '@/lib/errorTicketSeen'
+import { getTicketArtifactsQueryKey } from './useTicketArtifacts'
 
 interface Project {
   id: number
@@ -35,6 +38,45 @@ interface CreateProjectInput {
   icon?: string
   color?: string
   profileId?: number
+}
+
+interface CachedProjectTicket {
+  id: string
+  projectId: number
+}
+
+function invalidateProjectQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['projects'] })
+  queryClient.invalidateQueries({ queryKey: ['tickets'] })
+}
+
+function removeDeletedProjectTicketCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  projectId: number,
+) {
+  const cachedTicketIds = new Set<string>()
+  const ticketLists = queryClient.getQueriesData<CachedProjectTicket[]>({ queryKey: ['tickets'] })
+
+  for (const [, tickets] of ticketLists) {
+    for (const ticket of tickets ?? []) {
+      if (ticket.projectId === projectId) {
+        cachedTicketIds.add(ticket.id)
+      }
+    }
+  }
+
+  queryClient.setQueriesData<CachedProjectTicket[]>({ queryKey: ['tickets'] }, (tickets) =>
+    tickets?.filter((ticket) => ticket.projectId !== projectId) ?? tickets,
+  )
+
+  for (const ticketId of cachedTicketIds) {
+    queryClient.removeQueries({ queryKey: ['ticket', ticketId], exact: true })
+    queryClient.removeQueries({ queryKey: ['interview', ticketId], exact: true })
+    queryClient.removeQueries({ queryKey: ['ticket-ui-state', ticketId] })
+    queryClient.removeQueries({ queryKey: getTicketArtifactsQueryKey(ticketId), exact: true })
+    clearPersistedTicketLogs(ticketId)
+    clearErrorTicketSeen(ticketId)
+  }
 }
 
 async function fetchProjects(): Promise<Project[]> {
@@ -83,7 +125,7 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: createProject,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      invalidateProjectQueries(queryClient)
     },
   })
 }
@@ -99,8 +141,9 @@ export function useDeleteProject() {
         throw new Error(message || 'Failed to delete project')
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    onSuccess: (_, projectId) => {
+      removeDeletedProjectTicketCaches(queryClient, projectId)
+      invalidateProjectQueries(queryClient)
     },
   })
 }

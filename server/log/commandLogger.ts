@@ -8,7 +8,20 @@ interface CommandLogContext {
   emit: (phase: string, type: 'info' | 'error', content: string) => void
 }
 
-const commandLogStore = new AsyncLocalStorage<CommandLogContext>()
+// Use a globalThis singleton so the same AsyncLocalStorage is shared across
+// ESM (import) and CJS (require) module instances. Without this, the project's
+// "type": "module" setting causes require() in logCmd() wrappers to load a
+// separate module instance whose commandLogStore is a different object —
+// making logCommand() always see undefined context and silently no-op.
+const STORE_KEY = Symbol.for('looptroop:commandLogStore')
+function getSharedStore(): AsyncLocalStorage<CommandLogContext> {
+  const g = globalThis as unknown as Record<symbol, AsyncLocalStorage<CommandLogContext> | undefined>
+  if (!g[STORE_KEY]) {
+    g[STORE_KEY] = new AsyncLocalStorage<CommandLogContext>()
+  }
+  return g[STORE_KEY]!
+}
+const commandLogStore = getSharedStore()
 
 /**
  * Run `fn` with command-logging context active.  Any `logCommand()` calls
@@ -98,7 +111,7 @@ function redactCwd(args: string[]): string[] {
   return result
 }
 
-function truncateOutput(text: string, maxLen = 300): string {
+function truncateOutput(text: string, maxLen = 800): string {
   if (text.length <= maxLen) return text
   return `${text.slice(0, maxLen)}… (truncated)`
 }

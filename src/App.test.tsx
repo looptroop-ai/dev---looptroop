@@ -9,6 +9,8 @@ import type { StartupStatus } from '@/hooks/useStartupStatus'
 
 const mockState = vi.hoisted(() => ({
   startupStatus: null as StartupStatus | null,
+  tickets: [] as Array<{ id: string; externalId: string }>,
+  ticketsFetched: true,
   dismissMutation: {
     mutate: vi.fn(),
     isPending: false,
@@ -48,7 +50,7 @@ vi.mock('@/components/shared/KeyboardShortcuts', () => ({
 }))
 
 vi.mock('@/hooks/useTickets', () => ({
-  useTickets: () => ({ data: [] }),
+  useTickets: () => ({ data: mockState.tickets, isFetched: mockState.ticketsFetched }),
 }))
 
 vi.mock('@/hooks/useProfile', () => ({
@@ -106,6 +108,8 @@ function renderApp() {
 
 describe('App startup notices', () => {
   beforeEach(() => {
+    mockState.tickets = []
+    mockState.ticketsFetched = true
     mockState.dismissMutation.isPending = false
     mockState.dismissMutation.mutate.mockReset()
     localStorage.clear()
@@ -265,5 +269,37 @@ describe('App startup notices', () => {
 
     expect(screen.getByText('Existing Local Data Found')).toBeInTheDocument()
     expect(await screen.findByText('Failed to dismiss restore notice')).toBeInTheDocument()
+  })
+
+  it('closes a persisted ticket selection when that ticket no longer exists after refresh', async () => {
+    localStorage.setItem(WELCOME_DISCLAIMER_STORAGE_KEY, 'true')
+    localStorage.setItem('looptroop-ui-state', JSON.stringify({
+      selectedTicketId: 'missing-ticket',
+      selectedTicketExternalId: 'RST-1',
+      activeView: 'ticket',
+      sidebarOpen: true,
+      logPanelHeight: 300,
+      filters: {
+        projectId: null,
+        status: null,
+        search: '',
+      },
+      theme: 'system',
+    }))
+    mockState.startupStatus = makeStartupStatus({
+      kind: 'fresh',
+      profileRestored: false,
+      restoredProjectCount: 0,
+      restoredProjects: [],
+    })
+    mockState.startupStatus.ui.restoreNotice.shouldShow = false
+    mockState.tickets = []
+
+    renderApp()
+
+    await waitFor(() => {
+      expect(screen.getByText('Kanban Board')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Ticket Dashboard')).not.toBeInTheDocument()
   })
 })

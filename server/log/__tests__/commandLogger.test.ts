@@ -99,4 +99,41 @@ describe('commandLogger', () => {
     expect(logs[0]).not.toContain('\n')
     expect(logs[0]).toContain('file1.ts')
   })
+
+  it('uses globalThis singleton so separate module loads share the context', () => {
+    // The globalThis singleton ensures that even if commandLogger is loaded
+    // separately (via require() in production), the AsyncLocalStorage is shared.
+    // Verify the store key exists on globalThis after import.
+    const storeKey = Symbol.for('looptroop:commandLogStore')
+    const g = globalThis as unknown as Record<symbol, unknown>
+    expect(g[storeKey]).toBeDefined()
+
+    // Verify logCommand within withCommandLogging still works as before
+    const logs: string[] = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['status'], { ok: true, stdout: 'all clean' })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toContain('[CMD]')
+    expect(logs[0]).toContain('all clean')
+  })
+
+  it('truncates output at 800 characters', () => {
+    const logs: string[] = []
+    const longOutput = 'x'.repeat(1000)
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['diff'], { ok: true, stdout: longOutput })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+    expect(logs[0]).toContain('… (truncated)')
+    // The output portion should be roughly 800 chars + the command prefix
+    expect(logs[0]!.length).toBeLessThan(900)
+  })
 })

@@ -237,6 +237,6 @@ export async function handleCoding(
     sendEvent({ type: 'BEAD_COMPLETE' })
   }
     },
-    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all' }),
   )
 }
