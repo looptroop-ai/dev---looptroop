@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { getTicketByRef, getTicketPaths } from '../storage/tickets'
+import { getTicketByRef, getTicketPaths, getLatestPhaseArtifact } from '../storage/tickets'
 import { safeAtomicWrite } from '../io/atomicWrite'
 
 const beadsRouter = new Hono()
@@ -56,6 +56,25 @@ beadsRouter.put('/tickets/:id/beads', async (c) => {
   }
 
   return c.json({ success: true })
+})
+
+const BEAD_ID_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/
+
+beadsRouter.get('/tickets/:id/beads/:beadId/diff', (c) => {
+  const ticketId = c.req.param('id')
+  const beadId = c.req.param('beadId')
+
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
+  if (!beadId || !BEAD_ID_PATTERN.test(beadId)) {
+    return c.json({ error: 'Invalid bead ID' }, 400)
+  }
+
+  const artifact = getLatestPhaseArtifact(ticketId, `bead_diff:${beadId}`, 'CODING')
+  if (!artifact) {
+    return c.json({ diff: '', captured: false })
+  }
+
+  return c.json({ diff: artifact.content ?? '', captured: true })
 })
 
 export { beadsRouter }

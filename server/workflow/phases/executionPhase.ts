@@ -3,7 +3,7 @@ import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { isMockOpenCodeMode } from '../../opencode/factory'
 import { executeBead } from '../../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../../phases/execution/scheduler'
-import { recordBeadStartCommit, commitBeadChanges, resetToBeadStart } from '../../phases/execution/gitOps'
+import { recordBeadStartCommit, commitBeadChanges, resetToBeadStart, captureBeadDiff } from '../../phases/execution/gitOps'
 import { throwIfAborted } from '../../council/types'
 import { broadcaster } from '../../sse/broadcaster'
 import { withCommandLoggingAsync } from '../../log/commandLogger'
@@ -206,6 +206,20 @@ export async function handleCoding(
     }
   } catch (err) {
     emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not commit bead changes: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+  }
+
+  // Capture code-only diff for this bead (excludes .ticket/** metadata)
+  if (beadStartCommit) {
+    try {
+      const diffContent = captureBeadDiff(paths.worktreePath, beadStartCommit)
+      insertPhaseArtifact(ticketId, {
+        phase: 'CODING',
+        artifactType: `bead_diff:${nextBead.id}`,
+        content: diffContent,
+      })
+    } catch (err) {
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not capture bead diff: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+    }
   }
 
   broadcaster.broadcast(ticketId, 'bead_complete', {
