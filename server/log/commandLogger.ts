@@ -49,7 +49,7 @@ export async function withCommandLoggingAsync<T>(
 export function logCommand(
   bin: string,
   args: string[],
-  result: { ok: true; stdout?: string } | { ok: false; error: string },
+  result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string },
 ) {
   const ctx = commandLogStore.getStore()
   if (!ctx) return
@@ -62,13 +62,17 @@ export function logCommand(
   let type: 'info' | 'error'
 
   if (result.ok) {
-    const stdout = result.stdout?.trim()
-    content = stdout
-      ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(stdout)}`
+    // Collapse newlines so every CMD entry stays on a single visual line
+    const stdout = result.stdout?.trim().replace(/\r?\n+/g, ' ')
+    const stderr = result.stderr?.trim().replace(/\r?\n+/g, ' ')
+    const output = [stdout, stderr].filter(Boolean).join(' | ')
+    content = output
+      ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(output)}`
       : `[CMD] $ ${cmdStr}  →  ok`
     type = 'info'
   } else {
-    content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(result.error)}`
+    const error = result.error.replace(/\r?\n+/g, ' ')
+    content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(error)}`
     type = 'error'
   }
 

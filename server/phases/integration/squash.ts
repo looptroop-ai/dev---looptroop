@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { resolveBaseBranchRef } from '../../git/repository'
 
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
-function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { logCommand } = require('../../log/commandLogger') as typeof import('../../log/commandLogger')
@@ -29,18 +29,16 @@ export function prepareSquashCandidate(
 ): SquashResult {
   const runGit = (args: string[]) => {
     const fullArgs = ['-C', worktreePath, ...args]
-    try {
-      const stdout = execFileSync('git', fullArgs, {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim()
-      logCmd('git', fullArgs, { ok: true, stdout })
-      return stdout
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
+    const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+    const stdout = (result.stdout ?? '').trim()
+    const stderr = (result.stderr ?? '').trim()
+    if (result.status !== 0 || result.error) {
+      const detail = result.error?.message ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
       logCmd('git', fullArgs, { ok: false, error: detail })
-      throw err
+      throw new Error(detail)
     }
+    logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
+    return stdout
   }
 
   try {

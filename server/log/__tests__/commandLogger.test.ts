@@ -55,4 +55,48 @@ describe('commandLogger', () => {
       expect(log.content).not.toContain('\n')
     }
   })
+
+  it('combines stdout and stderr on success', () => {
+    const logs: string[] = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['worktree', 'add', '/tmp/wt', 'BRANCH'], {
+          ok: true,
+          stderr: 'Preparing worktree (new branch \'BRANCH\')',
+        })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+    expect(logs[0]).toContain('Preparing worktree')
+    expect(logs[0]).not.toContain('\n')
+  })
+
+  it('shows both stdout and stderr separated by | when both present', () => {
+    const logs: string[] = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['commit', '-m', 'msg'], { ok: true, stdout: 'abc1234', stderr: '1 file changed' })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+    expect(logs[0]).toContain('abc1234 | 1 file changed')
+  })
+
+  it('normalizes multi-line output to single line', () => {
+    const logs: string[] = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['status', '--porcelain'], {
+          ok: true,
+          stdout: 'M  file1.ts\nA  file2.ts\nD  file3.ts',
+        })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+    expect(logs[0]).not.toContain('\n')
+    expect(logs[0]).toContain('file1.ts')
+  })
 })

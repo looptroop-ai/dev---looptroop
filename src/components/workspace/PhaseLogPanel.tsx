@@ -349,6 +349,7 @@ export function PhaseLogPanel({
               <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-red-500"></div> Error</div>
               <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-amber-600"></div> Debug</div>
               <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-foreground"></div> System</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-zinc-500"></div> System Commands</div>
             </TooltipContent>
           </Tooltip>
           <button

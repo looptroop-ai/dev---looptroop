@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
-function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { logCommand } = require('../log/commandLogger') as typeof import('../log/commandLogger')
@@ -14,29 +14,32 @@ function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string
 function runGit(
   projectPath: string,
   args: string[],
-  options: { stdio?: 'ignore' | 'pipe' } = {},
 ): string {
   const fullArgs = ['-C', projectPath, ...args]
-  const stdout = execFileSync('git', fullArgs, {
-    encoding: 'utf8',
-    stdio: ['ignore', options.stdio ?? 'pipe', 'pipe'],
-  }).trim()
-  logCmd('git', fullArgs, { ok: true, stdout })
+  const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+  const stdout = (result.stdout ?? '').trim()
+  const stderr = (result.stderr ?? '').trim()
+  if (result.status !== 0 || result.error) {
+    const detail = result.error?.message ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
+    logCmd('git', fullArgs, { ok: false, error: detail })
+    throw new Error(detail)
+  }
+  logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
   return stdout
 }
 
 function gitCommandSucceeds(projectPath: string, args: string[]) {
   const fullArgs = ['-C', projectPath, ...args]
-  try {
-    execFileSync('git', fullArgs, {
-      stdio: ['ignore', 'ignore', 'ignore'],
-    })
-    logCmd('git', fullArgs, { ok: true })
-    return true
-  } catch {
-    logCmd('git', fullArgs, { ok: false, error: 'command returned non-zero' })
-    return false
+  const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+  const ok = result.status === 0 && !result.error
+  const stdout = (result.stdout ?? '').trim()
+  const stderr = (result.stderr ?? '').trim()
+  if (ok) {
+    logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
+  } else {
+    logCmd('git', fullArgs, { ok: false, error: [stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}` })
   }
+  return ok
 }
 
 export function getCurrentBranch(projectPath: string): string | null {

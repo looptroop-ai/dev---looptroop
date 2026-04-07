@@ -244,7 +244,27 @@ export function FullLogView() {
           )
         })}
         <div className="ml-auto flex items-center pl-2 gap-2 text-xs text-muted-foreground">
-          <span>{filteredLogs.length} entries</span>
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center cursor-help px-1 py-0.5 rounded hover:bg-muted transition-colors border-none bg-transparent m-0 focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <span>{filteredLogs.length} entries</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="end" className="flex flex-col gap-1.5 p-2 bg-popover text-popover-foreground border border-border font-medium shadow-md">
+              <div className="font-semibold text-xs border-b border-border pb-1">Log Colors Legend</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-blue-500"></div> Input (Prompt)</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-emerald-600"></div> Final Output (Text)</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-green-500"></div> Other AI Events</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-purple-400"></div> Thinking</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-red-500"></div> Error</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-amber-600"></div> Debug</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-foreground"></div> System</div>
+              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-zinc-500"></div> System Commands</div>
+            </TooltipContent>
+          </Tooltip>
           <button
             type="button"
             onClick={handleCopyLogs}
