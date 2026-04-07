@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseDiffStats } from '../BeadDiffViewer'
+import { parseDiffStats } from '../diffUtils'
 
 describe('parseDiffStats', () => {
   it('counts files, additions and deletions from a unified diff', () => {

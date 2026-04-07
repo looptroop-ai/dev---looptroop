@@ -676,7 +676,7 @@ export const PROM51: PromptTemplate = {
   ],
   outputFormat: 'Plain text — append-only note for the bead Notes field',
   contextInputs: ['bead_data', 'error_context'],
-  toolPolicy: 'default',
+  toolPolicy: 'disabled',
 }
 
 export const PROM52: PromptTemplate = {

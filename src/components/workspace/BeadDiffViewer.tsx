@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, FileCode2 } from 'lucide-react'
+import { parseDiffStats } from './diffUtils'
 
 interface BeadDiffViewerProps {
   ticketId: string
@@ -15,18 +16,6 @@ async function fetchBeadDiff(ticketId: string, beadId: string): Promise<DiffResp
   const response = await fetch(`/api/tickets/${ticketId}/beads/${beadId}/diff`)
   if (!response.ok) return { diff: '', captured: false }
   return response.json()
-}
-
-function parseDiffStats(diff: string): { files: number; additions: number; deletions: number } {
-  let files = 0
-  let additions = 0
-  let deletions = 0
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('diff --git')) files++
-    else if (line.startsWith('+') && !line.startsWith('+++')) additions++
-    else if (line.startsWith('-') && !line.startsWith('---')) deletions++
-  }
-  return { files, additions, deletions }
 }
 
 function DiffContent({ diff }: { diff: string }) {
@@ -109,4 +98,4 @@ export function BeadDiffViewer({ ticketId, beadId }: BeadDiffViewerProps) {
   )
 }
 
-export { parseDiffStats }
+

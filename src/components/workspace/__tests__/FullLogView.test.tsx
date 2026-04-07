@@ -41,7 +41,7 @@ vi.mock('@/context/useLogContext', () => ({
 
 import { FullLogView } from '../FullLogView'
 
-const writeTextMock = vi.fn(() => Promise.resolve())
+const writeTextMock = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve())
 
 function makeLog(id: string, line: string, status: string, overrides: Partial<LogEntry> = {}): LogEntry {
   return {

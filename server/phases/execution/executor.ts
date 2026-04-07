@@ -20,8 +20,8 @@ const BEAD_STATUS_SCHEMA_REMINDER = [
   'Return exactly one <BEAD_STATUS>...</BEAD_STATUS> block and nothing else.',
   'Inside the marker, return a single JSON or YAML object with: bead_id, status, checks.',
   'checks must contain exactly: tests, lint, typecheck, qualitative.',
-  'If work is complete, every check must be pass and status must be completed.',
-  'If work is not complete, return the same shape with status failed and include a short reason.',
+  'If work is complete, every check must be pass and status must be done.',
+  'If work is not complete, return the same shape with status error and include a short reason field.',
 ].join('\n')
 
 export interface ExecutionResult {
