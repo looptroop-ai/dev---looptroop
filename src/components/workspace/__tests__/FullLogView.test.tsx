@@ -151,6 +151,32 @@ describe('FullLogView', () => {
     expect(screen.getByText('1 entries')).toBeTruthy()
   })
 
+  it('shows model tabs from the AI tab and filters by selected model', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[MODEL] First output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('2', '[MODEL] Second output', 'DRAFTING_PRD', {
+        source: 'model:anthropic/claude-sonnet-4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'anthropic/claude-sonnet-4',
+      }),
+    ])
+
+    renderWithTooltipProvider(<FullLogView />)
+
+    fireEvent.click(screen.getByTitle('Show models'))
+    fireEvent.click(screen.getByRole('button', { name: /gpt-5\.4/i }))
+
+    expect(screen.getByText('1 entries')).toBeTruthy()
+    expect(screen.getByText(/First output/)).toBeTruthy()
+    expect(screen.queryByText(/Second output/)).toBeNull()
+  })
+
   it('shows the correct total entry count', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('1', '[SYS] Event 1', 'CODING'),

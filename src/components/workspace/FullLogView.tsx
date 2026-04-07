@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
-import { Copy, Check, ScrollText } from 'lucide-react'
+import { Copy, Check, ScrollText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -10,6 +10,7 @@ import { LoadingText } from '@/components/ui/LoadingText'
 import type { Ticket } from '@/hooks/useTickets'
 import { filterEntries, formatLogLine } from './logFormat'
 import { LogEntryRow } from './LogLine'
+import { ModelBadge } from '@/components/shared/ModelBadge'
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 
@@ -78,7 +79,47 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   )
 
   const [activeTab, setActiveTab] = useState<string>('ALL')
-  const effectiveTab = FIXED_TABS.includes(activeTab as LogTab) ? activeTab : 'ALL'
+  const [modelsCollapsed, setModelsCollapsed] = useState(true)
+
+  const configuredModelIds = useMemo(() => {
+    return (ticket?.lockedCouncilMembers ?? []).filter((memberId) => memberId.trim().length > 0)
+  }, [ticket?.lockedCouncilMembers])
+
+  const detectedModelIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const entry of allLogs) {
+      if (entry.modelId) {
+        ids.add(entry.modelId)
+        continue
+      }
+      if (entry.source.startsWith('model:')) {
+        ids.add(entry.source.slice('model:'.length))
+      }
+    }
+    return Array.from(ids)
+  }, [allLogs])
+
+  const modelTabs = useMemo(() => {
+    const seen = new Set<string>()
+    const tabs: string[] = []
+    const add = (id: string) => {
+      if (!id || seen.has(id)) return
+      seen.add(id)
+      tabs.push(id)
+    }
+
+    configuredModelIds.forEach(add)
+    detectedModelIds.forEach(add)
+
+    return tabs
+  }, [configuredModelIds, detectedModelIds])
+
+  const showModelTabs = modelTabs.length > 0
+  const availableTabs: string[] = useMemo(
+    () => (showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]),
+    [showModelTabs, modelTabs],
+  )
+  const effectiveTab = availableTabs.includes(activeTab) ? activeTab : 'ALL'
 
   const filteredLogs = useMemo(
     () => filterEntries(allLogs, effectiveTab),
@@ -237,6 +278,53 @@ export function FullLogView({ ticket }: FullLogViewProps) {
       <div className="flex px-1 py-1 items-center flex-wrap gap-1 shrink-0">
         {FIXED_TABS.map(tab => {
           const tooltipContent = TAB_TOOLTIPS[tab]
+
+          if (tab === 'AI' && showModelTabs) {
+            const isActive = effectiveTab === tab
+            return (
+              <Fragment key={tab}>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        'flex items-center rounded text-xs font-medium shrink-0 transition-colors',
+                        isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab(tab)}
+                        className="pl-2 pr-0.5 py-0.5 hover:text-foreground transition-colors"
+                      >
+                        {tab}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setModelsCollapsed(!modelsCollapsed)}
+                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
+                        title={modelsCollapsed ? 'Show models' : 'Hide models'}
+                      >
+                        {modelsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
+                    {tooltipContent}
+                  </TooltipContent>
+                </Tooltip>
+                {!modelsCollapsed && modelTabs.map((modelTab) => (
+                  <ModelBadge
+                    key={modelTab}
+                    modelId={modelTab}
+                    active={effectiveTab === modelTab}
+                    onClick={() => setActiveTab(modelTab)}
+                    showIcon={false}
+                  />
+                ))}
+              </Fragment>
+            )
+          }
+
           return (
             <Tooltip key={tab} delayDuration={300}>
               <TooltipTrigger asChild>
