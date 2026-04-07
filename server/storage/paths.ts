@@ -3,6 +3,17 @@ import { existsSync, mkdirSync } from 'fs'
 import { dirname, isAbsolute, resolve } from 'path'
 import { resolveBaseBranch } from '../git/repository'
 
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logCommand } = require('../log/commandLogger') as typeof import('../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded.
+  }
+}
+
 export function normalizeFolderPath(input: string): string {
   let output = input.trim().replace(/[\\/]+$/, '')
   output = output.replace(/\\/g, '/')
@@ -19,13 +30,16 @@ export function normalizeFolderPath(input: string): string {
 export function resolveGitRepoRoot(folderPath: string): string | null {
   const normalized = normalizeFolderPath(folderPath)
   if (!existsSync(normalized)) return null
+  const fullArgs = ['-C', normalized, 'rev-parse', '--show-toplevel']
   try {
-    return normalizeFolderPath(
-      execFileSync('git', ['-C', normalized, 'rev-parse', '--show-toplevel'], { stdio: 'pipe' })
-        .toString()
-        .trim(),
-    )
-  } catch {
+    const stdout = execFileSync('git', fullArgs, { stdio: 'pipe' })
+      .toString()
+      .trim()
+    logCmd('git', fullArgs, { ok: true, stdout })
+    return normalizeFolderPath(stdout)
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    logCmd('git', fullArgs, { ok: false, error: detail })
     return null
   }
 }

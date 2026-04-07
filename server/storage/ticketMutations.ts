@@ -182,8 +182,11 @@ function assertLockedModelConfigurationMutable(
 function runGit(projectRoot: string, args: string[]) {
   const fullArgs = ['-C', projectRoot, ...args]
   try {
-    execFileSync('git', fullArgs, { stdio: 'ignore' })
-    logCmd('git', fullArgs, { ok: true })
+    const stdout = execFileSync('git', fullArgs, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+    logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined })
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
     logCmd('git', fullArgs, { ok: false, error: detail })

@@ -6,6 +6,7 @@ import { getNextBead, isAllComplete } from '../../phases/execution/scheduler'
 import { recordBeadStartCommit, commitBeadChanges, resetToBeadStart } from '../../phases/execution/gitOps'
 import { throwIfAborted } from '../../council/types'
 import { broadcaster } from '../../sse/broadcaster'
+import { withCommandLoggingAsync } from '../../log/commandLogger'
 import { adapter } from './state'
 import { emitPhaseLog, emitAiMilestone, emitOpenCodeStreamEvent, emitOpenCodePromptLog, createOpenCodeStreamState, resolveExecutionRuntimeSettings } from './helpers'
 import type { OpenCodeStreamState } from './types'
@@ -28,6 +29,9 @@ export async function handleCoding(
   sendEvent: (event: TicketEvent) => void,
   signal: AbortSignal,
 ) {
+  return withCommandLoggingAsync(
+    ticketId, context.externalId, 'CODING',
+    async () => {
   const paths = getTicketPaths(ticketId)
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
 
@@ -218,4 +222,7 @@ export async function handleCoding(
   } else {
     sendEvent({ type: 'BEAD_COMPLETE' })
   }
+    },
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+  )
 }

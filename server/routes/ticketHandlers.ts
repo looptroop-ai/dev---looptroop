@@ -408,11 +408,18 @@ export async function handleDeleteTicket(c: Context) {
     stopActor(ticketId)
     await abortTicketSessions(ticketId)
     clearContextCache(ticketId)
-    broadcaster.clearTicket(ticketId)
 
-    const deleted = deleteStoredTicket(ticketId)
+    emitRoutePhaseLog(ticketId, ticket.status, 'info', `Deleting ticket ${ticket.externalId}: removing worktree, branch, and database records.`)
+    const deleted = withCommandLogging(
+      ticketId,
+      ticket.externalId,
+      ticket.status,
+      () => deleteStoredTicket(ticketId),
+      (phase, type, content) => emitRoutePhaseLog(ticketId, phase, type, content),
+    )
     if (!deleted) return c.json({ error: 'Ticket not found' }, 404)
 
+    broadcaster.clearTicket(ticketId)
     return c.json({ success: true, ticketId })
   } catch (err) {
     console.error(`[tickets] Failed to delete ticket ${ticketId}:`, err)

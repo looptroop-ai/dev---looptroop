@@ -2,6 +2,17 @@ import { spawn } from 'node:child_process'
 import { FORCE_KILL_DELAY_MS } from '../../lib/constants'
 import type { StructuredOutputMetadata } from '../../structuredOutput/types'
 
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logCommand } = require('../../log/commandLogger') as typeof import('../../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded.
+  }
+}
+
 export interface FinalTestCommandResult {
   command: string
   exitCode: number | null
@@ -97,6 +108,18 @@ export async function executeFinalTestCommands(input: {
   for (const command of input.commands) {
     const result = await runCommand(command, input.cwd, input.timeoutMs)
     commandResults.push(result)
+
+    // Log the command execution to SYS
+    const combinedOutput = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
+    if (result.exitCode === 0 && !result.timedOut) {
+      logCmd('/bin/bash', ['-lc', command], { ok: true, stdout: combinedOutput || undefined })
+    } else {
+      const errDetail = result.timedOut
+        ? `timed out after ${result.durationMs}ms`
+        : `exit code ${result.exitCode ?? 'unknown'}`
+      logCmd('/bin/bash', ['-lc', command], { ok: false, error: combinedOutput ? `${errDetail}\n${combinedOutput}` : errDetail })
+    }
+
     if (result.exitCode !== 0 || result.timedOut) {
       errors.push(result.timedOut
         ? `Command timed out: ${command}`

@@ -3016,6 +3016,9 @@ export async function handleFinalTest(
     return
   }
 
+  return withCommandLoggingAsync(
+    ticketId, context.externalId, 'RUNNING_FINAL_TEST',
+    async () => {
   const { worktreePath, ticket, relevantFiles } = loadTicketDirContext(context)
   const paths = getTicketPaths(ticketId)
   const ticketDir = paths?.ticketDir
@@ -3158,6 +3161,9 @@ export async function handleFinalTest(
     errors: report.errors,
   })
   sendEvent({ type: 'TESTS_FAILED' })
+    },
+    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content),
+  )
 }
 
 export async function handleMockCoverage(

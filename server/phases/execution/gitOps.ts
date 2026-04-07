@@ -2,6 +2,17 @@
 
 import { execFileSync } from 'node:child_process'
 
+// Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
+function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string } | { ok: false; error: string }) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logCommand } = require('../../log/commandLogger') as typeof import('../../log/commandLogger')
+    logCommand(bin, args, result)
+  } catch {
+    // Silently ignore if commandLogger can't be loaded.
+  }
+}
+
 const ALLOWED_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
@@ -70,10 +81,19 @@ export function filterAllowedFiles(files: string[]): string[] {
 }
 
 function runGitOp(worktreePath: string, args: string[]): string {
-  return execFileSync('git', ['-C', worktreePath, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim()
+  const fullArgs = ['-C', worktreePath, ...args]
+  try {
+    const stdout = execFileSync('git', fullArgs, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+    logCmd('git', fullArgs, { ok: true, stdout })
+    return stdout
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    logCmd('git', fullArgs, { ok: false, error: detail })
+    throw err
+  }
 }
 
 function runGitOpSafe(worktreePath: string, args: string[]): { ok: boolean; stdout: string; error?: string } {
