@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
@@ -52,6 +52,48 @@ afterEach(() => {
 })
 
 describe('CodingView', () => {
+  it('fetches full bead data even when runtime bead placeholders already exist', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify([
+        {
+          id: 'bead-1',
+          title: 'First',
+          status: 'done',
+          iteration: 1,
+          description: 'Full bead details',
+          acceptanceCriteria: ['Keeps bead data current'],
+          tests: ['renders fresh details'],
+          testCommands: ['npm test'],
+          contextGuidance: { patterns: ['refresh bead state'], anti_patterns: [] },
+          notes: ['updated'],
+        },
+      ]), { status: 200 }),
+    )
+
+    renderCoding({
+      runtime: {
+        baseBranch: 'main',
+        currentBead: 1,
+        completedBeads: 0,
+        totalBeads: 1,
+        percentComplete: 0,
+        iterationCount: 0,
+        maxIterations: null,
+        artifactRoot: '/tmp/test',
+        candidateCommitSha: null,
+        preSquashHead: null,
+        finalTestStatus: 'pending',
+        beads: [
+          { id: 'bead-1', title: 'First', status: 'pending', iteration: 0 },
+        ],
+      },
+    })
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith('/api/tickets/1:TEST-1/beads')
+    })
+  })
+
   describe('status normalization', () => {
     it('maps server "done" status to completed (green icon)', () => {
       renderCoding({

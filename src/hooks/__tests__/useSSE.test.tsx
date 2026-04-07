@@ -174,4 +174,31 @@ describe('useSSE', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['interview', ticketId] })
     })
   })
+
+  it('refreshes the bead list when a bead completes', async () => {
+    const ticketId = '1:T-42'
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    const source = MockEventSource.instances[0]!
+
+    await act(async () => {
+      source.emit('bead_complete', {
+        ticketId,
+        beadId: 'bead-2',
+        completed: 2,
+        total: 5,
+      }, '1')
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-beads', ticketId] })
+    })
+  })
 })

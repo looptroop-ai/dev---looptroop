@@ -111,6 +111,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
+          queryClient.invalidateQueries({ queryKey: ['ticket-beads', ticketId] })
           onEventRef.current?.({ type: 'bead_complete', data })
         } catch {
           // ignore parse errors

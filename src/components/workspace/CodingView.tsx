@@ -215,8 +215,8 @@ export function CodingView({ ticket }: CodingViewProps) {
   const { data: beads = [] } = useQuery({
     queryKey: ['ticket-beads', ticket.id],
     queryFn: () => fetchTicketBeads(ticket.id),
-    enabled: ticket.runtime.beads === undefined && ticket.runtime.totalBeads > 0,
-    initialData: (ticket.runtime.beads ?? []).map((bead) => normalizeBead(bead)),
+    enabled: ticket.runtime.totalBeads > 0,
+    placeholderData: (ticket.runtime.beads ?? []).map((bead) => normalizeBead(bead)),
     staleTime: 5000,
     refetchOnMount: false,
   })

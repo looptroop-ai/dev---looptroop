@@ -142,14 +142,53 @@ async function handleMockLifecycleState(
   }
 }
 
+function resolveSnapshotState(
+  snapshot: ReturnType<ReturnType<typeof createActor<typeof ticketMachine>>['getSnapshot']>,
+) {
+  return typeof snapshot.value === 'string' ? snapshot.value : JSON.stringify(snapshot.value)
+}
+
+function startCodingPhase(
+  ticketId: string,
+  actor: ReturnType<typeof createActor<typeof ticketMachine>>,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const snapshot = actor.getSnapshot()
+  const state = resolveSnapshotState(snapshot)
+  const key = `${ticketId}:CODING`
+
+  if (state !== 'CODING' || runningPhases.has(key)) return
+
+  const signal = getOrCreateAbortSignal(ticketId)
+  const context = snapshot.context
+
+  runningPhases.add(key)
+  handleCoding(ticketId, context, sendEvent, signal)
+    .catch(err => {
+      if (err instanceof CancelledError) return
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[runner] CODING failed for ticket ${context.externalId}: ${errMsg}`)
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', errMsg)
+      sendEvent({ type: 'ERROR', message: errMsg, codes: ['CODING_FAILED'] })
+    })
+    .finally(() => {
+      runningPhases.delete(key)
+
+      // CODING self-transitions after each successful bead. Re-check the actor
+      // once the current pass unwinds so the next bead can start.
+      queueMicrotask(() => {
+        startCodingPhase(ticketId, actor, sendEvent)
+      })
+    })
+}
+
 export function attachWorkflowRunner(
   ticketId: string,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
   sendEvent: (event: TicketEvent) => void,
 ) {
   actor.subscribe((snapshot) => {
-    const state =
-      typeof snapshot.value === 'string' ? snapshot.value : JSON.stringify(snapshot.value)
+    const state = resolveSnapshotState(snapshot)
     const context = snapshot.context
     const key = `${ticketId}:${state}`
 
@@ -434,18 +473,7 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     } else if (state === 'CODING') {
-      runningPhases.add(key)
-      handleCoding(ticketId, context, sendEvent, signal)
-        .catch(err => {
-          if (err instanceof CancelledError) return
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] CODING failed for ticket ${context.externalId}: ${errMsg}`)
-          emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', errMsg)
-          sendEvent({ type: 'ERROR', message: errMsg, codes: ['CODING_FAILED'] })
-        })
-        .finally(() => {
-          runningPhases.delete(key)
-        })
+      startCodingPhase(ticketId, actor, sendEvent)
     } else if (state === 'RUNNING_FINAL_TEST') {
       runningPhases.add(key)
       handleFinalTest(ticketId, context, sendEvent, signal)
