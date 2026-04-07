@@ -157,6 +157,7 @@ export function TicketDashboard() {
   const { data: ticket } = useTicket(ticketId)
   const { mutate: saveTicketUiState } = useSaveTicketUIState()
   const [navWidth, setNavWidth] = useState(280)
+  const [fullLogOpen, setFullLogOpen] = useState(false)
   const [phaseSelection, setPhaseSelection] = useState<{ ticketId: string | null; phase: string | null }>({
     ticketId: null,
     phase: null,
@@ -256,7 +257,12 @@ export function TicketDashboard() {
   const handleSelectPhase = useCallback((phase: string | null) => {
     setPhaseSelection({ ticketId, phase })
     setErrorSelection({ ticketId: null, occurrenceId: null })
+    setFullLogOpen(false)
   }, [ticketId])
+  const handleOpenFullLog = useCallback(() => {
+    setFullLogOpen(true)
+    setErrorSelection({ ticketId: null, occurrenceId: null })
+  }, [])
   const handleSelectErrorOccurrence = useCallback((occurrenceId: string | null) => {
     setErrorSelection({ ticketId, occurrenceId })
     if (occurrenceId != null) {
@@ -479,12 +485,17 @@ export function TicketDashboard() {
                   selectedErrorOccurrenceId={selectedErrorOccurrenceId}
                   reviewCutoffStatus={reviewCutoffStatus}
                   previousStatus={previousStatus}
+                  fullLogOpen={fullLogOpen}
                   onSelectPhase={(phase) => {
                     handleSelectPhase(phase)
                     setMobileNavOpen(false)
                   }}
                   onSelectErrorOccurrence={(occurrenceId) => {
                     handleSelectErrorOccurrence(occurrenceId)
+                    setMobileNavOpen(false)
+                  }}
+                  onOpenFullLog={() => {
+                    handleOpenFullLog()
                     setMobileNavOpen(false)
                   }}
                   contextPhase={contextPhase}
@@ -508,26 +519,31 @@ export function TicketDashboard() {
               selectedErrorOccurrenceId={selectedErrorOccurrenceId}
               reviewCutoffStatus={reviewCutoffStatus}
               previousStatus={previousStatus}
+              fullLogOpen={fullLogOpen}
               onSelectPhase={handleSelectPhase}
               onSelectErrorOccurrence={handleSelectErrorOccurrence}
+              onOpenFullLog={handleOpenFullLog}
               contextPhase={contextPhase}
             />
           </div>
           <ResizeHandle onResize={setNavWidth} />
           {/* Active Workspace */}
           <div className="flex flex-col flex-1 overflow-hidden">
-            <WorkspacePhaseSummary
-              key={effectiveTicket.id}
-              phase={summaryPhase}
-              ticket={effectiveTicket}
-              errorMessage={summaryErrorMessage}
-            />
+            {!fullLogOpen && (
+              <WorkspacePhaseSummary
+                key={effectiveTicket.id}
+                phase={summaryPhase}
+                ticket={effectiveTicket}
+                errorMessage={summaryErrorMessage}
+              />
+            )}
             <ActiveWorkspace
               ticket={effectiveTicket}
               selectedPhase={activePhase}
               selectedErrorOccurrenceId={activeErrorOccurrenceId}
               previousStatus={previousStatus}
               reviewCutoffStatus={reviewCutoffStatus}
+              fullLogOpen={fullLogOpen}
             />
           </div>
         </div>

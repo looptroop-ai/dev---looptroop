@@ -1,0 +1,189 @@
+import type { ReactNode, Ref } from 'react'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { LogEntry } from '@/context/LogContext'
+import { TooltipProvider } from '@/components/ui/tooltip'
+
+vi.mock('@/components/ui/scroll-area', () => ({
+  ScrollArea: ({
+    children,
+    viewportRef,
+    className,
+  }: {
+    children: ReactNode
+    viewportRef?: Ref<HTMLDivElement>
+    className?: string
+  }) => (
+    <div className={className}>
+      <div ref={viewportRef} data-testid="log-viewport">
+        {children}
+      </div>
+    </div>
+  ),
+}))
+
+const getAllLogsMock = vi.fn(() => [] as LogEntry[])
+const getLogsForPhaseMock = vi.fn(() => [] as LogEntry[])
+
+vi.mock('@/context/useLogContext', () => ({
+  useLogs: () => ({
+    logsByPhase: {},
+    activePhase: null,
+    isLoadingLogs: false,
+    addLog: vi.fn(),
+    addLogRecord: vi.fn(),
+    getLogsForPhase: getLogsForPhaseMock,
+    getAllLogs: getAllLogsMock,
+    setActivePhase: vi.fn(),
+    clearLogs: vi.fn(),
+  }),
+}))
+
+import { FullLogView } from '../FullLogView'
+
+const writeTextMock = vi.fn(() => Promise.resolve())
+
+function makeLog(id: string, line: string, status: string, overrides: Partial<LogEntry> = {}): LogEntry {
+  return {
+    id,
+    entryId: id,
+    line,
+    source: 'system',
+    status,
+    timestamp: '2026-03-10T10:00:00.000Z',
+    audience: 'all',
+    kind: 'milestone',
+    streaming: false,
+    op: 'append',
+    ...overrides,
+  }
+}
+
+function renderWithTooltipProvider(ui: React.ReactElement) {
+  return render(ui, {
+    wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider>,
+  })
+}
+
+beforeAll(() => {
+  Object.defineProperty(globalThis.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: writeTextMock },
+  })
+
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    },
+  })
+
+  Object.defineProperty(globalThis, 'cancelAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  })
+})
+
+beforeEach(() => {
+  getAllLogsMock.mockReset()
+  getLogsForPhaseMock.mockReset()
+  writeTextMock.mockClear()
+})
+
+describe('FullLogView', () => {
+  it('renders empty state when there are no logs', () => {
+    getAllLogsMock.mockReturnValue([])
+    renderWithTooltipProvider(<FullLogView />)
+    expect(screen.getByText(/no log entries yet/i)).toBeTruthy()
+  })
+
+  it('renders the header with "Full Log" title', () => {
+    getAllLogsMock.mockReturnValue([])
+    renderWithTooltipProvider(<FullLogView />)
+    expect(screen.getByText('Full Log')).toBeTruthy()
+  })
+
+  it('renders phase delimiters when status changes between entries', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[SYS] Scanning files', 'SCANNING_RELEVANT_FILES'),
+      makeLog('2', '[SYS] Starting council', 'COUNCIL_DELIBERATING'),
+      makeLog('3', '[MODEL] Draft output', 'COUNCIL_DELIBERATING'),
+    ])
+    renderWithTooltipProvider(<FullLogView />)
+
+    expect(screen.getByText('Scanning Relevant Files')).toBeTruthy()
+    expect(screen.getByText('AI Council Thinking')).toBeTruthy()
+  })
+
+  it('renders a second delimiter when the same status reappears after another', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[SYS] First coding run', 'CODING'),
+      makeLog('2', '[ERROR] Blocked', 'BLOCKED_ERROR'),
+      makeLog('3', '[SYS] Retry coding', 'CODING'),
+    ])
+    renderWithTooltipProvider(<FullLogView />)
+
+    const codingDelimiters = screen.getAllByText(/Implementing/)
+    expect(codingDelimiters).toHaveLength(2)
+  })
+
+  it('renders all filter tabs', () => {
+    getAllLogsMock.mockReturnValue([])
+    renderWithTooltipProvider(<FullLogView />)
+
+    for (const tab of ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']) {
+      expect(screen.getByRole('button', { name: tab })).toBeTruthy()
+    }
+  })
+
+  it('filters logs when a tab is selected', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[SYS] System event', 'CODING', { source: 'system', audience: 'all', kind: 'milestone' }),
+      makeLog('2', '[ERROR] Something failed', 'CODING', { source: 'error', audience: 'all', kind: 'error' }),
+      makeLog('3', '[SYS] Another event', 'CODING', { source: 'system', audience: 'all', kind: 'milestone' }),
+    ])
+    renderWithTooltipProvider(<FullLogView />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+    expect(screen.getByText('1 entries')).toBeTruthy()
+  })
+
+  it('shows the correct total entry count', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[SYS] Event 1', 'CODING'),
+      makeLog('2', '[SYS] Event 2', 'CODING'),
+      makeLog('3', '[SYS] Event 3', 'DRAFTING_PRD'),
+    ])
+    renderWithTooltipProvider(<FullLogView />)
+
+    expect(screen.getByText('3 entries')).toBeTruthy()
+  })
+
+  it('renders log entries using LogEntryRow with sequential indices', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('a', '[SYS] First', 'SCANNING_RELEVANT_FILES'),
+      makeLog('b', '[SYS] Second', 'COUNCIL_DELIBERATING'),
+    ])
+    renderWithTooltipProvider(<FullLogView />)
+
+    // LogEntryRow renders index+1 padded to 3 chars
+    expect(screen.getByText('1')).toBeTruthy()
+    expect(screen.getByText('2')).toBeTruthy()
+  })
+
+  it('includes status name in copy text', async () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[SYS] Start', 'CODING', { timestamp: '2026-03-10T10:00:00.000Z' }),
+    ])
+    renderWithTooltipProvider(<FullLogView />)
+
+    fireEvent.click(screen.getByTitle('Copy all logs'))
+    expect(writeTextMock).toHaveBeenCalledTimes(1)
+    const copiedText = writeTextMock.mock.calls[0]![0] as string
+    expect(copiedText).toContain('[CODING]')
+    expect(copiedText).toContain('[SYS] Start')
+  })
+})

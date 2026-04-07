@@ -13,12 +13,15 @@ import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
 import { isBeforeExecution } from '@shared/workflowMeta'
 
+import { FullLogView } from '@/components/workspace/FullLogView'
+
 interface ActiveWorkspaceProps {
   ticket: Ticket
   selectedPhase: string
   selectedErrorOccurrenceId?: string | null
   previousStatus?: string
   reviewCutoffStatus?: string
+  fullLogOpen?: boolean
 }
 
 function isReviewablePhase(
@@ -37,7 +40,7 @@ function isReviewablePhase(
   return phaseIndex >= 0 && currentIndex >= 0 && phaseIndex < currentIndex
 }
 
-export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus: _previousStatus, reviewCutoffStatus }: ActiveWorkspaceProps) {
+export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus: _previousStatus, reviewCutoffStatus, fullLogOpen }: ActiveWorkspaceProps) {
   const { phases, phaseMap } = useWorkflowMeta()
   const phaseOrder = phases.map((phase) => phase.id)
   const phaseMeta = phaseMap[selectedPhase]
@@ -58,7 +61,9 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
   )
   let content: React.ReactNode
 
-  if (activeErrorOccurrence) {
+  if (fullLogOpen) {
+    content = <FullLogView />
+  } else if (activeErrorOccurrence) {
     content = <ErrorView ticket={ticket} occurrence={activeErrorOccurrence} readOnly={!isLiveErrorOccurrence} />
   } else if (isViewingPast) {
     const pastPhaseMeta = phaseMap[selectedPhase]
