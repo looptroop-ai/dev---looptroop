@@ -62,7 +62,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
   let content: React.ReactNode
 
   if (fullLogOpen) {
-    content = <FullLogView />
+    content = <FullLogView ticket={ticket} />
   } else if (activeErrorOccurrence) {
     content = <ErrorView ticket={ticket} occurrence={activeErrorOccurrence} readOnly={!isLiveErrorOccurrence} />
   } else if (isViewingPast) {

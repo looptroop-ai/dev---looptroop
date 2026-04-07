@@ -5,8 +5,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
-import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { getStatusUserLabel, type StatusLabelOptions } from '@/lib/workflowMeta'
 import { LoadingText } from '@/components/ui/LoadingText'
+import type { Ticket } from '@/hooks/useTickets'
 import { filterEntries, formatLogLine } from './logFormat'
 import { LogEntryRow } from './LogLine'
 
@@ -50,8 +51,8 @@ function groupByPhaseRuns(entries: LogEntry[]): PhaseGroup[] {
   return groups
 }
 
-function PhaseDelimiter({ phase }: { phase: string }) {
-  const label = getStatusUserLabel(phase)
+function PhaseDelimiter({ phase, labelOptions }: { phase: string; labelOptions?: StatusLabelOptions }) {
+  const label = getStatusUserLabel(phase, labelOptions)
   return (
     <div className="flex items-center gap-3 py-2 select-none" aria-label={`Phase: ${label}`}>
       <div className="flex-1 border-t border-border/60" />
@@ -63,7 +64,11 @@ function PhaseDelimiter({ phase }: { phase: string }) {
   )
 }
 
-export function FullLogView() {
+interface FullLogViewProps {
+  ticket?: Ticket
+}
+
+export function FullLogView({ ticket }: FullLogViewProps) {
   const logCtx = useLogs()
   const isLoadingLogs = logCtx?.isLoadingLogs ?? false
 
@@ -86,6 +91,15 @@ export function FullLogView() {
   )
 
   const hasLogs = filteredLogs.length > 0
+
+  const beadLabelOptions: StatusLabelOptions | undefined = useMemo(() => {
+    if (!ticket) return undefined
+    return {
+      currentBead: ticket.runtime.currentBead,
+      totalBeads: ticket.runtime.totalBeads,
+      errorMessage: ticket.errorMessage,
+    }
+  }, [ticket])
 
   // ── Smart auto-scroll ──────────────────────────────────────────────
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -283,7 +297,7 @@ export function FullLogView() {
           {hasLogs ? (
             phaseGroups.map((group, groupIdx) => (
               <Fragment key={`${group.phase}-${groupIdx}`}>
-                <PhaseDelimiter phase={group.phase} />
+                <PhaseDelimiter phase={group.phase} labelOptions={group.phase === 'CODING' || group.phase === 'BLOCKED_ERROR' ? beadLabelOptions : undefined} />
                 {group.entries.map((entry) => (
                   <LogEntryRow
                     key={entry.entryId}

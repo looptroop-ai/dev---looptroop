@@ -337,7 +337,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             {ticket.runtime.totalBeads > 0 && (
               <div>
                 <span className="text-xs font-medium text-muted-foreground">Beads</span>
-                <p className="mt-0.5">{ticket.runtime.currentBead} / {ticket.runtime.totalBeads}</p>
+                <p className="mt-0.5">{ticket.runtime.completedBeads} / {ticket.runtime.totalBeads}</p>
               </div>
             )}
             {ticket.runtime.totalBeads > 0 && (
