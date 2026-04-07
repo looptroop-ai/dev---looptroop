@@ -508,6 +508,34 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
   })
 
+  it('collapses single-model AI tabs into one combined AI model tab', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'coding-ai-1',
+        entryId: 'coding-ai-1',
+        line: '[MODEL] Session status: running.',
+        source: 'model:openai/gpt-5.4',
+        status: 'CODING',
+        timestamp: '2026-03-10T10:00:01.000Z',
+        audience: 'ai',
+        kind: 'session',
+        modelId: 'openai/gpt-5.4',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={logs} />)
+
+    expect(screen.getByRole('button', { name: 'AI > gpt-5.4' })).toBeInTheDocument()
+    expect(screen.queryByTitle('Show models')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'AI' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI > gpt-5.4' }))
+
+    expect(screen.getByText(/Session status: running/i)).toBeInTheDocument()
+  })
+
   it('shows system rows with modelId in the matching model tab without changing their color class', () => {
     const logs: LogEntry[] = [
       {
@@ -630,7 +658,7 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={[stepLog, sessionLog]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI > gpt-5.4' }))
 
     expect(screen.getByText(/Step started/i)).toBeInTheDocument()
     expect(screen.getByText(/Session status: busy/i)).toBeInTheDocument()

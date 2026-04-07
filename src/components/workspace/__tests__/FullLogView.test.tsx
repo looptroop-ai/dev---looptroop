@@ -177,6 +177,26 @@ describe('FullLogView', () => {
     expect(screen.queryByText(/Second output/)).toBeNull()
   })
 
+  it('collapses single-model AI tabs into one combined AI model tab', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[MODEL] First output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+    ])
+
+    renderWithTooltipProvider(<FullLogView />)
+
+    expect(screen.getByRole('button', { name: 'AI > gpt-5.4' })).toBeTruthy()
+    expect(screen.queryByTitle('Show models')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'AI' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI > gpt-5.4' }))
+    expect(screen.getByText(/First output/)).toBeTruthy()
+  })
+
   it('shows the correct total entry count', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('1', '[SYS] Event 1', 'CODING'),

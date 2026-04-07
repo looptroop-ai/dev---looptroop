@@ -11,6 +11,7 @@ import type { Ticket } from '@/hooks/useTickets'
 import { filterEntries, formatLogLine } from './logFormat'
 import { LogEntryRow } from './LogLine'
 import { ModelBadge } from '@/components/shared/ModelBadge'
+import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 
@@ -114,12 +115,18 @@ export function FullLogView({ ticket }: FullLogViewProps) {
     return tabs
   }, [configuredModelIds, detectedModelIds])
 
-  const showModelTabs = modelTabs.length > 0
+  const singleModelTabId = modelTabs.length === 1 ? modelTabs[0]! : null
+  const aiTabLabel = singleModelTabId ? `AI > ${getModelDisplayName(singleModelTabId)}` : 'AI'
+  const showModelTabs = modelTabs.length > 1
   const availableTabs: string[] = useMemo(
     () => (showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]),
     [showModelTabs, modelTabs],
   )
-  const effectiveTab = availableTabs.includes(activeTab) ? activeTab : 'ALL'
+  const effectiveTab = availableTabs.includes(activeTab)
+    ? activeTab
+    : singleModelTabId && activeTab === singleModelTabId
+      ? 'AI'
+      : 'ALL'
 
   const filteredLogs = useMemo(
     () => filterEntries(allLogs, effectiveTab),
@@ -278,6 +285,29 @@ export function FullLogView({ ticket }: FullLogViewProps) {
       <div className="flex px-1 py-1 items-center flex-wrap gap-1 shrink-0">
         {FIXED_TABS.map(tab => {
           const tooltipContent = TAB_TOOLTIPS[tab]
+
+          if (tab === 'AI' && singleModelTabId) {
+            return (
+              <Tooltip key={tab} delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      'px-2 py-0.5 rounded text-xs font-medium shrink-0',
+                      effectiveTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                    title={singleModelTabId}
+                  >
+                    {aiTabLabel}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
+                  {tooltipContent}
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
 
           if (tab === 'AI' && showModelTabs) {
             const isActive = effectiveTab === tab
