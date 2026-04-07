@@ -109,7 +109,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
       {content}
     </div>
   )
