@@ -9,7 +9,7 @@ import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import type { Ticket } from '@/hooks/useTickets'
-import { filterEntries, MULTI_MODEL_PHASES } from './logFormat'
+import { filterEntries, formatLogLine, MULTI_MODEL_PHASES } from './logFormat'
 import { LogEntryRow } from './LogLine'
 
 interface PhaseLogPanelProps {
@@ -201,13 +201,13 @@ export function PhaseLogPanel({
     if (!filteredLogs.length) return
     const textToCopy = filteredLogs.map((entry) => {
       const ts = entry.timestamp ? `[${entry.timestamp}] ` : ''
-      return `${ts}${entry.line}`
+      return `${ts}${formatLogLine(entry, showModelNameInLogTags).copyText}`
     }).join('\n')
     navigator.clipboard.writeText(textToCopy).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }).catch(err => console.error('Failed to copy logs:', err))
-  }, [filteredLogs])
+  }, [filteredLogs, showModelNameInLogTags])
 
   const visibleLogTail = useMemo(() => {
     const lastEntry = filteredLogs.at(-1)

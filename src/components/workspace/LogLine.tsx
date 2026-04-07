@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, memo, useMemo } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
-import { getEntryColor, formatTimestamp, formatVisibleTag } from './logFormat'
+import { formatLogLine, getEntryColor, formatTimestamp } from './logFormat'
 
 /** For streaming entries: returns [firstLine, ...last5Lines] with a separator when truncated. */
 function getStreamingVisibleLines(text: string): { lines: string[]; truncated: boolean } {
@@ -15,29 +15,21 @@ function getStreamingVisibleLines(text: string): { lines: string[]; truncated: b
 }
 
 function renderLogLine(entry: LogEntry, showModelName: boolean) {
-  const tagMatch = entry.line.match(/^(\[[^\]]+\])([\s\S]*)$/)
-  if (tagMatch) {
-    const [, rawTag = '', rest = ''] = tagMatch
-    const tag = formatVisibleTag(rawTag, entry, showModelName)
-    const color = getEntryColor(entry)
-    return (
-      <>
-        <span className={cn('font-semibold', color)}>{tag}</span>
-        {rest}
-      </>
-    )
-  }
-  if (entry.kind === 'reasoning' && !tagMatch) {
-    const color = getEntryColor(entry)
-    const tag = formatVisibleTag('[THINKING]', entry, showModelName)
-    return (
-      <>
-        <span className={cn('font-semibold', color)}>{tag}</span>
-        {' '}{entry.line}
-      </>
-    )
-  }
-  return <>{entry.line}</>
+  const formatted = formatLogLine(entry, showModelName)
+  if (!formatted.tagText) return <>{formatted.visibleText}</>
+
+  const color = getEntryColor(entry)
+  return (
+    <>
+      <span
+        className={cn('font-semibold', color)}
+        title={formatted.tagTitle}
+      >
+        {formatted.tagText}
+      </span>
+      {formatted.bodyText}
+    </>
+  )
 }
 
 function StreamingPreview({ entry, showModelName }: { entry: LogEntry; showModelName: boolean }) {
@@ -117,8 +109,9 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
           <span className="text-muted-foreground/40">{formatTimestamp(entry.timestamp)}</span>
           <button
             onClick={() => {
-              const textToCopy = entry.timestamp ? `[${entry.timestamp}] ${entry.line}` : entry.line
-              void navigator.clipboard.writeText(textToCopy)
+              const textToCopy = formatLogLine(entry, showModelName).copyText
+              const timestampedText = entry.timestamp ? `[${entry.timestamp}] ${textToCopy}` : textToCopy
+              void navigator.clipboard.writeText(timestampedText)
               setCopied(true)
               setTimeout(() => setCopied(false), 2000)
             }}

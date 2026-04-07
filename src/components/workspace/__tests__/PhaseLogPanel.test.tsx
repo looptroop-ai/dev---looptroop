@@ -26,6 +26,7 @@ import { PhaseLogPanel } from '../PhaseLogPanel'
 
 const animationFrames = new Map<number, FrameRequestCallback>()
 let nextAnimationFrameId = 1
+const writeTextMock = vi.fn(() => Promise.resolve())
 const scrollToMock = vi.fn(function scrollTo(this: HTMLElement, options?: ScrollToOptions | number) {
   if (typeof options === 'object' && options && typeof options.top === 'number') {
     this.scrollTop = options.top
@@ -67,6 +68,13 @@ function renderWithTooltipProvider(ui: React.ReactElement) {
 }
 
 beforeAll(() => {
+  Object.defineProperty(globalThis.navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: writeTextMock,
+    },
+  })
+
   Object.defineProperty(globalThis, 'requestAnimationFrame', {
     configurable: true,
     writable: true,
@@ -120,6 +128,7 @@ beforeEach(() => {
   animationFrames.clear()
   nextAnimationFrameId = 1
   scrollToMock.mockClear()
+  writeTextMock.mockClear()
 })
 
 describe('PhaseLogPanel', () => {
@@ -323,6 +332,136 @@ describe('PhaseLogPanel', () => {
     expect(screen.getAllByText(/\[MODEL-gpt-5-codex\]/i)).toHaveLength(2)
     expect(screen.getByText(/\[THINKING-gpt-5-codex\]/i)).toBeInTheDocument()
     expect(screen.getByText(/Checking whether the interview coverage is balanced/i)).toBeInTheDocument()
+  })
+
+  it('shows model-aware ERROR tags anywhere an AI error row is visible', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'ai-error',
+        entryId: 'ses-retry:retry:1',
+        line: '[ERROR] Session retry #1: <none>',
+        source: 'model:opencode/minimax-m2.5-free',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-04-07T07:30:44.719Z',
+        audience: 'ai',
+        kind: 'error',
+        modelId: 'opencode/minimax-m2.5-free',
+        sessionId: 'ses-retry',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
+
+    const errorTag = screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)
+    expect(errorTag).toBeInTheDocument()
+    expect(errorTag).toHaveAttribute('title', 'opencode/minimax-m2.5-free')
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+    expect(screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Show models'))
+    fireEvent.click(screen.getByRole('button', { name: /minimax-m2\.5-free/i }))
+    expect(screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)).toBeInTheDocument()
+  })
+
+  it('keeps plain ERROR tags for rows without model attribution', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'plain-error',
+        entryId: 'plain-error',
+        line: '[ERROR] Something failed before model attribution was available.',
+        source: 'error',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-04-07T07:30:44.719Z',
+        audience: 'all',
+        kind: 'error',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
+
+    expect(screen.getByText('[ERROR]')).toBeInTheDocument()
+    expect(screen.queryByText(/\[ERROR-/i)).not.toBeInTheDocument()
+  })
+
+  it('includes the full model id when copying a single AI error row', () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'ai-error',
+        entryId: 'ses-retry:retry:1',
+        line: '[ERROR] Session retry #1: <none>',
+        source: 'model:opencode/minimax-m2.5-free',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-04-07T07:30:44.719Z',
+        audience: 'ai',
+        kind: 'error',
+        modelId: 'opencode/minimax-m2.5-free',
+        sessionId: 'ses-retry',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
+
+    fireEvent.click(screen.getByTitle('Copy log entry'))
+
+    expect(writeTextMock).toHaveBeenCalledWith(
+      '[2026-04-07T07:30:44.719Z] [ERROR-minimax-m2.5-free] Session retry #1: <none> [model: opencode/minimax-m2.5-free]',
+    )
+  })
+
+  it('includes full model ids when copying filtered ERROR logs', async () => {
+    const logs: LogEntry[] = [
+      {
+        id: 'ai-error-1',
+        entryId: 'ses-retry-1:retry:1',
+        line: '[ERROR] Session retry #1: <none>',
+        source: 'model:opencode/minimax-m2.5-free',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-04-07T07:30:44.719Z',
+        audience: 'ai',
+        kind: 'error',
+        modelId: 'opencode/minimax-m2.5-free',
+        sessionId: 'ses-retry-1',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: 'ai-error-2',
+        entryId: 'ses-retry-2:retry:1',
+        line: '[ERROR] Session retry #1: rate limited',
+        source: 'model:openai/gpt-5-codex',
+        status: 'DRAFTING_PRD',
+        timestamp: '2026-04-07T07:31:44.719Z',
+        audience: 'ai',
+        kind: 'error',
+        modelId: 'openai/gpt-5-codex',
+        sessionId: 'ses-retry-2',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+      fireEvent.click(screen.getByTitle('Copy all logs'))
+      await Promise.resolve()
+    })
+
+    expect(writeTextMock).toHaveBeenCalledWith([
+      '[2026-04-07T07:30:44.719Z] [ERROR-minimax-m2.5-free] Session retry #1: <none> [model: opencode/minimax-m2.5-free]',
+      '[2026-04-07T07:31:44.719Z] [ERROR-gpt-5-codex] Session retry #1: rate limited [model: openai/gpt-5-codex]',
+    ].join('\n'))
   })
 
   it('shows prompt entries in ALL and AI while keeping generic AI session details AI-only', () => {

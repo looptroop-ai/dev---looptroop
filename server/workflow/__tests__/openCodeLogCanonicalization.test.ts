@@ -230,6 +230,29 @@ describe('OpenCode log canonicalization', () => {
     ]))
   })
 
+  it('persists model attribution on session retry error rows', () => {
+    const state = createOpenCodeStreamState()
+
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'DRAFTING_PRD', 'opencode/minimax-m2.5-free', 'ses-retry', {
+      type: 'session_status',
+      sessionId: 'ses-retry',
+      status: 'retry',
+      attempt: 1,
+      message: '<none>',
+    }, state)
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'ses-retry:retry:1',
+        content: 'Session retry #1: <none>',
+        kind: 'error',
+        source: 'model:opencode/minimax-m2.5-free',
+        modelId: 'opencode/minimax-m2.5-free',
+        sessionId: 'ses-retry',
+      }),
+    ]))
+  })
+
   it('emits one canonical text row per assistant response when a session is reused', () => {
     const state = createOpenCodeStreamState()
 

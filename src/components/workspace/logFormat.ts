@@ -1,9 +1,21 @@
 import type { LogEntry } from '@/context/LogContext'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 
-function getModelKey(entry: LogEntry): string | null {
+export interface FormattedLogLine {
+  tagText: string | null
+  tagTitle?: string
+  bodyText: string
+  visibleText: string
+  copyText: string
+}
+
+function getEntryFullModelId(entry: LogEntry): string | null {
   if (entry.modelId) return entry.modelId
-  return entry.source.startsWith('model:') ? entry.source : null
+  return entry.source.startsWith('model:') ? entry.source.slice('model:'.length) : null
+}
+
+function getModelKey(entry: LogEntry): string | null {
+  return getEntryFullModelId(entry)
 }
 
 function getPhaseModelKey(entry: LogEntry): string | null {
@@ -88,19 +100,73 @@ export function formatTimestamp(timestamp?: string): string {
 }
 
 export function getEntryModelDisplayName(entry: LogEntry): string | null {
-  const rawModelId = entry.modelId || (entry.source.startsWith('model:') ? entry.source : '')
+  const rawModelId = getEntryFullModelId(entry) ?? ''
   const displayName = rawModelId ? getModelDisplayName(rawModelId) : ''
   return displayName || null
 }
 
-export function formatVisibleTag(tag: string, entry: LogEntry, showModelName: boolean): string {
-  if (!showModelName) return tag
-
+function formatTaggedSegment(tag: string, entry: LogEntry, showModelName: boolean): Pick<FormattedLogLine, 'tagText' | 'tagTitle'> {
   const bareTag = tag.slice(1, -1)
-  if (bareTag !== 'MODEL' && bareTag !== 'THINKING') return tag
-
   const modelDisplayName = getEntryModelDisplayName(entry)
-  return modelDisplayName ? `[${bareTag}-${modelDisplayName}]` : tag
+  const fullModelId = getEntryFullModelId(entry)
+  const shouldShowModelName = Boolean(modelDisplayName) && (
+    bareTag === 'ERROR'
+    || (showModelName && (bareTag === 'MODEL' || bareTag === 'THINKING'))
+  )
+
+  if (!shouldShowModelName) {
+    return { tagText: tag }
+  }
+
+  return {
+    tagText: `[${bareTag}-${modelDisplayName}]`,
+    ...(fullModelId ? { tagTitle: fullModelId } : {}),
+  }
+}
+
+function formatCopyText(visibleText: string, entry: LogEntry): string {
+  const fullModelId = getEntryFullModelId(entry)
+  return fullModelId ? `${visibleText} [model: ${fullModelId}]` : visibleText
+}
+
+export function formatVisibleTag(tag: string, entry: LogEntry, showModelName: boolean): string {
+  return formatTaggedSegment(tag, entry, showModelName).tagText ?? tag
+}
+
+export function formatLogLine(entry: LogEntry, showModelName: boolean): FormattedLogLine {
+  const tagMatch = entry.line.match(/^(\[[^\]]+\])([\s\S]*)$/)
+  if (tagMatch) {
+    const [, rawTag = '', bodyText = ''] = tagMatch
+    const { tagText, tagTitle } = formatTaggedSegment(rawTag, entry, showModelName)
+    const visibleText = `${tagText}${bodyText}`
+    return {
+      tagText,
+      ...(tagTitle ? { tagTitle } : {}),
+      bodyText,
+      visibleText,
+      copyText: formatCopyText(visibleText, entry),
+    }
+  }
+
+  if (entry.kind === 'reasoning') {
+    const bodyText = ` ${entry.line}`
+    const { tagText, tagTitle } = formatTaggedSegment('[THINKING]', entry, showModelName)
+    const visibleText = `${tagText}${bodyText}`
+    return {
+      tagText,
+      ...(tagTitle ? { tagTitle } : {}),
+      bodyText,
+      visibleText,
+      copyText: formatCopyText(visibleText, entry),
+    }
+  }
+
+  return {
+    tagText: null,
+    bodyText: entry.line,
+    visibleText: entry.line,
+    copyText: formatCopyText(entry.line, entry),
+  }
 }
 
 export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
