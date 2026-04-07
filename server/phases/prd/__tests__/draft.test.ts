@@ -969,6 +969,74 @@ describe.concurrent('draftPRD', () => {
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
   })
 
+  it('keeps prompt-schema full-answers echoes invalid and records the prompt-echo validation message after one retry', async () => {
+    const promptSchemaEcho = [
+      'schema_version: 1',
+      `ticket_id: "${TEST.externalId}"`,
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: "<winner-model-id>"',
+      '  generated_at: "<ISO-8601 timestamp>"',
+      '  canonicalization: server_normalized',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What problem are we solving?"',
+      '    source: compiled | prompt_follow_up | coverage_follow_up | final_free_form',
+      '    follow_up_round: null',
+      '    answer_type: free_text | single_choice | multiple_choice',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: "User answer or empty string"',
+      '      answered_by: user | ai_skip',
+      '      answered_at: "<ISO-8601 timestamp or empty string>"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+      '',
+      '## Context',
+      '### ticket_details',
+      '# Ticket: Keep prompt echoes invalid',
+      'Status text is not an artifact.',
+    ].join('\n')
+    const adapter = new TestOpenCodeAdapter([promptSchemaEcho, promptSchemaEcho])
+
+    const result = await draftPRD(adapter, COUNCIL,
+      ticket('Keep prompt echoes invalid', 'Prompt-schema echoes should fail with a clear validation error.'),
+      '/tmp/test', DRAFT_OPTS,
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'invalid_output',
+      structuredOutput: {
+        autoRetryCount: 1,
+        validationError: 'Interview document output echoed the prompt instead of returning a structured interview artifact',
+      },
+    })
+    expect(result.fullAnswers[0]?.structuredOutput?.retryDiagnostics).toHaveLength(2)
+    expect(result.drafts[0]).toMatchObject({
+      memberId: 'model-a',
+      outcome: 'invalid_output',
+      structuredOutput: {
+        autoRetryCount: 1,
+        validationError: 'Interview document output echoed the prompt instead of returning a structured interview artifact',
+      },
+    })
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
+    const fullAnswerRetryMessages = adapter.messages.get('mock-session-1')?.filter((message) => typeof message.content === 'string' && message.content.includes('Full Answers Structured Output Retry')) ?? []
+    expect(fullAnswerRetryMessages).toHaveLength(1)
+  })
+
   it('restarts full answers in a fresh session after an empty response instead of sending a structured retry prompt', async () => {
     const adapter = new TestOpenCodeAdapter(['', resolvedYaml(), makePrdYaml()])
 

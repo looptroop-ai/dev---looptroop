@@ -101,6 +101,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(draftPrompt).toContain('Every epic must include at least one fully populated `user_stories` entry')
     expect(draftPrompt).toContain('Begin the artifact at `schema_version` and end at `approval.approved_at`')
     expect(draftPrompt).toContain('shorten field text instead of truncating later epics')
+    expect(draftPrompt).toContain('Never repeat prompt scaffolding or placeholder schema lines from `## Expected Output Format`, `## Context`, or `# Ticket:`')
     expect(draftPrompt).toContain('Never output implementation plans, diffs, next steps, acknowledgements, commentary')
 
     const refinePrompt = buildPromptFromTemplate(PROM12, [])
@@ -135,6 +136,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(gapPrompt).toContain('shorten answer text instead of omitting later question blocks')
     expect(gapPrompt).toContain('Do not read files, search for more context, propose an implementation plan')
     expect(gapPrompt).toContain('Stop immediately after the final `approval` block')
+    expect(gapPrompt).toContain('Never repeat prompt scaffolding or placeholder schema lines from `## Expected Output Format`, `## Context`, or `# Ticket:`')
     expect(gapPrompt).toContain('answered_by: ai_skip')
     expect(gapPrompt).toContain('status: draft')
     expect(gapPrompt).toContain('Return the entire interview artifact from `schema_version` through the final `approval` block')

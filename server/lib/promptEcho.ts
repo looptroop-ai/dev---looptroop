@@ -15,6 +15,13 @@ const HARD_PROMPT_ECHO_MARKERS = [
   'CONTEXT REFRESH:',
 ]
 
+const STRUCTURED_PROMPT_SCHEMA_MARKERS = [
+  '## Expected Output Format',
+  '## Context',
+  '### ticket_details',
+  '# Ticket:',
+]
+
 export function stripPromptEchoTranscriptPrefixes(content: string): string {
   return content
     .split('\n')
@@ -40,4 +47,27 @@ export function looksLikePromptEcho(content: string, extraMarkers: string[] = []
   }
 
   return hardHits >= 1 && totalHits >= 2
+}
+
+export function looksLikeStructuredPromptSchemaEcho(
+  content: string,
+  options?: {
+    rootKeys?: string[]
+  },
+): boolean {
+  const normalized = stripPromptEchoTranscriptPrefixes(content)
+  if (!normalized) return false
+  if (looksLikePromptEcho(normalized)) return true
+
+  const trimmed = normalized.trimStart().toLowerCase()
+  const rootKeys = options?.rootKeys ?? []
+  const startsWithStructuredArtifact = rootKeys.length === 0
+    ? /^[a-z_][\w-]*\s*:/i.test(trimmed)
+    : rootKeys.some((key) => trimmed.startsWith(`${key.toLowerCase()}:`))
+
+  if (!startsWithStructuredArtifact) return false
+
+  return normalized.split('\n').some((line) => (
+    STRUCTURED_PROMPT_SCHEMA_MARKERS.some((marker) => line.startsWith(marker))
+  ))
 }

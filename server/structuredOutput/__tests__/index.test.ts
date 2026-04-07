@@ -2748,6 +2748,74 @@ describe.concurrent('structured output normalization', () => {
     expect(result.error).toContain('echoed the prompt')
   })
 
+  it('rejects PRD prompt schema echoes with a clear validation error', () => {
+    const interviewContent = buildInterviewContent(TICKET_ID, {
+      skipped: true,
+      prompt: 'Which fallback path should we use?',
+    })
+    const result = normalizePrdYamlOutput([
+      'schema_version: 1',
+      `ticket_id: "${TICKET_ID}"`,
+      'artifact: "prd"',
+      'status: "draft"',
+      'source_interview:',
+      '  content_sha256: "<sha256>"',
+      'product:',
+      '  problem_statement: "Ship a deterministic planning pipeline."',
+      '  target_users:',
+      '    - "Maintainers"',
+      'scope:',
+      '  in_scope:',
+      '    - "Prompt hardening"',
+      '  out_of_scope:',
+      '    - "Execution changes"',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - "Shared validator layer"',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints: []',
+      '  error_handling_rules: []',
+      '  tooling_assumptions: []',
+      'epics:',
+      '  - id: "EPIC-1"',
+      '    title: "Harden structured output"',
+      '    objective: "Prevent format-only model mistakes from blocking tickets."',
+      '    implementation_steps:',
+      '      - "Add validators"',
+      '    user_stories:',
+      '      - id: "US-1"',
+      '        title: "Validate interview and PRD artifacts"',
+      '        acceptance_criteria:',
+      '          - "Structured artifacts are normalized before save"',
+      '        implementation_steps:',
+      '          - "Reuse shared repair helpers"',
+      '        verification:',
+      '          required_commands:',
+      '            - "npm run test:server"',
+      'risks:',
+      '  - "Permissive repairs could hide semantic issues"',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+      '',
+      '## Context',
+      '### ticket_details',
+      `# Ticket: ${TICKET_ID}`,
+      'Keep PRD drafting strict.',
+    ].join('\n'), {
+      ticketId: TICKET_ID,
+      interviewContent,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('echoed the prompt')
+    expect(result.error).not.toContain('block mapping entry')
+  })
+
   it('recovers complete file entries from a truncated response with no close tag', () => {
     // The last entry is cut off mid-key (no colon), causing YAML parse failure.
     // Truncation recovery removes the incomplete entry.
@@ -4086,6 +4154,58 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value.questions).toHaveLength(2)
     expect(result.value.questions[1]?.id).toBe('Q02')
     expect(result.value.questions[0]?.answer.free_text).toContain('risk-first planning checkpoint')
+  })
+
+  it('rejects resolved interview prompt schema echoes with a clear validation error', () => {
+    const canonicalInterview = CANONICAL_RESOLVED_INTERVIEW
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      'schema_version: 1',
+      `ticket_id: "${TICKET_ID}"`,
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: "<winner-model-id>"',
+      '  generated_at: "<ISO-8601 timestamp>"',
+      '  canonicalization: server_normalized',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What problem are we solving?"',
+      '    source: compiled | prompt_follow_up | coverage_follow_up | final_free_form',
+      '    follow_up_round: null',
+      '    answer_type: free_text | single_choice | multiple_choice',
+      '    options: []',
+      '    answer:',
+      '      skipped: false',
+      '      selected_option_ids: []',
+      '      free_text: "User answer or empty string"',
+      '      answered_by: user | ai_skip',
+      '      answered_at: "<ISO-8601 timestamp or empty string>"',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+      '',
+      '## Context',
+      '### ticket_details',
+      `# Ticket: ${TICKET_ID}`,
+      'Keep retries strict.',
+    ].join('\n'), {
+      ticketId: TICKET_ID,
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'openai/gpt-5.4',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('echoed the prompt')
+    expect(result.error).not.toContain('block mapping entry')
   })
 
   it('repairs resolved interview YAML that needs both trailing-noise trimming and free_text quoting', () => {

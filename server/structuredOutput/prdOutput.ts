@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { RefinementChange } from '@shared/refinementChanges'
-import { looksLikePromptEcho } from '../lib/promptEcho'
+import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
+import { looksLikePromptEcho, looksLikeStructuredPromptSchemaEcho } from '../lib/promptEcho'
 import type { PrdDocument, PrdDraftMetrics, StructuredOutputResult } from './types'
 import { normalizeInterviewDocumentOutput } from './interviewDocument'
 import {
@@ -36,6 +37,8 @@ const PRD_NESTED_MAPPING_CHILDREN = {
   approval: ['approved_by', 'approved_at'],
   verification: ['required_commands'],
 } as const
+
+const PRD_PROMPT_ECHO_ERROR = 'PRD output echoed the prompt instead of returning structured PRD YAML'
 
 function hashContent(content: string | undefined): string {
   return createHash('sha256').update(content ?? '').digest('hex')
@@ -218,7 +221,7 @@ export function normalizePrdYamlOutput(
   if (looksLikePromptEcho(rawContent)) {
     return buildStructuredOutputFailure(
       rawContent,
-      'PRD output echoed the prompt instead of returning structured PRD YAML',
+      PRD_PROMPT_ECHO_ERROR,
     )
   }
 
@@ -227,11 +230,22 @@ export function normalizePrdYamlOutput(
   })
   let lastError = 'No PRD content found'
   let lastErrorCause: unknown = null
+  let preferredPromptEchoError: string | undefined
+  let preferredPromptEchoRetryDiagnostic: StructuredRetryDiagnostic | undefined
 
   for (const candidate of candidates) {
     const repairWarnings: string[] = []
 
     try {
+      if (looksLikeStructuredPromptSchemaEcho(candidate, {
+        rootKeys: ['schema_version', 'ticket_id', 'artifact', 'product', 'scope', 'technical_requirements', 'epics'],
+      })) {
+        const failure = buildStructuredOutputFailure(candidate, PRD_PROMPT_ECHO_ERROR)
+        preferredPromptEchoError ??= failure.error
+        preferredPromptEchoRetryDiagnostic ??= failure.retryDiagnostic
+        continue
+      }
+
       const parsed = unwrapPrdArtifactObjectWrapper(unwrapExplicitWrapperRecord(parseYamlOrJsonCandidate(candidate, {
         nestedMappingChildren: PRD_NESTED_MAPPING_CHILDREN,
         allowTrailingTerminalNoise: true,
@@ -333,13 +347,24 @@ export function normalizePrdYamlOutput(
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
       lastErrorCause = error
+      if (/echoed the prompt/i.test(lastError)) {
+        const failure = buildStructuredOutputFailure(candidate, lastError, { cause: error })
+        preferredPromptEchoError ??= failure.error
+        preferredPromptEchoRetryDiagnostic ??= failure.retryDiagnostic
+      }
     }
+  }
+
+  if (preferredPromptEchoError) {
+    return buildStructuredOutputFailure(rawContent, preferredPromptEchoError, {
+      retryDiagnostic: preferredPromptEchoRetryDiagnostic,
+    })
   }
 
   return buildStructuredOutputFailure(
     rawContent,
     looksLikePromptEcho(rawContent)
-      ? 'PRD output echoed the prompt instead of returning structured PRD YAML'
+      ? PRD_PROMPT_ECHO_ERROR
       : lastError,
     { cause: lastErrorCause },
   )
