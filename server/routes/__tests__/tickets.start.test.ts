@@ -107,7 +107,7 @@ function getDraftLogMessages(ticketId: string): string[] {
   return readPersistedLogEvents(ticketId)
     .filter((entry) => entry.phase === 'DRAFT')
     .map((entry) => String(entry.message ?? entry.content ?? ''))
-    .filter((msg) => !msg.startsWith('$ '))
+    .filter((msg) => !msg.startsWith('$ ') && !msg.startsWith('[CMD]'))
 }
 
 describe('ticketRouter POST /tickets/:id/start', () => {
@@ -163,7 +163,7 @@ describe('ticketRouter POST /tickets/:id/start', () => {
     const emittedDraftLogs = broadcastSpy.mock.calls
       .filter(([, event, data]) => event === 'log' && data.phase === 'DRAFT')
       .map(([, , data]) => String(data.content ?? ''))
-      .filter((msg: string) => !msg.startsWith('$ '))
+      .filter((msg: string) => !msg.startsWith('$ ') && !msg.startsWith('[CMD]'))
 
     expect(emittedDraftLogs).toEqual([
       'Start requested.',

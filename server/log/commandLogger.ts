@@ -64,11 +64,11 @@ export function logCommand(
   if (result.ok) {
     const stdout = result.stdout?.trim()
     content = stdout
-      ? `$ ${cmdStr}\n→ ${truncateOutput(stdout)}`
-      : `$ ${cmdStr}\n→ ok`
+      ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(stdout)}`
+      : `[CMD] $ ${cmdStr}  →  ok`
     type = 'info'
   } else {
-    content = `$ ${cmdStr}\n→ error: ${truncateOutput(result.error)}`
+    content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(result.error)}`
     type = 'error'
   }
 
