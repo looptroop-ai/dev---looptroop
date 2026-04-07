@@ -258,7 +258,7 @@ export function FullLogView() {
       </div>
 
       {/* Log content */}
-      <ScrollArea className="flex-1 min-h-0" viewportRef={viewportRef}>
+      <ScrollArea className="h-0 flex-1 min-h-0" viewportRef={viewportRef} type="always">
         <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
           {hasLogs ? (
             phaseGroups.map((group, groupIdx) => (

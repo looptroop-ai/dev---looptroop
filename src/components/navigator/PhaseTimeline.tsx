@@ -92,6 +92,14 @@ function getGroupStatus(
     return 'pending'
   }
 
+  if (currentStatus === 'CANCELED') {
+    if (statuses.some(s => s === 'error')) return 'error'
+    if (statuses.some(s => s === 'canceled')) return 'canceled'
+    if (statuses.some(s => s === 'completed-final')) return 'completed-final'
+    if (statuses.some(s => s === 'completed')) return 'completed'
+    return 'pending'
+  }
+
   if (statuses.some(s => s === 'completed-final')) return 'completed-final'
   if (statuses.some(s => s === 'active')) return 'active'
   if (statuses.some(s => s === 'error')) return 'error'

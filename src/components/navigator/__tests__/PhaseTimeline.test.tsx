@@ -101,6 +101,18 @@ describe('PhaseTimeline', () => {
     expect(screen.getByText('Self-Testing').closest('button')).toBeDisabled()
   })
 
+  it('does not render any spinning indicators for canceled tickets', () => {
+    const { container } = renderWithProviders(
+      <PhaseTimeline
+        currentStatus="CANCELED"
+        previousStatus="CODING"
+        reviewCutoffStatus="CODING"
+      />,
+    )
+
+    expect(container.querySelector('.animate-spin')).toBeNull()
+  })
+
   it('preserves live BLOCKED_ERROR phase review behavior', () => {
     const onSelect = vi.fn()
     renderWithProviders(
