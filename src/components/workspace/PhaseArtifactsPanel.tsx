@@ -37,6 +37,7 @@ import { ArtifactContent, RawContentView, InterviewAnswersView, PrdDraftView } f
 import { ArtifactList } from './ArtifactList'
 import { ArtifactTypeFilter } from './ArtifactTypeFilter'
 import { getSupplementalArtifacts } from './supplementalArtifacts'
+import { parseDiffStats } from './diffUtils'
 
 // Re-export viewer components so existing imports from this module continue to work
 export { RawContentView, InterviewAnswersView, PrdDraftView }
@@ -304,6 +305,14 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ?? refinedArtifact?.content
         ?? null
     }
+    if (artifactDef.id === 'bead-commits') {
+      const diffs = reversedArtifacts
+        .filter((a) => a.artifactType.startsWith('bead_diff:'))
+        .map((a) => a.content?.trim())
+        .filter(Boolean)
+      return diffs.length > 0 ? diffs.join('\n\n') : null
+    }
+
     const match = resolveStaticArtifact(artifactDef, phase, reversedArtifacts)
     return match?.content ?? null
   }, [findCompanionArtifact, findExactArtifact, phase, reversedArtifacts])
@@ -371,10 +380,23 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
   const prominentSupplementalArtifacts = collapseVotingMemberArtifacts ? displayedSupplementalArtifacts : []
   const inlineSupplementalArtifacts = collapseVotingMemberArtifacts ? [] : displayedSupplementalArtifacts
 
-  function getArtifactState(artifact: ArtifactDef): { outcome?: CouncilOutcome; detail?: string } {
+  function getArtifactState(artifact: ArtifactDef): { outcome?: CouncilOutcome; detail?: React.ReactNode } {
     const content = findDbContent(artifact)
     if (!content) return {}
     const council = tryParseCouncilResult(content)
+
+    if (artifact.id === 'bead-commits') {
+      const stats = parseDiffStats(content)
+      return {
+        outcome: 'completed',
+        detail: (
+          <span className="flex items-center gap-1.5">
+            <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
+            <span className="text-red-600 dark:text-red-400">-{stats.deletions}</span>
+          </span>
+        ),
+      }
+    }
 
     if (artifact.id === 'relevant-files-scan') {
       const tokenCount = encode(content).length

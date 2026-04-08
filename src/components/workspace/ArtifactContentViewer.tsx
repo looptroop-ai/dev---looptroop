@@ -13,7 +13,7 @@ import {
   type StructuredRetryDiagnostic,
 } from '@shared/structuredRetryDiagnostics'
 import { encode } from 'gpt-tokenizer'
-import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb, CheckCircle2, XCircle, AlertTriangle, FileCode2 } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
@@ -52,6 +52,7 @@ import {
 } from './phaseArtifactTypes'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
+import { parseDiffStats } from './diffUtils'
 import { InterviewDocumentView } from './InterviewDocumentView'
 import {
   getCouncilStatusEmoji,
@@ -3253,6 +3254,94 @@ function PreFlightReportView({ content }: { content: string }) {
   )
 }
 
+interface DiffFileEntry {
+  path: string
+  lines: string[]
+  additions: number
+  deletions: number
+}
+
+function parseDiffFiles(content: string): DiffFileEntry[] {
+  const allLines = content.split('\n')
+  const files: DiffFileEntry[] = []
+  let current: DiffFileEntry | null = null
+
+  for (const line of allLines) {
+    if (line.startsWith('diff --git')) {
+      if (current) files.push(current)
+      const match = line.match(/b\/(.+)$/)
+      current = { path: match?.[1] ?? 'unknown', lines: [], additions: 0, deletions: 0 }
+      continue
+    }
+    if (!current) continue
+    current.lines.push(line)
+    if (line.startsWith('+') && !line.startsWith('+++')) current.additions++
+    else if (line.startsWith('-') && !line.startsWith('---')) current.deletions++
+  }
+  if (current) files.push(current)
+  return files
+}
+
+function DiffFileSection({ file }: { file: DiffFileEntry }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="border border-border/60 rounded-md overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-accent/40 transition-colors"
+      >
+        {open
+          ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+        <FileCode2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-xs font-mono font-medium text-foreground truncate flex-1">{file.path}</span>
+        <span className="text-[11px] font-mono text-green-600 dark:text-green-400 shrink-0">+{file.additions}</span>
+        <span className="text-[11px] font-mono text-red-600 dark:text-red-400 shrink-0">-{file.deletions}</span>
+      </button>
+      {open && (
+        <div className="border-t border-border/40 bg-[var(--color-card)] overflow-x-auto">
+          <pre className="text-xs font-mono leading-[1.6]">
+            {file.lines.map((line, i) => {
+              if (line.startsWith('---') || line.startsWith('+++')) return null
+              let className = 'px-4 block'
+              if (line.startsWith('@@')) {
+                className += ' text-blue-600 dark:text-blue-400 bg-blue-500/5 py-0.5 font-medium border-y border-blue-500/10'
+              } else if (line.startsWith('+')) {
+                className += ' text-green-700 dark:text-green-300 bg-green-500/10'
+              } else if (line.startsWith('-')) {
+                className += ' text-red-700 dark:text-red-300 bg-red-500/10'
+              } else {
+                className += ' text-muted-foreground/80'
+              }
+              return <span key={i} className={className}>{line || '\u00A0'}</span>
+            })}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BeadCommitsDiffView({ content }: { content: string }) {
+  const files = useMemo(() => parseDiffFiles(content), [content])
+  const stats = parseDiffStats(content)
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3 px-1 py-1 text-xs text-muted-foreground">
+        <span className="font-medium">{stats.files} file{stats.files !== 1 ? 's' : ''} changed</span>
+        <span className="text-green-600 dark:text-green-400 font-mono">+{stats.additions}</span>
+        <span className="text-red-600 dark:text-red-400 font-mono">-{stats.deletions}</span>
+      </div>
+      {files.map((file) => (
+        <DiffFileSection key={file.path} file={file} />
+      ))}
+    </div>
+  )
+}
+
 export function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
   if (artifactId === 'diagnostics') {
     return <PreFlightReportView content={content} />
@@ -3262,6 +3351,9 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   }
   if (artifactId === 'test-results') {
     return <FinalTestResultsView content={content} />
+  }
+  if (artifactId === 'bead-commits') {
+    return <BeadCommitsDiffView content={content} />
   }
   if (artifactId === 'final-interview') {
     const isCanonicalInterviewPhase = phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'

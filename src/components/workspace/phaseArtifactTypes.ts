@@ -1220,7 +1220,7 @@ export function resolveStaticArtifact(
     case 'diagnostics':
       return findExactType('preflight_report')
     case 'bead-commits':
-      return findByPredicate(artifact => artifact.artifactType.startsWith('bead_execution:'))
+      return findByPredicate(artifact => artifact.artifactType.startsWith('bead_diff:'))
     case 'test-results':
       return findExactType('final_test_report')
     case 'commit-summary':

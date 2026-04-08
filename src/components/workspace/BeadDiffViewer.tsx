@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, FileCode2 } from 'lucide-react'
-import { parseDiffStats } from './diffUtils'
+import { Loader2, FileCode2, ChevronRight, ChevronDown } from 'lucide-react'
+import { parseDiffStats, parseFileDiffs, type FileDiff } from './diffUtils'
 
 interface BeadDiffViewerProps {
   ticketId: string
@@ -18,33 +19,63 @@ async function fetchBeadDiff(ticketId: string, beadId: string): Promise<DiffResp
   return response.json()
 }
 
-function DiffContent({ diff }: { diff: string }) {
-  const lines = diff.split('\n')
+function lineClassName(line: string): string {
+  let className = 'px-3 py-px block'
+  if (line.startsWith('diff --git')) {
+    className += ' text-foreground font-semibold bg-muted/50'
+  } else if (line.startsWith('@@')) {
+    className += ' text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20'
+  } else if (line.startsWith('+') && !line.startsWith('+++')) {
+    className += ' text-green-700 dark:text-green-400 bg-green-50/60 dark:bg-green-950/20'
+  } else if (line.startsWith('-') && !line.startsWith('---')) {
+    className += ' text-red-700 dark:text-red-400 bg-red-50/60 dark:bg-red-950/20'
+  } else if (line.startsWith('---') || line.startsWith('+++')) {
+    className += ' text-muted-foreground font-medium'
+  } else {
+    className += ' text-muted-foreground'
+  }
+  return className
+}
+
+function FileDiffBlock({ file }: { file: FileDiff }) {
+  const [expanded, setExpanded] = useState(false)
 
   return (
-    <pre className="text-xs font-mono leading-relaxed overflow-auto">
-      {lines.map((line, i) => {
-        let className = 'px-3 py-px block'
-        if (line.startsWith('diff --git')) {
-          className += ' text-foreground font-semibold bg-muted/50 mt-2 first:mt-0 border-t border-border pt-1'
-        } else if (line.startsWith('@@')) {
-          className += ' text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20'
-        } else if (line.startsWith('+') && !line.startsWith('+++')) {
-          className += ' text-green-700 dark:text-green-400 bg-green-50/60 dark:bg-green-950/20'
-        } else if (line.startsWith('-') && !line.startsWith('---')) {
-          className += ' text-red-700 dark:text-red-400 bg-red-50/60 dark:bg-red-950/20'
-        } else if (line.startsWith('---') || line.startsWith('+++')) {
-          className += ' text-muted-foreground font-medium'
-        } else {
-          className += ' text-muted-foreground'
-        }
-        return (
-          <span key={i} className={className}>
-            {line || '\u00A0'}
-          </span>
-        )
-      })}
-    </pre>
+    <div className="border-b border-border last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-left hover:bg-muted/40 transition-colors"
+      >
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        <span className="truncate font-medium text-foreground">{file.filename}</span>
+        <span className="ml-auto flex items-center gap-2 shrink-0">
+          {file.additions > 0 && <span className="text-green-600 dark:text-green-400">+{file.additions}</span>}
+          {file.deletions > 0 && <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>}
+        </span>
+      </button>
+      {expanded && (
+        <pre className="text-xs font-mono leading-relaxed overflow-auto">
+          {file.lines.map((line, i) => (
+            <span key={i} className={lineClassName(line)}>
+              {line || '\u00A0'}
+            </span>
+          ))}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+function DiffContent({ diff }: { diff: string }) {
+  const fileDiffs = parseFileDiffs(diff)
+
+  return (
+    <div>
+      {fileDiffs.map((file, i) => (
+        <FileDiffBlock key={i} file={file} />
+      ))}
+    </div>
   )
 }
 

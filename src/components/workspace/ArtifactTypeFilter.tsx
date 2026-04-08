@@ -1,3 +1,4 @@
+import type React from 'react'
 import type { ArtifactDef, CouncilOutcome } from './phaseArtifactTypes'
 import {
   getCouncilStatusEmoji,
@@ -6,7 +7,7 @@ import {
 
 export interface ArtifactTypeFilterProps {
   artifacts: ArtifactDef[]
-  getArtifactState: (artifact: ArtifactDef) => { outcome?: CouncilOutcome; detail?: string }
+  getArtifactState: (artifact: ArtifactDef) => { outcome?: CouncilOutcome; detail?: React.ReactNode }
   action: CouncilAction
   isCompleted: boolean
   onSelect: (id: string) => void
