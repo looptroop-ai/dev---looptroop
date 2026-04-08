@@ -221,6 +221,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(prompt).toContain('BEAD_STATUS')
     expect(prompt).toContain('bead_data')
     expect(prompt).toContain('bead notes')
+    expect(prompt).toContain('Test Command Recovery')
+    expect(prompt).toContain('common `__tests__/` layouts')
     expect(prompt).toContain('Final Self-Check')
     expect(prompt).toContain('quality gates')
     expect(PROM_CODING.contextInputs).toEqual(['bead_data', 'bead_notes'])

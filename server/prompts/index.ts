@@ -651,6 +651,7 @@ export const PROM_CODING: PromptTemplate = {
     'Read and Understand: Read the bead specification from the context — including description, acceptance criteria, target files, and test commands. The `bead_data` and `active_bead` context sections identify which bead you are implementing.',
     'Check Prior Notes: If bead notes exist from prior iteration failures, carefully read them and avoid repeating the same mistakes. These notes describe what went wrong previously and what to do differently.',
     'Implement Changes: Make the necessary code changes in the worktree to fulfill the bead requirements. Follow existing code patterns and conventions in the project.',
+    'Test Command Recovery: If a bead test command targets a specific repo-relative test file and that path does not exist, reconcile the missing path against `targetFiles` and repository reads before running it. Prefer the exact `targetFiles` match when one clearly corresponds to the same test file, including common `__tests__/` layouts, and do not keep retrying the original missing path.',
     'Run Tests: Execute the bead\'s test commands and fix any test failures before proceeding.',
     'Run Lint & Typecheck: Run the project\'s lint and typecheck commands. Fix any errors introduced by your changes.',
     'Self-Verify Quality: Review each acceptance criterion and confirm the implementation satisfies it qualitatively. Check edge cases and error handling.',
