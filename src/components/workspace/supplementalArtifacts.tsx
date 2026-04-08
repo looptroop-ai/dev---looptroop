@@ -1,7 +1,7 @@
 import { FileText, CheckCircle2, Trophy } from 'lucide-react'
 import type { ArtifactDef } from './phaseArtifactTypes'
 
-export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
+export function getSupplementalArtifacts(phase: string, isCompleted = false): ArtifactDef[] {
   if (phase === 'COUNCIL_VOTING_INTERVIEW') {
     return [
       { id: 'vote-details', label: 'Voting Details', description: 'Weighted scoring across all council votes', icon: <FileText className="h-3.5 w-3.5" /> },
@@ -54,7 +54,9 @@ export function getSupplementalArtifacts(phase: string): ArtifactDef[] {
     return [{ id: 'diagnostics', label: 'Doctor Diagnostics', description: 'Pre-flight validation report', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
   }
   if (phase === 'CODING') {
-    return [{ id: 'bead-commits', label: 'Bead Commits', description: 'Per-bead git commits', icon: <FileText className="h-3.5 w-3.5" /> }]
+    return isCompleted
+      ? [{ id: 'bead-commits', label: 'Bead Commits', description: 'Per-bead git commits', icon: <FileText className="h-3.5 w-3.5" /> }]
+      : []
   }
   if (phase === 'RUNNING_FINAL_TEST') {
     return [{ id: 'test-results', label: 'Test Results', description: 'Full test suite results', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]

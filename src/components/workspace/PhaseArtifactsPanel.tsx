@@ -52,7 +52,7 @@ interface PhaseArtifactsPanelProps {
 }
 
 export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMemberCount = 3, councilMemberNames, prefixElement, preloadedArtifacts }: PhaseArtifactsPanelProps) {
-  const supplementalArtifacts = useMemo(() => getSupplementalArtifacts(phase), [phase])
+  const supplementalArtifacts = useMemo(() => getSupplementalArtifacts(phase, isCompleted), [phase, isCompleted])
   const [viewingSelection, setViewingSelection] = useState<ViewingArtifactSelection | null>(null)
   const [fallbackArtifacts, setFallbackArtifacts] = useState<DBartifact[]>([])
   const hasPreloadedArtifacts = Boolean(preloadedArtifacts && preloadedArtifacts.length > 0)
