@@ -5,7 +5,6 @@ import { InterviewQAView } from '@/components/workspace/InterviewQAView'
 import { ApprovalView } from '@/components/workspace/ApprovalView'
 import { CodingView } from '@/components/workspace/CodingView'
 import { ErrorView } from '@/components/workspace/ErrorView'
-import { DoneView } from '@/components/workspace/DoneView'
 import { CanceledView } from '@/components/workspace/CanceledView'
 import { PhaseReviewView } from '@/components/workspace/PhaseReviewView'
 import type { Ticket } from '@/hooks/useTickets'
@@ -67,7 +66,9 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
     content = <ErrorView ticket={ticket} occurrence={activeErrorOccurrence} readOnly={!isLiveErrorOccurrence} />
   } else if (isViewingPast) {
     const pastPhaseMeta = phaseMap[selectedPhase]
-    if (
+    if (selectedPhase === 'CODING') {
+      content = <CodingView ticket={ticket} readOnly />
+    } else if (
       pastPhaseMeta?.uiView === 'approval'
       && pastPhaseMeta.reviewArtifactType
       && isBeforeExecution(ticket.status)
@@ -96,7 +97,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
         content = <ErrorView ticket={ticket} />
         break
       case 'done':
-        content = <DoneView />
+        content = <CodingView ticket={ticket} />
         break
       case 'canceled':
         content = <CanceledView />

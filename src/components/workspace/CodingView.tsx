@@ -14,6 +14,7 @@ import { getStatusUserLabel } from '@/lib/workflowMeta'
 
 interface CodingViewProps {
   ticket: Ticket
+  readOnly?: boolean
 }
 
 interface TicketBead {
@@ -208,7 +209,7 @@ function BeadGrid({
   )
 }
 
-export function CodingView({ ticket }: CodingViewProps) {
+export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const [viewingBeadId, setViewingBeadId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'details' | 'changes'>('details')
   const { mutate: performAction, isPending } = useTicketAction()
@@ -229,7 +230,8 @@ export function CodingView({ ticket }: CodingViewProps) {
     totalBeads: total,
     errorMessage: ticket.errorMessage,
   })
-  const isAwaitingManualVerification = ticket.status === 'WAITING_MANUAL_VERIFICATION'
+  const isCompleted = readOnly || ticket.status === 'COMPLETED'
+  const isAwaitingManualVerification = !readOnly && ticket.status === 'WAITING_MANUAL_VERIFICATION'
   const viewedBead = useMemo(
     () => beads.find((bead) => bead.id === viewingBeadId) ?? null,
     [beads, viewingBeadId],
@@ -239,12 +241,21 @@ export function CodingView({ ticket }: CodingViewProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="px-4 py-2 border-b border-border flex items-center gap-3 shrink-0">
-        <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-        <span className="text-sm font-medium">{phaseLabel}</span>
+        {isCompleted
+          ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+          : <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
+        <span className="text-sm font-medium">
+          {isCompleted ? 'Completed Successfully' : phaseLabel}
+        </span>
         <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${percent}%` }} />
+          <div
+            className={cn('h-full transition-all duration-500', isCompleted ? 'bg-green-600' : 'bg-primary')}
+            style={{ width: `${isCompleted ? 100 : percent}%` }}
+          />
         </div>
-        <span className="text-xs font-mono text-muted-foreground shrink-0">{current}/{Math.max(total, 0)}</span>
+        <span className="text-xs font-mono text-muted-foreground shrink-0">
+          {isCompleted ? `${Math.max(total, 0)}/${Math.max(total, 0)}` : `${current}/${Math.max(total, 0)}`}
+        </span>
       </div>
 
       {isAwaitingManualVerification && (
@@ -279,7 +290,7 @@ export function CodingView({ ticket }: CodingViewProps) {
             onClick={() => setViewingBeadId(null)}
             className="text-xs h-6 px-2 mx-auto"
           >
-            Back to live
+            {isCompleted ? 'Close' : 'Back to live'}
           </Button>
         </div>
       )}
@@ -291,7 +302,7 @@ export function CodingView({ ticket }: CodingViewProps) {
       )}
 
       <div className="px-3 py-1.5 border-b border-border shrink-0">
-        <PhaseArtifactsPanel phase={ticket.status} isCompleted={false} ticketId={ticket.id} />
+        <PhaseArtifactsPanel phase={readOnly ? 'CODING' : ticket.status} isCompleted={isCompleted} ticketId={ticket.id} />
       </div>
 
       <div className="flex-1 min-h-0 px-2 py-2 flex flex-col">
