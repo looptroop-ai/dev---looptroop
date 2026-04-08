@@ -8,7 +8,7 @@ import type { LogEntry } from '@/context/LogContext'
 import { getStatusUserLabel, type StatusLabelOptions } from '@/lib/workflowMeta'
 import { LoadingText } from '@/components/ui/LoadingText'
 import type { Ticket } from '@/hooks/useTickets'
-import { filterEntries, formatLogLine } from './logFormat'
+import { filterEntries, formatLogLine, isSystem, isCommand } from './logFormat'
 import { LogEntryRow } from './LogLine'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
@@ -81,6 +81,11 @@ export function FullLogView({ ticket }: FullLogViewProps) {
 
   const [activeTab, setActiveTab] = useState<string>('ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
+  const [sysCollapsed, setSysCollapsed] = useState(true)
+
+  const hasCmdLogs = useMemo(() => {
+    return allLogs.some((entry) => isSystem(entry) && isCommand(entry))
+  }, [allLogs])
 
   const configuredModelIds = useMemo(() => {
     return (ticket?.lockedCouncilMembers ?? []).filter((memberId) => memberId.trim().length > 0)
@@ -118,10 +123,12 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   const singleModelTabId = modelTabs.length === 1 ? modelTabs[0]! : null
   const aiTabLabel = singleModelTabId ? `AI > ${getModelDisplayName(singleModelTabId)}` : 'AI'
   const showModelTabs = modelTabs.length > 1
-  const availableTabs: string[] = useMemo(
-    () => (showModelTabs ? [...FIXED_TABS, ...modelTabs] : [...FIXED_TABS]),
-    [showModelTabs, modelTabs],
-  )
+  const availableTabs: string[] = useMemo(() => {
+    const tabs = [...FIXED_TABS]
+    if (showModelTabs) tabs.push(...modelTabs)
+    if (hasCmdLogs) tabs.push('CMD')
+    return tabs
+  }, [showModelTabs, modelTabs, hasCmdLogs])
   const effectiveTab = availableTabs.includes(activeTab)
     ? activeTab
     : singleModelTabId && activeTab === singleModelTabId
@@ -351,6 +358,54 @@ export function FullLogView({ ticket }: FullLogViewProps) {
                     showIcon={false}
                   />
                 ))}
+              </Fragment>
+            )
+          }
+
+          if (tab === 'SYS' && hasCmdLogs) {
+            const isActive = effectiveTab === tab
+            return (
+              <Fragment key={tab}>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        'flex items-center rounded text-xs font-medium shrink-0 transition-colors',
+                        isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab(tab)}
+                        className="pl-2 pr-0.5 py-0.5 hover:text-foreground transition-colors"
+                      >
+                        {tab}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSysCollapsed(!sysCollapsed)}
+                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
+                        title={sysCollapsed ? 'Show commands' : 'Hide commands'}
+                      >
+                        {sysCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
+                    {tooltipContent}
+                  </TooltipContent>
+                </Tooltip>
+                {!sysCollapsed && (
+                  <ModelBadge
+                    key="CMD"
+                    modelId="CMD"
+                    showIcon={false}
+                    active={effectiveTab === 'CMD'}
+                    onClick={() => setActiveTab('CMD')}
+                  >
+                    CMD
+                  </ModelBadge>
+                )}
               </Fragment>
             )
           }

@@ -171,10 +171,12 @@ export function formatLogLine(entry: LogEntry, showModelName: boolean): Formatte
   }
 }
 
+export const isCommand = (entry: LogEntry) => entry.line.includes('[CMD]')
+export const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
+
 export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   const canonicalEntries = getCanonicalLogEntries(entries)
   const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
-  const isCommand = (entry: LogEntry) => entry.line.includes('[CMD]')
   const isError = (entry: LogEntry) => (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) && !isBenignGitProbeErrorLine(entry.line)
   const isPrompt = (entry: LogEntry) => entry.kind === 'prompt'
   const isFromOpenCode = (entry: LogEntry) =>
@@ -183,7 +185,6 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     entry.source.startsWith('model:') ||
     Boolean(entry.modelId) ||
     Boolean(entry.sessionId)
-  const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
   const isOverviewAiEntry = (entry: LogEntry) =>
     entry.audience === 'ai'
     && ((entry.kind === 'text' && (!entry.streaming || entry.op === 'append')) || isLegacyTranscriptSummary(entry))
@@ -192,7 +193,9 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     case 'ALL':
       return canonicalEntries.filter(entry => (((entry.audience === 'all' && !isCommand(entry)) || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry)))
     case 'SYS':
-      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e))
+      return canonicalEntries.filter(e => isSystem(e) && !isCommand(e) && !isDebug(e))
+    case 'CMD':
+      return canonicalEntries.filter(e => isSystem(e) && isCommand(e) && !isDebug(e))
     case 'AI':
       return canonicalEntries.filter(isFromOpenCode)
     case 'ERROR':

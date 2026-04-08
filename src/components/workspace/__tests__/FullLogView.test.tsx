@@ -167,7 +167,8 @@ describe('FullLogView', () => {
     expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
     expect(screen.queryByText(/worktree add/i)).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show commands' }))
+    fireEvent.click(screen.getByRole('button', { name: 'CMD' }))
 
     expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeTruthy()
     expect(screen.getByText(/worktree add/i)).toBeTruthy()
