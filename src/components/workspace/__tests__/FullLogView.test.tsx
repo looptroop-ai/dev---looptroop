@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -151,6 +151,48 @@ describe('FullLogView', () => {
     expect(screen.getByText('1 entries')).toBeTruthy()
   })
 
+  it('hides low-value git probe chatter from ALL and SYS tabs in the full log view', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', 'DRAFT', {
+        source: 'system',
+      }),
+      makeLog('worktree', '[CMD] $ git worktree add /tmp/wt LTL-5  →  Preparing worktree', 'DRAFT', {
+        source: 'system',
+      }),
+      makeLog('sys', '[SYS] Start requested.', 'DRAFT'),
+    ])
+
+    renderWithTooltipProvider(<FullLogView />)
+
+    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
+    expect(screen.getByText(/worktree add/i)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
+
+    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
+    expect(screen.getByText(/worktree add/i)).toBeTruthy()
+  })
+
+  it('keeps benign git probe failures out of the ERROR tab in the full log view', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('probe-error', '[CMD] $ git symbolic-ref --quiet --short refs/remotes/origin/HEAD  →  origin/HEAD not set', 'DRAFT', {
+        source: 'system',
+        kind: 'error',
+      }),
+      makeLog('real-error', '[ERROR] Worktree creation failed.', 'DRAFT', {
+        source: 'error',
+        kind: 'error',
+      }),
+    ])
+
+    renderWithTooltipProvider(<FullLogView />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+
+    expect(screen.queryByText(/origin\/HEAD not set/i)).toBeNull()
+    expect(screen.getByText(/Worktree creation failed/i)).toBeTruthy()
+  })
+
   it('shows model tabs from the AI tab and filters by selected model', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('1', '[MODEL] First output', 'CODING', {
@@ -226,7 +268,10 @@ describe('FullLogView', () => {
     ])
     renderWithTooltipProvider(<FullLogView />)
 
-    fireEvent.click(screen.getByTitle('Copy all logs'))
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Copy all logs'))
+      await Promise.resolve()
+    })
     expect(writeTextMock).toHaveBeenCalledTimes(1)
     const copiedText = writeTextMock.mock.calls[0]![0] as string
     expect(copiedText).toContain('[CODING]')

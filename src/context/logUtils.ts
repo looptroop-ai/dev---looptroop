@@ -53,6 +53,13 @@ const LOG_TYPE_TAGS: Record<string, string> = {
 
 export const serverLogCache = new Map<string, Array<Record<string, unknown>>>()
 
+const LOW_VALUE_GIT_PROBE_PATTERNS = [
+  ' symbolic-ref --quiet --short refs/remotes/origin/HEAD',
+  ' rev-parse --abbrev-ref HEAD',
+  ' show-ref --verify --quiet refs/heads/',
+  ' show-ref --verify --quiet refs/remotes/origin/',
+] as const
+
 function stringifyForLine(value: unknown, maxLen = 2000): string {
   if (typeof value === 'string') return value
   if (value == null) return ''
@@ -219,6 +226,32 @@ export function compareTimestamps(a?: string, b?: string): number {
   return at - bt
 }
 
+function timestampDistanceMs(a?: string, b?: string): number | null {
+  const at = a ? Date.parse(a) : Number.NaN
+  const bt = b ? Date.parse(b) : Number.NaN
+  if (Number.isNaN(at) || Number.isNaN(bt)) return null
+  return Math.abs(at - bt)
+}
+
+export function isCommandLine(line: string): boolean {
+  return line.startsWith('[CMD] $ ')
+}
+
+export function isLowValueGitProbeLine(line: string): boolean {
+  return isCommandLine(line)
+    && line.includes('$ git ')
+    && LOW_VALUE_GIT_PROBE_PATTERNS.some((pattern) => line.includes(pattern))
+}
+
+export function isBenignGitProbeErrorLine(line: string): boolean {
+  return isLowValueGitProbeLine(line)
+    && (
+      line.includes('origin/HEAD not set')
+      || line.includes('ref not found')
+      || line.includes('→  error:')
+    )
+}
+
 export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
   const existingIndex = bucket.findIndex(existing => existing.entryId === entry.entryId)
 
@@ -253,6 +286,11 @@ export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
       && (
         existing.entryId === entry.entryId
         || compareTimestamps(existing.timestamp, entry.timestamp) === 0
+        || (
+          isLowValueGitProbeLine(existing.line)
+          && isLowValueGitProbeLine(entry.line)
+          && (timestampDistanceMs(existing.timestamp, entry.timestamp) ?? 0) <= 2000
+        )
       ))
     if (duplicate) return bucket
     return [...bucket, entry]

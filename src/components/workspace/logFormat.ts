@@ -1,5 +1,6 @@
 import type { LogEntry } from '@/context/LogContext'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
+import { isBenignGitProbeErrorLine, isLowValueGitProbeLine } from '@/context/logUtils'
 
 export interface FormattedLogLine {
   tagText: string | null
@@ -173,7 +174,7 @@ export function formatLogLine(entry: LogEntry, showModelName: boolean): Formatte
 export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   const canonicalEntries = getCanonicalLogEntries(entries)
   const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
-  const isError = (entry: LogEntry) => entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')
+  const isError = (entry: LogEntry) => (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) && !isBenignGitProbeErrorLine(entry.line)
   const isPrompt = (entry: LogEntry) => entry.kind === 'prompt'
   const isFromOpenCode = (entry: LogEntry) =>
     entry.audience === 'ai' ||
@@ -182,15 +183,16 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     Boolean(entry.modelId) ||
     Boolean(entry.sessionId)
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
+  const isLowValueCommand = (entry: LogEntry) => isLowValueGitProbeLine(entry.line)
   const isOverviewAiEntry = (entry: LogEntry) =>
     entry.audience === 'ai'
     && ((entry.kind === 'text' && (!entry.streaming || entry.op === 'append')) || isLegacyTranscriptSummary(entry))
 
   switch (tab) {
     case 'ALL':
-      return canonicalEntries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry))
+      return canonicalEntries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry) && !isLowValueCommand(entry))
     case 'SYS':
-      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e))
+      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e) && !isLowValueCommand(e))
     case 'AI':
       return canonicalEntries.filter(isFromOpenCode)
     case 'ERROR':

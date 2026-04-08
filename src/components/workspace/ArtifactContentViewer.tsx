@@ -52,7 +52,7 @@ import {
 } from './phaseArtifactTypes'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
-import { parseDiffStats } from './diffUtils'
+import { parseDiffStats, computeLineNumbers } from './diffUtils'
 import { InterviewDocumentView } from './InterviewDocumentView'
 import {
   getCouncilStatusEmoji,
@@ -3311,26 +3311,35 @@ function DiffFileSection({ file }: { file: DiffFileEntry }) {
         <span className="text-[11px] font-mono text-green-600 dark:text-green-400 shrink-0">+{file.additions}</span>
         <span className="text-[11px] font-mono text-red-600 dark:text-red-400 shrink-0">-{file.deletions}</span>
       </button>
-      {open && (
-        <div className="border-t border-border/40 bg-[var(--color-card)] overflow-x-auto">
-          <pre className="text-xs font-mono leading-[1.6]">
-            {file.lines.map((line, i) => {
-              if (line.startsWith('---') || line.startsWith('+++')) return null
-              let className = 'px-4 block'
-              if (line.startsWith('@@')) {
-                className += ' text-blue-600 dark:text-blue-400 bg-blue-500/5 py-0.5 font-medium border-y border-blue-500/10'
-              } else if (line.startsWith('+')) {
-                className += ' text-green-700 dark:text-green-300 bg-green-500/10'
-              } else if (line.startsWith('-')) {
-                className += ' text-red-700 dark:text-red-300 bg-red-500/10'
-              } else {
-                className += ' text-muted-foreground/80'
-              }
-              return <span key={i} className={className}>{line || '\u00A0'}</span>
-            })}
-          </pre>
-        </div>
-      )}
+      {open && (() => {
+        const numbered = computeLineNumbers(file.lines)
+        return (
+          <div className="border-t border-border/40 bg-[var(--color-card)] overflow-x-auto">
+            <pre className="text-xs font-mono leading-[1.6]">
+              {numbered.map((info, i) => {
+                if (info.text.startsWith('---') || info.text.startsWith('+++')) return null
+                let className = 'px-4 block'
+                if (info.text.startsWith('@@')) {
+                  className += ' text-blue-600 dark:text-blue-400 bg-blue-500/5 py-0.5 font-medium border-y border-blue-500/10'
+                } else if (info.text.startsWith('+')) {
+                  className += ' text-green-700 dark:text-green-300 bg-green-500/10'
+                } else if (info.text.startsWith('-')) {
+                  className += ' text-red-700 dark:text-red-300 bg-red-500/10'
+                } else {
+                  className += ' text-muted-foreground/80'
+                }
+                return (
+                  <span key={i} className={className}>
+                    <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-1">{info.oldNum ?? ' '}</span>
+                    <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-2">{info.newNum ?? ' '}</span>
+                    {info.text || '\u00A0'}
+                  </span>
+                )
+              })}
+            </pre>
+          </div>
+        )
+      })()}
     </div>
   )
 }

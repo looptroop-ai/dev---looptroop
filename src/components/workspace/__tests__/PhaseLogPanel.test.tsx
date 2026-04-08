@@ -769,4 +769,53 @@ describe('PhaseLogPanel', () => {
     expect(screen.getAllByText('Input (Prompt)').length).toBeGreaterThan(0)
     expect(screen.getAllByText('System').length).toBeGreaterThan(0)
   })
+
+  it('hides low-value git probe chatter from ALL and SYS tabs', () => {
+    const logs: LogEntry[] = [
+      makeLog('cmd-probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', {
+        status: 'DRAFT',
+        source: 'system',
+      }),
+      makeLog('cmd-worktree', '[CMD] $ git worktree add /tmp/wt LTL-5  →  Preparing worktree', {
+        status: 'DRAFT',
+        source: 'system',
+      }),
+      makeLog('sys-1', '[SYS] Start requested.', {
+        status: 'DRAFT',
+      }),
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFT" logs={logs} />)
+
+    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
+    expect(screen.getByText(/Start requested/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
+
+    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
+  })
+
+  it('keeps benign git probe failures out of the ERROR tab', () => {
+    const logs: LogEntry[] = [
+      makeLog('probe-error', '[CMD] $ git symbolic-ref --quiet --short refs/remotes/origin/HEAD  →  origin/HEAD not set', {
+        status: 'DRAFT',
+        source: 'system',
+        kind: 'error',
+      }),
+      makeLog('real-error', '[ERROR] Worktree creation failed.', {
+        status: 'DRAFT',
+        source: 'error',
+        kind: 'error',
+      }),
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="DRAFT" logs={logs} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+
+    expect(screen.queryByText(/origin\/HEAD not set/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Worktree creation failed/i)).toBeInTheDocument()
+  })
 })

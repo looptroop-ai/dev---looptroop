@@ -70,29 +70,36 @@ export function logCommand(
   // Build a human-readable command string, redacting the -C <path> for brevity
   const displayArgs = redactCwd(args)
   const cmdStr = `${bin} ${displayArgs.join(' ')}`
+  const commandText = [bin, ...args].join(' ')
 
   let content: string
   let type: 'info' | 'error'
 
   if (result.ok) {
-    const stdout = result.stdout?.trim()
-    const stderr = result.stderr?.trim()
-    
-    let outputStr = ''
-    if (stdout || stderr) {
-      const parts = []
-      if (stdout) parts.push(`STDOUT:\n${stdout}`)
-      if (stderr) parts.push(`STDERR:\n${stderr}`)
-      outputStr = `\n${parts.join('\n\n')}`
+    const probeOutcome = formatKnownGitProbeSuccess(commandText, result.stdout, result.stderr)
+    if (probeOutcome) {
+      content = `[CMD] $ ${cmdStr}  →  ${truncateOutput(probeOutcome, 2500)}`
+      type = 'info'
+      ctx.emit(ctx.phase, type, content)
+      return
     }
 
+    const outputStr = formatCompactCommandOutput(result.stdout, result.stderr)
     content = outputStr
-      ? `[CMD] $ ${cmdStr}${truncateOutput(outputStr, 2500)}`
+      ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(outputStr, 2500)}`
       : `[CMD] $ ${cmdStr}  →  ok`
     type = 'info'
   } else {
-    const error = result.error.trim()
-    content = `[CMD] $ ${cmdStr}  →  error:\n${truncateOutput(error, 2500)}`
+    const benignProbeFailure = formatKnownGitProbeFailure(commandText, result.error)
+    if (benignProbeFailure) {
+      content = `[CMD] $ ${cmdStr}  →  ${truncateOutput(benignProbeFailure, 2500)}`
+      type = 'info'
+      ctx.emit(ctx.phase, type, content)
+      return
+    }
+
+    const error = compactCommandText(result.error)
+    content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(error, 2500)}`
     type = 'error'
   }
 
@@ -116,6 +123,61 @@ function redactCwd(args: string[]): string[] {
     }
   }
   return result
+}
+
+function compactCommandText(text: string | undefined): string {
+  return (text ?? '').trim().replace(/\r?\n+/g, ' | ')
+}
+
+function formatCompactCommandOutput(stdout?: string, stderr?: string): string {
+  const normalizedStdout = compactCommandText(stdout)
+  const normalizedStderr = compactCommandText(stderr)
+
+  if (normalizedStdout && normalizedStderr) {
+    return `STDOUT: ${normalizedStdout} | STDERR: ${normalizedStderr}`
+  }
+  if (normalizedStdout) return normalizedStdout
+  if (normalizedStderr) return `STDERR: ${normalizedStderr}`
+  return ''
+}
+
+function isLikelyMissingRefProbeFailure(error: string): boolean {
+  const normalized = error.trim()
+  return normalized === 'exit code 1' || normalized === 'command returned non-zero'
+}
+
+function formatKnownGitProbeSuccess(commandText: string, stdout?: string, stderr?: string): string | null {
+  if (!commandText.startsWith('git ')) return null
+
+  const output = formatCompactCommandOutput(stdout, stderr)
+  if (commandText.includes(' show-ref --verify --quiet refs/')) {
+    return output || 'ref found'
+  }
+
+  if (commandText.includes(' symbolic-ref --quiet --short refs/remotes/origin/HEAD')) {
+    return output || 'origin/HEAD resolved'
+  }
+
+  if (commandText.includes(' rev-parse --abbrev-ref HEAD')) {
+    return output || 'branch resolved'
+  }
+
+  return null
+}
+
+function formatKnownGitProbeFailure(commandText: string, error: string): string | null {
+  if (!commandText.startsWith('git ')) return null
+  if (!isLikelyMissingRefProbeFailure(error)) return null
+
+  if (commandText.includes(' symbolic-ref --quiet --short refs/remotes/origin/HEAD')) {
+    return 'origin/HEAD not set'
+  }
+
+  if (commandText.includes(' show-ref --verify --quiet refs/')) {
+    return 'ref not found'
+  }
+
+  return null
 }
 
 function truncateOutput(text: string, maxLen = 800): string {

@@ -247,6 +247,17 @@ function writeRuntimeGitignore(ticketDir: string) {
   safeAtomicWrite(resolve(ticketDir, '.gitignore'), RUNTIME_GITIGNORE)
 }
 
+function buildWorktreeAddArgs(
+  projectFolder: string,
+  worktreePath: string,
+  branchName: string,
+  baseBranchRef: string,
+): string[] {
+  return branchExists(projectFolder, branchName)
+    ? ['worktree', 'add', worktreePath, branchName]
+    : ['worktree', 'add', '-b', branchName, worktreePath, baseBranchRef]
+}
+
 function materializeWorktree(
   projectFolder: string,
   worktreePath: string,
@@ -254,9 +265,7 @@ function materializeWorktree(
   baseBranchRef: string,
 ) {
   if (!existsSync(worktreePath)) {
-    const args = branchExists(projectFolder, branchName)
-      ? ['worktree', 'add', worktreePath, branchName]
-      : ['worktree', 'add', '-b', branchName, worktreePath, baseBranchRef]
+    const args = buildWorktreeAddArgs(projectFolder, worktreePath, branchName, baseBranchRef)
     runGit(args, projectFolder, 'INIT_WORKTREE_CREATE_FAILED', 'Failed to create ticket worktree')
     return
   }
@@ -272,11 +281,10 @@ function materializeWorktree(
     )
   }
 
+  // Resolve all logged git probes before the reserved skeleton is removed.
+  const args = buildWorktreeAddArgs(projectFolder, worktreePath, branchName, baseBranchRef)
   const preserved = preserveTicketSkeleton(worktreePath)
   try {
-    const args = branchExists(projectFolder, branchName)
-      ? ['worktree', 'add', worktreePath, branchName]
-      : ['worktree', 'add', '-b', branchName, worktreePath, baseBranchRef]
     runGit(args, projectFolder, 'INIT_WORKTREE_CREATE_FAILED', 'Failed to create ticket worktree')
     preserved.restore()
   } catch (err) {

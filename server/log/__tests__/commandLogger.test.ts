@@ -19,10 +19,10 @@ describe('commandLogger', () => {
     expect(logs.length).toBe(1)
     expect(logs[0]).toContain('[CMD]')
     expect(logs[0]).toContain('$ git')
-    expect(logs[0]).toContain('STDOUT:\non branch main')
+    expect(logs[0]).toContain('on branch main')
   })
 
-  it('emits multiline format with [CMD] prefix', () => {
+  it('emits compact single-line command logs with [CMD] prefix', () => {
     const logs: Array<{ phase: string; type: string; content: string }> = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -36,20 +36,20 @@ describe('commandLogger', () => {
 
     expect(logs).toHaveLength(3)
 
-    // Success with stdout — multiline with STDOUT: header
+    // Success with stdout — compact arrow format
     expect(logs[0]!.type).toBe('info')
-    expect(logs[0]!.content).toBe('[CMD] $ git worktree add /tmp/wt BR-1\nSTDOUT:\nPreparing worktree')
+    expect(logs[0]!.content).toBe('[CMD] $ git worktree add /tmp/wt BR-1  →  Preparing worktree')
 
     // Success without stdout — arrow format
     expect(logs[1]!.type).toBe('info')
     expect(logs[1]!.content).toBe('[CMD] $ git rev-parse --show-toplevel  →  ok')
 
-    // Failure — multiline with error header
+    // Failure — compact error format
     expect(logs[2]!.type).toBe('error')
-    expect(logs[2]!.content).toBe('[CMD] $ git push  →  error:\nremote rejected')
+    expect(logs[2]!.content).toBe('[CMD] $ git push  →  error: remote rejected')
   })
 
-  it('emits stderr-only output with STDERR header', () => {
+  it('emits stderr-only output in compact form', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -61,11 +61,11 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('STDERR:\nPreparing worktree')
-    expect(logs[0]).not.toContain('STDOUT:')
+    expect(logs[0]).toContain('STDERR: Preparing worktree')
+    expect(logs[0]).not.toContain('\n')
   })
 
-  it('shows both stdout and stderr with separate headers', () => {
+  it('shows both stdout and stderr in compact form', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -74,11 +74,11 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('STDOUT:\nabc1234')
-    expect(logs[0]).toContain('STDERR:\n1 file changed')
+    expect(logs[0]).toContain('STDOUT: abc1234')
+    expect(logs[0]).toContain('STDERR: 1 file changed')
   })
 
-  it('preserves multi-line output in STDOUT block', () => {
+  it('collapses multi-line output into a single visual line', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -90,7 +90,50 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('STDOUT:\nM  file1.ts\nA  file2.ts\nD  file3.ts')
+    expect(logs[0]).toContain('M  file1.ts | A  file2.ts | D  file3.ts')
+    expect(logs[0]).not.toContain('\n')
+  })
+
+  it('downgrades missing origin/HEAD probes to info', () => {
+    const logs: Array<{ type: string; content: string }> = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], {
+          ok: false,
+          error: 'exit code 1',
+        })
+      },
+      (_phase, type, content) => { logs.push({ type, content }) },
+    )
+
+    expect(logs).toEqual([
+      {
+        type: 'info',
+        content: '[CMD] $ git symbolic-ref --quiet --short refs/remotes/origin/HEAD  →  origin/HEAD not set',
+      },
+    ])
+  })
+
+  it('downgrades missing ref probes to info', () => {
+    const logs: Array<{ type: string; content: string }> = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'DRAFT',
+      () => {
+        logCommand('git', ['show-ref', '--verify', '--quiet', 'refs/heads/LTL-5'], {
+          ok: false,
+          error: 'exit code 1',
+        })
+      },
+      (_phase, type, content) => { logs.push({ type, content }) },
+    )
+
+    expect(logs).toEqual([
+      {
+        type: 'info',
+        content: '[CMD] $ git show-ref --verify --quiet refs/heads/LTL-5  →  ref not found',
+      },
+    ])
   })
 
   it('uses globalThis singleton so separate module loads share the context', () => {
@@ -126,8 +169,7 @@ describe('commandLogger', () => {
       (_phase, _type, content) => { logs.push(content) },
     )
     expect(logs[0]).toContain('… (truncated)')
-    // The full content = "[CMD] $ git diff" prefix + "\nSTDOUT:\n" + truncated output
-    // The output portion (including \nSTDOUT:\n header) is truncated to 2500 chars
+    // The full content = "[CMD] $ git diff  →  " prefix + truncated output.
     const prefix = '[CMD] $ git diff'
     expect(logs[0]!.length).toBeLessThan(prefix.length + 2500 + 20)
   })

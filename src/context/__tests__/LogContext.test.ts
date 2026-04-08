@@ -150,4 +150,30 @@ describe('mergeEntry', () => {
       }),
     ])
   })
+
+  it('dedupes repeated low-value git probe entries with near-identical timestamps', () => {
+    const first: LogEntry = {
+      id: 'draft:system:2026-03-13T10:00:00.000Z:[CMD] $ git rev-parse --abbrev-ref HEAD  →  master',
+      entryId: 'draft:system:2026-03-13T10:00:00.000Z:[CMD] $ git rev-parse --abbrev-ref HEAD  →  master',
+      line: '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master',
+      source: 'system',
+      status: 'DRAFT',
+      timestamp: '2026-03-13T10:00:00.000Z',
+      audience: 'all',
+      kind: 'milestone',
+      streaming: false,
+      op: 'append',
+    }
+    const duplicate: LogEntry = {
+      ...first,
+      id: 'draft:system:2026-03-13T10:00:00.900Z:[CMD] $ git rev-parse --abbrev-ref HEAD  →  master',
+      entryId: 'draft:system:2026-03-13T10:00:00.900Z:[CMD] $ git rev-parse --abbrev-ref HEAD  →  master',
+      timestamp: '2026-03-13T10:00:00.900Z',
+    }
+
+    const merged = mergeEntry([first], duplicate)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toBe(first)
+  })
 })

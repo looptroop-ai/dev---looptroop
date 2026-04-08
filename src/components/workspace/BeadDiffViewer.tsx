@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, FileCode2, ChevronRight, ChevronDown } from 'lucide-react'
-import { parseDiffStats, parseFileDiffs, type FileDiff } from './diffUtils'
+import { parseDiffStats, parseFileDiffs, computeLineNumbers, type FileDiff } from './diffUtils'
 
 interface BeadDiffViewerProps {
   ticketId: string
@@ -54,15 +54,20 @@ function FileDiffBlock({ file }: { file: FileDiff }) {
           {file.deletions > 0 && <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>}
         </span>
       </button>
-      {expanded && (
-        <pre className="text-xs font-mono leading-relaxed overflow-auto">
-          {file.lines.map((line, i) => (
-            <span key={i} className={lineClassName(line)}>
-              {line || '\u00A0'}
-            </span>
-          ))}
-        </pre>
-      )}
+      {expanded && (() => {
+        const numbered = computeLineNumbers(file.lines)
+        return (
+          <pre className="text-xs font-mono leading-relaxed overflow-auto">
+            {numbered.map((info, i) => (
+              <span key={i} className={lineClassName(info.text)}>
+                <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-1">{info.oldNum ?? ' '}</span>
+                <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-2">{info.newNum ?? ' '}</span>
+                {info.text || '\u00A0'}
+              </span>
+            ))}
+          </pre>
+        )
+      })()}
     </div>
   )
 }

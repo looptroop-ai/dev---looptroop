@@ -385,6 +385,8 @@ export function deleteTicket(ticketRef: string): boolean {
   const { localTicketId, projectDb, projectRoot, externalId } = context
   const branchName = context.localTicket.branchName
 
+  removeTicketFilesystem(projectRoot, externalId, branchName)
+
   projectDb.transaction((tx) => {
     tx.delete(phaseArtifacts).where(eq(phaseArtifacts.ticketId, localTicketId)).run()
     tx.delete(opencodeSessions).where(eq(opencodeSessions.ticketId, localTicketId)).run()
@@ -392,7 +394,5 @@ export function deleteTicket(ticketRef: string): boolean {
     tx.delete(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, localTicketId)).run()
     tx.delete(tickets).where(eq(tickets.id, localTicketId)).run()
   })
-
-  removeTicketFilesystem(projectRoot, externalId, branchName)
   return true
 }
