@@ -8,6 +8,8 @@ export interface FinalTestCommandPlan {
   markerFound: boolean
   commands: string[]
   summary: string | null
+  testFiles: string[]
+  testsCount: number | null
   errors: string[]
   repairApplied?: boolean
   repairWarnings?: string[]
@@ -22,6 +24,8 @@ export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
       markerFound: normalized.error !== 'No final test command marker found',
       commands: [],
       summary: null,
+      testFiles: [],
+      testsCount: null,
       errors: [normalized.error],
       repairApplied: normalized.repairApplied,
       repairWarnings: normalized.repairWarnings,
@@ -34,6 +38,8 @@ export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
     markerFound: true,
     commands: normalized.value.commands,
     summary: normalized.value.summary,
+    testFiles: normalized.value.testFiles,
+    testsCount: normalized.value.testsCount,
     errors: [],
     repairApplied: normalized.repairApplied,
     repairWarnings: normalized.repairWarnings,

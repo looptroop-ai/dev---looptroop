@@ -19,12 +19,10 @@ describe('commandLogger', () => {
     expect(logs.length).toBe(1)
     expect(logs[0]).toContain('[CMD]')
     expect(logs[0]).toContain('$ git')
-    expect(logs[0]).toContain('on branch main')
-    // Verify single-line format (no embedded newlines)
-    expect(logs[0]).not.toContain('\n')
+    expect(logs[0]).toContain('STDOUT:\non branch main')
   })
 
-  it('emits single-line format with [CMD] prefix', () => {
+  it('emits multiline format with [CMD] prefix', () => {
     const logs: Array<{ phase: string; type: string; content: string }> = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -38,25 +36,20 @@ describe('commandLogger', () => {
 
     expect(logs).toHaveLength(3)
 
-    // Success with stdout
+    // Success with stdout — multiline with STDOUT: header
     expect(logs[0]!.type).toBe('info')
-    expect(logs[0]!.content).toBe('[CMD] $ git worktree add /tmp/wt BR-1  →  Preparing worktree')
+    expect(logs[0]!.content).toBe('[CMD] $ git worktree add /tmp/wt BR-1\nSTDOUT:\nPreparing worktree')
 
-    // Success without stdout
+    // Success without stdout — arrow format
     expect(logs[1]!.type).toBe('info')
     expect(logs[1]!.content).toBe('[CMD] $ git rev-parse --show-toplevel  →  ok')
 
-    // Failure
+    // Failure — multiline with error header
     expect(logs[2]!.type).toBe('error')
-    expect(logs[2]!.content).toBe('[CMD] $ git push  →  error: remote rejected')
-
-    // All entries are single-line
-    for (const log of logs) {
-      expect(log.content).not.toContain('\n')
-    }
+    expect(logs[2]!.content).toBe('[CMD] $ git push  →  error:\nremote rejected')
   })
 
-  it('combines stdout and stderr on success', () => {
+  it('emits stderr-only output with STDERR header', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -68,11 +61,11 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('Preparing worktree')
-    expect(logs[0]).not.toContain('\n')
+    expect(logs[0]).toContain('STDERR:\nPreparing worktree')
+    expect(logs[0]).not.toContain('STDOUT:')
   })
 
-  it('shows both stdout and stderr separated by | when both present', () => {
+  it('shows both stdout and stderr with separate headers', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -81,10 +74,11 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('abc1234 | 1 file changed')
+    expect(logs[0]).toContain('STDOUT:\nabc1234')
+    expect(logs[0]).toContain('STDERR:\n1 file changed')
   })
 
-  it('normalizes multi-line output to single line', () => {
+  it('preserves multi-line output in STDOUT block', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -96,8 +90,7 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).not.toContain('\n')
-    expect(logs[0]).toContain('file1.ts')
+    expect(logs[0]).toContain('STDOUT:\nM  file1.ts\nA  file2.ts\nD  file3.ts')
   })
 
   it('uses globalThis singleton so separate module loads share the context', () => {
@@ -122,9 +115,9 @@ describe('commandLogger', () => {
     expect(logs[0]).toContain('all clean')
   })
 
-  it('truncates output at 800 characters', () => {
+  it('truncates output at 2500 characters', () => {
     const logs: string[] = []
-    const longOutput = 'x'.repeat(1000)
+    const longOutput = 'x'.repeat(3000)
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
       () => {
@@ -133,7 +126,9 @@ describe('commandLogger', () => {
       (_phase, _type, content) => { logs.push(content) },
     )
     expect(logs[0]).toContain('… (truncated)')
-    // The output portion should be roughly 800 chars + the command prefix
-    expect(logs[0]!.length).toBeLessThan(900)
+    // The full content = "[CMD] $ git diff" prefix + "\nSTDOUT:\n" + truncated output
+    // The output portion (including \nSTDOUT:\n header) is truncated to 2500 chars
+    const prefix = '[CMD] $ git diff'
+    expect(logs[0]!.length).toBeLessThan(prefix.length + 2500 + 20)
   })
 })

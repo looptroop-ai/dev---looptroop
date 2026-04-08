@@ -2634,6 +2634,8 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value).toEqual({
       commands: ['npm run test:server'],
       summary: 'verify the whole workflow',
+      testFiles: [],
+      testsCount: null,
     })
   })
 

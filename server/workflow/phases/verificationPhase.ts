@@ -3107,6 +3107,43 @@ export async function handleFinalTest(
     commandPlan,
     structuredOutput: planStructuredOutput,
   } = finalTestGeneration
+
+  // Server-side validation of AI-reported test files
+  const validatedTestFiles: string[] = []
+  if (commandPlan.testFiles.length > 0) {
+    for (const filePath of commandPlan.testFiles) {
+      if (filePath.includes('..')) {
+        emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info',
+          `Rejected test file path with traversal: ${filePath}`)
+        continue
+      }
+      const resolved = resolve(worktreePath, filePath)
+      if (!resolved.startsWith(worktreePath)) {
+        emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info',
+          `Rejected test file path outside worktree: ${filePath}`)
+        continue
+      }
+      if (!existsSync(resolved)) {
+        emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info',
+          `AI-reported test file not found on disk: ${filePath}`)
+      }
+      validatedTestFiles.push(filePath)
+    }
+    if (validatedTestFiles.length > 0) {
+      emitAiMilestone(
+        ticketId,
+        context.externalId,
+        'RUNNING_FINAL_TEST',
+        `Test files created/modified: ${validatedTestFiles.join(', ')}`,
+        `${ticketId}:final-test-files`,
+        {
+          testFiles: validatedTestFiles,
+          source: `model:${finalTestModelId}`,
+        },
+      )
+    }
+  }
+
   const executionSettings = resolveExecutionRuntimeSettings(context)
   const report = commandPlan.commands.length > 0
     ? await executeFinalTestCommands({
@@ -3115,6 +3152,8 @@ export async function handleFinalTest(
         timeoutMs: executionSettings.perIterationTimeoutMs,
         plannedBy: finalTestModelId!,
         ...(commandPlan.summary ? { summary: commandPlan.summary } : {}),
+        testFiles: validatedTestFiles,
+        testsCount: commandPlan.testsCount,
         modelOutput: output,
         planStructuredOutput,
       })
@@ -3124,6 +3163,8 @@ export async function handleFinalTest(
         checkedAt: new Date().toISOString(),
         plannedBy: finalTestModelId,
         modelOutput: output,
+        testFiles: validatedTestFiles,
+        testsCount: commandPlan.testsCount,
         commands: [],
         errors: commandPlan.errors,
         planStructuredOutput,

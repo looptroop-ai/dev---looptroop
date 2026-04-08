@@ -15,6 +15,7 @@ import {
   shouldRecordStructuredCandidateRecovery,
   toStringArray,
   toOptionalString,
+  toInteger,
   getValueByAliases,
   getRequiredString,
 } from './yamlUtils'
@@ -210,6 +211,17 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
       }
 
       const summary = toOptionalString(getValueByAliases(parsed, ['summary', 'reason', 'notes'])) ?? null
+
+      const rawTestFiles = getValueByAliases(parsed, ['test_files', 'testfiles', 'test_file', 'testfile'])
+      const testFiles = toStringArray(rawTestFiles).filter((f) => f.length > 0)
+      if (typeof rawTestFiles === 'string' && testFiles.length > 0) {
+        candidateWarnings.push('Coerced test_files from string to array')
+      }
+      const dedupedTestFiles = [...new Set(testFiles)]
+
+      const rawTestsCount = getValueByAliases(parsed, ['tests_count', 'testscount', 'test_count', 'testcount', 'num_tests'])
+      const testsCount = toInteger(rawTestsCount)
+
       appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'FINAL_TEST_COMMANDS' })
 
       return {
@@ -217,10 +229,15 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
         value: {
           commands,
           summary,
+          testFiles: dedupedTestFiles,
+          testsCount,
         },
-        normalizedContent: JSON.stringify(summary
-          ? { commands, summary }
-          : { commands }),
+        normalizedContent: JSON.stringify({
+          commands,
+          ...(summary ? { summary } : {}),
+          ...(dedupedTestFiles.length > 0 ? { testFiles: dedupedTestFiles } : {}),
+          ...(testsCount != null ? { testsCount } : {}),
+        }),
         repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'FINAL_TEST_COMMANDS' }),
         repairWarnings: candidateWarnings,
       }

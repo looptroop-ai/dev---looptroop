@@ -43,6 +43,8 @@ describe.concurrent('generateFinalTests', () => {
       markerFound: true,
       commands: ['npm run test:server'],
       summary: 'verify end-to-end ticket coverage',
+      testFiles: [],
+      testsCount: null,
       errors: [],
       repairApplied: true,
       repairWarnings: [
@@ -99,6 +101,8 @@ describe.concurrent('generateFinalTests', () => {
       markerFound: true,
       commands: ['npm run test:server'],
       summary: 'verify end-to-end ticket coverage',
+      testFiles: [],
+      testsCount: null,
       errors: [],
       repairApplied: false,
       repairWarnings: [],

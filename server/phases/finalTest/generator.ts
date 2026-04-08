@@ -21,7 +21,8 @@ const FINAL_TEST_SCHEMA_REMINDER = [
   'Return exactly one <FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS> block and nothing else.',
   'Inside the marker, return a single JSON or YAML object with a non-empty commands field.',
   'commands must contain executable shell commands. A single command string is acceptable only if it is the full command to run.',
-  'summary is optional.',
+  'test_files must list the paths of all test files you created or modified (relative to the project root).',
+  'summary is optional. tests_count is optional.',
 ].join('\n')
 
 export interface FinalTestGenerationResult {

@@ -8,7 +8,6 @@ const _require = createRequire(import.meta.url)
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
 function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { logCommand } = _require('../../log/commandLogger') as typeof import('../../log/commandLogger')
     logCommand(bin, args, result)
   } catch {
@@ -32,6 +31,8 @@ export interface FinalTestExecutionReport {
   checkedAt: string
   plannedBy: string
   summary?: string
+  testFiles: string[]
+  testsCount: number | null
   modelOutput: string
   commands: FinalTestCommandResult[]
   errors: string[]
@@ -102,6 +103,8 @@ export async function executeFinalTestCommands(input: {
   timeoutMs?: number
   plannedBy: string
   summary?: string
+  testFiles?: string[]
+  testsCount?: number | null
   modelOutput: string
   planStructuredOutput?: StructuredOutputMetadata
 }): Promise<FinalTestExecutionReport> {
@@ -138,6 +141,8 @@ export async function executeFinalTestCommands(input: {
     checkedAt: new Date().toISOString(),
     plannedBy: input.plannedBy,
     summary: input.summary,
+    testFiles: input.testFiles ?? [],
+    testsCount: input.testsCount ?? null,
     modelOutput: input.modelOutput,
     commands: commandResults,
     errors,

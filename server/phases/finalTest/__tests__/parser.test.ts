@@ -14,6 +14,8 @@ describe.concurrent('parseFinalTestCommands', () => {
       markerFound: false,
       commands: [],
       summary: null,
+      testFiles: [],
+      testsCount: null,
       errors: ['No final test command marker found'],
       repairApplied: false,
       repairWarnings: [],
@@ -33,6 +35,8 @@ describe.concurrent('parseFinalTestCommands', () => {
     expect(result.markerFound).toBe(true)
     expect(result.commands).toEqual(['npm test'])
     expect(result.summary).toBeNull()
+    expect(result.testFiles).toEqual([])
+    expect(result.testsCount).toBeNull()
     expect(result.errors).toEqual([])
     expect(result.repairApplied).toBe(true)
   })
@@ -55,5 +59,65 @@ describe.concurrent('parseFinalTestCommands', () => {
     expect(result.summary).toBe('verify structured output flows')
     expect(result.errors).toEqual([])
     expect(result.repairApplied).toBe(true)
+  })
+
+  it('parses test_files as an array', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_files":["src/test1.ts","src/test2.ts"],"summary":"run tests"}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.markerFound).toBe(true)
+    expect(result.testFiles).toEqual(['src/test1.ts', 'src/test2.ts'])
+  })
+
+  it('coerces a single test_files string to an array', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_files":"src/only.test.ts"}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testFiles).toEqual(['src/only.test.ts'])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Coerced test_files from string to array')
+  })
+
+  it('defaults test_files to empty array when missing', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"]}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testFiles).toEqual([])
+    expect(result.testsCount).toBeNull()
+  })
+
+  it('parses tests_count as integer', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"tests_count":5}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testsCount).toBe(5)
+  })
+
+  it('parses tests_count from string', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"tests_count":"3"}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testsCount).toBe(3)
+  })
+
+  it('deduplicates test_files', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_files":["src/a.ts","src/a.ts","src/b.ts"]}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testFiles).toEqual(['src/a.ts', 'src/b.ts'])
+  })
+
+  it('filters empty strings from test_files', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_files":["src/a.ts","","  "]}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testFiles).toEqual(['src/a.ts'])
+  })
+
+  it('recognizes test_file alias (singular)', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_file":"src/my.test.ts"}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testFiles).toEqual(['src/my.test.ts'])
   })
 })

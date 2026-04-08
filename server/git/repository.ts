@@ -6,7 +6,6 @@ const _require = createRequire(import.meta.url)
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
 function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { logCommand } = _require('../log/commandLogger') as typeof import('../log/commandLogger')
     logCommand(bin, args, result)
   } catch {

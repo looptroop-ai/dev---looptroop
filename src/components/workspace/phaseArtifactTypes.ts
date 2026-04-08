@@ -309,6 +309,8 @@ export interface FinalTestExecutionReportData {
   checkedAt: string
   plannedBy: string
   summary?: string
+  testFiles?: string[]
+  testsCount?: number | null
   modelOutput: string
   commands: FinalTestCommandResultData[]
   errors: string[]

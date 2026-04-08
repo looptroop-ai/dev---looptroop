@@ -91,6 +91,8 @@ export interface BeadCompletionPayload {
 export interface FinalTestCommandPayload {
   commands: string[]
   summary: string | null
+  testFiles: string[]
+  testsCount: number | null
 }
 
 export interface VoteScorecard {
