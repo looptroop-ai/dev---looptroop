@@ -2,11 +2,14 @@ import { spawn } from 'node:child_process'
 import { FORCE_KILL_DELAY_MS } from '../../lib/constants'
 import type { StructuredOutputMetadata } from '../../structuredOutput/types'
 
+import { createRequire } from 'node:module'
+const _require = createRequire(import.meta.url)
+
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
 function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { logCommand } = require('../../log/commandLogger') as typeof import('../../log/commandLogger')
+    const { logCommand } = _require('../../log/commandLogger') as typeof import('../../log/commandLogger')
     logCommand(bin, args, result)
   } catch {
     // Silently ignore if commandLogger can't be loaded.

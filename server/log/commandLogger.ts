@@ -75,17 +75,24 @@ export function logCommand(
   let type: 'info' | 'error'
 
   if (result.ok) {
-    // Collapse newlines so every CMD entry stays on a single visual line
-    const stdout = result.stdout?.trim().replace(/\r?\n+/g, ' ')
-    const stderr = result.stderr?.trim().replace(/\r?\n+/g, ' ')
-    const output = [stdout, stderr].filter(Boolean).join(' | ')
-    content = output
-      ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(output)}`
+    const stdout = result.stdout?.trim()
+    const stderr = result.stderr?.trim()
+    
+    let outputStr = ''
+    if (stdout || stderr) {
+      const parts = []
+      if (stdout) parts.push(`STDOUT:\n${stdout}`)
+      if (stderr) parts.push(`STDERR:\n${stderr}`)
+      outputStr = `\n${parts.join('\n\n')}`
+    }
+
+    content = outputStr
+      ? `[CMD] $ ${cmdStr}${truncateOutput(outputStr, 2500)}`
       : `[CMD] $ ${cmdStr}  →  ok`
     type = 'info'
   } else {
-    const error = result.error.replace(/\r?\n+/g, ' ')
-    content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(error)}`
+    const error = result.error.trim()
+    content = `[CMD] $ ${cmdStr}  →  error:\n${truncateOutput(error, 2500)}`
     type = 'error'
   }
 
