@@ -174,6 +174,62 @@ describe('ticketRouter beads approval routes', () => {
     expect(receipt).toBeDefined()
   })
 
+  it('rejects beads approval when another project ticket is already in execution', async () => {
+    const repoDir = repoManager.createRepo()
+    const project = attachProject({
+      folderPath: repoDir,
+      name: 'LoopTroop Busy',
+      shortname: 'BUSY',
+    })
+    const waitingTicket = createTicket({
+      projectId: project.id,
+      title: 'Waiting approval',
+      description: 'Queued ticket.',
+    })
+    const runningTicket = createTicket({
+      projectId: project.id,
+      title: 'Running ticket',
+      description: 'Already executing.',
+    })
+
+    const waitingInit = initializeTicket({
+      projectFolder: repoDir,
+      externalId: waitingTicket.externalId,
+    })
+    initializeTicket({
+      projectFolder: repoDir,
+      externalId: runningTicket.externalId,
+    })
+
+    patchTicket(waitingTicket.id, {
+      status: 'WAITING_BEADS_APPROVAL',
+      branchName: waitingInit.branchName,
+    })
+    patchTicket(runningTicket.id, {
+      status: 'CODING',
+      branchName: runningTicket.externalId,
+    })
+
+    const waitingPaths = getTicketPaths(waitingTicket.id)
+    if (!waitingPaths) {
+      throw new Error('Waiting ticket workspace not initialized')
+    }
+    mkdirSync(dirname(waitingPaths.beadsPath), { recursive: true })
+    writeFileSync(waitingPaths.beadsPath, sampleBeadsJsonl())
+
+    const busyApp = new Hono()
+    busyApp.route('/api', ticketRouter)
+    busyApp.route('/api', beadsRouter)
+
+    const response = await busyApp.request(`/api/tickets/${waitingTicket.id}/approve-beads`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(409)
+    const payload = (await response.json()) as { error: string }
+    expect(payload.error).toContain(runningTicket.externalId)
+  })
+
   it('rejects approval when ticket is not in WAITING_BEADS_APPROVAL status', async () => {
     const { app, ticket } = setupBeadsApprovalTicket()
 

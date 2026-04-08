@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Bead } from '../../phases/beads/types'
 import { createInitializedTestTicket, createTestRepoManager, makeTicketContextFromTicket, resetTestDb } from '../../test/factories'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
-import { readTicketBeads, writeTicketBeads } from '../phases/beadsPhase'
+import { readTicketBeads, recoverFailedCodingBead, writeTicketBeads } from '../phases/beadsPhase'
 import { phaseIntermediate, phaseResults } from '../phases/state'
 
 const {
@@ -444,5 +444,30 @@ describe('handleCoding', () => {
     expect(sendEvent).toHaveBeenCalledWith({ type: 'ALL_BEADS_DONE' })
     const finalBeads = readTicketBeads(ticket.id)
     expect(finalBeads.find((b) => b.id === 'bead-1')?.status).toBe('done')
+  })
+
+  it('requeues the latest failed bead for retry without clearing notes or iteration', () => {
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Retry failed coding bead',
+    })
+    writeTicketBeads(ticket.id, [
+      makePendingBead('bead-1', 1, {
+        status: 'error',
+        iteration: 2,
+        notes: 'retry guidance',
+        beadStartCommit: 'abc123',
+      }),
+      makePendingBead('bead-2', 2, {
+        dependencies: { blocked_by: ['bead-1'], blocks: [] },
+      }),
+    ])
+
+    const recoveredBead = recoverFailedCodingBead(ticket.id)
+
+    expect(recoveredBead?.id).toBe('bead-1')
+    expect(recoveredBead?.status).toBe('pending')
+    expect(recoveredBead?.iteration).toBe(2)
+    expect(recoveredBead?.notes).toBe('retry guidance')
+    expect(recoveredBead?.beadStartCommit).toBe('abc123')
   })
 })

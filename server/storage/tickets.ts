@@ -16,6 +16,7 @@ export {
   getTicketStorageContext,
   listNonTerminalTickets,
   getTicketPaths,
+  findProjectExecutionBandConflict,
 } from './ticketQueries'
 
 export {

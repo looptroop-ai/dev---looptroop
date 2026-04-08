@@ -18,7 +18,6 @@ export const ticketMachine = setup({
         if (event.type === 'CHECKS_FAILED') return 'Pre-flight check failed'
         if (event.type === 'TESTS_FAILED') return 'Final test failed'
         if (event.type === 'BEAD_ERROR') return 'Bead execution failed'
-        if (event.type === 'BEAD_COMPLETE') return 'Maximum iterations reached'
         return 'Unknown error'
       },
       errorCodes: ({ event }) => {
@@ -42,8 +41,6 @@ export const ticketMachine = setup({
     }),
   },
   guards: {
-    hasReachedMaxIterations: ({ context }) =>
-      context.maxIterations > 0 && context.iterationCount >= context.maxIterations,
     allBeadsComplete: ({ context }) =>
       context.beadProgress.completed >= context.beadProgress.total &&
       context.beadProgress.total > 0,
@@ -310,7 +307,6 @@ export const ticketMachine = setup({
       on: {
         BEAD_COMPLETE: [
           { guard: 'allBeadsComplete', target: 'RUNNING_FINAL_TEST' },
-          { guard: 'hasReachedMaxIterations', target: 'BLOCKED_ERROR', actions: ['recordError'] },
           { target: 'CODING', actions: ['incrementIteration'] },
         ],
         ALL_BEADS_DONE: { target: 'RUNNING_FINAL_TEST' },
@@ -412,5 +408,4 @@ export const ticketMachine = setup({
     },
   },
 })
-
 

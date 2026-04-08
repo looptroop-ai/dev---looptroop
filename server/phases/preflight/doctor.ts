@@ -2,7 +2,7 @@ import type { DiagnosticCheck, PreFlightContext, PreFlightReport } from './types
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { Bead } from '../beads/types'
 import { existsSync } from 'fs'
-import { getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
+import { findProjectExecutionBandConflict, getLatestPhaseArtifact, getTicketContext, getTicketPaths } from '../../storage/tickets'
 import { throwIfAborted } from '../../council/types'
 import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 import { getRunnable } from '../execution/scheduler'
@@ -15,6 +15,7 @@ export interface DoctorDeps {
   getCurrentBranch: typeof getCurrentBranch
   getLatestPhaseArtifact: typeof getLatestPhaseArtifact
   fetchConnectedModelIds: typeof fetchConnectedModelIds
+  findExecutionBandConflict: (ticketId: string) => ReturnType<typeof findProjectExecutionBandConflict>
 }
 
 export const defaultDoctorDeps: DoctorDeps = {
@@ -23,6 +24,10 @@ export const defaultDoctorDeps: DoctorDeps = {
   getCurrentBranch,
   getLatestPhaseArtifact,
   fetchConnectedModelIds,
+  findExecutionBandConflict: (ticketId: string) => {
+    const ticket = getTicketContext(ticketId)
+    return ticket ? findProjectExecutionBandConflict(ticket.projectId, ticket.ticketRef) : null
+  },
 }
 
 export async function runPreFlightChecks(
@@ -309,7 +314,18 @@ export async function runPreFlightChecks(
     })
   }
 
-  // 12. Runtime safety budgets
+  // 12. Project execution exclusivity
+  const executionConflict = deps.findExecutionBandConflict(ticketId)
+  checks.push({
+    name: 'Project Execution Lock',
+    category: 'config',
+    result: executionConflict ? 'fail' : 'pass',
+    message: executionConflict
+      ? `Another ticket is already in execution: ${executionConflict.externalId} (${executionConflict.status})`
+      : 'No competing execution-band ticket found for this project',
+  })
+
+  // 13. Runtime safety budgets
   if (preFlightContext.maxIterations < 0) {
     checks.push({
       name: 'Runtime Budget',

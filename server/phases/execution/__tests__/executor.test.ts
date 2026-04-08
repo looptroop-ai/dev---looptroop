@@ -170,4 +170,34 @@ describe('executeBead', () => {
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })
+
+  it('rebuilds bead context for the next iteration after PROM51 notes are appended', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', 'Did some work but no marker')
+    adapter.mockResponses.set('mock-session-1#2', 'Still no valid marker')
+    adapter.mockResponses.set('mock-session-2#1', 'Retry with the new note about the missing completion marker.')
+    adapter.mockResponses.set('mock-session-3#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const bead = buildBead()
+    const contextSnapshots: string[] = []
+    const result = await executeBead(
+      adapter,
+      bead,
+      async () => {
+        contextSnapshots.push(bead.notes)
+        return [{ type: 'text', content: bead.notes ? `Bead context\n${bead.notes}` : 'Bead context' }]
+      },
+      '/tmp/test',
+      2,
+    )
+
+    expect(result.success).toBe(true)
+    expect(contextSnapshots).toHaveLength(2)
+    expect(contextSnapshots[0]).toBe('')
+    expect(contextSnapshots[1]).toContain('Retry with the new note')
+  })
 })

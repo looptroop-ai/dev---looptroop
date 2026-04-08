@@ -32,6 +32,15 @@ export interface ExecutionResult {
   errors: string[]
 }
 
+type ContextPartsInput = PromptPart[] | (() => Promise<PromptPart[]>)
+
+async function resolveContextParts(input: ContextPartsInput): Promise<PromptPart[]> {
+  if (typeof input === 'function') {
+    return await input()
+  }
+  return input
+}
+
 async function generateContextWipeNote(
   adapter: OpenCodeAdapter,
   bead: Bead,
@@ -73,7 +82,7 @@ async function generateContextWipeNote(
 export async function executeBead(
   adapter: OpenCodeAdapter,
   bead: Bead,
-  contextParts: PromptPart[],
+  contextParts: ContextPartsInput,
   projectPath: string,
   maxIterations: number = PROFILE_DEFAULTS.maxIterations,
   timeout: number = BEAD_EXECUTION_TIMEOUT_MS,
@@ -100,7 +109,7 @@ export async function executeBead(
 
     try {
       let sessionId = ''
-      const promptContent = buildPromptFromTemplate(PROM_CODING, contextParts)
+      const promptContent = buildPromptFromTemplate(PROM_CODING, await resolveContextParts(contextParts))
       const beadPrompt: PromptPart[] = [
         {
           type: 'text',

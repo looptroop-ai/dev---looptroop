@@ -23,11 +23,13 @@ import { withCommandLogging } from '../log/commandLogger'
 import { getProjectContextById } from '../storage/projects'
 import { validateModelSelection } from '../opencode/modelValidation'
 import {
+  findProjectExecutionBandConflict,
   getLatestPhaseArtifact,
   getTicketByRef,
   getTicketContext,
   getTicketPaths,
   deleteTicket as deleteStoredTicket,
+  insertPhaseArtifact,
   listPhaseArtifacts,
   listTickets,
   lockTicketStartConfiguration,
@@ -55,10 +57,13 @@ import {
   savePrdRawContent,
 } from '../phases/prd/document'
 import { approveBeadsDocument } from '../phases/beads/document'
+import { completeManualVerificationMerge } from '../phases/verification/manual'
 import type { PrdDocument } from '../structuredOutput/types'
 import { isBeforeExecution, isStatusAtOrPast } from '@shared/workflowMeta'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { recoverFailedCodingBead } from '../workflow/phases/beadsPhase'
+import { isExecutionBandStatus } from '../workflow/executionBand'
 
 export const createTicketSchema = z.object({
   projectId: z.number().int().positive(),
@@ -215,6 +220,14 @@ function emitRoutePhaseLog(
 
 function getTicketParam(c: Context): string {
   return c.req.param('id') || c.req.param('ticketId')
+}
+
+function buildExecutionBandConflictMessage(conflict: {
+  externalId: string
+  title: string
+  status: string
+}) {
+  return `Project execution is busy with ${conflict.externalId} (${conflict.status}): ${conflict.title}`
 }
 
 function buildInterviewPayload(ticketId: string): {
@@ -623,6 +636,9 @@ export function handleApproveTicket(c: Context) {
   if (ticket.status === 'WAITING_BEADS_APPROVAL') {
     return handleApproveBeads(c)
   }
+  if (ticket.status === 'WAITING_MANUAL_VERIFICATION') {
+    return handleVerifyTicket(c)
+  }
 
   try {
     ensureActorForTicket(ticketId)
@@ -1001,6 +1017,11 @@ export function handleApproveBeads(c: Context) {
     return c.json({ error: 'Ticket is not waiting for beads approval' }, 409)
   }
 
+  const executionConflict = findProjectExecutionBandConflict(ticket.projectId, ticket.id)
+  if (executionConflict) {
+    return c.json({ error: buildExecutionBandConflictMessage(executionConflict) }, 409)
+  }
+
   try {
     approveBeadsDocument(ticketId)
     ensureActorForTicket(ticketId)
@@ -1028,8 +1049,46 @@ export function handleVerifyTicket(c: Context) {
     return c.json({ error: 'Ticket is not waiting for manual verification' }, 409)
   }
 
+  const ticketContext = getTicketContext(ticketId)
+  if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
+
+  const mergeReport = completeManualVerificationMerge({
+    projectPath: ticketContext.projectRoot,
+    baseBranch: ticket.runtime.baseBranch,
+    ticketBranch: ticket.branchName ?? ticket.externalId,
+    candidateCommitSha: ticket.runtime.candidateCommitSha,
+  })
+
+  insertPhaseArtifact(ticketId, {
+    phase: 'WAITING_MANUAL_VERIFICATION',
+    artifactType: 'verification_merge_report',
+    content: JSON.stringify({
+      ...mergeReport,
+      completedAt: new Date().toISOString(),
+    }),
+  })
+
   try {
     ensureActorForTicket(ticketId)
+    if (!mergeReport.success) {
+      emitRoutePhaseLog(ticketId, 'WAITING_MANUAL_VERIFICATION', 'error', `Manual verification merge failed: ${mergeReport.message}`, {
+        baseBranch: mergeReport.baseBranch,
+        sourceRef: mergeReport.sourceRef,
+        errorCode: mergeReport.errorCode,
+      })
+      sendTicketEvent(ticketId, {
+        type: 'ERROR',
+        message: `Manual verification merge failed: ${mergeReport.message}`,
+        codes: mergeReport.errorCode ? [mergeReport.errorCode] : ['VERIFICATION_MERGE_FAILED'],
+      })
+      return respondWithState(c, ticketId, 'Verification failed and ticket was blocked')
+    }
+
+    emitRoutePhaseLog(ticketId, 'WAITING_MANUAL_VERIFICATION', 'info', mergeReport.message, {
+      baseBranch: mergeReport.baseBranch,
+      sourceRef: mergeReport.sourceRef,
+      mergedHead: mergeReport.mergedHead,
+    })
     sendTicketEvent(ticketId, { type: 'VERIFY_COMPLETE' })
   } catch (err) {
     console.error(`[tickets] Failed to send VERIFY_COMPLETE to ticket ${ticketId}:`, err)
@@ -1045,6 +1104,20 @@ export function handleRetryTicket(c: Context) {
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (ticket.status !== 'BLOCKED_ERROR') {
     return c.json({ error: 'Retry only works from BLOCKED_ERROR state' }, 409)
+  }
+
+  if (isExecutionBandStatus(ticket.previousStatus)) {
+    const executionConflict = findProjectExecutionBandConflict(ticket.projectId, ticket.id)
+    if (executionConflict) {
+      return c.json({ error: buildExecutionBandConflictMessage(executionConflict) }, 409)
+    }
+  }
+
+  if (ticket.previousStatus === 'CODING') {
+    const recoveredBead = recoverFailedCodingBead(ticketId)
+    if (!recoveredBead) {
+      return c.json({ error: 'Retry is not available because no failed bead could be restored' }, 409)
+    }
   }
 
   try {

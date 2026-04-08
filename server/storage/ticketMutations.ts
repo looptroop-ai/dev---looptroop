@@ -25,6 +25,7 @@ import type {
   TicketErrorOccurrence,
   TicketErrorResolutionStatus,
 } from './ticketQueries'
+import { syncTicketRuntimeProjection } from './ticketRuntimeProjection'
 import {
   getTicketContext,
   toPublicTicket,
@@ -261,7 +262,9 @@ export function createTicket(input: {
     }, null, 2),
   )
 
-  return toPublicTicket(input.projectId, ticket)
+  const publicTicket = toPublicTicket(input.projectId, ticket)
+  syncTicketRuntimeProjection(publicTicket)
+  return publicTicket
 }
 
 export function updateTicket(ticketRef: string, patch: Partial<Pick<LocalTicketRow, 'title' | 'description' | 'priority'>>): PublicTicket | undefined {
@@ -273,7 +276,9 @@ export function updateTicket(ticketRef: string, patch: Partial<Pick<LocalTicketR
     .run()
   const updated = context.projectDb.select().from(tickets).where(eq(tickets.id, context.localTicketId)).get()
   if (!updated) return undefined
-  return toPublicTicket(context.projectId, updated)
+  const publicTicket = toPublicTicket(context.projectId, updated)
+  syncTicketRuntimeProjection(publicTicket)
+  return publicTicket
 }
 
 export function patchTicket(
@@ -308,7 +313,9 @@ export function patchTicket(
       .run()
   }
 
-  return toPublicTicket(context.projectId, updated)
+  const publicTicket = toPublicTicket(context.projectId, updated)
+  syncTicketRuntimeProjection(publicTicket)
+  return publicTicket
 }
 
 export function lockTicketStartConfiguration(

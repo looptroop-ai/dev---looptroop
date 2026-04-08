@@ -60,6 +60,7 @@ import type { OpenCodeStreamState } from './types'
 import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../runOpenCodePrompt'
+import { syncTicketRuntimeProjection } from '../../storage/ticketRuntimeProjection'
 
 export async function executeBeadsExpandStep(params: {
   ticketId: string
@@ -813,6 +814,42 @@ export function readTicketBeads(ticketId: string): Bead[] {
 
 export function writeTicketBeads(ticketId: string, beads: Bead[]) {
   writeJsonl(getBeadsPath(ticketId), beads)
+  syncTicketRuntimeProjection(ticketId)
+}
+
+function compareErroredBeads(left: Bead, right: Bead) {
+  const leftUpdatedAt = Date.parse(left.updatedAt || left.startedAt || left.completedAt || '')
+  const rightUpdatedAt = Date.parse(right.updatedAt || right.startedAt || right.completedAt || '')
+
+  if (!Number.isNaN(leftUpdatedAt) || !Number.isNaN(rightUpdatedAt)) {
+    if (Number.isNaN(leftUpdatedAt)) return 1
+    if (Number.isNaN(rightUpdatedAt)) return -1
+    return rightUpdatedAt - leftUpdatedAt
+  }
+
+  return right.iteration - left.iteration
+}
+
+export function recoverFailedCodingBead(ticketId: string): Bead | null {
+  const beads = readTicketBeads(ticketId)
+  const failedBead = [...beads]
+    .filter((bead) => bead.status === 'error')
+    .sort(compareErroredBeads)[0]
+
+  if (!failedBead) return null
+
+  const now = new Date().toISOString()
+  const recoveredBeads = beads.map((bead) => bead.id === failedBead.id
+    ? {
+        ...bead,
+        status: 'pending' as const,
+        updatedAt: now,
+      }
+    : bead)
+
+  writeTicketBeads(ticketId, recoveredBeads)
+  updateTicketProgressFromBeads(ticketId, recoveredBeads)
+  return recoveredBeads.find((bead) => bead.id === failedBead.id) ?? null
 }
 
 export function updateTicketProgressFromBeads(ticketId: string, beads: Bead[]) {

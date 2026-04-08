@@ -1,7 +1,8 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
+import type { Ticket } from '@/hooks/useTickets'
 
 vi.mock('@/hooks/useTickets', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useTickets')>('@/hooks/useTickets')
@@ -25,10 +26,19 @@ vi.mock('../BeadDiffViewer', () => ({
 
 import { CodingView } from '../CodingView'
 
-function renderCoding(overrides = {}) {
+type CodingTestOverrides = Omit<Partial<Ticket>, 'runtime'> & {
+  runtime?: Partial<Ticket['runtime']>
+}
+
+function renderCoding(overrides: CodingTestOverrides = {}) {
+  const baseTicket = makeTicket({ status: 'CODING' })
   const ticket = makeTicket({
-    status: 'CODING',
+    ...baseTicket,
     ...overrides,
+    runtime: {
+      ...baseTicket.runtime,
+      ...(overrides.runtime ?? {}),
+    },
   })
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -242,5 +252,25 @@ describe('CodingView', () => {
       const summaryElements = screen.getAllByText('2/5')
       expect(summaryElements.length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  it('renders persisted bead notes from string storage and shows the active iteration label', () => {
+    renderCoding({
+      runtime: {
+        activeBeadId: 'bead-1',
+        activeBeadIteration: 2,
+        maxIterationsPerBead: 5,
+        beads: [
+          { id: 'bead-1', title: 'Retry bead', status: 'error', iteration: 2, notes: 'first note\n\n---\n\nsecond note' },
+        ],
+      },
+    })
+
+    expect(screen.getByText(/Retry bead · Iteration 2\/5/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Retry bead/ }))
+
+    expect(screen.getByText(/first note/)).toBeTruthy()
+    expect(screen.getByText(/second note/)).toBeTruthy()
   })
 })

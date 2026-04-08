@@ -1,9 +1,6 @@
 import type { TicketContext } from './types'
 
 export const guards = {
-  hasReachedMaxIterations: ({ context }: { context: TicketContext }) => {
-    return context.maxIterations > 0 && context.iterationCount >= context.maxIterations
-  },
   allBeadsComplete: ({ context }: { context: TicketContext }) => {
     return (
       context.beadProgress.completed >= context.beadProgress.total &&

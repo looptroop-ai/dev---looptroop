@@ -346,12 +346,13 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <p className="mt-0.5">{Math.round(ticket.runtime.percentComplete)}%</p>
               </div>
             )}
-            {ticket.runtime.iterationCount > 0 && (
+            {ticket.runtime.activeBeadIteration && ticket.runtime.activeBeadIteration > 0 && (
               <div>
-                <span className="text-xs font-medium text-muted-foreground">Iterations</span>
+                <span className="text-xs font-medium text-muted-foreground">Active Iteration</span>
                 <p className="mt-0.5">
-                  {ticket.runtime.iterationCount}
-                  {ticket.runtime.maxIterations && ticket.runtime.maxIterations > 0 ? ` / ${ticket.runtime.maxIterations}` : ''}
+                  {ticket.runtime.activeBeadIteration}
+                  {ticket.runtime.maxIterationsPerBead && ticket.runtime.maxIterationsPerBead > 0 ? ` / ${ticket.runtime.maxIterationsPerBead}` : ''}
+                  {ticket.runtime.activeBeadId ? ` (${ticket.runtime.activeBeadId})` : ''}
                 </p>
               </div>
             )}

@@ -69,6 +69,7 @@ describe('Pre-Flight Doctor', () => {
       getCurrentBranch: () => 'PROJ-1',
       getLatestPhaseArtifact: () => approvalReceipt,
       fetchConnectedModelIds: async () => ['model-a', 'model-b'],
+      findExecutionBandConflict: () => null,
     }
   })
 
@@ -204,5 +205,21 @@ describe('Pre-Flight Doctor', () => {
     expect(rfCheck).toBeDefined()
     expect(rfCheck?.result).toBe('warning')
     expect(report.criticalFailures.every(c => c.name !== 'Relevant Files')).toBe(true)
+  })
+
+  it('fails when another ticket is already in the execution band', async () => {
+    const beads = [makeBead()]
+    deps.findExecutionBandConflict = () => ({
+      ticketId: '1:TEST-2',
+      externalId: 'TEST-2',
+      title: 'Conflicting execution',
+      status: 'CODING',
+    })
+
+    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+
+    const lockCheck = report.criticalFailures.find(c => c.name === 'Project Execution Lock')
+    expect(lockCheck).toBeDefined()
+    expect(lockCheck?.message).toContain('TEST-2')
   })
 })

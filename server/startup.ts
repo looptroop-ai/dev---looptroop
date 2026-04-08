@@ -7,12 +7,36 @@ import { getOpenCodeAdapter } from './opencode/factory'
 import { SessionManager } from './opencode/sessionManager'
 import { opencodeSessions } from './db/schema'
 import { getProjectContextById, listProjects } from './storage/projects'
-import { findTicketRefByLocalId } from './storage/tickets'
+import { findTicketRefByLocalId, getTicketPaths, listTickets } from './storage/tickets'
 import {
   formatStartupStorageSummary,
   getStartupStateDebugLine,
   initializeStartupState,
 } from './startupState'
+import { fixTrailingLineCorruption, recoverOrphanTmpFiles } from './io/recovery'
+import { rebuildTicketRuntimeProjections } from './storage/ticketRuntimeProjection'
+
+function recoverTicketRuntimeArtifacts() {
+  let recoveredTmpFiles = 0
+  let repairedExecutionLogs = 0
+
+  for (const ticket of listTickets()) {
+    const paths = getTicketPaths(ticket.id)
+    if (!paths) continue
+
+    recoveredTmpFiles += recoverOrphanTmpFiles(paths.ticketDir).length
+    if (fixTrailingLineCorruption(paths.executionLogPath)) {
+      repairedExecutionLogs += 1
+    }
+  }
+
+  const rebuiltProjections = rebuildTicketRuntimeProjections()
+  return {
+    recoveredTmpFiles,
+    repairedExecutionLogs,
+    rebuiltProjections,
+  }
+}
 
 export function startupSequence() {
   console.log('[startup] Step 1: Initialize database')
@@ -27,10 +51,14 @@ export function startupSequence() {
     console.log(`[startup] ${getStartupStateDebugLine()}`)
   }
 
-  console.log('[startup] Step 2: Start WAL checkpoint timer')
+  console.log('[startup] Step 2: Recover ticket runtime artifacts')
+  const recovery = recoverTicketRuntimeArtifacts()
+  console.log(`[startup] Recovered ${recovery.recoveredTmpFiles} orphan temp files, repaired ${recovery.repairedExecutionLogs} execution logs, rebuilt ${recovery.rebuiltProjections} state projections`)
+
+  console.log('[startup] Step 3: Start WAL checkpoint timer')
   startWalCheckpoint()
 
-  console.log('[startup] Step 3: OpenCode health check')
+  console.log('[startup] Step 4: OpenCode health check')
   const adapter = getOpenCodeAdapter()
   adapter.checkHealth().then(health => {
     if (health.available) {
@@ -42,11 +70,11 @@ export function startupSequence() {
     console.warn(`[startup] OpenCode health check failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  console.log('[startup] Step 4: Hydrate XState actors from attached project databases')
+  console.log('[startup] Step 5: Hydrate XState actors from attached project databases')
   const hydrated = hydrateAllTickets()
   console.log(`[startup] Hydrated ${hydrated} ticket actors`)
 
-  console.log('[startup] Step 5: Reconnecting OpenCode sessions for attached projects')
+  console.log('[startup] Step 6: Reconnecting OpenCode sessions for attached projects')
   const attachedProjects = listProjects()
   if (attachedProjects.length === 0) {
     console.log('[startup] No attached projects to reconnect')

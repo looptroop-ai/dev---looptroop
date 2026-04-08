@@ -113,4 +113,53 @@ describe('attachWorkflowRunner', () => {
     expect(actor.getSnapshot().value).toBe('RUNNING_FINAL_TEST')
     expect(handleFinalTestMock).toHaveBeenCalledTimes(1)
   })
+
+  it('does not block CODING when completed beads exceed maxIterations', () => {
+    const actor = createActor(ticketMachine, {
+      snapshot: {
+        status: 'active',
+        value: 'CODING',
+        historyValue: {},
+        context: {
+          ticketId: TEST.ticketId,
+          projectId: TEST.projectId,
+          externalId: TEST.externalId,
+          title: 'Runner test',
+          status: 'CODING',
+          lockedMainImplementer: TEST.implementer,
+          lockedMainImplementerVariant: null,
+          lockedCouncilMembers: [...TEST.councilMembers],
+          lockedCouncilMemberVariants: null,
+          lockedInterviewQuestions: null,
+          lockedCoverageFollowUpBudgetPercent: null,
+          lockedMaxCoveragePasses: null,
+          previousStatus: 'PRE_FLIGHT_CHECK',
+          error: null,
+          errorCodes: [],
+          beadProgress: { total: 5, completed: 1, current: 'bead-2' },
+          iterationCount: 5,
+          maxIterations: 1,
+          councilResults: null,
+          createdAt: TEST.timestamp,
+          updatedAt: TEST.timestamp,
+        },
+        children: {},
+      } as unknown as never,
+      input: {
+        ticketId: TEST.ticketId,
+        projectId: TEST.projectId,
+        externalId: TEST.externalId,
+        title: 'Runner test',
+        maxIterations: 1,
+        lockedMainImplementer: TEST.implementer,
+        lockedCouncilMembers: [...TEST.councilMembers],
+      },
+    })
+
+    actor.start()
+    actor.send({ type: 'BEAD_COMPLETE' })
+
+    expect(actor.getSnapshot().value).toBe('CODING')
+    expect(actor.getSnapshot().context.error).toBeNull()
+  })
 })

@@ -82,6 +82,15 @@ function filterLogsWithinWindow(
 export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewProps) {
   const { mutate: performAction, isPending } = useTicketAction()
   const logCtx = useLogs()
+  const failedBead = ticket.runtime.lastFailedBeadId
+    ? ticket.runtime.beads?.find((bead) => bead.id === ticket.runtime.lastFailedBeadId) ?? null
+    : null
+  const failedBeadNotes = typeof failedBead?.notes === 'string'
+    ? failedBead.notes
+        .split(/\n\s*---\s*\n/g)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : []
   const visibleOccurrence = occurrence ?? getActiveErrorOccurrence(ticket)
   const errorLogs = (() => {
     if (!visibleOccurrence) {
@@ -163,6 +172,29 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
                       {code}
                     </Badge>
                   ))}
+                </div>
+              )}
+              {(failedBead || ticket.runtime.activeBeadIteration) && (
+                <div className="rounded border border-border bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground space-y-1">
+                  {failedBead && (
+                    <div>
+                      Failed bead <span className="font-mono text-foreground">{failedBead.id}</span>
+                      {ticket.runtime.activeBeadIteration ? ` on iteration ${ticket.runtime.activeBeadIteration}` : ''}
+                    </div>
+                  )}
+                  <div>
+                    Retryable: {ticket.availableActions.includes('retry') ? 'yes' : 'no'}
+                  </div>
+                  {failedBeadNotes.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-wider">Preserved notes</div>
+                      {failedBeadNotes.map((note) => (
+                        <p key={note} className="font-mono text-[10px] whitespace-pre-wrap text-muted-foreground/90">
+                          {note}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

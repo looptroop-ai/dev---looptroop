@@ -81,6 +81,10 @@ export function getTicketExecutionLogPath(projectRoot: string, externalId: strin
   return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-log.jsonl')
 }
 
+export function getTicketRuntimeStatePath(projectRoot: string, externalId: string): string {
+  return resolve(getTicketRuntimeDir(projectRoot, externalId), 'state.yaml')
+}
+
 export function ensureProjectStorageDirs(projectRoot: string) {
   mkdirSync(getProjectLoopTroopDir(projectRoot), { recursive: true })
   mkdirSync(getProjectWorktreesRoot(projectRoot), { recursive: true })

@@ -81,14 +81,13 @@ export async function handleCoding(
     emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not record bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
   }
 
-  const contextParts = await adapter.assembleBeadContext(ticketId, nextBead.id)
   throwIfAborted(signal, ticketId)
   const executionSettings = resolveExecutionRuntimeSettings(context)
   const streamStates = new Map<string, OpenCodeStreamState>()
   const result = await executeBead(
     adapter,
     nextBead,
-    contextParts,
+    () => adapter.assembleBeadContext(ticketId, nextBead.id),
     paths.worktreePath,
     executionSettings.maxIterations,
     executionSettings.perIterationTimeoutMs,
@@ -98,6 +97,16 @@ export async function handleCoding(
       model: codingModelId,
       variant: context.lockedMainImplementerVariant ?? undefined,
       onSessionCreated: (sessionId, iteration) => {
+        const currentBeads = readTicketBeads(ticketId)
+        const updated = currentBeads.map((bead) => bead.id === nextBead.id
+          ? {
+              ...bead,
+              status: 'in_progress' as const,
+              iteration,
+              updatedAt: new Date().toISOString(),
+            }
+          : bead)
+        writeTicketBeads(ticketId, updated)
         emitAiMilestone(
           ticketId,
           context.externalId,

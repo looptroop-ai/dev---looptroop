@@ -27,7 +27,26 @@ interface TicketBead {
   tests: string[]
   testCommands: string[]
   contextGuidance: { patterns: string[]; anti_patterns: string[] }
-  notes: string[]
+  notes: string
+}
+
+function normalizeNotes(input: unknown): string {
+  if (typeof input === 'string') return input
+  if (Array.isArray(input)) {
+    return input
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .join('\n\n---\n\n')
+  }
+  return ''
+}
+
+function splitRenderedNotes(notes: string): string[] {
+  const normalized = notes.trim()
+  if (!normalized) return []
+  return normalized
+    .split(/\n\s*---\s*\n/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
 }
 
 function normalizeBead(input: {
@@ -40,7 +59,7 @@ function normalizeBead(input: {
   tests?: string[]
   testCommands?: string[]
   contextGuidance?: { patterns?: string[]; anti_patterns?: string[] }
-  notes?: string[]
+  notes?: string | string[]
 }): TicketBead {
   const STATUS_MAP: Record<string, TicketBead['status']> = {
     done: 'completed',
@@ -67,7 +86,7 @@ function normalizeBead(input: {
     tests: input.tests ?? [],
     testCommands: input.testCommands ?? [],
     contextGuidance,
-    notes: input.notes ?? [],
+    notes: normalizeNotes(input.notes),
   }
 }
 
@@ -87,7 +106,7 @@ async function fetchTicketBeads(ticketId: string): Promise<TicketBead[]> {
           tests?: string[]
           testCommands?: string[]
           contextGuidance?: { patterns?: string[]; anti_patterns?: string[] }
-          notes?: string[]
+          notes?: string | string[]
         } =>
           Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && typeof (item as { title?: unknown }).title === 'string'),
         )
@@ -225,6 +244,11 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const total = ticket.runtime.totalBeads || beads.length
   const current = ticket.runtime.currentBead
   const percent = ticket.runtime.percentComplete
+  const activeIteration = ticket.runtime.activeBeadIteration
+  const maxIterationsPerBead = ticket.runtime.maxIterationsPerBead
+  const activeBead = ticket.runtime.activeBeadId
+    ? beads.find((bead) => bead.id === ticket.runtime.activeBeadId)
+    : null
   const phaseLabel = getStatusUserLabel(ticket.status, {
     currentBead: current,
     totalBeads: total,
@@ -256,6 +280,12 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
         <span className="text-xs font-mono text-muted-foreground shrink-0">
           {isCompleted ? `${Math.max(total, 0)}/${Math.max(total, 0)}` : `${current}/${Math.max(total, 0)}`}
         </span>
+        {activeIteration && activeIteration > 0 && (
+          <span className="text-[11px] text-muted-foreground shrink-0">
+            {activeBead?.title ?? ticket.runtime.activeBeadId ?? 'Bead'} · Iteration {activeIteration}
+            {maxIterationsPerBead && maxIterationsPerBead > 0 ? `/${maxIterationsPerBead}` : ''}
+          </span>
+        )}
       </div>
 
       {isAwaitingManualVerification && (
@@ -404,11 +434,11 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                     )}
                   </div>
                 )}
-                {viewedBead.notes.length > 0 && (
+                {splitRenderedNotes(viewedBead.notes).length > 0 && (
                   <div className="mt-3">
                     <div className="text-xs font-medium text-muted-foreground mb-1">Notes</div>
                     <ul className="text-xs space-y-1">
-                      {viewedBead.notes.map((note) => (
+                      {splitRenderedNotes(viewedBead.notes).map((note) => (
                         <li key={note}>- {note}</li>
                       ))}
                     </ul>

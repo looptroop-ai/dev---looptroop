@@ -15,12 +15,17 @@ interface TicketRuntime {
   percentComplete: number
   iterationCount: number
   maxIterations: number | null
+  maxIterationsPerBead: number | null
+  activeBeadId: string | null
+  activeBeadIteration: number | null
+  lastFailedBeadId: string | null
   artifactRoot: string
   beads?: Array<{
     id: string
     title: string
     status: string
     iteration: number
+    notes?: string
   }>
   candidateCommitSha: string | null
   preSquashHead: string | null
