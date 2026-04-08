@@ -193,7 +193,7 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     case 'ALL':
       return canonicalEntries.filter(entry => (((entry.audience === 'all' && !isCommand(entry)) || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry)))
     case 'SYS':
-      return canonicalEntries.filter(e => isSystem(e) && !isCommand(e) && !isDebug(e))
+      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e))
     case 'CMD':
       return canonicalEntries.filter(e => isSystem(e) && isCommand(e) && !isDebug(e))
     case 'AI':

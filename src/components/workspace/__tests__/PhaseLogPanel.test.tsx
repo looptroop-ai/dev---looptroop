@@ -770,7 +770,7 @@ describe('PhaseLogPanel', () => {
     expect(screen.getAllByText('System').length).toBeGreaterThan(0)
   })
 
-  it('shows non-error command chatter only in SYS while keeping ALL focused on higher-signal entries', () => {
+  it('shows non-error command chatter in SYS while keeping ALL focused on higher-signal entries', () => {
     const logs: LogEntry[] = [
       makeLog('cmd-probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', {
         status: 'DRAFT',
@@ -789,6 +789,12 @@ describe('PhaseLogPanel', () => {
 
     expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/worktree add/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Start requested/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
+
+    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeInTheDocument()
+    expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
     expect(screen.getByText(/Start requested/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show commands' }))

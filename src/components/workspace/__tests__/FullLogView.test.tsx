@@ -151,7 +151,7 @@ describe('FullLogView', () => {
     expect(screen.getByText('1 entries')).toBeTruthy()
   })
 
-  it('shows non-error command chatter only in SYS in the full log view', () => {
+  it('shows non-error command chatter in SYS in the full log view', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', 'DRAFT', {
         source: 'system',
@@ -166,6 +166,12 @@ describe('FullLogView', () => {
 
     expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
     expect(screen.queryByText(/worktree add/i)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
+
+    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeTruthy()
+    expect(screen.getByText(/worktree add/i)).toBeTruthy()
+    expect(screen.getByText(/Start requested/i)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show commands' }))
     fireEvent.click(screen.getByRole('button', { name: 'CMD' }))
