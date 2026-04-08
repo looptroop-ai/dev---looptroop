@@ -151,7 +151,7 @@ describe('FullLogView', () => {
     expect(screen.getByText('1 entries')).toBeTruthy()
   })
 
-  it('hides low-value git probe chatter from ALL and SYS tabs in the full log view', () => {
+  it('shows low-value git probe chatter in ALL and SYS tabs in the full log view', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', 'DRAFT', {
         source: 'system',
@@ -164,12 +164,12 @@ describe('FullLogView', () => {
 
     renderWithTooltipProvider(<FullLogView />)
 
-    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
+    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeTruthy()
     expect(screen.getByText(/worktree add/i)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
 
-    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
+    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeTruthy()
     expect(screen.getByText(/worktree add/i)).toBeTruthy()
   })
 

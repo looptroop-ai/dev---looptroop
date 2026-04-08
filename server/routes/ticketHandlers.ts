@@ -1046,15 +1046,22 @@ export function handleVerifyTicket(c: Context) {
   const ticketContext = getTicketContext(ticketId)
   if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
 
-  const mergeReport = completeManualVerificationMerge({
-    projectPath: ticketContext.projectRoot,
-    baseBranch: ticket.runtime.baseBranch,
-    ticketBranch: ticket.branchName ?? ticket.externalId,
-    candidateCommitSha: ticket.runtime.candidateCommitSha,
-  })
+  const phase = 'WAITING_MANUAL_VERIFICATION'
+  const mergeReport = withCommandLogging(
+    ticketId,
+    ticket.externalId,
+    phase,
+    () => completeManualVerificationMerge({
+      projectPath: ticketContext.projectRoot,
+      baseBranch: ticket.runtime.baseBranch,
+      ticketBranch: ticket.branchName ?? ticket.externalId,
+      candidateCommitSha: ticket.runtime.candidateCommitSha,
+    }),
+    (cmdPhase, type, content) => emitRoutePhaseLog(ticketId, cmdPhase, type, content),
+  )
 
   insertPhaseArtifact(ticketId, {
-    phase: 'WAITING_MANUAL_VERIFICATION',
+    phase,
     artifactType: 'verification_merge_report',
     content: JSON.stringify({
       ...mergeReport,
@@ -1065,7 +1072,7 @@ export function handleVerifyTicket(c: Context) {
   try {
     ensureActorForTicket(ticketId)
     if (!mergeReport.success) {
-      emitRoutePhaseLog(ticketId, 'WAITING_MANUAL_VERIFICATION', 'error', `Manual verification merge failed: ${mergeReport.message}`, {
+      emitRoutePhaseLog(ticketId, phase, 'error', `Manual verification merge failed: ${mergeReport.message}`, {
         baseBranch: mergeReport.baseBranch,
         sourceRef: mergeReport.sourceRef,
         errorCode: mergeReport.errorCode,
@@ -1078,7 +1085,7 @@ export function handleVerifyTicket(c: Context) {
       return respondWithState(c, ticketId, 'Verification failed and ticket was blocked')
     }
 
-    emitRoutePhaseLog(ticketId, 'WAITING_MANUAL_VERIFICATION', 'info', mergeReport.message, {
+    emitRoutePhaseLog(ticketId, phase, 'info', mergeReport.message, {
       baseBranch: mergeReport.baseBranch,
       sourceRef: mergeReport.sourceRef,
       mergedHead: mergeReport.mergedHead,

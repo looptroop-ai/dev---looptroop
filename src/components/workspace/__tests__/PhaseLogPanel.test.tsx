@@ -770,7 +770,7 @@ describe('PhaseLogPanel', () => {
     expect(screen.getAllByText('System').length).toBeGreaterThan(0)
   })
 
-  it('hides low-value git probe chatter from ALL and SYS tabs', () => {
+  it('shows low-value git probe chatter in ALL and SYS tabs', () => {
     const logs: LogEntry[] = [
       makeLog('cmd-probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', {
         status: 'DRAFT',
@@ -787,13 +787,13 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="DRAFT" logs={logs} />)
 
-    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeInTheDocument()
     expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
     expect(screen.getByText(/Start requested/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
 
-    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeInTheDocument()
     expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
   })
 

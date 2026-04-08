@@ -1,6 +1,6 @@
 import type { LogEntry } from '@/context/LogContext'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
-import { isBenignGitProbeErrorLine, isLowValueGitProbeLine } from '@/context/logUtils'
+import { isBenignGitProbeErrorLine } from '@/context/logUtils'
 
 export interface FormattedLogLine {
   tagText: string | null
@@ -183,16 +183,15 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
     Boolean(entry.modelId) ||
     Boolean(entry.sessionId)
   const isSystem = (entry: LogEntry) => entry.audience === 'all' && entry.source === 'system'
-  const isLowValueCommand = (entry: LogEntry) => isLowValueGitProbeLine(entry.line)
   const isOverviewAiEntry = (entry: LogEntry) =>
     entry.audience === 'ai'
     && ((entry.kind === 'text' && (!entry.streaming || entry.op === 'append')) || isLegacyTranscriptSummary(entry))
 
   switch (tab) {
     case 'ALL':
-      return canonicalEntries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry) && !isLowValueCommand(entry))
+      return canonicalEntries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry))
     case 'SYS':
-      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e) && !isLowValueCommand(e))
+      return canonicalEntries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':
       return canonicalEntries.filter(isFromOpenCode)
     case 'ERROR':
