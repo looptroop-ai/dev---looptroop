@@ -770,7 +770,7 @@ describe('PhaseLogPanel', () => {
     expect(screen.getAllByText('System').length).toBeGreaterThan(0)
   })
 
-  it('shows low-value git probe chatter in ALL and SYS tabs', () => {
+  it('shows non-error command chatter only in SYS while keeping ALL focused on higher-signal entries', () => {
     const logs: LogEntry[] = [
       makeLog('cmd-probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', {
         status: 'DRAFT',
@@ -787,8 +787,8 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="DRAFT" logs={logs} />)
 
-    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeInTheDocument()
-    expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
+    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/worktree add/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Start requested/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
@@ -797,14 +797,14 @@ describe('PhaseLogPanel', () => {
     expect(screen.getByText(/worktree add/i)).toBeInTheDocument()
   })
 
-  it('keeps benign git probe failures out of the ERROR tab', () => {
+  it('shows real command failures in ALL and ERROR while keeping benign probe misses out of ERROR', () => {
     const logs: LogEntry[] = [
       makeLog('probe-error', '[CMD] $ git symbolic-ref --quiet --short refs/remotes/origin/HEAD  →  origin/HEAD not set', {
         status: 'DRAFT',
         source: 'system',
         kind: 'error',
       }),
-      makeLog('real-error', '[ERROR] Worktree creation failed.', {
+      makeLog('real-cmd-error', '[CMD] $ git merge --no-edit LTL-5  →  error: merge conflict', {
         status: 'DRAFT',
         source: 'error',
         kind: 'error',
@@ -813,9 +813,12 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="DRAFT" logs={logs} />)
 
+    expect(screen.getByText(/merge --no-edit/i)).toBeInTheDocument()
+    expect(screen.queryByText(/origin\/HEAD not set/i)).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
 
     expect(screen.queryByText(/origin\/HEAD not set/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Worktree creation failed/i)).toBeInTheDocument()
+    expect(screen.getByText(/merge --no-edit/i)).toBeInTheDocument()
   })
 })

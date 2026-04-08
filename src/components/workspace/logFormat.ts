@@ -174,6 +174,7 @@ export function formatLogLine(entry: LogEntry, showModelName: boolean): Formatte
 export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   const canonicalEntries = getCanonicalLogEntries(entries)
   const isDebug = (entry: LogEntry) => entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
+  const isCommand = (entry: LogEntry) => entry.line.includes('[CMD]')
   const isError = (entry: LogEntry) => (entry.kind === 'error' || entry.source === 'error' || entry.line.includes('[ERROR]')) && !isBenignGitProbeErrorLine(entry.line)
   const isPrompt = (entry: LogEntry) => entry.kind === 'prompt'
   const isFromOpenCode = (entry: LogEntry) =>
@@ -189,7 +190,7 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
 
   switch (tab) {
     case 'ALL':
-      return canonicalEntries.filter(entry => (entry.audience === 'all' || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry))
+      return canonicalEntries.filter(entry => (((entry.audience === 'all' && !isCommand(entry)) || isError(entry) || isPrompt(entry) || isOverviewAiEntry(entry)) && !isDebug(entry)))
     case 'SYS':
       return canonicalEntries.filter(e => isSystem(e) && !isDebug(e))
     case 'AI':

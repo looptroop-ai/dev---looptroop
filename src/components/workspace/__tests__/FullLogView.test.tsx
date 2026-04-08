@@ -151,7 +151,7 @@ describe('FullLogView', () => {
     expect(screen.getByText('1 entries')).toBeTruthy()
   })
 
-  it('shows low-value git probe chatter in ALL and SYS tabs in the full log view', () => {
+  it('shows non-error command chatter only in SYS in the full log view', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('probe', '[CMD] $ git rev-parse --abbrev-ref HEAD  →  master', 'DRAFT', {
         source: 'system',
@@ -164,8 +164,8 @@ describe('FullLogView', () => {
 
     renderWithTooltipProvider(<FullLogView />)
 
-    expect(screen.getByText(/rev-parse --abbrev-ref HEAD/i)).toBeTruthy()
-    expect(screen.getByText(/worktree add/i)).toBeTruthy()
+    expect(screen.queryByText(/rev-parse --abbrev-ref HEAD/i)).toBeNull()
+    expect(screen.queryByText(/worktree add/i)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'SYS' }))
 
@@ -173,13 +173,13 @@ describe('FullLogView', () => {
     expect(screen.getByText(/worktree add/i)).toBeTruthy()
   })
 
-  it('keeps benign git probe failures out of the ERROR tab in the full log view', () => {
+  it('shows real command failures in ALL and ERROR while keeping benign probe misses out of ERROR in the full log view', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('probe-error', '[CMD] $ git symbolic-ref --quiet --short refs/remotes/origin/HEAD  →  origin/HEAD not set', 'DRAFT', {
         source: 'system',
         kind: 'error',
       }),
-      makeLog('real-error', '[ERROR] Worktree creation failed.', 'DRAFT', {
+      makeLog('real-cmd-error', '[CMD] $ git merge --no-edit LTL-5  →  error: merge conflict', 'DRAFT', {
         source: 'error',
         kind: 'error',
       }),
@@ -187,10 +187,13 @@ describe('FullLogView', () => {
 
     renderWithTooltipProvider(<FullLogView />)
 
+    expect(screen.getByText(/merge --no-edit/i)).toBeTruthy()
+    expect(screen.queryByText(/origin\/HEAD not set/i)).toBeNull()
+
     fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
 
     expect(screen.queryByText(/origin\/HEAD not set/i)).toBeNull()
-    expect(screen.getByText(/Worktree creation failed/i)).toBeTruthy()
+    expect(screen.getByText(/merge --no-edit/i)).toBeTruthy()
   })
 
   it('shows model tabs from the AI tab and filters by selected model', () => {
