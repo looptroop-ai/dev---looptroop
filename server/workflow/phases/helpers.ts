@@ -3,6 +3,7 @@ import { appendLogEvent } from '../../log/executionLog'
 import type { LogEventType, LogSource } from '../../log/types'
 import { type TicketState } from '../../opencode/contextBuilder'
 import { analyzeAssistantMessages } from '../../opencode/assistantMessageAnalysis'
+import { hasRichModelErrorInfo, summarizeModelErrorForLog } from '../../opencode/errorDetails'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
 import { PROM5, PROM13, PROM23 } from '../../prompts/index'
 import type {
@@ -595,13 +596,14 @@ export function emitOpenCodeStreamEvent(
   }
 
   if (event.type === 'session_error') {
+    const errorSummary = summarizeModelErrorForLog(event.details ?? event.error, event.error)
     finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
     emitAiDetail(
       ticketId,
       ticketExternalId,
       phase,
       'error',
-      event.error,
+      errorSummary.message,
       {
         entryId: `${sessionId}:error`,
         audience: 'ai',
@@ -611,6 +613,7 @@ export function emitOpenCodeStreamEvent(
         modelId: memberId || undefined,
         sessionId,
         streaming: false,
+        ...(errorSummary.details ? { errorDetails: errorSummary.details } : {}),
       },
     )
     emitAiMilestone(
@@ -704,6 +707,31 @@ export function emitOpenCodeSessionLogs(
     if (latestTextEntryId) {
       state?.finalizedTextEntryIds.add(latestTextEntryId)
     }
+  }
+
+  if (responseMeta.latestAssistantHasError && hasRichModelErrorInfo(responseMeta.latestAssistantErrorInfo)) {
+    const assistantErrorSummary = summarizeModelErrorForLog(
+      responseMeta.latestAssistantErrorInfo,
+      responseMeta.latestAssistantError,
+    )
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'error',
+      assistantErrorSummary.message,
+      {
+        entryId: `${sessionId}:${latestAssistantMessageId ?? 'assistant-error'}:assistant-error`,
+        audience: 'ai',
+        kind: 'error',
+        op: 'append',
+        source: `model:${memberId}`,
+        modelId: memberId,
+        sessionId,
+        streaming: false,
+        ...(assistantErrorSummary.details ? { errorDetails: assistantErrorSummary.details } : {}),
+      },
+    )
   }
 
   emitDebugLog(ticketId, phase, `opencode.${stage}.response`, { memberId, response })

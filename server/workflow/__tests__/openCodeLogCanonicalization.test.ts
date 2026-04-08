@@ -253,6 +253,63 @@ describe('OpenCode log canonicalization', () => {
     ]))
   })
 
+  it('persists structured provider details on session error rows without storing raw request bodies', () => {
+    const state = createOpenCodeStreamState()
+
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'DRAFTING_PRD', 'kilo/nvidia/nemotron-3-super-120b-a12b:free', 'ses-error', {
+      type: 'session_error',
+      sessionId: 'ses-error',
+      error: 'Provider returned error',
+      details: {
+        error: {
+          name: 'AI_APICallError',
+          statusCode: 402,
+          url: 'https://api.kilo.ai/api/gateway/chat/completions',
+          requestBodyValues: {
+            model: 'anthropic/claude-haiku-4.5',
+            messages: [{ role: 'system', content: 'very large prompt body' }],
+          },
+          responseBody: JSON.stringify({
+            error: {
+              title: 'Low Credit Warning!',
+              message: 'Add credits to continue, or switch to a free model',
+            },
+          }),
+          data: {
+            error: {
+              type: 'ModelError',
+              message: 'Add credits to continue, or switch to a free model',
+            },
+          },
+        },
+      },
+    }, state)
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'ses-error:error',
+        content: 'Low Credit Warning!: Add credits to continue, or switch to a free model (HTTP 402, requestModel=anthropic/claude-haiku-4.5)',
+        kind: 'error',
+        source: 'model:kilo/nvidia/nemotron-3-super-120b-a12b:free',
+        modelId: 'kilo/nvidia/nemotron-3-super-120b-a12b:free',
+        sessionId: 'ses-error',
+        data: expect.objectContaining({
+          errorDetails: expect.objectContaining({
+            name: 'AI_APICallError',
+            statusCode: 402,
+            requestModel: 'anthropic/claude-haiku-4.5',
+            responseErrorType: 'ModelError',
+            responseErrorTitle: 'Low Credit Warning!',
+            responseErrorMessage: 'Add credits to continue, or switch to a free model',
+          }),
+        }),
+      }),
+    ]))
+
+    const errorEntry = getPersistedEntries().find((entry) => entry.entryId === 'ses-error:error')
+    expect(errorEntry?.data?.errorDetails).not.toHaveProperty('requestBodyValues')
+  })
+
   it('emits one canonical text row per assistant response when a session is reused', () => {
     const state = createOpenCodeStreamState()
 

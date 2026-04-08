@@ -524,6 +524,62 @@ describe('runOpenCodePrompt', () => {
     })
   })
 
+  it('extracts structured provider error details from the latest assistant snapshot', async () => {
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => ({
+        data: {
+          info: { id: 'msg-2' },
+          parts: [],
+        },
+      }),
+      messages: async () => ({
+        data: [
+          {
+            info: {
+              id: 'msg-2',
+              role: 'assistant',
+              error: {
+                name: 'AI_APICallError',
+                statusCode: 402,
+                requestBodyValues: { model: 'gpt-5-nano' },
+                responseBody: JSON.stringify({
+                  error: {
+                    title: 'Low Credit Warning!',
+                    message: 'Add credits to continue, or switch to a free model',
+                  },
+                }),
+                data: {
+                  error: {
+                    type: 'ModelError',
+                    message: 'Add credits to continue, or switch to a free model',
+                  },
+                },
+              },
+              time: { created: Date.now() },
+            },
+            parts: [],
+          },
+        ],
+      }),
+    })
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+    })
+
+    expect(result.responseMeta.latestAssistantErrorInfo).toMatchObject({
+      name: 'AI_APICallError',
+      statusCode: 402,
+      requestModel: 'gpt-5-nano',
+      responseErrorType: 'ModelError',
+      responseErrorMessage: 'Add credits to continue, or switch to a free model',
+      responseErrorTitle: 'Low Credit Warning!',
+    })
+  })
+
   it('waits for the terminal snapshot when the immediate SDK response echoes the prompt', async () => {
     let latestAssistantText = [
       'CRITICAL OUTPUT RULE:',

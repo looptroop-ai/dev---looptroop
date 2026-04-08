@@ -1,3 +1,5 @@
+import type { ModelErrorInfo } from './errorDetails'
+import { extractModelErrorInfo } from './errorDetails'
 import type { Message, MessagePart } from './types'
 
 export interface OpenCodeResponseMeta {
@@ -6,6 +8,7 @@ export interface OpenCodeResponseMeta {
   latestAssistantWasEmpty: boolean
   latestAssistantHasError: boolean
   latestAssistantError?: string
+  latestAssistantErrorInfo?: ModelErrorInfo
   latestAssistantWasStale: boolean
 }
 
@@ -65,6 +68,7 @@ function analyzeSingleAssistantMessage(
         latestAssistantWasEmpty: true,
         latestAssistantHasError: true,
         latestAssistantError,
+        latestAssistantErrorInfo: extractModelErrorInfo(message.info?.error),
         latestAssistantWasStale: Boolean(options?.stale),
       },
     }
