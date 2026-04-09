@@ -207,6 +207,13 @@ export function filterEntries(entries: LogEntry[], tab: string): LogEntry[] {
   }
 }
 
+export function filterBeadLogEntries(entries: LogEntry[]): LogEntry[] {
+  const canonicalEntries = getCanonicalLogEntries(entries)
+  return canonicalEntries.filter(entry =>
+    !(entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')),
+  )
+}
+
 export const PHASE_LOG_DESCRIPTIONS: Record<string, string> = {
   DRAFT: 'Ticket created and waiting to start.',
   SCANNING_RELEVANT_FILES: 'AI reads and extracts relevant source file contents for use as context in subsequent phases.',

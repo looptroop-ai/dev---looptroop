@@ -354,6 +354,7 @@ export function finalizeOpenCodeParts(
   memberId: string,
   sessionId: string,
   state: OpenCodeStreamState,
+  beadId?: string,
 ) {
   const source = memberId ? `model:${memberId}` : 'opencode'
   for (const [, message] of state.liveTextMessages.entries()) {
@@ -373,6 +374,7 @@ export function finalizeOpenCodeParts(
           source,
           modelId: memberId || undefined,
           sessionId,
+          ...(beadId ? { beadId } : {}),
           streaming: false,
         },
       )
@@ -389,17 +391,18 @@ export function finalizeOpenCodeParts(
       phase,
       kind === 'error' ? 'error' : kind === 'text' || kind === 'reasoning' ? 'model_output' : 'info',
       content,
-      {
-        entryId: `${sessionId}:${partId}`,
-        audience: 'ai',
-        kind,
-        op: 'finalize',
-        source,
-        modelId: memberId || undefined,
-        sessionId,
-        streaming: false,
-      },
-    )
+        {
+          entryId: `${sessionId}:${partId}`,
+          audience: 'ai',
+          kind,
+          op: 'finalize',
+          source,
+          modelId: memberId || undefined,
+          sessionId,
+          ...(beadId ? { beadId } : {}),
+          streaming: false,
+        },
+      )
   }
   state.liveTextMessages.clear()
   state.textPartToMessageIds.clear()
@@ -557,7 +560,7 @@ export function emitOpenCodeStreamEvent(
 
   if (event.type === 'session_status') {
     if (event.status === 'idle') {
-      finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
+      finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state, beadId)
     }
 
     for (const entry of buildSessionStatusLogEntries(sessionId, event)) {
@@ -607,7 +610,7 @@ export function emitOpenCodeStreamEvent(
 
   if (event.type === 'session_error') {
     const errorSummary = summarizeModelErrorForLog(event.details ?? event.error, event.error)
-    finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
+    finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state, beadId)
     emitAiDetail(
       ticketId,
       ticketExternalId,
@@ -651,7 +654,7 @@ export function emitOpenCodeStreamEvent(
   }
 
   if (event.type === 'done') {
-    finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state)
+    finalizeOpenCodeParts(ticketId, ticketExternalId, phase, memberId, sessionId, state, beadId)
     emitAiMilestone(
       ticketId,
       ticketExternalId,
@@ -671,10 +674,11 @@ export function emitOpenCodeSessionLogs(
   phase: string,
   memberId: string,
   sessionId: string,
-  stage: 'draft' | 'vote' | 'refine' | 'coverage' | 'relevant_files_scan',
+  stage: string,
   response: string,
   messages: Message[],
   state?: OpenCodeStreamState,
+  beadId?: string,
 ) {
   emitModelSystemLog(
     ticketId,
@@ -683,6 +687,7 @@ export function emitOpenCodeSessionLogs(
     'info',
     `OpenCode ${stage}: ${memberId} session=${sessionId}, messages=${messages.length}, responseChars=${response.length}.`,
     memberId,
+    beadId ? { beadId } : undefined,
   )
   const { responseText, responseMeta } = analyzeAssistantMessages(messages)
   const latestAssistantMessageId = responseMeta.latestAssistantMessageId
@@ -712,6 +717,7 @@ export function emitOpenCodeSessionLogs(
         source: `model:${memberId}`,
         modelId: memberId,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: false,
       },
     )
@@ -739,6 +745,7 @@ export function emitOpenCodeSessionLogs(
         source: `model:${memberId}`,
         modelId: memberId,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: false,
         ...(assistantErrorSummary.details ? { errorDetails: assistantErrorSummary.details } : {}),
       },

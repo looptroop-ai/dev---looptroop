@@ -8,7 +8,7 @@ import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { BeadDiffViewer } from './BeadDiffViewer'
 import { LogEntryRow } from './LogLine'
-import { filterEntries } from './logFormat'
+import { filterBeadLogEntries } from './logFormat'
 import { VerificationSummaryPanel } from './VerificationSummaryPanel'
 import type { Ticket } from '@/hooks/useTickets'
 import { useTicketAction } from '@/hooks/useTickets'
@@ -350,11 +350,11 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
     () => beads.find((bead) => bead.id === viewingBeadId) ?? null,
     [beads, viewingBeadId],
   )
-  const beadModelLogs = useMemo(() => {
+  const beadLogEntries = useMemo(() => {
     if (!viewedBead) return []
     const phaseLogs = logCtx?.getLogsForPhase(readOnly ? 'CODING' : ticket.status) ?? []
     const beadLogs = phaseLogs.filter(entry => entry.beadId === viewedBead.id)
-    return filterEntries(beadLogs, 'AI')
+    return filterBeadLogEntries(beadLogs)
   }, [logCtx, viewedBead, readOnly, ticket.status])
   const isViewingOther = viewedBead !== null
 
@@ -467,12 +467,12 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
             {detailTab === 'model' ? (
               <div className="flex-1 min-h-0 overflow-auto">
                 <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
-                  {beadModelLogs.length > 0 ? (
-                    beadModelLogs.map((entry, i) => (
+                  {beadLogEntries.length > 0 ? (
+                    beadLogEntries.map((entry, i) => (
                       <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName />
                     ))
                   ) : (
-                    <span className="text-muted-foreground/50 italic">No AI model logs for this bead.</span>
+                    <span className="text-muted-foreground/50 italic">No logs for this bead.</span>
                   )}
                 </div>
               </div>

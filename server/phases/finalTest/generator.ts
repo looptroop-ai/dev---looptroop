@@ -4,6 +4,7 @@ import { buildPromptFromTemplate, PROM52 } from '../../prompts/index'
 import {
   runOpenCodePrompt,
   runOpenCodeSessionPrompt,
+  type OpenCodePromptCompletedEvent,
   type OpenCodePromptDispatchEvent,
 } from '../../workflow/runOpenCodePrompt'
 import { throwIfAborted } from '../../council/types'
@@ -31,6 +32,8 @@ export interface FinalTestGenerationResult {
   structuredOutput: StructuredOutputMetadata
 }
 
+type FinalTestPromptStage = 'final_test_main' | 'final_test_structured_retry'
+
 export async function generateFinalTests(
   adapter: OpenCodeAdapter,
   ticketContext: PromptPart[],
@@ -45,6 +48,7 @@ export async function generateFinalTests(
     onSessionCreated?: (sessionId: string) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
     onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
+    onPromptCompleted?: (entry: { stage: FinalTestPromptStage; event: OpenCodePromptCompletedEvent }) => void
   },
 ): Promise<FinalTestGenerationResult> {
   const promptContent = buildPromptFromTemplate(PROM52, ticketContext)
@@ -90,6 +94,12 @@ export async function generateFinalTests(
       onPromptDispatched: (event) => {
         callbacks?.onPromptDispatched?.({
           sessionId: event.session.id,
+          event,
+        })
+      },
+      onPromptCompleted: (event) => {
+        callbacks?.onPromptCompleted?.({
+          stage: 'final_test_main',
           event,
         })
       },
@@ -155,6 +165,12 @@ export async function generateFinalTests(
               event,
             })
           },
+          onPromptCompleted: (event) => {
+            callbacks?.onPromptCompleted?.({
+              stage: 'final_test_structured_retry',
+              event,
+            })
+          },
         })
         throwIfAborted(signal)
         response = retryResult.response
@@ -198,6 +214,12 @@ export async function generateFinalTests(
           onPromptDispatched: (event) => {
             callbacks?.onPromptDispatched?.({
               sessionId: event.session.id,
+              event,
+            })
+          },
+          onPromptCompleted: (event) => {
+            callbacks?.onPromptCompleted?.({
+              stage: 'final_test_main',
               event,
             })
           },

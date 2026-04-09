@@ -20,6 +20,7 @@ export interface OpenCodeRunCallbacks {
   onPromptDispatched?: (event: OpenCodePromptDispatchEvent) => void
   onStreamEvent?: (event: StreamEvent) => void
   onStreamError?: (error: unknown) => void
+  onPromptCompleted?: (event: OpenCodePromptCompletedEvent) => void
 }
 
 export interface OpenCodePromptDispatchEvent {
@@ -36,6 +37,17 @@ export interface OpenCodeSessionOwnership extends SessionOwnership {
   ticketId: string
   phase: string
   keepActive?: boolean
+}
+
+export interface OpenCodePromptCompletedEvent {
+  session: Session
+  parts: PromptPart[]
+  response: string
+  messages: Message[]
+  responseMeta: OpenCodeResponseMeta
+  model?: string
+  agent?: string
+  variant?: string
 }
 
 export interface OpenCodeRunOptions extends OpenCodeRunCallbacks {
@@ -105,6 +117,7 @@ export async function runOpenCodePrompt({
   onSessionCreated,
   onPromptDispatched,
   onStreamEvent,
+  onPromptCompleted,
 }: OpenCodeRunOptions & { projectPath: string }): Promise<OpenCodeRunResult> {
   const sessionManager = sessionOwnership ? new SessionManager(adapter) : null
   const session = sessionOwnership
@@ -139,6 +152,7 @@ export async function runOpenCodePrompt({
       toolPolicy,
       onPromptDispatched,
       onStreamEvent,
+      onPromptCompleted,
     })
     if (sessionManager && !sessionOwnership?.keepActive) {
       await sessionManager.completeSession(session.id)
@@ -166,6 +180,7 @@ export async function runOpenCodeSessionPrompt({
   onPromptDispatched,
   onStreamEvent,
   onStreamError,
+  onPromptCompleted,
 }: OpenCodeRunOptions & { session: Session }): Promise<OpenCodeRunResult> {
   let resolvedSession = session
   if (sessionOwnership) {
@@ -261,10 +276,22 @@ export async function runOpenCodeSessionPrompt({
   }
   response = reconcileResponseWithLatestAssistant(response, latestAssistantResponse, responseMeta)
 
-  return {
+  const result = {
     session: resolvedSession,
     response,
     messages,
     responseMeta,
   }
+  onPromptCompleted?.({
+    session: resolvedSession,
+    parts,
+    response,
+    messages,
+    responseMeta,
+    ...(model ? { model } : {}),
+    ...(agent ? { agent } : {}),
+    ...(variant ? { variant } : {}),
+  })
+
+  return result
 }

@@ -7,7 +7,12 @@ import { throwIfCancelled } from '../../lib/abort'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { buildPromptFromTemplate, PROM0, PROM13b, PROM24, PROM53 } from '../../prompts/index'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts, upsertLatestPhaseArtifact } from '../../storage/tickets'
-import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../runOpenCodePrompt'
+import {
+  runOpenCodePrompt,
+  runOpenCodeSessionPrompt,
+  type OpenCodePromptCompletedEvent,
+  type OpenCodePromptDispatchEvent,
+} from '../runOpenCodePrompt'
 import { safeAtomicWrite } from '../../io/atomicWrite'
 import { buildRelevantFilesArtifact, type RelevantFilesData } from '../../ticket/relevantFiles'
 import {
@@ -3102,6 +3107,8 @@ async function generateFinalTestRetryNote(input: {
   model: string
   variant?: string
   timeoutMs: number
+  onPromptDispatched?: (event: OpenCodePromptDispatchEvent) => void
+  onPromptCompleted?: (event: OpenCodePromptCompletedEvent) => void
 }): Promise<string> {
   const promptContent = buildPromptFromTemplate(PROM53, [
     ...buildMinimalContext('preflight', input.ticketState),
@@ -3122,6 +3129,8 @@ async function generateFinalTestRetryNote(input: {
       model: input.model,
       variant: input.variant,
       toolPolicy: PROM53.toolPolicy,
+      onPromptDispatched: input.onPromptDispatched,
+      onPromptCompleted: input.onPromptCompleted,
     })
     return result.response.trim()
   } catch (error) {
@@ -3297,6 +3306,27 @@ export async function handleFinalTest(
           model: finalTestModelId,
           variant: context.lockedMainImplementerVariant ?? undefined,
           timeoutMs: executionSettings.perIterationTimeoutMs,
+          onPromptDispatched: (event) => {
+            emitOpenCodePromptLog(
+              ticketId,
+              context.externalId,
+              'RUNNING_FINAL_TEST',
+              finalTestModelId,
+              event,
+            )
+          },
+          onPromptCompleted: (event) => {
+            emitOpenCodeSessionLogs(
+              ticketId,
+              context.externalId,
+              'RUNNING_FINAL_TEST',
+              finalTestModelId,
+              event.session.id,
+              'final_test_retry_note',
+              event.response,
+              event.messages,
+            )
+          },
         })
       },
       onAttemptStart: (attempt) => {
@@ -3409,6 +3439,19 @@ export async function handleFinalTest(
           'RUNNING_FINAL_TEST',
           finalTestModelId,
           event,
+        )
+      },
+      onPromptCompleted: ({ stage, event }) => {
+        emitOpenCodeSessionLogs(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          finalTestModelId,
+          event.session.id,
+          stage,
+          event.response,
+          event.messages,
+          streamStates.get(event.session.id),
         )
       },
     },

@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
+import type { LogContextValue, LogEntry } from '@/context/logUtils'
 import type { Ticket } from '@/hooks/useTickets'
+
+const { useLogsMock } = vi.hoisted(() => ({
+  useLogsMock: vi.fn(),
+}))
 
 vi.mock('@/hooks/useTickets', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useTickets')>('@/hooks/useTickets')
@@ -11,6 +16,10 @@ vi.mock('@/hooks/useTickets', async () => {
     useTicketAction: () => ({ mutate: vi.fn(), isPending: false }),
   }
 })
+
+vi.mock('@/context/useLogContext', () => ({
+  useLogs: useLogsMock,
+}))
 
 vi.mock('../PhaseArtifactsPanel', () => ({
   PhaseArtifactsPanel: () => <div data-testid="phase-artifacts-panel" />,
@@ -58,6 +67,7 @@ beforeEach(() => {
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(JSON.stringify([]), { status: 200 }),
   )
+  useLogsMock.mockReturnValue(null)
 })
 
 afterEach(() => {
@@ -276,6 +286,92 @@ describe('CodingView', () => {
 
     expect(screen.getByText(/first note/)).toBeTruthy()
     expect(screen.getByText(/second note/)).toBeTruthy()
+  })
+
+  it('shows the full non-debug bead transcript in the Log tab', () => {
+    const beadLogs: LogEntry[] = [
+      {
+        id: '1',
+        entryId: 'cmd-1',
+        line: '[CMD] $ git status  →  ok',
+        source: 'system',
+        status: 'CODING',
+        audience: 'all',
+        kind: 'milestone',
+        beadId: 'bead-1',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: '2',
+        entryId: 'prompt-1',
+        line: '[PROMPT] openai/gpt-5.4 prompt #1',
+        source: 'model:openai/gpt-5.4',
+        status: 'CODING',
+        audience: 'ai',
+        kind: 'prompt',
+        modelId: 'openai/gpt-5.4',
+        sessionId: 'session-1',
+        beadId: 'bead-1',
+        streaming: false,
+        op: 'append',
+      },
+      {
+        id: '3',
+        entryId: 'think-1',
+        line: 'Checking the failing test output.',
+        source: 'model:openai/gpt-5.4',
+        status: 'CODING',
+        audience: 'ai',
+        kind: 'reasoning',
+        modelId: 'openai/gpt-5.4',
+        sessionId: 'session-1',
+        beadId: 'bead-1',
+        streaming: false,
+        op: 'finalize',
+      },
+      {
+        id: '4',
+        entryId: 'debug-1',
+        line: '[DEBUG] hidden debug row',
+        source: 'debug',
+        status: 'CODING',
+        audience: 'debug',
+        kind: 'milestone',
+        beadId: 'bead-1',
+        streaming: false,
+        op: 'append',
+      },
+    ]
+
+    const logContext: LogContextValue = {
+      logsByPhase: { CODING: beadLogs },
+      activePhase: 'CODING',
+      isLoadingLogs: false,
+      addLog: vi.fn(),
+      addLogRecord: vi.fn(),
+      getLogsForPhase: vi.fn(() => beadLogs),
+      getAllLogs: vi.fn(() => beadLogs),
+      setActivePhase: vi.fn(),
+      clearLogs: vi.fn(),
+    }
+    useLogsMock.mockReturnValue(logContext)
+
+    renderCoding({
+      runtime: {
+        beads: [
+          { id: 'bead-1', title: 'Logged bead', status: 'done', iteration: 1 },
+        ],
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Logged bead/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Log' }))
+
+    expect(screen.getByText((content) => content.includes('git status') && content.includes('ok'))).toBeTruthy()
+    expect(screen.getByText((content) => content.includes('prompt #1'))).toBeTruthy()
+    expect(screen.getByText(/Checking the failing test output/)).toBeTruthy()
+    expect(screen.queryByText(/hidden debug row/)).toBeNull()
   })
 
   describe('WAITING_MANUAL_VERIFICATION', () => {

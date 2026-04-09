@@ -6,9 +6,9 @@ import { getNextBead, isAllComplete } from '../../phases/execution/scheduler'
 import { recordBeadStartCommit, commitBeadChanges, resetToBeadStart, captureBeadDiff } from '../../phases/execution/gitOps'
 import { throwIfAborted } from '../../council/types'
 import { broadcaster } from '../../sse/broadcaster'
-import { withCommandLoggingAsync } from '../../log/commandLogger'
+import { withCommandLoggingAsync, withCommandLoggingFieldsAsync } from '../../log/commandLogger'
 import { adapter } from './state'
-import { emitPhaseLog, emitAiMilestone, emitOpenCodeStreamEvent, emitOpenCodePromptLog, createOpenCodeStreamState, resolveExecutionRuntimeSettings } from './helpers'
+import { emitPhaseLog, emitAiMilestone, emitOpenCodeSessionLogs, emitOpenCodeStreamEvent, emitOpenCodePromptLog, createOpenCodeStreamState, resolveExecutionRuntimeSettings } from './helpers'
 import type { OpenCodeStreamState } from './types'
 import { readTicketBeads, writeTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
 
@@ -73,7 +73,7 @@ export async function handleCoding(
   // Record bead start commit for potential reset on context wipe
   let beadStartCommit: string | null = null
   try {
-    beadStartCommit = recordBeadStartCommit(paths.worktreePath)
+    beadStartCommit = await withCommandLoggingFieldsAsync({ beadId: nextBead.id }, async () => recordBeadStartCommit(paths.worktreePath))
     const beadsWithCommit = readTicketBeads(ticketId).map(b =>
       b.id === nextBead.id ? { ...b, beadStartCommit } : b)
     writeTicketBeads(ticketId, beadsWithCommit)
@@ -84,7 +84,7 @@ export async function handleCoding(
   throwIfAborted(signal, ticketId)
   const executionSettings = resolveExecutionRuntimeSettings(context)
   const streamStates = new Map<string, OpenCodeStreamState>()
-  const result = await executeBead(
+  const result = await withCommandLoggingFieldsAsync({ beadId: nextBead.id }, async () => await executeBead(
     adapter,
     nextBead,
     () => adapter.assembleBeadContext(ticketId, nextBead.id),
@@ -145,22 +145,53 @@ export async function handleCoding(
           nextBead.id,
         )
       },
-      onNotesUpdated: (beadId, notes) => {
+      onPromptCompleted: ({ stage, event }) => {
+        emitOpenCodeSessionLogs(
+          ticketId,
+          context.externalId,
+          'CODING',
+          codingModelId,
+          event.session.id,
+          stage,
+          event.response,
+          event.messages,
+          streamStates.get(event.session.id),
+          nextBead.id,
+        )
+      },
+      onContextWipe: async ({ beadId, notes, iteration }) => {
+        if (!beadStartCommit) {
+          throw new Error(`Cannot reset bead ${beadId} for attempt ${iteration}: missing bead start commit`)
+        }
+
+        try {
+          await withCommandLoggingFieldsAsync({ beadId }, async () => resetToBeadStart(paths.worktreePath, beadStartCommit!))
+        } catch (err) {
+          emitPhaseLog(
+            ticketId,
+            context.externalId,
+            'CODING',
+            'error',
+            `Could not reset bead ${beadId} to bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            { source: 'system', modelId: codingModelId, beadId },
+          )
+          throw err
+        }
+
         const currentBeads = readTicketBeads(ticketId)
         const updated = currentBeads.map(b => b.id === beadId ? { ...b, notes } : b)
         writeTicketBeads(ticketId, updated)
-
-        // Reset to bead start commit on context wipe
-        if (beadStartCommit) {
-          try {
-            resetToBeadStart(paths.worktreePath, beadStartCommit)
-          } catch (err) {
-            emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not reset to bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
-          }
-        }
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'CODING',
+          'info',
+          `Reset bead ${beadId} to its start snapshot and appended retry notes for attempt ${iteration + 1}.`,
+          { source: 'system', modelId: codingModelId, beadId },
+        )
       },
     },
-  )
+  ))
   throwIfAborted(signal, ticketId)
 
   insertPhaseArtifact(ticketId, {
@@ -210,7 +241,7 @@ export async function handleCoding(
 
   // Commit and push bead changes
   try {
-    const gitResult = commitBeadChanges(paths.worktreePath, nextBead.id, nextBead.title)
+    const gitResult = await withCommandLoggingFieldsAsync({ beadId: nextBead.id }, async () => commitBeadChanges(paths.worktreePath, nextBead.id, nextBead.title))
     if (gitResult.error) {
       emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Git operation warning for bead ${nextBead.id}: ${gitResult.error}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
     }
@@ -224,7 +255,7 @@ export async function handleCoding(
   // Capture code-only diff for this bead (excludes .ticket/** metadata)
   if (beadStartCommit) {
     try {
-      const diffContent = captureBeadDiff(paths.worktreePath, beadStartCommit)
+      const diffContent = await withCommandLoggingFieldsAsync({ beadId: nextBead.id }, async () => captureBeadDiff(paths.worktreePath, beadStartCommit))
       insertPhaseArtifact(ticketId, {
         phase: 'CODING',
         artifactType: `bead_diff:${nextBead.id}`,
@@ -250,6 +281,6 @@ export async function handleCoding(
     sendEvent({ type: 'BEAD_COMPLETE' })
   }
     },
-    (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all' }),
+    (phase, type, content, data) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all', ...(data ?? {}) }),
   )
 }

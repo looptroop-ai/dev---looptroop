@@ -1,7 +1,7 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { PromptPart, StreamEvent } from '../../opencode/types'
 import { throwIfAborted } from '../../council/types'
-import type { OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
+import type { OpenCodePromptCompletedEvent, OpenCodePromptDispatchEvent } from '../../workflow/runOpenCodePrompt'
 import {
   generateFinalTests,
   type FinalTestGenerationResult,
@@ -113,6 +113,7 @@ export async function executeFinalTestWithRetries(
     onSessionCreated?: (sessionId: string, attempt: number) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; attempt: number; event: StreamEvent }) => void
     onPromptDispatched?: (entry: { sessionId: string; attempt: number; event: OpenCodePromptDispatchEvent }) => void
+    onPromptCompleted?: (entry: { attempt: number; stage: string; event: OpenCodePromptCompletedEvent }) => void
     onFailedAttempt?: (input: {
       attempt: number
       report: FinalTestExecutionReport
@@ -175,6 +176,13 @@ export async function executeFinalTestWithRetries(
           callbacks.onPromptDispatched?.({
             sessionId,
             attempt,
+            event,
+          })
+        },
+        onPromptCompleted: ({ stage, event }) => {
+          callbacks.onPromptCompleted?.({
+            attempt,
+            stage,
             event,
           })
         },

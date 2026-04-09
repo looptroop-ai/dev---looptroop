@@ -208,6 +208,63 @@ describe('OpenCode log canonicalization', () => {
     expect(getPersistedEntries().some((entry) => entry.entryId === 'ses-3:transcript-summary')).toBe(false)
   })
 
+  it('retains beadId on finalized streamed text rows', () => {
+    const state = createOpenCodeStreamState()
+
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'CODING', 'openai/gpt-5.4', 'ses-bead', {
+      type: 'text',
+      sessionId: 'ses-bead',
+      messageId: 'msg-bead',
+      partId: 'part-bead',
+      text: '<BEAD_STATUS>{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}</BEAD_STATUS>',
+      streaming: true,
+      complete: true,
+    }, state, 'bead-1')
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'CODING', 'openai/gpt-5.4', 'ses-bead', {
+      type: 'done',
+      sessionId: 'ses-bead',
+    }, state, 'bead-1')
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'ses-bead:msg-bead:text',
+        beadId: 'bead-1',
+        kind: 'text',
+        op: 'finalize',
+      }),
+    ]))
+  })
+
+  it('retains beadId on fallback session-history rows', () => {
+    emitOpenCodeSessionLogs(
+      '1:T-42',
+      'T-42',
+      'CODING',
+      'openai/gpt-5.4',
+      'ses-fallback',
+      'coding_main',
+      '<BEAD_STATUS>{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}</BEAD_STATUS>',
+      [
+        {
+          id: 'msg-fallback',
+          role: 'assistant',
+          content: '<BEAD_STATUS>{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}</BEAD_STATUS>',
+        },
+      ],
+      createOpenCodeStreamState(),
+      'bead-1',
+    )
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'ses-fallback:msg-fallback:text',
+        beadId: 'bead-1',
+        kind: 'text',
+        op: 'append',
+      }),
+    ]))
+  })
+
   it('persists step-start rows without marking them as streaming', () => {
     const state = createOpenCodeStreamState()
 

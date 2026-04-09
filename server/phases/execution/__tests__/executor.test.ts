@@ -65,6 +65,11 @@ describe('executeBead', () => {
       '```',
       '</BEAD_STATUS>',
     ].join('\n'))
+    adapter.mockResponses.set('mock-session-1#3', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
 
     const result = await executeBead(
       adapter,
@@ -108,12 +113,39 @@ describe('executeBead', () => {
     expect(firstPrompt).toContain('quality gates')
   })
 
-  it('calls onNotesUpdated when iteration fails and PROM51 generates notes', async () => {
+  it('continues the same session when the model reports status:error before eventually succeeding', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
-    // First session: fail with invalid marker
-    adapter.mockResponses.set('mock-session-1#1', 'Did some work but no marker')
-    // Retry in same session also fails (getStructuredRetryDecision returns reuseSession: true for non-empty responses)
-    adapter.mockResponses.set('mock-session-1#2', 'Still no valid marker')
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"error","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"},"reason":"lint still failing"}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+    adapter.mockResponses.set('mock-session-1#2', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const result = await executeBead(
+      adapter,
+      buildBead(),
+      [{ type: 'text', content: 'Bead context' }],
+      '/tmp/test',
+      1,
+    )
+
+    expect(result.success).toBe(true)
+    const messages = adapter.messages.get('mock-session-1') ?? []
+    expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Continue Bead Execution'))).toBe(true)
+  })
+
+  it('calls onContextWipe when iteration fails and PROM51 generates notes', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"error","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"},"reason":"tests still failing"}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
     // PROM51 note generation session
     adapter.mockResponses.set('mock-session-2#1', 'Iteration 1 failed because: no completion marker output.')
 
@@ -124,22 +156,19 @@ describe('executeBead', () => {
       [{ type: 'text', content: 'Bead context' }],
       '/tmp/test',
       1,
-      undefined,
+      1,
       undefined,
       {
-        onNotesUpdated: (beadId, notes) => {
+        onContextWipe: async ({ beadId, notes }) => {
           notesUpdates.push({ beadId, notes })
         },
       },
     )
 
     expect(result.success).toBe(false)
-    // Note: PROM51 note generation is best-effort (non-blocking), so we check if it was attempted
-    // The mock adapter may produce a note if the session creation works
-    if (notesUpdates.length > 0) {
-      expect(notesUpdates[0]!.beadId).toBe('bead-1')
-      expect(notesUpdates[0]!.notes).toContain('failed')
-    }
+    expect(notesUpdates).toHaveLength(1)
+    expect(notesUpdates[0]!.beadId).toBe('bead-1')
+    expect(notesUpdates[0]!.notes).toContain('failed')
   })
 
   it('restarts the bead iteration in a fresh session after an empty completion response', async () => {
@@ -173,8 +202,11 @@ describe('executeBead', () => {
 
   it('rebuilds bead context for the next iteration after PROM51 notes are appended', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
-    adapter.mockResponses.set('mock-session-1#1', 'Did some work but no marker')
-    adapter.mockResponses.set('mock-session-1#2', 'Still no valid marker')
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"error","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"},"reason":"missing final fix"}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
     adapter.mockResponses.set('mock-session-2#1', 'Retry with the new note about the missing completion marker.')
     adapter.mockResponses.set('mock-session-3#1', [
       '<BEAD_STATUS>',
@@ -193,6 +225,7 @@ describe('executeBead', () => {
       },
       '/tmp/test',
       2,
+      1,
     )
 
     expect(result.success).toBe(true)

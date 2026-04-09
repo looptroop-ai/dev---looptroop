@@ -242,7 +242,7 @@ describe('handleCoding', () => {
     expect(finalBeads.find((b) => b.id === 'bead-1')?.status).toBe('error')
   })
 
-  it('invokes resetToBeadStart and persists notes through the fresh-reload when onNotesUpdated fires', async () => {
+  it('invokes resetToBeadStart and persists notes through the fresh-reload when onContextWipe fires', async () => {
     const { ticket, context } = createInitializedTestTicket(repoManager, {
       title: 'Notes updated triggers reset',
     })
@@ -260,12 +260,15 @@ describe('handleCoding', () => {
       callbacks: {
         ticketId: string
         model: string
-        onNotesUpdated: (beadId: string, notes: string) => void
+        onContextWipe: (entry: { beadId: string; notes: string; iteration: number }) => Promise<void>
       },
     ) => {
-      // Simulate context wipe: notes are written via callback BEFORE executeBead returns.
-      // handleCoding reloads beads from disk after execution, so these notes must survive.
-      callbacks.onNotesUpdated('bead-1', 'context wiped — retrying with notes')
+      // Simulate context wipe persistence before executeBead returns.
+      await callbacks.onContextWipe({
+        beadId: 'bead-1',
+        notes: 'context wiped — retrying with notes',
+        iteration: 1,
+      })
       return {
         success: true,
         beadId: 'bead-1',
@@ -279,7 +282,7 @@ describe('handleCoding', () => {
 
     expect(resetToBeadStartMock).toHaveBeenCalledWith(expect.any(String), 'abc123')
 
-    // The fresh-reload in handleCoding must not wipe callback-persisted notes
+    // The fresh-reload in handleCoding must not wipe callback-persisted notes.
     const finalBeads = readTicketBeads(ticket.id)
     const executedBead = finalBeads.find((b) => b.id === 'bead-1')
     expect(executedBead?.notes).toBe('context wiped — retrying with notes')
@@ -412,7 +415,7 @@ describe('handleCoding', () => {
     await handleCoding(ticket.id, context, sendEvent, new AbortController().signal)
 
     expect(sendEvent).toHaveBeenCalledWith({ type: 'ALL_BEADS_DONE' })
-    // With no beadStartCommit recorded, onNotesUpdated should NOT attempt a reset
+    // With no beadStartCommit recorded, the success path should still avoid reset attempts.
     expect(resetToBeadStartMock).not.toHaveBeenCalled()
     // bead_diff requires beadStartCommit, so it should not be inserted
     const diffArtifact = getLatestPhaseArtifact(ticket.id, 'bead_diff:bead-1', 'CODING')

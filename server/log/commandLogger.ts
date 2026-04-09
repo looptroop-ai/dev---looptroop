@@ -4,8 +4,9 @@ interface CommandLogContext {
   ticketId: string
   externalId: string
   phase: string
+  fields?: Record<string, unknown>
   /** Emitter callback for SYS log entries. */
-  emit: (phase: string, type: 'info' | 'error', content: string) => void
+  emit: (phase: string, type: 'info' | 'error', content: string, data?: Record<string, unknown>) => void
 }
 
 // Use a globalThis singleton so the same AsyncLocalStorage is shared across
@@ -52,6 +53,41 @@ export async function withCommandLoggingAsync<T>(
 }
 
 /**
+ * Nest command logging metadata inside the current async context.
+ * This lets callers scope command rows to a bead without changing the
+ * surrounding command logging lifecycle.
+ */
+export function withCommandLoggingFields<T>(
+  fields: Record<string, unknown>,
+  fn: () => T,
+): T {
+  const ctx = commandLogStore.getStore()
+  if (!ctx) return fn()
+  return commandLogStore.run({
+    ...ctx,
+    fields: {
+      ...(ctx.fields ?? {}),
+      ...fields,
+    },
+  }, fn)
+}
+
+export async function withCommandLoggingFieldsAsync<T>(
+  fields: Record<string, unknown>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const ctx = commandLogStore.getStore()
+  if (!ctx) return await fn()
+  return await commandLogStore.run({
+    ...ctx,
+    fields: {
+      ...(ctx.fields ?? {}),
+      ...fields,
+    },
+  }, fn)
+}
+
+/**
  * Log a shell command execution result as a SYS log entry.
  * No-op if no command-logging context is active.
  *
@@ -80,7 +116,7 @@ export function logCommand(
     if (probeOutcome) {
       content = `[CMD] $ ${cmdStr}  →  ${truncateOutput(probeOutcome, 2500)}`
       type = 'info'
-      ctx.emit(ctx.phase, type, content)
+      ctx.emit(ctx.phase, type, content, ctx.fields)
       return
     }
 
@@ -94,7 +130,7 @@ export function logCommand(
     if (benignProbeFailure) {
       content = `[CMD] $ ${cmdStr}  →  ${truncateOutput(benignProbeFailure, 2500)}`
       type = 'info'
-      ctx.emit(ctx.phase, type, content)
+      ctx.emit(ctx.phase, type, content, ctx.fields)
       return
     }
 
@@ -103,7 +139,7 @@ export function logCommand(
     type = 'error'
   }
 
-  ctx.emit(ctx.phase, type, content)
+  ctx.emit(ctx.phase, type, content, ctx.fields)
 }
 
 /**
