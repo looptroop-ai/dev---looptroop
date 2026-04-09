@@ -2231,7 +2231,7 @@ describe.concurrent('structured output normalization', () => {
     ])
   })
 
-  it('repairs malformed coverage gap scalars that begin with backticks', () => {
+  it('repairs malformed coverage gap scalars that begin with backticks via the shared parser fix', () => {
     const result = normalizeCoverageResultOutput([
       'status: gaps',
       'gaps:',
@@ -2244,7 +2244,7 @@ describe.concurrent('structured output normalization', () => {
     if (!result.ok) return
     expect(result.repairApplied).toBe(true)
     expect(result.repairWarnings).toEqual([
-      'Quoted coverage gap strings to recover malformed YAML scalars.',
+      'Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.',
     ])
     expect(result.value.gaps).toEqual([
       'Missing rollback behavior',

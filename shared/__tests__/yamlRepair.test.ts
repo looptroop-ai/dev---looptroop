@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe.concurrent('repairYamlListDashSpace', () => {
   it.each([
@@ -492,6 +492,59 @@ describe('repairYamlPlainScalarColons', () => {
     const parsed = jsYaml.load(repaired) as { technical_requirements: { architecture_constraints: string[] } }
     expect(parsed.technical_requirements.architecture_constraints[1]).toBe('Persisted strategy artifact path: `.looptroop/tickets/<ticket-id>/test-strategy.yaml`')
     expect(parsed.technical_requirements.architecture_constraints[2]).toBe('Schema must support inheritance: epic-level properties with story-level overrides')
+  })
+})
+
+describe('repairYamlReservedIndicatorScalars', () => {
+  it.each([
+    ['mapping value beginning with backticks', 'question: `repo_git_mutex` behavior?', 'question: "`repo_git_mutex` behavior?"'],
+    ['mapping value beginning with @', 'owner: @loop-troop', 'owner: "@loop-troop"'],
+    ['list item beginning with backticks', '  - `UIState.theme` allows pink', '  - "`UIState.theme` allows pink"'],
+    ['list item beginning with @', '  - @trace/span-id', '  - "@trace/span-id"'],
+  ])('quotes %s', (_, input, expected) => {
+    expect(repairYamlReservedIndicatorScalars(input)).toBe(expected)
+  })
+
+  it('preserves parsed text for reserved-indicator mapping values and list items', () => {
+    const yaml = [
+      'technical_requirements:',
+      '  data_model:',
+      '    - `UIState.theme` allows `pink` as a valid value.',
+      '  reliability_constraints:',
+      '    - @trace/span-id must be propagated to logs.',
+      'notes:',
+      '  owner: @loop-troop',
+    ].join('\n')
+
+    const repaired = repairYamlReservedIndicatorScalars(yaml)
+    const parsed = jsYaml.load(repaired) as {
+      technical_requirements: {
+        data_model: string[]
+        reliability_constraints: string[]
+      }
+      notes: {
+        owner: string
+      }
+    }
+
+    expect(parsed.technical_requirements.data_model[0]).toBe('`UIState.theme` allows `pink` as a valid value.')
+    expect(parsed.technical_requirements.reliability_constraints[0]).toBe('@trace/span-id must be propagated to logs.')
+    expect(parsed.notes.owner).toBe('@loop-troop')
+  })
+
+  it('passes through list-item mappings, already-quoted values, block scalars, and flow values unchanged', () => {
+    const yaml = [
+      'items:',
+      '  - id: US-1',
+      '    title: "@already-safe"',
+      '    question: >-',
+      '      `backticks` inside a block scalar stay unchanged.',
+      '  - ["@a", "@b"]',
+      'mapping:',
+      '  owner: "@loop-troop"',
+    ].join('\n')
+
+    expect(repairYamlReservedIndicatorScalars(yaml)).toBe(yaml)
   })
 })
 

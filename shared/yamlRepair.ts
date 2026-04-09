@@ -837,6 +837,86 @@ export function repairYamlTypeUnionScalars(yaml: string): string {
   return result.join('\n')
 }
 
+/**
+ * Quote plain YAML scalars that begin with reserved indicator characters.
+ *
+ * YAML rejects plain one-line scalars that begin with reserved indicators such
+ * as backticks or `@`. Models sometimes emit values like:
+ *   question: `repo_git_mutex` behavior?
+ *   - @trace/span-id
+ * This repair wraps the full visible scalar in double quotes while preserving
+ * trailing comments and skipping already-safe constructs.
+ */
+export function repairYamlReservedIndicatorScalars(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const MAPPING_BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+  const LIST_BLOCK_SCALAR_PATTERN = /^-\s*[>|][+-]?\s*$/
+  const SAFE_VALUE_START = /^["'[{>|&*!#]/
+  const RESERVED_INDICATOR_START = /^[`@]/
+
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      result.push(line)
+      continue
+    }
+
+    const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+    if (insideBlockScalar) {
+      if (indent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    if (MAPPING_BLOCK_SCALAR_PATTERN.test(trimmed) || LIST_BLOCK_SCALAR_PATTERN.test(trimmed)) {
+      insideBlockScalar = true
+      blockScalarBaseIndent = indent
+      result.push(line)
+      continue
+    }
+
+    const mappingMatch = line.match(/^(\s*(?:-\s+)?[A-Za-z_][\w_-]*\s*:\s+)(.+)$/)
+    if (mappingMatch) {
+      const prefix = mappingMatch[1]!
+      const { value, comment } = splitYamlValueAndComment(mappingMatch[2]!)
+      const trimmedValue = value.trim()
+      if (!trimmedValue || SAFE_VALUE_START.test(trimmedValue) || !RESERVED_INDICATOR_START.test(trimmedValue)) {
+        result.push(line)
+        continue
+      }
+
+      result.push(`${prefix}${JSON.stringify(trimmedValue)}${comment ? ` ${comment}` : ''}`)
+      continue
+    }
+
+    const listScalarMatch = line.match(/^(\s*-\s+)(.+)$/)
+    if (listScalarMatch && !/^[A-Za-z_][\w_-]*\s*:/.test(listScalarMatch[2]!)) {
+      const prefix = listScalarMatch[1]!
+      const { value, comment } = splitYamlValueAndComment(listScalarMatch[2]!)
+      const trimmedValue = value.trim()
+      if (!trimmedValue || SAFE_VALUE_START.test(trimmedValue) || !RESERVED_INDICATOR_START.test(trimmedValue)) {
+        result.push(line)
+        continue
+      }
+
+      result.push(`${prefix}${JSON.stringify(trimmedValue)}${comment ? ` ${comment}` : ''}`)
+      continue
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
+}
+
 function collectMultilineSingleQuotedFreeText(
   lines: string[],
   startIndex: number,

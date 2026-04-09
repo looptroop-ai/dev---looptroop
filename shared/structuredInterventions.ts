@@ -108,6 +108,7 @@ function buildDefaultRule(code: string): StructuredInterventionRule {
     parser_malformed_yaml: 'Malformed YAML Recovery',
     parser_markdown_fence: 'Markdown Fence Unwrap',
     parser_quoted_scalar: 'Quoted Scalar Repair',
+    parser_reserved_indicator_scalar: 'Reserved Scalar Repair',
     parser_terminal_noise: 'Terminal Noise Trim',
     parser_transcript_recovery: 'Transcript Recovery',
     parser_unbalanced_quote: 'Quote Balance Repair',
@@ -402,6 +403,12 @@ function buildExactInterventionDetails(
   if (code === 'parser_quoted_scalar') {
     return {
       exactCorrection: 'Repaired the malformed quoted YAML scalar before reparsing the payload.',
+    }
+  }
+
+  if (code === 'parser_reserved_indicator_scalar') {
+    return {
+      exactCorrection: 'Quoted the plain YAML scalar that began with a reserved indicator character before reparsing the payload.',
     }
   }
 
@@ -869,6 +876,18 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
       summary: 'A quote in the YAML payload was opened but never closed (or vice versa).',
       why: 'An unbalanced quote causes the YAML parser to consume subsequent lines as part of the quoted string, corrupting the document structure.',
       how: 'LoopTroop balanced the mismatched quote, restoring the correct field boundaries, and reparsed the payload.',
+    })
+  }
+
+  if (/reserved indicator/i.test(normalized)) {
+    return buildIntervention(warning, {
+      code: 'parser_reserved_indicator_scalar',
+      stage: 'parse',
+      category: 'parser_fix',
+      title: 'Quoted a reserved-indicator YAML scalar',
+      summary: 'A plain YAML scalar began with a reserved indicator character such as a backtick or `@`, which breaks strict parsing.',
+      why: 'YAML does not allow plain one-line scalars to begin with reserved indicator characters, so the emitted value could not be parsed as structured data.',
+      how: 'LoopTroop wrapped the existing scalar text in double quotes and reparsed the payload without changing the scalar content itself.',
     })
   }
 

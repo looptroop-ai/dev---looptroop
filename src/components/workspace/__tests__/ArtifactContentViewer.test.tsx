@@ -1148,6 +1148,29 @@ describe('ArtifactContentViewer', () => {
     ])
   })
 
+  it('keeps reserved-scalar parser fixes separate from retry interventions in parser notices', () => {
+    const copy = buildArtifactProcessingNoticeCopy({
+      repairApplied: true,
+      repairWarnings: ['Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.'],
+      autoRetryCount: 1,
+      validationError: 'PRD parser rejected the first pass.',
+    }, 'prd-draft')
+
+    expect(copy?.summary).toBe('2 interventions across 2 categories.')
+    expect(copy?.badges).toEqual([
+      expect.objectContaining({ label: 'Parser Fix', count: 1 }),
+      expect.objectContaining({ label: 'Retried', count: 1 }),
+    ])
+    expect(copy?.interventions).toEqual([
+      expect.objectContaining({
+        category: 'parser_fix',
+        code: 'parser_reserved_indicator_scalar',
+        exactCorrection: 'Quoted the plain YAML scalar that began with a reserved indicator character before reparsing the payload.',
+      }),
+      expect.objectContaining({ category: 'retry', code: 'retry_after_validation_failure' }),
+    ])
+  })
+
   it('shows retry diagnostics with the failing excerpt in the expanded warning notice', () => {
     render(
       <ArtifactContent

@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 
 const TRANSCRIPT_PREFIX_PATTERN = /^\s*\[(?:assistant|user|system|sys|tool|model|error)(?:\/[^\]]+)?\](?:\s*\[[^\]]+\])?\s*/i
 
@@ -132,6 +132,7 @@ const XML_STYLE_TAGS_WARNING = 'Stripped XML-style tags from the payload before 
 const CANDIDATE_RECOVERY_WARNING = 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.'
 const WRAPPER_KEY_WARNING = 'Removed wrapper key from top level.'
 const QUOTED_SCALAR_WARNING = 'Repaired improperly quoted YAML scalar value.'
+const RESERVED_INDICATOR_SCALAR_WARNING = 'Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.'
 
 function appendRepairWarningOnce(repairWarnings: string[] | undefined, warning: string) {
   if (!repairWarnings?.includes(warning)) {
@@ -646,6 +647,22 @@ export function parseYamlOrJsonCandidate(
             // Try combined: colon repair + indentation repair
             try {
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(colonRepaired)), appliedPreParseRepairs)
+            } catch { /* fall through */ }
+          }
+        }
+
+        const reservedIndicatorBase = colonRepaired !== base ? colonRepaired : base
+        const reservedIndicatorRepaired = repairYamlReservedIndicatorScalars(reservedIndicatorBase)
+        if (reservedIndicatorRepaired !== reservedIndicatorBase) {
+          try {
+            const parsed = jsYaml.load(reservedIndicatorRepaired)
+            appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
+            return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
+          } catch {
+            try {
+              const parsed = jsYaml.load(repairYamlIndentation(reservedIndicatorRepaired))
+              appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
+              return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }

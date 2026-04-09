@@ -142,6 +142,31 @@ describe.concurrent('PRD refined artifacts', () => {
     expect(result.refinedContent).not.toContain('changes:')
   })
 
+  it('validates refined PRDs that need both colon repair and reserved-indicator scalar quoting', () => {
+    const rawRefinement = buildValidRefinementOutput()
+      .replace('  data_model: []', [
+        '  data_model:',
+        '    - `UIState.theme` allows `pink` as a valid value.',
+      ].join('\n'))
+      .replace(
+        '    - Retry once on structured-output failures.',
+        "    - Persist `theme: 'pink'` exactly as entered when retrying.",
+      )
+
+    const result = validatePrdRefinementOutput(rawRefinement, validationContext({
+      losingDraftMeta: [{ memberId: 'openai/gpt-5-mini' }],
+    }))
+
+    expect(result.document.technical_requirements.data_model).toEqual([
+      '`UIState.theme` allows `pink` as a valid value.',
+    ])
+    expect(result.document.technical_requirements.error_handling_rules).toEqual([
+      "Persist `theme: 'pink'` exactly as entered when retrying.",
+    ])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('reserved indicator characters')
+  })
+
   it('drops no-op modified changes before validating diff coverage', () => {
     const unchangedContent = buildPrdContent({
       changes: [{

@@ -145,6 +145,11 @@ describe('parser fix interventions', () => {
     expectIntervention(i, { code: 'parser_quoted_scalar', stage: 'parse', category: 'parser_fix' })
   })
 
+  it('maps reserved-indicator scalar repair', () => {
+    const i = deriveOne('Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.')
+    expectIntervention(i, { code: 'parser_reserved_indicator_scalar', stage: 'parse', category: 'parser_fix' })
+  })
+
   it('maps indentation', () => {
     const i = deriveOne('Repaired YAML indentation at line 42.')
     expectIntervention(i, { code: 'parser_indentation', stage: 'parse', category: 'parser_fix' })
