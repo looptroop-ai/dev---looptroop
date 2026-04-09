@@ -31,6 +31,24 @@ interface PhaseGroup {
   entries: LogEntry[]
 }
 
+interface RenderedBeadSection {
+  beadId: string
+  ordinal: number
+  total: number
+  title: string
+  entries: LogEntry[]
+}
+
+interface RenderedPhaseGroup {
+  phase: string
+  entries: LogEntry[]
+  preambleEntries?: LogEntry[]
+  beadSections?: RenderedBeadSection[]
+}
+
+const COMPLETED_BEAD_STATUSES = new Set(['done', 'completed', 'skipped'])
+const EXECUTING_BEAD_PATTERN = /^(?:\[[A-Z_]+\]\s+)?Executing bead\s+([^:]+):\s+(.+?)\s*$/
+
 function groupByPhaseRuns(entries: LogEntry[]): PhaseGroup[] {
   if (entries.length === 0) return []
 
@@ -53,17 +71,154 @@ function groupByPhaseRuns(entries: LogEntry[]): PhaseGroup[] {
   return groups
 }
 
-function PhaseDelimiter({ phase, labelOptions }: { phase: string; labelOptions?: StatusLabelOptions }) {
-  const label = getStatusUserLabel(phase, labelOptions)
+function PhaseDelimiter({ phase, labelOptions, label }: { phase: string; labelOptions?: StatusLabelOptions; label?: string }) {
+  const resolvedLabel = label ?? getStatusUserLabel(phase, labelOptions)
   return (
-    <div className="flex items-center gap-3 py-2 select-none" aria-label={`Phase: ${label}`}>
+    <div className="flex items-center gap-3 py-2 select-none" aria-label={`Phase: ${resolvedLabel}`}>
       <div className="flex-1 border-t border-border/60" />
       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 whitespace-nowrap">
-        {label}
+        {resolvedLabel}
       </span>
       <div className="flex-1 border-t border-border/60" />
     </div>
   )
+}
+
+function BeadDelimiter({ ordinal, total, title }: { ordinal: number; total: number; title?: string }) {
+  return (
+    <div className="flex items-center gap-3 py-2 pl-4 select-none" aria-label={`Bead ${ordinal}/${total}`}>
+      <div className="flex-1 border-t border-border/40" />
+      <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground whitespace-nowrap">
+        {`Bead ${ordinal}/${total}`}
+      </span>
+      {title ? (
+        <span className="max-w-[45%] truncate text-[10px] text-muted-foreground/80">
+          {title}
+        </span>
+      ) : null}
+      <div className="flex-1 border-t border-border/40" />
+    </div>
+  )
+}
+
+function parseExecutingBead(entry: LogEntry): { beadId: string; title: string } | null {
+  if (!isSystem(entry)) return null
+  const match = entry.line.match(EXECUTING_BEAD_PATTERN)
+  if (!match) return null
+  return {
+    beadId: match[1]!.trim(),
+    title: match[2]!.trim(),
+  }
+}
+
+function isCompletedBeadStatus(status?: string | null): boolean {
+  return status ? COMPLETED_BEAD_STATUSES.has(status.toLowerCase()) : false
+}
+
+function buildRenderedPhaseGroups(
+  phaseGroups: PhaseGroup[],
+  visibleEntryIds: Set<string>,
+  ticket?: Ticket,
+): RenderedPhaseGroup[] {
+  const runtimeBeads = ticket?.runtime.beads ?? []
+  const runtimeBeadMap = new Map(
+    runtimeBeads.map((bead, index) => [
+      bead.id,
+      {
+        ordinal: index + 1,
+        title: bead.title,
+        status: bead.status,
+      },
+    ]),
+  )
+  const activeBeadId = ticket?.runtime.activeBeadId ?? null
+  const runtimeTotal = ticket?.runtime.totalBeads ?? 0
+
+  return phaseGroups.flatMap((group) => {
+    if (group.phase !== 'CODING') {
+      const entries = group.entries.filter((entry) => visibleEntryIds.has(entry.entryId))
+      return entries.length > 0 ? [{ phase: group.phase, entries }] : []
+    }
+
+    const preambleEntries: LogEntry[] = []
+    const discoveredBeadIds: string[] = []
+    const beadSegments: Array<{ beadId: string; title: string; entries: LogEntry[] }> = []
+    let currentSegment: { beadId: string; title: string; entries: LogEntry[] } | null = null
+
+    for (const entry of group.entries) {
+      const beadStart = parseExecutingBead(entry)
+      if (beadStart) {
+        if (currentSegment) {
+          beadSegments.push(currentSegment)
+        }
+        currentSegment = {
+          beadId: beadStart.beadId,
+          title: beadStart.title,
+          entries: [entry],
+        }
+        if (!discoveredBeadIds.includes(beadStart.beadId)) {
+          discoveredBeadIds.push(beadStart.beadId)
+        }
+        continue
+      }
+
+      if (currentSegment) {
+        currentSegment.entries.push(entry)
+      } else {
+        preambleEntries.push(entry)
+      }
+    }
+
+    if (currentSegment) {
+      beadSegments.push(currentSegment)
+    }
+
+    if (beadSegments.length === 0) {
+      const entries = group.entries.filter((entry) => visibleEntryIds.has(entry.entryId))
+      return entries.length > 0 ? [{ phase: group.phase, entries }] : []
+    }
+
+    const discoveryOrdinalMap = new Map(discoveredBeadIds.map((beadId, index) => [beadId, index + 1]))
+    const total = runtimeTotal > 0 ? runtimeTotal : discoveredBeadIds.length
+    const shouldFilterByRuntimeStatus = runtimeBeadMap.size > 0
+
+    const visiblePreambleEntries = preambleEntries.filter((entry) => visibleEntryIds.has(entry.entryId))
+    const beadSections = beadSegments
+      .map((segment, segmentIndex): RenderedBeadSection | null => {
+        const visibleEntries = segment.entries.filter((entry) => visibleEntryIds.has(entry.entryId))
+        if (visibleEntries.length === 0) return null
+
+        const runtimeBead = runtimeBeadMap.get(segment.beadId)
+        if (
+          shouldFilterByRuntimeStatus
+          && segment.beadId !== activeBeadId
+          && !isCompletedBeadStatus(runtimeBead?.status)
+        ) {
+          return null
+        }
+
+        const ordinal = runtimeBead?.ordinal ?? discoveryOrdinalMap.get(segment.beadId) ?? segmentIndex + 1
+        return {
+          beadId: segment.beadId,
+          ordinal,
+          total: total > 0 ? total : ordinal,
+          title: runtimeBead?.title?.trim() || segment.title,
+          entries: visibleEntries,
+        }
+      })
+      .filter((section): section is RenderedBeadSection => section !== null)
+
+    if (visiblePreambleEntries.length === 0 && beadSections.length === 0) {
+      return []
+    }
+
+    return [{
+      phase: group.phase,
+      entries: [...visiblePreambleEntries, ...beadSections.flatMap((section) => section.entries)],
+      preambleEntries: visiblePreambleEntries,
+      beadSections,
+    }]
+  })
 }
 
 interface FullLogViewProps {
@@ -124,7 +279,7 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   const aiTabLabel = singleModelTabId ? `AI > ${getModelDisplayName(singleModelTabId)}` : 'AI'
   const showModelTabs = modelTabs.length > 1
   const availableTabs: string[] = useMemo(() => {
-    const tabs = [...FIXED_TABS]
+    const tabs: string[] = [...FIXED_TABS]
     if (showModelTabs) tabs.push(...modelTabs)
     if (hasCmdLogs) tabs.push('CMD')
     return tabs
@@ -140,12 +295,27 @@ export function FullLogView({ ticket }: FullLogViewProps) {
     [allLogs, effectiveTab],
   )
 
-  const phaseGroups = useMemo(
-    () => groupByPhaseRuns(filteredLogs),
+  const rawPhaseGroups = useMemo(
+    () => groupByPhaseRuns(allLogs),
+    [allLogs],
+  )
+
+  const visibleEntryIds = useMemo(
+    () => new Set(filteredLogs.map((entry) => entry.entryId)),
     [filteredLogs],
   )
 
-  const hasLogs = filteredLogs.length > 0
+  const phaseGroups = useMemo(
+    () => buildRenderedPhaseGroups(rawPhaseGroups, visibleEntryIds, ticket),
+    [rawPhaseGroups, visibleEntryIds, ticket],
+  )
+
+  const renderedEntries = useMemo(
+    () => phaseGroups.flatMap((group) => group.entries),
+    [phaseGroups],
+  )
+
+  const hasLogs = renderedEntries.length > 0
 
   const beadLabelOptions: StatusLabelOptions | undefined = useMemo(() => {
     if (!ticket) return undefined
@@ -220,17 +390,17 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   }, [scheduleScrollToBottom])
 
   const visibleLogTail = useMemo(() => {
-    const lastEntry = filteredLogs.at(-1)
+    const lastEntry = renderedEntries.at(-1)
     if (!lastEntry) return null
     return [
-      filteredLogs.length,
+      renderedEntries.length,
       lastEntry.entryId,
       lastEntry.timestamp ?? '',
       lastEntry.line,
       lastEntry.streaming ? 'streaming' : 'static',
       lastEntry.op,
     ].join('|')
-  }, [filteredLogs])
+  }, [renderedEntries])
 
   useEffect(() => {
     const currentView = `full-log:${effectiveTab}`
@@ -254,8 +424,8 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   // ── Copy all logs ──────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
   const handleCopyLogs = useCallback(() => {
-    if (!filteredLogs.length) return
-    const textToCopy = filteredLogs.map((entry) => {
+    if (!renderedEntries.length) return
+    const textToCopy = renderedEntries.map((entry) => {
       const ts = entry.timestamp ? `[${entry.timestamp}] ` : ''
       return `${ts}[${entry.status}] ${formatLogLine(entry, true).copyText}`
     }).join('\n')
@@ -263,19 +433,17 @@ export function FullLogView({ ticket }: FullLogViewProps) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }).catch(err => console.error('Failed to copy logs:', err))
-  }, [filteredLogs])
+  }, [renderedEntries])
 
   // ── Global entry index counter ──────────────────────────────────
   const globalIndexMap = useMemo(() => {
     const map = new Map<string, number>()
     let idx = 0
-    for (const group of phaseGroups) {
-      for (const entry of group.entries) {
-        map.set(entry.entryId, idx++)
-      }
+    for (const entry of renderedEntries) {
+      map.set(entry.entryId, idx++)
     }
     return map
-  }, [phaseGroups])
+  }, [renderedEntries])
 
   return (
     <div className="flex-1 min-h-0 min-w-0 flex flex-col">
@@ -437,7 +605,7 @@ export function FullLogView({ ticket }: FullLogViewProps) {
                 type="button"
                 className="flex items-center cursor-help px-1 py-0.5 rounded hover:bg-muted transition-colors border-none bg-transparent m-0 focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                <span>{filteredLogs.length} entries</span>
+                <span>{renderedEntries.length} entries</span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" align="end" className="flex flex-col gap-1.5 p-2 bg-popover text-popover-foreground border border-border font-medium shadow-md">
@@ -470,15 +638,45 @@ export function FullLogView({ ticket }: FullLogViewProps) {
           {hasLogs ? (
             phaseGroups.map((group, groupIdx) => (
               <Fragment key={`${group.phase}-${groupIdx}`}>
-                <PhaseDelimiter phase={group.phase} labelOptions={group.phase === 'CODING' || group.phase === 'BLOCKED_ERROR' ? beadLabelOptions : undefined} />
-                {group.entries.map((entry) => (
-                  <LogEntryRow
-                    key={entry.entryId}
-                    entry={entry}
-                    index={globalIndexMap.get(entry.entryId) ?? 0}
-                    showModelName={true}
-                  />
-                ))}
+                <PhaseDelimiter
+                  phase={group.phase}
+                  label={group.phase === 'CODING' ? 'Implementing' : undefined}
+                  labelOptions={group.phase === 'BLOCKED_ERROR' ? beadLabelOptions : undefined}
+                />
+                {group.phase === 'CODING' && group.beadSections !== undefined ? (
+                  <>
+                    {(group.preambleEntries ?? []).map((entry) => (
+                      <LogEntryRow
+                        key={entry.entryId}
+                        entry={entry}
+                        index={globalIndexMap.get(entry.entryId) ?? 0}
+                        showModelName={true}
+                      />
+                    ))}
+                    {group.beadSections.map((section) => (
+                      <Fragment key={`${group.phase}-${groupIdx}-${section.beadId}-${section.ordinal}`}>
+                        <BeadDelimiter ordinal={section.ordinal} total={section.total} title={section.title} />
+                        {section.entries.map((entry) => (
+                          <LogEntryRow
+                            key={entry.entryId}
+                            entry={entry}
+                            index={globalIndexMap.get(entry.entryId) ?? 0}
+                            showModelName={true}
+                          />
+                        ))}
+                      </Fragment>
+                    ))}
+                  </>
+                ) : (
+                  group.entries.map((entry) => (
+                    <LogEntryRow
+                      key={entry.entryId}
+                      entry={entry}
+                      index={globalIndexMap.get(entry.entryId) ?? 0}
+                      showModelName={true}
+                    />
+                  ))
+                )}
               </Fragment>
             ))
           ) : isLoadingLogs ? (

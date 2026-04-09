@@ -197,7 +197,7 @@ export function PhaseLogPanel({
   const aiTabLabel = singleModelTabId ? `AI > ${getModelDisplayName(singleModelTabId)}` : 'AI'
   const showModelTabs = modelTabs.length > 0 && !singleModelTabId
   const availableTabs: string[] = useMemo(() => {
-    const tabs = [...FIXED_TABS]
+    const tabs: string[] = [...FIXED_TABS]
     if (showModelTabs) tabs.push(...modelTabs)
     if (hasCmdLogs) tabs.push('CMD')
     return tabs

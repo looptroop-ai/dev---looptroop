@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import type { Ticket } from '@/hooks/useTickets'
 
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({
@@ -56,6 +57,63 @@ function makeLog(id: string, line: string, status: string, overrides: Partial<Lo
     streaming: false,
     op: 'append',
     ...overrides,
+  }
+}
+
+function makeTicket(overrides: Omit<Partial<Ticket>, 'runtime'> & { runtime?: Partial<Ticket['runtime']> } = {}): Ticket {
+  const runtimeOverrides = overrides.runtime ?? {}
+  const defaultRuntime: Ticket['runtime'] = {
+    baseBranch: 'main',
+    currentBead: 1,
+    completedBeads: 0,
+    totalBeads: 0,
+    percentComplete: 0,
+    iterationCount: 0,
+    maxIterations: null,
+    maxIterationsPerBead: null,
+    activeBeadId: null,
+    activeBeadIteration: null,
+    lastFailedBeadId: null,
+    artifactRoot: '/tmp/LTL-1',
+    beads: [],
+    candidateCommitSha: null,
+    preSquashHead: null,
+    finalTestStatus: 'pending',
+  }
+
+  return {
+    id: 'ticket-1',
+    externalId: 'LTL-1',
+    projectId: 1,
+    title: 'Ticket title',
+    description: null,
+    priority: 1,
+    status: 'CODING',
+    xstateSnapshot: null,
+    branchName: null,
+    currentBead: 1,
+    totalBeads: 0,
+    percentComplete: 0,
+    errorMessage: null,
+    lockedMainImplementer: null,
+    lockedMainImplementerVariant: null,
+    lockedInterviewQuestions: null,
+    lockedCoverageFollowUpBudgetPercent: null,
+    lockedMaxCoveragePasses: null,
+    lockedCouncilMembers: [],
+    lockedCouncilMemberVariants: null,
+    availableActions: [],
+    previousStatus: null,
+    reviewCutoffStatus: null,
+    startedAt: null,
+    plannedDate: null,
+    createdAt: '2026-03-10T10:00:00.000Z',
+    updatedAt: '2026-03-10T10:00:00.000Z',
+    ...overrides,
+    runtime: {
+      ...defaultRuntime,
+      ...runtimeOverrides,
+    },
   }
 }
 
@@ -128,6 +186,88 @@ describe('FullLogView', () => {
 
     const codingDelimiters = screen.getAllByText(/Implementing/)
     expect(codingDelimiters).toHaveLength(2)
+  })
+
+  it('renders completed beads and the active bead as separate sections in coding runs', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('b1-start', '[SYS] Executing bead bead-1: First bead', 'CODING'),
+      makeLog('b1-output', '[MODEL] bead 1 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('b2-start', '[SYS] Executing bead bead-2: Second bead', 'CODING'),
+      makeLog('b2-output', '[MODEL] bead 2 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('b3-start', '[SYS] Executing bead bead-3: Third bead', 'CODING'),
+      makeLog('b3-output', '[MODEL] bead 3 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('b4-start', '[SYS] Executing bead bead-4: Fourth bead', 'CODING'),
+      makeLog('b4-output', '[MODEL] bead 4 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+    ])
+
+    renderWithTooltipProvider(
+      <FullLogView
+        ticket={makeTicket({
+          currentBead: 3,
+          totalBeads: 4,
+          runtime: {
+            currentBead: 3,
+            totalBeads: 4,
+            activeBeadId: 'bead-3',
+            beads: [
+              { id: 'bead-1', title: 'First bead', status: 'done', iteration: 1 },
+              { id: 'bead-2', title: 'Second bead', status: 'done', iteration: 1 },
+              { id: 'bead-3', title: 'Third bead', status: 'in_progress', iteration: 1 },
+              { id: 'bead-4', title: 'Fourth bead', status: 'pending', iteration: 0 },
+            ],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Implementing')).toBeTruthy()
+    expect(screen.getByText('Bead 1/4')).toBeTruthy()
+    expect(screen.getByText('Bead 2/4')).toBeTruthy()
+    expect(screen.getByText('Bead 3/4')).toBeTruthy()
+    expect(screen.queryByText('Bead 4/4')).toBeNull()
+  })
+
+  it('uses the base implementing label in Full Log for coding runs', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('1', '[SYS] Plain coding entry', 'CODING'),
+    ])
+
+    renderWithTooltipProvider(
+      <FullLogView
+        ticket={makeTicket({
+          currentBead: 3,
+          totalBeads: 4,
+          runtime: {
+            currentBead: 3,
+            totalBeads: 4,
+            activeBeadId: 'bead-3',
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Implementing')).toBeTruthy()
+    expect(screen.queryByText('Implementing (Bead 3/4)')).toBeNull()
   })
 
   it('renders all filter tabs', () => {
@@ -229,6 +369,49 @@ describe('FullLogView', () => {
     expect(screen.queryByText(/Second output/)).toBeNull()
   })
 
+  it('preserves bead section headers in AI view even when bead-start markers are filtered out', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('b1-start', '[SYS] Executing bead bead-1: First bead', 'CODING'),
+      makeLog('b1-output', '[MODEL] bead 1 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('b2-start', '[SYS] Executing bead bead-2: Second bead', 'CODING'),
+      makeLog('b2-output', '[MODEL] bead 2 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+    ])
+
+    renderWithTooltipProvider(
+      <FullLogView
+        ticket={makeTicket({
+          currentBead: 2,
+          totalBeads: 2,
+          runtime: {
+            currentBead: 2,
+            totalBeads: 2,
+            activeBeadId: 'bead-2',
+            beads: [
+              { id: 'bead-1', title: 'First bead', status: 'done', iteration: 1 },
+              { id: 'bead-2', title: 'Second bead', status: 'in_progress', iteration: 1 },
+            ],
+          },
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI > gpt-5.4' }))
+
+    expect(screen.getByText('Bead 1/2')).toBeTruthy()
+    expect(screen.getByText('Bead 2/2')).toBeTruthy()
+    expect(screen.queryByText(/Executing bead bead-1/i)).toBeNull()
+  })
+
   it('collapses single-model AI tabs into one combined AI model tab', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('1', '[MODEL] First output', 'CODING', {
@@ -258,6 +441,117 @@ describe('FullLogView', () => {
     renderWithTooltipProvider(<FullLogView />)
 
     expect(screen.getByText('3 entries')).toBeTruthy()
+  })
+
+  it('keeps coding preamble entries above the first bead section', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('pre', '[SYS] Preparing coding context', 'CODING'),
+      makeLog('b1-start', '[SYS] Executing bead bead-1: First bead', 'CODING'),
+      makeLog('b1-output', '[MODEL] bead 1 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+    ])
+
+    renderWithTooltipProvider(
+      <FullLogView
+        ticket={makeTicket({
+          currentBead: 1,
+          totalBeads: 2,
+          runtime: {
+            currentBead: 1,
+            totalBeads: 2,
+            activeBeadId: 'bead-1',
+            beads: [
+              { id: 'bead-1', title: 'First bead', status: 'in_progress', iteration: 1 },
+              { id: 'bead-2', title: 'Second bead', status: 'pending', iteration: 0 },
+            ],
+          },
+        })}
+      />,
+    )
+
+    const preambleNode = screen.getByText(/Preparing coding context/i)
+    const beadLabelNode = screen.getByText('Bead 1/2')
+    expect(Boolean(preambleNode.compareDocumentPosition(beadLabelNode) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  })
+
+  it('keeps separate implementing sections across retry runs', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('b1-start', '[SYS] Executing bead bead-1: First bead', 'CODING'),
+      makeLog('b1-output', '[MODEL] bead 1 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('blocked', '[ERROR] Bead failed', 'BLOCKED_ERROR', {
+        source: 'error',
+        kind: 'error',
+      }),
+      makeLog('b2-start', '[SYS] Executing bead bead-2: Second bead', 'CODING'),
+      makeLog('b2-output', '[MODEL] bead 2 output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+    ])
+
+    renderWithTooltipProvider(
+      <FullLogView
+        ticket={makeTicket({
+          status: 'CODING',
+          currentBead: 2,
+          totalBeads: 2,
+          runtime: {
+            currentBead: 2,
+            totalBeads: 2,
+            activeBeadId: 'bead-2',
+            beads: [
+              { id: 'bead-1', title: 'First bead', status: 'done', iteration: 1 },
+              { id: 'bead-2', title: 'Second bead', status: 'in_progress', iteration: 1 },
+            ],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getAllByText('Implementing')).toHaveLength(2)
+    expect(screen.getByText('Bead 1/2')).toBeTruthy()
+    expect(screen.getByText('Bead 2/2')).toBeTruthy()
+  })
+
+  it('falls back to an unsplit coding section when no bead-start marker exists', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('plain-1', '[SYS] Running coding without bead marker', 'CODING'),
+      makeLog('plain-2', '[MODEL] Plain coding output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+    ])
+
+    renderWithTooltipProvider(
+      <FullLogView
+        ticket={makeTicket({
+          currentBead: 1,
+          totalBeads: 2,
+          runtime: {
+            currentBead: 1,
+            totalBeads: 2,
+            activeBeadId: 'bead-1',
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Implementing')).toBeTruthy()
+    expect(screen.getByText(/Running coding without bead marker/i)).toBeTruthy()
+    expect(screen.queryByText(/^Bead \d+\/\d+$/i)).toBeNull()
   })
 
   it('renders log entries using LogEntryRow with sequential indices', () => {
