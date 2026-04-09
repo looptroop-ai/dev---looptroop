@@ -5,7 +5,6 @@ import { CancelledError } from '../../council/types'
 
 const {
   prepareSquashCandidateMock,
-  pushSquashedCandidateMock,
   getTicketPathsMock,
   insertPhaseArtifactMock,
   emitPhaseLogMock,
@@ -13,7 +12,6 @@ const {
   handleMockExecutionUnsupportedMock,
 } = vi.hoisted(() => ({
   prepareSquashCandidateMock: vi.fn(),
-  pushSquashedCandidateMock: vi.fn(),
   getTicketPathsMock: vi.fn(),
   insertPhaseArtifactMock: vi.fn(),
   emitPhaseLogMock: vi.fn(),
@@ -23,7 +21,6 @@ const {
 
 vi.mock('../../phases/integration/squash', () => ({
   prepareSquashCandidate: prepareSquashCandidateMock,
-  pushSquashedCandidate: pushSquashedCandidateMock,
 }))
 
 vi.mock('../../storage/tickets', () => ({
@@ -81,12 +78,11 @@ describe('handleIntegration', () => {
     isMockOpenCodeModeMock.mockReturnValue(false)
     getTicketPathsMock.mockReturnValue(defaultPaths)
     prepareSquashCandidateMock.mockReturnValue(successSquash)
-    pushSquashedCandidateMock.mockReturnValue({ pushed: true })
 
     context = makeTicketContext()
   })
 
-  it('successful integration with push', async () => {
+  it('successful integration defers the remote update until manual verification', async () => {
     const sendEvent = vi.fn<(event: TicketEvent) => void>()
     await handleIntegration(TEST.ticketId, context, sendEvent)
 
@@ -96,7 +92,6 @@ describe('handleIntegration', () => {
       context.title,
       context.externalId,
     )
-    expect(pushSquashedCandidateMock).toHaveBeenCalledWith(defaultPaths.worktreePath)
 
     expect(insertPhaseArtifactMock).toHaveBeenCalledWith(TEST.ticketId, expect.objectContaining({
       phase: 'INTEGRATING_CHANGES',
@@ -104,25 +99,13 @@ describe('handleIntegration', () => {
     }))
     const report = JSON.parse(insertPhaseArtifactMock.mock.calls[0]![1].content)
     expect(report.status).toBe('passed')
-    expect(report.pushed).toBe(true)
+    expect(report.pushed).toBe(false)
+    expect(report.pushDeferred).toBe(true)
+    expect(report.pushError).toBeNull()
     expect(report.candidateCommitSha).toBe('abc1234')
 
     expect(sendEvent).toHaveBeenCalledWith({ type: 'INTEGRATION_DONE' })
     expect(emitPhaseLogMock).toHaveBeenCalled()
-  })
-
-  it('successful squash but push fails (non-blocking)', async () => {
-    const sendEvent = vi.fn<(event: TicketEvent) => void>()
-    pushSquashedCandidateMock.mockReturnValue({ pushed: false, error: 'no remote' })
-
-    await handleIntegration(TEST.ticketId, context, sendEvent)
-
-    const report = JSON.parse(insertPhaseArtifactMock.mock.calls[0]![1].content)
-    expect(report.pushed).toBe(false)
-    expect(report.pushError).toBe('no remote')
-    expect(report.status).toBe('passed')
-
-    expect(sendEvent).toHaveBeenCalledWith({ type: 'INTEGRATION_DONE' })
   })
 
   it('squash failure throws', async () => {

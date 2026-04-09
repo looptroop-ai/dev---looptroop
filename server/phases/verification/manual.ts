@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { getCurrentBranch, resolveBaseBranchRef } from '../../git/repository'
+import { pushBranchRef } from '../../git/push'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -48,10 +49,13 @@ export interface ManualVerificationMergeReport {
   success: boolean
   baseBranch: string
   sourceRef: string
+  remoteBranchRef: string
   candidateCommitSha: string | null
   originalBranch: string | null
   previousBaseHead: string | null
   mergedHead: string | null
+  remotePushSuccess: boolean
+  remotePushError: string | null
   message: string
   errorCode: string | null
 }
@@ -64,7 +68,10 @@ export function completeManualVerificationMerge(params: {
 }): ManualVerificationMergeReport {
   const candidateCommitSha = params.candidateCommitSha?.trim() || null
   const sourceRef = candidateCommitSha ?? params.ticketBranch
+  const remoteBranchRef = `refs/heads/${params.ticketBranch}`
   const originalBranch = getCurrentBranch(params.projectPath)
+  let remotePushSuccess = false
+  let remotePushError: string | null = null
 
   try {
     const worktreeStatus = runGit(params.projectPath, ['status', '--porcelain'])
@@ -73,14 +80,43 @@ export function completeManualVerificationMerge(params: {
         success: false,
         baseBranch: params.baseBranch,
         sourceRef,
+        remoteBranchRef,
         candidateCommitSha,
         originalBranch,
         previousBaseHead: null,
         mergedHead: null,
+        remotePushSuccess: false,
+        remotePushError: null,
         message: 'Project worktree has uncommitted changes. Clean the worktree before completing manual verification.',
         errorCode: 'VERIFICATION_MERGE_WORKTREE_DIRTY',
       }
     }
+
+    const pushResult = pushBranchRef({
+      projectPath: params.projectPath,
+      destinationBranch: params.ticketBranch,
+      sourceRef,
+      forceWithLease: true,
+      maxRetries: 1,
+    })
+    if (!pushResult.pushed) {
+      remotePushError = pushResult.error ?? null
+      return {
+        success: false,
+        baseBranch: params.baseBranch,
+        sourceRef,
+        remoteBranchRef,
+        candidateCommitSha,
+        originalBranch,
+        previousBaseHead: null,
+        mergedHead: null,
+        remotePushSuccess,
+        remotePushError,
+        message: pushResult.error ?? `Failed to update remote ${remoteBranchRef}.`,
+        errorCode: 'VERIFICATION_REMOTE_PUSH_FAILED',
+      }
+    }
+    remotePushSuccess = true
 
     const baseBranchRef = resolveBaseBranchRef(params.projectPath, params.baseBranch)
     const previousBaseHead = runGit(params.projectPath, ['rev-parse', baseBranchRef])
@@ -104,7 +140,7 @@ export function completeManualVerificationMerge(params: {
     ])
 
     const mergedHead = runGit(params.projectPath, ['rev-parse', 'HEAD'])
-    let message = `Merged ${sourceRef} into ${params.baseBranch} at ${mergedHead}.`
+    let message = `Updated remote ${params.ticketBranch} and merged ${sourceRef} into ${params.baseBranch} at ${mergedHead}.`
 
     if (originalBranch && originalBranch !== params.baseBranch) {
       if (!tryGit(params.projectPath, ['checkout', originalBranch])) {
@@ -116,10 +152,13 @@ export function completeManualVerificationMerge(params: {
       success: true,
       baseBranch: params.baseBranch,
       sourceRef,
+      remoteBranchRef,
       candidateCommitSha,
       originalBranch,
       previousBaseHead,
       mergedHead,
+      remotePushSuccess,
+      remotePushError,
       message,
       errorCode: null,
     }
@@ -136,10 +175,13 @@ export function completeManualVerificationMerge(params: {
       success: false,
       baseBranch: params.baseBranch,
       sourceRef,
+      remoteBranchRef,
       candidateCommitSha,
       originalBranch,
       previousBaseHead: null,
       mergedHead: null,
+      remotePushSuccess,
+      remotePushError,
       message,
       errorCode: mergeConflict ? 'VERIFICATION_MERGE_CONFLICT' : 'VERIFICATION_MERGE_FAILED',
     }

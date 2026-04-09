@@ -442,7 +442,7 @@ The primary panel displays the main content for the ticket's current phase. When
 | | 18 | PRE_FLIGHT_CHECK | Initializing Agent | AI | Verifying git status, context, and permissions. | Checks pass → Move to 19. |
 | | 19 | CODING | Implementing (Bead X/Y) | AI | Executing beads in ticket worktree. | All beads marked "Done". |
 | | 20 | RUNNING_FINAL_TEST | Self-Testing | AI | Running larger test created by main implementer based on ticket scope and complexity on the unsquashed ticket branch state. | Tests pass → Move to 21. |
-| | 21 | INTEGRATING_CHANGES | Finalizing Code | AI | Post-test squash/finalization and release candidate preparation on the ticket branch (only after final test pass). | Candidate ready → Move to 22. |
+| | 21 | INTEGRATING_CHANGES | Finalizing Code | AI | Post-test squash/finalization and release candidate preparation on the ticket branch (only after final test pass). The remote ticket branch remains on the last bead-pushed WIP backup until user verification. | Candidate ready → Move to 22. |
 | | 23 | CLEANING_ENV | Cleaning Up | AI | (Conditional) Removing ticket worktree and temporary resources. | Cleanup complete → Move to 24. |
 | **3. NEEDS INPUT** | 05 | WAITING_INTERVIEW_ANSWERS | Interviewing (Q X/Y) | User | Waiting for user to answer questions in the adaptive interview loop. | User submits/skip batch → 06. |
 | | 07 | WAITING_INTERVIEW_APPROVAL | Approving Interview | User | Waiting for user to review/edit and approve Interview Results before PRD drafting begins. | User approves → 08. |

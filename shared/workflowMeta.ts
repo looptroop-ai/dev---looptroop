@@ -678,6 +678,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Branch Analysis: LoopTroop resolves the ticket worktree and base branch, calculates the merge base (where the ticket branch diverged), and counts the number of individual commits made during bead execution.',
       'Soft Reset: The branch is soft-reset back to the merge base, which unstages all bead-level commits but keeps all file changes in the working directory. This effectively "un-commits" the individual bead commits.',
       'Squash Commit: All ticket changes are staged and committed as a single candidate commit with LoopTroop-specific commit metadata (ticket ID, bead count, timestamp, and other tracking information).',
+      'Remote Update Deferral: The remote ticket branch is left on the last bead-level safety push during manual review. LoopTroop rewrites that branch once with a lease only after you verify the candidate.',
       'Integration Report: The integration report captures the candidate commit SHA, merge base SHA, pre-squash HEAD, total commit count that was squashed, and file change statistics. This report is persisted for audit and troubleshooting.',
       'Edge Case Handling: If no staged changes exist (e.g., the beads produced no file modifications), or if git operations fail (merge conflicts, corrupt index), the phase records the failure and stops before advancing to manual verification.',
     ],
@@ -694,6 +695,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
       'The squash commit preserves all file changes but replaces the individual bead-level commit history with a single clean commit.',
       'Why squash? Individual bead commits are implementation artifacts — they reflect the AI\'s step-by-step execution, not a meaningful commit history for human review. Squashing produces a single commit that represents "what was implemented" as a whole.',
+      'Why defer the remote rewrite? The ticket branch doubles as a WIP safety backup during execution. Deferring the `--force-with-lease` rewrite until verification keeps that backup intact throughout implementation and review.',
     ],
   },
   WAITING_MANUAL_VERIFICATION: {

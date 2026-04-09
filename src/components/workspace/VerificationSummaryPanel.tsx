@@ -23,6 +23,7 @@ interface IntegrationReport {
   mergeBase?: string | null
   commitCount?: number | null
   pushed?: boolean
+  pushDeferred?: boolean
   pushError?: string | null
   message?: string
 }
@@ -196,6 +197,14 @@ export function VerificationSummaryPanel({ ticket, onVerify, onCancel, isPending
           </div>
         </div>
       </div>
+
+      {integrationReport?.pushDeferred && (
+        <div className="px-4 pb-2.5">
+          <div className="text-[10px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-slate-700 dark:text-slate-300">
+            Remote ticket branch stays on the last bead backup until you verify. Verifying rewrites it once to this squashed candidate.
+          </div>
+        </div>
+      )}
 
       {/* Push status warning */}
       {integrationReport && integrationReport.pushed === false && integrationReport.pushError && (

@@ -1,6 +1,8 @@
 // Git operations for bead execution — allowlist-based
 
 import { spawnSync } from 'node:child_process'
+import { getCurrentBranch } from '../../git/repository'
+import { pushBranchRef } from '../../git/push'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -161,19 +163,22 @@ export function commitBeadChanges(
     return { committed: false, pushed: false, error: `git commit failed: ${commitResult.error}` }
   }
 
-  // Push with retries
-  const MAX_PUSH_RETRIES = 3
-  for (let attempt = 1; attempt <= MAX_PUSH_RETRIES; attempt++) {
-    const pushResult = runGitOpSafe(worktreePath, ['push', '--progress'])
-    if (pushResult.ok) {
-      return { committed: true, pushed: true }
-    }
-    if (attempt === MAX_PUSH_RETRIES) {
-      return { committed: true, pushed: false, error: `git push failed after ${MAX_PUSH_RETRIES} attempts: ${pushResult.error}` }
-    }
+  const currentBranch = getCurrentBranch(worktreePath)
+  if (!currentBranch) {
+    return { committed: true, pushed: false, error: 'git push failed: could not determine current branch' }
   }
 
-  return { committed: true, pushed: false }
+  const pushResult = pushBranchRef({
+    projectPath: worktreePath,
+    destinationBranch: currentBranch,
+    sourceRef: 'HEAD',
+    maxRetries: 3,
+  })
+  if (!pushResult.pushed) {
+    return { committed: true, pushed: false, error: pushResult.error }
+  }
+
+  return { committed: true, pushed: true }
 }
 
 /**

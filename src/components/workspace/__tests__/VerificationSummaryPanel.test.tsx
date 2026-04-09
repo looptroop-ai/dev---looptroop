@@ -3,8 +3,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
 
+const useTicketArtifactsMock = vi.fn<
+  () => {
+    artifacts: Array<{ id: string; phase: string; artifactType: string; content: string }>
+    isLoading: boolean
+  }
+>(() => ({ artifacts: [], isLoading: false }))
+
 vi.mock('@/hooks/useTicketArtifacts', () => ({
-  useTicketArtifacts: () => ({ artifacts: [], isLoading: false }),
+  useTicketArtifacts: () => useTicketArtifactsMock(),
 }))
 
 import { VerificationSummaryPanel } from '../VerificationSummaryPanel'
@@ -50,6 +57,7 @@ function renderPanel(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useTicketArtifactsMock.mockReturnValue({ artifacts: [], isLoading: false })
 })
 
 afterEach(() => {
@@ -114,5 +122,21 @@ describe('VerificationSummaryPanel', () => {
   it('falls back to externalId when branchName is null', () => {
     renderPanel({ branchName: null })
     expect(screen.getByText('TEST-1')).toBeTruthy()
+  })
+
+  it('shows that the remote branch rewrite is deferred until verification', () => {
+    useTicketArtifactsMock.mockReturnValue({
+      artifacts: [{
+        id: 'integration',
+        phase: 'INTEGRATING_CHANGES',
+        artifactType: 'integration_report',
+        content: JSON.stringify({ pushDeferred: true }),
+      }],
+      isLoading: false,
+    })
+
+    renderPanel()
+
+    expect(screen.getByText(/remote ticket branch stays on the last bead backup/i)).toBeTruthy()
   })
 })

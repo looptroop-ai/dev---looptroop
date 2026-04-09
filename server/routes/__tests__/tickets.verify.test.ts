@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFileSync } from 'node:child_process'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
@@ -14,6 +15,7 @@ import {
   getLatestPhaseArtifact,
   getTicketByRef,
   getTicketPaths,
+  insertPhaseArtifact,
   patchTicket,
 } from '../../storage/tickets'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
@@ -98,6 +100,7 @@ const repoManager = createFixtureRepoManager({
     '.gitignore': '.looptroop/\n',
   },
 })
+const remoteDirs = new Set<string>()
 
 interface PersistedLogEvent {
   phase?: string
@@ -125,6 +128,12 @@ function readPersistedLogEvents(executionLogPath: string): PersistedLogEvent[] {
 
 function setupVerifyTicketApp() {
   const repoDir = repoManager.createRepo()
+  const remoteDir = mkdtempSync(resolve(tmpdir(), 'looptroop-ticket-route-verify-remote-'))
+  remoteDirs.add(remoteDir)
+  execFileSync('git', ['init', '--bare', remoteDir], { stdio: 'pipe' })
+  git(repoDir, ['remote', 'add', 'origin', remoteDir])
+  git(repoDir, ['push', '-u', 'origin', 'main'])
+
   const project = attachProject({
     folderPath: repoDir,
     name: 'LoopTroop',
@@ -149,7 +158,26 @@ function setupVerifyTicketApp() {
   const readmePath = resolve(init.worktreePath, 'README.md')
   writeFileSync(readmePath, 'ticket change\n')
   git(init.worktreePath, ['add', 'README.md'])
-  git(init.worktreePath, ['commit', '-m', 'candidate change'])
+  git(init.worktreePath, ['commit', '-m', 'wip change'])
+  const preSquashHead = git(init.worktreePath, ['rev-parse', 'HEAD'])
+  git(init.worktreePath, ['push', 'origin', `HEAD:refs/heads/${ticket.externalId}`])
+
+  git(init.worktreePath, ['reset', '--soft', 'HEAD~1'])
+  git(init.worktreePath, ['commit', '-m', 'candidate squash'])
+  const candidateCommitSha = git(init.worktreePath, ['rev-parse', 'HEAD'])
+  insertPhaseArtifact(ticket.id, {
+    phase: 'INTEGRATING_CHANGES',
+    artifactType: 'integration_report',
+    content: JSON.stringify({
+      status: 'passed',
+      baseBranch: init.baseBranch,
+      preSquashHead,
+      candidateCommitSha,
+      pushed: false,
+      pushDeferred: true,
+      pushError: null,
+    }),
+  })
 
   const paths = getTicketPaths(ticket.id)
   if (!paths) {
@@ -159,7 +187,7 @@ function setupVerifyTicketApp() {
   const app = new Hono()
   app.route('/api', ticketRouter)
 
-  return { app, repoDir, ticket, executionLogPath: paths.executionLogPath }
+  return { app, repoDir, remoteDir, ticket, executionLogPath: paths.executionLogPath, candidateCommitSha }
 }
 
 describe('ticketRouter POST /tickets/:id/verify', () => {
@@ -173,10 +201,14 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
   afterAll(() => {
     clearProjectDatabaseCache()
     repoManager.cleanup()
+    for (const remoteDir of remoteDirs) {
+      rmSync(remoteDir, { recursive: true, force: true })
+    }
+    remoteDirs.clear()
   })
 
-  it('persists and emits WAITING_MANUAL_VERIFICATION command logs for the merge flow', async () => {
-    const { app, repoDir, ticket, executionLogPath } = setupVerifyTicketApp()
+  it('rewrites the remote ticket branch on verify and logs the merge flow', async () => {
+    const { app, repoDir, ticket, executionLogPath, candidateCommitSha } = setupVerifyTicketApp()
     const broadcastSpy = vi.spyOn(broadcaster, 'broadcast')
 
     const response = await app.request(`/api/tickets/${ticket.id}/verify`, {
@@ -191,6 +223,8 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
     })
     expect(getTicketByRef(ticket.id)?.status).toBe('CLEANING_ENV')
     expect(readFileSync(resolve(repoDir, 'README.md'), 'utf-8')).toBe('ticket change\n')
+    const remoteTicketSha = git(repoDir, ['ls-remote', '--heads', 'origin', `refs/heads/${ticket.externalId}`]).split(/\s+/)[0]
+    expect(remoteTicketSha).toBe(candidateCommitSha)
 
     const verificationArtifact = getLatestPhaseArtifact(ticket.id, 'verification_merge_report', 'WAITING_MANUAL_VERIFICATION')
     expect(verificationArtifact).toBeDefined()
@@ -203,6 +237,7 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
       .map(([, , data]) => String(data.content ?? ''))
 
     expect(emittedCommandLogs.length).toBeGreaterThan(0)
+    expect(emittedCommandLogs.some((msg) => msg.includes('push --progress --force-with-lease'))).toBe(true)
     expect(emittedCommandLogs.some((msg) => msg.includes('status --porcelain'))).toBe(true)
     expect(emittedCommandLogs.some((msg) => msg.includes('merge --no-edit'))).toBe(true)
 
@@ -214,6 +249,7 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
       .filter((msg) => msg.startsWith('[CMD]'))
 
     expect(persistedCommandLogs.length).toBeGreaterThan(0)
+    expect(persistedCommandLogs.some((msg) => msg.includes('push --progress --force-with-lease'))).toBe(true)
     expect(persistedCommandLogs.some((msg) => msg.includes('status --porcelain'))).toBe(true)
     expect(persistedCommandLogs.some((msg) => msg.includes('merge --no-edit'))).toBe(true)
 

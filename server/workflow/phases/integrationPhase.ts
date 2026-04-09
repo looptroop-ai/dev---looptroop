@@ -1,7 +1,7 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
 import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { isMockOpenCodeMode } from '../../opencode/factory'
-import { prepareSquashCandidate, pushSquashedCandidate } from '../../phases/integration/squash'
+import { prepareSquashCandidate } from '../../phases/integration/squash'
 import { emitPhaseLog } from './helpers'
 import { handleMockExecutionUnsupported } from './executionPhase'
 import { withCommandLoggingAsync } from '../../log/commandLogger'
@@ -38,8 +38,6 @@ export async function handleIntegration(
     context.externalId,
   )
 
-  let pushResult: { pushed: boolean; error?: string } = { pushed: false }
-
   if (squash.success) {
     emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info',
       `Squashed ${squash.commitCount ?? '?'} commit(s) into candidate ${squash.commitHash}`,
@@ -48,17 +46,7 @@ export async function handleIntegration(
     if (signal?.aborted) throw new CancelledError(ticketId)
 
     emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info',
-      'Pushing candidate to remote...', { source: 'system', audience: 'all' })
-
-    pushResult = pushSquashedCandidate(paths.worktreePath)
-
-    if (pushResult.pushed) {
-      emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info',
-        'Candidate pushed to remote successfully', { source: 'system', audience: 'all' })
-    } else {
-      emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'error',
-        `Push failed (non-blocking): ${pushResult.error}`, { source: 'system', audience: 'all' })
-    }
+      'Remote ticket branch update deferred until manual verification.', { source: 'system', audience: 'all' })
   }
 
   const report = {
@@ -69,8 +57,9 @@ export async function handleIntegration(
     candidateCommitSha: squash.commitHash ?? null,
     mergeBase: squash.mergeBase ?? null,
     commitCount: squash.commitCount ?? null,
-    pushed: pushResult.pushed,
-    pushError: pushResult.error ?? null,
+    pushed: false,
+    pushDeferred: squash.success,
+    pushError: null,
     message: squash.success
       ? 'Integration phase completed. Manual verification is required before cleanup.'
       : squash.message,

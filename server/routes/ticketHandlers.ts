@@ -1074,6 +1074,7 @@ export function handleVerifyTicket(c: Context) {
     if (!mergeReport.success) {
       emitRoutePhaseLog(ticketId, phase, 'error', `Manual verification merge failed: ${mergeReport.message}`, {
         baseBranch: mergeReport.baseBranch,
+        remoteBranchRef: mergeReport.remoteBranchRef,
         sourceRef: mergeReport.sourceRef,
         errorCode: mergeReport.errorCode,
       })
@@ -1087,6 +1088,7 @@ export function handleVerifyTicket(c: Context) {
 
     emitRoutePhaseLog(ticketId, phase, 'info', mergeReport.message, {
       baseBranch: mergeReport.baseBranch,
+      remoteBranchRef: mergeReport.remoteBranchRef,
       sourceRef: mergeReport.sourceRef,
       mergedHead: mergeReport.mergedHead,
     })

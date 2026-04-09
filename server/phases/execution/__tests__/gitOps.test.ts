@@ -70,6 +70,12 @@ function headSha(dir: string): string {
   return execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 }
 
+function createBareRemote(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'gitops-remote-'))
+  execFileSync('git', ['init', '--bare', dir], { stdio: 'pipe' })
+  return dir
+}
+
 // ---------------------------------------------------------------------------
 // recordBeadStartCommit
 // ---------------------------------------------------------------------------
@@ -237,6 +243,26 @@ describe('commitBeadChanges', () => {
     expect(result.committed).toBe(true)
     expect(result.pushed).toBe(false)
     expect(result.error).toMatch(/push failed/)
+  })
+
+  it('pushes the current ticket branch explicitly to origin without an upstream', () => {
+    const dir = makeFreshRepo()
+    const remoteDir = createBareRemote()
+    repoDirs.push(remoteDir)
+
+    execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', remoteDir], { stdio: 'pipe' })
+    const baseBranch = execFileSync('git', ['-C', dir, 'branch', '--show-current'], { encoding: 'utf8' }).trim()
+    execFileSync('git', ['-C', dir, 'push', '-u', 'origin', baseBranch], { stdio: 'pipe' })
+    execFileSync('git', ['-C', dir, 'checkout', '-b', 'TICKET-1'], { stdio: 'pipe' })
+    writeFileSync(join(dir, 'feature.ts'), 'export const feature = 42\n')
+
+    const result = commitBeadChanges(dir, 'bead-remote', 'Push explicitly')
+
+    expect(result).toMatchObject({ committed: true, pushed: true })
+    const remoteSha = execFileSync('git', ['-C', dir, 'ls-remote', '--heads', 'origin', 'refs/heads/TICKET-1'], {
+      encoding: 'utf8',
+    }).trim().split(/\s+/)[0]
+    expect(remoteSha).toBe(headSha(dir))
   })
 
   it('returns { committed: false, pushed: false } when only blocked files exist', () => {
