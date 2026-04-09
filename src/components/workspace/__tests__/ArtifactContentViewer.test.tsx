@@ -215,6 +215,34 @@ describe('ArtifactContentViewer', () => {
     expect(screen.queryByText('Skipped')).not.toBeInTheDocument()
   })
 
+  it('emphasizes changed words inside execution commit diffs', () => {
+    render(
+      <ArtifactContent
+        artifactId="bead-commits"
+        content={[
+          'diff --git a/src/feature.ts b/src/feature.ts',
+          'index abc1234..def5678 100644',
+          '--- a/src/feature.ts',
+          '+++ b/src/feature.ts',
+          '@@ -1,2 +1,2 @@',
+          '-const status = "draft"',
+          '+const status = "refined"',
+          ' const untouched = true',
+        ].join('\n')}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /src\/feature\.ts/i }))
+
+    expect(Array.from(document.querySelectorAll('mark')).map((element) => element.textContent)).toEqual(
+      expect.arrayContaining(['draft', 'refined']),
+    )
+    expect(screen.getByText(hasExactTextContent('+const status = "refined"'))).toHaveClass(
+      'whitespace-pre-wrap',
+      'break-all',
+    )
+  })
+
   it('hides the interview summary when the canonical interview summary is empty', () => {
     render(
       <InterviewAnswersView

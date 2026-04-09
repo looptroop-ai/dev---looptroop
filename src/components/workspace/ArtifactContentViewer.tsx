@@ -32,7 +32,6 @@ import type {
   CouncilVoterDetailData,
   CouncilOutcome,
   FinalTestExecutionReportData,
-  QuestionDiffSegment,
   RelevantFileScanEntry,
   RelevantFilesScanData,
   InspirationDiffSource,
@@ -52,7 +51,8 @@ import {
 } from './phaseArtifactTypes'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
-import { parseDiffStats, computeLineNumbers } from './diffUtils'
+import { parseDiffStats, computeLineNumbersWithWordDiff } from './diffUtils'
+import { renderWordDiffSegments, renderUnifiedDiffLineText } from './diffWordHighlights'
 import { InterviewDocumentView } from './InterviewDocumentView'
 import {
   getCouncilStatusEmoji,
@@ -375,18 +375,6 @@ function RawContentWithCopy({ content }: { content: string }) {
       <RawContentView content={content} />
     </div>
   )
-}
-
-function renderQuestionDiffSegments(segments: QuestionDiffSegment[], tone: 'added' | 'removed') {
-  const highlightClassName = tone === 'removed'
-    ? 'rounded-[0.2rem] bg-red-300/80 px-0.5 text-inherit dark:bg-red-500/40'
-    : 'rounded-[0.2rem] bg-green-300/80 px-0.5 text-inherit dark:bg-green-500/40'
-
-  return segments.map((segment, index) => (
-    segment.changed && segment.text.trim()
-      ? <mark key={`${tone}-${index}`} className={highlightClassName}>{segment.text}</mark>
-      : <span key={`${tone}-${index}`}>{segment.text}</span>
-  ))
 }
 
 interface InterviewAnswerViewItem {
@@ -1033,7 +1021,7 @@ function RefinementDiffView({ content, domain, phase }: { content: string; domai
                   </div>
                   <div className="text-xs leading-5 text-red-950 dark:text-red-100 whitespace-pre-wrap">
                     {diff.beforeId && <span className="font-mono mr-1">{diff.beforeId}:</span>}
-                    {renderQuestionDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).before, 'removed')}
+                    {renderWordDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).before, 'removed')}
                   </div>
                 </div>
               )}
@@ -1045,7 +1033,7 @@ function RefinementDiffView({ content, domain, phase }: { content: string; domai
                   </div>
                   <div className="text-xs leading-5 text-green-950 dark:text-green-100 whitespace-pre-wrap">
                     {diff.afterId && <span className="font-mono mr-1">{diff.afterId}:</span>}
-                    {renderQuestionDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).after, 'added')}
+                    {renderWordDiffSegments(buildQuestionDiffSegments(diff.beforeText, diff.afterText).after, 'added')}
                   </div>
                 </div>
               )}
@@ -1148,7 +1136,7 @@ function InterviewDraftDiffView({ content, phase }: { content: string; phase?: s
                         <TextCopyButton content={diff.before} title="Copy before" />
                       </div>
                       <div className="text-xs leading-5 text-red-950 dark:text-red-100">
-                        {renderQuestionDiffSegments(questionDiff.before, 'removed')}
+                        {renderWordDiffSegments(questionDiff.before, 'removed')}
                       </div>
                     </div>
                   )}
@@ -1159,7 +1147,7 @@ function InterviewDraftDiffView({ content, phase }: { content: string; phase?: s
                         <TextCopyButton content={diff.after} title="Copy after" />
                       </div>
                       <div className="text-xs leading-5 text-green-950 dark:text-green-100">
-                        {renderQuestionDiffSegments(questionDiff.after, 'added')}
+                        {renderWordDiffSegments(questionDiff.after, 'added')}
                       </div>
                     </div>
                   )}
@@ -3312,13 +3300,13 @@ function DiffFileSection({ file }: { file: DiffFileEntry }) {
         <span className="text-[11px] font-mono text-red-600 dark:text-red-400 shrink-0">-{file.deletions}</span>
       </button>
       {open && (() => {
-        const numbered = computeLineNumbers(file.lines)
+        const numbered = computeLineNumbersWithWordDiff(file.lines)
         return (
-          <div className="border-t border-border/40 bg-[var(--color-card)] overflow-x-auto">
-            <pre className="text-xs font-mono leading-[1.6]">
+          <div className="border-t border-border/40 bg-[var(--color-card)] overflow-auto">
+            <div className="text-xs font-mono leading-[1.6]">
               {numbered.map((info, i) => {
                 if (info.text.startsWith('---') || info.text.startsWith('+++')) return null
-                let className = 'px-4 block'
+                let className = 'px-4'
                 if (info.text.startsWith('@@')) {
                   className += ' text-blue-600 dark:text-blue-400 bg-blue-500/5 py-0.5 font-medium border-y border-blue-500/10'
                 } else if (info.text.startsWith('+')) {
@@ -3329,14 +3317,16 @@ function DiffFileSection({ file }: { file: DiffFileEntry }) {
                   className += ' text-muted-foreground/80'
                 }
                 return (
-                  <span key={i} className={className}>
-                    <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-1">{info.oldNum ?? ' '}</span>
-                    <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-2">{info.newNum ?? ' '}</span>
-                    {info.text || '\u00A0'}
+                  <span key={i} className={`${className} grid grid-cols-[3.5ch_3.5ch_minmax(0,1fr)] items-start gap-x-1`}>
+                    <span className="text-right text-muted-foreground/50 select-none">{info.oldNum ?? ' '}</span>
+                    <span className="text-right text-muted-foreground/50 select-none">{info.newNum ?? ' '}</span>
+                    <span className="min-w-0 whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere]">
+                      {renderUnifiedDiffLineText(info.text, info.wordDiffSegments)}
+                    </span>
                   </span>
                 )
               })}
-            </pre>
+            </div>
           </div>
         )
       })()}

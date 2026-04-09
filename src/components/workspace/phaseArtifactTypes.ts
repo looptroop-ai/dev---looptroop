@@ -24,6 +24,15 @@ import {
   parseUiRefinementDiffArtifact,
 } from '@shared/refinementDiffArtifacts'
 import type { UiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import {
+  buildTextDiffSegments,
+  type TextDiffSegment,
+} from './textDiffSegments'
+export {
+  TEXT_DIFF_TOKEN_PATTERN as QUESTION_DIFF_TOKEN_PATTERN,
+  tokenizeTextDiff as tokenizeQuestionDiffText,
+  mergeTextDiffSegments as mergeQuestionDiffSegments,
+} from './textDiffSegments'
 
 export interface ArtifactDef {
   id: string
@@ -272,10 +281,7 @@ export interface RefinementDiffEntry {
   attributionStatus?: RefinementChangeAttributionStatus
 }
 
-export interface QuestionDiffSegment {
-  text: string
-  changed: boolean
-}
+export type QuestionDiffSegment = TextDiffSegment
 
 export interface RelevantFileScanEntry {
   path: string
@@ -343,7 +349,6 @@ export type ViewingArtifactSelection =
 // Re-export CouncilOutcome for convenience
 export type { CouncilOutcome }
 
-export const QUESTION_DIFF_TOKEN_PATTERN = /(\s+|[A-Za-z0-9_]+|[^A-Za-z0-9_\s]+)/g
 type InterviewDiffAttributionStatus = NonNullable<InterviewQuestionChange['attributionStatus']>
 type RefinementDiffAttributionStatus = NonNullable<RefinementChange['attributionStatus']>
 
@@ -779,95 +784,7 @@ export function buildInterviewDiffEntries(content: string | undefined): Intervie
   }
 }
 
-export function tokenizeQuestionDiffText(text: string): string[] {
-  return text.match(QUESTION_DIFF_TOKEN_PATTERN) ?? []
-}
-
-export function mergeQuestionDiffSegments(segments: QuestionDiffSegment[]): QuestionDiffSegment[] {
-  const merged: QuestionDiffSegment[] = []
-
-  for (const segment of segments) {
-    if (!segment.text) continue
-    const previous = merged[merged.length - 1]
-    if (previous && previous.changed === segment.changed) {
-      previous.text += segment.text
-      continue
-    }
-    merged.push({ ...segment })
-  }
-
-  return merged
-}
-
-export function buildQuestionDiffSegments(before: string | undefined, after: string | undefined): {
-  before: QuestionDiffSegment[]
-  after: QuestionDiffSegment[]
-} {
-  if (!before && !after) return { before: [], after: [] }
-  if (!before) return { before: [], after: after ? [{ text: after, changed: true }] : [] }
-  if (!after) return { before: before ? [{ text: before, changed: true }] : [], after: [] }
-  if (before === after) {
-    return {
-      before: [{ text: before, changed: false }],
-      after: [{ text: after, changed: false }],
-    }
-  }
-
-  const beforeTokens = tokenizeQuestionDiffText(before)
-  const afterTokens = tokenizeQuestionDiffText(after)
-  const lcs: number[][] = Array.from(
-    { length: beforeTokens.length + 1 },
-    () => Array<number>(afterTokens.length + 1).fill(0),
-  )
-
-  for (let beforeIndex = beforeTokens.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
-    for (let afterIndex = afterTokens.length - 1; afterIndex >= 0; afterIndex -= 1) {
-      lcs[beforeIndex]![afterIndex] = beforeTokens[beforeIndex] === afterTokens[afterIndex]
-        ? (lcs[beforeIndex + 1]?.[afterIndex + 1] ?? 0) + 1
-        : Math.max(lcs[beforeIndex + 1]?.[afterIndex] ?? 0, lcs[beforeIndex]![afterIndex + 1] ?? 0)
-    }
-  }
-
-  const beforeSegments: QuestionDiffSegment[] = []
-  const afterSegments: QuestionDiffSegment[] = []
-  let beforeIndex = 0
-  let afterIndex = 0
-
-  while (beforeIndex < beforeTokens.length && afterIndex < afterTokens.length) {
-    if (beforeTokens[beforeIndex] === afterTokens[afterIndex]) {
-      const shared = beforeTokens[beforeIndex]!
-      beforeSegments.push({ text: shared, changed: false })
-      afterSegments.push({ text: shared, changed: false })
-      beforeIndex += 1
-      afterIndex += 1
-      continue
-    }
-
-    if ((lcs[beforeIndex + 1]?.[afterIndex] ?? 0) >= (lcs[beforeIndex]?.[afterIndex + 1] ?? 0)) {
-      beforeSegments.push({ text: beforeTokens[beforeIndex]!, changed: true })
-      beforeIndex += 1
-      continue
-    }
-
-    afterSegments.push({ text: afterTokens[afterIndex]!, changed: true })
-    afterIndex += 1
-  }
-
-  while (beforeIndex < beforeTokens.length) {
-    beforeSegments.push({ text: beforeTokens[beforeIndex]!, changed: true })
-    beforeIndex += 1
-  }
-
-  while (afterIndex < afterTokens.length) {
-    afterSegments.push({ text: afterTokens[afterIndex]!, changed: true })
-    afterIndex += 1
-  }
-
-  return {
-    before: mergeQuestionDiffSegments(beforeSegments),
-    after: mergeQuestionDiffSegments(afterSegments),
-  }
-}
+export const buildQuestionDiffSegments = buildTextDiffSegments
 
 export function buildFinalInterviewArtifactContent(
   voteContent: string | null | undefined,

@@ -1,3 +1,5 @@
+import { buildTextDiffSegments, type TextDiffSegment } from './textDiffSegments'
+
 export function parseDiffStats(diff: string): { files: number; additions: number; deletions: number } {
   let files = 0
   let additions = 0
@@ -16,11 +18,38 @@ export interface DiffLineInfo {
   newNum: number | null
 }
 
+export interface HighlightedDiffLineInfo extends DiffLineInfo {
+  wordDiffSegments?: TextDiffSegment[]
+}
+
 export interface FileDiff {
   filename: string
   additions: number
   deletions: number
   lines: string[]
+}
+
+function isAdditionLine(line: string): boolean {
+  return line.startsWith('+') && !line.startsWith('+++')
+}
+
+function isRemovalLine(line: string): boolean {
+  return line.startsWith('-') && !line.startsWith('---')
+}
+
+function hasChangedSegments(segments: TextDiffSegment[]): boolean {
+  return segments.some((segment) => segment.changed)
+}
+
+function applyWordDiffPair(lines: HighlightedDiffLineInfo[], removedIndex: number, addedIndex: number) {
+  const diff = buildTextDiffSegments(lines[removedIndex]?.text.slice(1), lines[addedIndex]?.text.slice(1))
+
+  if (hasChangedSegments(diff.before)) {
+    lines[removedIndex]!.wordDiffSegments = diff.before
+  }
+  if (hasChangedSegments(diff.after)) {
+    lines[addedIndex]!.wordDiffSegments = diff.after
+  }
 }
 
 /** Parse hunk header like "@@ -10,5 +12,7 @@" into starting line numbers */
@@ -62,6 +91,55 @@ export function computeLineNumbers(lines: string[]): DiffLineInfo[] {
     newNum++
     return info
   })
+}
+
+export function computeLineNumbersWithWordDiff(lines: string[]): HighlightedDiffLineInfo[] {
+  const numbered = computeLineNumbers(lines).map((line) => ({ ...line }))
+  let index = 0
+
+  while (index < numbered.length) {
+    if (!numbered[index]?.text.startsWith('@@')) {
+      index += 1
+      continue
+    }
+
+    index += 1
+
+    while (index < numbered.length) {
+      const currentLine = numbered[index]?.text ?? ''
+      if (currentLine.startsWith('@@') || currentLine.startsWith('diff --git')) break
+
+      if (!isRemovalLine(currentLine) && !isAdditionLine(currentLine)) {
+        index += 1
+        continue
+      }
+
+      const removedIndices: number[] = []
+      const addedIndices: number[] = []
+
+      while (index < numbered.length) {
+        const line = numbered[index]?.text ?? ''
+        if (isRemovalLine(line)) {
+          removedIndices.push(index)
+          index += 1
+          continue
+        }
+        if (isAdditionLine(line)) {
+          addedIndices.push(index)
+          index += 1
+          continue
+        }
+        break
+      }
+
+      const pairCount = Math.min(removedIndices.length, addedIndices.length)
+      for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
+        applyWordDiffPair(numbered, removedIndices[pairIndex]!, addedIndices[pairIndex]!)
+      }
+    }
+  }
+
+  return numbered
 }
 
 export function parseFileDiffs(diff: string): FileDiff[] {

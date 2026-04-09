@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, FileCode2, ChevronRight, ChevronDown } from 'lucide-react'
-import { parseDiffStats, parseFileDiffs, computeLineNumbers, type FileDiff } from './diffUtils'
+import { parseDiffStats, parseFileDiffs, computeLineNumbersWithWordDiff, type FileDiff } from './diffUtils'
+import { renderUnifiedDiffLineText } from './diffWordHighlights'
 
 interface BeadDiffViewerProps {
   ticketId: string
@@ -20,7 +21,7 @@ async function fetchBeadDiff(ticketId: string, beadId: string): Promise<DiffResp
 }
 
 function lineClassName(line: string): string {
-  let className = 'px-3 py-px block'
+  let className = 'px-3 py-px'
   if (line.startsWith('diff --git')) {
     className += ' text-foreground font-semibold bg-muted/50'
   } else if (line.startsWith('@@')) {
@@ -55,17 +56,19 @@ function FileDiffBlock({ file }: { file: FileDiff }) {
         </span>
       </button>
       {expanded && (() => {
-        const numbered = computeLineNumbers(file.lines)
+        const numbered = computeLineNumbersWithWordDiff(file.lines)
         return (
-          <pre className="text-xs font-mono leading-relaxed overflow-auto">
+          <div className="text-xs font-mono leading-relaxed overflow-auto">
             {numbered.map((info, i) => (
-              <span key={i} className={lineClassName(info.text)}>
-                <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-1">{info.oldNum ?? ' '}</span>
-                <span className="inline-block w-[3.5ch] text-right text-muted-foreground/50 select-none mr-2">{info.newNum ?? ' '}</span>
-                {info.text || '\u00A0'}
+              <span key={i} className={`${lineClassName(info.text)} grid grid-cols-[3.5ch_3.5ch_minmax(0,1fr)] items-start gap-x-1`}>
+                <span className="text-right text-muted-foreground/50 select-none">{info.oldNum ?? ' '}</span>
+                <span className="text-right text-muted-foreground/50 select-none">{info.newNum ?? ' '}</span>
+                <span className="min-w-0 whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere]">
+                  {renderUnifiedDiffLineText(info.text, info.wordDiffSegments)}
+                </span>
               </span>
             ))}
-          </pre>
+          </div>
         )
       })()}
     </div>
@@ -133,5 +136,3 @@ export function BeadDiffViewer({ ticketId, beadId }: BeadDiffViewerProps) {
     </div>
   )
 }
-
-
