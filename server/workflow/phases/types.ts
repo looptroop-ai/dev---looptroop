@@ -28,6 +28,7 @@ export interface StructuredLogFields extends Record<string, unknown> {
   source: string
   modelId?: string
   sessionId?: string
+  beadId?: string
   streaming?: boolean
   suppressDebugMirror?: boolean
 }

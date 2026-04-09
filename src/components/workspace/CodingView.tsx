@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
+import { useLogs } from '@/context/useLogContext'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List } from 'lucide-react'
+import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { BeadDiffViewer } from './BeadDiffViewer'
+import { LogEntryRow } from './LogLine'
+import { filterEntries } from './logFormat'
 import { VerificationSummaryPanel } from './VerificationSummaryPanel'
 import type { Ticket } from '@/hooks/useTickets'
 import { useTicketAction } from '@/hooks/useTickets'
@@ -230,7 +233,8 @@ function BeadGrid({
 
 export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const [viewingBeadId, setViewingBeadId] = useState<string | null>(null)
-  const [detailTab, setDetailTab] = useState<'details' | 'changes'>('details')
+  const [detailTab, setDetailTab] = useState<'details' | 'changes' | 'model'>('details')
+  const logCtx = useLogs()
   const { mutate: performAction, isPending } = useTicketAction()
   const { data: beads = [] } = useQuery({
     queryKey: ['ticket-beads', ticket.id],
@@ -260,6 +264,12 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
     () => beads.find((bead) => bead.id === viewingBeadId) ?? null,
     [beads, viewingBeadId],
   )
+  const beadModelLogs = useMemo(() => {
+    if (!viewedBead) return []
+    const phaseLogs = logCtx?.getLogsForPhase(readOnly ? 'CODING' : ticket.status) ?? []
+    const beadLogs = phaseLogs.filter(entry => entry.beadId === viewedBead.id)
+    return filterEntries(beadLogs, 'AI')
+  }, [logCtx, viewedBead, readOnly, ticket.status])
   const isViewingOther = viewedBead !== null
 
   return (
@@ -354,9 +364,33 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                 <FileCode2 className="h-3 w-3" />
                 Changes
               </button>
+              <button
+                onClick={() => setDetailTab('model')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2',
+                  detailTab === 'model'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Brain className="h-3 w-3" />
+                Log
+              </button>
             </div>
 
-            {detailTab === 'changes' && (viewedBead.status === 'completed' || viewedBead.status === 'skipped') ? (
+            {detailTab === 'model' ? (
+              <div className="flex-1 min-h-0 overflow-auto">
+                <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
+                  {beadModelLogs.length > 0 ? (
+                    beadModelLogs.map((entry, i) => (
+                      <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName />
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground/50 italic">No AI model logs for this bead.</span>
+                  )}
+                </div>
+              </div>
+            ) : detailTab === 'changes' && (viewedBead.status === 'completed' || viewedBead.status === 'skipped') ? (
               <div className="flex-1 min-h-0 overflow-auto">
                 <BeadDiffViewer ticketId={ticket.id} beadId={viewedBead.id} />
               </div>
@@ -437,7 +471,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
             )}
           </div>
         ) : (
-          <CollapsiblePhaseLogSection phase={ticket.status} ticket={ticket} />
+          <CollapsiblePhaseLogSection phase={readOnly ? 'CODING' : ticket.status} ticket={ticket} />
         )}
       </div>
     </div>

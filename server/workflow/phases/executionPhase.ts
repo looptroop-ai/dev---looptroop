@@ -68,7 +68,7 @@ export async function handleCoding(
     throw new Error('No locked main implementer is configured for coding')
   }
 
-  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
 
   // Record bead start commit for potential reset on context wipe
   let beadStartCommit: string | null = null
@@ -78,7 +78,7 @@ export async function handleCoding(
       b.id === nextBead.id ? { ...b, beadStartCommit } : b)
     writeTicketBeads(ticketId, beadsWithCommit)
   } catch (err) {
-    emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not record bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+    emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not record bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
   }
 
   throwIfAborted(signal, ticketId)
@@ -117,6 +117,7 @@ export async function handleCoding(
             modelId: codingModelId,
             sessionId,
             source: `model:${codingModelId}`,
+            beadId: nextBead.id,
           },
         )
       },
@@ -131,6 +132,7 @@ export async function handleCoding(
           sessionId,
           event,
           streamState,
+          nextBead.id,
         )
       },
       onPromptDispatched: ({ event }) => {
@@ -140,6 +142,7 @@ export async function handleCoding(
           'CODING',
           codingModelId,
           event,
+          nextBead.id,
         )
       },
       onNotesUpdated: (beadId, notes) => {
@@ -152,7 +155,7 @@ export async function handleCoding(
           try {
             resetToBeadStart(paths.worktreePath, beadStartCommit)
           } catch (err) {
-            emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not reset to bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+            emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not reset to bead start commit: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
           }
         }
       },
@@ -185,6 +188,7 @@ export async function handleCoding(
     emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', `Bead ${nextBead.id} failed.`, {
       source: 'system',
       modelId: codingModelId,
+      beadId: nextBead.id,
       errors: result.errors,
     })
     sendEvent({ type: 'BEAD_ERROR' })
@@ -208,13 +212,13 @@ export async function handleCoding(
   try {
     const gitResult = commitBeadChanges(paths.worktreePath, nextBead.id, nextBead.title)
     if (gitResult.error) {
-      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Git operation warning for bead ${nextBead.id}: ${gitResult.error}`, { source: 'system', modelId: codingModelId })
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Git operation warning for bead ${nextBead.id}: ${gitResult.error}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
     }
     if (gitResult.committed) {
-      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Committed bead ${nextBead.id} changes${gitResult.pushed ? ' and pushed' : ' (push pending)'}`, { source: 'system', modelId: codingModelId })
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Committed bead ${nextBead.id} changes${gitResult.pushed ? ' and pushed' : ' (push pending)'}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
     }
   } catch (err) {
-    emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not commit bead changes: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+    emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not commit bead changes: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
   }
 
   // Capture code-only diff for this bead (excludes .ticket/** metadata)
@@ -227,7 +231,7 @@ export async function handleCoding(
         content: diffContent,
       })
     } catch (err) {
-      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not capture bead diff: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId })
+      emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Could not capture bead diff: ${err instanceof Error ? err.message : 'Unknown error'}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
     }
   }
 
@@ -239,7 +243,7 @@ export async function handleCoding(
     total: completedBeads.length,
   })
 
-  emitPhaseLog(ticketId, context.externalId, 'CODING', 'bead_complete', `Completed bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId })
+  emitPhaseLog(ticketId, context.externalId, 'CODING', 'bead_complete', `Completed bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
   if (isAllComplete(completedBeads)) {
     sendEvent({ type: 'ALL_BEADS_DONE' })
   } else {

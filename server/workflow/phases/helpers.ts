@@ -58,6 +58,7 @@ export function emitPhaseLog(
     ...(typeof data?.kind === 'string' ? { kind: data.kind as StructuredLogKind } : {}),
     ...(typeof data?.modelId === 'string' ? { modelId: data.modelId } : {}),
     ...(typeof data?.sessionId === 'string' ? { sessionId: data.sessionId } : {}),
+    ...(typeof data?.beadId === 'string' ? { beadId: data.beadId } : {}),
     ...(typeof data?.streaming === 'boolean' ? { streaming: data.streaming } : {}),
   }
   const timestamp = new Date().toISOString()
@@ -318,6 +319,7 @@ export function emitOpenCodePromptLog(
   phase: string,
   memberId: string,
   event: OpenCodePromptDispatchEvent,
+  beadId?: string,
 ) {
   const source = memberId ? `model:${memberId}` : 'opencode'
   const promptBody = event.promptText.trim()
@@ -339,6 +341,7 @@ export function emitOpenCodePromptLog(
       source,
       modelId: memberId || undefined,
       sessionId: event.session.id,
+      ...(beadId ? { beadId } : {}),
       streaming: false,
     },
   )
@@ -412,6 +415,7 @@ export function emitOpenCodeStreamEvent(
   sessionId: string,
   event: StreamEvent,
   state: OpenCodeStreamState,
+  beadId?: string,
 ) {
   const source = memberId ? `model:${memberId}` : 'opencode'
 
@@ -426,7 +430,7 @@ export function emitOpenCodeStreamEvent(
         ? `First AI activity observed from ${memberId} (session=${sessionId}).`
         : `First AI activity observed (session=${sessionId}).`,
       `${sessionId}:first-activity`,
-      { modelId: memberId || undefined, sessionId, source },
+      { modelId: memberId || undefined, sessionId, source, ...(beadId ? { beadId } : {}) },
     )
   }
 
@@ -450,6 +454,7 @@ export function emitOpenCodeStreamEvent(
         source,
         modelId: memberId || undefined,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: event.streaming,
       },
     )
@@ -482,6 +487,7 @@ export function emitOpenCodeStreamEvent(
           source,
           modelId: memberId || undefined,
           sessionId,
+          ...(beadId ? { beadId } : {}),
           streaming: true,
         },
       )
@@ -508,6 +514,7 @@ export function emitOpenCodeStreamEvent(
         source,
         modelId: memberId || undefined,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: !event.complete,
       },
     )
@@ -537,6 +544,7 @@ export function emitOpenCodeStreamEvent(
         source,
         modelId: memberId || undefined,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: false,
       },
     )
@@ -567,6 +575,7 @@ export function emitOpenCodeStreamEvent(
           source,
           modelId: memberId || undefined,
           sessionId,
+          ...(beadId ? { beadId } : {}),
           streaming: entry.op !== 'append' && event.status !== 'idle',
         },
       )
@@ -589,6 +598,7 @@ export function emitOpenCodeStreamEvent(
         source,
         modelId: memberId || undefined,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: false,
       },
     )
@@ -612,6 +622,7 @@ export function emitOpenCodeStreamEvent(
         source,
         modelId: memberId || undefined,
         sessionId,
+        ...(beadId ? { beadId } : {}),
         streaming: false,
         ...(errorSummary.details ? { errorDetails: errorSummary.details } : {}),
       },
@@ -624,7 +635,7 @@ export function emitOpenCodeStreamEvent(
         ? `AI session failed for ${memberId} (session=${sessionId}).`
         : `AI session failed (session=${sessionId}).`,
       `${sessionId}:failed`,
-      { modelId: memberId || undefined, sessionId, source },
+      { modelId: memberId || undefined, sessionId, source, ...(beadId ? { beadId } : {}) },
     )
     return
   }
@@ -649,7 +660,7 @@ export function emitOpenCodeStreamEvent(
         ? `AI session completed for ${memberId} (session=${sessionId}).`
         : `AI session completed (session=${sessionId}).`,
       `${sessionId}:completed`,
-      { modelId: memberId || undefined, sessionId, source },
+      { modelId: memberId || undefined, sessionId, source, ...(beadId ? { beadId } : {}) },
     )
   }
 }

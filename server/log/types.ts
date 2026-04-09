@@ -21,5 +21,6 @@ export interface LogEvent {
   kind?: LogKind
   modelId?: string
   sessionId?: string
+  beadId?: string
   streaming?: boolean
 }

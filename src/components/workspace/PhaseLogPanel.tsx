@@ -20,6 +20,7 @@ interface PhaseLogPanelProps {
   hideHeader?: boolean
   toolbarPrefix?: ReactNode
   onNaturalHeightChange?: (height: number) => void
+  defaultTab?: string
 }
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
@@ -42,6 +43,7 @@ export function PhaseLogPanel({
   hideHeader = false,
   toolbarPrefix,
   onNaturalHeightChange,
+  defaultTab,
 }: PhaseLogPanelProps) {
   const logCtx = useLogs()
   const isLoadingLogs = logCtx?.isLoadingLogs ?? false
@@ -50,7 +52,7 @@ export function PhaseLogPanel({
     [propLogs, logCtx, phase],
   )
   const hasToolbarPrefix = toolbarPrefix != null
-  const [activeTab, setActiveTab] = useState<string>('ALL')
+  const [activeTab, setActiveTab] = useState<string>(defaultTab ?? 'ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const [sysCollapsed, setSysCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)

@@ -9,6 +9,7 @@ export interface LogEntry {
   kind: string
   modelId?: string
   sessionId?: string
+  beadId?: string
   streaming: boolean
   op: 'append' | 'upsert' | 'finalize'
 }
@@ -168,6 +169,7 @@ export function normalizeLogRecord(data: Record<string, unknown>, fallbackPhase:
     : fallbackEntryId(status, source, timestamp, line)
   const modelId = deriveModelId(data, source)
   const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+  const beadId = typeof data.beadId === 'string' ? data.beadId : undefined
   const op = deriveOperation(data)
   const streaming = typeof data.streaming === 'boolean' ? data.streaming : op !== 'append'
 
@@ -182,6 +184,7 @@ export function normalizeLogRecord(data: Record<string, unknown>, fallbackPhase:
     kind,
     ...(modelId ? { modelId } : {}),
     ...(sessionId ? { sessionId } : {}),
+    ...(beadId ? { beadId } : {}),
     streaming,
     op,
   }
@@ -212,6 +215,7 @@ export function normalizeStoredEntry(entry: Partial<LogEntry>, fallbackStatus: s
     kind: String(entry.kind ?? (audience === 'ai' ? 'text' : 'milestone')),
     ...(entry.modelId ? { modelId: String(entry.modelId) } : {}),
     ...(entry.sessionId ? { sessionId: String(entry.sessionId) } : {}),
+    ...(entry.beadId ? { beadId: String(entry.beadId) } : {}),
     streaming: Boolean(entry.streaming),
     op: entry.op === 'upsert' || entry.op === 'finalize' ? entry.op : 'append',
   }
