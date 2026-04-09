@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLogs } from '@/context/useLogContext'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain } from 'lucide-react'
+import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain, Clock, GitCommit, Tag, Link2, ArrowRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
@@ -26,11 +26,23 @@ interface TicketBead {
   description: string
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped'
   iteration: number
+  priority: number
+  issueType: string
+  externalRef: string
+  labels: string[]
+  prdRefs: string[]
   acceptanceCriteria: string[]
   tests: string[]
   testCommands: string[]
+  targetFiles: string[]
   contextGuidance: { patterns: string[]; anti_patterns: string[] }
+  dependencies: { blocked_by: string[]; blocks: string[] }
   notes: string
+  createdAt: string
+  updatedAt: string
+  completedAt: string
+  startedAt: string
+  beadStartCommit: string | null
 }
 
 function normalizeNotes(input: unknown): string {
@@ -52,17 +64,62 @@ function splitRenderedNotes(notes: string): string[] {
     .filter(Boolean)
 }
 
+function formatTimestamp(iso: string): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return iso
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
+function relativeTime(iso: string): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return ''
+    const diff = Date.now() - d.getTime()
+    const secs = Math.floor(diff / 1000)
+    if (secs < 60) return `${secs}s ago`
+    const mins = Math.floor(secs / 60)
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    return `${days}d ago`
+  } catch {
+    return ''
+  }
+}
+
 function normalizeBead(input: {
   id: string
   title: string
   status: string
   iteration: number
   description?: string
+  priority?: number
+  issueType?: string
+  externalRef?: string
+  labels?: string[]
+  prdRefs?: string[]
   acceptanceCriteria?: string[]
   tests?: string[]
   testCommands?: string[]
+  targetFiles?: string[]
   contextGuidance?: { patterns?: string[]; anti_patterns?: string[] }
+  dependencies?: { blocked_by?: string[]; blocks?: string[] }
   notes?: string | string[]
+  createdAt?: string
+  updatedAt?: string
+  completedAt?: string
+  startedAt?: string
+  beadStartCommit?: string | null
 }): TicketBead {
   const STATUS_MAP: Record<string, TicketBead['status']> = {
     done: 'completed',
@@ -79,17 +136,34 @@ function normalizeBead(input: {
     ? { patterns: Array.isArray(cg.patterns) ? cg.patterns : [], anti_patterns: Array.isArray(cg.anti_patterns) ? cg.anti_patterns : [] }
     : { patterns: [], anti_patterns: [] }
 
+  const deps = input.dependencies
+  const dependencies = deps && typeof deps === 'object' && !Array.isArray(deps)
+    ? { blocked_by: Array.isArray(deps.blocked_by) ? deps.blocked_by : [], blocks: Array.isArray(deps.blocks) ? deps.blocks : [] }
+    : { blocked_by: [], blocks: [] }
+
   return {
     id: input.id,
     title: input.title,
     description: input.description ?? '',
     status,
     iteration: input.iteration ?? 0,
+    priority: input.priority ?? 0,
+    issueType: input.issueType ?? '',
+    externalRef: input.externalRef ?? '',
+    labels: Array.isArray(input.labels) ? input.labels : [],
+    prdRefs: Array.isArray(input.prdRefs) ? input.prdRefs : [],
     acceptanceCriteria: input.acceptanceCriteria ?? [],
     tests: input.tests ?? [],
     testCommands: input.testCommands ?? [],
+    targetFiles: Array.isArray(input.targetFiles) ? input.targetFiles : [],
     contextGuidance,
+    dependencies,
     notes: normalizeNotes(input.notes),
+    createdAt: input.createdAt ?? '',
+    updatedAt: input.updatedAt ?? '',
+    completedAt: input.completedAt ?? '',
+    startedAt: input.startedAt ?? '',
+    beadStartCommit: input.beadStartCommit ?? null,
   }
 }
 
@@ -105,11 +179,23 @@ async function fetchTicketBeads(ticketId: string): Promise<TicketBead[]> {
           status: string
           iteration: number
           description?: string
+          priority?: number
+          issueType?: string
+          externalRef?: string
+          labels?: string[]
+          prdRefs?: string[]
           acceptanceCriteria?: string[]
           tests?: string[]
           testCommands?: string[]
+          targetFiles?: string[]
           contextGuidance?: { patterns?: string[]; anti_patterns?: string[] }
+          dependencies?: { blocked_by?: string[]; blocks?: string[] }
           notes?: string | string[]
+          createdAt?: string
+          updatedAt?: string
+          completedAt?: string
+          startedAt?: string
+          beadStartCommit?: string | null
         } =>
           Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && typeof (item as { title?: unknown }).title === 'string'),
         )
@@ -395,13 +481,161 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                 <BeadDiffViewer ticketId={ticket.id} beadId={viewedBead.id} />
               </div>
             ) : (
-              <div className="flex-1 min-h-0 overflow-auto p-3">
-                <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {viewedBead.title}
+              <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3">
+                {/* Header: title + ID */}
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {viewedBead.title}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-[10px]">{viewedBead.id}</code>
+                    {viewedBead.priority > 0 && (
+                      <span className="flex items-center gap-0.5">
+                        <span className="font-medium text-foreground">#{viewedBead.priority}</span> priority
+                      </span>
+                    )}
+                    {viewedBead.issueType && (
+                      <Badge variant="outline" className="text-[10px] h-4 px-1.5">{viewedBead.issueType}</Badge>
+                    )}
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-[10px] h-4 px-1.5',
+                        viewedBead.status === 'completed' && 'border-green-600/40 text-green-700 dark:text-green-400',
+                        viewedBead.status === 'in_progress' && 'border-primary/40 text-primary',
+                        viewedBead.status === 'failed' && 'border-red-600/40 text-red-700 dark:text-red-400',
+                      )}
+                    >
+                      {viewedBead.status.replace('_', ' ')}
+                    </Badge>
+                    {viewedBead.iteration > 0 && (
+                      <span>iteration {viewedBead.iteration}</span>
+                    )}
+                  </div>
                 </div>
-                <p className="mt-2 text-sm whitespace-pre-wrap">{viewedBead.description || 'No bead description available.'}</p>
+
+                {/* Description */}
+                <p className="text-sm whitespace-pre-wrap">{viewedBead.description || 'No bead description available.'}</p>
+
+                {/* Timestamps */}
+                {(viewedBead.createdAt || viewedBead.startedAt || viewedBead.updatedAt || viewedBead.completedAt) && (
+                  <div className="border-l-2 border-sky-300 dark:border-sky-700 pl-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-sky-600 dark:text-sky-400 mb-1 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Timeline
+                    </div>
+                    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                      {viewedBead.createdAt && (
+                        <>
+                          <span className="text-muted-foreground">Created</span>
+                          <span>{formatTimestamp(viewedBead.createdAt)} <span className="text-muted-foreground/60">({relativeTime(viewedBead.createdAt)})</span></span>
+                        </>
+                      )}
+                      {viewedBead.startedAt && (
+                        <>
+                          <span className="text-muted-foreground">Started</span>
+                          <span>{formatTimestamp(viewedBead.startedAt)} <span className="text-muted-foreground/60">({relativeTime(viewedBead.startedAt)})</span></span>
+                        </>
+                      )}
+                      {viewedBead.updatedAt && (
+                        <>
+                          <span className="text-muted-foreground">Updated</span>
+                          <span>{formatTimestamp(viewedBead.updatedAt)} <span className="text-muted-foreground/60">({relativeTime(viewedBead.updatedAt)})</span></span>
+                        </>
+                      )}
+                      {viewedBead.completedAt && (
+                        <>
+                          <span className="text-muted-foreground">Completed</span>
+                          <span>{formatTimestamp(viewedBead.completedAt)} <span className="text-muted-foreground/60">({relativeTime(viewedBead.completedAt)})</span></span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* External Ref + Bead Start Commit */}
+                {(viewedBead.externalRef || viewedBead.beadStartCommit) && (
+                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                    {viewedBead.externalRef && (
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <Link2 className="h-3 w-3" /> Ref: <code className="bg-muted px-1 py-0.5 rounded font-mono text-[10px]">{viewedBead.externalRef}</code>
+                      </span>
+                    )}
+                    {viewedBead.beadStartCommit && (
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <GitCommit className="h-3 w-3" /> Start commit: <code className="bg-muted px-1 py-0.5 rounded font-mono text-[10px]">{viewedBead.beadStartCommit.slice(0, 8)}</code>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* PRD Refs */}
+                {viewedBead.prdRefs.length > 0 && (
+                  <div className="border-l-2 border-indigo-300 dark:border-indigo-700 pl-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-indigo-600 dark:text-indigo-400 mb-1">PRD References</div>
+                    <div className="flex flex-wrap gap-1">
+                      {viewedBead.prdRefs.map((ref) => (
+                        <code key={ref} className="text-[10px] bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded font-mono">{ref}</code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Labels */}
+                {viewedBead.labels.length > 0 && (
+                  <div className="border-l-2 border-pink-300 dark:border-pink-700 pl-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-pink-600 dark:text-pink-400 mb-1 flex items-center gap-1">
+                      <Tag className="h-3 w-3" /> Labels
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {viewedBead.labels.map((label) => (
+                        <Badge key={label} variant="outline" className="text-[10px] h-4 px-1.5">{label}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dependencies */}
+                {(viewedBead.dependencies.blocked_by.length > 0 || viewedBead.dependencies.blocks.length > 0) && (
+                  <div className="border-l-2 border-orange-300 dark:border-orange-700 pl-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-orange-600 dark:text-orange-400 mb-1 flex items-center gap-1">
+                      <ArrowRight className="h-3 w-3" /> Dependencies
+                    </div>
+                    {viewedBead.dependencies.blocked_by.length > 0 && (
+                      <div className="mt-0.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Blocked by: </span>
+                        {viewedBead.dependencies.blocked_by.map((dep) => (
+                          <code key={dep} className="text-[10px] bg-orange-500/10 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded font-mono mr-1">{dep}</code>
+                        ))}
+                      </div>
+                    )}
+                    {viewedBead.dependencies.blocks.length > 0 && (
+                      <div className="mt-0.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Blocks: </span>
+                        {viewedBead.dependencies.blocks.map((dep) => (
+                          <code key={dep} className="text-[10px] bg-orange-500/10 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded font-mono mr-1">{dep}</code>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Target Files */}
+                {viewedBead.targetFiles.length > 0 && (
+                  <div className="border-l-2 border-cyan-300 dark:border-cyan-700 pl-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-cyan-600 dark:text-cyan-400 mb-1 flex items-center gap-1">
+                      <FileCode2 className="h-3 w-3" /> Target Files
+                    </div>
+                    <div className="space-y-0.5">
+                      {viewedBead.targetFiles.map((file) => (
+                        <code key={file} className="block text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono truncate" title={file}>{file}</code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Context Guidance */}
                 {(viewedBead.contextGuidance.patterns.length > 0 || viewedBead.contextGuidance.anti_patterns.length > 0) && (
-                  <div className="mt-3 border-l-2 border-violet-300 dark:border-violet-700 pl-2">
+                  <div className="border-l-2 border-violet-300 dark:border-violet-700 pl-2">
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-600 dark:text-violet-400 mb-1">Context Guidance</div>
                     {viewedBead.contextGuidance.patterns.length > 0 && (
                       <div className="mt-1">
@@ -425,8 +659,10 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                     )}
                   </div>
                 )}
+
+                {/* Acceptance Criteria */}
                 {viewedBead.acceptanceCriteria.length > 0 && (
-                  <div className="mt-3 border-l-2 border-green-300 dark:border-green-700 pl-2">
+                  <div className="border-l-2 border-green-300 dark:border-green-700 pl-2">
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-green-600 dark:text-green-400 mb-1">Acceptance Criteria</div>
                     <ul className="text-xs space-y-1">
                       {viewedBead.acceptanceCriteria.map((criterion) => (
@@ -435,8 +671,10 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                     </ul>
                   </div>
                 )}
+
+                {/* Tests */}
                 {(viewedBead.tests.length > 0 || viewedBead.testCommands.length > 0) && (
-                  <div className="mt-3 border-l-2 border-amber-300 dark:border-amber-700 pl-2 space-y-1.5">
+                  <div className="border-l-2 border-amber-300 dark:border-amber-700 pl-2 space-y-1.5">
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">Tests</div>
                     {viewedBead.tests.length > 0 && (
                       <ul className="text-xs space-y-1">
@@ -457,14 +695,16 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                     )}
                   </div>
                 )}
+
+                {/* Notes */}
                 {splitRenderedNotes(viewedBead.notes).length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-xs font-medium text-muted-foreground mb-1">Notes</div>
-                    <ul className="text-xs space-y-1">
-                      {splitRenderedNotes(viewedBead.notes).map((note) => (
-                        <li key={note}>- {note}</li>
+                  <div className="border-l-2 border-rose-300 dark:border-rose-700 pl-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-rose-600 dark:text-rose-400 mb-1">Notes</div>
+                    <div className="text-xs space-y-2">
+                      {splitRenderedNotes(viewedBead.notes).map((note, i) => (
+                        <div key={i} className="whitespace-pre-wrap bg-muted/50 rounded px-2 py-1.5 border border-border/50">{note}</div>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
               </div>
