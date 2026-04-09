@@ -117,6 +117,7 @@ describe.concurrent('structured prompt hardening', () => {
 
     const coverageResolutionPrompt = buildPromptFromTemplate(PROM13b, [])
     expect(coverageResolutionPrompt).toContain('Every epic in the revised PRD must include at least one fully populated `user_stories` entry')
+    expect(coverageResolutionPrompt).toContain('making the affected acceptance criteria, scope language, or verification guidance more concrete and testable')
   })
 
   it('keeps PROM10a strict about preserving user answers and outputting only a full interview artifact', () => {
@@ -155,6 +156,10 @@ describe.concurrent('structured prompt hardening', () => {
     expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
     expect(coveragePrompt).toContain('`follow_up_questions` is always `[]` for PRD coverage')
     expect(coveragePrompt).toContain('`follow_up_questions` must always be `[]`')
+    expect(coveragePrompt).toContain('Acceptance criteria must be specific enough to verify')
+    expect(coveragePrompt).toContain('Every major in-scope requirement, user flow, constraint, non-goal, or explicit edge case')
+    expect(coveragePrompt).toContain('Flag PRD user stories that have missing or weak verification guidance')
+    expect(coveragePrompt).toContain('missing traceability for major in-scope items')
     expect(coveragePrompt).toContain('Do not output a rewritten PRD')
     expect(coveragePrompt).not.toContain('Provide the necessary additions or modifications to the PRD')
   })
