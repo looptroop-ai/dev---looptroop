@@ -1868,6 +1868,40 @@ describe.concurrent('structured output normalization', () => {
     ])
   })
 
+  it('composes quoted-scalar and colon-scalar repairs for bead subset YAML', () => {
+    const command = 'node -e "const fs=require(\'fs\');console.error(\'Missing pink tokens: \'+[\'accent\'].join(\',\'))"'
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Preserve visible text across combined parser repairs',
+      '    prdRefs:',
+      '      - EPIC-1 / US-1',
+      '    description: Recover multiple safe YAML near-misses without changing their meaning.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Keep parser repairs text-preserving.',
+      '      anti_patterns:',
+      '        - Do not invent missing fields.',
+      '    acceptanceCriteria:',
+      "      - 'pink' is accepted as a valid theme value in UIState.",
+      '      - Parser preserves the original visible scalar text.',
+      '    tests:',
+      '      - Combined parser regression covers malformed quoted list items plus command scalars.',
+      '    testCommands:',
+      `      - ${command}`,
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Repaired improperly quoted YAML scalar value.')
+    expect(result.value[0]?.acceptanceCriteria).toEqual([
+      '\'pink\' is accepted as a valid theme value in UIState.',
+      'Parser preserves the original visible scalar text.',
+    ])
+    expect(result.value[0]?.testCommands).toEqual([command])
+  })
+
   it('canonicalizes object-form bead context guidance into the runtime string format', () => {
     const result = normalizeBeadSubsetYamlOutput([
       'beads:',

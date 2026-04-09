@@ -627,40 +627,53 @@ export function parseYamlOrJsonCandidate(
           }
         }
 
-        const unionRepaired = repairYamlTypeUnionScalars(base)
-        if (unionRepaired !== base) {
+        const postQuotedScalarBase = quotedScalarRepaired !== base ? quotedScalarRepaired : base
+        const appendQuotedScalarRepairWarning = () => {
+          if (postQuotedScalarBase !== base) {
+            appendRepairWarningOnce(options?.repairWarnings, QUOTED_SCALAR_WARNING)
+          }
+        }
+
+        const unionRepaired = repairYamlTypeUnionScalars(postQuotedScalarBase)
+        if (unionRepaired !== postQuotedScalarBase) {
           try {
+            appendQuotedScalarRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(unionRepaired), appliedPreParseRepairs)
           } catch {
             try {
+              appendQuotedScalarRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(unionRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
 
         // Try colon-in-scalar repair (most targeted fix)
-        const colonRepaired = repairYamlPlainScalarColons(base)
-        if (colonRepaired !== base) {
+        const colonRepaired = repairYamlPlainScalarColons(postQuotedScalarBase)
+        if (colonRepaired !== postQuotedScalarBase) {
           try {
+            appendQuotedScalarRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(colonRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: colon repair + indentation repair
             try {
+              appendQuotedScalarRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(colonRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
 
-        const reservedIndicatorBase = colonRepaired !== base ? colonRepaired : base
+        const reservedIndicatorBase = colonRepaired !== postQuotedScalarBase ? colonRepaired : postQuotedScalarBase
         const reservedIndicatorRepaired = repairYamlReservedIndicatorScalars(reservedIndicatorBase)
         if (reservedIndicatorRepaired !== reservedIndicatorBase) {
           try {
             const parsed = jsYaml.load(reservedIndicatorRepaired)
+            appendQuotedScalarRepairWarning()
             appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
             return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
           } catch {
             try {
               const parsed = jsYaml.load(repairYamlIndentation(reservedIndicatorRepaired))
+              appendQuotedScalarRepairWarning()
               appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
               return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
             } catch { /* fall through */ }
@@ -668,19 +681,22 @@ export function parseYamlOrJsonCandidate(
         }
 
         // Try sequence-entry indent repair (fixes dashes drifted after block scalars)
-        const seqRepaired = repairYamlSequenceEntryIndent(base)
-        if (seqRepaired !== base) {
+        const seqRepaired = repairYamlSequenceEntryIndent(postQuotedScalarBase)
+        if (seqRepaired !== postQuotedScalarBase) {
           try {
+            appendQuotedScalarRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(seqRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: sequence entry + property indentation repair
             try {
+              appendQuotedScalarRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(seqRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
 
-        const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(base))
+        const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(postQuotedScalarBase))
+        appendQuotedScalarRepairWarning()
         return finalizeParsedCandidate(jsYaml.load(repaired), appliedPreParseRepairs)
       }
     }
