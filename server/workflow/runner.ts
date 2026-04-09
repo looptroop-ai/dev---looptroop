@@ -489,7 +489,7 @@ export function attachWorkflowRunner(
         })
     } else if (state === 'INTEGRATING_CHANGES') {
       runningPhases.add(key)
-      handleIntegration(ticketId, context, sendEvent)
+      handleIntegration(ticketId, context, sendEvent, signal)
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)

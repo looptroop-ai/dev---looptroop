@@ -90,3 +90,29 @@ export function prepareSquashCandidate(
     }
   }
 }
+
+export interface PushResult {
+  pushed: boolean
+  error?: string
+}
+
+const MAX_PUSH_RETRIES = 3
+
+export function pushSquashedCandidate(worktreePath: string): PushResult {
+  for (let attempt = 1; attempt <= MAX_PUSH_RETRIES; attempt++) {
+    const fullArgs = ['-C', worktreePath, 'push', '--progress']
+    const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+    const stdout = (result.stdout ?? '').trim()
+    const stderr = (result.stderr ?? '').trim()
+    if (result.status === 0 && !result.error) {
+      logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
+      return { pushed: true }
+    }
+    const detail = result.error?.message ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
+    logCmd('git', fullArgs, { ok: false, error: detail })
+    if (attempt === MAX_PUSH_RETRIES) {
+      return { pushed: false, error: `git push failed after ${MAX_PUSH_RETRIES} attempts: ${detail}` }
+    }
+  }
+  return { pushed: false, error: 'push failed' }
+}

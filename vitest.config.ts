@@ -53,7 +53,7 @@ export default defineConfig({
           environment: 'node',
           pool: 'forks',
           fileParallelism: true,
-          isolate: false,
+          isolate: true,
           sequence: { groupOrder: 1 },
           setupFiles: ['./server/test/setup.ts'],
           include: ['server/**/*.test.ts', 'tests/**/*.test.ts', 'shared/**/*.test.ts'],
