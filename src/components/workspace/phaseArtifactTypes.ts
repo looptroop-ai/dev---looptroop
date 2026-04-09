@@ -303,6 +303,18 @@ export interface FinalTestCommandResultData {
   timedOut: boolean
 }
 
+export interface FinalTestAttemptHistoryEntryData {
+  attempt: number
+  status: 'passed' | 'failed'
+  checkedAt: string
+  summary?: string
+  commands: string[]
+  testFiles: string[]
+  errors: string[]
+  failureReason?: string
+  noteAppended?: string
+}
+
 export interface FinalTestExecutionReportData {
   status: 'passed' | 'failed'
   passed: boolean
@@ -315,6 +327,10 @@ export interface FinalTestExecutionReportData {
   commands: FinalTestCommandResultData[]
   errors: string[]
   planStructuredOutput?: ArtifactStructuredOutputData
+  attempt?: number
+  maxIterations?: number | null
+  attemptHistory?: FinalTestAttemptHistoryEntryData[]
+  retryNotes?: string[]
 }
 
 import type { CouncilOutcome, CouncilViewerArtifact } from './councilArtifacts'

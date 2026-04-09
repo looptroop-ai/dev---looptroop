@@ -37,8 +37,8 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   coding: ['bead_data', 'bead_notes'],
   // PROM51: "Current bead data + error context from failed iteration"
   context_wipe: ['bead_data', 'error_context'],
-  // PROM52: "Ticket details + Interview Results + PRD + Beads list"
-  final_test: ['ticket_details', 'interview', 'prd', 'beads'],
+  // PROM52: "Ticket details + Interview Results + PRD + Beads list + prior final-test retry notes"
+  final_test: ['ticket_details', 'interview', 'prd', 'beads', 'final_test_notes'],
   // Pre-flight check (used by SCANNING_RELEVANT_FILES which generates relevant_files)
   preflight: ['ticket_details'],
 }
@@ -50,6 +50,7 @@ const DEFAULT_TOKEN_BUDGET = 100000
 const TRIM_PRIORITY: { key: string; sources: string[] }[] = [
   { key: 'error_context', sources: ['error_context'] },
   { key: 'bead_notes', sources: ['bead_note'] },
+  { key: 'final_test_notes', sources: ['final_test_note'] },
   { key: 'user_answers', sources: ['user_answers'] },
   { key: 'tests', sources: ['tests'] },
   { key: 'votes', sources: ['vote'] },
@@ -132,6 +133,7 @@ export interface TicketState {
   votes?: string[]
   beadData?: string
   beadNotes?: string[]
+  finalTestNotes?: string[]
   userAnswers?: string
   tests?: string
   errorContext?: string
@@ -235,6 +237,14 @@ export function buildMinimalContext(
         if (ticketState.beadNotes) {
           for (const note of ticketState.beadNotes) {
             parts.push({ source: 'bead_note', content: note, order: order++ })
+          }
+        }
+        break
+      }
+      case 'final_test_notes': {
+        if (ticketState.finalTestNotes) {
+          for (const note of ticketState.finalTestNotes) {
+            parts.push({ source: 'final_test_note', content: note, order: order++ })
           }
         }
         break

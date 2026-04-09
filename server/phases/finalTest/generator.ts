@@ -41,6 +41,7 @@ export async function generateFinalTests(
     model?: string
     variant?: string
     timeoutMs?: number
+    phaseAttempt?: number
     onSessionCreated?: (sessionId: string) => void
     onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
     onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
@@ -68,7 +69,7 @@ export async function generateFinalTests(
             sessionOwnership: {
               ticketId: callbacks.ticketId,
               phase: 'RUNNING_FINAL_TEST',
-              phaseAttempt: 1,
+              phaseAttempt: callbacks.phaseAttempt ?? 1,
               keepActive: true,
               ...(callbacks.model ? { memberId: callbacks.model } : {}),
             },
@@ -176,7 +177,7 @@ export async function generateFinalTests(
                 sessionOwnership: {
                   ticketId: callbacks.ticketId,
                   phase: 'RUNNING_FINAL_TEST',
-                  phaseAttempt: 1,
+                  phaseAttempt: callbacks.phaseAttempt ?? 1,
                   keepActive: true,
                   ...(callbacks.model ? { memberId: callbacks.model } : {}),
                 },

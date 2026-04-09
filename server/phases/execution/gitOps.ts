@@ -106,12 +106,16 @@ function runGitOpSafe(worktreePath: string, args: string[]): { ok: boolean; stdo
   }
 }
 
+export function recordWorktreeStartCommit(worktreePath: string): string {
+  return runGitOp(worktreePath, ['rev-parse', 'HEAD'])
+}
+
 /**
  * Record the current HEAD commit SHA before bead execution starts.
  * Used as a reset point if the iteration fails and needs a context wipe.
  */
 export function recordBeadStartCommit(worktreePath: string): string {
-  return runGitOp(worktreePath, ['rev-parse', 'HEAD'])
+  return recordWorktreeStartCommit(worktreePath)
 }
 
 /**
@@ -184,11 +188,15 @@ export function captureBeadDiff(worktreePath: string, beadStartCommit: string): 
   return result.ok ? result.stdout : ''
 }
 
+export function resetWorktreeToCommit(worktreePath: string, commit: string): void {
+  runGitOp(worktreePath, ['reset', '--hard', commit])
+  runGitOp(worktreePath, ['clean', '-fd'])
+}
+
 /**
  * Reset the worktree to the bead start commit on context wipe / new iteration.
  * This ensures the next retry starts from a clean state.
  */
 export function resetToBeadStart(worktreePath: string, beadStartCommit: string): void {
-  runGitOp(worktreePath, ['reset', '--hard', beadStartCommit])
-  runGitOp(worktreePath, ['clean', '-fd'])
+  resetWorktreeToCommit(worktreePath, beadStartCommit)
 }

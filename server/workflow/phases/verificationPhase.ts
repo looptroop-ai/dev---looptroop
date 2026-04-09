@@ -5,8 +5,8 @@ import type { PromptPart } from '../../opencode/types'
 import { CancelledError, throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
-import { buildPromptFromTemplate, PROM0, PROM13b, PROM24 } from '../../prompts/index'
-import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts } from '../../storage/tickets'
+import { buildPromptFromTemplate, PROM0, PROM13b, PROM24, PROM53 } from '../../prompts/index'
+import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts, upsertLatestPhaseArtifact } from '../../storage/tickets'
 import { runOpenCodePrompt, runOpenCodeSessionPrompt } from '../runOpenCodePrompt'
 import { safeAtomicWrite } from '../../io/atomicWrite'
 import { buildRelevantFilesArtifact, type RelevantFilesData } from '../../ticket/relevantFiles'
@@ -24,8 +24,10 @@ import { isMockOpenCodeMode } from '../../opencode/factory'
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { runPreFlightChecks } from '../../phases/preflight/doctor'
-import { generateFinalTests } from '../../phases/finalTest/generator'
+import type { FinalTestGenerationResult } from '../../phases/finalTest/generator'
+import { executeFinalTestWithRetries } from '../../phases/finalTest/executor'
 import { executeFinalTestCommands } from '../../phases/finalTest/runner'
+import { recordWorktreeStartCommit, resetWorktreeToCommit } from '../../phases/execution/gitOps'
 import { broadcaster } from '../../sse/broadcaster'
 import { resolveInterviewCoverageFollowUpResolution } from '../interviewCoverageFollowUps'
 import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../coverageControl'
@@ -3005,6 +3007,155 @@ export async function handlePreFlight(
   )
 }
 
+const FINAL_TEST_RETRY_NOTES_ARTIFACT_TYPE = 'final_test_retry_notes'
+
+function parseFinalTestRetryNotes(content: string | null | undefined): string[] {
+  if (!content?.trim()) return []
+
+  try {
+    const parsed = JSON.parse(content) as { notes?: unknown } | string[] | string
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((note): note is string => typeof note === 'string')
+        .map((note) => note.trim())
+        .filter(Boolean)
+    }
+    if (typeof parsed === 'string') {
+      return parsed.trim() ? [parsed.trim()] : []
+    }
+    if (Array.isArray(parsed?.notes)) {
+      return parsed.notes
+        .filter((note): note is string => typeof note === 'string')
+        .map((note) => note.trim())
+        .filter(Boolean)
+    }
+  } catch {
+    // Fall back to treating the artifact as a single plain-text note.
+  }
+
+  const trimmed = content.trim()
+  return trimmed ? [trimmed] : []
+}
+
+function serializeFinalTestRetryNotes(notes: string[]): string {
+  return JSON.stringify({ notes }, null, 2)
+}
+
+function buildFinalTestRetryErrorContext(input: {
+  attempt: number
+  report: Awaited<ReturnType<typeof executeFinalTestCommands>>
+  generation: FinalTestGenerationResult
+}): PromptPart {
+  const executedCommands = input.report.commands.length > 0
+    ? input.report.commands.map((command) => {
+      const status = command.timedOut
+        ? `timed out after ${command.durationMs}ms`
+        : `exit ${command.exitCode ?? 'unknown'}`
+      return [
+        `Command: ${command.command}`,
+        `Result: ${status}`,
+        command.stdout ? `STDOUT:\n${command.stdout.slice(0, 1500)}` : '',
+        command.stderr ? `STDERR:\n${command.stderr.slice(0, 1500)}` : '',
+      ].filter(Boolean).join('\n')
+    }).join('\n\n')
+    : 'No commands were executed.'
+
+  return {
+    type: 'text',
+    source: 'error_context',
+    content: [
+      `## Final Test Attempt ${input.attempt}`,
+      `Summary: ${input.generation.commandPlan.summary ?? input.report.summary ?? 'No summary provided.'}`,
+      '',
+      '## Planned Commands',
+      input.generation.commandPlan.commands.length > 0
+        ? input.generation.commandPlan.commands.join('\n')
+        : 'No commands returned.',
+      '',
+      '## Test Files',
+      input.report.testFiles.length > 0
+        ? input.report.testFiles.join('\n')
+        : 'No test files validated.',
+      '',
+      '## Execution Errors',
+      input.report.errors.length > 0
+        ? input.report.errors.join('\n')
+        : input.generation.commandPlan.errors.join('\n') || 'No explicit error message recorded.',
+      '',
+      '## Command Output',
+      executedCommands,
+      '',
+      '## Final Test Model Output (truncated)',
+      input.report.modelOutput.slice(0, 2000),
+    ].join('\n'),
+  }
+}
+
+async function generateFinalTestRetryNote(input: {
+  ticketState: TicketState
+  adapterArg: typeof adapter
+  worktreePath: string
+  attempt: number
+  report: Awaited<ReturnType<typeof executeFinalTestCommands>>
+  generation: FinalTestGenerationResult
+  signal: AbortSignal
+  model: string
+  variant?: string
+  timeoutMs: number
+}): Promise<string> {
+  const promptContent = buildPromptFromTemplate(PROM53, [
+    ...buildMinimalContext('preflight', input.ticketState),
+    buildFinalTestRetryErrorContext({
+      attempt: input.attempt,
+      report: input.report,
+      generation: input.generation,
+    }),
+  ])
+
+  try {
+    const result = await runOpenCodePrompt({
+      adapter: input.adapterArg,
+      projectPath: input.worktreePath,
+      parts: [{ type: 'text', content: promptContent }],
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      model: input.model,
+      variant: input.variant,
+      toolPolicy: PROM53.toolPolicy,
+    })
+    return result.response.trim()
+  } catch (error) {
+    throwIfCancelled(error, input.signal)
+    throw error
+  }
+}
+
+function validateFinalTestFiles(
+  worktreePath: string,
+  testFiles: string[],
+  onMessage: (message: string) => void,
+): string[] {
+  const validated: string[] = []
+
+  for (const filePath of testFiles) {
+    if (filePath.includes('..')) {
+      onMessage(`Rejected test file path with traversal: ${filePath}`)
+      continue
+    }
+    const resolvedPath = resolve(worktreePath, filePath)
+    if (!resolvedPath.startsWith(worktreePath)) {
+      onMessage(`Rejected test file path outside worktree: ${filePath}`)
+      continue
+    }
+    if (!existsSync(resolvedPath)) {
+      onMessage(`AI-reported test file not found on disk: ${filePath}`)
+    }
+    validated.push(filePath)
+  }
+
+  return validated
+}
+
 export async function handleFinalTest(
   ticketId: string,
   context: TicketContext,
@@ -3045,31 +3196,149 @@ export async function handleFinalTest(
     }
   }
 
-  const finalTestContext = buildMinimalContext('final_test', ticketState)
+  const existingRetryNotesArtifact = getLatestPhaseArtifact(
+    ticketId,
+    FINAL_TEST_RETRY_NOTES_ARTIFACT_TYPE,
+    'RUNNING_FINAL_TEST',
+  )
+  ticketState.finalTestNotes = parseFinalTestRetryNotes(existingRetryNotesArtifact?.content)
   const finalTestModelId = context.lockedMainImplementer
   if (!finalTestModelId) {
     throw new Error('No locked main implementer is configured for final tests')
   }
-  const councilSettings = resolveCouncilRuntimeSettings(context)
+  const executionSettings = resolveExecutionRuntimeSettings(context)
+  const phaseStartCommit = recordWorktreeStartCommit(worktreePath)
   const streamStates = new Map<string, OpenCodeStreamState>()
-  const finalTestGeneration = await generateFinalTests(
+  const report = await executeFinalTestWithRetries(
     adapter,
-    finalTestContext,
+    async () => buildMinimalContext('final_test', ticketState),
     worktreePath,
     signal,
     {
       ticketId,
       model: finalTestModelId,
       variant: context.lockedMainImplementerVariant ?? undefined,
-      timeoutMs: councilSettings.draftTimeoutMs,
-      onSessionCreated: (sessionId) => {
+      maxIterations: executionSettings.maxIterations,
+      timeoutMs: executionSettings.perIterationTimeoutMs,
+    },
+    {
+      executePlan: async ({ attempt, generation }) => {
+        const {
+          output,
+          commandPlan,
+          structuredOutput: planStructuredOutput,
+        } = generation
+
+        const validatedTestFiles = validateFinalTestFiles(
+          worktreePath,
+          commandPlan.testFiles,
+          (message) => {
+            emitPhaseLog(
+              ticketId,
+              context.externalId,
+              'RUNNING_FINAL_TEST',
+              'info',
+              `Attempt ${attempt}: ${message}`,
+            )
+          },
+        )
+
+        if (validatedTestFiles.length > 0) {
+          emitAiMilestone(
+            ticketId,
+            context.externalId,
+            'RUNNING_FINAL_TEST',
+            `Attempt ${attempt}: test files created/modified: ${validatedTestFiles.join(', ')}`,
+            `${ticketId}:final-test-files:${attempt}`,
+            {
+              attempt,
+              testFiles: validatedTestFiles,
+              source: `model:${finalTestModelId}`,
+            },
+          )
+        }
+
+        if (commandPlan.commands.length === 0) {
+          return {
+            status: 'failed' as const,
+            passed: false,
+            checkedAt: new Date().toISOString(),
+            plannedBy: finalTestModelId,
+            modelOutput: output,
+            testFiles: validatedTestFiles,
+            testsCount: commandPlan.testsCount,
+            commands: [],
+            errors: commandPlan.errors,
+            planStructuredOutput,
+          }
+        }
+
+        return await executeFinalTestCommands({
+          commands: commandPlan.commands,
+          cwd: worktreePath,
+          timeoutMs: executionSettings.perIterationTimeoutMs,
+          plannedBy: finalTestModelId,
+          ...(commandPlan.summary ? { summary: commandPlan.summary } : {}),
+          testFiles: validatedTestFiles,
+          testsCount: commandPlan.testsCount,
+          modelOutput: output,
+          planStructuredOutput,
+        })
+      },
+      generateRetryNote: async ({ attempt, report, generation }) => {
+        return await generateFinalTestRetryNote({
+          ticketState,
+          adapterArg: adapter,
+          worktreePath,
+          attempt,
+          report,
+          generation,
+          signal,
+          model: finalTestModelId,
+          variant: context.lockedMainImplementerVariant ?? undefined,
+          timeoutMs: executionSettings.perIterationTimeoutMs,
+        })
+      },
+      onAttemptStart: (attempt) => {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          'info',
+          executionSettings.maxIterations > 0
+            ? `Starting final test attempt ${attempt} of ${executionSettings.maxIterations}.`
+            : `Starting final test attempt ${attempt} with unlimited retry budget.`,
+        )
+      },
+      onAttemptComplete: ({ attempt, report }) => {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          'test_result',
+          report.passed
+            ? `Final test attempt ${attempt} passed (${report.commands.length} command${report.commands.length === 1 ? '' : 's'}).`
+            : `Final test attempt ${attempt} failed: ${report.errors.join('; ') || 'no commands were executed'}`,
+          {
+            audience: 'all',
+            kind: 'test',
+            op: 'append',
+            source: `model:${finalTestModelId}`,
+            modelId: finalTestModelId,
+            streaming: false,
+            attempt,
+          },
+        )
+      },
+      onSessionCreated: (sessionId, attempt) => {
         emitAiMilestone(
           ticketId,
           context.externalId,
           'RUNNING_FINAL_TEST',
-          `Final test session created for ${finalTestModelId} (session=${sessionId}).`,
-          `${sessionId}:final-test-created`,
+          `Final test attempt ${attempt} session created for ${finalTestModelId} (session=${sessionId}).`,
+          `${sessionId}:final-test-created:${attempt}`,
           {
+            attempt,
             modelId: finalTestModelId,
             sessionId,
             source: `model:${finalTestModelId}`,
@@ -3089,6 +3358,50 @@ export async function handleFinalTest(
           streamState,
         )
       },
+      onFailedAttempt: ({ attempt, note, notes, canRetry }) => {
+        ticketState.finalTestNotes = notes
+        upsertLatestPhaseArtifact(
+          ticketId,
+          FINAL_TEST_RETRY_NOTES_ARTIFACT_TYPE,
+          'RUNNING_FINAL_TEST',
+          serializeFinalTestRetryNotes(notes),
+        )
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          'info',
+          canRetry
+            ? `Attempt ${attempt}: appended a final-test retry note for attempt ${attempt + 1}.`
+            : `Attempt ${attempt}: appended a final-test retry note before blocking.`,
+          {
+            note,
+          },
+        )
+      },
+      beforeRetry: ({ nextAttempt }) => {
+        resetWorktreeToCommit(worktreePath, phaseStartCommit)
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          'info',
+          `Reset worktree to final-test start commit before attempt ${nextAttempt}.`,
+          {
+            commit: phaseStartCommit,
+            nextAttempt,
+          },
+        )
+      },
+      onRetriesExhausted: ({ attempt }) => {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'RUNNING_FINAL_TEST',
+          'error',
+          `Final-test retries exhausted after ${attempt} attempt${attempt === 1 ? '' : 's'}.`,
+        )
+      },
       onPromptDispatched: ({ event }) => {
         emitOpenCodePromptLog(
           ticketId,
@@ -3102,74 +3415,6 @@ export async function handleFinalTest(
   )
   throwIfAborted(signal, ticketId)
 
-  const {
-    output,
-    commandPlan,
-    structuredOutput: planStructuredOutput,
-  } = finalTestGeneration
-
-  // Server-side validation of AI-reported test files
-  const validatedTestFiles: string[] = []
-  if (commandPlan.testFiles.length > 0) {
-    for (const filePath of commandPlan.testFiles) {
-      if (filePath.includes('..')) {
-        emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info',
-          `Rejected test file path with traversal: ${filePath}`)
-        continue
-      }
-      const resolved = resolve(worktreePath, filePath)
-      if (!resolved.startsWith(worktreePath)) {
-        emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info',
-          `Rejected test file path outside worktree: ${filePath}`)
-        continue
-      }
-      if (!existsSync(resolved)) {
-        emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info',
-          `AI-reported test file not found on disk: ${filePath}`)
-      }
-      validatedTestFiles.push(filePath)
-    }
-    if (validatedTestFiles.length > 0) {
-      emitAiMilestone(
-        ticketId,
-        context.externalId,
-        'RUNNING_FINAL_TEST',
-        `Test files created/modified: ${validatedTestFiles.join(', ')}`,
-        `${ticketId}:final-test-files`,
-        {
-          testFiles: validatedTestFiles,
-          source: `model:${finalTestModelId}`,
-        },
-      )
-    }
-  }
-
-  const executionSettings = resolveExecutionRuntimeSettings(context)
-  const report = commandPlan.commands.length > 0
-    ? await executeFinalTestCommands({
-        commands: commandPlan.commands,
-        cwd: worktreePath,
-        timeoutMs: executionSettings.perIterationTimeoutMs,
-        plannedBy: finalTestModelId!,
-        ...(commandPlan.summary ? { summary: commandPlan.summary } : {}),
-        testFiles: validatedTestFiles,
-        testsCount: commandPlan.testsCount,
-        modelOutput: output,
-        planStructuredOutput,
-      })
-    : {
-        status: 'failed' as const,
-        passed: false,
-        checkedAt: new Date().toISOString(),
-        plannedBy: finalTestModelId,
-        modelOutput: output,
-        testFiles: validatedTestFiles,
-        testsCount: commandPlan.testsCount,
-        commands: [],
-        errors: commandPlan.errors,
-        planStructuredOutput,
-      }
-
   insertPhaseArtifact(ticketId, {
     phase: 'RUNNING_FINAL_TEST',
     artifactType: 'final_test_report',
@@ -3181,8 +3426,8 @@ export async function handleFinalTest(
     'RUNNING_FINAL_TEST',
     'test_result',
     report.passed
-      ? `Final test commands passed (${report.commands.length} command${report.commands.length === 1 ? '' : 's'}).`
-      : `Final test commands failed: ${report.errors.join('; ') || 'no commands were executed'}`,
+      ? `Final test commands passed after ${report.attempt ?? 1} attempt${report.attempt === 1 ? '' : 's'} (${report.commands.length} command${report.commands.length === 1 ? '' : 's'}).`
+      : `Final test commands failed after ${report.attempt ?? 1} attempt${report.attempt === 1 ? '' : 's'}: ${report.errors.join('; ') || 'no commands were executed'}`,
     {
     audience: 'all',
     kind: 'test',
@@ -3193,13 +3438,14 @@ export async function handleFinalTest(
     },
   )
   if (report.passed) {
-    emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info', `Final tests passed (${report.commands.length} command${report.commands.length === 1 ? '' : 's'}).`)
+    emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'info', `Final tests passed after ${report.attempt ?? 1} attempt${report.attempt === 1 ? '' : 's'} (${report.commands.length} command${report.commands.length === 1 ? '' : 's'}).`)
     sendEvent({ type: 'TESTS_PASSED' })
     return
   }
 
-  emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'error', 'Final tests failed.', {
+  emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'error', `Final tests failed after ${report.attempt ?? 1} attempt${report.attempt === 1 ? '' : 's'}.`, {
     errors: report.errors,
+    retryNotes: report.retryNotes,
   })
   sendEvent({ type: 'TESTS_FAILED' })
     },

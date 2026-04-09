@@ -21,6 +21,7 @@ import {
   PROM_CODING,
   PROM51,
   PROM52,
+  PROM53,
   buildPromptFromTemplate,
 } from '../index'
 
@@ -74,6 +75,7 @@ describe.concurrent('structured prompt hardening', () => {
       PROM23,
       PROM24,
       PROM51,
+      PROM53,
     ]) {
       expect(prompt.toolPolicy).toBe('disabled')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
@@ -258,6 +260,12 @@ describe.concurrent('structured prompt hardening', () => {
     expect(interviewPrompt).toContain('Output Discipline')
     expect(interviewPrompt).toContain('Formatting Discipline')
     expect(interviewPrompt).toContain('schema_version: 1')
+    expect(finalTestPrompt).toContain('Prior Notes')
+    expect(finalTestPrompt).toContain('Mandatory Self-Execution')
+    expect(finalTestPrompt).toContain('run the exact command(s) you plan to return')
+    expect(finalTestPrompt).toContain('fix the underlying implementation and/or the final test files')
+    expect(finalTestPrompt).toContain('Do Not Game The Tests')
+    expect(finalTestPrompt).toContain('Return `<FINAL_TEST_COMMANDS>` only after the exact listed command(s) have passed locally')
     expect(interviewPrompt).toContain('follow_up_rounds:')
     expect(interviewPrompt).not.toContain('PROM5.output_file schema')
     expect(finalTestPrompt).toContain('Output Discipline')

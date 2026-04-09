@@ -25,6 +25,18 @@ export interface FinalTestCommandResult {
   timedOut: boolean
 }
 
+export interface FinalTestAttemptHistoryEntry {
+  attempt: number
+  status: 'passed' | 'failed'
+  checkedAt: string
+  summary?: string
+  commands: string[]
+  testFiles: string[]
+  errors: string[]
+  failureReason?: string
+  noteAppended?: string
+}
+
 export interface FinalTestExecutionReport {
   status: 'passed' | 'failed'
   passed: boolean
@@ -37,6 +49,10 @@ export interface FinalTestExecutionReport {
   commands: FinalTestCommandResult[]
   errors: string[]
   planStructuredOutput?: StructuredOutputMetadata
+  attempt?: number
+  maxIterations?: number | null
+  attemptHistory?: FinalTestAttemptHistoryEntry[]
+  retryNotes?: string[]
 }
 
 async function runCommand(

@@ -1602,9 +1602,23 @@ describe('ArtifactContentViewer', () => {
           passed: false,
           checkedAt: '2026-03-30T12:00:00.000Z',
           plannedBy: 'openai/gpt-5.2',
+          attempt: 2,
+          maxIterations: 3,
           modelOutput: '<FINAL_TEST_COMMANDS>commands: []</FINAL_TEST_COMMANDS>',
           commands: [],
           errors: ['No final test commands were executed'],
+          retryNotes: ['Retry note: keep the contrast assertion limited to destructive tokens.'],
+          attemptHistory: [
+            {
+              attempt: 1,
+              status: 'failed',
+              checkedAt: '2026-03-30T11:58:00.000Z',
+              commands: ['npm run test:client -- src/theme/__tests__/pinkTheme.test.ts'],
+              testFiles: ['src/theme/__tests__/pinkTheme.test.ts'],
+              errors: ['Command failed (1): npm run test:client -- src/theme/__tests__/pinkTheme.test.ts'],
+              noteAppended: 'Retry note: keep the contrast assertion limited to destructive tokens.',
+            },
+          ],
           planStructuredOutput: {
             repairApplied: false,
             repairWarnings: [],

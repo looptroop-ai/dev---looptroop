@@ -688,21 +688,43 @@ export const PROM52: PromptTemplate = {
   task: 'Design and implement a comprehensive final test (or test suite) that validates the entire ticket was implemented correctly. You MUST add or modify at least one test artifact that specifically validates the ticket\'s implementation — do not just re-run existing project tests without adding new coverage.',
   instructions: [
     'Review Scope: Re-read the ticket details, Interview Results, PRD, and Beads list to understand the full scope.',
+    'Prior Notes: If prior `final_test_note` context is present, read it first and avoid repeating failed approaches unless you have a concrete reason.',
     'Test Design: Design the minimal but sufficient set of tests that collectively prove the ticket requirements are met.',
     'Coverage Priorities: Focus on: (1) all acceptance criteria from PRD user stories; (2) critical user flows from Interview Results; (3) key edge cases and error states.',
     "Test Type: Prefer integration or end-to-end tests that exercise real code paths. Use the project's existing testing framework.",
     'Determinism: Tests must be deterministic and repeatable. Avoid any external dependencies, network calls, or non-deterministic timing.',
     'Test Artifacts: You MUST create or modify at least one test file. These test files become permanent regression tests for the project. Record the paths of all test files you created or modified in the `test_files` field of the output marker.',
+    'Mandatory Self-Execution: Before returning `<FINAL_TEST_COMMANDS>`, you MUST run the exact command(s) you plan to return in this same worktree.',
+    'Repair Loop: If any planned command fails, inspect the real failure output, fix the underlying implementation and/or the final test files, and rerun the same command(s). Repeat until the exact planned command(s) pass or you run out of time.',
+    'Scope Discipline: You may modify production code and test files during this phase, but keep changes minimal and strictly within the approved ticket, Interview Results, PRD, and Beads scope.',
+    'Do Not Game The Tests: Do not weaken assertions, delete coverage, lower thresholds, or narrow test scope just to get a pass. Only change a failing test if it is demonstrably broader than the approved requirements.',
     'Test Commands: Provide the exact commands to run the final test(s). Commands must target only your test files — do not run the entire project test suite.',
     'Command Marker: End your response with `<FINAL_TEST_COMMANDS>{"commands":["<cmd1>","<cmd2>"],"test_files":["path/to/test1.ts","path/to/test2.ts"],"summary":"short explanation"}</FINAL_TEST_COMMANDS>`.',
     'Output Discipline: Return exactly one `<FINAL_TEST_COMMANDS>...</FINAL_TEST_COMMANDS>` block and nothing else outside it. Inside the marker, return only the machine-readable object with a non-empty `commands` field and a non-empty `test_files` field.',
     'Do not claim the tests passed yourself. LoopTroop will execute the commands and determine pass/fail from the real exit codes.',
+    'Final Gate: Return `<FINAL_TEST_COMMANDS>` only after the exact listed command(s) have passed locally in your own session on the current branch state.',
     'Failure Handling: If you added or updated tests, include only the commands needed to verify the final implementation state.',
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'Test file(s) + execution commands',
-  contextInputs: ['ticket_details', 'interview', 'prd', 'beads'],
+  contextInputs: ['ticket_details', 'interview', 'prd', 'beads', 'final_test_notes'],
   toolPolicy: 'default',
+}
+
+export const PROM53: PromptTemplate = {
+  id: 'PROM53',
+  description: 'Final Test Retry Note Prompt',
+  systemRole: 'You are a concise technical analyst summarizing a failed final-test attempt for the next retry.',
+  task: 'Generate a short, append-only retry note that captures what was attempted, what failed, and what the next final-test iteration should pay attention to.',
+  instructions: [
+    'Summarize The Attempt: Describe the intended final-test approach and the commands that were run.',
+    'Capture The Failure: Include the most important command failure or validation problem without copying full logs.',
+    'Guide The Next Retry: State the key lesson or adjustment for the next iteration.',
+    'Keep It Concise: Write only the note text that should be appended to the retry history.',
+  ],
+  outputFormat: 'Plain text - one concise append-only retry note',
+  contextInputs: ['ticket_details', 'error_context'],
+  toolPolicy: 'disabled',
 }
 
 // Helper to build full prompt from template
@@ -777,4 +799,5 @@ export const ALL_PROMPTS = {
   PROM_CODING,
   PROM51,
   PROM52,
+  PROM53,
 }
