@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSaveTicketUIState, useTicket } from '@/hooks/useTickets'
-import { useSSE } from '@/hooks/useSSE'
+import { useSSE, type SSEConnectionState } from '@/hooks/useSSE'
 import { useUI } from '@/context/useUI'
 import { LogProvider } from '@/context/LogContext'
 import { useLogs } from '@/context/useLogContext'
@@ -9,7 +9,7 @@ import { NavigatorPanel } from './NavigatorPanel'
 import { ActiveWorkspace } from './ActiveWorkspace'
 import { WorkspacePhaseSummary } from './WorkspacePhaseSummary'
 import { ResizeHandle } from './ResizeHandle'
-import { Menu, X } from 'lucide-react'
+import { Menu, RefreshCw, X } from 'lucide-react'
 import { clearErrorTicketSeen, getErrorTicketSignature, markErrorTicketSeen } from '@/lib/errorTicketSeen'
 import { MAX_RAW_OUTPUT_LENGTH } from '@/lib/constants'
 import { WORKFLOW_PHASE_IDS } from '@shared/workflowMeta'
@@ -18,6 +18,7 @@ import { INTERVIEW_APPROVAL_FOCUS_EVENT } from '@/lib/interviewDocument'
 import { PRD_APPROVAL_FOCUS_EVENT } from '@/lib/prdDocument'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT, type WorkspacePhaseNavigateDetail } from '@/lib/workspaceNavigation'
+import { Badge } from '@/components/ui/badge'
 
 function toDebugJson(data: Record<string, unknown>) {
   if (import.meta.env.PROD) return '[debug]'
@@ -33,10 +34,12 @@ function SSELogConnector({
   ticketId,
   currentStatus,
   onStateChange,
+  onConnectionStateChange,
 }: {
   ticketId: string | null
   currentStatus: string
   onStateChange?: (payload: { status: string; previousStatus?: string }) => void
+  onConnectionStateChange?: (state: SSEConnectionState) => void
 }) {
   const logCtx = useLogs()
 
@@ -146,7 +149,11 @@ function SSELogConnector({
     }
   }, [currentStatus, logCtx, onStateChange])
 
-  useSSE({ ticketId, onEvent: handleEvent })
+  const { connectionState } = useSSE({ ticketId, onEvent: handleEvent })
+
+  useEffect(() => {
+    onConnectionStateChange?.(connectionState)
+  }, [connectionState, onConnectionStateChange])
 
   return null
 }
@@ -183,6 +190,7 @@ export function TicketDashboard() {
     reviewCutoffStatus: null,
   })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [liveUpdatesState, setLiveUpdatesState] = useState<SSEConnectionState>('connecting')
 
   const snapshotPreviousStatus = useMemo(
     () => ticket?.previousStatus ?? undefined,
@@ -194,6 +202,7 @@ export function TicketDashboard() {
   )
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
+
   // When a React Query refetch returns a status that is further along in the
   // workflow than the SSE-delivered livePhase, advance livePhase so the UI
   // doesn't stay pinned to a stale earlier status.  This fixes a race where
@@ -447,9 +456,26 @@ export function TicketDashboard() {
 
   return (
     <LogProvider key={ticketId} ticketId={ticketId} currentStatus={currentStatus}>
-      <SSELogConnector ticketId={ticketId} currentStatus={currentStatus} onStateChange={handleLiveStatusChange} />
+      <SSELogConnector
+        ticketId={ticketId}
+        currentStatus={currentStatus}
+        onStateChange={handleLiveStatusChange}
+        onConnectionStateChange={setLiveUpdatesState}
+      />
       <div className="fixed inset-0 z-[60] bg-background flex flex-col">
         <DashboardHeader ticket={effectiveTicket} />
+        {liveUpdatesState === 'reconnecting' && (
+          <div className="border-b border-amber-200 bg-amber-50/90 px-3 py-1.5 dark:border-amber-900/60 dark:bg-amber-950/40">
+            <Badge
+              variant="outline"
+              className="gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+              title="Realtime updates disconnected. LoopTroop is refetching the ticket and will reconnect automatically."
+            >
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Live updates reconnecting...
+            </Badge>
+          </div>
+        )}
 
         {/* Mobile nav toggle */}
         <div className="md:hidden flex items-center px-3 py-2 border-b border-border">

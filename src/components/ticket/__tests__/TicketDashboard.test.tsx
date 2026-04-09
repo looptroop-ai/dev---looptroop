@@ -11,6 +11,9 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 
 const selectedTicketId = '1:T-42'
 const dispatchMock = vi.fn()
+const mockSSEState = vi.hoisted(() => ({
+  connectionState: 'connected' as 'connecting' | 'connected' | 'reconnecting',
+}))
 let latestSSEOptions: {
   ticketId: string | null
   onEvent?: (event: { type: string; data: Record<string, unknown> }) => void
@@ -44,7 +47,7 @@ vi.mock('@/context/useUI', () => ({
 vi.mock('@/hooks/useSSE', () => ({
   useSSE: (options: { ticketId: string | null; onEvent?: (event: { type: string; data: Record<string, unknown> }) => void }) => {
     latestSSEOptions = options
-    return { lastEventIdRef: { current: '0' } }
+    return { lastEventIdRef: { current: '0' }, connectionState: mockSSEState.connectionState }
   },
 }))
 
@@ -160,12 +163,14 @@ beforeEach(() => {
   queryClient.clear()
   dispatchMock.mockReset()
   latestSSEOptions = null
+  mockSSEState.connectionState = 'connected'
   vi.restoreAllMocks()
 })
 
 afterEach(() => {
   queryClient.clear()
   latestSSEOptions = null
+  mockSSEState.connectionState = 'connected'
   vi.restoreAllMocks()
 })
 
@@ -262,6 +267,31 @@ describe('TicketDashboard', () => {
       expect(screen.getByTestId('navigator-current')).toHaveTextContent('COUNCIL_VOTING_INTERVIEW')
       expect(screen.getByTestId('navigator-selected')).toHaveTextContent('COUNCIL_VOTING_INTERVIEW')
     })
+  })
+
+  it('shows a reconnect badge when live updates are reconnecting', async () => {
+    const initialTicket = makeTicket({ status: 'CODING', id: selectedTicketId })
+    mockSSEState.connectionState = 'reconnecting'
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        return createJsonResponse(initialTicket)
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderDashboard()
+
+    expect(await screen.findByText('Live updates reconnecting...')).toBeInTheDocument()
   })
 
   it('keeps a manually selected past phase pinned across live transitions', async () => {

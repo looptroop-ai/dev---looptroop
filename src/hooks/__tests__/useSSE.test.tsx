@@ -47,6 +47,19 @@ class MockEventSource {
       listener(event)
     }
   }
+
+  emitOpen() {
+    if (this.closed) return
+    const event = new Event('open')
+    for (const listener of this.listeners.get('open') ?? []) {
+      listener(event as MessageEvent)
+    }
+  }
+
+  emitTransportError() {
+    if (this.closed) return
+    this.onerror?.call(this as unknown as EventSource, new Event('error'))
+  }
 }
 
 describe('useSSE', () => {
@@ -199,6 +212,57 @@ describe('useSSE', () => {
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-beads', ticketId] })
+    })
+  })
+
+  it('tracks reconnecting state when the live stream drops', async () => {
+    const ticketId = '1:T-42'
+    const { result } = renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+      expect(result.current.connectionState).toBe('connecting')
+    })
+
+    const source = MockEventSource.instances[0]!
+
+    await act(async () => {
+      source.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe('connected')
+    })
+
+    await act(async () => {
+      source.emitTransportError()
+    })
+
+    await waitFor(() => {
+      expect(result.current.connectionState).toBe('reconnecting')
+    })
+  })
+
+  it('reconciles ticket caches immediately when the SSE transport errors', async () => {
+    const ticketId = '1:T-42'
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    const source = MockEventSource.instances[0]!
+
+    await act(async () => {
+      source.emitTransportError()
+    })
+
+    await waitFor(() => {
+      expect(source.closed).toBe(true)
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tickets'] })
     })
   })
 })

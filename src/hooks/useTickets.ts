@@ -82,6 +82,29 @@ interface TicketActionResponse {
   ticket?: Ticket
 }
 
+const ACTIVE_TICKET_REFETCH_INTERVAL_MS = 5000
+const ACTIVE_TICKET_LIST_REFETCH_INTERVAL_MS = 10000
+
+function isTerminalTicketStatus(status: string): boolean {
+  return status === 'COMPLETED' || status === 'CANCELED'
+}
+
+export function getTicketAutoRefreshInterval(
+  ticket: Pick<Ticket, 'status'> | null | undefined,
+): number | false {
+  return ticket && !isTerminalTicketStatus(ticket.status)
+    ? ACTIVE_TICKET_REFETCH_INTERVAL_MS
+    : false
+}
+
+export function getTicketsAutoRefreshInterval(
+  tickets: Array<Pick<Ticket, 'status'>> | null | undefined,
+): number | false {
+  return tickets?.some((ticket) => !isTerminalTicketStatus(ticket.status))
+    ? ACTIVE_TICKET_LIST_REFETCH_INTERVAL_MS
+    : false
+}
+
 async function fetchTickets(projectId?: number): Promise<Ticket[]> {
   const url = projectId ? `/api/tickets?projectId=${projectId}` : '/api/tickets'
   const res = await fetch(url)
@@ -187,6 +210,9 @@ export function useTickets(projectId?: number) {
   return useQuery({
     queryKey: projectId ? ['tickets', { projectId }] : ['tickets'],
     queryFn: () => fetchTickets(projectId),
+    refetchInterval: (query) => getTicketsAutoRefreshInterval(query.state.data as Ticket[] | undefined),
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   })
 }
 
@@ -204,6 +230,9 @@ export function useTicket(id: string | null) {
       }
       return undefined
     },
+    refetchInterval: (query) => getTicketAutoRefreshInterval(query.state.data as Ticket | undefined),
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   })
 }
 

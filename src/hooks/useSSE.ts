@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { queryClient } from '@/lib/queryClient'
 import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
 import { SSE_RECONNECT_DELAY_MS } from '@/lib/constants'
@@ -15,6 +15,8 @@ interface SSEOptions {
   onEvent?: (event: { type: string; data: Record<string, unknown> }) => void
 }
 
+export type SSEConnectionState = 'connecting' | 'connected' | 'reconnecting'
+
 export function useSSE({ ticketId, onEvent }: SSEOptions) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const lastEventIdRef = useRef<string>('0')
@@ -23,10 +25,15 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
   const connectTokenRef = useRef(0)
   // Keep the connection stable per ticket while always dispatching to the latest callback.
   const onEventRef = useRef(onEvent)
+  const [connectionState, setConnectionState] = useState<SSEConnectionState>(ticketId ? 'connecting' : 'connected')
 
   useEffect(() => {
     onEventRef.current = onEvent
   }, [onEvent])
+
+  useEffect(() => {
+    setConnectionState(ticketId ? 'connecting' : 'connected')
+  }, [ticketId])
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
@@ -36,11 +43,13 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
   const connect = useCallback(() => {
     if (!ticketId) return
     const connectToken = ++connectTokenRef.current
+    setConnectionState((current) => (current === 'reconnecting' ? current : 'connecting'))
 
     void (async () => {
       try {
         await waitForDevBackend()
       } catch {
+        setConnectionState('reconnecting')
         if (connectToken === connectTokenRef.current) scheduleReconnect()
         return
       }
@@ -55,6 +64,10 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       const es = new EventSource(url.toString())
       eventSourceRef.current = es
+
+      es.addEventListener('open', () => {
+        setConnectionState('connected')
+      })
 
       es.addEventListener('state_change', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
@@ -163,6 +176,9 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
       es.onerror = () => {
         es.close()
         eventSourceRef.current = null
+        setConnectionState('reconnecting')
+        queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
+        queryClient.invalidateQueries({ queryKey: ['tickets'] })
         scheduleReconnect()
       }
     })()
@@ -182,5 +198,5 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
     }
   }, [connect])
 
-  return { lastEventIdRef }
+  return { lastEventIdRef, connectionState }
 }

@@ -84,8 +84,10 @@ function isTimestampOnOrAfter(timestamp: string | undefined, minimumTimestamp: s
   return timestampMs >= minimumMs
 }
 
+type ArtifactContentSource = Pick<DBartifact, 'content'>
+
 function extractArtifactCandidateVersion(
-  artifact: DBartifact | undefined,
+  artifact: ArtifactContentSource | undefined,
   expectedBaseArtifactType?: string,
 ): number | null {
   const companionVersion = normalizeCandidateVersion(
