@@ -64,6 +64,13 @@ export function getSupplementalArtifacts(phase: string, isCompleted = false): Ar
   if (phase === 'INTEGRATING_CHANGES') {
     return [{ id: 'commit-summary', label: 'Commit Summary', description: 'Squashed commit history', icon: <FileText className="h-3.5 w-3.5" /> }]
   }
+  if (phase === 'WAITING_MANUAL_VERIFICATION') {
+    return [
+      { id: 'test-results', label: 'Test Results', description: 'Full test suite results', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+      { id: 'commit-summary', label: 'Integration Report', description: 'Squash commit and integration details', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'bead-commits', label: 'Bead Commits', description: 'Per-bead git commits', icon: <FileText className="h-3.5 w-3.5" /> },
+    ]
+  }
   if (phase === 'CLEANING_ENV') {
     return [{ id: 'cleanup-report', label: 'Cleanup Report', description: 'Resource cleanup', icon: <FileText className="h-3.5 w-3.5" /> }]
   }

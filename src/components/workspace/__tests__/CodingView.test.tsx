@@ -24,6 +24,10 @@ vi.mock('../BeadDiffViewer', () => ({
   BeadDiffViewer: ({ beadId }: { beadId: string }) => <div data-testid="bead-diff-viewer">{beadId}</div>,
 }))
 
+vi.mock('../VerificationSummaryPanel', () => ({
+  VerificationSummaryPanel: () => <div data-testid="verification-summary-panel" />,
+}))
+
 import { CodingView } from '../CodingView'
 
 type CodingTestOverrides = Omit<Partial<Ticket>, 'runtime'> & {
@@ -272,5 +276,83 @@ describe('CodingView', () => {
 
     expect(screen.getByText(/first note/)).toBeTruthy()
     expect(screen.getByText(/second note/)).toBeTruthy()
+  })
+
+  describe('WAITING_MANUAL_VERIFICATION', () => {
+    it('renders VerificationSummaryPanel when status is WAITING_MANUAL_VERIFICATION', () => {
+      renderCoding({
+        status: 'WAITING_MANUAL_VERIFICATION',
+        runtime: {
+          baseBranch: 'main',
+          currentBead: 3,
+          completedBeads: 3,
+          totalBeads: 3,
+          percentComplete: 100,
+          iterationCount: 0,
+          maxIterations: null,
+          artifactRoot: '/tmp/test',
+          candidateCommitSha: 'abc123',
+          preSquashHead: 'old789',
+          finalTestStatus: 'passed',
+          beads: [],
+        },
+      })
+
+      expect(screen.getByTestId('verification-summary-panel')).toBeTruthy()
+    })
+
+    it('does not render VerificationSummaryPanel for CODING status', () => {
+      renderCoding({
+        status: 'CODING',
+        runtime: {
+          baseBranch: 'main',
+          currentBead: 1,
+          completedBeads: 0,
+          totalBeads: 3,
+          percentComplete: 0,
+          iterationCount: 0,
+          maxIterations: null,
+          artifactRoot: '/tmp/test',
+          candidateCommitSha: null,
+          preSquashHead: null,
+          finalTestStatus: 'pending',
+          beads: [],
+        },
+      })
+
+      expect(screen.queryByTestId('verification-summary-panel')).toBeNull()
+    })
+
+    it('does not render VerificationSummaryPanel in readOnly mode', () => {
+      const baseTicket = makeTicket({
+        status: 'WAITING_MANUAL_VERIFICATION',
+        runtime: {
+          baseBranch: 'main',
+          currentBead: 3,
+          completedBeads: 3,
+          totalBeads: 3,
+          percentComplete: 100,
+          iterationCount: 0,
+          maxIterations: null,
+          maxIterationsPerBead: null,
+          activeBeadId: null,
+          activeBeadIteration: null,
+          lastFailedBeadId: null,
+          artifactRoot: '/tmp/test',
+          candidateCommitSha: 'abc123',
+          preSquashHead: 'old789',
+          finalTestStatus: 'passed',
+          beads: [],
+        },
+      })
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(
+        <QueryClientProvider client={qc}>
+          <CodingView ticket={baseTicket} readOnly />
+        </QueryClientProvider>,
+      )
+
+      expect(screen.queryByTestId('verification-summary-panel')).toBeNull()
+    })
   })
 })

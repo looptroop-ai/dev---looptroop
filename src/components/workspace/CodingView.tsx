@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { LoadingText } from '@/components/ui/LoadingText'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { BeadDiffViewer } from './BeadDiffViewer'
+import { VerificationSummaryPanel } from './VerificationSummaryPanel'
 import type { Ticket } from '@/hooks/useTickets'
 import { useTicketAction } from '@/hooks/useTickets'
 import { cn } from '@/lib/utils'
@@ -289,23 +289,12 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
       </div>
 
       {isAwaitingManualVerification && (
-        <div className="px-4 py-3 border-b border-border bg-amber-50/60 dark:bg-amber-950/20 flex items-center justify-between gap-3 shrink-0">
-          <div className="min-w-0">
-            <div className="text-sm font-medium">Manual Verification</div>
-            <p className="text-xs text-muted-foreground">
-              Review the candidate commit on branch <code>{ticket.branchName ?? ticket.externalId}</code>.
-              {ticket.runtime.candidateCommitSha ? ` Candidate: ${ticket.runtime.candidateCommitSha}.` : ''}
-            </p>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => performAction({ id: ticket.id, action: 'verify' })}
-            disabled={isPending}
-            className="shrink-0"
-          >
-            {isPending ? <LoadingText text="Verifying" /> : 'Mark Verified'}
-          </Button>
-        </div>
+        <VerificationSummaryPanel
+          ticket={ticket}
+          onVerify={() => performAction({ id: ticket.id, action: 'verify' })}
+          onCancel={() => performAction({ id: ticket.id, action: 'cancel' })}
+          isPending={isPending}
+        />
       )}
 
       {isViewingOther && viewedBead && (
