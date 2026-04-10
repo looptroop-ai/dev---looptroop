@@ -352,6 +352,28 @@ export async function handleBeadsDraft(
         duration: entry.duration ?? liveDrafts[draftIndex]!.duration,
         error: entry.error,
         questionCount: entry.questionCount,
+        draftMetrics: entry.draftMetrics,
+        structuredOutput: entry.structuredOutput,
+      }
+      if (entry.structuredOutput?.repairWarnings.length) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} Beads draft normalization applied repairs: ${entry.structuredOutput.repairWarnings.join(' ')}`,
+          { source: 'system', modelId: entry.memberId },
+        )
+      }
+      if (entry.structuredOutput?.validationError && entry.structuredOutput.autoRetryCount > 0) {
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          phase,
+          'info',
+          `${entry.memberId} Beads draft required ${entry.structuredOutput.autoRetryCount} structured retry attempt(s): ${entry.structuredOutput.validationError}`,
+          { source: 'system', modelId: entry.memberId },
+        )
       }
       upsertCouncilDraftArtifact(ticketId, phase, 'beads_drafts', liveDrafts)
     },

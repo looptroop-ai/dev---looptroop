@@ -125,6 +125,8 @@ const BEAD_SUBSET_OUTPUT_FORMAT = [
   '    testCommands:',
   '      - "npm run test -- server/db"',
   '```',
+  'YAML Safety: For any field value or list item that contains dense punctuation, quotes, backslashes, `: `, brackets, braces, shell metacharacters, or other code-like inline syntax, prefer a block scalar (`|-`) and otherwise use a double-quoted YAML string.',
+  'Never use YAML single-quoted scalars for punctuation-heavy commands, code snippets, regex-like text, or similar machine-oriented strings.',
   'Write `contextGuidance` as an object with two keys: `patterns` (list of specific patterns to follow) and `anti_patterns` (list of anti-patterns to avoid).',
   'No other top-level keys. No prose before or after the YAML.',
 ].join('\n')

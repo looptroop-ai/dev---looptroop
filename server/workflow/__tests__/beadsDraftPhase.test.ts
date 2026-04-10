@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
@@ -124,9 +124,115 @@ describe('handleBeadsDraft', () => {
       _onOpenCodeSessionLog: unknown,
       _onOpenCodeStreamEvent: unknown,
       _onOpenCodePromptDispatched: unknown,
-      _onDraftProgress: unknown,
+      onDraftProgress?: (entry: {
+        memberId: string
+        status: string
+        sessionId?: string
+        outcome?: string
+        duration?: number
+        content?: string
+        questionCount?: number
+        draftMetrics?: {
+          beadCount?: number
+          totalTestCount?: number
+          totalAcceptanceCriteriaCount?: number
+        }
+        structuredOutput?: {
+          repairApplied?: boolean
+          repairWarnings?: string[]
+          autoRetryCount?: number
+          validationError?: string
+          retryDiagnostics?: Array<{
+            attempt?: number
+            validationError?: string
+            target?: string
+            excerpt?: string
+          }>
+        }
+      }) => void,
     ) => {
       receivedContexts.push(ticketContext.map((part) => `${part.source ?? 'text'}:${part.content ?? ''}`).join('\n'))
+      const repairedDraftContent = [
+        'beads:',
+        '  - id: bead-1',
+        '    title: Harden beads drafting',
+        '    prdRefs: [EPIC-1, US-1-1]',
+        '    description: Keep beads drafting strict and deterministic.',
+        '    contextGuidance: "Patterns: load codebase map, ticket details, and final PRD. Anti-patterns: do not omit later beads when the output gets long."',
+        '    acceptanceCriteria:',
+        '      - Draft is complete.',
+        '    tests:',
+        '      - Server test covers PROM20 output.',
+        '    testCommands:',
+        '      - npm run test:server',
+      ].join('\n')
+      const cleanDraftContent = [
+        'beads:',
+        '  - id: bead-1',
+        '    title: Harden beads drafting',
+        '    prdRefs: [EPIC-1, US-1-1]',
+        '    description: Keep beads drafting strict and deterministic.',
+        '    contextGuidance:',
+        '      Patterns:',
+        '        - Load codebase map, ticket details, and final PRD.',
+        '      Anti-patterns:',
+        '        - Do not omit later beads when the output gets long.',
+        '    acceptanceCriteria:',
+        '      - Draft is complete.',
+        '    tests:',
+        '      - Server test covers PROM20 output.',
+        '    testCommands:',
+        '      - npm run test:server',
+      ].join('\n')
+      onDraftProgress?.({
+        memberId: TEST.councilMembers[0],
+        status: 'session_created',
+        sessionId: 'session-beads-a',
+      })
+      onDraftProgress?.({
+        memberId: TEST.councilMembers[0],
+        status: 'finished',
+        sessionId: 'session-beads-a',
+        outcome: 'completed',
+        duration: 42,
+        content: repairedDraftContent,
+        draftMetrics: {
+          beadCount: 3,
+          totalTestCount: 6,
+          totalAcceptanceCriteriaCount: 9,
+        },
+        structuredOutput: {
+          repairApplied: true,
+          repairWarnings: ['Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.'],
+          autoRetryCount: 1,
+          validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
+          retryDiagnostics: [
+            {
+              attempt: 1,
+              validationError: 'Bead context guidance at index 0 must include both Patterns and Anti-patterns sections',
+              target: 'index 0',
+              excerpt: '1 | beads:',
+            },
+          ],
+        },
+      })
+      onDraftProgress?.({
+        memberId: TEST.councilMembers[1],
+        status: 'finished',
+        outcome: 'completed',
+        duration: 31,
+        content: cleanDraftContent,
+        draftMetrics: {
+          beadCount: 3,
+          totalTestCount: 5,
+          totalAcceptanceCriteriaCount: 7,
+        },
+        structuredOutput: {
+          repairApplied: false,
+          repairWarnings: [],
+          autoRetryCount: 0,
+        },
+      })
       return {
         phase: 'beads_draft',
         drafts: [
@@ -139,20 +245,7 @@ describe('handleBeadsDraft', () => {
               totalTestCount: 6,
               totalAcceptanceCriteriaCount: 9,
             },
-            content: [
-              'beads:',
-              '  - id: bead-1',
-              '    title: Harden beads drafting',
-              '    prdRefs: [EPIC-1, US-1-1]',
-              '    description: Keep beads drafting strict and deterministic.',
-              '    contextGuidance: "Patterns: load codebase map, ticket details, and final PRD. Anti-patterns: do not omit later beads when the output gets long."',
-              '    acceptanceCriteria:',
-              '      - Draft is complete.',
-              '    tests:',
-              '      - Server test covers PROM20 output.',
-              '    testCommands:',
-              '      - npm run test:server',
-            ].join('\n'),
+            content: repairedDraftContent,
             structuredOutput: {
               repairApplied: true,
               repairWarnings: ['Canonicalized inline string context guidance at index 0 into Patterns and Anti-patterns sections.'],
@@ -177,24 +270,7 @@ describe('handleBeadsDraft', () => {
               totalTestCount: 5,
               totalAcceptanceCriteriaCount: 7,
             },
-            content: [
-              'beads:',
-              '  - id: bead-1',
-              '    title: Harden beads drafting',
-              '    prdRefs: [EPIC-1, US-1-1]',
-              '    description: Keep beads drafting strict and deterministic.',
-              '    contextGuidance:',
-              '      Patterns:',
-              '        - Load codebase map, ticket details, and final PRD.',
-              '      Anti-patterns:',
-              '        - Do not omit later beads when the output gets long.',
-              '    acceptanceCriteria:',
-              '      - Draft is complete.',
-              '    tests:',
-              '      - Server test covers PROM20 output.',
-              '    testCommands:',
-              '      - npm run test:server',
-            ].join('\n'),
+            content: cleanDraftContent,
             structuredOutput: {
               repairApplied: false,
               repairWarnings: [],
@@ -277,6 +353,11 @@ describe('handleBeadsDraft', () => {
         excerpt: '1 | beads:',
       }),
     ])
+    expect(existsSync(paths.executionLogPath)).toBe(true)
+    const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
+    expect(executionLog).toContain('Beads draft round completed')
+    expect(executionLog).toContain('Beads draft normalization applied repairs')
+    expect(executionLog).toContain('Beads draft required 1 structured retry attempt(s)')
     expect(sendEvent).toHaveBeenCalledWith({ type: 'DRAFTS_READY' })
     expect(phaseIntermediate.get(`${ticket.id}:beads`)).toBeDefined()
     expect(paths.ticketDir).toContain('.ticket')
