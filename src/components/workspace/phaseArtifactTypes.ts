@@ -339,6 +339,27 @@ export interface FinalTestExecutionReportData {
   retryNotes?: string[]
 }
 
+export interface IntegrationReportData {
+  status?: string
+  completedAt?: string
+  baseBranch?: string
+  preSquashHead?: string | null
+  candidateCommitSha?: string | null
+  mergeBase?: string | null
+  commitCount?: number | null
+  pushed?: boolean
+  pushDeferred?: boolean
+  pushError?: string | null
+  message?: string
+}
+
+export interface CleanupReportData {
+  removedDirs: string[]
+  removedFiles: string[]
+  preservedPaths: string[]
+  errors: string[]
+}
+
 import type { CouncilOutcome, CouncilViewerArtifact } from './councilArtifacts'
 
 export type ViewingArtifact = CouncilViewerArtifact & { icon?: React.ReactNode }
@@ -495,6 +516,85 @@ function normalizeRefinementDiffAttributionStatus(value: unknown): RefinementDif
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+}
+
+export function parseIntegrationReport(content: string): IntegrationReportData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+
+  if (
+    !('status' in parsed)
+    && !('completedAt' in parsed)
+    && !('baseBranch' in parsed)
+    && !('candidateCommitSha' in parsed)
+    && !('mergeBase' in parsed)
+    && !('preSquashHead' in parsed)
+    && !('commitCount' in parsed)
+    && !('pushDeferred' in parsed)
+    && !('pushError' in parsed)
+    && !('message' in parsed)
+  ) {
+    return null
+  }
+
+  const normalizeNullableString = (value: unknown): string | null | undefined => {
+    if (value === null) return null
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    return trimmed ? trimmed : null
+  }
+
+  const normalizeOptionalString = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    return trimmed ? trimmed : undefined
+  }
+
+  const commitCount = typeof parsed.commitCount === 'number' && Number.isFinite(parsed.commitCount)
+    ? parsed.commitCount
+    : parsed.commitCount === null
+      ? null
+      : undefined
+
+  return {
+    status: normalizeOptionalString(parsed.status),
+    completedAt: normalizeOptionalString(parsed.completedAt),
+    baseBranch: normalizeOptionalString(parsed.baseBranch),
+    preSquashHead: normalizeNullableString(parsed.preSquashHead),
+    candidateCommitSha: normalizeNullableString(parsed.candidateCommitSha),
+    mergeBase: normalizeNullableString(parsed.mergeBase),
+    commitCount,
+    pushed: typeof parsed.pushed === 'boolean' ? parsed.pushed : undefined,
+    pushDeferred: typeof parsed.pushDeferred === 'boolean' ? parsed.pushDeferred : undefined,
+    pushError: normalizeNullableString(parsed.pushError),
+    message: normalizeOptionalString(parsed.message),
+  }
+}
+
+export function parseCleanupReport(content: string): CleanupReportData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+
+  if (
+    !('removedDirs' in parsed)
+    && !('removedFiles' in parsed)
+    && !('preservedPaths' in parsed)
+    && !('errors' in parsed)
+  ) {
+    return null
+  }
+
+  return {
+    removedDirs: normalizeStringArray(parsed.removedDirs),
+    removedFiles: normalizeStringArray(parsed.removedFiles),
+    preservedPaths: normalizeStringArray(parsed.preservedPaths),
+    errors: normalizeStringArray(parsed.errors),
+  }
 }
 
 function normalizeUiRefinementDiff(value: unknown): UiRefinementDiffArtifact | undefined {

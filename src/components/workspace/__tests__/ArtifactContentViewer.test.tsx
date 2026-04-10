@@ -1669,4 +1669,114 @@ describe('ArtifactContentViewer', () => {
     expect(screen.queryByText(/successful validated result/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/successful pass/i)).not.toBeInTheDocument()
   })
+
+  it('renders integration reports with structured metadata and deferred push guidance', () => {
+    render(
+      <ArtifactContent
+        artifactId="commit-summary"
+        phase="WAITING_MANUAL_VERIFICATION"
+        content={JSON.stringify({
+          status: 'passed',
+          completedAt: '2026-04-10T15:54:47.116Z',
+          baseBranch: 'master',
+          preSquashHead: 'ed7609abd7c99ad8f0bfae28442f69b24aff7871',
+          candidateCommitSha: 'c2708197a117389f594e4f6f8cc4262bf9d3bd6d',
+          mergeBase: '010cd33773494fcbaba0af86e9d84dd3c3548206',
+          commitCount: 2,
+          pushed: false,
+          pushDeferred: true,
+          pushError: null,
+          message: 'Integration phase completed. Manual verification is required before cleanup.',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Integration Report')).toBeInTheDocument()
+    expect(screen.getByText('Integration candidate prepared')).toBeInTheDocument()
+    expect(screen.getByText('Integration phase completed. Manual verification is required before cleanup.')).toBeInTheDocument()
+    expect(screen.getByText('Base Branch')).toBeInTheDocument()
+    expect(screen.getByText('master')).toBeInTheDocument()
+    expect(screen.getByText('Candidate Commit')).toBeInTheDocument()
+    expect(screen.getByText('c2708197a117389f594e4f6f8cc4262bf9d3bd6d')).toBeInTheDocument()
+    expect(screen.getByText('Squashed Commits')).toBeInTheDocument()
+    expect(screen.getByText(/remote ticket branch stays on the last bead backup until manual verification/i)).toBeInTheDocument()
+  })
+
+  it('renders failed integration reports with the remote push error callout', () => {
+    render(
+      <ArtifactContent
+        artifactId="commit-summary"
+        phase="INTEGRATING_CHANGES"
+        content={JSON.stringify({
+          status: 'failed',
+          completedAt: '2026-04-10T15:54:47.116Z',
+          baseBranch: 'master',
+          candidateCommitSha: null,
+          commitCount: null,
+          pushed: false,
+          pushDeferred: false,
+          pushError: 'git push failed after 3 attempts: permission denied',
+          message: 'git merge-base failed',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Integration failed')).toBeInTheDocument()
+    expect(screen.getByText('git merge-base failed')).toBeInTheDocument()
+    expect(screen.getByText('Remote update failed')).toBeInTheDocument()
+    expect(screen.getByText(/permission denied/i)).toBeInTheDocument()
+  })
+
+  it('renders cleanup reports with counts and categorized path sections', () => {
+    render(
+      <ArtifactContent
+        artifactId="cleanup-report"
+        phase="CLEANING_ENV"
+        content={JSON.stringify({
+          removedDirs: ['/tmp/ticket/.ticket/runtime/locks'],
+          removedFiles: ['/tmp/ticket/.ticket/runtime/state.yaml'],
+          preservedPaths: [
+            '/tmp/ticket/.ticket/interview.yaml',
+            '/tmp/ticket/.ticket/runtime/execution-log.jsonl',
+          ],
+          errors: ['Failed to remove /tmp/ticket/.ticket/runtime/tmp: EBUSY'],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Cleanup Report')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup completed with errors')).toBeInTheDocument()
+    expect(screen.getByText('Removed Dirs')).toBeInTheDocument()
+    expect(screen.getAllByText('Removed Files').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Preserved Paths').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Errors').length).toBeGreaterThan(0)
+    expect(screen.getByText('/tmp/ticket/.ticket/runtime/locks')).toBeInTheDocument()
+    expect(screen.getByText('/tmp/ticket/.ticket/runtime/state.yaml')).toBeInTheDocument()
+    expect(screen.getByText('/tmp/ticket/.ticket/interview.yaml')).toBeInTheDocument()
+    expect(screen.getByText(/EBUSY/i)).toBeInTheDocument()
+  })
+
+  it('falls back to the raw viewer for malformed integration reports', () => {
+    render(
+      <ArtifactContent
+        artifactId="commit-summary"
+        phase="WAITING_MANUAL_VERIFICATION"
+        content="not valid integration json"
+      />,
+    )
+
+    expect(screen.getByText('not valid integration json')).toBeInTheDocument()
+  })
+
+  it('falls back to the raw viewer for malformed cleanup reports', () => {
+    render(
+      <ArtifactContent
+        artifactId="cleanup-report"
+        phase="CLEANING_ENV"
+        content="not valid cleanup json"
+      />,
+    )
+
+    expect(screen.getByText('not valid cleanup json')).toBeInTheDocument()
+  })
 })

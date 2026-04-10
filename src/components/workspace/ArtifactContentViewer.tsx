@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
 import type {
   ArtifactStructuredOutputData,
+  CleanupReportData,
   CoverageArtifactData,
   CoverageGapResolutionData,
   CoverageTransitionData,
@@ -32,6 +33,7 @@ import type {
   CouncilVoterDetailData,
   CouncilOutcome,
   FinalTestExecutionReportData,
+  IntegrationReportData,
   RelevantFileScanEntry,
   RelevantFilesScanData,
   InspirationDiffSource,
@@ -45,7 +47,9 @@ import {
   buildQuestionDiffSegments,
   buildRefinementDiffEntries,
   normalizeCoverageFollowUpArtifacts,
+  parseCleanupReport,
   parseCoverageArtifact,
+  parseIntegrationReport,
   parseInterviewQuestions,
   parseRefinementArtifact,
 } from './phaseArtifactTypes'
@@ -3129,6 +3133,277 @@ function FinalTestResultsView({ content }: { content: string }) {
   )
 }
 
+function formatArtifactTimestampLabel(value: string | undefined): string | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+}
+
+function MetadataCard({
+  label,
+  value,
+  hint,
+  mono = false,
+  tone = 'default',
+}: {
+  label: string
+  value: React.ReactNode
+  hint?: React.ReactNode
+  mono?: boolean
+  tone?: 'default' | 'success' | 'warning' | 'danger' | 'info'
+}) {
+  const toneClassName = tone === 'success'
+    ? 'border-green-300/70 bg-green-50/70 dark:border-green-900/60 dark:bg-green-950/20'
+    : tone === 'warning'
+      ? 'border-amber-300/70 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/20'
+      : tone === 'danger'
+        ? 'border-red-300/70 bg-red-50/70 dark:border-red-900/60 dark:bg-red-950/20'
+        : tone === 'info'
+          ? 'border-blue-300/70 bg-blue-50/70 dark:border-blue-900/60 dark:bg-blue-950/20'
+          : 'border-border bg-background'
+
+  return (
+    <div className={cn('rounded-md border px-3 py-2 min-w-0', toneClassName)}>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn('mt-1 text-sm font-semibold text-foreground break-all', mono && 'font-mono text-[11px] leading-5')}>
+        {value}
+      </div>
+      {hint ? <div className="mt-1 text-[10px] text-muted-foreground leading-4">{hint}</div> : null}
+    </div>
+  )
+}
+
+function ArtifactListSection({
+  title,
+  items,
+  emptyLabel,
+  tone = 'default',
+}: {
+  title: string
+  items: string[]
+  emptyLabel: string
+  tone?: 'default' | 'removed' | 'preserved' | 'error'
+}) {
+  const itemClassName = tone === 'removed'
+    ? 'border-red-200 bg-red-50/70 text-red-950 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-100'
+    : tone === 'preserved'
+      ? 'border-blue-200 bg-blue-50/70 text-blue-950 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-100'
+      : tone === 'error'
+        ? 'border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100'
+        : 'border-border bg-background text-foreground'
+
+  return (
+    <CollapsibleSection
+      title={(
+        <span className="flex items-center gap-2">
+          <span>{title}</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {items.length}
+          </span>
+        </span>
+      )}
+      defaultOpen={items.length > 0}
+    >
+      {items.length > 0 ? (
+        <div className="space-y-2">
+          {items.map((item, index) => (
+            <div
+              key={`${title}:${item}:${index}`}
+              className={cn('rounded-md border px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all', itemClassName)}
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground">{emptyLabel}</div>
+      )}
+    </CollapsibleSection>
+  )
+}
+
+function IntegrationReportView({ content }: { content: string }) {
+  const parsed: IntegrationReportData | null = parseIntegrationReport(content)
+  if (!parsed) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const completedAtLabel = formatArtifactTimestampLabel(parsed.completedAt)
+  const isPassed = parsed.status === 'passed'
+  const isFailed = parsed.status === 'failed'
+  const title = isPassed
+    ? 'Integration candidate prepared'
+    : isFailed
+      ? 'Integration failed'
+      : 'Integration report'
+  const message = parsed.message
+    ?? (isPassed
+      ? 'Integration completed and the squashed candidate is ready for manual verification.'
+      : 'Integration details were recorded.')
+
+  const metadataCards: Array<React.ReactNode> = []
+
+  if (parsed.baseBranch) {
+    metadataCards.push(
+      <MetadataCard key="base-branch" label="Base Branch" value={parsed.baseBranch} mono hint="Destination branch for verification merge" />,
+    )
+  }
+  if (parsed.candidateCommitSha) {
+    metadataCards.push(
+      <MetadataCard key="candidate-commit" label="Candidate Commit" value={parsed.candidateCommitSha} mono hint="Squashed candidate commit ready for review" />,
+    )
+  }
+  if (parsed.mergeBase) {
+    metadataCards.push(
+      <MetadataCard key="merge-base" label="Merge Base" value={parsed.mergeBase} mono hint="Common ancestor used for the squash" />,
+    )
+  }
+  if (parsed.preSquashHead) {
+    metadataCards.push(
+      <MetadataCard key="pre-squash-head" label="Pre-Squash Head" value={parsed.preSquashHead} mono hint="Ticket branch head before creating the candidate commit" />,
+    )
+  }
+  if (parsed.commitCount != null) {
+    metadataCards.push(
+      <MetadataCard
+        key="commit-count"
+        label="Squashed Commits"
+        value={parsed.commitCount.toLocaleString()}
+        hint={`${parsed.commitCount} commit${parsed.commitCount === 1 ? '' : 's'} consolidated into the candidate commit`}
+        tone={parsed.commitCount > 0 ? 'info' : 'default'}
+      />,
+    )
+  }
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Report"
+      header={<div className="text-xs font-semibold px-1">Integration Report</div>}
+    >
+      <div className="space-y-4">
+        <div className={cn(
+          'rounded-md border px-3 py-3',
+          isPassed
+            ? 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100'
+            : isFailed
+              ? 'border-red-300 bg-red-50 text-red-950 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-100'
+              : 'border-border bg-background text-foreground',
+        )}>
+          <div className="flex items-start gap-2">
+            {isPassed
+              ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+              : isFailed
+                ? <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">{title}</div>
+              <div className="mt-1 text-xs leading-5">{message}</div>
+              {completedAtLabel ? (
+                <div className="mt-2 text-[11px] opacity-80">Completed at {completedAtLabel}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {metadataCards.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {metadataCards}
+          </div>
+        ) : null}
+
+        {parsed.pushDeferred && parsed.pushed === false && !parsed.pushError ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
+            Remote ticket branch stays on the last bead backup until manual verification. Verifying rewrites it once to this squashed candidate.
+          </div>
+        ) : null}
+
+        {parsed.pushError ? (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+            <div className="font-semibold">Remote update failed</div>
+            <div className="mt-1 whitespace-pre-wrap break-words">{parsed.pushError}</div>
+          </div>
+        ) : null}
+      </div>
+    </WithRawTab>
+  )
+}
+
+function CleanupReportView({ content }: { content: string }) {
+  const parsed: CleanupReportData | null = parseCleanupReport(content)
+  if (!parsed) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const removedPathCount = parsed.removedDirs.length + parsed.removedFiles.length
+  const cleanupSucceeded = parsed.errors.length === 0
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Report"
+      header={<div className="text-xs font-semibold px-1">Cleanup Report</div>}
+    >
+      <div className="space-y-4">
+        <div className={cn(
+          'rounded-md border px-3 py-3',
+          cleanupSucceeded
+            ? 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100'
+            : 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100',
+        )}>
+          <div className="flex items-start gap-2">
+            {cleanupSucceeded
+              ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+              : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">
+                {cleanupSucceeded ? 'Cleanup completed cleanly' : 'Cleanup completed with errors'}
+              </div>
+              <div className="mt-1 text-xs leading-5">
+                Removed {removedPathCount} runtime path{removedPathCount === 1 ? '' : 's'} and preserved {parsed.preservedPaths.length} audit artifact{parsed.preservedPaths.length === 1 ? '' : 's'}.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <MetadataCard label="Removed Dirs" value={parsed.removedDirs.length.toLocaleString()} tone={parsed.removedDirs.length > 0 ? 'warning' : 'default'} />
+          <MetadataCard label="Removed Files" value={parsed.removedFiles.length.toLocaleString()} tone={parsed.removedFiles.length > 0 ? 'warning' : 'default'} />
+          <MetadataCard label="Preserved Paths" value={parsed.preservedPaths.length.toLocaleString()} tone={parsed.preservedPaths.length > 0 ? 'info' : 'default'} />
+          <MetadataCard label="Errors" value={parsed.errors.length.toLocaleString()} tone={parsed.errors.length > 0 ? 'danger' : 'success'} />
+        </div>
+
+        <div className="space-y-3">
+          <ArtifactListSection
+            title="Removed Directories"
+            items={parsed.removedDirs}
+            emptyLabel="No directories were removed."
+            tone="removed"
+          />
+          <ArtifactListSection
+            title="Removed Files"
+            items={parsed.removedFiles}
+            emptyLabel="No files were removed."
+            tone="removed"
+          />
+          <ArtifactListSection
+            title="Preserved Paths"
+            items={parsed.preservedPaths}
+            emptyLabel="No preserved paths were recorded."
+            tone="preserved"
+          />
+          <ArtifactListSection
+            title="Errors"
+            items={parsed.errors}
+            emptyLabel="No cleanup errors were recorded."
+            tone="error"
+          />
+        </div>
+      </div>
+    </WithRawTab>
+  )
+}
+
 interface PreFlightCheck {
   name: string
   category: string
@@ -3343,8 +3618,14 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   if (artifactId === 'relevant-files-scan') {
     return <RelevantFilesScanView content={content} />
   }
+  if (artifactId === 'commit-summary') {
+    return <IntegrationReportView content={content} />
+  }
   if (artifactId === 'test-results') {
     return <FinalTestResultsView content={content} />
+  }
+  if (artifactId === 'cleanup-report') {
+    return <CleanupReportView content={content} />
   }
   if (artifactId === 'bead-commits') {
     return <BeadCommitsDiffView content={content} />

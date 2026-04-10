@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { Badge } from '@/components/ui/badge'
 import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
-import { getArtifactTargetPhases } from './phaseArtifactTypes'
+import { getArtifactTargetPhases, parseIntegrationReport } from './phaseArtifactTypes'
 import type { Ticket } from '@/hooks/useTickets'
 import { cn } from '@/lib/utils'
 
@@ -13,19 +13,6 @@ interface VerificationSummaryPanelProps {
   onVerify: () => void
   onCancel: () => void
   isPending: boolean
-}
-
-interface IntegrationReport {
-  status: string
-  baseBranch?: string
-  preSquashHead?: string | null
-  candidateCommitSha?: string | null
-  mergeBase?: string | null
-  commitCount?: number | null
-  pushed?: boolean
-  pushDeferred?: boolean
-  pushError?: string | null
-  message?: string
 }
 
 interface FinalTestReport {
@@ -60,7 +47,7 @@ export function VerificationSummaryPanel({ ticket, onVerify, onCancel, isPending
     const artifact = [...artifacts]
       .reverse()
       .find(a => targetPhases.includes(a.phase) && a.artifactType === 'integration_report')
-    return tryParseJson<IntegrationReport>(artifact?.content)
+    return artifact?.content ? parseIntegrationReport(artifact.content) : null
   }, [artifacts, targetPhases])
 
   const finalTestReport = useMemo(() => {
