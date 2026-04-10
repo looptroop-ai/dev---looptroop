@@ -200,6 +200,24 @@ describe('commandLogger', () => {
     expect(logs[0]).toContain('all clean')
   })
 
+  it('suppresses nested command logs triggered while a command log is being emitted', () => {
+    const logs: string[] = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('git', ['status'], { ok: true, stdout: 'outer command' })
+      },
+      (_phase, _type, content) => {
+        logs.push(content)
+        logCommand('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { ok: true, stdout: 'main' })
+      },
+    )
+
+    expect(logs).toEqual([
+      '[CMD] $ git status  →  outer command',
+    ])
+  })
+
   it('truncates output at 2500 characters', () => {
     const logs: string[] = []
     const longOutput = 'x'.repeat(3000)

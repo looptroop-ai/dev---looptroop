@@ -1,6 +1,6 @@
 import type { OpenCodeAdapter } from '../../opencode/adapter'
 import type { Bead } from '../beads/types'
-import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
+import type { Message, PromptPart, Session, StreamEvent } from '../../opencode/types'
 import { parseCompletionMarker } from './completionChecker'
 import {
   runOpenCodePrompt,
@@ -155,14 +155,13 @@ function buildFallbackContextWipeNote(options: {
 
 async function generateContextWipeNote(
   adapter: OpenCodeAdapter,
+  session: Session,
   bead: Bead,
-  projectPath: string,
   iterationErrors: string[],
   lastOutput: string,
   recentFailureExcerpts: string[],
   signal?: AbortSignal,
   options?: {
-    ticketId?: string
     model?: string
     variant?: string
     iteration?: number
@@ -193,35 +192,19 @@ async function generateContextWipeNote(
   }
 
   const promptContent = buildPromptFromTemplate(PROM51, [beadData, errorContext])
-  let sessionId = ''
-  const result = await runOpenCodePrompt({
+  const result = await runOpenCodeSessionPrompt({
     adapter,
-    projectPath,
+    session,
     parts: [{ type: 'text', content: promptContent }],
     signal,
     timeoutMs: COUNCIL_RESPONSE_TIMEOUT_MS,
     model: options?.model,
     variant: options?.variant,
     toolPolicy: PROM51.toolPolicy,
-    ...(options?.ticketId
-      ? {
-          sessionOwnership: {
-            ticketId: options.ticketId,
-            phase: 'CODING',
-            memberId: options.model,
-            beadId: bead.id,
-            iteration: options.iteration,
-            step: 'context_wipe_note',
-          },
-        }
-      : {}),
-    onSessionCreated: (session) => {
-      sessionId = session.id
-    },
     onStreamEvent: (event) => {
-      if (!sessionId || options?.iteration == null) return
+      if (options?.iteration == null) return
       options.onOpenCodeStreamEvent?.({
-        sessionId,
+        sessionId: session.id,
         iteration: options.iteration,
         event,
       })
@@ -275,7 +258,8 @@ export async function executeBead(
     iteration++
     throwIfAborted(signal)
     let activeSessionId: string | null = null
-    let iterationErrors: string[] = []
+    let activeSession: Session | null = null
+    const iterationErrors: string[] = []
     let latestMessages: Message[] = []
     const deadlineAt = Date.now() + timeout
 
@@ -313,6 +297,7 @@ export async function executeBead(
         onSessionCreated: (session) => {
           sessionId = session.id
           activeSessionId = session.id
+          activeSession = session
           callbacks?.onSessionCreated?.(session.id, iteration)
         },
         onStreamEvent: (event) => {
@@ -344,6 +329,7 @@ export async function executeBead(
       while (true) {
         throwIfAborted(signal)
         activeSessionId = runResult.session.id
+        activeSession = runResult.session
         lastOutput = runResult.response
         latestMessages = runResult.messages
 
@@ -353,6 +339,7 @@ export async function executeBead(
             await sessionManager.completeSession(activeSessionId)
             activeSessionId = null
           }
+          activeSession = null
           return { beadId: bead.id, success: true, iteration, output: lastOutput, errors: [] }
         }
 
@@ -410,6 +397,7 @@ export async function executeBead(
             await sessionManager.abandonSession(activeSessionId)
             activeSessionId = null
           }
+          activeSession = null
           runResult = await runBeadPrompt()
           continue
         }
@@ -447,10 +435,6 @@ export async function executeBead(
         })
       }
     } catch (err) {
-      if (activeSessionId && sessionManager) {
-        await sessionManager.abandonSession(activeSessionId)
-        activeSessionId = null
-      }
       throwIfCancelled(err, signal)
       const msg = err instanceof Error ? err.message : 'Unknown error'
       iterationErrors.push(msg)
@@ -463,27 +447,33 @@ export async function executeBead(
     const formattedIterationErrors = iterationErrors.map((msg) => `Iteration ${iteration}: ${msg}`)
     errors.push(...formattedIterationErrors)
 
+    const contextWipeSession = activeSession
+    const contextWipeSessionId = activeSessionId
+    activeSession = null
+    activeSessionId = null
+
     const recentFailureExcerpts = extractRecentFailureExcerpts(latestMessages)
     let note = ''
     try {
-      note = await generateContextWipeNote(
-        adapter,
-        bead,
-        projectPath,
-        formattedIterationErrors,
-        lastOutput,
-        recentFailureExcerpts,
-        signal,
-        {
-          ticketId: callbacks?.ticketId,
-          model: callbacks?.model,
-          variant: callbacks?.variant,
-          iteration,
-          onOpenCodeStreamEvent: callbacks?.onOpenCodeStreamEvent,
-          onPromptDispatched: callbacks?.onPromptDispatched,
-          onPromptCompleted: callbacks?.onPromptCompleted,
-        },
-      )
+      if (contextWipeSession) {
+        note = await generateContextWipeNote(
+          adapter,
+          contextWipeSession,
+          bead,
+          formattedIterationErrors,
+          lastOutput,
+          recentFailureExcerpts,
+          signal,
+          {
+            model: callbacks?.model,
+            variant: callbacks?.variant,
+            iteration,
+            onOpenCodeStreamEvent: callbacks?.onOpenCodeStreamEvent,
+            onPromptDispatched: callbacks?.onPromptDispatched,
+            onPromptCompleted: callbacks?.onPromptCompleted,
+          },
+        )
+      }
     } catch {
       // Best effort only; deterministic fallback note below keeps the retry durable.
     }
@@ -496,11 +486,17 @@ export async function executeBead(
     })
 
     bead.notes = bead.notes ? `${bead.notes}\n\n---\n\n${effectiveNote}` : effectiveNote
-    await callbacks?.onContextWipe?.({
-      beadId: bead.id,
-      notes: bead.notes,
-      iteration,
-    })
+    try {
+      await callbacks?.onContextWipe?.({
+        beadId: bead.id,
+        notes: bead.notes,
+        iteration,
+      })
+    } finally {
+      if (contextWipeSessionId && sessionManager) {
+        await sessionManager.abandonSession(contextWipeSessionId)
+      }
+    }
     throwIfAborted(signal)
   }
 

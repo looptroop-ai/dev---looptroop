@@ -5,11 +5,43 @@ import type { Bead } from '../../beads/types'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
+  public abortCalls: string[] = []
+  public promptFailures = new Map<string, Error | 'stallUntilAbort'>()
 
   override async promptSession(...args: Parameters<MockOpenCodeAdapter['promptSession']>) {
     const sessionId = args[0]
     const nextCount = (this.promptCounts.get(sessionId) ?? 0) + 1
     this.promptCounts.set(sessionId, nextCount)
+
+    const queuedFailure = this.promptFailures.get(`${sessionId}#${nextCount}`)
+    if (queuedFailure) {
+      this.promptFailures.delete(`${sessionId}#${nextCount}`)
+      this.promptCalls.push({
+        sessionId,
+        parts: args[1],
+        options: args[3],
+      })
+      if (queuedFailure === 'stallUntilAbort') {
+        const activeSignal = args[3]?.signal ?? args[2]
+        if (!activeSignal) {
+          throw new Error(`Missing abort signal for stalled prompt ${sessionId}#${nextCount}`)
+        }
+        if (activeSignal.aborted) {
+          const abortError = new Error('Aborted')
+          abortError.name = 'AbortError'
+          throw abortError
+        }
+        await new Promise<never>((_, reject) => {
+          const onAbort = () => {
+            const abortError = new Error('Aborted')
+            abortError.name = 'AbortError'
+            reject(abortError)
+          }
+          activeSignal.addEventListener('abort', onAbort, { once: true })
+        })
+      }
+      throw queuedFailure
+    }
 
     const queuedResponse = this.mockResponses.get(`${sessionId}#${nextCount}`)
     if (queuedResponse !== undefined) {
@@ -17,6 +49,11 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
     }
 
     return await super.promptSession(...args)
+  }
+
+  override async abortSession(sessionId: string): Promise<boolean> {
+    this.abortCalls.push(sessionId)
+    return await super.abortSession(sessionId)
   }
 }
 
@@ -147,8 +184,7 @@ describe('executeBead', () => {
       '{"bead_id":"bead-1","status":"error","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"},"reason":"tests still failing"}',
       '</BEAD_STATUS>',
     ].join('\n'))
-    // PROM51 note generation session
-    adapter.mockResponses.set('mock-session-2#1', 'Iteration 1 failed because: no completion marker output.')
+    adapter.mockResponses.set('mock-session-1#2', 'Iteration 1 failed because: no completion marker output.')
 
     const notesUpdates: { beadId: string; notes: string }[] = []
     const result = await executeBead(
@@ -170,6 +206,7 @@ describe('executeBead', () => {
     expect(notesUpdates).toHaveLength(1)
     expect(notesUpdates[0]!.beadId).toBe('bead-1')
     expect(notesUpdates[0]!.notes).toContain('failed')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
   })
 
   it('restarts the bead iteration in a fresh session after an empty completion response', async () => {
@@ -208,8 +245,8 @@ describe('executeBead', () => {
       '{"bead_id":"bead-1","status":"error","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"},"reason":"missing final fix"}',
       '</BEAD_STATUS>',
     ].join('\n'))
-    adapter.mockResponses.set('mock-session-2#1', 'Retry with the new note about the missing completion marker.')
-    adapter.mockResponses.set('mock-session-3#1', [
+    adapter.mockResponses.set('mock-session-1#2', 'Retry with the new note about the missing completion marker.')
+    adapter.mockResponses.set('mock-session-2#1', [
       '<BEAD_STATUS>',
       '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
       '</BEAD_STATUS>',
@@ -233,5 +270,42 @@ describe('executeBead', () => {
     expect(contextSnapshots).toHaveLength(2)
     expect(contextSnapshots[0]).toBe('')
     expect(contextSnapshots[1]).toContain('Retry with the new note')
+  })
+
+  it('reuses the timed-out session for PROM51 before starting the next coding session', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.promptFailures.set('mock-session-1#1', 'stallUntilAbort')
+    adapter.mockResponses.set('mock-session-1#2', 'Timeout note from the stalled session.')
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const bead = buildBead()
+    const contextSnapshots: string[] = []
+    const result = await executeBead(
+      adapter,
+      bead,
+      async () => {
+        contextSnapshots.push(bead.notes)
+        return [{ type: 'text', content: bead.notes ? `Bead context\n${bead.notes}` : 'Bead context' }]
+      },
+      '/tmp/test',
+      2,
+      25,
+    )
+
+    expect(result.success).toBe(true)
+    expect(adapter.abortCalls).toEqual(['mock-session-1'])
+    expect(adapter.promptCalls.map((call) => call.sessionId)).toEqual([
+      'mock-session-1',
+      'mock-session-1',
+      'mock-session-2',
+    ])
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    expect(contextSnapshots).toHaveLength(2)
+    expect(contextSnapshots[0]).toBe('')
+    expect(contextSnapshots[1]).toContain('Timeout note from the stalled session.')
   })
 })

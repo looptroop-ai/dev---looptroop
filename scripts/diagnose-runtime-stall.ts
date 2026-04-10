@@ -168,6 +168,7 @@ interface ProjectSnapshot {
   ticketCount: number
   activeSessionCount: number
   recentTickets: TicketRow[]
+  latestNonTerminalTicketLog: TicketLogPreview | null
   activeSessions: ActiveSessionRow[]
   statusCounts: Array<{ status: string; count: number }>
   metaFilesChecked: number
@@ -181,6 +182,15 @@ interface ProjectSnapshot {
   diskUsage: DiskUsageSnapshot
   inodeUsage: InodeUsageSnapshot
   latencyProbes: FsLatencyProbe[]
+}
+
+interface TicketLogPreview {
+  externalId: string
+  status: string
+  logPath: string
+  exists: boolean
+  tailLines: string[]
+  warning?: string
 }
 
 const cli = parseCliArgs(process.argv.slice(2))
@@ -945,6 +955,75 @@ function inspectTicketMetaFiles(projectRoot: string, ticketRefs: string[]): {
   return { checked, missingMetaFiles, metaWithoutBaseBranch, warnings }
 }
 
+function formatExecutionLogTailLine(rawLine: string): string {
+  try {
+    const parsed = JSON.parse(rawLine) as {
+      timestamp?: unknown
+      phase?: unknown
+      type?: unknown
+      message?: unknown
+      content?: unknown
+    }
+    const timestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp : 'n/a'
+    const phase = typeof parsed.phase === 'string' ? parsed.phase : 'n/a'
+    const type = typeof parsed.type === 'string' ? parsed.type : 'n/a'
+    const messageSource = typeof parsed.message === 'string'
+      ? parsed.message
+      : typeof parsed.content === 'string'
+        ? parsed.content
+        : rawLine
+    return `${timestamp} | ${phase} | ${type} | ${formatBodyPreview(messageSource, 220)}`
+  } catch {
+    return formatBodyPreview(rawLine, 260)
+  }
+}
+
+function readTicketExecutionLogPreview(
+  projectRoot: string,
+  ticket: TicketRow,
+  maxLines = 8,
+): TicketLogPreview {
+  const logPath = resolve(projectRoot, '.looptroop', 'worktrees', ticket.external_id, '.ticket', 'runtime', 'execution-log.jsonl')
+  if (!existsSync(logPath)) {
+    return {
+      externalId: ticket.external_id,
+      status: ticket.status,
+      logPath,
+      exists: false,
+      tailLines: [],
+      warning: 'Execution log file is missing.',
+    }
+  }
+
+  try {
+    const raw = readFileSync(logPath, 'utf8')
+    const tailLines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(-maxLines)
+      .map(formatExecutionLogTailLine)
+
+    return {
+      externalId: ticket.external_id,
+      status: ticket.status,
+      logPath,
+      exists: true,
+      tailLines,
+      ...(tailLines.length === 0 ? { warning: 'Execution log file exists but contains no entries.' } : {}),
+    }
+  } catch (error) {
+    return {
+      externalId: ticket.external_id,
+      status: ticket.status,
+      logPath,
+      exists: true,
+      tailLines: [],
+      warning: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
   const projectDbPath = resolve(project.folderPath, '.looptroop', 'db.sqlite')
   const exists = existsSync(project.folderPath)
@@ -984,6 +1063,7 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
       ticketCount: 0,
       activeSessionCount: 0,
       recentTickets: [],
+      latestNonTerminalTicketLog: null,
       activeSessions: [],
       statusCounts: [],
       metaFilesChecked: 0,
@@ -1027,6 +1107,16 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
       ).all() as TicketRow[]
       : []
 
+    const latestNonTerminalTicket = tableExists(db, 'tickets')
+      ? db.prepare(
+        `SELECT external_id, status, updated_at
+         FROM tickets
+         WHERE status NOT IN ('COMPLETED', 'CANCELED')
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+      ).get() as TicketRow | undefined
+      : undefined
+
     const statusCounts = tableExists(db, 'tickets')
       ? db.prepare(
         `SELECT status, COUNT(*) AS count
@@ -1054,6 +1144,9 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
       project.folderPath,
       ticketRefs.map((ticket) => ticket.external_id),
     )
+    const latestNonTerminalTicketLog = latestNonTerminalTicket
+      ? readTicketExecutionLogPreview(project.folderPath, latestNonTerminalTicket)
+      : null
 
     const latestExternalId = recentTickets[0]?.external_id ?? ticketRefs[0]?.external_id ?? null
     const gitHeadPath = resolve(project.folderPath, '.git', 'HEAD')
@@ -1109,6 +1202,7 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
       ticketCount,
       activeSessionCount: activeSessions.length,
       recentTickets,
+      latestNonTerminalTicketLog,
       activeSessions,
       statusCounts,
       metaFilesChecked: metaInspection.checked,
@@ -1352,6 +1446,26 @@ function printProjectSnapshot(project: ProjectSnapshot) {
     }
   }
 
+  print('Latest non-terminal ticket execution log tail:')
+  if (!project.latestNonTerminalTicketLog) {
+    print('(none)')
+  } else {
+    print(
+      `- ticket=${project.latestNonTerminalTicketLog.externalId} status=${project.latestNonTerminalTicketLog.status}` +
+      ` exists=${project.latestNonTerminalTicketLog.exists} path=${project.latestNonTerminalTicketLog.logPath}`,
+    )
+    if (project.latestNonTerminalTicketLog.warning) {
+      print(`- warning=${project.latestNonTerminalTicketLog.warning}`)
+    }
+    if (project.latestNonTerminalTicketLog.tailLines.length === 0) {
+      print('(no log lines)')
+    } else {
+      for (const line of project.latestNonTerminalTicketLog.tailLines) {
+        print(`- ${line}`)
+      }
+    }
+  }
+
   print('Status counts:')
   if (project.statusCounts.length === 0) {
     print('(none)')
@@ -1408,6 +1522,7 @@ function buildHeuristics(input: {
   const slowFsProbe = input.projectSnapshots.some((project) => project.latencyProbes.some((probe) => probe.durationMs >= 750))
   const lowDiskProjects = input.projectSnapshots.filter((project) => (project.diskUsage.usePercent ?? 0) >= 95)
   const lowInodeProjects = input.projectSnapshots.filter((project) => (project.inodeUsage.usePercent ?? 0) >= 95)
+  const missingProjectPaths = input.projectSnapshots.filter((project) => !project.exists)
   const missingBaseBranch = input.projectSnapshots.reduce((sum, project) => sum + project.metaWithoutBaseBranch, 0)
   const ioPressureSome = input.ioPressure.some?.avg10 ?? 0
   const ioPressureFull = input.ioPressure.full?.avg10 ?? 0
@@ -1424,6 +1539,11 @@ function buildHeuristics(input: {
   const backendPollingEnabled = input.backendEnv.CHOKIDAR_USEPOLLING === '1'
   const backendVmRssKb = input.backendMemory?.vmRssKb ?? 0
   const backendVmHwmKb = input.backendMemory?.vmHwmKb ?? 0
+  const backendCpuPercent = input.backendCandidate?.pcpu ?? 0
+  const runningNonIoBlockedSamples = input.correlationSamples.filter((sample) =>
+    (sample.processStat?.includes('R') ?? false)
+    && !(sample.processWchan?.includes('p9_client_rpc') ?? false),
+  ).length
 
   if (input.backendPid === null) {
     messages.push('No backend listener was found on the configured backend port. If the UI is empty in this case, the backend may simply be down.')
@@ -1435,6 +1555,10 @@ function buildHeuristics(input: {
 
   if (input.attachedProjects.length === 0) {
     messages.push('No attached projects were found in the app DB. In that state, the UI would legitimately show no tickets.')
+  }
+
+  if (missingProjectPaths.length > 0) {
+    messages.push(`The app DB still contains attached project path(s) that no longer exist on disk (${missingProjectPaths.map((project) => project.folderPath).join(', ')}). That stale attachment state should be cleaned up because it can make the UI look inconsistent after refresh.`)
   }
 
   if (input.backendPid !== null && backendTimedOut && hasTicketDataOnDisk) {
@@ -1489,6 +1613,15 @@ function buildHeuristics(input: {
 
   if (directDbReadable && input.backendPid !== null && backendTimedOut) {
     messages.push('A fresh process could still read the project DB directly while the backend timed out. That points away from permanent SQLite corruption and toward the backend event loop or mounted-drive I/O being blocked.')
+  }
+
+  if (
+    directDbReadable
+    && input.backendPid !== null
+    && backendTimedOut
+    && (backendCpuPercent >= 70 || runningNonIoBlockedSamples > 0)
+  ) {
+    messages.push(`The backend timed out while direct DB reads still worked and the Node process looked CPU-busy (pcpu=${backendCpuPercent}, running_samples=${runningNonIoBlockedSamples}/${input.correlationSamples.length}). That pattern is consistent with an event-loop hot loop or recursive internal work, not missing tickets or broken SQLite state.`)
   }
 
   if (someProjectDbWasSlow) {
