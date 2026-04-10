@@ -1,7 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { opencodeSessions } from '../db/schema'
 import type { OpenCodeAdapter } from './adapter'
-import type { Session } from './types'
+import type { OpenCodeSessionCreateOptions, Session } from './types'
 import { getOpenCodeAdapter } from './factory'
 import { getProjectContextById, listProjects } from '../storage/projects'
 import { getTicketByRef, getTicketContext } from '../storage/tickets'
@@ -41,11 +41,12 @@ export class SessionManager {
     iteration?: number,
     step?: string,
     projectPath?: string,
+    createOptions?: OpenCodeSessionCreateOptions,
   ): Promise<Session> {
     const context = getTicketContext(ticketId)
     if (!context) throw new Error(`Ticket not found: ${ticketId}`)
 
-    const session = await this.adapter.createSession(projectPath ?? context.projectRoot)
+    const session = await this.adapter.createSession(projectPath ?? context.projectRoot, undefined, createOptions)
 
     context.projectDb.insert(opencodeSessions)
       .values({
@@ -69,6 +70,7 @@ export class SessionManager {
     phase: string,
     ownership: SessionOwnership,
     projectPath?: string,
+    createOptions?: OpenCodeSessionCreateOptions,
   ): Promise<Session> {
     return this.createSessionForPhase(
       ticketId,
@@ -79,6 +81,7 @@ export class SessionManager {
       ownership.iteration ?? undefined,
       ownership.step ?? undefined,
       projectPath,
+      createOptions,
     )
   }
 

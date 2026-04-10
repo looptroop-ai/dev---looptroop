@@ -1,6 +1,7 @@
 import type {
   HealthStatus,
   Message,
+  OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
   Session,
@@ -12,6 +13,10 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   public messages: Map<string, Message[]> = new Map()
   public mockResponses: Map<string, string> = new Map()
+  public sessionCreateCalls: Array<{
+    projectPath: string
+    options?: OpenCodeSessionCreateOptions
+  }> = []
   public promptCalls: Array<{
     sessionId: string
     parts: PromptPart[]
@@ -19,7 +24,12 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   }> = []
   private sessionCounter = 0
 
-  async createSession(projectPath: string, _signal?: AbortSignal): Promise<Session> {
+  async createSession(
+    projectPath: string,
+    _signal?: AbortSignal,
+    options?: OpenCodeSessionCreateOptions,
+  ): Promise<Session> {
+    this.sessionCreateCalls.push({ projectPath, options })
     const session: Session = {
       id: `mock-session-${++this.sessionCounter}`,
       projectPath,

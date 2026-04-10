@@ -20,6 +20,18 @@ export interface ModelSelection {
   modelID: string
 }
 
+export type OpenCodePermissionAction = 'allow' | 'deny' | 'ask'
+
+export interface OpenCodePermissionRule {
+  permission: string
+  pattern: string
+  action: OpenCodePermissionAction
+}
+
+export interface OpenCodeSessionCreateOptions {
+  permission?: ReadonlyArray<OpenCodePermissionRule>
+}
+
 export interface PromptSessionOptions {
   signal?: AbortSignal
   model?: ModelSelection

@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
+import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../../opencode/permissions'
 import { executeBead } from '../executor'
 import type { Bead } from '../../beads/types'
 import { PROFILE_DEFAULTS } from '../../../db/defaults'
+import { patchTicket } from '../../../storage/tickets'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/factories'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
@@ -85,7 +88,14 @@ function buildBead(): Bead {
   }
 }
 
+const repoManager = createTestRepoManager('execution-executor-')
+
 describe('executeBead', () => {
+  afterAll(() => {
+    resetTestDb()
+    repoManager.cleanup()
+  })
+
   it('retries malformed completion markers in the same session', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
     adapter.mockResponses.set('mock-session-1#1', 'Implemented the bead and ran the checks successfully.')
@@ -208,6 +218,75 @@ describe('executeBead', () => {
     expect(notesUpdates[0]!.beadId).toBe('bead-1')
     expect(notesUpdates[0]!.notes).toContain('failed')
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
+  })
+
+  it('creates YOLO sessions for owned coding attempts', async () => {
+    resetTestDb()
+    const { ticket, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Owned coding session permissions',
+    })
+    patchTicket(ticket.id, { status: 'CODING' })
+
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const result = await executeBead(
+      adapter,
+      buildBead(),
+      [{ type: 'text', content: 'Bead context' }],
+      paths.worktreePath,
+      1,
+      PROFILE_DEFAULTS.perIterationTimeout,
+      undefined,
+      {
+        ticketId: ticket.id,
+        model: 'model-a',
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(adapter.sessionCreateCalls).toHaveLength(1)
+    expect(adapter.sessionCreateCalls[0]?.options?.permission).toEqual(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
+  })
+
+  it('recreates YOLO sessions on fresh owned coding retries', async () => {
+    resetTestDb()
+    const { ticket, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Owned coding session retries',
+    })
+    patchTicket(ticket.id, { status: 'CODING' })
+
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', '')
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const result = await executeBead(
+      adapter,
+      buildBead(),
+      [{ type: 'text', content: 'Bead context' }],
+      paths.worktreePath,
+      1,
+      PROFILE_DEFAULTS.perIterationTimeout,
+      undefined,
+      {
+        ticketId: ticket.id,
+        model: 'model-a',
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(adapter.sessionCreateCalls).toHaveLength(2)
+    expect(adapter.sessionCreateCalls.every((call) => (
+      JSON.stringify(call.options?.permission) === JSON.stringify(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
+    ))).toBe(true)
   })
 
   it('restarts the bead iteration in a fresh session after an empty completion response', async () => {

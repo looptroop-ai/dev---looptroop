@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { TEST } from '../../test/factories'
+import { afterAll, describe, expect, it } from 'vitest'
+import { patchTicket } from '../../storage/tickets'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb, TEST } from '../../test/factories'
 import { buildFormattedBatchAnswers } from '../phases/interviewPhase'
 import { OpenCodeSDKAdapter, type OpenCodeAdapter } from '../../opencode/adapter'
+import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../opencode/permissions'
 import type {
   HealthStatus,
   Message,
+  OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
   Session,
@@ -43,6 +46,10 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     | { response: string | Deferred<string>; messageContent?: string }
   >
   private readonly sessionMessages = new Map<string, Message[]>()
+  public readonly sessionCreateCalls: Array<{
+    projectPath: string
+    options?: OpenCodeSessionCreateOptions
+  }> = []
   public readonly promptCalls: Array<{
     sessionId: string
     parts: PromptPart[]
@@ -54,7 +61,12 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     this.queuedResponses = [...responses]
   }
 
-  async createSession(projectPath: string): Promise<Session> {
+  async createSession(
+    projectPath: string,
+    _signal?: AbortSignal,
+    options?: OpenCodeSessionCreateOptions,
+  ): Promise<Session> {
+    this.sessionCreateCalls.push({ projectPath, options })
     this.sessionCounter += 1
     return {
       id: `ses-${this.sessionCounter}`,
@@ -144,7 +156,15 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
 }
 
 describe('runOpenCodePrompt', () => {
+  const repoManager = createTestRepoManager('run-opencode-prompt-')
+
+  afterAll(() => {
+    resetTestDb()
+    repoManager.cleanup()
+  })
+
   function createFakeSdkClient(overrides: {
+    create?: (...args: unknown[]) => Promise<unknown>
     prompt?: (...args: unknown[]) => Promise<unknown>
     messages?: () => Promise<unknown>
     subscribe?: (...args: unknown[]) => Promise<{ stream: AsyncIterable<unknown> }>
@@ -152,7 +172,7 @@ describe('runOpenCodePrompt', () => {
   } = {}) {
     return {
       session: {
-        create: async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } }),
+        create: overrides.create ?? (async () => ({ data: { id: 'ses-1', directory: '/tmp/project' } })),
         prompt: overrides.prompt ?? (async () => ({ data: { parts: [] } })),
         messages: overrides.messages ?? (async () => ({ data: [] })),
         abort: async () => ({ data: {} }),
@@ -167,6 +187,35 @@ describe('runOpenCodePrompt', () => {
       },
     }
   }
+
+  it('passes session-scoped YOLO permissions to the SDK when requested', async () => {
+    const sessionCreate = createFakeSdkClient({
+      create: async (...args: unknown[]) => {
+        expect(args[0]).toMatchObject({
+          directory: '/tmp/project',
+          permission: OPENCODE_EXECUTION_YOLO_PERMISSIONS,
+        })
+        return { data: { id: 'ses-1', directory: '/tmp/project' } }
+      },
+    })
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', sessionCreate as unknown as OpenCodeSDKClient)
+
+    await adapter.createSession('/tmp/project', undefined, {
+      permission: OPENCODE_EXECUTION_YOLO_PERMISSIONS,
+    })
+  })
+
+  it('omits session-scoped permissions when none are requested', async () => {
+    const sessionCreate = createFakeSdkClient({
+      create: async (...args: unknown[]) => {
+        expect(args[0]).toEqual({ directory: '/tmp/project' })
+        return { data: { id: 'ses-1', directory: '/tmp/project' } }
+      },
+    })
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', sessionCreate as unknown as OpenCodeSDKClient)
+
+    await adapter.createSession('/tmp/project')
+  })
 
   it('dispatches prompt metadata before the prompt completes', async () => {
     const deferredResponse = createDeferred<string>()
@@ -204,6 +253,78 @@ describe('runOpenCodePrompt', () => {
       response: 'assistant response',
       session: { id: 'ses-1' },
     })
+  })
+
+  it('creates YOLO sessions for execution-band phases only', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Execution-band session permissions',
+    })
+    patchTicket(ticket.id, { status: 'CODING' })
+    const adapter = new TestOpenCodeAdapter(['assistant response'])
+
+    await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      sessionOwnership: {
+        ticketId: ticket.id,
+        phase: 'CODING',
+      },
+    })
+
+    expect(adapter.sessionCreateCalls).toHaveLength(1)
+    expect(adapter.sessionCreateCalls[0]?.options?.permission).toEqual(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
+  })
+
+  it('keeps non-execution phases on normal sessions', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Non execution session permissions',
+    })
+    patchTicket(ticket.id, { status: 'DRAFTING_PRD' })
+    const adapter = new TestOpenCodeAdapter(['assistant response'])
+
+    await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      sessionOwnership: {
+        ticketId: ticket.id,
+        phase: 'DRAFTING_PRD',
+      },
+    })
+
+    expect(adapter.sessionCreateCalls).toHaveLength(1)
+    expect(adapter.sessionCreateCalls[0]?.options).toBeUndefined()
+  })
+
+  it('fails fast with an upgrade error when execution-band session permissions are rejected', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Execution permission rejection',
+    })
+    patchTicket(ticket.id, { status: 'CODING' })
+    const fakeClient = createFakeSdkClient({
+      create: async (...args: unknown[]) => {
+        expect(args[0]).toMatchObject({
+          directory: '/tmp/project',
+          permission: OPENCODE_EXECUTION_YOLO_PERMISSIONS,
+        })
+        throw new Error('400 Bad Request: unknown field "permission"')
+      },
+    })
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    await expect(runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      sessionOwnership: {
+        ticketId: ticket.id,
+        phase: 'CODING',
+      },
+    })).rejects.toThrow('Upgrade OpenCode and restart `opencode serve`')
   })
 
   it('increments prompt numbers across repeated prompts in the same session', async () => {

@@ -4,6 +4,7 @@ import { OPENCODE_DISABLED_TOOLS } from '../../../opencode/toolPolicy'
 import type {
   HealthStatus,
   Message,
+  OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
   Session,
@@ -29,7 +30,11 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     this.queuedResponses = [...responses]
   }
 
-  async createSession(projectPath: string): Promise<Session> {
+  async createSession(
+    projectPath: string,
+    _signal?: AbortSignal,
+    _options?: OpenCodeSessionCreateOptions,
+  ): Promise<Session> {
     const session: Session = {
       id: `mock-session-${++this.sessionCounter}`,
       projectPath,

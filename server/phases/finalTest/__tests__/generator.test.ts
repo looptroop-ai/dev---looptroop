@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
+import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../../opencode/permissions'
+import { patchTicket } from '../../../storage/tickets'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/factories'
 import { generateFinalTests } from '../generator'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
@@ -19,7 +22,14 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   }
 }
 
-describe.concurrent('generateFinalTests', () => {
+const repoManager = createTestRepoManager('final-test-generator-')
+
+describe('generateFinalTests', () => {
+  afterAll(() => {
+    resetTestDb()
+    repoManager.cleanup()
+  })
+
   it('retries malformed final test markers in the same session', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
     adapter.mockResponses.set('mock-session-1#1', 'I added tests to cover the whole ticket.')
@@ -124,5 +134,40 @@ describe.concurrent('generateFinalTests', () => {
     expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'retry')).toBe(true)
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('creates YOLO sessions for owned final-test attempts and fresh retries', async () => {
+    resetTestDb()
+    const { ticket, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Owned final test session permissions',
+    })
+    patchTicket(ticket.id, { status: 'RUNNING_FINAL_TEST' })
+
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', '')
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<FINAL_TEST_COMMANDS>',
+      'commands:',
+      '  - npm run test:server',
+      'summary: verify end-to-end ticket coverage',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n'))
+
+    const result = await generateFinalTests(
+      adapter,
+      [{ type: 'text', content: 'Ticket context' }],
+      paths.worktreePath,
+      undefined,
+      {
+        ticketId: ticket.id,
+        model: 'model-a',
+      },
+    )
+
+    expect(result.commandPlan.commands).toEqual(['npm run test:server'])
+    expect(adapter.sessionCreateCalls).toHaveLength(2)
+    expect(adapter.sessionCreateCalls.every((call) => (
+      JSON.stringify(call.options?.permission) === JSON.stringify(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
+    ))).toBe(true)
   })
 })

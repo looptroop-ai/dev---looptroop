@@ -3,6 +3,7 @@ import type { OpenCodeAdapter } from '../adapter'
 import type {
   HealthStatus,
   Message,
+  OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
   Session,
@@ -20,7 +21,11 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   private sessionCounter = 0
 
-  async createSession(projectPath: string): Promise<Session> {
+  async createSession(
+    projectPath: string,
+    _signal?: AbortSignal,
+    _options?: OpenCodeSessionCreateOptions,
+  ): Promise<Session> {
     const session: Session = {
       id: `session-${++this.sessionCounter}`,
       projectPath,

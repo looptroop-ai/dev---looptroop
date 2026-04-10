@@ -5,6 +5,7 @@ import type {
   Message,
   MessageInfo,
   MessagePart,
+  OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
   ReasoningMessagePart,
@@ -39,7 +40,7 @@ interface RawEvent {
 }
 
 export interface OpenCodeAdapter {
-  createSession(projectPath: string, signal?: AbortSignal): Promise<Session>
+  createSession(projectPath: string, signal?: AbortSignal, options?: OpenCodeSessionCreateOptions): Promise<Session>
   promptSession(
     sessionId: string,
     parts: PromptPart[],
@@ -109,10 +110,17 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     this.client = client ?? createOpencodeClient({ baseUrl })
   }
 
-  async createSession(projectPath: string, signal?: AbortSignal): Promise<Session> {
+  async createSession(
+    projectPath: string,
+    signal?: AbortSignal,
+    options?: OpenCodeSessionCreateOptions,
+  ): Promise<Session> {
     try {
       const res = await this.client.session.create(
-        { directory: projectPath },
+        {
+          directory: projectPath,
+          ...(options?.permission ? { permission: options.permission.map((rule) => ({ ...rule })) } : {}),
+        },
         this.requestOptions(signal),
       )
       if (!res.data) throw new Error('OpenCode returned no session payload')
@@ -121,8 +129,16 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       return session
     } catch (err) {
       if (err instanceof Error && (err.name === 'AbortError' || signal?.aborted)) throw err
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      if (options?.permission) {
+        throw new Error(
+          `Failed to create OpenCode session with execution permissions: ${errorMessage}. ` +
+          'Execution-band YOLO sessions require an OpenCode server that supports session-scoped permissions. ' +
+          'Upgrade OpenCode and restart `opencode serve`.',
+        )
+      }
       throw new Error(
-        `Failed to create OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to create OpenCode session: ${errorMessage}`,
       )
     }
   }
