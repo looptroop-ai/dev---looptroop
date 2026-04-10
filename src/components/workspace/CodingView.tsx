@@ -1041,9 +1041,23 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                   <div className="border-l-2 border-rose-300 dark:border-rose-700 pl-2">
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-rose-600 dark:text-rose-400 mb-1">Notes</div>
                     <div className="text-xs space-y-2">
-                      {splitRenderedNotes(viewedBead.notes).map((note, i) => (
-                        <div key={i} className="whitespace-pre-wrap bg-muted/50 rounded px-2 py-1.5 border border-border/50">{note}</div>
-                      ))}
+                      {splitRenderedNotes(viewedBead.notes).map((note, i) => {
+                        const headerMatch = note.match(/^\[Iteration (\d+)\s*[—–-]\s*(.+?)\]\n([\s\S]*)$/)
+                        const iterNum = headerMatch?.[1]
+                        const timestamp = headerMatch?.[2]
+                        const body = headerMatch ? headerMatch[3] : note
+                        return (
+                          <div key={i} className="bg-muted/50 rounded px-2 py-1.5 border border-border/50">
+                            {iterNum && (
+                              <div className="flex items-center gap-2 mb-1 text-[10px] text-muted-foreground/70">
+                                <Badge variant="outline" className="text-[9px] px-1 py-0">Iteration {iterNum}</Badge>
+                                {timestamp && <span title={timestamp}>{formatTimestamp(timestamp)}</span>}
+                              </div>
+                            )}
+                            <div className="whitespace-pre-wrap">{body}</div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

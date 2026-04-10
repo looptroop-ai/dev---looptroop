@@ -23,6 +23,7 @@ import {
   PROM52,
   PROM53,
   buildPromptFromTemplate,
+  buildSameSessionPromptFromTemplate,
 } from '../index'
 
 describe.concurrent('structured prompt hardening', () => {
@@ -85,6 +86,15 @@ describe.concurrent('structured prompt hardening', () => {
       expect(prompt.toolPolicy).toBe('default')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
+  })
+
+  it('uses same-session rules for prompts that continue an existing session', () => {
+    const prompt = buildSameSessionPromptFromTemplate(PROM51, [])
+
+    expect(prompt).toContain('EXISTING SESSION:')
+    expect(prompt).toContain('continuing in an existing session')
+    expect(prompt).not.toContain('CONTEXT REFRESH:')
+    expect(prompt).not.toContain('fresh session with no prior conversation history')
   })
 
   it('defines an explicit shared PRD schema contract for draft and refine prompts', () => {

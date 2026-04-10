@@ -1,7 +1,7 @@
 import type { PromptPart } from '../opencode/types'
 import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { VOTING_RUBRIC_BEADS, VOTING_RUBRIC_INTERVIEW, VOTING_RUBRIC_PRD } from '../council/types'
-import { GLOBAL_RULES, CONVERSATIONAL_RULES } from './globalRules'
+import { GLOBAL_RULES, SAME_SESSION_RULES, CONVERSATIONAL_RULES } from './globalRules'
 import { buildCompletionInstructions } from '../phases/execution/completionSchema'
 
 interface PromptTemplate {
@@ -738,13 +738,13 @@ export const PROM53: PromptTemplate = {
   toolPolicy: 'disabled',
 }
 
-// Helper to build full prompt from template
-export function buildPromptFromTemplate(
+function buildPromptWithRules(
+  rules: string,
   template: PromptTemplate,
   contextParts: PromptPart[],
 ): string {
   return [
-    GLOBAL_RULES,
+    rules,
     '',
     `## System Role`,
     template.systemRole,
@@ -763,29 +763,27 @@ export function buildPromptFromTemplate(
   ].join('\n')
 }
 
+// Helper to build full prompt from template
+export function buildPromptFromTemplate(
+  template: PromptTemplate,
+  contextParts: PromptPart[],
+): string {
+  return buildPromptWithRules(GLOBAL_RULES, template, contextParts)
+}
+
+export function buildSameSessionPromptFromTemplate(
+  template: PromptTemplate,
+  contextParts: PromptPart[],
+): string {
+  return buildPromptWithRules(SAME_SESSION_RULES, template, contextParts)
+}
+
 // Helper to build a conversational (multi-turn) prompt from template
 export function buildConversationalPrompt(
   template: PromptTemplate,
   contextParts: PromptPart[],
 ): string {
-  return [
-    CONVERSATIONAL_RULES,
-    '',
-    `## System Role`,
-    template.systemRole,
-    '',
-    `## Task`,
-    template.task,
-    '',
-    `## Instructions`,
-    ...template.instructions.map((step, i) => `${i + 1}. ${step}`),
-    '',
-    `## Expected Output Format`,
-    template.outputFormat,
-    '',
-    `## Context`,
-    ...contextParts.map((p) => `### ${p.source ?? p.type}\n${p.content}`),
-  ].join('\n')
+  return buildPromptWithRules(CONVERSATIONAL_RULES, template, contextParts)
 }
 
 export const ALL_PROMPTS = {

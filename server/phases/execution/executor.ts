@@ -13,9 +13,9 @@ import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
-import { BEAD_EXECUTION_TIMEOUT_MS, COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
+import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
-import { buildPromptFromTemplate, PROM_CODING, PROM51 } from '../../prompts/index'
+import { buildPromptFromTemplate, buildSameSessionPromptFromTemplate, PROM_CODING, PROM51 } from '../../prompts/index'
 
 const BEAD_STATUS_SCHEMA_REMINDER = [
   'Return exactly one <BEAD_STATUS>...</BEAD_STATUS> block and nothing else.',
@@ -191,7 +191,7 @@ async function generateContextWipeNote(
     content: JSON.stringify(bead, null, 2),
   }
 
-  const promptContent = buildPromptFromTemplate(PROM51, [beadData, errorContext])
+  const promptContent = buildSameSessionPromptFromTemplate(PROM51, [beadData, errorContext])
   const result = await runOpenCodeSessionPrompt({
     adapter,
     session,
@@ -236,7 +236,7 @@ export async function executeBead(
   contextParts: ContextPartsInput,
   projectPath: string,
   maxIterations: number = PROFILE_DEFAULTS.maxIterations,
-  timeout: number = BEAD_EXECUTION_TIMEOUT_MS,
+  timeout: number = PROFILE_DEFAULTS.perIterationTimeout,
   signal?: AbortSignal,
   callbacks?: {
     ticketId?: string
@@ -485,7 +485,9 @@ export async function executeBead(
       lastOutput,
     })
 
-    bead.notes = bead.notes ? `${bead.notes}\n\n---\n\n${effectiveNote}` : effectiveNote
+    const noteHeader = `[Iteration ${iteration} — ${new Date().toISOString()}]`
+    const stampedNote = `${noteHeader}\n${effectiveNote}`
+    bead.notes = bead.notes ? `${bead.notes}\n\n---\n\n${stampedNote}` : stampedNote
     try {
       await callbacks?.onContextWipe?.({
         beadId: bead.id,

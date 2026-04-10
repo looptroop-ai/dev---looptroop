@@ -1,7 +1,5 @@
 /** Default council member response timeout (20 minutes) */
 export const COUNCIL_RESPONSE_TIMEOUT_MS = 1_200_000
-/** Default bead execution timeout (10 minutes) */
-export const BEAD_EXECUTION_TIMEOUT_MS = 600_000
 /** Delay before retry after OpenCode adapter error */
 export const ADAPTER_RETRY_DELAY_MS = 2000
 /** Default SDK operation timeout */

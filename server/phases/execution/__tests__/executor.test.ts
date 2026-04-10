@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
 import { executeBead } from '../executor'
 import type { Bead } from '../../beads/types'
+import { PROFILE_DEFAULTS } from '../../../db/defaults'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
@@ -307,5 +308,38 @@ describe('executeBead', () => {
     expect(contextSnapshots).toHaveLength(2)
     expect(contextSnapshots[0]).toBe('')
     expect(contextSnapshots[1]).toContain('Timeout note from the stalled session.')
+
+    const timeoutNotePrompt = adapter.promptCalls[1]?.parts[0]?.content
+    expect(typeof timeoutNotePrompt).toBe('string')
+    expect(timeoutNotePrompt).toContain('EXISTING SESSION:')
+    expect(timeoutNotePrompt).not.toContain('CONTEXT REFRESH:')
+  })
+
+  it('uses the configured profile default timeout when no bead timeout is passed explicitly', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = new SequencedMockOpenCodeAdapter()
+      adapter.promptFailures.set('mock-session-1#1', 'stallUntilAbort')
+      adapter.mockResponses.set('mock-session-1#2', 'Timed out using the profile default timeout.')
+
+      const runPromise = executeBead(
+        adapter,
+        buildBead(),
+        [{ type: 'text', content: 'Bead context' }],
+        '/tmp/test',
+        1,
+      )
+
+      await vi.advanceTimersByTimeAsync(PROFILE_DEFAULTS.perIterationTimeout - 1)
+      expect(adapter.abortCalls).toEqual([])
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await runPromise
+
+      expect(result.success).toBe(false)
+      expect(adapter.abortCalls).toEqual(['mock-session-1'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

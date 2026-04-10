@@ -10,6 +10,18 @@ All context needed for this task is provided in this prompt.
 Do not reference or assume any prior interactions.
 `.trim()
 
+export const SAME_SESSION_RULES = `
+CRITICAL OUTPUT RULE:
+Your response must contain ONLY the requested artifact in the exact format specified.
+Do not include explanations, commentary, or meta-discussion outside the artifact.
+If you need to communicate issues, use structured fields within the artifact format.
+
+EXISTING SESSION:
+You are continuing in an existing session.
+Use the current session history together with the prompt context provided below.
+Do not claim or assume that this is a fresh session.
+`.trim()
+
 export const CONVERSATIONAL_RULES = `
 MULTI-TURN SESSION:
 This is a multi-turn conversational session. You will receive user responses to your questions and should adapt your next output accordingly.
