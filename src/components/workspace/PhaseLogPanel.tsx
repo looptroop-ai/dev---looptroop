@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment, type ReactNode } from 'react'
-import { ChevronRight, ChevronLeft, Copy, Check } from 'lucide-react'
+import { ChevronRight, ChevronLeft, Copy, Check, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -101,14 +101,23 @@ export function PhaseLogPanel({
     })
   }, [])
 
+  const [isAutoScroll, setIsAutoScroll] = useState(true)
+  const [isAtTop, setIsAtTop] = useState(true)
+
   // Attach scroll listener directly on the viewport (scroll events don't bubble)
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const onScroll = () => {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      autoScrollEnabledRef.current = distanceFromBottom <= BOTTOM_THRESHOLD
+      const atBottom = distanceFromBottom <= BOTTOM_THRESHOLD
+      autoScrollEnabledRef.current = atBottom
+      setIsAutoScroll((prev) => (prev !== atBottom ? atBottom : prev))
+      const atTop = el.scrollTop <= 50
+      setIsAtTop((prev) => (prev !== atTop ? atTop : prev))
     }
+    // initialize on mount
+    onScroll()
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
@@ -247,6 +256,7 @@ export function PhaseLogPanel({
 
     if (viewChanged) {
       autoScrollEnabledRef.current = true
+      setIsAutoScroll(true)
     }
 
     if (hasLogs && (viewChanged || (visibleTailChanged && autoScrollEnabledRef.current))) {
@@ -453,23 +463,57 @@ export function PhaseLogPanel({
           </button>
         </div>
       </div>
-      <ScrollArea className="flex-1 min-h-0" viewportRef={viewportRef}>
-        <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
-          {hasLogs ? (
-            filteredLogs.map((entry, i) => (
-              <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName={showModelNameInLogTags} />
-            ))
-          ) : isLoadingLogs ? (
-            <span className="text-muted-foreground/50 italic">
-              <LoadingText text="Loading logs" />
-            </span>
-          ) : (
-            <span className="text-muted-foreground/50 italic">
-              {phaseLogs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}
-            </span>
-          )}
-        </div>
-      </ScrollArea>
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        <ScrollArea className="flex-1 min-h-0 h-full" viewportRef={viewportRef}>
+          <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
+            {hasLogs ? (
+              filteredLogs.map((entry, i) => (
+                <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName={showModelNameInLogTags} />
+              ))
+            ) : isLoadingLogs ? (
+              <span className="text-muted-foreground/50 italic">
+                <LoadingText text="Loading logs" />
+              </span>
+            ) : (
+              <span className="text-muted-foreground/50 italic">
+                {phaseLogs.length > 0 ? 'No entries match current filter.' : 'No log entries yet. Logs will stream here during execution.'}
+              </span>
+            )}
+          </div>
+        </ScrollArea>
+        {hasLogs && !isAtTop && (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => viewportRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="absolute top-4 right-6 p-2 bg-background/20 hover:bg-background backdrop-blur-sm border border-border/40 hover:border-border rounded-full shadow-sm hover:shadow pointer-events-auto text-muted-foreground hover:text-foreground transition-all z-10 opacity-40 hover:opacity-100"
+              >
+                <ArrowUpToLine className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">Go to top</TooltipContent>
+          </Tooltip>
+        )}
+        {hasLogs && !isAutoScroll && (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  autoScrollEnabledRef.current = true
+                  setIsAutoScroll(true)
+                  scheduleScrollToBottom('smooth')
+                }}
+                className="absolute bottom-4 right-6 p-2 bg-background/20 hover:bg-background backdrop-blur-sm border border-border/40 hover:border-border rounded-full shadow-sm hover:shadow pointer-events-auto text-muted-foreground hover:text-foreground transition-all z-10 opacity-40 hover:opacity-100"
+              >
+                <ArrowDownToLine className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">Back to bottom</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
     </div>
   )
 }

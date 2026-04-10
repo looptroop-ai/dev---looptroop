@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { useLogs } from '@/context/useLogContext'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain, Clock, GitCommit, Tag, Link2, ArrowRight } from 'lucide-react'
+import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain, Clock, GitCommit, Tag, Link2, ArrowRight, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
@@ -320,6 +322,61 @@ function BeadGrid({
 export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const [viewingBeadId, setViewingBeadId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'details' | 'changes' | 'model'>('details')
+  
+  // -- Auto-scroll state for the model log tab --
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const autoScrollEnabledRef = useRef(true)
+  const scrollFrameRef = useRef<number | null>(null)
+  const [isAutoScroll, setIsAutoScroll] = useState(true)
+  const [isAtTop, setIsAtTop] = useState(true)
+
+  const scheduleScrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    const scroll = () => {
+      const el = viewportRef.current
+      if (!el) return
+      el.scrollTo({ top: el.scrollHeight, behavior })
+    }
+    if (behavior === 'auto') {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+      scroll()
+      return
+    }
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      scroll()
+    })
+  }, [])
+
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      const atBottom = distanceFromBottom <= 50
+      autoScrollEnabledRef.current = atBottom
+      setIsAutoScroll((prev) => (prev !== atBottom ? atBottom : prev))
+      const atTop = el.scrollTop <= 50
+      setIsAtTop((prev) => (prev !== atTop ? atTop : prev))
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [detailTab]) // re-bind when tab swaps in case the node remounts
+
+  useEffect(() => {
+    if (detailTab === 'model') {
+      if (autoScrollEnabledRef.current) {
+        scheduleScrollToBottom('auto')
+      }
+    }
+  }, [detailTab, scheduleScrollToBottom]) // wait, we also need to trigger on new logs
+
   const logCtx = useLogs()
   const { mutate: performAction, isPending } = useTicketAction()
   const { data: beads = [] } = useQuery({
@@ -353,9 +410,16 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const beadLogEntries = useMemo(() => {
     if (!viewedBead) return []
     const phaseLogs = logCtx?.getLogsForPhase(readOnly ? 'CODING' : ticket.status) ?? []
-    const beadLogs = phaseLogs.filter(entry => entry.beadId === viewedBead.id)
+    const beadLogs = phaseLogs.filter((entry) => entry.beadId === viewedBead.id)
     return filterBeadLogEntries(beadLogs)
   }, [logCtx, viewedBead, readOnly, ticket.status])
+  
+  useEffect(() => {
+    if (detailTab === 'model' && autoScrollEnabledRef.current) {
+      scheduleScrollToBottom('smooth')
+    }
+  }, [beadLogEntries.length, detailTab, scheduleScrollToBottom])
+
   const isViewingOther = viewedBead !== null
 
   return (
@@ -465,16 +529,50 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
             </div>
 
             {detailTab === 'model' ? (
-              <div className="flex-1 min-h-0 overflow-auto">
-                <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px]">
-                  {beadLogEntries.length > 0 ? (
-                    beadLogEntries.map((entry, i) => (
-                      <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName />
-                    ))
-                  ) : (
-                    <span className="text-muted-foreground/50 italic">No logs for this bead.</span>
-                  )}
-                </div>
+              <div className="relative flex-1 min-h-0 flex flex-col">
+                <ScrollArea className="flex-1 min-h-0 h-full" viewportRef={viewportRef}>
+                  <div className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
+                    {beadLogEntries.length > 0 ? (
+                      beadLogEntries.map((entry, i) => (
+                        <LogEntryRow key={entry.entryId} entry={entry} index={i} showModelName />
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground/50 italic">No logs for this bead.</span>
+                    )}
+                  </div>
+                </ScrollArea>
+                {beadLogEntries.length > 0 && !isAtTop && (
+                  <Tooltip delayDuration={300}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => viewportRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                        className="absolute top-4 right-6 p-2 bg-background/20 hover:bg-background backdrop-blur-sm border border-border/40 hover:border-border rounded-full shadow-sm hover:shadow pointer-events-auto text-muted-foreground hover:text-foreground transition-all z-10 opacity-40 hover:opacity-100"
+                      >
+                        <ArrowUpToLine className="w-4 h-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="text-xs">Go to top</TooltipContent>
+                  </Tooltip>
+                )}
+                {beadLogEntries.length > 0 && !isAutoScroll && (
+                  <Tooltip delayDuration={300}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          autoScrollEnabledRef.current = true
+                          setIsAutoScroll(true)
+                          scheduleScrollToBottom('smooth')
+                        }}
+                        className="absolute bottom-4 right-6 p-2 bg-background/20 hover:bg-background backdrop-blur-sm border border-border/40 hover:border-border rounded-full shadow-sm hover:shadow pointer-events-auto text-muted-foreground hover:text-foreground transition-all z-10 opacity-40 hover:opacity-100"
+                      >
+                        <ArrowDownToLine className="w-4 h-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="text-xs">Back to bottom</TooltipContent>
+                  </Tooltip>
+                )}
               </div>
             ) : detailTab === 'changes' && (viewedBead.status === 'completed' || viewedBead.status === 'skipped') ? (
               <div className="flex-1 min-h-0 overflow-auto">

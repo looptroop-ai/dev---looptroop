@@ -20,6 +20,21 @@ interface DashboardHeaderProps {
   ticket: Ticket
 }
 
+function ProjectIcon({
+  icon,
+  imageClassName,
+  emojiClassName,
+}: {
+  icon?: string | null
+  imageClassName: string
+  emojiClassName: string
+}) {
+  if (!icon) return null
+  return icon.startsWith('data:')
+    ? <img src={icon} className={`${imageClassName} rounded`} alt="" />
+    : <span className={emojiClassName} aria-hidden="true">{icon}</span>
+}
+
 function getPriorityLabel(priority: number): string {
   const labels: Record<number, string> = { 1: 'Very High', 2: 'High', 3: 'Normal', 4: 'Low', 5: 'Very Low' }
   return labels[priority] ?? 'Normal'
@@ -161,7 +176,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center gap-1.5 shrink-0">
-            {project?.icon && (project.icon.startsWith('data:') ? <img src={project.icon} className="h-4 w-4 rounded" alt="" /> : <span className="text-sm">{project.icon}</span>)}
+            <ProjectIcon icon={project?.icon} imageClassName="h-4 w-4" emojiClassName="text-sm" />
             <span className="font-mono text-sm font-semibold" style={{ color: project?.color ?? undefined }}>{ticket.externalId}</span>
           </div>
           {isEditingTitle ? (
@@ -215,10 +230,19 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             onScroll={handleScroll}
             className="grid grid-cols-2 gap-3 text-sm overflow-y-auto pr-1 max-h-[calc(80vh-6rem)] [scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:var(--border)_transparent]"
           >
-            <div className="col-span-2">
+            <div className={project ? '' : 'col-span-2'}>
               <span className="text-xs font-medium text-muted-foreground">Title</span>
-              <p className="mt-0.5 font-medium">{ticket.title}</p>
+              <p className="mt-0.5 font-medium [overflow-wrap:anywhere]">{ticket.title}</p>
             </div>
+            {project && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Project</span>
+                <div className="mt-0.5 flex items-center gap-2 min-w-0">
+                  <ProjectIcon icon={project.icon} imageClassName="h-4 w-4" emojiClassName="text-sm leading-none" />
+                  <span className="truncate font-medium" title={project.name}>{project.name}</span>
+                </div>
+              </div>
+            )}
             <div>
               <span className="text-xs font-medium text-muted-foreground">External ID</span>
               <p className="font-mono mt-0.5">{ticket.externalId}</p>

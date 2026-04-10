@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment } from 'react'
-import { Copy, Check, ScrollText, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Copy, Check, ScrollText, ChevronLeft, ChevronRight, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -359,13 +359,21 @@ export function FullLogView({ ticket }: FullLogViewProps) {
     })
   }, [])
 
+  const [isAutoScroll, setIsAutoScroll] = useState(true)
+  const [isAtTop, setIsAtTop] = useState(true)
+
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const onScroll = () => {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      autoScrollEnabledRef.current = distanceFromBottom <= BOTTOM_THRESHOLD
+      const atBottom = distanceFromBottom <= BOTTOM_THRESHOLD
+      autoScrollEnabledRef.current = atBottom
+      setIsAutoScroll((prev) => (prev !== atBottom ? atBottom : prev))
+      const atTop = el.scrollTop <= 50
+      setIsAtTop((prev) => (prev !== atTop ? atTop : prev))
     }
+    onScroll()
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
@@ -410,6 +418,7 @@ export function FullLogView({ ticket }: FullLogViewProps) {
 
     if (viewChanged) {
       autoScrollEnabledRef.current = true
+      setIsAutoScroll(true)
     }
 
     if (hasLogs && (viewChanged || (visibleTailChanged && autoScrollEnabledRef.current))) {
@@ -633,63 +642,97 @@ export function FullLogView({ ticket }: FullLogViewProps) {
       </div>
 
       {/* Log content */}
-      <ScrollArea className="h-0 flex-1 min-h-0" viewportRef={viewportRef} type="always">
-        <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
-          {hasLogs ? (
-            phaseGroups.map((group, groupIdx) => (
-              <Fragment key={`${group.phase}-${groupIdx}`}>
-                <PhaseDelimiter
-                  phase={group.phase}
-                  label={group.phase === 'CODING' ? 'Implementing' : undefined}
-                  labelOptions={group.phase === 'BLOCKED_ERROR' ? beadLabelOptions : undefined}
-                />
-                {group.phase === 'CODING' && group.beadSections !== undefined ? (
-                  <>
-                    {(group.preambleEntries ?? []).map((entry) => (
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        <ScrollArea className="h-full flex-1 min-h-0" viewportRef={viewportRef} type="always">
+          <div ref={contentRef} className="font-mono text-xs bg-muted rounded-md p-3 min-h-[100px] w-full max-w-full">
+            {hasLogs ? (
+              phaseGroups.map((group, groupIdx) => (
+                <Fragment key={`${group.phase}-${groupIdx}`}>
+                  <PhaseDelimiter
+                    phase={group.phase}
+                    label={group.phase === 'CODING' ? 'Implementing' : undefined}
+                    labelOptions={group.phase === 'BLOCKED_ERROR' ? beadLabelOptions : undefined}
+                  />
+                  {group.phase === 'CODING' && group.beadSections !== undefined ? (
+                    <>
+                      {(group.preambleEntries ?? []).map((entry) => (
+                        <LogEntryRow
+                          key={entry.entryId}
+                          entry={entry}
+                          index={globalIndexMap.get(entry.entryId) ?? 0}
+                          showModelName={true}
+                        />
+                      ))}
+                      {group.beadSections.map((section) => (
+                        <Fragment key={`${group.phase}-${groupIdx}-${section.beadId}-${section.ordinal}`}>
+                          <BeadDelimiter ordinal={section.ordinal} total={section.total} title={section.title} />
+                          {section.entries.map((entry) => (
+                            <LogEntryRow
+                              key={entry.entryId}
+                              entry={entry}
+                              index={globalIndexMap.get(entry.entryId) ?? 0}
+                              showModelName={true}
+                            />
+                          ))}
+                        </Fragment>
+                      ))}
+                    </>
+                  ) : (
+                    group.entries.map((entry) => (
                       <LogEntryRow
                         key={entry.entryId}
                         entry={entry}
                         index={globalIndexMap.get(entry.entryId) ?? 0}
                         showModelName={true}
                       />
-                    ))}
-                    {group.beadSections.map((section) => (
-                      <Fragment key={`${group.phase}-${groupIdx}-${section.beadId}-${section.ordinal}`}>
-                        <BeadDelimiter ordinal={section.ordinal} total={section.total} title={section.title} />
-                        {section.entries.map((entry) => (
-                          <LogEntryRow
-                            key={entry.entryId}
-                            entry={entry}
-                            index={globalIndexMap.get(entry.entryId) ?? 0}
-                            showModelName={true}
-                          />
-                        ))}
-                      </Fragment>
-                    ))}
-                  </>
-                ) : (
-                  group.entries.map((entry) => (
-                    <LogEntryRow
-                      key={entry.entryId}
-                      entry={entry}
-                      index={globalIndexMap.get(entry.entryId) ?? 0}
-                      showModelName={true}
-                    />
-                  ))
-                )}
-              </Fragment>
-            ))
-          ) : isLoadingLogs ? (
-            <span className="text-muted-foreground/50 italic">
-              <LoadingText text="Loading logs" />
-            </span>
-          ) : (
-            <span className="text-muted-foreground/50 italic">
-              No log entries yet. Logs will appear here as the ticket progresses through its lifecycle.
-            </span>
-          )}
-        </div>
-      </ScrollArea>
+                    ))
+                  )}
+                </Fragment>
+              ))
+            ) : isLoadingLogs ? (
+              <span className="text-muted-foreground/50 italic">
+                <LoadingText text="Loading logs" />
+              </span>
+            ) : (
+              <span className="text-muted-foreground/50 italic">
+                No log entries yet. Logs will appear here as the ticket progresses through its lifecycle.
+              </span>
+            )}
+          </div>
+        </ScrollArea>
+        {hasLogs && !isAtTop && (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => viewportRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="absolute top-4 right-6 p-2 bg-background/20 hover:bg-background backdrop-blur-sm border border-border/40 hover:border-border rounded-full shadow-sm hover:shadow pointer-events-auto text-muted-foreground hover:text-foreground transition-all z-10 opacity-40 hover:opacity-100"
+              >
+                <ArrowUpToLine className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">Go to top</TooltipContent>
+          </Tooltip>
+        )}
+        {hasLogs && !isAutoScroll && (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  autoScrollEnabledRef.current = true
+                  setIsAutoScroll(true)
+                  scheduleScrollToBottom('smooth')
+                }}
+                className="absolute bottom-4 right-6 p-2 bg-background/20 hover:bg-background backdrop-blur-sm border border-border/40 hover:border-border rounded-full shadow-sm hover:shadow pointer-events-auto text-muted-foreground hover:text-foreground transition-all z-10 opacity-40 hover:opacity-100"
+              >
+                <ArrowDownToLine className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">Back to bottom</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
     </div>
   )
 }
