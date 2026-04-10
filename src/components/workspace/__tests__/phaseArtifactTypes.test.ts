@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildInterviewDiffEntries } from '../phaseArtifactTypes'
+import { buildInterviewDiffEntries, buildRefinementDiffEntries } from '../phaseArtifactTypes'
 
 describe('phaseArtifactTypes', () => {
   it('drops persisted interview ui diff entries when before and after text are trim-identical', () => {
@@ -37,5 +37,86 @@ describe('phaseArtifactTypes', () => {
     }))
 
     expect(entries).toEqual([])
+  })
+
+  it('falls back to structural PRD coverage diffs when saved coverage diff metadata is empty', () => {
+    const beforePrd = [
+      'schema_version: 1',
+      'ticket_id: POBA-3',
+      'artifact: prd',
+      'status: draft',
+      'source_interview:',
+      '  content_sha256: approved-hash',
+      'product:',
+      '  problem_statement: Keep PRD coverage diffs visible.',
+      '  target_users:',
+      '    - LoopTroop maintainers',
+      'scope:',
+      '  in_scope:',
+      '    - Coverage diff fallback',
+      '  out_of_scope:',
+      '    - Execution changes',
+      'technical_requirements:',
+      '  architecture_constraints:',
+      '    - Prefer validated metadata when it exists.',
+      '  data_model: []',
+      '  api_contracts: []',
+      '  security_constraints: []',
+      '  performance_constraints: []',
+      '  reliability_constraints:',
+      '    - Coverage revisions must remain reviewable.',
+      '  error_handling_rules:',
+      '    - Fall back to structural before/after diffs when saved change metadata is unusable.',
+      '  tooling_assumptions:',
+      '    - Use vitest.',
+      'epics:',
+      '  - id: EPIC-1',
+      '    title: Review PRD coverage revisions',
+      '    objective: Keep approval diffs visible.',
+      '    implementation_steps:',
+      '      - Preserve fallback diffs.',
+      '    user_stories:',
+      '      - id: US-1',
+      '        title: Inspect the saved coverage diff',
+      '        acceptance_criteria:',
+      '          - Approval shows a meaningful coverage diff.',
+      '        implementation_steps:',
+      '          - Show a structural diff when saved metadata is empty.',
+      '        verification:',
+      '          required_commands:',
+      '            - npm run test',
+      'risks: []',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n')
+    const afterPrd = beforePrd.replace(
+      '    - Use vitest.',
+      [
+        '    - Use vitest.',
+        '    - Build a structural fallback diff when saved coverage diff metadata is empty.',
+      ].join('\n'),
+    )
+
+    const entries = buildRefinementDiffEntries(JSON.stringify({
+      winnerId: 'openai/gpt-5.4',
+      coverageBaselineContent: beforePrd,
+      coverageBaselineVersion: 2,
+      refinedContent: afterPrd,
+      coverageUiRefinementDiff: {
+        domain: 'prd',
+        winnerId: 'openai/gpt-5.4',
+        generatedAt: '2026-04-10T09:35:04.430Z',
+        entries: [],
+      },
+    }), 'prd')
+
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        changeType: 'modified',
+        itemKind: 'technical_requirements.tooling_assumptions',
+        label: 'Tooling Assumptions',
+      }),
+    ]))
   })
 })

@@ -1,5 +1,8 @@
 import type { RefinementChange, RefinementChangeItem } from '@shared/refinementChanges'
-import { buildPrdUiRefinementDiffArtifactFromChanges } from '@shared/refinementDiffArtifacts'
+import {
+  buildPrdUiRefinementDiffArtifact,
+  buildPrdUiRefinementDiffArtifactFromChanges,
+} from '@shared/refinementDiffArtifacts'
 import type { PromptPart } from '../../opencode/types'
 import type { PrdDraftMetrics, StructuredOutputMetadata } from '../../structuredOutput'
 import { normalizePrdYamlOutput } from '../../structuredOutput'
@@ -265,9 +268,20 @@ export function buildPrdCoverageRevisionArtifact(
 }
 
 export function buildPrdCoverageRevisionUiDiff(revisionArtifact: PrdCoverageRevisionArtifact) {
-  return buildPrdUiRefinementDiffArtifactFromChanges({
+  const changesBasedDiff = buildPrdUiRefinementDiffArtifactFromChanges({
     winnerId: revisionArtifact.winnerId,
     changes: revisionArtifact.changes,
+    winnerDraftContent: revisionArtifact.winnerDraftContent,
+    refinedContent: revisionArtifact.refinedContent,
+    losingDrafts: [],
+  })
+
+  if (changesBasedDiff.entries.length > 0) {
+    return changesBasedDiff
+  }
+
+  return buildPrdUiRefinementDiffArtifact({
+    winnerId: revisionArtifact.winnerId,
     winnerDraftContent: revisionArtifact.winnerDraftContent,
     refinedContent: revisionArtifact.refinedContent,
     losingDrafts: [],

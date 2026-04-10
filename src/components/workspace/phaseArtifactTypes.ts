@@ -1181,7 +1181,7 @@ export function buildRefinementDiffEntries(
   const preferredUiDiff = parsed.coverageUiRefinementDiff ?? parsed.uiRefinementDiff
 
   if (preferredUiDiff && (preferredUiDiff.domain === 'prd' || preferredUiDiff.domain === 'beads')) {
-    return preferredUiDiff.entries.flatMap((entry) => {
+    const preferredEntries = preferredUiDiff.entries.flatMap((entry) => {
       if (entry.changeType === 'replaced') return []
       if (shouldSuppressNoOpUiDiffEntry(entry.changeType, entry.beforeText, entry.afterText)) return []
       return [{
@@ -1205,6 +1205,10 @@ export function buildRefinementDiffEntries(
         attributionStatus: normalizeRefinementDiffAttributionStatus(entry.attributionStatus) ?? 'model_unattributed',
       }]
     })
+
+    if (preferredEntries.length > 0) {
+      return preferredEntries
+    }
   }
 
   if (parsed.coverageBaselineContent && parsed.refinedContent && domain) {
