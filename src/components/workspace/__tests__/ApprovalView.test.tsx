@@ -513,7 +513,6 @@ describe('Interview approval UI', () => {
     expect(screen.getByText('Coverage gaps remain after the final implementation-plan audit.')).toBeInTheDocument()
     expect(screen.getByText('Implementation Plan v3')).toBeInTheDocument()
     expect(screen.getByText('Missing a bead that verifies the approval warning behavior when gaps remain.')).toBeInTheDocument()
-    expect(screen.getByText(/status: gaps/)).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Approve/i })).not.toBeDisabled()
     })

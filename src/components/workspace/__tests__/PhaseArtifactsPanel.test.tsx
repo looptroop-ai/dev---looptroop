@@ -2815,6 +2815,5 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Missing fallback behavior for skipped answers.')).toBeInTheDocument()
     expect(screen.getByText('Which fallback should be used?')).toBeInTheDocument()
     expect(screen.getByText('Close the final interview gap before PRD generation.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Technical Details/i })).toBeInTheDocument()
   })
 })

@@ -968,7 +968,6 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('No coverage gaps found')).toBeInTheDocument()
     expect(screen.getByText('The current PRD candidate covers the approved interview. No gaps were found in this check.')).toBeInTheDocument()
     expect(screen.getByText(/Coverage review of the current PRD candidate · pass 1 of 2/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Technical Details/i })).toBeInTheDocument()
   })
 
   it('shows friendly labels for nested PRD technical requirement diffs', () => {

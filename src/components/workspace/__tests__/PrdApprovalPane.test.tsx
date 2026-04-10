@@ -343,7 +343,6 @@ describe('PrdApprovalPane', () => {
     expect(screen.getByText('Coverage gaps remain after the final PRD audit.')).toBeInTheDocument()
     expect(screen.getByText('PRD Candidate v3')).toBeInTheDocument()
     expect(screen.getByText('Missing explicit approval guidance when coverage reaches the retry cap.')).toBeInTheDocument()
-    expect(screen.getByText(/status: gaps/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Approve' })).not.toBeDisabled()
   })
 })

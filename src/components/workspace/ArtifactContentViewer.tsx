@@ -1493,11 +1493,7 @@ function CoverageTransitionDetailsView({
               </div>
             </div>
           )}
-          {transition.auditNotes.trim() && (
-            <CollapsibleSection title="Audit Notes">
-              <RawContentView content={transition.auditNotes} />
-            </CollapsibleSection>
-          )}
+
         </div>
       )}
 
@@ -2809,12 +2805,6 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
       : coverageResult.terminationReason === 'follow_up_generation_failed'
         ? 'Follow-up questions could not be recovered; moving to approval with unresolved gaps.'
         : null
-  const technicalDetails = coverageResult.auditNotes
-    ?? coverageResult.attempts?.[coverageResult.attempts.length - 1]?.auditNotes
-    ?? coverageResult.response
-    ?? coverageResult.normalizedContent
-    ?? ''
-
   return (
     <div className="space-y-4">
       {header && <div className="flex items-center gap-2">{header}</div>}
@@ -2883,12 +2873,6 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
             </div>
           )}
         </div>
-      )}
-
-      {technicalDetails && (
-        <CollapsibleSection title="Technical Details">
-          <RawContentView content={technicalDetails} />
-        </CollapsibleSection>
       )}
     </div>
   )

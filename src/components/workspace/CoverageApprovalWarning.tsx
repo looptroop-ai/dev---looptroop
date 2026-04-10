@@ -8,7 +8,6 @@ export interface CoverageApprovalWarningData {
   candidateLabel: string
   summary: string
   gaps: string[]
-  auditNotes: string
 }
 
 function getCoverageCandidateLabel(domain: 'prd' | 'beads', version?: number): string {
@@ -48,7 +47,6 @@ export function resolveCoverageApprovalWarning(
     candidateLabel,
     summary: parsed.summary?.trim() || `Coverage carried ${candidateLabel} forward with unresolved gaps.`,
     gaps,
-    auditNotes: parsed.auditNotes ?? parsed.attempts?.[parsed.attempts.length - 1]?.auditNotes ?? '',
   }
 }
 
@@ -97,16 +95,7 @@ export function CoverageApprovalWarning({
           </div>
         )}
 
-        {warning.auditNotes.trim() && (
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-300">
-              Final Audit Notes
-            </div>
-            <div className="rounded-md border border-amber-300/80 bg-background/80 px-3 py-2 text-xs whitespace-pre-wrap dark:border-amber-800/80 dark:bg-background/30">
-              {warning.auditNotes}
-            </div>
-          </div>
-        )}
+
       </div>
     </CollapsibleSection>
   )
