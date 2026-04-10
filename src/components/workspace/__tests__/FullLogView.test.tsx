@@ -343,6 +343,29 @@ describe('FullLogView', () => {
     expect(screen.getByText(/merge --no-edit/i)).toBeTruthy()
   })
 
+  it('keeps staged diff probes out of ERROR even when older logs tagged them as errors', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('probe-error', '[CMD] $ git diff --cached --quiet  →  error: exit code 1', 'CODING', {
+        source: 'system',
+        kind: 'error',
+      }),
+      makeLog('real-cmd-error', '[CMD] $ git commit -m test  →  error: author identity unknown', 'CODING', {
+        source: 'error',
+        kind: 'error',
+      }),
+    ])
+
+    renderWithTooltipProvider(<FullLogView />)
+
+    expect(screen.getByText(/commit -m test/i)).toBeTruthy()
+    expect(screen.queryByText(/diff --cached --quiet/i)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+
+    expect(screen.getByText(/commit -m test/i)).toBeTruthy()
+    expect(screen.queryByText(/diff --cached --quiet/i)).toBeNull()
+  })
+
   it('shows model tabs from the AI tab and filters by selected model', () => {
     getAllLogsMock.mockReturnValue([
       makeLog('1', '[MODEL] First output', 'CODING', {

@@ -136,6 +136,48 @@ describe('commandLogger', () => {
     ])
   })
 
+  it('downgrades staged diff probes to info', () => {
+    const logs: Array<{ type: string; content: string }> = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('git', ['-C', '/tmp/worktrees/POBA-1', 'diff', '--cached', '--quiet'], {
+          ok: false,
+          error: 'exit code 1',
+        })
+      },
+      (_phase, type, content) => { logs.push({ type, content }) },
+    )
+
+    expect(logs).toEqual([
+      {
+        type: 'info',
+        content: '[CMD] $ git -C worktrees/POBA-1 diff --cached --quiet  →  staged changes present',
+      },
+    ])
+  })
+
+  it('keeps real staged diff probe failures as errors', () => {
+    const logs: Array<{ type: string; content: string }> = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('git', ['diff', '--cached', '--quiet'], {
+          ok: false,
+          error: 'fatal: unable to read index',
+        })
+      },
+      (_phase, type, content) => { logs.push({ type, content }) },
+    )
+
+    expect(logs).toEqual([
+      {
+        type: 'error',
+        content: '[CMD] $ git diff --cached --quiet  →  error: fatal: unable to read index',
+      },
+    ])
+  })
+
   it('uses globalThis singleton so separate module loads share the context', () => {
     // The globalThis singleton ensures that even if commandLogger is loaded
     // separately (via require() in production), the AsyncLocalStorage is shared.

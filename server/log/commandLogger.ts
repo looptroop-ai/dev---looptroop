@@ -177,7 +177,7 @@ function formatCompactCommandOutput(stdout?: string, stderr?: string): string {
   return ''
 }
 
-function isLikelyMissingRefProbeFailure(error: string): boolean {
+function isLikelyBenignGitProbeFailure(error: string): boolean {
   const normalized = error.trim()
   return normalized === 'exit code 1' || normalized === 'command returned non-zero'
 }
@@ -194,6 +194,10 @@ function formatKnownGitProbeSuccess(commandText: string, stdout?: string, stderr
     return output || 'origin/HEAD resolved'
   }
 
+  if (commandText.includes(' diff --cached --quiet')) {
+    return output || 'no staged changes'
+  }
+
   if (commandText.includes(' rev-parse --abbrev-ref HEAD')) {
     return output || 'branch resolved'
   }
@@ -203,10 +207,14 @@ function formatKnownGitProbeSuccess(commandText: string, stdout?: string, stderr
 
 function formatKnownGitProbeFailure(commandText: string, error: string): string | null {
   if (!commandText.startsWith('git ')) return null
-  if (!isLikelyMissingRefProbeFailure(error)) return null
+  if (!isLikelyBenignGitProbeFailure(error)) return null
 
   if (commandText.includes(' symbolic-ref --quiet --short refs/remotes/origin/HEAD')) {
     return 'origin/HEAD not set'
+  }
+
+  if (commandText.includes(' diff --cached --quiet')) {
+    return 'staged changes present'
   }
 
   if (commandText.includes(' show-ref --verify --quiet refs/')) {

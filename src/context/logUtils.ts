@@ -59,6 +59,7 @@ const LOW_VALUE_GIT_PROBE_PATTERNS = [
   ' rev-parse --abbrev-ref HEAD',
   ' show-ref --verify --quiet refs/heads/',
   ' show-ref --verify --quiet refs/remotes/origin/',
+  ' diff --cached --quiet',
 ] as const
 
 function stringifyForLine(value: unknown, maxLen = 2000): string {
@@ -248,12 +249,17 @@ export function isLowValueGitProbeLine(line: string): boolean {
 }
 
 export function isBenignGitProbeErrorLine(line: string): boolean {
-  return isLowValueGitProbeLine(line)
-    && (
-      line.includes('origin/HEAD not set')
-      || line.includes('ref not found')
-      || line.includes('→  error:')
-    )
+  if (!isLowValueGitProbeLine(line)) return false
+
+  if (line.includes('origin/HEAD not set') || line.includes('ref not found')) {
+    return true
+  }
+
+  if (line.includes(' diff --cached --quiet')) {
+    return line.includes('staged changes present') || line.includes('error: exit code 1')
+  }
+
+  return false
 }
 
 export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {

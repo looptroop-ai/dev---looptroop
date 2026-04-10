@@ -108,6 +108,36 @@ function runGitOpSafe(worktreePath: string, args: string[]): { ok: boolean; stdo
   }
 }
 
+function probeStagedChanges(worktreePath: string): { hasStagedChanges: boolean; error?: string } {
+  const fullArgs = ['-C', worktreePath, 'diff', '--cached', '--quiet']
+  const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+  const stdout = (result.stdout ?? '').trim()
+  const stderr = (result.stderr ?? '').trim()
+
+  if (result.error) {
+    const detail = result.error.message
+      ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
+    logCmd('git', fullArgs, { ok: false, error: detail })
+    return { hasStagedChanges: false, error: detail }
+  }
+
+  if (result.status === 0) {
+    logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
+    return { hasStagedChanges: false }
+  }
+
+  if (result.status === 1) {
+    // For `git diff --cached --quiet`, exit code 1 is a normal probe result:
+    // staged changes are present and the commit flow should continue.
+    logCmd('git', fullArgs, { ok: false, error: 'exit code 1' })
+    return { hasStagedChanges: true }
+  }
+
+  const detail = [stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`
+  logCmd('git', fullArgs, { ok: false, error: detail })
+  return { hasStagedChanges: false, error: detail }
+}
+
 export function recordWorktreeStartCommit(worktreePath: string): string {
   return runGitOp(worktreePath, ['rev-parse', 'HEAD'])
 }
@@ -150,9 +180,11 @@ export function commitBeadChanges(
   }
 
   // Check if there's anything staged
-  const diffStagedResult = runGitOpSafe(worktreePath, ['diff', '--cached', '--quiet'])
-  if (diffStagedResult.ok) {
-    // Exit code 0 means no staged changes
+  const stagedProbe = probeStagedChanges(worktreePath)
+  if (stagedProbe.error) {
+    return { committed: false, pushed: false, error: `git diff --cached --quiet failed: ${stagedProbe.error}` }
+  }
+  if (!stagedProbe.hasStagedChanges) {
     return { committed: false, pushed: false }
   }
 
