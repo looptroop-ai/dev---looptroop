@@ -289,6 +289,56 @@ describe('handleCoding', () => {
     expect(executedBead?.status).toBe('done')
   })
 
+  it('preserves retry notes and iteration when resetToBeadStart fails during context wipe', async () => {
+    const { ticket, context } = createInitializedTestTicket(repoManager, {
+      title: 'Reset failure preserves retry metadata',
+    })
+    writeTicketBeads(ticket.id, [makePendingBead('bead-1', 1, { iteration: 1 })])
+    const sendEvent = vi.fn()
+
+    resetToBeadStartMock.mockImplementation(() => {
+      throw new Error('spawnSync git ENOBUFS')
+    })
+
+    executeBeadMock.mockImplementationOnce(async (
+      _adapter: unknown,
+      _bead: unknown,
+      _contextParts: unknown,
+      _worktreePath: unknown,
+      _maxIterations: unknown,
+      _perIterationTimeoutMs: unknown,
+      _signal: unknown,
+      callbacks: {
+        onSessionCreated?: (sessionId: string, iteration: number) => void
+        onContextWipe: (entry: { beadId: string; notes: string; iteration: number }) => Promise<void>
+      },
+    ) => {
+      callbacks.onSessionCreated?.('session-2', 2)
+      await expect(callbacks.onContextWipe({
+        beadId: 'bead-1',
+        notes: 'retry note after timeout',
+        iteration: 2,
+      })).rejects.toThrow('spawnSync git ENOBUFS')
+      throw new Error('spawnSync git ENOBUFS')
+    })
+
+    await expect(
+      handleCoding(ticket.id, context, sendEvent, new AbortController().signal),
+    ).rejects.toThrow('spawnSync git ENOBUFS')
+
+    const finalBeads = readTicketBeads(ticket.id)
+    const executedBead = finalBeads.find((b) => b.id === 'bead-1')
+    expect(executedBead?.status).toBe('error')
+    expect(executedBead?.iteration).toBe(2)
+    expect(executedBead?.notes).toBe('retry note after timeout')
+
+    const recoveredBead = recoverFailedCodingBead(ticket.id)
+    expect(recoveredBead?.id).toBe('bead-1')
+    expect(recoveredBead?.status).toBe('pending')
+    expect(recoveredBead?.iteration).toBe(2)
+    expect(recoveredBead?.notes).toBe('retry note after timeout')
+  })
+
   // --- Throw paths ---
 
   it('throws when there are no beads', async () => {
@@ -462,6 +512,28 @@ describe('handleCoding', () => {
       }),
       makePendingBead('bead-2', 2, {
         dependencies: { blocked_by: ['bead-1'], blocks: [] },
+      }),
+    ])
+
+    const recoveredBead = recoverFailedCodingBead(ticket.id)
+
+    expect(recoveredBead?.id).toBe('bead-1')
+    expect(recoveredBead?.status).toBe('pending')
+    expect(recoveredBead?.iteration).toBe(2)
+    expect(recoveredBead?.notes).toBe('retry guidance')
+    expect(recoveredBead?.beadStartCommit).toBe('abc123')
+  })
+
+  it('requeues the latest in-progress bead when coding blocked before status flipped to error', () => {
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Retry blocked in-progress coding bead',
+    })
+    writeTicketBeads(ticket.id, [
+      makePendingBead('bead-1', 1, {
+        status: 'in_progress',
+        iteration: 2,
+        notes: 'retry guidance',
+        beadStartCommit: 'abc123',
       }),
     ])
 

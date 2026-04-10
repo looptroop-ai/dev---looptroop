@@ -232,6 +232,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(prompt).toContain('bead notes')
     expect(prompt).toContain('dependencies, toolchains, and generated artifacts')
     expect(prompt).toContain("repository's standard tooling and lockfiles")
+    expect(prompt).toContain('avoid leaving large untracked setup directories in the repo root')
+    expect(prompt).toContain('plain-language status updates')
     expect(prompt).toContain('Final Self-Check')
     expect(prompt).toContain('quality gates')
     expect(PROM_CODING.contextInputs).toEqual(['bead_data', 'bead_notes'])

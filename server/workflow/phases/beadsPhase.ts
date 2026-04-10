@@ -835,6 +835,9 @@ export function recoverFailedCodingBead(ticketId: string): Bead | null {
   const failedBead = [...beads]
     .filter((bead) => bead.status === 'error')
     .sort(compareErroredBeads)[0]
+    ?? [...beads]
+      .filter((bead) => bead.status === 'in_progress')
+      .sort(compareErroredBeads)[0]
 
   if (!failedBead) return null
 

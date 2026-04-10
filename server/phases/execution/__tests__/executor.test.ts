@@ -137,6 +137,7 @@ describe('executeBead', () => {
     expect(result.success).toBe(true)
     const messages = adapter.messages.get('mock-session-1') ?? []
     expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Continue Bead Execution'))).toBe(true)
+    expect(messages.some((message) => typeof message.content === 'string' && message.content.includes('Do not reply with a plain-text progress update or plan'))).toBe(true)
   })
 
   it('calls onContextWipe when iteration fails and PROM51 generates notes', async () => {

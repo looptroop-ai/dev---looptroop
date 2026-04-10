@@ -3,6 +3,7 @@ import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { isMockOpenCodeMode } from '../../opencode/factory'
 import { executeBead } from '../../phases/execution/executor'
 import { getNextBead, isAllComplete } from '../../phases/execution/scheduler'
+import type { Bead } from '../../phases/beads/types'
 import { recordBeadStartCommit, commitBeadChanges, resetToBeadStart, captureBeadDiff } from '../../phases/execution/gitOps'
 import { throwIfAborted } from '../../council/types'
 import { broadcaster } from '../../sse/broadcaster'
@@ -11,6 +12,29 @@ import { adapter } from './state'
 import { emitPhaseLog, emitAiMilestone, emitOpenCodeSessionLogs, emitOpenCodeStreamEvent, emitOpenCodePromptLog, createOpenCodeStreamState, resolveExecutionRuntimeSettings } from './helpers'
 import type { OpenCodeStreamState } from './types'
 import { readTicketBeads, writeTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
+
+function mergeBeadRetryMetadata(
+  beads: Bead[],
+  beadId: string,
+  options: {
+    notes: string
+    iteration: number
+    status: Bead['status']
+    updatedAt?: string
+  },
+): Bead[] {
+  const updatedAt = options.updatedAt ?? new Date().toISOString()
+  return beads.map((bead) => {
+    if (bead.id !== beadId) return bead
+    return {
+      ...bead,
+      status: options.status,
+      notes: options.notes,
+      iteration: Math.max(bead.iteration ?? 0, options.iteration),
+      updatedAt,
+    }
+  })
+}
 
 export async function handleMockExecutionUnsupported(
   ticketId: string,
@@ -164,9 +188,18 @@ export async function handleCoding(
           throw new Error(`Cannot reset bead ${beadId} for attempt ${iteration}: missing bead start commit`)
         }
 
+        const beadsBeforeReset = readTicketBeads(ticketId)
+        const retryUpdatedAt = new Date().toISOString()
         try {
           await withCommandLoggingFieldsAsync({ beadId }, async () => resetToBeadStart(paths.worktreePath, beadStartCommit!))
         } catch (err) {
+          const preservedFailureBeads = mergeBeadRetryMetadata(beadsBeforeReset, beadId, {
+            notes,
+            iteration,
+            status: 'error',
+            updatedAt: retryUpdatedAt,
+          })
+          writeTicketBeads(ticketId, preservedFailureBeads)
           emitPhaseLog(
             ticketId,
             context.externalId,
@@ -178,8 +211,12 @@ export async function handleCoding(
           throw err
         }
 
-        const currentBeads = readTicketBeads(ticketId)
-        const updated = currentBeads.map(b => b.id === beadId ? { ...b, notes } : b)
+        const updated = mergeBeadRetryMetadata(beadsBeforeReset, beadId, {
+          notes,
+          iteration,
+          status: 'pending',
+          updatedAt: retryUpdatedAt,
+        })
         writeTicketBeads(ticketId, updated)
         emitPhaseLog(
           ticketId,

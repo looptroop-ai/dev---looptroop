@@ -28,6 +28,7 @@ const BEAD_STATUS_SCHEMA_REMINDER = [
 const CONTINUE_CODING_SCHEMA_REMINDER = [
   'Continue working in this same session until the bead is actually complete.',
   'Do not stop because lint, tests, or typecheck failed; inspect the real failures, fix them, and rerun the same checks.',
+  'Do not reply with a plain-text progress update or plan. Keep using tools and continue working until you can return the final marker.',
   'Do not return status error while iteration time remains unless the app interrupts you.',
   'Return exactly one <BEAD_STATUS>...</BEAD_STATUS> block and nothing else when all required checks pass.',
   'Inside the final marker, use status done and checks.tests/lint/typecheck/qualitative = pass.',

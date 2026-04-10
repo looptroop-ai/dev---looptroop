@@ -64,6 +64,8 @@ const ALWAYS_ALLOW_PATHS = [
   'codebase-map.yaml',
 ]
 
+const GIT_OP_MAX_BUFFER_BYTES = 16 * 1024 * 1024
+
 export function isAllowedFile(path: string): boolean {
   // Check blocked patterns first
   for (const pattern of BLOCKED_PATTERNS) {
@@ -86,7 +88,10 @@ export function filterAllowedFiles(files: string[]): string[] {
 
 function runGitOp(worktreePath: string, args: string[]): string {
   const fullArgs = ['-C', worktreePath, ...args]
-  const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+  const result = spawnSync('git', fullArgs, {
+    encoding: 'utf8',
+    maxBuffer: GIT_OP_MAX_BUFFER_BYTES,
+  })
   const stdout = (result.stdout ?? '').trim()
   const stderr = (result.stderr ?? '').trim()
   if (result.status !== 0 || result.error) {
@@ -110,7 +115,10 @@ function runGitOpSafe(worktreePath: string, args: string[]): { ok: boolean; stdo
 
 function probeStagedChanges(worktreePath: string): { hasStagedChanges: boolean; error?: string } {
   const fullArgs = ['-C', worktreePath, 'diff', '--cached', '--quiet']
-  const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
+  const result = spawnSync('git', fullArgs, {
+    encoding: 'utf8',
+    maxBuffer: GIT_OP_MAX_BUFFER_BYTES,
+  })
   const stdout = (result.stdout ?? '').trim()
   const stderr = (result.stderr ?? '').trim()
 
@@ -227,7 +235,7 @@ export function captureBeadDiff(worktreePath: string, beadStartCommit: string): 
 
 export function resetWorktreeToCommit(worktreePath: string, commit: string): void {
   runGitOp(worktreePath, ['reset', '--hard', commit])
-  runGitOp(worktreePath, ['clean', '-fd'])
+  runGitOp(worktreePath, ['clean', '-fdq'])
 }
 
 /**
