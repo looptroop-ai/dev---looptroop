@@ -1,9 +1,10 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { useLogs } from '@/context/useLogContext'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain, Clock, GitCommit, Tag, Link2, ArrowRight, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
+import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain, Clock, GitCommit, Tag, Link2, ArrowRight, ArrowUpToLine, ArrowDownToLine, Copy, Check } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
@@ -16,6 +17,8 @@ import type { Ticket } from '@/hooks/useTickets'
 import { useTicketAction } from '@/hooks/useTickets'
 import { cn } from '@/lib/utils'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { parsePrdDocument, parsePrdDocumentContent, normalizePrdDocumentLike } from '@/lib/prdDocument'
+import type { PrdDocument } from '@/lib/prdDocument'
 
 interface CodingViewProps {
   ticket: Ticket
@@ -66,15 +69,24 @@ function splitRenderedNotes(notes: string): string[] {
     .filter(Boolean)
 }
 
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string): React.ReactNode {
   if (!iso) return '—'
   try {
     const d = new Date(iso)
     if (isNaN(d.getTime())) return iso
-    return d.toLocaleString(undefined, {
+    
+    const timeString = d.toLocaleString(undefined, {
       year: 'numeric', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
     })
+    
+    const ms = d.getMilliseconds().toString().padStart(3, '0')
+    
+    return (
+      <>
+        {timeString}.<span className="opacity-40">{ms}</span>
+      </>
+    )
   } catch {
     return iso
   }
@@ -218,6 +230,235 @@ function statusIcon(status: TicketBead['status']) {
 }
 
 const COMPACT_THRESHOLD = 15
+
+function usePrdDocument(ticketId: string): { prd: PrdDocument | null; isLoading: boolean; isError: boolean } {
+  const { data: fetchedContent, isLoading, isError } = useQuery({
+    queryKey: ['artifact', ticketId, 'prd'],
+    queryFn: async () => {
+      const response = await fetch(`/api/files/${ticketId}/prd`)
+      if (!response.ok) throw new Error(`PRD fetch failed: ${response.status}`)
+      const payload = await response.json() as { content?: string }
+      return payload.content ?? ''
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+  const prd = useMemo(
+    () => fetchedContent ? normalizePrdDocumentLike(parsePrdDocument(fetchedContent) ?? parsePrdDocumentContent(fetchedContent).document) : null,
+    [fetchedContent],
+  )
+  return { prd, isLoading, isError }
+}
+
+function lookupPrdRef(prd: PrdDocument | null, ref: string): { type: 'epic'; title: string; objective: string } | { type: 'story'; title: string; epicTitle: string; acceptanceCriteria: string[] } | null {
+  if (!prd) return null
+  // Extract embedded IDs from composite refs like "EPIC-1 / US-1.1"
+  const ids = ref.match(/\b(?:EPIC|US)-[A-Za-z0-9.-]+\b/gi) ?? [ref]
+  for (const id of ids) {
+    for (const epic of prd.epics) {
+      if (epic.id === id) {
+        return { type: 'epic', title: epic.title, objective: epic.objective }
+      }
+      for (const story of epic.user_stories) {
+        if (story.id === id) {
+          return { type: 'story', title: story.title, epicTitle: epic.title, acceptanceCriteria: story.acceptance_criteria }
+        }
+      }
+    }
+  }
+  return null
+}
+
+function PrdRefHoverCard({ refId, prd, isLoading, isError }: { refId: string; prd: PrdDocument | null; isLoading: boolean; isError: boolean }) {
+  const match = lookupPrdRef(prd, refId)
+
+  return (
+    <HoverCard openDelay={300} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <code className="text-[10px] bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded font-mono cursor-help">{refId}</code>
+      </HoverCardTrigger>
+      <HoverCardContent side="top" className="w-72">
+        {match ? (
+          match.type === 'epic' ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-[10px] h-4 px-1.5 shrink-0">Epic</Badge>
+                <span className="text-xs font-medium truncate">{match.title}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">{match.objective}</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-[10px] h-4 px-1.5 shrink-0">Story</Badge>
+                <span className="text-xs font-medium truncate">{match.title}</span>
+              </div>
+              <div className="text-[10px] text-muted-foreground">Epic: {match.epicTitle}</div>
+              {match.acceptanceCriteria.length > 0 && (
+                <div>
+                  <div className="text-[10px] font-semibold text-muted-foreground mb-0.5">Acceptance Criteria</div>
+                  <ul className="text-[11px] space-y-0.5 pl-2 max-h-[200px] overflow-y-auto">
+                    {match.acceptanceCriteria.map((ac, i) => (
+                      <li key={i} className="text-muted-foreground leading-snug">- {ac}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )
+        ) : (
+          <div className="text-xs text-muted-foreground italic">
+            {isLoading ? 'Loading PRD…' : isError ? 'PRD unavailable' : prd ? 'Reference not found in PRD' : 'PRD not loaded'}
+          </div>
+        )}
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+function LabelHoverCard({ label, beads, currentBeadId, onSelectBead }: {
+  label: string
+  beads: TicketBead[]
+  currentBeadId: string
+  onSelectBead: (id: string) => void
+}) {
+  const matching = useMemo(
+    () => beads.filter((b) => b.id !== currentBeadId && b.labels.includes(label)),
+    [beads, label, currentBeadId],
+  )
+
+  return (
+    <HoverCard openDelay={300} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <span className="inline-flex cursor-help">
+          <Badge variant="outline" className="text-[10px] h-4 px-1.5">{label}</Badge>
+        </span>
+      </HoverCardTrigger>
+      <HoverCardContent side="top" className="w-72">
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Beads with "{label}"
+          </div>
+          {matching.length > 0 ? (
+            <div className="space-y-1 max-h-[200px] overflow-y-auto">
+              {matching.map((bead) => (
+                <button
+                  key={bead.id}
+                  type="button"
+                  onClick={() => onSelectBead(bead.id)}
+                  className="w-full text-left rounded-md border border-border/70 bg-background px-2 py-1 transition-colors hover:bg-accent/30"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {statusIcon(bead.status)}
+                    <span className="text-[11px] truncate flex-1">{bead.title}</span>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-[9px] h-3.5 px-1 shrink-0',
+                        bead.status === 'completed' && 'border-green-600/40 text-green-700 dark:text-green-400',
+                        bead.status === 'in_progress' && 'border-primary/40 text-primary',
+                        bead.status === 'failed' && 'border-red-600/40 text-red-700 dark:text-red-400',
+                      )}
+                    >
+                      {bead.status.replace('_', ' ')}
+                    </Badge>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-[11px] text-muted-foreground italic">No other beads share this label.</div>
+          )}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+function BeadRefHoverCard({ beadId, beads, onSelectBead }: {
+  beadId: string
+  beads: TicketBead[]
+  onSelectBead: (id: string) => void
+}) {
+  const bead = useMemo(() => beads.find((b) => b.id === beadId), [beads, beadId])
+
+  return (
+    <HoverCard openDelay={300} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <code
+          className="text-[10px] bg-orange-500/10 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded font-mono mr-1 cursor-help"
+        >
+          {beadId}
+        </code>
+      </HoverCardTrigger>
+      <HoverCardContent side="top" className="w-72">
+        {bead ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              {statusIcon(bead.status)}
+              <span className="text-xs font-medium truncate flex-1">{bead.title}</span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  'text-[9px] h-3.5 px-1 shrink-0',
+                  bead.status === 'completed' && 'border-green-600/40 text-green-700 dark:text-green-400',
+                  bead.status === 'in_progress' && 'border-primary/40 text-primary',
+                  bead.status === 'failed' && 'border-red-600/40 text-red-700 dark:text-red-400',
+                )}
+              >
+                {bead.status.replace('_', ' ')}
+              </Badge>
+            </div>
+            {bead.description && (
+              <p className="text-[11px] text-muted-foreground leading-snug line-clamp-3">{bead.description}</p>
+            )}
+            {bead.iteration > 0 && (
+              <div className="text-[10px] text-muted-foreground">Iteration: {bead.iteration}</div>
+            )}
+            <button
+              type="button"
+              onClick={() => onSelectBead(bead.id)}
+              className="text-[10px] text-primary hover:underline"
+            >
+              View bead →
+            </button>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground italic">Bead not found</div>
+        )}
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+function TargetFileRow({ file }: { file: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(file)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Fallback: select text if clipboard API not available
+    }
+  }
+
+  return (
+    <div className="group flex items-center gap-1">
+      <code className="block text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1" title={file}>{file}</code>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
+        title="Copy path"
+      >
+        {copied
+          ? <Check className="h-3 w-3 text-green-500" />
+          : <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />}
+      </button>
+    </div>
+  )
+}
 
 function BeadProgressSummary({ beads }: { beads: TicketBead[] }) {
   const done = beads.filter((b) => b.status === 'completed' || b.status === 'skipped').length
@@ -407,6 +648,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
     () => beads.find((bead) => bead.id === viewingBeadId) ?? null,
     [beads, viewingBeadId],
   )
+  const { prd, isLoading: prdLoading, isError: prdError } = usePrdDocument(ticket.id)
   const beadLogEntries = useMemo(() => {
     if (!viewedBead) return []
     const phaseLogs = logCtx?.getLogsForPhase(readOnly ? 'CODING' : ticket.status) ?? []
@@ -671,8 +913,8 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                   <div className="border-l-2 border-indigo-300 dark:border-indigo-700 pl-2">
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-indigo-600 dark:text-indigo-400 mb-1">PRD References</div>
                     <div className="flex flex-wrap gap-1">
-                      {viewedBead.prdRefs.map((ref) => (
-                        <code key={ref} className="text-[10px] bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded font-mono">{ref}</code>
+                      {viewedBead.prdRefs.map((ref, i) => (
+                        <PrdRefHoverCard key={`prd-${ref}-${i}`} refId={ref} prd={prd} isLoading={prdLoading} isError={prdError} />
                       ))}
                     </div>
                   </div>
@@ -685,8 +927,8 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                       <Tag className="h-3 w-3" /> Labels
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {viewedBead.labels.map((label) => (
-                        <Badge key={label} variant="outline" className="text-[10px] h-4 px-1.5">{label}</Badge>
+                      {viewedBead.labels.map((label, i) => (
+                        <LabelHoverCard key={`label-${label}-${i}`} label={label} beads={beads} currentBeadId={viewedBead.id} onSelectBead={setViewingBeadId} />
                       ))}
                     </div>
                   </div>
@@ -701,16 +943,16 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                     {viewedBead.dependencies.blocked_by.length > 0 && (
                       <div className="mt-0.5">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Blocked by: </span>
-                        {viewedBead.dependencies.blocked_by.map((dep) => (
-                          <code key={dep} className="text-[10px] bg-orange-500/10 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded font-mono mr-1">{dep}</code>
+                        {viewedBead.dependencies.blocked_by.map((dep, i) => (
+                          <BeadRefHoverCard key={`bb-${dep}-${i}`} beadId={dep} beads={beads} onSelectBead={setViewingBeadId} />
                         ))}
                       </div>
                     )}
                     {viewedBead.dependencies.blocks.length > 0 && (
                       <div className="mt-0.5">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Blocks: </span>
-                        {viewedBead.dependencies.blocks.map((dep) => (
-                          <code key={dep} className="text-[10px] bg-orange-500/10 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded font-mono mr-1">{dep}</code>
+                        {viewedBead.dependencies.blocks.map((dep, i) => (
+                          <BeadRefHoverCard key={`bl-${dep}-${i}`} beadId={dep} beads={beads} onSelectBead={setViewingBeadId} />
                         ))}
                       </div>
                     )}
@@ -724,8 +966,8 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                       <FileCode2 className="h-3 w-3" /> Target Files
                     </div>
                     <div className="space-y-0.5">
-                      {viewedBead.targetFiles.map((file) => (
-                        <code key={file} className="block text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono truncate" title={file}>{file}</code>
+                      {viewedBead.targetFiles.map((file, i) => (
+                        <TargetFileRow key={`file-${file}-${i}`} file={file} />
                       ))}
                     </div>
                   </div>

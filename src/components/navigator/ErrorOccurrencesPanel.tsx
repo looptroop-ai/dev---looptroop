@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { Ticket } from '@/hooks/useTickets'
-import { formatTimestamp } from '@/components/workspace/logFormat'
+import { formatTimestampString } from '@/components/workspace/logFormat'
 import { StatusIndicator } from './StatusIndicator'
 import {
   formatErrorOccurrenceLabel,
@@ -21,9 +21,9 @@ interface ErrorOccurrencesPanelProps {
 }
 
 function getOccurrenceSubtitle(occurrence: TicketErrorOccurrence) {
-  const startedAt = formatTimestamp(occurrence.occurredAt)
+  const startedAt = formatTimestampString(occurrence.occurredAt)
   if (occurrence.resolvedAt) {
-    return `Blocked ${startedAt} · Resolved ${formatTimestamp(occurrence.resolvedAt)}`
+    return `Blocked ${startedAt} · Resolved ${formatTimestampString(occurrence.resolvedAt)}`
   }
   return `Blocked ${startedAt}`
 }

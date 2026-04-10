@@ -87,11 +87,12 @@ export function getEntryColor(entry: LogEntry): string {
   return 'text-foreground'
 }
 
-export function formatTimestamp(timestamp?: string): string {
-  if (!timestamp) return '--:--:--'
+export function formatTimestampString(timestamp?: string): string {
+  if (!timestamp) return '--:--:--.---'
   const parsed = new Date(timestamp)
-  if (Number.isNaN(parsed.getTime())) return '--:--:--'
-  return parsed.toLocaleString(undefined, {
+  if (Number.isNaN(parsed.getTime())) return '--:--:--.---'
+  
+  const timeString = parsed.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -99,6 +100,32 @@ export function formatTimestamp(timestamp?: string): string {
     second: '2-digit',
     hour12: false,
   })
+  
+  const ms = parsed.getMilliseconds().toString().padStart(3, '0')
+  return `${timeString}.${ms}`
+}
+
+export function formatTimestamp(timestamp?: string): React.ReactNode {
+  if (!timestamp) return '--:--:--.---'
+  const parsed = new Date(timestamp)
+  if (Number.isNaN(parsed.getTime())) return '--:--:--.---'
+  
+  const timeString = parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  
+  const ms = parsed.getMilliseconds().toString().padStart(3, '0')
+  
+  return (
+    <>
+      {timeString}.<span className="opacity-40">{ms}</span>
+    </>
+  )
 }
 
 export function getEntryModelDisplayName(entry: LogEntry): string | null {

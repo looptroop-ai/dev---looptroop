@@ -7,7 +7,7 @@ import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import type { Ticket } from '@/hooks/useTickets'
-import { formatTimestamp } from './logFormat'
+import { formatTimestamp, formatTimestampString } from './logFormat'
 import {
   formatErrorOccurrenceLabel,
   formatErrorOccurrenceStatus,
@@ -151,7 +151,7 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1" title={visibleOccurrence?.occurredAt ? formatTimestamp(visibleOccurrence.occurredAt) : undefined}>
+                <span className="flex items-center gap-1" title={visibleOccurrence?.occurredAt ? formatTimestampString(visibleOccurrence.occurredAt) : undefined}>
                   <Clock3 className="h-3.5 w-3.5" />
                   {visibleOccurrence ? `Blocked from ${getStatusUserLabel(visibleOccurrence.blockedFromStatus)}` : 'Blocked error'}
                 </span>
