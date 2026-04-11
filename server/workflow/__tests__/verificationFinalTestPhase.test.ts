@@ -106,6 +106,7 @@ describe('handleFinalTest', () => {
         plannedBy: TEST.implementer,
         summary: 'verify retry state',
         testFiles: ['src/final.test.ts'],
+        modifiedFiles: ['src/final.test.ts'],
         testsCount: 1,
         modelOutput: '<FINAL_TEST_COMMANDS>{"commands":["npm run test:final"]}</FINAL_TEST_COMMANDS>',
         commands: [

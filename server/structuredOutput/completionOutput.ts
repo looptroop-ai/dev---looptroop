@@ -219,6 +219,22 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
       }
       const dedupedTestFiles = [...new Set(testFiles)]
 
+      const rawModifiedFiles = getValueByAliases(parsed, [
+        'modified_files',
+        'modifiedfiles',
+        'modified_file',
+        'modifiedfile',
+        'changed_files',
+        'changedfiles',
+      ])
+      const modifiedFiles = toStringArray(rawModifiedFiles).filter((f) => f.length > 0)
+      if (typeof rawModifiedFiles === 'string' && modifiedFiles.length > 0) {
+        candidateWarnings.push('Coerced modified_files from string to array')
+      }
+      const dedupedModifiedFiles = [...new Set(
+        (modifiedFiles.length > 0 ? modifiedFiles : dedupedTestFiles),
+      )]
+
       const rawTestsCount = getValueByAliases(parsed, ['tests_count', 'testscount', 'test_count', 'testcount', 'num_tests'])
       const testsCount = toInteger(rawTestsCount)
 
@@ -230,12 +246,14 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
           commands,
           summary,
           testFiles: dedupedTestFiles,
+          modifiedFiles: dedupedModifiedFiles,
           testsCount,
         },
         normalizedContent: JSON.stringify({
           commands,
           ...(summary ? { summary } : {}),
           ...(dedupedTestFiles.length > 0 ? { testFiles: dedupedTestFiles } : {}),
+          ...(dedupedModifiedFiles.length > 0 ? { modifiedFiles: dedupedModifiedFiles } : {}),
           ...(testsCount != null ? { testsCount } : {}),
         }),
         repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'FINAL_TEST_COMMANDS' }),

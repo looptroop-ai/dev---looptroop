@@ -9,6 +9,7 @@ export interface FinalTestCommandPlan {
   commands: string[]
   summary: string | null
   testFiles: string[]
+  modifiedFiles: string[]
   testsCount: number | null
   errors: string[]
   repairApplied?: boolean
@@ -25,6 +26,7 @@ export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
       commands: [],
       summary: null,
       testFiles: [],
+      modifiedFiles: [],
       testsCount: null,
       errors: [normalized.error],
       repairApplied: normalized.repairApplied,
@@ -39,6 +41,7 @@ export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
     commands: normalized.value.commands,
     summary: normalized.value.summary,
     testFiles: normalized.value.testFiles,
+    modifiedFiles: normalized.value.modifiedFiles,
     testsCount: normalized.value.testsCount,
     errors: [],
     repairApplied: normalized.repairApplied,

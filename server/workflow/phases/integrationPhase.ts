@@ -1,11 +1,34 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
-import { getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
+import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact } from '../../storage/tickets'
 import { isMockOpenCodeMode } from '../../opencode/factory'
 import { prepareSquashCandidate } from '../../phases/integration/squash'
 import { emitPhaseLog } from './helpers'
 import { handleMockExecutionUnsupported } from './executionPhase'
 import { withCommandLoggingAsync } from '../../log/commandLogger'
 import { CancelledError } from '../../council/types'
+
+function readFinalTestFilesToStage(ticketId: string): string[] {
+  const artifact = getLatestPhaseArtifact(ticketId, 'final_test_report', 'RUNNING_FINAL_TEST')
+  if (!artifact) return []
+
+  try {
+    const parsed = JSON.parse(artifact.content) as {
+      modifiedFiles?: unknown
+      testFiles?: unknown
+    }
+    const modifiedFiles = Array.isArray(parsed.modifiedFiles)
+      ? parsed.modifiedFiles.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    if (modifiedFiles.length > 0) return [...new Set(modifiedFiles)]
+
+    const testFiles = Array.isArray(parsed.testFiles)
+      ? parsed.testFiles.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : []
+    return [...new Set(testFiles)]
+  } catch {
+    return []
+  }
+}
 
 export async function handleIntegration(
   ticketId: string,
@@ -31,11 +54,14 @@ export async function handleIntegration(
   emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info',
     'Analyzing ticket branch for squash...', { source: 'system', audience: 'all' })
 
+  const finalTestFilesToStage = readFinalTestFilesToStage(ticketId)
+
   const squash = prepareSquashCandidate(
     paths.worktreePath,
     paths.baseBranch,
     context.title,
     context.externalId,
+    finalTestFilesToStage,
   )
 
   if (squash.success) {

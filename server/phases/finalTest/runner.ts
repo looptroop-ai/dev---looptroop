@@ -32,6 +32,7 @@ export interface FinalTestAttemptHistoryEntry {
   summary?: string
   commands: string[]
   testFiles: string[]
+  modifiedFiles: string[]
   errors: string[]
   failureReason?: string
   noteAppended?: string
@@ -44,6 +45,7 @@ export interface FinalTestExecutionReport {
   plannedBy: string
   summary?: string
   testFiles: string[]
+  modifiedFiles: string[]
   testsCount: number | null
   modelOutput: string
   commands: FinalTestCommandResult[]
@@ -120,6 +122,7 @@ export async function executeFinalTestCommands(input: {
   plannedBy: string
   summary?: string
   testFiles?: string[]
+  modifiedFiles?: string[]
   testsCount?: number | null
   modelOutput: string
   planStructuredOutput?: StructuredOutputMetadata
@@ -158,6 +161,7 @@ export async function executeFinalTestCommands(input: {
     plannedBy: input.plannedBy,
     summary: input.summary,
     testFiles: input.testFiles ?? [],
+    modifiedFiles: input.modifiedFiles ?? input.testFiles ?? [],
     testsCount: input.testsCount ?? null,
     modelOutput: input.modelOutput,
     commands: commandResults,

@@ -92,6 +92,7 @@ export interface FinalTestCommandPayload {
   commands: string[]
   summary: string | null
   testFiles: string[]
+  modifiedFiles: string[]
   testsCount: number | null
 }
 

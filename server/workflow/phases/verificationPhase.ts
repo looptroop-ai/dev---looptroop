@@ -3165,6 +3165,33 @@ function validateFinalTestFiles(
   return validated
 }
 
+function validateFinalCandidateFiles(
+  worktreePath: string,
+  modifiedFiles: string[],
+  onMessage: (message: string) => void,
+): string[] {
+  const validated: string[] = []
+
+  for (const filePath of modifiedFiles) {
+    if (filePath.includes('..')) {
+      onMessage(`Rejected modified file path with traversal: ${filePath}`)
+      continue
+    }
+    const resolvedPath = resolve(worktreePath, filePath)
+    if (!resolvedPath.startsWith(worktreePath)) {
+      onMessage(`Rejected modified file path outside worktree: ${filePath}`)
+      continue
+    }
+    if (!existsSync(resolvedPath)) {
+      onMessage(`AI-reported modified file not found on disk: ${filePath}`)
+      continue
+    }
+    validated.push(filePath)
+  }
+
+  return validated
+}
+
 export async function handleFinalTest(
   ticketId: string,
   context: TicketContext,
@@ -3251,6 +3278,19 @@ export async function handleFinalTest(
             )
           },
         )
+        const validatedModifiedFiles = validateFinalCandidateFiles(
+          worktreePath,
+          commandPlan.modifiedFiles,
+          (message) => {
+            emitPhaseLog(
+              ticketId,
+              context.externalId,
+              'RUNNING_FINAL_TEST',
+              'info',
+              `Attempt ${attempt}: ${message}`,
+            )
+          },
+        )
 
         if (validatedTestFiles.length > 0) {
           emitAiMilestone(
@@ -3267,6 +3307,21 @@ export async function handleFinalTest(
           )
         }
 
+        if (validatedModifiedFiles.length > 0) {
+          emitAiMilestone(
+            ticketId,
+            context.externalId,
+            'RUNNING_FINAL_TEST',
+            `Attempt ${attempt}: final candidate files created/modified: ${validatedModifiedFiles.join(', ')}`,
+            `${ticketId}:final-candidate-files:${attempt}`,
+            {
+              attempt,
+              modifiedFiles: validatedModifiedFiles,
+              source: `model:${finalTestModelId}`,
+            },
+          )
+        }
+
         if (commandPlan.commands.length === 0) {
           return {
             status: 'failed' as const,
@@ -3275,6 +3330,7 @@ export async function handleFinalTest(
             plannedBy: finalTestModelId,
             modelOutput: output,
             testFiles: validatedTestFiles,
+            modifiedFiles: validatedModifiedFiles,
             testsCount: commandPlan.testsCount,
             commands: [],
             errors: commandPlan.errors,
@@ -3289,6 +3345,7 @@ export async function handleFinalTest(
           plannedBy: finalTestModelId,
           ...(commandPlan.summary ? { summary: commandPlan.summary } : {}),
           testFiles: validatedTestFiles,
+          modifiedFiles: validatedModifiedFiles,
           testsCount: commandPlan.testsCount,
           modelOutput: output,
           planStructuredOutput,

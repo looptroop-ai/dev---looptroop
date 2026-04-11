@@ -2669,6 +2669,7 @@ describe.concurrent('structured output normalization', () => {
       commands: ['npm run test:server'],
       summary: 'verify the whole workflow',
       testFiles: [],
+      modifiedFiles: [],
       testsCount: null,
     })
   })

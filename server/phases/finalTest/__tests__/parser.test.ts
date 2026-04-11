@@ -15,6 +15,7 @@ describe.concurrent('parseFinalTestCommands', () => {
       commands: [],
       summary: null,
       testFiles: [],
+      modifiedFiles: [],
       testsCount: null,
       errors: ['No final test command marker found'],
       repairApplied: false,
@@ -36,6 +37,7 @@ describe.concurrent('parseFinalTestCommands', () => {
     expect(result.commands).toEqual(['npm test'])
     expect(result.summary).toBeNull()
     expect(result.testFiles).toEqual([])
+    expect(result.modifiedFiles).toEqual([])
     expect(result.testsCount).toBeNull()
     expect(result.errors).toEqual([])
     expect(result.repairApplied).toBe(true)
@@ -67,6 +69,7 @@ describe.concurrent('parseFinalTestCommands', () => {
     const result = parseFinalTestCommands(output)
     expect(result.markerFound).toBe(true)
     expect(result.testFiles).toEqual(['src/test1.ts', 'src/test2.ts'])
+    expect(result.modifiedFiles).toEqual(['src/test1.ts', 'src/test2.ts'])
   })
 
   it('coerces a single test_files string to an array', () => {
@@ -74,6 +77,7 @@ describe.concurrent('parseFinalTestCommands', () => {
 
     const result = parseFinalTestCommands(output)
     expect(result.testFiles).toEqual(['src/only.test.ts'])
+    expect(result.modifiedFiles).toEqual(['src/only.test.ts'])
     expect(result.repairApplied).toBe(true)
     expect(result.repairWarnings).toContain('Coerced test_files from string to array')
   })
@@ -83,6 +87,7 @@ describe.concurrent('parseFinalTestCommands', () => {
 
     const result = parseFinalTestCommands(output)
     expect(result.testFiles).toEqual([])
+    expect(result.modifiedFiles).toEqual([])
     expect(result.testsCount).toBeNull()
   })
 
@@ -105,6 +110,7 @@ describe.concurrent('parseFinalTestCommands', () => {
 
     const result = parseFinalTestCommands(output)
     expect(result.testFiles).toEqual(['src/a.ts', 'src/b.ts'])
+    expect(result.modifiedFiles).toEqual(['src/a.ts', 'src/b.ts'])
   })
 
   it('filters empty strings from test_files', () => {
@@ -112,6 +118,7 @@ describe.concurrent('parseFinalTestCommands', () => {
 
     const result = parseFinalTestCommands(output)
     expect(result.testFiles).toEqual(['src/a.ts'])
+    expect(result.modifiedFiles).toEqual(['src/a.ts'])
   })
 
   it('recognizes test_file alias (singular)', () => {
@@ -119,5 +126,23 @@ describe.concurrent('parseFinalTestCommands', () => {
 
     const result = parseFinalTestCommands(output)
     expect(result.testFiles).toEqual(['src/my.test.ts'])
+    expect(result.modifiedFiles).toEqual(['src/my.test.ts'])
+  })
+
+  it('parses modified_files separately from test_files', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_files":["src/my.test.ts"],"modified_files":["src/my.test.ts","src/feature.ts"]}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.testFiles).toEqual(['src/my.test.ts'])
+    expect(result.modifiedFiles).toEqual(['src/my.test.ts', 'src/feature.ts'])
+  })
+
+  it('coerces a single modified_files string to an array', () => {
+    const output = '<FINAL_TEST_COMMANDS>{"commands":["npm test"],"test_files":["src/my.test.ts"],"modified_files":"src/feature.ts"}</FINAL_TEST_COMMANDS>'
+
+    const result = parseFinalTestCommands(output)
+    expect(result.modifiedFiles).toEqual(['src/feature.ts'])
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Coerced modified_files from string to array')
   })
 })

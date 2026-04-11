@@ -61,6 +61,7 @@ function buildAttemptHistoryEntry(
     summary: report.summary,
     commands: report.commands.map((command) => command.command),
     testFiles: report.testFiles,
+    modifiedFiles: report.modifiedFiles,
     errors: [...report.errors],
     failureReason: report.errors[0] ?? undefined,
   }
@@ -266,6 +267,7 @@ export async function executeFinalTestWithRetries(
     plannedBy: options.model,
     modelOutput: '',
     testFiles: [],
+    modifiedFiles: [],
     testsCount: null,
     commands: [],
     errors: ['Final-test retry loop exited without producing a result.'],

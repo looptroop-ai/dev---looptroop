@@ -23,6 +23,7 @@ const FINAL_TEST_SCHEMA_REMINDER = [
   'Inside the marker, return a single JSON or YAML object with a non-empty commands field.',
   'commands must contain executable shell commands. A single command string is acceptable only if it is the full command to run.',
   'test_files must list the paths of all test files you created or modified (relative to the project root).',
+  'modified_files must list every permanent repository file created or modified during the final-test phase that should remain in the final candidate. It must include every path from test_files.',
   'summary is optional. tests_count is optional.',
 ].join('\n')
 

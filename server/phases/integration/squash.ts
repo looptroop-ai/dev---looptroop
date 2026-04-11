@@ -28,6 +28,7 @@ export function prepareSquashCandidate(
   baseBranch: string,
   ticketTitle: string,
   ticketId: string,
+  extraFilesToStage: string[] = [],
 ): SquashResult {
   const runGit = (args: string[]) => {
     const fullArgs = ['-C', worktreePath, ...args]
@@ -50,7 +51,11 @@ export function prepareSquashCandidate(
     const commitCount = Number(runGit(['rev-list', '--count', `${mergeBase}..HEAD`]))
 
     runGit(['reset', '--soft', mergeBase])
-    runGit(['add', '-v', '-A'])
+    runGit(['add', '-v', '-u'])
+    const explicitFiles = [...new Set(extraFilesToStage.filter((file) => file.trim().length > 0))]
+    if (explicitFiles.length > 0) {
+      runGit(['add', '-v', '--', ...explicitFiles])
+    }
 
     const stagedChanges = runGit(['status', '--porcelain'])
     if (!stagedChanges) {

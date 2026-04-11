@@ -5,6 +5,7 @@ import { CancelledError } from '../../council/types'
 
 const {
   prepareSquashCandidateMock,
+  getLatestPhaseArtifactMock,
   getTicketPathsMock,
   insertPhaseArtifactMock,
   emitPhaseLogMock,
@@ -12,6 +13,7 @@ const {
   handleMockExecutionUnsupportedMock,
 } = vi.hoisted(() => ({
   prepareSquashCandidateMock: vi.fn(),
+  getLatestPhaseArtifactMock: vi.fn(),
   getTicketPathsMock: vi.fn(),
   insertPhaseArtifactMock: vi.fn(),
   emitPhaseLogMock: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('../../phases/integration/squash', () => ({
 }))
 
 vi.mock('../../storage/tickets', () => ({
+  getLatestPhaseArtifact: getLatestPhaseArtifactMock,
   getTicketPaths: getTicketPathsMock,
   insertPhaseArtifact: insertPhaseArtifactMock,
 }))
@@ -77,6 +80,7 @@ describe('handleIntegration', () => {
     vi.resetAllMocks()
     isMockOpenCodeModeMock.mockReturnValue(false)
     getTicketPathsMock.mockReturnValue(defaultPaths)
+    getLatestPhaseArtifactMock.mockReturnValue(undefined)
     prepareSquashCandidateMock.mockReturnValue(successSquash)
 
     context = makeTicketContext()
@@ -91,6 +95,7 @@ describe('handleIntegration', () => {
       defaultPaths.baseBranch,
       context.title,
       context.externalId,
+      [],
     )
 
     expect(insertPhaseArtifactMock).toHaveBeenCalledWith(TEST.ticketId, expect.objectContaining({
@@ -123,6 +128,25 @@ describe('handleIntegration', () => {
     expect(report.message).toBe('merge conflict')
 
     expect(sendEvent).not.toHaveBeenCalled()
+  })
+
+  it('passes validated final-test modified files into the squash stage', async () => {
+    const sendEvent = vi.fn<(event: TicketEvent) => void>()
+    getLatestPhaseArtifactMock.mockReturnValue({
+      content: JSON.stringify({
+        modifiedFiles: ['src/final.test.ts', 'src/feature.ts'],
+      }),
+    })
+
+    await handleIntegration(TEST.ticketId, context, sendEvent)
+
+    expect(prepareSquashCandidateMock).toHaveBeenCalledWith(
+      defaultPaths.worktreePath,
+      defaultPaths.baseBranch,
+      context.title,
+      context.externalId,
+      ['src/final.test.ts', 'src/feature.ts'],
+    )
   })
 
   it('missing ticket paths throws', async () => {

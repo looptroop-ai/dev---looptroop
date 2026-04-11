@@ -6,12 +6,13 @@ import type { FinalTestExecutionReport } from '../runner'
 
 function buildGeneration(overrides: Partial<FinalTestGenerationResult> = {}): FinalTestGenerationResult {
   return {
-    output: '<FINAL_TEST_COMMANDS>{"commands":["npm run test:final"],"test_files":["src/final.test.ts"]}</FINAL_TEST_COMMANDS>',
+    output: '<FINAL_TEST_COMMANDS>{"commands":["npm run test:final"],"test_files":["src/final.test.ts"],"modified_files":["src/final.test.ts"]}</FINAL_TEST_COMMANDS>',
     commandPlan: {
       markerFound: true,
       commands: ['npm run test:final'],
       summary: 'verify final behavior',
       testFiles: ['src/final.test.ts'],
+      modifiedFiles: ['src/final.test.ts'],
       testsCount: 1,
       errors: [],
       repairApplied: false,
@@ -34,6 +35,7 @@ function buildReport(overrides: Partial<FinalTestExecutionReport> = {}): FinalTe
     plannedBy: 'test-vendor/test-implementer',
     summary: 'verify final behavior',
     testFiles: ['src/final.test.ts'],
+    modifiedFiles: ['src/final.test.ts'],
     testsCount: 1,
     modelOutput: '<FINAL_TEST_COMMANDS>{"commands":["npm run test:final"]}</FINAL_TEST_COMMANDS>',
     commands: [
@@ -115,6 +117,7 @@ describe('executeFinalTestWithRetries', () => {
           commands: [`npm run test:final --attempt=${attemptCounter}`],
           summary: `verify final behavior attempt ${attemptCounter}`,
           testFiles: ['src/final.test.ts'],
+          modifiedFiles: ['src/final.test.ts'],
           testsCount: 1,
           errors: [],
           repairApplied: false,

@@ -80,6 +80,31 @@ describe('prepareSquashCandidate', () => {
     const commitMsg = git(repoDir, ['log', '-1', '--pretty=%s'])
     expect(commitMsg).toBe('TICKET-4: Single change')
   })
+
+  it('stages tracked changes plus explicit final-test files without sweeping unrelated untracked files', () => {
+    const repoDir = repoManager.createRepo()
+
+    git(repoDir, ['checkout', '-b', 'TICKET-5'])
+    writeFileSync(resolve(repoDir, 'tracked.ts'), 'export const tracked = 1\n')
+    git(repoDir, ['add', 'tracked.ts'])
+    git(repoDir, ['commit', '-m', 'tracked change'])
+
+    writeFileSync(resolve(repoDir, 'README.md'), 'base updated\n')
+    writeFileSync(resolve(repoDir, 'final.test.ts'), 'export const final = true\n')
+    writeFileSync(resolve(repoDir, 'runtime.db'), 'not for commit\n')
+
+    const result = prepareSquashCandidate(repoDir, 'main', 'Selective stage', 'TICKET-5', ['final.test.ts'])
+
+    expect(result.success).toBe(true)
+    const showFiles = git(repoDir, ['show', '--pretty=', '--name-only', 'HEAD'])
+    expect(showFiles).toContain('tracked.ts')
+    expect(showFiles).toContain('README.md')
+    expect(showFiles).toContain('final.test.ts')
+    expect(showFiles).not.toContain('runtime.db')
+
+    const status = git(repoDir, ['status', '--porcelain'])
+    expect(status).toContain('?? runtime.db')
+  })
 })
 
 describe('pushSquashedCandidate', () => {
