@@ -410,6 +410,52 @@ describe('repairYamlQuotedScalarFragments', () => {
     const input = 'description: "\'pink\' is accepted as a valid theme value in UIState."'
     expect(repairYamlQuotedScalarFragments(input)).toBe(input)
   })
+
+  it('unquotes block-scalar indicators when deeper-indented continuation lines follow', () => {
+    const input = [
+      'beads:',
+      '  - id: bead-1',
+      '    description: "|-"',
+      '      Edit ui/src/scss/_vars.scss and replace the default token.',
+      '      Preserve the emitted body text exactly.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Keep parser repairs text-preserving.',
+      '      anti_patterns:',
+      '        - Do not invent missing fields.',
+    ].join('\n')
+
+    const repaired = repairYamlQuotedScalarFragments(input)
+    expect(repaired).toBe([
+      'beads:',
+      '  - id: bead-1',
+      '    description: |-',
+      '      Edit ui/src/scss/_vars.scss and replace the default token.',
+      '      Preserve the emitted body text exactly.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Keep parser repairs text-preserving.',
+      '      anti_patterns:',
+      '        - Do not invent missing fields.',
+    ].join('\n'))
+
+    const parsed = jsYaml.load(repaired) as {
+      beads: Array<{ description: string }>
+    }
+    expect(parsed.beads[0]?.description).toBe([
+      'Edit ui/src/scss/_vars.scss and replace the default token.',
+      'Preserve the emitted body text exactly.',
+    ].join('\n'))
+  })
+
+  it('leaves quoted block-scalar indicators unchanged when no deeper continuation lines follow', () => {
+    const input = [
+      'description: "|-"',
+      'contextGuidance: keep-literal',
+    ].join('\n')
+
+    expect(repairYamlQuotedScalarFragments(input)).toBe(input)
+  })
 })
 
 describe('repairYamlPlainScalarColons', () => {

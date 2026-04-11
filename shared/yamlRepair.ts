@@ -704,6 +704,35 @@ function repairLeadingQuotedScalarFragment(value: string): string | null {
   return `${JSON.stringify(scalarValue)}${comment ? ` ${comment}` : ''}`
 }
 
+function findNextNonEmptyLineIndex(lines: string[], startIndex: number): number | null {
+  for (let index = startIndex; index < lines.length; index += 1) {
+    if ((lines[index] ?? '').trim().length > 0) {
+      return index
+    }
+  }
+
+  return null
+}
+
+function repairQuotedBlockScalarIndicatorMapping(
+  lines: string[],
+  lineIndex: number,
+  currentIndent: number,
+  value: string,
+): string | null {
+  const { value: scalarValue, comment } = splitYamlValueAndComment(value)
+  const indicatorMatch = scalarValue.trim().match(/^(['"])([>|](?:-)?)\1$/)
+  if (!indicatorMatch?.[2]) return null
+
+  const nextNonEmptyLineIndex = findNextNonEmptyLineIndex(lines, lineIndex + 1)
+  if (nextNonEmptyLineIndex === null) return null
+
+  const nextIndent = getLineIndent(lines[nextNonEmptyLineIndex]!)
+  if (nextIndent <= currentIndent) return null
+
+  return `${indicatorMatch[2]}${comment ? ` ${comment}` : ''}`
+}
+
 /**
  * Repair YAML scalars that start with a closed quoted fragment and then
  * continue as plain text on the same line.
@@ -712,7 +741,9 @@ function repairLeadingQuotedScalarFragment(value: string): string | null {
  * `description: "pink" remains supported...`. YAML rejects these because a
  * quoted scalar cannot resume as plain text after the closing quote. This
  * repair wraps the full visible scalar in double quotes while preserving any
- * trailing comment.
+ * trailing comment. It also safely unquotes block-scalar indicators like
+ * `description: "|-"` when the following indented lines clearly form the
+ * block-scalar body.
  */
 export function repairYamlQuotedScalarFragments(yaml: string): string {
   const lines = yaml.split('\n')
@@ -722,7 +753,8 @@ export function repairYamlQuotedScalarFragments(yaml: string): string {
   let insideBlockScalar = false
   let blockScalarBaseIndent = -1
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
     const trimmed = line.trim()
 
     if (!trimmed || trimmed.startsWith('#')) {
@@ -743,6 +775,14 @@ export function repairYamlQuotedScalarFragments(yaml: string): string {
     const mappingMatch = line.match(/^(\s*(?:-\s+)?[A-Za-z_][\w_-]*\s*:\s+)(.+)$/)
     if (mappingMatch) {
       const prefix = mappingMatch[1]!
+      const repairedBlockScalarIndicator = repairQuotedBlockScalarIndicatorMapping(lines, index, indent, mappingMatch[2]!)
+      if (repairedBlockScalarIndicator !== null) {
+        result.push(`${prefix}${repairedBlockScalarIndicator}`)
+        insideBlockScalar = true
+        blockScalarBaseIndent = indent
+        continue
+      }
+
       const repairedValue = repairLeadingQuotedScalarFragment(mappingMatch[2]!)
       if (repairedValue !== null) {
         result.push(`${prefix}${repairedValue}`)

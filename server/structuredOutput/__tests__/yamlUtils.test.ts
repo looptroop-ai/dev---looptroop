@@ -52,4 +52,40 @@ describe.concurrent('parseYamlOrJsonCandidate', () => {
     ])
     expect(parsed.beads[0]?.testCommands).toEqual([command])
   })
+
+  it('recovers quoted block-scalar indicators while preserving the emitted body text', () => {
+    const repairWarnings: string[] = []
+
+    const parsed = parseYamlOrJsonCandidate([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Recover quoted block scalar indicator',
+      '    prdRefs:',
+      '      - EPIC-1 / US-1',
+      '    description: "|-"',
+      '      Edit ui/src/scss/_vars.scss and replace the default token.',
+      '      Preserve the emitted body text exactly.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Keep parser repairs text-preserving.',
+      '      anti_patterns:',
+      '        - Do not invent missing fields.',
+      '    acceptanceCriteria:',
+      '      - Parser accepts the repaired block scalar.',
+      '    tests:',
+      '      - Structured output parser covers the malformed indicator.',
+      '    testCommands:',
+      '      - npm run test:server',
+    ].join('\n'), { repairWarnings }) as {
+      beads: Array<{
+        description: string
+      }>
+    }
+
+    expect(repairWarnings).toContain('Repaired improperly quoted YAML scalar value.')
+    expect(parsed.beads[0]?.description).toBe([
+      'Edit ui/src/scss/_vars.scss and replace the default token.',
+      'Preserve the emitted body text exactly.',
+    ].join('\n'))
+  })
 })
