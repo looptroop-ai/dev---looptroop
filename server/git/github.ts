@@ -140,12 +140,108 @@ interface GitHubPullRecord {
   } | null
 }
 
+interface GhAuthStatusEntry {
+  active?: unknown
+  state?: unknown
+  login?: unknown
+  error?: unknown
+}
+
+interface GhAuthStatusPayload {
+  hosts?: Record<string, unknown>
+}
+
 const FILTERED_STATUS_ARGS = ['status', '--porcelain=1', '--untracked-files=all', '--', '.', ':(top,exclude).looptroop']
+const SSH_HOSTNAME_CACHE = new Map<string, string | null>()
 
 function normalizeString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function buildGitHubRepoRef(owner: string, repo: string, remoteUrl: string): GitHubRepoRef | null {
+  const normalizedOwner = owner.trim()
+  const normalizedRepo = repo.trim().replace(/\.git$/i, '')
+  if (!normalizedOwner || !normalizedRepo) return null
+  return {
+    owner: normalizedOwner,
+    repo: normalizedRepo,
+    slug: `${normalizedOwner}/${normalizedRepo}`,
+    remoteUrl,
+  }
+}
+
+function resolveSshHostname(host: string): string | null {
+  const normalizedHost = host.trim().toLowerCase()
+  if (!normalizedHost) return null
+  if (normalizedHost === 'github.com') return 'github.com'
+  if (SSH_HOSTNAME_CACHE.has(normalizedHost)) {
+    return SSH_HOSTNAME_CACHE.get(normalizedHost) ?? null
+  }
+
+  const result = tryCommand('ssh', ['-G', host])
+  if (!result.ok) {
+    SSH_HOSTNAME_CACHE.set(normalizedHost, null)
+    return null
+  }
+
+  const hostname = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.toLowerCase().startsWith('hostname '))
+
+  const resolved = hostname ? hostname.slice('hostname '.length).trim().toLowerCase() : null
+  SSH_HOSTNAME_CACHE.set(normalizedHost, resolved || null)
+  return resolved || null
+}
+
+function isGitHubHost(host: string): boolean {
+  const normalizedHost = host.trim().toLowerCase()
+  if (!normalizedHost) return false
+  if (normalizedHost === 'github.com') return true
+  return resolveSshHostname(host) === 'github.com'
+}
+
+function parseScpLikeGitHubRemoteUrl(remoteUrl: string): GitHubRepoRef | null {
+  const match = remoteUrl.match(/^(?<user>[^@]+)@(?<host>[^:/]+):(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?$/)
+  const host = match?.groups?.host?.trim()
+  const owner = match?.groups?.owner?.trim()
+  const repo = match?.groups?.repo?.trim()
+  if (!host || !owner || !repo || !isGitHubHost(host)) return null
+  return buildGitHubRepoRef(owner, repo, remoteUrl)
+}
+
+function parseUrlLikeGitHubRemoteUrl(remoteUrl: string): GitHubRepoRef | null {
+  let parsed: URL
+  try {
+    parsed = new URL(remoteUrl)
+  } catch {
+    return null
+  }
+
+  if (!['http:', 'https:', 'ssh:', 'git:'].includes(parsed.protocol)) return null
+  if (!isGitHubHost(parsed.hostname)) return null
+
+  const pathSegments = parsed.pathname
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter(Boolean)
+
+  if (pathSegments.length < 2) return null
+  return buildGitHubRepoRef(pathSegments[0]!, pathSegments[1]!, remoteUrl)
+}
+
+function readGhHostEntries(payload: GhAuthStatusPayload, host: string): GhAuthStatusEntry[] {
+  const entries = payload.hosts?.[host]
+  return Array.isArray(entries) ? entries as GhAuthStatusEntry[] : []
+}
+
+function formatGhAuthEntry(entry: GhAuthStatusEntry): string {
+  const login = normalizeString(entry.login) ?? 'unknown account'
+  const state = normalizeString(entry.state) ?? 'unknown'
+  const error = normalizeString(entry.error)
+  return error ? `${login} (${state}): ${error}` : `${login} (${state})`
 }
 
 function normalizePullRequestState(record: GitHubPullRecord): PullRequestState | null {
@@ -196,35 +292,14 @@ export function readOriginRemoteUrl(projectPath: string): string | null {
 export function parseGitHubRemoteUrl(remoteUrl: string | null | undefined): GitHubRepoRef | null {
   const trimmed = typeof remoteUrl === 'string' ? remoteUrl.trim() : ''
   if (!trimmed) return null
-
-  const patterns = [
-    /^git@github\.com:(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?$/,
-    /^ssh:\/\/git@github\.com\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/,
-    /^https?:\/\/github\.com\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/,
-    /^git:\/\/github\.com\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern)
-    const owner = match?.groups?.owner?.trim()
-    const repo = match?.groups?.repo?.trim()
-    if (!owner || !repo) continue
-    return {
-      owner,
-      repo,
-      slug: `${owner}/${repo}`,
-      remoteUrl: trimmed,
-    }
-  }
-
-  return null
+  return parseScpLikeGitHubRemoteUrl(trimmed) ?? parseUrlLikeGitHubRemoteUrl(trimmed)
 }
 
 export function assertGitHubOrigin(projectPath: string): GitHubRepoRef {
   const remoteUrl = readOriginRemoteUrl(projectPath)
   const repo = parseGitHubRemoteUrl(remoteUrl)
   if (!repo) {
-    throw new Error('Project must have an origin remote that points to github.com.')
+    throw new Error('Project must have an origin remote that resolves to github.com.')
   }
   return repo
 }
@@ -234,8 +309,39 @@ export function isGhInstalled(): boolean {
 }
 
 export function getGhAuthStatus(): { ok: true } | { ok: false; error: string } {
-  const result = tryCommand('gh', ['auth', 'status', '--hostname', 'github.com'])
-  return result.ok ? { ok: true } : { ok: false, error: result.error }
+  const result = tryCommand('gh', ['auth', 'status', '--hostname', 'github.com', '--json', 'hosts'])
+  if (!result.ok) {
+    return { ok: false, error: result.error }
+  }
+
+  try {
+    const payload = JSON.parse(result.stdout) as GhAuthStatusPayload
+    const githubEntries = readGhHostEntries(payload, 'github.com')
+    const activeSuccessfulEntry = githubEntries.find((entry) => {
+      const state = normalizeString(entry.state)?.toLowerCase()
+      return entry.active === true && state === 'success'
+    })
+
+    if (activeSuccessfulEntry) {
+      return { ok: true }
+    }
+
+    const activeEntry = githubEntries.find((entry) => entry.active === true)
+    if (activeEntry) {
+      return { ok: false, error: formatGhAuthEntry(activeEntry) }
+    }
+
+    if (githubEntries.length > 0) {
+      return { ok: false, error: githubEntries.map(formatGhAuthEntry).join('; ') }
+    }
+
+    return { ok: false, error: 'No github.com auth entries found.' }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? `Failed to parse gh auth status JSON: ${error.message}` : 'Failed to parse gh auth status JSON.',
+    }
+  }
 }
 
 export function getGitHubRepoAccess(projectPath: string): { ok: true; repo: GitHubRepoRef } | { ok: false; error: string } {

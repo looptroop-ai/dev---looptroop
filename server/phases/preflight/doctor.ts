@@ -292,7 +292,7 @@ export async function runPreFlightChecks(
       result: githubRepo ? 'pass' : 'fail',
       message: githubRepo
         ? `GitHub origin detected: ${githubRepo.slug}`
-        : 'Origin remote must point to github.com',
+        : 'Origin remote must resolve to github.com',
     })
 
     // 11. GitHub CLI availability

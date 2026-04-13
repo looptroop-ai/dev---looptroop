@@ -98,7 +98,7 @@ projectRouter.get('/projects/check-git', (c) => {
         repoRoot: gitInfo.repoRoot,
         hasLoopTroopState: gitInfo.hasLoopTroopState ?? false,
         existingProject: gitInfo.existingProject ?? null,
-        message: 'Git repository found, but origin must point to github.com.',
+        message: 'Git repository found, but origin must resolve to github.com.',
       })
     }
 
@@ -186,7 +186,7 @@ projectRouter.post('/projects', async (c) => {
   if (!githubRepo) {
     return c.json({
       error: 'GitHub origin remote is required',
-      details: 'LoopTroop requires an origin remote that points to github.com before attaching a project.',
+      details: 'LoopTroop requires an origin remote that resolves to github.com before attaching a project.',
     }, 400)
   }
 
