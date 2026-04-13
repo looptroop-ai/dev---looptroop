@@ -345,6 +345,11 @@ describe('cleanup interventions', () => {
     expectIntervention(i, { code: 'cleanup_preserved_narrative_substantive', stage: 'normalize', category: 'cleanup' })
   })
 
+  it('maps preserved testCommands restoration', () => {
+    const i = deriveOne('Restored preserved Part 1 testCommands from the refined blueprint for expanded bead at index 2 (B-003) after drift in: testCommands[1].')
+    expectIntervention(i, { code: 'cleanup_preserved_test_commands', stage: 'normalize', category: 'cleanup' })
+  })
+
   it('maps converted change type', () => {
     const i = deriveOne('Converted interview refinement change at index 3 from "added" to "replaced" because Q5 already existed in the winning draft with different content.')
     expectIntervention(i, { code: 'cleanup_change_type_correction', stage: 'semantic_validation', category: 'cleanup' })

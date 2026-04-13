@@ -1230,6 +1230,18 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
     })
   }
 
+  if (/preserved.*testcommands/i.test(normalized)) {
+    return buildIntervention(warning, {
+      code: 'cleanup_preserved_test_commands',
+      stage: 'normalize',
+      category: 'cleanup',
+      title: 'Restored preserved test commands after drift',
+      summary: 'Part 1 testCommands changed during expansion and were restored from the canonical refined blueprint.',
+      why: 'Expansion may only change AI-owned fields, so preserved execution commands must remain identical to the validated blueprint.',
+      how: 'LoopTroop kept the expanded AI-owned fields, restored the canonical testCommands from the refined blueprint, and recorded the repair.',
+    })
+  }
+
   if (/preserved.*narrative fields/i.test(normalized) && /substantive drift/i.test(normalized)) {
     return buildIntervention(warning, {
       code: 'cleanup_preserved_narrative_substantive',

@@ -118,7 +118,7 @@ describe.concurrent('validateBeadExpansion', () => {
     )
   })
 
-  it('still fails when testCommands change', () => {
+  it('restores testCommands drift from the refined blueprint', () => {
     const subsets = buildSubsetBeads()
     const expanded = buildExpandedBeads(subsets)
     expanded[0] = {
@@ -126,9 +126,11 @@ describe.concurrent('validateBeadExpansion', () => {
       testCommands: ['npm run test:server -- --watch=false'],
     }
 
-    expect(() => validateBeadExpansion(subsets, expanded)).toThrow(
-      'Expanded bead at index 0 changed preserved Part 1 fields or order',
-    )
+    const warnings = validateBeadExpansion(subsets, expanded)
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('expanded bead at index 0')
+    expect(warnings[0]).toContain('testCommands[0]')
   })
 
   it('still fails when beads are reordered', () => {

@@ -75,6 +75,10 @@ interface PreservedNarrativeDrift {
   substantivePaths: string[]
 }
 
+interface PreservedFieldDrift extends PreservedNarrativeDrift {
+  commandPaths: string[]
+}
+
 function normalizeNarrativeText(value: string): string {
   return value
     .trim()
@@ -107,14 +111,28 @@ function collectNarrativeArrayDrift(fieldPath: string, left: string[], right: st
   return { cosmeticPaths, substantivePaths }
 }
 
-function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): PreservedNarrativeDrift | null {
+function collectPreservedCommandArrayDrift(fieldPath: string, left: string[], right: string[]): string[] {
+  if (compareExactStringArrays(left, right)) {
+    return []
+  }
+  if (left.length !== right.length) {
+    return [fieldPath]
+  }
+
+  const commandPaths: string[] = []
+  for (let index = 0; index < left.length; index += 1) {
+    if ((left[index] ?? '') !== (right[index] ?? '')) {
+      commandPaths.push(`${fieldPath}[${index}]`)
+    }
+  }
+  return commandPaths
+}
+
+function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): PreservedFieldDrift | null {
   if (subset.title !== bead.title) {
     return null
   }
   if (!compareExactStringArrays(subset.prdRefs, bead.prdRefs)) {
-    return null
-  }
-  if (!compareExactStringArrays(subset.testCommands, bead.testCommands)) {
     return null
   }
 
@@ -153,7 +171,9 @@ function collectPreservedFieldDrift(subset: BeadSubset, bead: Bead): PreservedNa
   cosmeticPaths.push(...testsDrift.cosmeticPaths)
   substantivePaths.push(...testsDrift.substantivePaths)
 
-  return { cosmeticPaths, substantivePaths }
+  const commandPaths = collectPreservedCommandArrayDrift('testCommands', subset.testCommands, bead.testCommands)
+
+  return { cosmeticPaths, substantivePaths, commandPaths }
 }
 
 function isProjectRelativePath(filePath: string): boolean {
@@ -193,6 +213,11 @@ export function validateBeadExpansion(subsetBeads: BeadSubset[], expandedBeads: 
     if (preservedFieldDrift.substantivePaths.length > 0) {
       repairWarnings.push(
         `Restored preserved Part 1 narrative fields from the refined blueprint for expanded bead at index ${index} (${subset.id}) after substantive drift in: ${preservedFieldDrift.substantivePaths.join(', ')}.`,
+      )
+    }
+    if (preservedFieldDrift.commandPaths.length > 0) {
+      repairWarnings.push(
+        `Restored preserved Part 1 testCommands from the refined blueprint for expanded bead at index ${index} (${subset.id}) after drift in: ${preservedFieldDrift.commandPaths.join(', ')}.`,
       )
     }
 
