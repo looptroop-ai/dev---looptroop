@@ -43,8 +43,8 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_prd'
   const cascadeWarningMessage = useMemo(
-    () => getCascadeEditWarningMessage(ticket.status, 'prd'),
-    [ticket.status],
+    () => getCascadeEditWarningMessage(ticket.status, 'prd', ticket.previousStatus),
+    [ticket.status, ticket.previousStatus],
   )
   const { data: persistedUiState } = useTicketUIState<PrdApprovalUiState>(ticket.id, uiStateScope, true)
   const { data: fetchedContent, isLoading, isFetching } = useQuery({

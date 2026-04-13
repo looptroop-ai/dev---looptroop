@@ -67,8 +67,8 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_interview'
   const cascadeWarningMessage = useMemo(
-    () => getCascadeEditWarningMessage(ticket.status, 'interview'),
-    [ticket.status],
+    () => getCascadeEditWarningMessage(ticket.status, 'interview', ticket.previousStatus),
+    [ticket.status, ticket.previousStatus],
   )
   const { data: persistedUiState } = useTicketUIState<InterviewApprovalUiState>(ticket.id, uiStateScope, true)
   const { data: interviewData, isLoading, isFetching } = useInterviewQuestions(ticket.id)

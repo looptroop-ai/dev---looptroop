@@ -39,7 +39,7 @@ function isReviewablePhase(
   return phaseIndex >= 0 && currentIndex >= 0 && phaseIndex < currentIndex
 }
 
-export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus: _previousStatus, reviewCutoffStatus, fullLogOpen }: ActiveWorkspaceProps) {
+export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrenceId, previousStatus, reviewCutoffStatus, fullLogOpen }: ActiveWorkspaceProps) {
   const { phases, phaseMap } = useWorkflowMeta()
   const phaseOrder = phases.map((phase) => phase.id)
   const phaseMeta = phaseMap[selectedPhase]
@@ -71,7 +71,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
     } else if (
       pastPhaseMeta?.uiView === 'approval'
       && pastPhaseMeta.reviewArtifactType
-      && isBeforeExecution(ticket.status)
+      && isBeforeExecution(ticket.status, previousStatus)
     ) {
       content = <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} />
     } else {

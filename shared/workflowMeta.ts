@@ -1202,7 +1202,10 @@ export const APPROVAL_PHASE_IDS = new Set(
   WORKFLOW_PHASES.filter((phase) => phase.uiView === 'approval' && phase.reviewArtifactType).map((phase) => phase.id),
 )
 
-export function isBeforeExecution(status: string): boolean {
+export function isBeforeExecution(status: string, previousStatus?: string | null): boolean {
+  if (status === 'BLOCKED_ERROR' && previousStatus) {
+    return isBeforeExecution(previousStatus)
+  }
   const index = WORKFLOW_PHASE_IDS.indexOf(status)
   const executionIndex = WORKFLOW_PHASE_IDS.indexOf('PRE_FLIGHT_CHECK')
   return index >= 0 && executionIndex >= 0 && index < executionIndex

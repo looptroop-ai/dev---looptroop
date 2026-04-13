@@ -40,18 +40,22 @@ function hasReachedStatus(currentStatus: string, targetStatus: string): boolean 
 export function getCascadeEditWarningMessage(
   currentStatus: string,
   artifactType: EditableArtifactType,
+  previousStatus?: string | null,
 ): string | null {
+  const effectiveStatus = currentStatus === 'BLOCKED_ERROR' && previousStatus
+    ? previousStatus
+    : currentStatus
   if (artifactType === 'beads') return null
 
   const affectedPhases: string[] = []
 
-  if (artifactType === 'interview' && hasReachedStatus(currentStatus, 'DRAFTING_BEADS')) {
+  if (artifactType === 'interview' && hasReachedStatus(effectiveStatus, 'DRAFTING_BEADS')) {
     affectedPhases.push('PRD')
   }
 
   const shouldWarnAboutBeads = artifactType === 'prd'
-    ? hasReachedStatus(currentStatus, 'DRAFTING_BEADS')
-    : hasReachedStatus(currentStatus, 'WAITING_BEADS_APPROVAL')
+    ? hasReachedStatus(effectiveStatus, 'DRAFTING_BEADS')
+    : hasReachedStatus(effectiveStatus, 'WAITING_BEADS_APPROVAL')
 
   if (shouldWarnAboutBeads) {
     affectedPhases.push('Beads')
