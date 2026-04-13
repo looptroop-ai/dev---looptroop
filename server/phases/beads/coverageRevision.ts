@@ -50,6 +50,11 @@ export interface BeadsCoverageRevisionArtifact {
   uiRefinementDiff: ReturnType<typeof buildBeadsUiRefinementDiffArtifact>
 }
 
+interface BeadLookup {
+  byId: Map<string, BeadSubset>
+  byTitle: Map<string, BeadSubset[]>
+}
+
 function buildBlueprintYaml(beads: BeadSubset[]): string {
   return buildYamlDocument({ beads })
 }
@@ -85,11 +90,47 @@ function parseCoverageRevisionRecord(rawContent: string): Record<string, unknown
 }
 
 function buildBeadLookup(beads: BeadSubset[]) {
-  return new Map(
-    beads
-      .filter((bead) => bead.id.trim() && bead.title.trim())
-      .map((bead) => [bead.id, bead] as const),
-  )
+  const byId = new Map<string, BeadSubset>()
+  const byTitle = new Map<string, BeadSubset[]>()
+
+  for (const bead of beads.filter((entry) => entry.id.trim() && entry.title.trim())) {
+    byId.set(bead.id, bead)
+    const titleMatches = byTitle.get(bead.title) ?? []
+    titleMatches.push(bead)
+    byTitle.set(bead.title, titleMatches)
+  }
+
+  return { byId, byTitle } satisfies BeadLookup
+}
+
+function normalizeBeadsAffectedItemType(value: unknown): 'bead' | null {
+  if (typeof value !== 'string') return null
+  const normalized = normalizeKey(value)
+  return normalized === 'bead' || normalized === 'beads' ? 'bead' : null
+}
+
+function inferBeadsAffectedItemType(
+  id: string,
+  label: string,
+  priorLookup: BeadLookup,
+  revisedLookup: BeadLookup,
+): 'bead' | null {
+  if (id && (revisedLookup.byId.has(id) || priorLookup.byId.has(id))) {
+    return 'bead'
+  }
+
+  if (label) {
+    const matches = [
+      ...(revisedLookup.byTitle.get(label) ?? []),
+      ...(priorLookup.byTitle.get(label) ?? []),
+    ]
+    const uniqueIds = [...new Set(matches.map((bead) => bead.id))]
+    if (uniqueIds.length === 1) {
+      return 'bead'
+    }
+  }
+
+  return null
 }
 
 function parseGapResolutions(
@@ -148,21 +189,28 @@ function parseGapResolutions(
           if (!isRecord(item)) {
             throw new Error(`Beads coverage affected_items entry at gap "${gap}" index ${itemIndex} is not an object`)
           }
-          const itemType = normalizeKey(String(getValueByAliases(item, ['item_type', 'itemtype']) ?? ''))
-          if (itemType !== 'bead') {
-            throw new Error(`Beads coverage affected_items entry at gap "${gap}" index ${itemIndex} must use item_type bead`)
-          }
           const id = typeof getValueByAliases(item, ['id']) === 'string'
             ? String(getValueByAliases(item, ['id'])).trim()
             : ''
           const label = typeof getValueByAliases(item, ['label', 'title']) === 'string'
             ? String(getValueByAliases(item, ['label', 'title'])).trim()
             : ''
+          let itemType = normalizeBeadsAffectedItemType(getValueByAliases(item, ['item_type', 'itemtype']))
+          if (!itemType) {
+            const inferredItemType = inferBeadsAffectedItemType(id, label, priorLookup, revisedLookup)
+            if (inferredItemType) {
+              itemType = inferredItemType
+              repairWarnings.push(`Inferred missing beads coverage affected_items item_type at gap "${gap}" index ${itemIndex} as bead.`)
+            }
+          }
+          if (itemType !== 'bead') {
+            throw new Error(`Beads coverage affected_items entry at gap "${gap}" index ${itemIndex} must use item_type bead`)
+          }
           if (!id || !label) {
             throw new Error(`Beads coverage affected_items entry at gap "${gap}" index ${itemIndex} requires id and label`)
           }
 
-          const canonical = revisedLookup.get(id) ?? priorLookup.get(id)
+          const canonical = revisedLookup.byId.get(id) ?? priorLookup.byId.get(id)
           if (!canonical) {
             throw new Error(`Beads coverage affected_items entry at gap "${gap}" references unknown bead ${id}`)
           }
@@ -322,6 +370,7 @@ export function buildBeadsCoverageRevisionRetryPrompt(
         '- Preserve existing bead order and IDs unless a provided gap requires a concrete change.',
         '- Every bead must include non-empty `acceptanceCriteria`, `tests`, and `testCommands`.',
         '- Use `affected_items` only for bead references. Leave it empty when no bead mapping applies.',
+        '- If a gap does not map cleanly to one or more specific beads, use `affected_items: []` and do not emit PRD refs, section names, or non-bead item types.',
         '',
         'Previous invalid response:',
         '```yaml',

@@ -128,6 +128,7 @@ describe.concurrent('structured prompt hardening', () => {
     const coverageResolutionPrompt = buildPromptFromTemplate(PROM13b, [])
     expect(coverageResolutionPrompt).toContain('Every epic in the revised PRD must include at least one fully populated `user_stories` entry')
     expect(coverageResolutionPrompt).toContain('making the affected acceptance criteria, scope language, or verification guidance more concrete and testable')
+    expect(coverageResolutionPrompt).toContain('If a gap updates top-level PRD sections such as `product`, `scope`, `technical_requirements`, or `api_contracts`, keep `affected_items: []`')
   })
 
   it('keeps PROM10a strict about preserving user answers and outputting only a full interview artifact', () => {
@@ -200,6 +201,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(coverageResolutionPrompt).toContain('top-level `gap_resolutions` list with exactly one entry per provided gap')
     expect(coverageResolutionPrompt).toContain('`action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`')
     expect(coverageResolutionPrompt).toContain('top-level `beads` list')
+    expect(coverageResolutionPrompt).toContain('If a gap does not map cleanly to one or more specific beads, keep `affected_items: []`')
   })
 
   it('requires the bead subset schema consistently in draft and refine prompts', () => {

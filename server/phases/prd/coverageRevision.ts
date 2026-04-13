@@ -52,29 +52,113 @@ export interface PrdCoverageRevisionArtifact {
   structuredOutput?: StructuredOutputMetadata
 }
 
+interface PrdCoverageLookupItem extends RefinementChangeItem {
+  itemType: 'epic' | 'user_story'
+}
+
+interface PrdCoverageItemLookup {
+  byTypedId: Map<string, PrdCoverageLookupItem>
+  byId: Map<string, PrdCoverageLookupItem[]>
+}
+
+const PRD_SECTION_REFERENCE_KEYS = new Set([
+  'prd',
+  'section',
+  'sections',
+  'product',
+  'scope',
+  'technicalrequirements',
+  'architectureconstraints',
+  'datamodel',
+  'apicontracts',
+  'securityconstraints',
+  'performanceconstraints',
+  'reliabilityconstraints',
+  'errorhandlingrules',
+  'toolingassumptions',
+  'risks',
+  'approval',
+])
+
 function buildItemLookupFromContent(content: string) {
   const normalized = normalizePrdYamlOutput(content, { ticketId: 'lookup', interviewContent: minimalInterviewContent })
-  if (!normalized.ok) return new Map<string, RefinementChangeItem>()
-  const items = new Map<string, RefinementChangeItem>()
+  if (!normalized.ok) {
+    return {
+      byTypedId: new Map<string, PrdCoverageLookupItem>(),
+      byId: new Map<string, PrdCoverageLookupItem[]>(),
+    } satisfies PrdCoverageItemLookup
+  }
+
+  const byTypedId = new Map<string, PrdCoverageLookupItem>()
+  const byId = new Map<string, PrdCoverageLookupItem[]>()
+
+  const addItem = (item: PrdCoverageLookupItem) => {
+    byTypedId.set(`${item.itemType}\u241f${item.id}`, item)
+    const idMatches = byId.get(item.id) ?? []
+    idMatches.push(item)
+    byId.set(item.id, idMatches)
+  }
+
   for (const epic of normalized.value.epics) {
-    items.set(`epic\u241f${epic.id}`, { id: epic.id, label: epic.title, detail: epic.objective })
+    addItem({
+      itemType: 'epic',
+      id: epic.id,
+      label: epic.title,
+      detail: epic.objective,
+    })
     for (const story of epic.user_stories) {
-      items.set(`user_story\u241f${story.id}`, {
+      addItem({
+        itemType: 'user_story',
         id: story.id,
         label: story.title,
         detail: story.acceptance_criteria[0] || story.implementation_steps[0] || '',
       })
     }
   }
-  return items
+
+  return { byTypedId, byId }
 }
 
 function normalizeAffectedItemType(value: unknown): 'epic' | 'user_story' | null {
   if (typeof value !== 'string') return null
   const normalized = normalizeKey(value)
-  if (normalized === 'epic') return 'epic'
-  if (normalized === 'userstory' || normalized === 'userstories' || normalized === 'user_story') return 'user_story'
+  if (normalized === 'epic' || normalized === 'epics') return 'epic'
+  if (normalized === 'story' || normalized === 'stories' || normalized === 'userstory' || normalized === 'userstories' || normalized === 'user_story') return 'user_story'
   return null
+}
+
+function inferAffectedItemType(
+  id: string,
+  priorItems: PrdCoverageItemLookup,
+  revisedItems: PrdCoverageItemLookup,
+): 'epic' | 'user_story' | null {
+  if (!id) return null
+
+  const matches = [
+    ...(revisedItems.byId.get(id) ?? []),
+    ...(priorItems.byId.get(id) ?? []),
+  ]
+  const uniqueTypes = [...new Set(matches.map((item) => item.itemType))]
+  if (uniqueTypes.length === 1) {
+    return uniqueTypes[0]!
+  }
+
+  if (/^epic-/i.test(id)) return 'epic'
+  if (/^us-/i.test(id)) return 'user_story'
+  return null
+}
+
+function isPrdSectionReference(rawItemType: unknown, id: string, label: string): boolean {
+  const candidates = [
+    typeof rawItemType === 'string' ? rawItemType : '',
+    id,
+    label,
+  ]
+
+  return candidates.some((candidate) => {
+    const normalized = normalizeKey(candidate)
+    return normalized.length > 0 && PRD_SECTION_REFERENCE_KEYS.has(normalized)
+  })
 }
 
 function parseCoverageRevisionRecord(rawContent: string): Record<string, unknown> {
@@ -153,22 +237,35 @@ function parseGapResolutions(
           if (!isRecord(item)) {
             throw new Error(`PRD coverage affected_items entry at gap "${gap}" index ${itemIndex} is not an object`)
           }
-          const itemType = normalizeAffectedItemType(getValueByAliases(item, ['item_type', 'itemtype']))
-          if (!itemType) {
-            throw new Error(`PRD coverage affected_items entry at gap "${gap}" index ${itemIndex} is missing item_type`)
-          }
           const id = typeof getValueByAliases(item, ['id']) === 'string'
             ? String(getValueByAliases(item, ['id'])).trim()
             : ''
           const label = typeof getValueByAliases(item, ['label', 'title']) === 'string'
             ? String(getValueByAliases(item, ['label', 'title'])).trim()
             : ''
+          const rawItemType = getValueByAliases(item, ['item_type', 'itemtype'])
+          let itemType = normalizeAffectedItemType(rawItemType)
+          if (!itemType) {
+            const inferredItemType = inferAffectedItemType(id, priorItems, revisedItems)
+            if (inferredItemType) {
+              itemType = inferredItemType
+              repairWarnings.push(`Inferred missing PRD coverage affected_items item_type at gap "${gap}" index ${itemIndex} as ${itemType}.`)
+            }
+          }
+          if (!itemType) {
+            if (isPrdSectionReference(rawItemType, id, label)) {
+              const reference = id || label || String(rawItemType ?? '[missing]')
+              repairWarnings.push(`Ignored PRD coverage affected_items entry at gap "${gap}" index ${itemIndex} because "${reference}" refers to a PRD section and affected_items only supports epic or user_story references.`)
+              return []
+            }
+            throw new Error(`PRD coverage affected_items entry at gap "${gap}" index ${itemIndex} is missing item_type`)
+          }
           if (!id || !label) {
             throw new Error(`PRD coverage affected_items entry at gap "${gap}" index ${itemIndex} requires id and label`)
           }
 
           const lookupKey = `${itemType}\u241f${id}`
-          const canonical = revisedItems.get(lookupKey) ?? priorItems.get(lookupKey)
+          const canonical = revisedItems.byTypedId.get(lookupKey) ?? priorItems.byTypedId.get(lookupKey)
           if (!canonical) {
             throw new Error(`PRD coverage affected_items entry at gap "${gap}" references unknown ${itemType} ${id}`)
           }
@@ -333,6 +430,7 @@ export function buildPrdCoverageRevisionRetryPrompt(
         '- Preserve epic IDs and user story IDs unless the revised candidate contains a genuinely new item.',
         '- If a gap was already covered, keep the PRD unchanged for that gap and record `action: already_covered`.',
         '- Use `affected_items` only for epic or user_story references. Leave it empty when no epic/story mapping applies.',
+        '- If a gap updates top-level PRD sections such as `product`, `scope`, `technical_requirements`, or `api_contracts`, use `affected_items: []` instead of section references like `item_type: prd`.',
         '',
         'Previous invalid response:',
         '```',
