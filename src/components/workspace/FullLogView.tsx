@@ -418,7 +418,7 @@ export function FullLogView({ ticket }: FullLogViewProps) {
 
     if (viewChanged) {
       autoScrollEnabledRef.current = true
-      setIsAutoScroll(true)
+      queueMicrotask(() => setIsAutoScroll(true))
     }
 
     if (hasLogs && (viewChanged || (visibleTailChanged && autoScrollEnabledRef.current))) {

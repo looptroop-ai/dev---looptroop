@@ -37,6 +37,19 @@ export default defineConfig({
       '/api': {
         target: backendOrigin,
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            if ('code' in err && err.code === 'ECONNREFUSED') {
+              // Backend not ready yet — return 503 silently so the
+              // client-side health poller can retry without noisy logs.
+              if (res && 'writeHead' in res) {
+                (res as import('http').ServerResponse).writeHead(503, { 'Content-Type': 'application/json' })
+                ;(res as import('http').ServerResponse).end(JSON.stringify({ error: 'Backend not ready' }))
+              }
+              return
+            }
+          })
+        },
       },
     },
   },

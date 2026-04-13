@@ -297,6 +297,7 @@ describe('executeFinalTestWithRetries', () => {
           commands: [`npm run test:final --attempt=${attempts}`],
           summary: 'verify final behavior',
           testFiles: ['src/final.test.ts'],
+          modifiedFiles: ['src/final.test.ts'],
           testsCount: 1,
           errors: [],
           repairApplied: false,

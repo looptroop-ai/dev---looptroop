@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
 import type { LogContextValue, LogEntry } from '@/context/logUtils'
@@ -56,7 +57,9 @@ function renderCoding(overrides: CodingTestOverrides = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <CodingView ticket={ticket} />
+      <TooltipProvider>
+        <CodingView ticket={ticket} />
+      </TooltipProvider>
     </QueryClientProvider>,
   )
 }
@@ -444,7 +447,9 @@ describe('CodingView', () => {
       const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
       render(
         <QueryClientProvider client={qc}>
-          <CodingView ticket={baseTicket} readOnly />
+          <TooltipProvider>
+            <CodingView ticket={baseTicket} readOnly />
+          </TooltipProvider>
         </QueryClientProvider>,
       )
 

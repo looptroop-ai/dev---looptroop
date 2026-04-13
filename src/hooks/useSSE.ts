@@ -32,7 +32,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
   }, [onEvent])
 
   useEffect(() => {
-    setConnectionState(ticketId ? 'connecting' : 'connected')
+    queueMicrotask(() => setConnectionState(ticketId ? 'connecting' : 'connected'))
   }, [ticketId])
 
   const scheduleReconnect = useCallback(() => {
@@ -189,7 +189,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
   }, [connect])
 
   useEffect(() => {
-    connect()
+    queueMicrotask(connect)
     return () => {
       connectTokenRef.current += 1
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)

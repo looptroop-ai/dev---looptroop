@@ -1,9 +1,13 @@
 import { execFileSync } from 'node:child_process'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { writeFileSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createFixtureRepoManager } from '../../../test/fixtureRepo'
 import { completeManualVerificationMerge } from '../manual'
+
+vi.mock('../../../git/push', () => ({
+  pushBranchRef: () => ({ pushed: true }),
+}))
 
 const repoManager = createFixtureRepoManager({
   templatePrefix: 'looptroop-manual-verification-',

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import type { Ticket } from '@/hooks/useTickets'
 
 const { useLogsMock } = vi.hoisted(() => ({
@@ -55,7 +56,9 @@ function renderCoding(overrides: CodingTestOverrides = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <CodingView ticket={ticket} />
+      <TooltipProvider>
+        <CodingView ticket={ticket} />
+      </TooltipProvider>
     </QueryClientProvider>,
   )
 }
@@ -79,6 +82,7 @@ describe('CodingView hover cards', () => {
     it('renders PRD ref codes with cursor-help styling when bead has prdRefs', () => {
       renderCoding({
         runtime: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, prdRefs: ['E1', 'US1.1'] } as any],
         },
       })
@@ -101,6 +105,7 @@ describe('CodingView hover cards', () => {
     it('renders labels as badges with cursor-help styling', () => {
       renderCoding({
         runtime: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, labels: ['frontend', 'auth'] } as any],
         },
       })
@@ -123,6 +128,7 @@ describe('CodingView hover cards', () => {
       renderCoding({
         runtime: {
           beads: [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, dependencies: { blocked_by: ['bead-2'], blocks: [] } } as any,
             { id: 'bead-2', title: 'Blocker Bead', status: 'done', iteration: 1 },
           ],
@@ -140,6 +146,7 @@ describe('CodingView hover cards', () => {
       renderCoding({
         runtime: {
           beads: [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, dependencies: { blocked_by: [], blocks: ['bead-3'] } } as any,
             { id: 'bead-3', title: 'Downstream Bead', status: 'pending', iteration: 0 },
           ],
@@ -158,6 +165,7 @@ describe('CodingView hover cards', () => {
     it('renders target files as code elements with copy button', () => {
       renderCoding({
         runtime: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, targetFiles: ['src/app.ts', 'src/utils.ts'] } as any],
         },
       })
@@ -174,10 +182,15 @@ describe('CodingView hover cards', () => {
 
     it('copies file path to clipboard when copy button is clicked', async () => {
       const writeTextSpy = vi.fn().mockResolvedValue(undefined)
-      Object.assign(navigator, { clipboard: { writeText: writeTextSpy } })
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextSpy },
+        writable: true,
+        configurable: true,
+      })
 
       renderCoding({
         runtime: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, targetFiles: ['src/main.ts'] } as any],
         },
       })

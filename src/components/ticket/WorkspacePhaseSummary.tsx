@@ -191,7 +191,10 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
   const logCtx = useLogs()
   const shouldTrackCoverageVersion = isCoveragePhase(phase)
   const { artifacts } = useTicketArtifacts(ticket.id, { skipFetch: !shouldTrackCoverageVersion })
-  const phaseLogs = shouldTrackCoverageVersion && logCtx ? logCtx.getLogsForPhase(phase) : []
+  const phaseLogs = useMemo(
+    () => shouldTrackCoverageVersion && logCtx ? logCtx.getLogsForPhase(phase) : [],
+    [shouldTrackCoverageVersion, logCtx, phase],
+  )
   const phaseActivationTimestamp = shouldTrackCoverageVersion
     ? findLatestPhaseActivationTimestamp(phase, phaseLogs)
     : undefined
