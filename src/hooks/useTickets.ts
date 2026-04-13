@@ -30,6 +30,10 @@ interface TicketRuntime {
   candidateCommitSha: string | null
   preSquashHead: string | null
   finalTestStatus: 'passed' | 'failed' | 'pending'
+  prNumber?: number | null
+  prUrl?: string | null
+  prState?: 'draft' | 'open' | 'merged' | 'closed' | null
+  prHeadSha?: string | null
 }
 
 export interface Ticket {
@@ -50,6 +54,7 @@ export interface Ticket {
   errorOccurrences?: TicketErrorOccurrence[]
   activeErrorOccurrenceId?: string | null
   hasPastErrors?: boolean
+  completionDisposition?: 'merged' | 'closed_unmerged' | null
   lockedMainImplementer: string | null
   lockedMainImplementerVariant?: string | null
   lockedInterviewQuestions?: number | null
@@ -144,8 +149,17 @@ async function updateTicket(id: string, input: Partial<Pick<Ticket, 'title' | 'd
   return res.json()
 }
 
-async function ticketAction(id: string, action: 'start' | 'approve' | 'cancel' | 'retry' | 'verify'): Promise<TicketActionResponse> {
-  const res = await fetch(`/api/tickets/${id}/${action}`, { method: 'POST' })
+function getTicketActionPath(id: string, action: WorkflowAction): string {
+  switch (action) {
+    case 'close_unmerged':
+      return `/api/tickets/${id}/close-unmerged`
+    default:
+      return `/api/tickets/${id}/${action}`
+  }
+}
+
+async function ticketAction(id: string, action: WorkflowAction): Promise<TicketActionResponse> {
+  const res = await fetch(getTicketActionPath(id, action), { method: 'POST' })
   if (!res.ok) {
     const err = await res.json()
     throw new Error(err.error || `Failed to ${action} ticket`)
@@ -261,7 +275,7 @@ export function useUpdateTicket() {
 export function useTicketAction() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'start' | 'approve' | 'cancel' | 'retry' | 'verify' }) =>
+    mutationFn: ({ id, action }: { id: string; action: WorkflowAction }) =>
       ticketAction(id, action),
     onSuccess: (result, variables) => {
       if (result.ticket) {

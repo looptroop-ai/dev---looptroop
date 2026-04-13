@@ -51,10 +51,10 @@ export function prepareSquashCandidate(
     const commitCount = Number(runGit(['rev-list', '--count', `${mergeBase}..HEAD`]))
 
     runGit(['reset', '--soft', mergeBase])
-    runGit(['add', '-v', '-u'])
+    runGit(['add', '-v', '-u', '--', '.', ':(top,exclude).ticket'])
     const explicitFiles = [...new Set(extraFilesToStage.filter((file) => file.trim().length > 0))]
     if (explicitFiles.length > 0) {
-      runGit(['add', '-v', '--', ...explicitFiles])
+      runGit(['add', '-v', '--', ...explicitFiles.filter((file) => !file.startsWith('.ticket/'))])
     }
 
     const stagedChanges = runGit(['status', '--porcelain'])

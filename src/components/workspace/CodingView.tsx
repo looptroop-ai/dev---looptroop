@@ -644,7 +644,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
     errorMessage: ticket.errorMessage,
   })
   const isCompleted = readOnly || ticket.status === 'COMPLETED'
-  const isAwaitingManualVerification = !readOnly && ticket.status === 'WAITING_MANUAL_VERIFICATION'
+  const isAwaitingManualVerification = !readOnly && ticket.status === 'WAITING_PR_REVIEW'
   const viewedBead = useMemo(
     () => beads.find((bead) => bead.id === viewingBeadId) ?? null,
     [beads, viewingBeadId],
@@ -694,8 +694,8 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
       {isAwaitingManualVerification && (
         <VerificationSummaryPanel
           ticket={ticket}
-          onVerify={() => performAction({ id: ticket.id, action: 'verify' })}
-          onCancel={() => performAction({ id: ticket.id, action: 'cancel' })}
+          onMerge={() => performAction({ id: ticket.id, action: 'merge' })}
+          onCloseUnmerged={() => performAction({ id: ticket.id, action: 'close_unmerged' })}
           isPending={isPending}
         />
       )}

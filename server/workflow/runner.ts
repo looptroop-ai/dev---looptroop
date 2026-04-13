@@ -59,6 +59,7 @@ import {
 
   // Integration phase
   handleIntegration,
+  handleCreatePullRequest,
 
   // Cleanup phase
   handleCleanup,
@@ -135,6 +136,9 @@ async function handleMockLifecycleState(
       return
     case 'INTEGRATING_CHANGES':
       await handleMockExecutionUnsupported(ticketId, context, 'INTEGRATING_CHANGES', sendEvent)
+      return
+    case 'CREATING_PULL_REQUEST':
+      await handleMockExecutionUnsupported(ticketId, context, 'CREATING_PULL_REQUEST', sendEvent)
       return
     case 'CLEANING_ENV':
       await handleMockExecutionUnsupported(ticketId, context, 'CLEANING_ENV', sendEvent)
@@ -221,6 +225,7 @@ export function attachWorkflowRunner(
         'CODING',
         'RUNNING_FINAL_TEST',
         'INTEGRATING_CHANGES',
+        'CREATING_PULL_REQUEST',
         'CLEANING_ENV',
       ])
 
@@ -477,6 +482,18 @@ export function attachWorkflowRunner(
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['INTEGRATION_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'CREATING_PULL_REQUEST') {
+      runningPhases.add(key)
+      handleCreatePullRequest(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          emitPhaseLog(ticketId, context.externalId, 'CREATING_PULL_REQUEST', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['PULL_REQUEST_FAILED'] })
         })
         .finally(() => {
           runningPhases.delete(key)

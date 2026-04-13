@@ -1674,7 +1674,7 @@ describe('ArtifactContentViewer', () => {
     render(
       <ArtifactContent
         artifactId="commit-summary"
-        phase="WAITING_MANUAL_VERIFICATION"
+        phase="WAITING_PR_REVIEW"
         content={JSON.stringify({
           status: 'passed',
           completedAt: '2026-04-10T15:54:47.116Z',
@@ -1760,7 +1760,7 @@ describe('ArtifactContentViewer', () => {
     render(
       <ArtifactContent
         artifactId="commit-summary"
-        phase="WAITING_MANUAL_VERIFICATION"
+        phase="WAITING_PR_REVIEW"
         content="not valid integration json"
       />,
     )

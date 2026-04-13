@@ -1198,7 +1198,7 @@ export function getArtifactTargetPhases(phase: string): string[] {
     WAITING_INTERVIEW_APPROVAL: ['VERIFYING_INTERVIEW_COVERAGE', 'WAITING_INTERVIEW_ANSWERS', 'COMPILING_INTERVIEW'],
     WAITING_PRD_APPROVAL: ['VERIFYING_PRD_COVERAGE', 'REFINING_PRD'],
     WAITING_BEADS_APPROVAL: ['VERIFYING_BEADS_COVERAGE', 'REFINING_BEADS'],
-    WAITING_MANUAL_VERIFICATION: ['WAITING_MANUAL_VERIFICATION', 'INTEGRATING_CHANGES', 'RUNNING_FINAL_TEST', 'CODING'],
+    WAITING_PR_REVIEW: ['WAITING_PR_REVIEW', 'CREATING_PULL_REQUEST', 'INTEGRATING_CHANGES', 'RUNNING_FINAL_TEST', 'CODING'],
   }
 
   return phaseMap[phase] || [phase]
@@ -1258,6 +1258,8 @@ export function resolveStaticArtifact(
       return findExactType('final_test_report')
     case 'commit-summary':
       return findExactType('integration_report')
+    case 'pull-request-report':
+      return findExactType('pull_request_report')
     case 'cleanup-report':
       return findExactType('cleanup_report')
   }

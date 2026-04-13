@@ -377,10 +377,10 @@ describe('CodingView', () => {
     expect(screen.queryByText(/hidden debug row/)).toBeNull()
   })
 
-  describe('WAITING_MANUAL_VERIFICATION', () => {
-    it('renders VerificationSummaryPanel when status is WAITING_MANUAL_VERIFICATION', () => {
+  describe('WAITING_PR_REVIEW', () => {
+    it('renders VerificationSummaryPanel when status is WAITING_PR_REVIEW', () => {
       renderCoding({
-        status: 'WAITING_MANUAL_VERIFICATION',
+        status: 'WAITING_PR_REVIEW',
         runtime: {
           baseBranch: 'main',
           currentBead: 3,
@@ -393,6 +393,10 @@ describe('CodingView', () => {
           candidateCommitSha: 'abc123',
           preSquashHead: 'old789',
           finalTestStatus: 'passed',
+          prNumber: 42,
+          prUrl: 'https://github.com/test/repo/pull/42',
+          prState: 'draft',
+          prHeadSha: 'abc123',
           beads: [],
         },
       })
@@ -424,7 +428,7 @@ describe('CodingView', () => {
 
     it('does not render VerificationSummaryPanel in readOnly mode', () => {
       const baseTicket = makeTicket({
-        status: 'WAITING_MANUAL_VERIFICATION',
+        status: 'WAITING_PR_REVIEW',
         runtime: {
           baseBranch: 'main',
           currentBead: 3,
@@ -441,6 +445,10 @@ describe('CodingView', () => {
           candidateCommitSha: 'abc123',
           preSquashHead: 'old789',
           finalTestStatus: 'passed',
+          prNumber: 42,
+          prUrl: 'https://github.com/test/repo/pull/42',
+          prState: 'draft',
+          prHeadSha: 'abc123',
           beads: [],
         },
       })

@@ -331,20 +331,34 @@ export const ticketMachine = setup({
         { type: 'updateStatus', params: { status: 'INTEGRATING_CHANGES' } },
       ],
       on: {
-        INTEGRATION_DONE: { target: 'WAITING_MANUAL_VERIFICATION' },
+        INTEGRATION_DONE: { target: 'CREATING_PULL_REQUEST' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
     },
-    WAITING_MANUAL_VERIFICATION: {
+    CREATING_PULL_REQUEST: {
       entry: [
         {
           type: 'updateStatus',
-          params: { status: 'WAITING_MANUAL_VERIFICATION' },
+          params: { status: 'CREATING_PULL_REQUEST' },
         },
       ],
       on: {
-        VERIFY_COMPLETE: { target: 'CLEANING_ENV' },
+        PULL_REQUEST_READY: { target: 'WAITING_PR_REVIEW' },
+        ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        CANCEL: { target: 'CANCELED' },
+      },
+    },
+    WAITING_PR_REVIEW: {
+      entry: [
+        {
+          type: 'updateStatus',
+          params: { status: 'WAITING_PR_REVIEW' },
+        },
+      ],
+      on: {
+        MERGE_COMPLETE: { target: 'CLEANING_ENV' },
+        CLOSE_UNMERGED_COMPLETE: { target: 'CLEANING_ENV' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -387,7 +401,8 @@ export const ticketMachine = setup({
           { guard: ({ context }) => context.previousStatus === 'CODING', target: 'CODING' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'RUNNING_FINAL_TEST', target: 'RUNNING_FINAL_TEST' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'INTEGRATING_CHANGES', target: 'INTEGRATING_CHANGES' as const, actions: ['clearError'] },
-          { guard: ({ context }) => context.previousStatus === 'WAITING_MANUAL_VERIFICATION', target: 'WAITING_MANUAL_VERIFICATION' as const, actions: ['clearError'] },
+          { guard: ({ context }) => context.previousStatus === 'CREATING_PULL_REQUEST', target: 'CREATING_PULL_REQUEST' as const, actions: ['clearError'] },
+          { guard: ({ context }) => context.previousStatus === 'WAITING_PR_REVIEW', target: 'WAITING_PR_REVIEW' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'CLEANING_ENV', target: 'CLEANING_ENV' as const, actions: ['clearError'] },
           { target: 'DRAFT' as const, actions: ['clearError'] },
         ],
@@ -408,4 +423,3 @@ export const ticketMachine = setup({
     },
   },
 })
-

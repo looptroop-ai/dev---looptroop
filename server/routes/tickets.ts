@@ -17,6 +17,8 @@ import {
   handleApproveInterview,
   handleApprovePrd,
   handleApproveBeads,
+  handleMergeTicket,
+  handleCloseUnmergedTicket,
   handleVerifyTicket,
   handleRetryTicket,
   handleDevEvent,
@@ -47,6 +49,8 @@ ticketRouter.put('/tickets/:id/interview-answers', async (c) => handlePutIntervi
 ticketRouter.post('/tickets/:id/approve-interview', (c) => handleApproveInterview(c))
 ticketRouter.post('/tickets/:id/approve-prd', (c) => handleApprovePrd(c))
 ticketRouter.post('/tickets/:id/approve-beads', (c) => handleApproveBeads(c))
+ticketRouter.post('/tickets/:id/merge', (c) => handleMergeTicket(c))
+ticketRouter.post('/tickets/:id/close-unmerged', (c) => handleCloseUnmergedTicket(c))
 ticketRouter.post('/tickets/:id/verify', (c) => handleVerifyTicket(c))
 ticketRouter.post('/tickets/:id/retry', (c) => handleRetryTicket(c))
 ticketRouter.post('/tickets/:id/dev-event', async (c) => handleDevEvent(c))

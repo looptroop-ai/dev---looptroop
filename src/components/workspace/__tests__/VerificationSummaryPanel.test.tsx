@@ -18,10 +18,10 @@ import { VerificationSummaryPanel } from '../VerificationSummaryPanel'
 
 function renderPanel(
   overrides: Parameters<typeof makeTicket>[0] = {},
-  actions = { onVerify: vi.fn(), onCancel: vi.fn(), isPending: false },
+  actions = { onMerge: vi.fn(), onCloseUnmerged: vi.fn(), isPending: false },
 ) {
   const ticket = makeTicket({
-    status: 'WAITING_MANUAL_VERIFICATION',
+    status: 'WAITING_PR_REVIEW',
     branchName: 'feat/test-branch',
     ...overrides,
     runtime: {
@@ -40,6 +40,10 @@ function renderPanel(
       candidateCommitSha: 'abc123def456',
       preSquashHead: 'old789hash',
       finalTestStatus: 'passed',
+      prNumber: 42,
+      prUrl: 'https://github.com/test/repo/pull/42',
+      prState: 'draft',
+      prHeadSha: 'abc123def456',
       beads: [],
       ...(overrides as Record<string, unknown>).runtime as Record<string, unknown> ?? {},
     },
@@ -67,7 +71,7 @@ afterEach(() => {
 describe('VerificationSummaryPanel', () => {
   it('renders the verification header', () => {
     renderPanel()
-    expect(screen.getByText('Manual Verification Required')).toBeTruthy()
+    expect(screen.getByText('Draft PR Review Required')).toBeTruthy()
   })
 
   it('shows branch name and base branch', () => {
@@ -97,26 +101,26 @@ describe('VerificationSummaryPanel', () => {
     expect(screen.getByText('/5')).toBeTruthy()
   })
 
-  it('calls onVerify when Mark Verified is clicked', () => {
-    const onVerify = vi.fn()
-    renderPanel({}, { onVerify, onCancel: vi.fn(), isPending: false })
-    fireEvent.click(screen.getByText('Mark Verified'))
-    expect(onVerify).toHaveBeenCalledOnce()
+  it('calls onMerge when Merge PR & Finish is clicked', () => {
+    const onMerge = vi.fn()
+    renderPanel({}, { onMerge, onCloseUnmerged: vi.fn(), isPending: false })
+    fireEvent.click(screen.getByText('Merge PR & Finish'))
+    expect(onMerge).toHaveBeenCalledOnce()
   })
 
-  it('calls onCancel when Cancel is clicked', () => {
-    const onCancel = vi.fn()
-    renderPanel({}, { onVerify: vi.fn(), onCancel, isPending: false })
-    fireEvent.click(screen.getByText('Cancel'))
-    expect(onCancel).toHaveBeenCalledOnce()
+  it('calls onCloseUnmerged when Finish Without Merge is clicked', () => {
+    const onCloseUnmerged = vi.fn()
+    renderPanel({}, { onMerge: vi.fn(), onCloseUnmerged, isPending: false })
+    fireEvent.click(screen.getByText('Finish Without Merge'))
+    expect(onCloseUnmerged).toHaveBeenCalledOnce()
   })
 
   it('disables buttons when isPending is true', () => {
-    renderPanel({}, { onVerify: vi.fn(), onCancel: vi.fn(), isPending: true })
-    const verifyBtn = screen.getByText('Verifying').closest('button')
-    const cancelBtn = screen.getByText('Cancel').closest('button')
-    expect(verifyBtn?.disabled).toBe(true)
-    expect(cancelBtn?.disabled).toBe(true)
+    renderPanel({}, { onMerge: vi.fn(), onCloseUnmerged: vi.fn(), isPending: true })
+    const mergeBtn = screen.getByText('Merging').closest('button')
+    const closeBtn = screen.getByText('Finish Without Merge').closest('button')
+    expect(mergeBtn?.disabled).toBe(true)
+    expect(closeBtn?.disabled).toBe(true)
   })
 
   it('falls back to externalId when branchName is null', () => {
@@ -124,19 +128,9 @@ describe('VerificationSummaryPanel', () => {
     expect(screen.getByText('TEST-1')).toBeTruthy()
   })
 
-  it('shows that the remote branch rewrite is deferred until verification', () => {
-    useTicketArtifactsMock.mockReturnValue({
-      artifacts: [{
-        id: 'integration',
-        phase: 'INTEGRATING_CHANGES',
-        artifactType: 'integration_report',
-        content: JSON.stringify({ pushDeferred: true }),
-      }],
-      isLoading: false,
-    })
-
+  it('shows the GitHub review helper text when a PR URL exists', () => {
     renderPanel()
 
-    expect(screen.getByText(/remote ticket branch stays on the last bead backup/i)).toBeTruthy()
+    expect(screen.getByText(/Review the draft PR in GitHub if you want/i)).toBeTruthy()
   })
 })

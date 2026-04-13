@@ -14,7 +14,7 @@ export function getStatusColor(status: string): string {
     case 'WAITING_INTERVIEW_APPROVAL':
     case 'WAITING_PRD_APPROVAL':
     case 'WAITING_BEADS_APPROVAL':
-    case 'WAITING_MANUAL_VERIFICATION':
+    case 'WAITING_PR_REVIEW':
       return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
     case 'DRAFTING_PRD':
     case 'COUNCIL_VOTING_PRD':
@@ -31,6 +31,7 @@ export function getStatusColor(status: string): string {
     case 'RUNNING_FINAL_TEST':
       return 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300'
     case 'INTEGRATING_CHANGES':
+    case 'CREATING_PULL_REQUEST':
       return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
     case 'CLEANING_ENV':
       return 'bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300'
@@ -78,7 +79,7 @@ export function getStatusRingColor(status: string): string {
     case 'WAITING_INTERVIEW_APPROVAL':
     case 'WAITING_PRD_APPROVAL':
     case 'WAITING_BEADS_APPROVAL':
-    case 'WAITING_MANUAL_VERIFICATION':
+    case 'WAITING_PR_REVIEW':
       return 'text-yellow-500'
     case 'DRAFTING_PRD':
     case 'COUNCIL_VOTING_PRD':
@@ -95,6 +96,7 @@ export function getStatusRingColor(status: string): string {
     case 'RUNNING_FINAL_TEST':
       return 'text-teal-500'
     case 'INTEGRATING_CHANGES':
+    case 'CREATING_PULL_REQUEST':
       return 'text-emerald-500'
     case 'CLEANING_ENV':
       return 'text-slate-500'

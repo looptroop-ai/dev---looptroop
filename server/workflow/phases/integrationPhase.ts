@@ -72,7 +72,7 @@ export async function handleIntegration(
     if (signal?.aborted) throw new CancelledError(ticketId)
 
     emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info',
-      'Remote ticket branch update deferred until manual verification.', { source: 'system', audience: 'all' })
+      'Remote ticket branch update deferred until draft PR creation.', { source: 'system', audience: 'all' })
   }
 
   const report = {
@@ -87,7 +87,7 @@ export async function handleIntegration(
     pushDeferred: squash.success,
     pushError: null,
     message: squash.success
-      ? 'Integration phase completed. Manual verification is required before cleanup.'
+      ? 'Integration phase completed. Draft pull request creation is next.'
       : squash.message,
   }
   insertPhaseArtifact(ticketId, {
@@ -103,7 +103,7 @@ export async function handleIntegration(
   }
 
   emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'info',
-    `Integration complete — candidate ${report.candidateCommitSha} ready for manual verification`,
+    `Integration complete — candidate ${report.candidateCommitSha} ready for draft pull request creation`,
     { source: 'system', audience: 'all' })
   sendEvent({ type: 'INTEGRATION_DONE' })
     },

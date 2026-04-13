@@ -40,6 +40,7 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
   activeErrorOccurrenceId: number | null
   hasPastErrors: boolean
   errorSeenSignature: string | null
+  completionDisposition: 'merged' | 'closed_unmerged' | null
   runtime: {
     baseBranch: string
     currentBead: number
@@ -63,6 +64,10 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
     candidateCommitSha: string | null
     preSquashHead: string | null
     finalTestStatus: 'passed' | 'failed' | 'pending'
+    prNumber: number | null
+    prUrl: string | null
+    prState: 'draft' | 'open' | 'merged' | 'closed' | null
+    prHeadSha: string | null
   }
 }
 
@@ -272,7 +277,12 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     candidateCommitSha: null,
     preSquashHead: null,
     finalTestStatus: 'pending' as const,
+    prNumber: null,
+    prUrl: null,
+    prState: null,
+    prHeadSha: null,
   }
+  const completionDisposition = readCompletionDisposition(projectContext, ticket.id)
 
   return {
     ...ticket,
@@ -287,8 +297,31 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     activeErrorOccurrenceId,
     hasPastErrors: errorOccurrences.some((occurrence) => occurrence.resolvedAt !== null),
     errorSeenSignature,
+    completionDisposition,
     runtime,
   }
+}
+
+function readCompletionDisposition(
+  projectContext: NonNullable<ReturnType<typeof getProjectContextById>> | null | undefined,
+  localTicketId: number,
+): PublicTicket['completionDisposition'] {
+  if (!projectContext) return null
+
+  const artifact = projectContext.projectDb.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, localTicketId),
+      eq(phaseArtifacts.artifactType, 'merge_report'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
+
+  if (!artifact?.content) return null
+
+  const parsed = parseJsonObject<{ disposition?: unknown }>(artifact.content)
+  return parsed?.disposition === 'merged' || parsed?.disposition === 'closed_unmerged'
+    ? parsed.disposition
+    : null
 }
 
 function buildRuntime(
@@ -321,8 +354,21 @@ function buildRuntime(
     ))
     .orderBy(desc(phaseArtifacts.id))
     .get()
+  const pullRequestArtifact = projectContext?.projectDb.select().from(phaseArtifacts)
+    .where(and(
+      eq(phaseArtifacts.ticketId, ticket.id),
+      eq(phaseArtifacts.artifactType, 'pull_request_report'),
+    ))
+    .orderBy(desc(phaseArtifacts.id))
+    .get()
   const finalTestReport = parseJsonObject<{ status?: 'passed' | 'failed'; passed?: boolean }>(finalTestArtifact?.content)
   const integrationReport = parseJsonObject<{ candidateCommitSha?: string | null; preSquashHead?: string | null }>(integrationArtifact?.content)
+  const pullRequestReport = parseJsonObject<{
+    prNumber?: number | null
+    prUrl?: string | null
+    prState?: 'draft' | 'open' | 'merged' | 'closed' | null
+    prHeadSha?: string | null
+  }>(pullRequestArtifact?.content)
   const beads = readRuntimeBeads(projectRoot, ticket.externalId, baseBranch)
   const inProgressBead = beads.find((bead) => bead.status === 'in_progress') ?? null
   const lastFailedBead = [...beads]
@@ -371,6 +417,10 @@ function buildRuntime(
     candidateCommitSha: integrationReport?.candidateCommitSha ?? null,
     preSquashHead: integrationReport?.preSquashHead ?? null,
     finalTestStatus: finalTestReport?.status ?? (finalTestReport?.passed ? 'passed' : 'pending'),
+    prNumber: typeof pullRequestReport?.prNumber === 'number' ? pullRequestReport.prNumber : null,
+    prUrl: typeof pullRequestReport?.prUrl === 'string' ? pullRequestReport.prUrl : null,
+    prState: pullRequestReport?.prState ?? null,
+    prHeadSha: typeof pullRequestReport?.prHeadSha === 'string' ? pullRequestReport.prHeadSha : null,
   }
 }
 

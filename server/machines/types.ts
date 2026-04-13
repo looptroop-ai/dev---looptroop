@@ -59,7 +59,9 @@ export type TicketEvent =
   | { type: 'TESTS_PASSED' }
   | { type: 'TESTS_FAILED' }
   | { type: 'INTEGRATION_DONE' }
-  | { type: 'VERIFY_COMPLETE' }
+  | { type: 'PULL_REQUEST_READY' }
+  | { type: 'MERGE_COMPLETE' }
+  | { type: 'CLOSE_UNMERGED_COMPLETE' }
   | { type: 'CLEANUP_DONE' }
   | { type: 'RELEVANT_FILES_READY' }
   | { type: 'CANCEL' }
@@ -92,7 +94,8 @@ export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
   CODING: 'in_progress',
   RUNNING_FINAL_TEST: 'in_progress',
   INTEGRATING_CHANGES: 'in_progress',
-  WAITING_MANUAL_VERIFICATION: 'needs_input',
+  CREATING_PULL_REQUEST: 'in_progress',
+  WAITING_PR_REVIEW: 'needs_input',
   CLEANING_ENV: 'in_progress',
   COMPLETED: 'done',
   CANCELED: 'done',

@@ -29,7 +29,6 @@ import {
   getTicketContext,
   getTicketPaths,
   deleteTicket as deleteStoredTicket,
-  insertPhaseArtifact,
   listPhaseArtifacts,
   listTickets,
   lockTicketStartConfiguration,
@@ -57,7 +56,14 @@ import {
   savePrdRawContent,
 } from '../phases/prd/document'
 import { approveBeadsDocument } from '../phases/beads/document'
-import { completeManualVerificationMerge } from '../phases/verification/manual'
+import {
+  completeCloseUnmerged,
+  completeMergedPullRequest,
+  readPullRequestReport,
+  refreshPullRequestReport,
+  refreshPullRequestState,
+  type PullRequestReport,
+} from '../workflow/phases/pullRequestPhase'
 import type { PrdDocument } from '../structuredOutput/types'
 import { isBeforeExecution, isStatusAtOrPast } from '@shared/workflowMeta'
 import { existsSync, readFileSync } from 'node:fs'
@@ -303,8 +309,104 @@ export function handleListTickets(c: Context) {
   return c.json(listTickets(parsedProjectId))
 }
 
+function updatePullRequestReportFromLiveState(
+  ticketId: string,
+  existing: PullRequestReport,
+  pr: NonNullable<ReturnType<typeof refreshPullRequestState>>,
+) {
+  refreshPullRequestReport(ticketId, {
+    ...existing,
+    completedAt: new Date().toISOString(),
+    prNumber: pr.number,
+    prUrl: pr.url,
+    prState: pr.state,
+    prHeadSha: pr.headRefOid,
+    title: existing.title ?? pr.title,
+    body: existing.body,
+    createdAt: pr.createdAt,
+    updatedAt: pr.updatedAt,
+    mergedAt: pr.mergedAt,
+    closedAt: pr.closedAt,
+    message: existing.message,
+  })
+}
+
+function syncWaitingPullRequestTicket(ticketId: string) {
+  const current = getTicketByRef(ticketId)
+  if (!current || current.status !== 'WAITING_PR_REVIEW') return current
+
+  const ticketContext = getTicketContext(ticketId)
+  const prReport = readPullRequestReport(ticketId)
+  if (!ticketContext || !prReport) return current
+
+  const headBranch = current.branchName?.trim() || current.externalId
+  const baseBranch = current.runtime.baseBranch
+
+  try {
+    const livePr = refreshPullRequestState(ticketContext.projectRoot, headBranch, baseBranch)
+    if (!livePr) return current
+
+    if (livePr.state !== prReport.prState || livePr.headRefOid !== prReport.prHeadSha) {
+      updatePullRequestReportFromLiveState(ticketId, prReport, livePr)
+    }
+
+    if (livePr.state === 'merged') {
+      const mergeReport = withCommandLogging(
+        ticketId,
+        current.externalId,
+        'WAITING_PR_REVIEW',
+        () => completeMergedPullRequest({
+          ticketId,
+          externalId: current.externalId,
+          projectPath: ticketContext.projectRoot,
+          baseBranch,
+          headBranch,
+          candidateCommitSha: current.runtime.candidateCommitSha,
+          prReport: {
+            ...prReport,
+            prNumber: livePr.number,
+            prUrl: livePr.url,
+            prState: livePr.state,
+            prHeadSha: livePr.headRefOid,
+            createdAt: livePr.createdAt,
+            updatedAt: livePr.updatedAt,
+            mergedAt: livePr.mergedAt,
+            closedAt: livePr.closedAt,
+          },
+          skipRemoteMerge: true,
+        }),
+        (phase, type, content) => emitRoutePhaseLog(ticketId, phase, type, content),
+      )
+
+      emitRoutePhaseLog(ticketId, 'WAITING_PR_REVIEW', 'info', mergeReport.message, {
+        prNumber: mergeReport.prNumber,
+        prUrl: mergeReport.prUrl,
+      })
+
+      ensureActorForTicket(ticketId)
+      sendTicketEvent(ticketId, { type: 'MERGE_COMPLETE' })
+      return getTicketByRef(ticketId) ?? current
+    }
+  } catch (err) {
+    const details = err instanceof Error ? err.message : String(err)
+    emitRoutePhaseLog(ticketId, 'WAITING_PR_REVIEW', 'error', `PR sync failed: ${details}`)
+    try {
+      ensureActorForTicket(ticketId)
+      sendTicketEvent(ticketId, {
+        type: 'ERROR',
+        message: `PR sync failed: ${details}`,
+        codes: ['PULL_REQUEST_SYNC_FAILED'],
+      })
+    } catch {
+      // Best effort only. Return the current ticket below.
+    }
+  }
+
+  return getTicketByRef(ticketId) ?? current
+}
+
 export function handleGetTicket(c: Context) {
-  const ticket = getTicketByRef(c.req.param('id'))
+  const ticket = syncWaitingPullRequestTicket(c.req.param('id')) ?? getTicketByRef(c.req.param('id'))
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   return c.json(ticket)
 }
@@ -616,7 +718,7 @@ export function handleApproveTicket(c: Context) {
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
 
-  const approvalStates = ['WAITING_INTERVIEW_APPROVAL', 'WAITING_PRD_APPROVAL', 'WAITING_BEADS_APPROVAL', 'WAITING_MANUAL_VERIFICATION']
+  const approvalStates = ['WAITING_INTERVIEW_APPROVAL', 'WAITING_PRD_APPROVAL', 'WAITING_BEADS_APPROVAL']
   if (!approvalStates.includes(ticket.status)) {
     return c.json({ error: 'Ticket is not in an approval state' }, 409)
   }
@@ -629,9 +731,6 @@ export function handleApproveTicket(c: Context) {
   }
   if (ticket.status === 'WAITING_BEADS_APPROVAL') {
     return handleApproveBeads(c)
-  }
-  if (ticket.status === 'WAITING_MANUAL_VERIFICATION') {
-    return handleVerifyTicket(c)
   }
 
   try {
@@ -1035,70 +1134,103 @@ export function handleApproveBeads(c: Context) {
   return respondWithState(c, ticketId, 'Beads approved')
 }
 
-export function handleVerifyTicket(c: Context) {
+export function handleMergeTicket(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
-  if (ticket.status !== 'WAITING_MANUAL_VERIFICATION') {
-    return c.json({ error: 'Ticket is not waiting for manual verification' }, 409)
+  if (ticket.status !== 'WAITING_PR_REVIEW') {
+    return c.json({ error: 'Ticket is not waiting for pull request review' }, 409)
   }
 
   const ticketContext = getTicketContext(ticketId)
   if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
-
-  const phase = 'WAITING_MANUAL_VERIFICATION'
-  const mergeReport = withCommandLogging(
-    ticketId,
-    ticket.externalId,
-    phase,
-    () => completeManualVerificationMerge({
-      projectPath: ticketContext.projectRoot,
-      baseBranch: ticket.runtime.baseBranch,
-      ticketBranch: ticket.branchName ?? ticket.externalId,
-      candidateCommitSha: ticket.runtime.candidateCommitSha,
-    }),
-    (cmdPhase, type, content) => emitRoutePhaseLog(ticketId, cmdPhase, type, content),
-  )
-
-  insertPhaseArtifact(ticketId, {
-    phase,
-    artifactType: 'verification_merge_report',
-    content: JSON.stringify({
-      ...mergeReport,
-      completedAt: new Date().toISOString(),
-    }),
-  })
-
-  try {
-    ensureActorForTicket(ticketId)
-    if (!mergeReport.success) {
-      emitRoutePhaseLog(ticketId, phase, 'error', `Manual verification merge failed: ${mergeReport.message}`, {
-        baseBranch: mergeReport.baseBranch,
-        remoteBranchRef: mergeReport.remoteBranchRef,
-        sourceRef: mergeReport.sourceRef,
-        errorCode: mergeReport.errorCode,
-      })
-      sendTicketEvent(ticketId, {
-        type: 'ERROR',
-        message: `Manual verification merge failed: ${mergeReport.message}`,
-        codes: mergeReport.errorCode ? [mergeReport.errorCode] : ['VERIFICATION_MERGE_FAILED'],
-      })
-      return respondWithState(c, ticketId, 'Verification failed and ticket was blocked')
-    }
-
-    emitRoutePhaseLog(ticketId, phase, 'info', mergeReport.message, {
-      baseBranch: mergeReport.baseBranch,
-      remoteBranchRef: mergeReport.remoteBranchRef,
-      sourceRef: mergeReport.sourceRef,
-      mergedHead: mergeReport.mergedHead,
-    })
-    sendTicketEvent(ticketId, { type: 'VERIFY_COMPLETE' })
-  } catch (err) {
-    console.error(`[tickets] Failed to send VERIFY_COMPLETE to ticket ${ticketId}:`, err)
-    return c.json({ error: 'Failed to verify completion', details: String(err) }, 500)
+  const prReport = readPullRequestReport(ticketId)
+  if (!prReport) {
+    return c.json({ error: 'Pull request report not found' }, 409)
   }
 
-  return respondWithState(c, ticketId, 'Verification complete')
+  const phase = 'WAITING_PR_REVIEW'
+
+  try {
+    const mergeReport = withCommandLogging(
+      ticketId,
+      ticket.externalId,
+      phase,
+      () => completeMergedPullRequest({
+        ticketId,
+        externalId: ticket.externalId,
+        projectPath: ticketContext.projectRoot,
+        baseBranch: ticket.runtime.baseBranch,
+        headBranch: ticket.branchName?.trim() || ticket.externalId,
+        candidateCommitSha: ticket.runtime.candidateCommitSha,
+        prReport,
+      }),
+      (cmdPhase, type, content) => emitRoutePhaseLog(ticketId, cmdPhase, type, content),
+    )
+
+    ensureActorForTicket(ticketId)
+    emitRoutePhaseLog(ticketId, phase, 'info', mergeReport.message, {
+      prNumber: mergeReport.prNumber,
+      prUrl: mergeReport.prUrl,
+      prState: mergeReport.prState,
+      localBaseHead: mergeReport.localBaseHead,
+      remoteBaseHead: mergeReport.remoteBaseHead,
+    })
+    sendTicketEvent(ticketId, { type: 'MERGE_COMPLETE' })
+  } catch (err) {
+    const details = err instanceof Error ? err.message : String(err)
+    try {
+      ensureActorForTicket(ticketId)
+      emitRoutePhaseLog(ticketId, phase, 'error', `Pull request merge failed: ${details}`)
+      sendTicketEvent(ticketId, {
+        type: 'ERROR',
+        message: `Pull request merge failed: ${details}`,
+        codes: ['PULL_REQUEST_MERGE_FAILED'],
+      })
+      return respondWithState(c, ticketId, 'Merge failed and ticket was blocked')
+    } catch (dispatchErr) {
+      console.error(`[tickets] Failed to dispatch merge error for ticket ${ticketId}:`, dispatchErr)
+      return c.json({ error: 'Failed to merge pull request', details }, 500)
+    }
+  }
+
+  return respondWithState(c, ticketId, 'Merge complete')
+}
+
+export function handleCloseUnmergedTicket(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_PR_REVIEW') {
+    return c.json({ error: 'Ticket is not waiting for pull request review' }, 409)
+  }
+
+  try {
+    const report = completeCloseUnmerged({
+      ticketId,
+      baseBranch: ticket.runtime.baseBranch,
+      headBranch: ticket.branchName?.trim() || ticket.externalId,
+      candidateCommitSha: ticket.runtime.candidateCommitSha,
+      prReport: readPullRequestReport(ticketId),
+    })
+
+    ensureActorForTicket(ticketId)
+    emitRoutePhaseLog(ticketId, 'WAITING_PR_REVIEW', 'info', report.message, {
+      disposition: report.disposition,
+      prNumber: report.prNumber,
+      prUrl: report.prUrl,
+    })
+    sendTicketEvent(ticketId, { type: 'CLOSE_UNMERGED_COMPLETE' })
+  } catch (err) {
+    console.error(`[tickets] Failed to close ticket ${ticketId} without merge:`, err)
+    return c.json({ error: 'Failed to finish ticket without merge', details: String(err) }, 500)
+  }
+
+  return respondWithState(c, ticketId, 'Finished without merge')
+}
+
+export function handleVerifyTicket(c: Context) {
+  return handleMergeTicket(c)
 }
 
 export function handleRetryTicket(c: Context) {

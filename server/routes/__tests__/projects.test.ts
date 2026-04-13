@@ -32,6 +32,10 @@ function readLocalExcludeRules(repoDir: string): string[] {
     .filter((line) => line.length > 0)
 }
 
+function addGithubOrigin(repoDir: string) {
+  git(repoDir, ['remote', 'add', 'origin', 'git@github.com:test/looptroop.git'])
+}
+
 describe('projectRouter project cleanup', () => {
   beforeEach(() => {
     clearProjectDatabaseCache()
@@ -77,6 +81,7 @@ describe('projectRouter project cleanup', () => {
 
   it('deletes project-local LoopTroop state and allows a clean re-attach', async () => {
     const repoDir = repoManager.createRepo()
+    addGithubOrigin(repoDir)
     const app = new Hono()
     app.route('/api', projectRouter)
 

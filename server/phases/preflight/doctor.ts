@@ -7,12 +7,24 @@ import { throwIfAborted } from '../../council/types'
 import { raceWithCancel, throwIfCancelled } from '../../lib/abort'
 import { getRunnable } from '../execution/scheduler'
 import { getCurrentBranch } from '../../git/repository'
+import {
+  getGhAuthStatus,
+  getGitHubRepoAccess,
+  isGhInstalled,
+  parseGitHubRemoteUrl,
+  readOriginRemoteUrl,
+} from '../../git/github'
 import { fetchConnectedModelIds } from '../../opencode/providerCatalog'
 
 export interface DoctorDeps {
   fileExists: (path: string) => boolean
   getTicketPaths: typeof getTicketPaths
   getCurrentBranch: typeof getCurrentBranch
+  readOriginRemoteUrl: typeof readOriginRemoteUrl
+  parseGitHubRemoteUrl: typeof parseGitHubRemoteUrl
+  isGhInstalled: typeof isGhInstalled
+  getGhAuthStatus: typeof getGhAuthStatus
+  getGitHubRepoAccess: typeof getGitHubRepoAccess
   getLatestPhaseArtifact: typeof getLatestPhaseArtifact
   fetchConnectedModelIds: typeof fetchConnectedModelIds
   findExecutionBandConflict: (ticketId: string) => ReturnType<typeof findProjectExecutionBandConflict>
@@ -22,6 +34,11 @@ export const defaultDoctorDeps: DoctorDeps = {
   fileExists: existsSync,
   getTicketPaths,
   getCurrentBranch,
+  readOriginRemoteUrl,
+  parseGitHubRemoteUrl,
+  isGhInstalled,
+  getGhAuthStatus,
+  getGitHubRepoAccess,
   getLatestPhaseArtifact,
   fetchConnectedModelIds,
   findExecutionBandConflict: (ticketId: string) => {
@@ -265,7 +282,77 @@ export async function runPreFlightChecks(
     })
   }
 
-  // 10. Beads approval receipt
+  // 10. GitHub origin remote
+  if (paths?.worktreePath) {
+    const remoteUrl = deps.readOriginRemoteUrl(paths.worktreePath)
+    const githubRepo = deps.parseGitHubRemoteUrl(remoteUrl)
+    checks.push({
+      name: 'GitHub Remote',
+      category: 'git',
+      result: githubRepo ? 'pass' : 'fail',
+      message: githubRepo
+        ? `GitHub origin detected: ${githubRepo.slug}`
+        : 'Origin remote must point to github.com',
+    })
+
+    // 11. GitHub CLI availability
+    const ghInstalled = deps.isGhInstalled()
+    checks.push({
+      name: 'GitHub CLI',
+      category: 'connectivity',
+      result: ghInstalled ? 'pass' : 'fail',
+      message: ghInstalled ? 'gh CLI is installed' : 'gh CLI is not installed',
+    })
+
+    // 12. GitHub auth
+    const authStatus = ghInstalled ? deps.getGhAuthStatus() : { ok: false as const, error: 'gh CLI is not installed' }
+    checks.push({
+      name: 'GitHub Auth',
+      category: 'connectivity',
+      result: authStatus.ok ? 'pass' : 'fail',
+      message: authStatus.ok ? 'gh auth status passed' : `GitHub auth failed: ${authStatus.error}`,
+    })
+
+    // 13. GitHub repository access
+    const repoAccess = ghInstalled && authStatus.ok
+      ? deps.getGitHubRepoAccess(paths.worktreePath)
+      : { ok: false as const, error: 'GitHub auth is not ready' }
+    checks.push({
+      name: 'GitHub Repo Access',
+      category: 'connectivity',
+      result: repoAccess.ok ? 'pass' : 'fail',
+      message: repoAccess.ok
+        ? `GitHub repository access verified: ${repoAccess.repo.slug}`
+        : `GitHub repository access failed: ${repoAccess.error}`,
+    })
+  } else {
+    checks.push({
+      name: 'GitHub Remote',
+      category: 'git',
+      result: 'fail',
+      message: 'Ticket paths not available — cannot verify GitHub remote',
+    })
+    checks.push({
+      name: 'GitHub CLI',
+      category: 'connectivity',
+      result: 'fail',
+      message: 'Ticket paths not available — cannot verify gh CLI',
+    })
+    checks.push({
+      name: 'GitHub Auth',
+      category: 'connectivity',
+      result: 'fail',
+      message: 'Ticket paths not available — cannot verify GitHub auth',
+    })
+    checks.push({
+      name: 'GitHub Repo Access',
+      category: 'connectivity',
+      result: 'fail',
+      message: 'Ticket paths not available — cannot verify GitHub repository access',
+    })
+  }
+
+  // 14. Beads approval receipt
   const approvalReceipt = deps.getLatestPhaseArtifact(ticketId, 'approval_receipt', 'WAITING_BEADS_APPROVAL')
   checks.push({
     name: 'Beads Approval',
@@ -274,7 +361,7 @@ export async function runPreFlightChecks(
     message: approvalReceipt ? 'Beads approval receipt found' : 'Beads approval receipt not found',
   })
 
-  // 11. Main implementer model reachability
+  // 15. Main implementer model reachability
   if (preFlightContext.lockedMainImplementer) {
     try {
       throwIfAborted(signal, ticketId)
@@ -314,7 +401,7 @@ export async function runPreFlightChecks(
     })
   }
 
-  // 12. Project execution exclusivity
+  // 16. Project execution exclusivity
   const executionConflict = deps.findExecutionBandConflict(ticketId)
   checks.push({
     name: 'Project Execution Lock',
@@ -325,7 +412,7 @@ export async function runPreFlightChecks(
       : 'No competing execution-band ticket found for this project',
   })
 
-  // 13. Runtime safety budgets
+  // 17. Runtime safety budgets
   if (preFlightContext.maxIterations < 0) {
     checks.push({
       name: 'Runtime Budget',

@@ -7,7 +7,7 @@ import {
 describe('useTickets auto-refresh helpers', () => {
   it('refreshes active ticket detail queries but not terminal tickets', () => {
     expect(getTicketAutoRefreshInterval({ status: 'CODING' } as { status: string })).toBe(5000)
-    expect(getTicketAutoRefreshInterval({ status: 'WAITING_MANUAL_VERIFICATION' } as { status: string })).toBe(5000)
+    expect(getTicketAutoRefreshInterval({ status: 'WAITING_PR_REVIEW' } as { status: string })).toBe(5000)
     expect(getTicketAutoRefreshInterval({ status: 'COMPLETED' } as { status: string })).toBe(false)
     expect(getTicketAutoRefreshInterval({ status: 'CANCELED' } as { status: string })).toBe(false)
     expect(getTicketAutoRefreshInterval(null)).toBe(false)

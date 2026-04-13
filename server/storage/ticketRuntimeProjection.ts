@@ -20,6 +20,7 @@ function buildRuntimeProjection(ticket: PublicTicket) {
       externalId: ticket.externalId,
       title: ticket.title,
       status: ticket.status,
+      completionDisposition: ticket.completionDisposition,
       previousStatus: ticket.previousStatus ?? null,
       errorMessage: ticket.errorMessage ?? null,
       updatedAt: ticket.updatedAt,
@@ -38,6 +39,10 @@ function buildRuntimeProjection(ticket: PublicTicket) {
       candidateCommitSha: ticket.runtime.candidateCommitSha,
       preSquashHead: ticket.runtime.preSquashHead,
       finalTestStatus: ticket.runtime.finalTestStatus,
+      prNumber: ticket.runtime.prNumber,
+      prUrl: ticket.runtime.prUrl,
+      prState: ticket.runtime.prState,
+      prHeadSha: ticket.runtime.prHeadSha,
     },
     availableActions: ticket.availableActions,
     beads: (ticket.runtime.beads ?? []).map((bead) => ({

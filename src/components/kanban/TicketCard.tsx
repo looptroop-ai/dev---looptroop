@@ -29,6 +29,7 @@ interface TicketCardProps {
     totalBeads?: number | null
     errorMessage?: string | null
     errorSeenSignature?: string | null
+    completionDisposition?: 'merged' | 'closed_unmerged' | null
   }
   projectColor?: string
   projectIcon?: string
@@ -146,6 +147,11 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
             </TooltipTrigger>
             <TooltipContent>{STATUS_DESCRIPTIONS[ticket.status] ?? statusLabel}</TooltipContent>
           </Tooltip>
+          {ticket.status === 'COMPLETED' && ticket.completionDisposition && (
+            <Badge variant="outline" className="text-[10px]">
+              {ticket.completionDisposition === 'merged' ? 'Merged' : 'Unmerged'}
+            </Badge>
+          )}
           {progress !== null && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title="Workflow progress">
               <ProgressRing percent={progress} colorClass={ringColor} />
@@ -160,4 +166,3 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
     </Card>
   )
 }
-

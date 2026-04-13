@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { GitBranch, GitCommitHorizontal, CheckCircle2, XCircle, FlaskConical, Blocks, AlertTriangle } from 'lucide-react'
+import { GitBranch, GitCommitHorizontal, CheckCircle2, XCircle, FlaskConical, Blocks, AlertTriangle, ExternalLink, GitPullRequest } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { Badge } from '@/components/ui/badge'
@@ -10,8 +10,8 @@ import { cn } from '@/lib/utils'
 
 interface VerificationSummaryPanelProps {
   ticket: Ticket
-  onVerify: () => void
-  onCancel: () => void
+  onMerge: () => void
+  onCloseUnmerged: () => void
   isPending: boolean
 }
 
@@ -39,9 +39,9 @@ function shortSha(sha: string | null | undefined): string {
   return sha.slice(0, 8)
 }
 
-export function VerificationSummaryPanel({ ticket, onVerify, onCancel, isPending }: VerificationSummaryPanelProps) {
+export function VerificationSummaryPanel({ ticket, onMerge, onCloseUnmerged, isPending }: VerificationSummaryPanelProps) {
   const { artifacts } = useTicketArtifacts(ticket.id)
-  const targetPhases = useMemo(() => getArtifactTargetPhases('WAITING_MANUAL_VERIFICATION'), [])
+  const targetPhases = useMemo(() => getArtifactTargetPhases('WAITING_PR_REVIEW'), [])
 
   const integrationReport = useMemo(() => {
     const artifact = [...artifacts]
@@ -67,46 +67,73 @@ export function VerificationSummaryPanel({ ticket, onVerify, onCancel, isPending
   const commitSha = runtime.candidateCommitSha ?? integrationReport?.candidateCommitSha
   const branchName = ticket.branchName ?? ticket.externalId
   const baseBranch = runtime.baseBranch ?? integrationReport?.baseBranch ?? 'main'
+  const prUrl = runtime.prUrl
+  const prState = runtime.prState
   const commitCount = integrationReport?.commitCount
   const testAttempts = finalTestReport?.attempt
   const testCommandCount = finalTestReport?.commands?.length
 
   return (
-    <div className="border-b border-border shrink-0">
+    <div className="border-b border-border shrink-0" data-testid="verification-summary-panel">
       {/* Header */}
       <div className="px-4 py-3 bg-amber-50/60 dark:bg-amber-950/20">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <span className="text-sm font-semibold">Manual Verification Required</span>
+            <span className="text-sm font-semibold">Draft PR Review Required</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"
-              onClick={onCancel}
+              onClick={onCloseUnmerged}
               disabled={isPending}
               className="text-xs"
             >
-              Cancel
+              Finish Without Merge
             </Button>
             <Button
               size="sm"
-              onClick={onVerify}
+              onClick={onMerge}
               disabled={isPending}
               className={cn(
                 'text-xs',
                 testsPassed && 'bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600',
               )}
             >
-              {isPending ? <LoadingText text="Verifying" /> : 'Mark Verified'}
+              {isPending ? <LoadingText text="Merging" /> : 'Merge PR & Finish'}
             </Button>
           </div>
         </div>
       </div>
 
       {/* Summary grid */}
-      <div className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+      <div className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+        {/* PR */}
+        <div className="flex items-start gap-1.5">
+          <GitPullRequest className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Pull Request</div>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                {prState ?? 'missing'}
+              </Badge>
+              {prUrl && (
+                <a
+                  href={prUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Open
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              )}
+            </div>
+            <div className="font-mono truncate" title={prUrl ?? undefined}>{prUrl ?? 'No PR URL'}</div>
+          </div>
+        </div>
+
         {/* Branch */}
         <div className="flex items-start gap-1.5">
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
@@ -185,19 +212,10 @@ export function VerificationSummaryPanel({ ticket, onVerify, onCancel, isPending
         </div>
       </div>
 
-      {integrationReport?.pushDeferred && (
+      {prUrl && (
         <div className="px-4 pb-2.5">
           <div className="text-[10px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-slate-700 dark:text-slate-300">
-            Remote ticket branch stays on the last bead backup until you verify. Verifying rewrites it once to this squashed candidate.
-          </div>
-        </div>
-      )}
-
-      {/* Push status warning */}
-      {integrationReport && integrationReport.pushed === false && integrationReport.pushError && (
-        <div className="px-4 pb-2.5">
-          <div className="text-[10px] bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2 py-1 text-amber-700 dark:text-amber-400">
-            ⚠ Push to remote failed: {integrationReport.pushError}
+            Review the draft PR in GitHub if you want. Merging from LoopTroop will mark the PR ready if needed, merge it, sync local {baseBranch}, and then start cleanup.
           </div>
         </div>
       )}

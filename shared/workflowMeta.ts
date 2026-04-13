@@ -673,14 +673,14 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   INTEGRATING_CHANGES: {
-    overview: 'LoopTroop turns the unsquashed ticket branch (which may contain many small commits from individual bead executions) into a single, clean candidate commit ready for human review. This produces a squash commit on the ticket branch — combining all bead-level changes into one reviewable commit with LoopTroop metadata.',
+    overview: 'LoopTroop turns the unsquashed ticket branch (which may contain many small commits from individual bead executions) into a single, clean candidate commit ready for pull-request creation. This produces one reviewable squash commit on the ticket branch while preserving the earlier bead-level history in the audit trail.',
     steps: [
       'Branch Analysis: LoopTroop resolves the ticket worktree and base branch, calculates the merge base (where the ticket branch diverged), and counts the number of individual commits made during bead execution.',
       'Soft Reset: The branch is soft-reset back to the merge base, which unstages all bead-level commits but keeps all file changes in the working directory. This effectively "un-commits" the individual bead commits.',
-      'Squash Commit: All ticket changes are staged and committed as a single candidate commit with LoopTroop-specific commit metadata (ticket ID, bead count, timestamp, and other tracking information).',
-      'Remote Update Deferral: The remote ticket branch is left on the last bead-level safety push during manual review. LoopTroop rewrites that branch once with a lease only after you verify the candidate.',
+      'Reviewer-Facing Candidate: All ticket changes (excluding LoopTroop-owned operational files that should not appear in the final PR) are staged and committed as a single candidate commit with LoopTroop-specific commit metadata.',
+      'Handoff Metadata: Integration records the candidate SHA, merge base, pre-squash HEAD, and squash statistics. That metadata becomes the source of truth for the next phase, which will push the candidate and create or update the draft PR.',
       'Integration Report: The integration report captures the candidate commit SHA, merge base SHA, pre-squash HEAD, total commit count that was squashed, and file change statistics. This report is persisted for audit and troubleshooting.',
-      'Edge Case Handling: If no staged changes exist (e.g., the beads produced no file modifications), or if git operations fail (merge conflicts, corrupt index), the phase records the failure and stops before advancing to manual verification.',
+      'Edge Case Handling: If no staged changes exist (e.g., the beads produced no file modifications), or if git operations fail (merge conflicts, corrupt index), the phase records the failure and stops before advancing to PR creation.',
     ],
     outputs: [
       'Integration report artifact with candidate commit SHA, merge base, pre-squash HEAD, commit counts, and file change statistics.',
@@ -688,40 +688,63 @@ const WORKFLOW_PHASE_DETAILS = {
       'Pre-squash metadata for audit, rollback reference, and troubleshooting.',
     ],
     transitions: [
-      'Success → Ready for Review: A successful candidate commit advances the workflow to manual verification, where you review the final result.',
+      'Success → Creating PR: A successful candidate commit advances the workflow to the GitHub sync phase, which creates or updates the draft PR.',
       'Failure → Blocked Error: Git operation failures, empty changesets, or merge conflicts route the ticket to Blocked Error.',
     ],
     notes: [
       'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
       'The squash commit preserves all file changes but replaces the individual bead-level commit history with a single clean commit.',
       'Why squash? Individual bead commits are implementation artifacts — they reflect the AI\'s step-by-step execution, not a meaningful commit history for human review. Squashing produces a single commit that represents "what was implemented" as a whole.',
-      'Why defer the remote rewrite? The ticket branch doubles as a WIP safety backup during execution. Deferring the `--force-with-lease` rewrite until verification keeps that backup intact throughout implementation and review.',
+      'The candidate commit is still local at the end of this phase. GitHub branch and PR synchronization happen in the next automatic phase.',
     ],
   },
-  WAITING_MANUAL_VERIFICATION: {
-    overview: 'LoopTroop stops all automation and waits for you to inspect the candidate branch before final cleanup and closure. This is the last user-input gate — no AI work happens until you explicitly verify. You have the opportunity to review the squashed candidate commit, check the implementation against the PRD and beads plan, run your own tests, and confirm that the result meets your expectations.',
+  CREATING_PULL_REQUEST: {
+    overview: 'LoopTroop pushes the final candidate SHA to the remote ticket branch and creates or updates a draft pull request on GitHub. This is an automatic GitHub-sync phase: it packages the final diff, the ticket intent, and the validation results into a reviewer-facing draft PR without merging anything yet.',
     steps: [
-      'Candidate Presentation: The workspace shows the candidate branch information, including the squash commit SHA, a summary of file changes, and links to the relevant artifacts (PRD, beads plan, test reports, integration report).',
-      'Manual Review: You review the candidate output — the actual code changes, test results from the self-testing phase, and any artifacts produced during execution. There is no time limit; the system waits indefinitely for your decision.',
-      'Your Own Testing: This is the appropriate time to run your own tests, check the code in your IDE, try the feature manually, or do whatever validation you normally do before merging code.',
-      'Verification Decision: When you are satisfied with the result, clicking Verify confirms completion and moves the ticket to cleanup. Only verify when the implementation looks correct — this is your final quality gate.',
-      'Rejection Option: If the result is not satisfactory, you can Cancel instead of Verify. Cancellation moves the ticket to the Canceled state, preserving all artifacts for reference.',
+      'Remote Candidate Push: LoopTroop force-pushes the final candidate SHA to the remote ticket branch using a lease, replacing the bead-level backup branch state with the single reviewable candidate commit.',
+      'PR Drafting: The locked main implementer generates a draft PR title and body using the ticket intent, approved artifacts, final diff, and final test report. The diff explains what changed; the earlier artifacts explain why.',
+      'PR Upsert: LoopTroop creates a new draft PR when none exists, or updates the existing PR title/body and metadata when one already exists for the ticket branch.',
+      'Metadata Persistence: The PR URL, number, state, head SHA, generated title/body, and timestamps are written into ticket artifacts so the review UI and later phases can reuse them deterministically.',
+      'Failure Safety: If the push or GitHub operation fails, LoopTroop preserves the local candidate/worktree state and writes a recovery receipt describing the exact next-safe actions.',
     ],
     outputs: [
-      'A stable candidate state for manual review — the implementation is frozen, waiting for your decision.',
-      'No new AI-owned artifacts are generated in this phase. You are reviewing existing artifacts produced by earlier phases.',
-      'An explicit human approval checkpoint before the ticket enters cleanup and terminal completion.',
+      'Pull Request report artifact with PR URL, state, number, generated title/body, head SHA, and timestamps.',
+      'Remote ticket branch updated to the final candidate commit.',
+      'A draft GitHub pull request ready for human review.',
     ],
     transitions: [
-      'Verify → Cleaning Up: Verification advances the workflow to cleanup, which removes temporary runtime resources while preserving audit artifacts.',
-      'Cancel → Canceled: Cancellation moves the ticket to the terminal Canceled state, preserving all artifacts.',
-      'System Error → Blocked Error: If an unexpected system error is recorded during this phase, the workflow can still route to Blocked Error.',
+      'Success → Review Draft PR: A successful PR sync advances the workflow to the human PR review gate.',
+      'Failure → Blocked Error: Push failures, GitHub auth issues, or PR creation/update failures route the ticket to Blocked Error.',
     ],
     notes: [
       'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
-      'This is a human quality gate — the AI has done its best, and now you decide whether the result is acceptable.',
-      'Tip: Check the candidate commit diff against the PRD\'s acceptance criteria. If the acceptance criteria are satisfied, the implementation is likely correct.',
-      'Tip: Run your own tests even if the self-testing phase passed. AI-generated tests may not cover all scenarios you care about.',
+      'This is the GitHub-native handoff point between execution and review.',
+      'The PR is draft-first by design so later automated review or human review can happen before merge.',
+    ],
+  },
+  WAITING_PR_REVIEW: {
+    overview: 'LoopTroop stops automation and waits for you to review the draft pull request before finishing the ticket. This is the last human gate: you can inspect the PR in GitHub, review the candidate diff and test results locally, and then either merge the PR or finish the ticket without merging.',
+    steps: [
+      'Draft PR Presentation: The workspace shows the PR URL, current PR state, candidate SHA, branch/base refs, integration report, and final test summary.',
+      'Manual Review: You inspect the draft PR and the local result. There is no time limit; LoopTroop waits for your decision.',
+      'Merge Path: Choosing Merge PR & Finish marks the PR ready if needed, merges it into the base branch on GitHub, fast-forwards the local base branch to origin, then proceeds to cleanup.',
+      'Finish Without Merge Path: Choosing Finish Without Merge preserves the PR and remote ticket branch exactly as they are, then proceeds directly to cleanup and terminal completion.',
+      'External Merge Detection: If the PR is merged manually in GitHub while this phase is open, LoopTroop detects that during polling, syncs the local base branch, and continues automatically.',
+    ],
+    outputs: [
+      'A stable draft-PR review gate that exposes the final PR metadata, test results, and integration summary.',
+      'A merge report artifact recording whether the ticket completed as merged or closed unmerged.',
+      'An explicit human decision before cleanup and terminal completion.',
+    ],
+    transitions: [
+      'Merge PR & Finish → Cleaning Up: GitHub merge succeeds, local base branch is synced, and cleanup starts.',
+      'Finish Without Merge → Cleaning Up: The ticket closes successfully without merging and cleanup starts.',
+      'System Error → Blocked Error: If PR merge or local sync fails, the workflow routes to Blocked Error with recovery details.',
+    ],
+    notes: [
+      'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+      'This is the human quality gate for the GitHub-native endgame.',
+      'LoopTroop completion does not require deleting the PR or remote branch when you finish without merge.',
     ],
   },
   CLEANING_ENV: {
@@ -748,7 +771,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   COMPLETED: {
-    overview: 'The ticket has finished its full workflow lifecycle and is now closed as a successful terminal state. All planning, execution, testing, and cleanup artifacts remain accessible for review — nothing is deleted when a ticket completes. The ticket\'s full history is preserved as a permanent record of what was built, how it was planned, and how the AI arrived at the final implementation.',
+    overview: 'The ticket has finished its full workflow lifecycle and is now closed as a successful terminal state. All planning, execution, PR, testing, and cleanup artifacts remain accessible for review. The ticket records whether it completed via a merged PR or as a closed-unmerged finish while preserving the full implementation history.',
     steps: [
       'Terminal Status: LoopTroop marks the ticket status as "completed" after cleanup finishes. This is a final, irreversible state — the ticket cannot be restarted or modified.',
       'Read-Only Workspace: The workspace becomes read-only from a workflow perspective. No further AI phases will run, no artifacts will be modified, and no new planning or execution occurs.',
@@ -756,8 +779,8 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     outputs: [
       'Terminal "completed" status — the successful end state of the workflow.',
-      'Full lifecycle history preserved for review: interview, PRD, beads plan, execution logs, test reports, integration report, and cleanup report.',
-      'The candidate branch with the squashed commit remains available for merging into your main branch.',
+      'Full lifecycle history preserved for review: interview, PRD, beads plan, execution logs, test reports, integration report, pull request report, merge report, and cleanup report.',
+      'Completion metadata indicating whether the ticket finished as merged or closed unmerged.',
     ],
     transitions: [
       'None — this is a terminal state. There are no forward workflow transitions from Completed.',
@@ -1125,10 +1148,22 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     contextSummary: ['ticket_details', 'prd', 'beads', 'tests'],
   },
   {
-    id: 'WAITING_MANUAL_VERIFICATION',
-    label: 'Ready for Review',
-    description: 'Waiting for your manual verification before completion.',
-    details: WORKFLOW_PHASE_DETAILS.WAITING_MANUAL_VERIFICATION,
+    id: 'CREATING_PULL_REQUEST',
+    label: 'Creating PR',
+    description: 'Pushing final candidate branch and creating or updating a draft pull request.',
+    details: WORKFLOW_PHASE_DETAILS.CREATING_PULL_REQUEST,
+    kanbanPhase: 'in_progress',
+    groupId: 'execution',
+    uiView: 'coding',
+    editable: false,
+    multiModelLogs: false,
+    contextSummary: ['ticket_details', 'interview', 'prd', 'beads', 'tests'],
+  },
+  {
+    id: 'WAITING_PR_REVIEW',
+    label: 'Review Draft PR',
+    description: 'Waiting for your review of the draft pull request before finishing the ticket.',
+    details: WORKFLOW_PHASE_DETAILS.WAITING_PR_REVIEW,
     kanbanPhase: 'needs_input',
     groupId: 'execution',
     uiView: 'coding',
@@ -1196,7 +1231,7 @@ export function getWorkflowPhaseMeta(status: string): WorkflowPhaseMeta | undefi
   return WORKFLOW_PHASE_MAP[status]
 }
 
-export type WorkflowAction = 'start' | 'approve' | 'cancel' | 'retry' | 'verify'
+export type WorkflowAction = 'start' | 'approve' | 'cancel' | 'retry' | 'merge' | 'close_unmerged'
 
 export const APPROVAL_PHASE_IDS = new Set(
   WORKFLOW_PHASES.filter((phase) => phase.uiView === 'approval' && phase.reviewArtifactType).map((phase) => phase.id),
@@ -1225,8 +1260,8 @@ export function getAvailableWorkflowActions(status: string): WorkflowAction[] {
     case 'WAITING_PRD_APPROVAL':
     case 'WAITING_BEADS_APPROVAL':
       return ['approve', 'cancel']
-    case 'WAITING_MANUAL_VERIFICATION':
-      return ['verify', 'cancel']
+    case 'WAITING_PR_REVIEW':
+      return ['merge', 'close_unmerged']
     case 'BLOCKED_ERROR':
       return ['retry', 'cancel']
     case 'COMPLETED':

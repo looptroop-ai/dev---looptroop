@@ -15,6 +15,7 @@ import {
   resolveProjectState,
   updateProject,
 } from '../storage/projects'
+import { parseGitHubRemoteUrl, readOriginRemoteUrl } from '../git/github'
 import { isGitRepo, normalizeFolderPath, resolveGitRepoRoot } from '../storage/paths'
 
 const projectRouter = new Hono()
@@ -49,6 +50,8 @@ interface GitRepoInfo {
   isGit: boolean
   repoRoot?: string
   isRepoRoot?: boolean
+  hasGitHubOrigin?: boolean
+  githubRepoSlug?: string | null
   hasLoopTroopState?: boolean
   existingProject?: ExistingProjectMetadata | null
 }
@@ -62,12 +65,15 @@ function getGitRepoInfo(folderPath: string): GitRepoInfo {
 
   const repoRoot = resolveGitRepoRoot(resolved)
   if (!repoRoot) return { isGit: false }
+  const githubRepo = parseGitHubRemoteUrl(readOriginRemoteUrl(repoRoot))
 
   const state = resolveProjectState(repoRoot)
   return {
     isGit: true,
     repoRoot,
     isRepoRoot: repoRoot === resolved,
+    hasGitHubOrigin: githubRepo !== null,
+    githubRepoSlug: githubRepo?.slug ?? null,
     hasLoopTroopState: state.exists,
     existingProject: state.existingProject,
   }
@@ -84,11 +90,24 @@ projectRouter.get('/projects/check-git', (c) => {
 
   const gitInfo = getGitRepoInfo(folderPath)
   if (gitInfo.isGit) {
+    if (!gitInfo.hasGitHubOrigin) {
+      return c.json({
+        isGit: true,
+        status: 'invalid',
+        scope: gitInfo.isRepoRoot ? 'root' : 'subfolder',
+        repoRoot: gitInfo.repoRoot,
+        hasLoopTroopState: gitInfo.hasLoopTroopState ?? false,
+        existingProject: gitInfo.existingProject ?? null,
+        message: 'Git repository found, but origin must point to github.com.',
+      })
+    }
+
     return c.json({
       isGit: true,
       status: 'valid',
       scope: gitInfo.isRepoRoot ? 'root' : 'subfolder',
       repoRoot: gitInfo.repoRoot,
+      githubRepoSlug: gitInfo.githubRepoSlug ?? null,
       hasLoopTroopState: gitInfo.hasLoopTroopState ?? false,
       existingProject: gitInfo.existingProject ?? null,
       message: gitInfo.isRepoRoot
@@ -159,6 +178,15 @@ projectRouter.post('/projects', async (c) => {
     return c.json({
       error: 'Folder is not a git repository',
       details: `No git repository found at: ${parsed.data.folderPath}. Please initialize the repository with 'git init' first.`,
+    }, 400)
+  }
+
+  const repoRoot = resolveGitRepoRoot(parsed.data.folderPath)
+  const githubRepo = repoRoot ? parseGitHubRemoteUrl(readOriginRemoteUrl(repoRoot)) : null
+  if (!githubRepo) {
+    return c.json({
+      error: 'GitHub origin remote is required',
+      details: 'LoopTroop requires an origin remote that points to github.com before attaching a project.',
     }, 400)
   }
 
