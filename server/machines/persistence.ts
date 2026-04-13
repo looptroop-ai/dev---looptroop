@@ -72,10 +72,27 @@ function emitAppErrorLog(
 function attachPersistenceSubscription(
   ticketRef: string,
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
+  options?: { skipFirstPersist?: boolean },
 ) {
   let isFirstEmission = true
 
   actor.subscribe(() => {
+    if (isFirstEmission && options?.skipFirstPersist) {
+      // During hydration the first emission is just restoring existing state –
+      // persisting here would overwrite updatedAt with the current time even
+      // though no real action happened on the ticket.
+      isFirstEmission = false
+
+      const currentState = getStateValue(actor)
+      emitAppSystemLog(
+        ticketRef,
+        currentState,
+        `[SYS] Actor active in ${currentState}.`,
+        { state: currentState },
+      )
+      return
+    }
+
     persistSnapshot(ticketRef, actor)
 
     const currentState = getStateValue(actor)
@@ -287,7 +304,7 @@ function hydrateTicketActor(
     },
   })
 
-  attachPersistenceSubscription(resolvedTicketRef, actor)
+  attachPersistenceSubscription(resolvedTicketRef, actor, { skipFirstPersist: true })
 
   actor.start()
   activeActors.set(resolvedTicketRef, actor)
