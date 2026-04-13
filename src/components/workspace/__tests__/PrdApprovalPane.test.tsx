@@ -1,8 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildPrdDocumentYaml, type PrdApprovalDraft, type PrdDocument } from '@/lib/prdDocument'
-import { makeTicket, TEST } from '@/test/factories'
+import { buildPrdDocumentYaml, type PrdApprovalDraft } from '@/lib/prdDocument'
+import { makeTicket, makePrdDocument, TEST } from '@/test/factories'
+import { renderWithProviders } from '@/test/renderHelpers'
 import { PrdApprovalPane } from '../PrdApprovalPane'
 
 const mockSaveUiState = vi.fn()
@@ -73,78 +73,12 @@ vi.mock('../CollapsiblePhaseLogSection', () => ({
   CollapsiblePhaseLogSection: () => <div data-testid="phase-log-section" />,
 }))
 
-function buildPrdDocument(): PrdDocument {
-  return {
-    schema_version: 1,
-    ticket_id: TEST.externalId,
-    artifact: 'prd',
-    status: 'draft',
-    source_interview: {
-      content_sha256: 'abc123',
-    },
-    product: {
-      problem_statement: 'Protect imports from duplicate processing.',
-      target_users: ['Operators'],
-    },
-    scope: {
-      in_scope: ['Dedupe webhook retries'],
-      out_of_scope: ['Bulk reprocessing'],
-    },
-    technical_requirements: {
-      architecture_constraints: ['Use the existing sync worker.'],
-      data_model: [],
-      api_contracts: [],
-      security_constraints: [],
-      performance_constraints: [],
-      reliability_constraints: [],
-      error_handling_rules: [],
-      tooling_assumptions: [],
-    },
-    epics: [
-      {
-        id: 'EPIC-1',
-        title: 'Retry orchestration',
-        objective: 'Coordinate the retry flow.',
-        implementation_steps: ['Add retry scheduling'],
-        user_stories: [
-          {
-            id: 'US-1-1',
-            title: 'As an operator, I can inspect retry state.',
-            acceptance_criteria: ['Retry state is visible.'],
-            implementation_steps: ['Render the retry state panel.'],
-            verification: { required_commands: ['npm test'] },
-          },
-        ],
-      },
-    ],
-    risks: ['Retries may amplify traffic.'],
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
-}
-
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { retry: false, gcTime: Infinity },
-    },
-  })
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
-}
 
 describe('PrdApprovalPane', () => {
-  let currentContent = buildPrdDocumentYaml(buildPrdDocument())
+  let currentContent = buildPrdDocumentYaml(makePrdDocument())
 
   beforeEach(() => {
-    currentContent = buildPrdDocumentYaml(buildPrdDocument())
+    currentContent = buildPrdDocumentYaml(makePrdDocument())
     mockSaveUiState.mockReset()
     mockClearTicketArtifactsCache.mockReset()
     mockUseTicketArtifacts.mockReset()
@@ -163,7 +97,7 @@ describe('PrdApprovalPane', () => {
       }
 
       if (url === `/api/files/${TEST.ticketId}/prd` && init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { content?: string; document?: ReturnType<typeof buildPrdDocument> }
+        const body = JSON.parse(String(init.body)) as { content?: string; document?: ReturnType<typeof makePrdDocument> }
         currentContent = body.document ? buildPrdDocumentYaml(body.document) : body.content ?? currentContent
         return Promise.resolve(
           new Response(JSON.stringify({ content: currentContent }), {
@@ -206,14 +140,14 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+      expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: /Product/i }))
-    expect(screen.queryByText('Protect imports from duplicate processing.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Test problem statement.')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Product/i }))
-    expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+    expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
 
@@ -221,7 +155,7 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+      expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
@@ -231,7 +165,7 @@ describe('PrdApprovalPane', () => {
     })
 
     fireEvent.change(screen.getByLabelText('structured-prd-editor'), {
-      target: { value: 'Protect imports and keep retries reversible.' },
+      target: { value: 'Updated problem statement.' },
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -244,7 +178,7 @@ describe('PrdApprovalPane', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Protect imports and keep retries reversible.')).toBeInTheDocument()
+      expect(screen.getByText('Updated problem statement.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
@@ -261,7 +195,7 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'DRAFTING_BEADS' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+      expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
@@ -281,7 +215,7 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+      expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
@@ -298,7 +232,7 @@ describe('PrdApprovalPane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }))
 
     const yamlEditor = await screen.findByLabelText('YAML editor')
-    expect(yamlEditor).toHaveValue(buildPrdDocumentYaml(buildPrdDocument()))
+    expect(yamlEditor).toHaveValue(buildPrdDocumentYaml(makePrdDocument()))
     expect(screen.queryByDisplayValue('Unsaved PRD draft.')).not.toBeInTheDocument()
   })
 
@@ -330,7 +264,7 @@ describe('PrdApprovalPane', () => {
     renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Protect imports from duplicate processing.')).toBeInTheDocument()
+      expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
     })
 
     const warningToggle = screen.getByRole('button', { name: /Coverage Warning/i })

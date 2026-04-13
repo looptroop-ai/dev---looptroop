@@ -1,8 +1,5 @@
 import jsYaml from 'js-yaml'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
+import { isRecord } from '@shared/typeGuards'
 
 function toStringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''

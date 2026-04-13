@@ -4,17 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LogContext } from '@/context/logContextDef'
 import type { LogContextValue, LogEntry } from '@/context/logUtils'
 import { TEST, makeTicket } from '@/test/factories'
-import { renderWithProviders, createTestQueryClient } from '@/test/renderHelpers'
+import { renderWithProviders, createTestQueryClient, createJsonResponse } from '@/test/renderHelpers'
 import { WorkspacePhaseSummary } from '../WorkspacePhaseSummary'
-
-function createJsonResponse(payload: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
-}
 
 function createLogEntry(line: string, timestamp: string): LogEntry {
   return {

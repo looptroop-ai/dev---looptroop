@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { TOAST_DURATION_MS } from '@/lib/constants'
 import { ToastContext, type ToastType } from './toastDef'
 
 interface Toast {
@@ -20,7 +21,7 @@ const ICONS: Record<ToastType, React.ReactNode> = {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const addToast = useCallback((type: ToastType, message: string, duration = 4000) => {
+  const addToast = useCallback((type: ToastType, message: string, duration = TOAST_DURATION_MS) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     setToasts(prev => [...prev, { id, type, message, duration }])
   }, [])

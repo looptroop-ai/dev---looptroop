@@ -49,22 +49,15 @@ Thumbs.db
 .claude/
 
 # Temp analysis/debug/scratch files at root
-/ARTIFACT_AND_SSE_ANALYSIS.md
-/BROADCAST_GAPS_QUICK_REFERENCE.md
-/EXACT_CODE_LOCATIONS.md
-/README_ARTIFACT_ANALYSIS.md
-/VISUAL_SUMMARY.txt
-/INTERVIEW_*.txt
-/INTERVIEW_*.md
-/EXPLORATION_SUMMARY.txt
-/QUICK_REFERENCE.md
-/README_EXPLORATION.md
-/VERIFYING_INTERVIEW_COVERAGE_ANALYSIS.md
-/fix-loop7.ts
-/new.txt
+/*.md
+!README.md
+!architecture.md
+/*.txt
+/*.log
+/fix-*.ts
 /test-perf*.js
 /test*.html
-/start-test.log
+/patch.cjs
 
 # Backup files
 *.orig.tsx

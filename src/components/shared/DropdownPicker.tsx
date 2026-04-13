@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DROPDOWN_MARGIN, DROPDOWN_OFFSET, DROPDOWN_MAX_HEIGHT } from '@/lib/constants'
 
 export interface DropdownPickerProps {
   trigger: React.ReactNode
@@ -20,12 +21,10 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    const margin = 8
-    // Always open downward, clamped to stay within viewport
-    const top = Math.max(margin, Math.min(rect.bottom + 4, window.innerHeight - 420 - margin))
+    const top = Math.max(DROPDOWN_MARGIN, Math.min(rect.bottom + DROPDOWN_OFFSET, window.innerHeight - DROPDOWN_MAX_HEIGHT - DROPDOWN_MARGIN))
     setPos({
       top,
-      left: Math.max(margin, Math.min(rect.left, window.innerWidth - 340)),
+      left: Math.max(DROPDOWN_MARGIN, Math.min(rect.left, window.innerWidth - 340)),
     })
   }, [])
 
@@ -55,7 +54,7 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
           style={{
             top: pos.top,
             left: pos.left,
-            maxHeight: `calc(100vh - ${pos.top}px - 8px)`,
+            maxHeight: `calc(100vh - ${pos.top}px - ${DROPDOWN_MARGIN}px)`,
             overflowY: 'auto',
             visibility: positioned ? 'visible' : 'hidden',
           }}

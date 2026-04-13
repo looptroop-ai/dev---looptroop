@@ -14,6 +14,7 @@ import {
   updateInterviewDocumentAnswers,
 } from '../../structuredOutput'
 import { phaseIntermediate, phaseResults } from '../../workflow/phases/state'
+import { nowIso } from '../../lib/dateUtils'
 
 const DOWNSTREAM_PHASES = new Set([
   'DRAFTING_PRD',
@@ -32,10 +33,6 @@ const DOWNSTREAM_ARTIFACT_TYPES = new Set([
   'ui_state:approval_prd',
   'ui_state:approval_beads',
 ])
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
 
 function getInterviewPath(ticketId: string): string {
   const paths = getTicketPaths(ticketId)

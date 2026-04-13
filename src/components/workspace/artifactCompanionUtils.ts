@@ -3,12 +3,9 @@ import {
   buildUiArtifactCompanionArtifactType,
   parseUiArtifactCompanionArtifact,
 } from '@shared/artifactCompanions'
+import { isRecord } from '@shared/typeGuards'
 
 type ArtifactSource = Pick<DBartifact, 'phase' | 'artifactType' | 'content'>
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function parseArtifactRecord(content: string | null | undefined): Record<string, unknown> | null {
   if (!content?.trim()) return null

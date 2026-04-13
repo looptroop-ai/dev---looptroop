@@ -11,6 +11,7 @@ import type {
   InterviewQuestionOption,
   InterviewQuestionSource,
 } from '@shared/interviewSession'
+import { isRecord } from '@shared/typeGuards'
 
 export const INTERVIEW_APPROVAL_FOCUS_EVENT = 'looptroop:interview-approval-focus'
 
@@ -25,10 +26,6 @@ export interface InterviewDocumentGroup {
   description: string
   anchorId: string
   questions: InterviewDocumentQuestion[]
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function toStringValue(value: unknown): string {

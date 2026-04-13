@@ -3,6 +3,7 @@ import type { StructuredIntervention } from '@shared/structuredInterventions'
 import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
 import { normalizeStructuredRetryDiagnostics } from '@shared/structuredRetryDiagnostics'
 import { normalizeStructuredInterventions } from '@shared/structuredInterventions'
+import { isRecord } from '@shared/typeGuards'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import {
@@ -512,10 +513,6 @@ function normalizeRefinementDiffAttributionStatus(value: unknown): RefinementDif
     return value
   }
   return undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function normalizeStringArray(value: unknown): string[] {

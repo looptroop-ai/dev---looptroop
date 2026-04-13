@@ -1,7 +1,8 @@
 import { createElement } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
+import { createTestQueryClient } from '@/test/renderHelpers'
 import {
   clearOpenCodeModelsQuery,
   fetchModelsApi,
@@ -10,15 +11,6 @@ import {
   useAllOpenCodeModels,
   useOpenCodeModels,
 } from '../useOpenCodeModels'
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { retry: false, gcTime: Infinity },
-    },
-  })
-}
 
 function Probe() {
   useOpenCodeModels()
@@ -44,7 +36,7 @@ describe('useOpenCodeModels', () => {
   })
 
   it('shares one cached query for connected and all models', async () => {
-    const queryClient = createQueryClient()
+    const queryClient = createTestQueryClient()
 
     render(
       createElement(

@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Ticket } from '@/hooks/useTickets'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import { makeTicket, TEST } from '@/test/factories'
+import { createJsonResponse, renderWithProviders } from '@/test/renderHelpers'
 
 const mockUseInterviewQuestions = vi.fn()
 const mockUseTicketUIState = vi.fn()
@@ -66,30 +66,6 @@ vi.mock('@/components/editor/YamlEditor', () => ({
     />
   ),
 }))
-
-function createJsonResponse(payload: unknown, status: number = 200) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
-}
-
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { retry: false, gcTime: Infinity },
-    },
-  })
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
-}
 
 async function renderApprovalView(ticket: Ticket, artifactType: 'interview' | 'prd' | 'beads' = 'interview') {
   const { ApprovalView } = await import('../ApprovalView')
@@ -386,7 +362,7 @@ describe('Interview approval UI', () => {
           {
             id: 'proj-1-review-approval-metadata',
             title: 'Review approval metadata',
-            prdRefs: ['EPIC-1', 'US-1'],
+            prdRefs: [TEST.epicId, TEST.storyId],
             description: 'Render the final beads approval card with metadata.',
             contextGuidance: {
               patterns: ['Reuse the shared bead renderer in approval mode.'],
@@ -399,7 +375,7 @@ describe('Interview approval UI', () => {
             status: 'pending',
             issueType: 'task',
             externalRef: TEST.externalId,
-            labels: ['ticket:PROJ-1', 'story:US-1'],
+            labels: [`ticket:${TEST.shortname}-1`, `story:${TEST.storyId}`],
             dependencies: { blocked_by: [], blocks: [] },
             targetFiles: ['src/components/workspace/ApprovalView.tsx'],
             notes: '',
@@ -469,7 +445,7 @@ describe('Interview approval UI', () => {
           {
             id: 'proj-1-coverage-warning',
             title: 'Render coverage warning state',
-            prdRefs: ['EPIC-1'],
+            prdRefs: [TEST.epicId],
             description: 'Show unresolved coverage gaps during beads approval.',
             contextGuidance: {
               patterns: ['Keep the approval warning collapsible.'],
@@ -482,7 +458,7 @@ describe('Interview approval UI', () => {
             status: 'pending',
             issueType: 'task',
             externalRef: TEST.externalId,
-            labels: ['ticket:PROJ-1'],
+            labels: [`ticket:${TEST.shortname}-1`],
             dependencies: { blocked_by: [], blocks: [] },
             targetFiles: ['src/components/workspace/ApprovalView.tsx'],
             notes: '',

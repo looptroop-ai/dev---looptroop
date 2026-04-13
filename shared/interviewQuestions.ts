@@ -1,5 +1,6 @@
 import jsYaml from 'js-yaml'
 import { repairYamlIndentation, repairYamlListDashSpace, repairYamlSequenceEntryIndent } from './yamlRepair'
+import { isRecord } from './typeGuards'
 
 export interface InterviewQuestionPreview {
   id?: string
@@ -129,10 +130,6 @@ function getInterviewContentCandidates(content: string): string[] {
   }
 
   return candidates
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function getRecordString(

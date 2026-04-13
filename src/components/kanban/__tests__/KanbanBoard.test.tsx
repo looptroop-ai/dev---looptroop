@@ -1,18 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
+import { screen } from '@testing-library/react'
 import { UIProvider } from '@/context/UIContext'
 import { KanbanBoard } from '../KanbanBoard'
+import { renderWithProviders as sharedRenderWithProviders } from '@/test/renderHelpers'
 
 function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <UIProvider>{ui}</UIProvider>
-    </QueryClientProvider>
-  )
+  return sharedRenderWithProviders(<UIProvider>{ui}</UIProvider>)
 }
 
 describe('KanbanBoard', () => {

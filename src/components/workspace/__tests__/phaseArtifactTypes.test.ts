@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TEST } from '@/test/factories'
 import { buildInterviewDiffEntries, buildRefinementDiffEntries } from '../phaseArtifactTypes'
 
 describe('phaseArtifactTypes', () => {
@@ -42,7 +43,7 @@ describe('phaseArtifactTypes', () => {
   it('falls back to structural PRD coverage diffs when saved coverage diff metadata is empty', () => {
     const beforePrd = [
       'schema_version: 1',
-      'ticket_id: POBA-3',
+      `ticket_id: ${TEST.externalId}`,
       'artifact: prd',
       'status: draft',
       'source_interview:',
@@ -70,13 +71,13 @@ describe('phaseArtifactTypes', () => {
       '  tooling_assumptions:',
       '    - Use vitest.',
       'epics:',
-      '  - id: EPIC-1',
+      `  - id: ${TEST.epicId}`,
       '    title: Review PRD coverage revisions',
       '    objective: Keep approval diffs visible.',
       '    implementation_steps:',
       '      - Preserve fallback diffs.',
       '    user_stories:',
-      '      - id: US-1',
+      `      - id: ${TEST.storyId}`,
       '        title: Inspect the saved coverage diff',
       '        acceptance_criteria:',
       '          - Approval shows a meaningful coverage diff.',

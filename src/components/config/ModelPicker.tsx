@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Search, Zap, Eye, Wrench, Brain, AlertCircle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DROPDOWN_MAX_HEIGHT, DROPDOWN_OFFSET, DROPDOWN_PADDING } from '@/lib/constants'
 import { useOpenCodeModels, useAllOpenCodeModels } from '@/hooks/useOpenCodeModels'
 import type { OpenCodeModel } from '@/hooks/useOpenCodeModels'
 
@@ -166,19 +167,18 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
     const rect = triggerRef.current.getBoundingClientRect()
     const spaceBelow = window.innerHeight - rect.bottom
     const spaceAbove = rect.top
-    const maxH = 420
     node.style.position = 'fixed'
     node.style.left = `${rect.left}px`
     node.style.width = `${rect.width}px`
     node.style.zIndex = '9999'
     if (spaceAbove > spaceBelow) {
-      node.style.bottom = `${window.innerHeight - rect.top + 4}px`
+      node.style.bottom = `${window.innerHeight - rect.top + DROPDOWN_OFFSET}px`
       node.style.top = ''
-      node.style.maxHeight = `${Math.min(maxH, spaceAbove - 12)}px`
+      node.style.maxHeight = `${Math.min(DROPDOWN_MAX_HEIGHT, spaceAbove - DROPDOWN_PADDING)}px`
     } else {
-      node.style.top = `${rect.bottom + 4}px`
+      node.style.top = `${rect.bottom + DROPDOWN_OFFSET}px`
       node.style.bottom = ''
-      node.style.maxHeight = `${Math.min(maxH, spaceBelow - 12)}px`
+      node.style.maxHeight = `${Math.min(DROPDOWN_MAX_HEIGHT, spaceBelow - DROPDOWN_PADDING)}px`
     }
   }, [])
 

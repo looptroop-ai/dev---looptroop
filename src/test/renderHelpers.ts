@@ -30,3 +30,12 @@ export function renderWithProviders(
 
   return { ...render(wrapped), queryClient }
 }
+
+export function createJsonResponse(payload: unknown, status: number = 200) {
+  return Promise.resolve(
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  )
+}

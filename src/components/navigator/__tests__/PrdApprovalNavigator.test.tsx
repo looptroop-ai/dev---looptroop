@@ -1,90 +1,30 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { buildPrdDocumentYaml, getPrdUserStoryAnchorId, type PrdDocument } from '@/lib/prdDocument'
-import { TEST } from '@/test/factories'
+import { buildPrdDocumentYaml, getPrdUserStoryAnchorId } from '@/lib/prdDocument'
+import { makePrdDocument, TEST } from '@/test/factories'
+import { renderWithProviders, createTestQueryClient } from '@/test/renderHelpers'
 import { PrdApprovalNavigator } from '../PrdApprovalNavigator'
 
-function buildPrdDocument(): PrdDocument {
-  return {
-    schema_version: 1,
-    ticket_id: TEST.externalId,
-    artifact: 'prd',
-    status: 'draft',
-    source_interview: {
-      content_sha256: 'abc123',
-    },
-    product: {
-      problem_statement: 'Protect imports from duplicate processing.',
-      target_users: ['Operators'],
-    },
-    scope: {
-      in_scope: ['Dedupe webhook retries'],
-      out_of_scope: ['Bulk reprocessing'],
-    },
-    technical_requirements: {
-      architecture_constraints: ['Use the existing sync worker.'],
-      data_model: [],
-      api_contracts: [],
-      security_constraints: [],
-      performance_constraints: [],
-      reliability_constraints: [],
-      error_handling_rules: [],
-      tooling_assumptions: [],
-    },
-    epics: [
-      {
-        id: 'EPIC-1',
-        title: 'Retry orchestration',
-        objective: 'Coordinate the retry flow.',
-        implementation_steps: ['Add retry scheduling'],
-        user_stories: [
-          {
-            id: 'US-1-1',
-            title: 'As an operator, I can inspect retry state.',
-            acceptance_criteria: ['Retry state is visible.'],
-            implementation_steps: ['Render the retry state panel.'],
-            verification: { required_commands: ['npm test'] },
-          },
-        ],
-      },
-    ],
-    risks: ['Retries may amplify traffic.'],
-    approval: {
-      approved_by: '',
-      approved_at: '',
-    },
-  }
-}
-
-function renderWithProviders(ui: React.ReactElement, content: string) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, staleTime: Infinity },
-    },
-  })
+function renderNavigatorWithContent(ui: React.ReactElement, content: string) {
+  const queryClient = createTestQueryClient()
   queryClient.setQueryData(['artifact', TEST.ticketId, 'prd'], content)
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
+  return renderWithProviders(ui, { queryClient })
 }
 
 describe('PrdApprovalNavigator', () => {
   it('renders the PRD outline, removes interview shortcuts, and dispatches PRD focus events', async () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
-    const content = buildPrdDocumentYaml(buildPrdDocument())
+    const content = buildPrdDocumentYaml(makePrdDocument())
 
-    renderWithProviders(<PrdApprovalNavigator ticketId={TEST.ticketId} />, content)
+    renderNavigatorWithContent(<PrdApprovalNavigator ticketId={TEST.ticketId} />, content)
 
     await waitFor(() => {
       expect(screen.getByText('Product')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('EPIC-1 · Retry orchestration')).toBeInTheDocument()
-    expect(screen.getByText('US-1-1 · As an operator, I can inspect retry state.')).toBeInTheDocument()
+    expect(screen.getByText(`${TEST.epicId} · Test epic`)).toBeInTheDocument()
+    expect(screen.getByText(`${TEST.storyId} · As a user, I can perform the test action.`)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Interview summary/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Foundation$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Structure$/i })).not.toBeInTheDocument()
@@ -100,7 +40,7 @@ describe('PrdApprovalNavigator', () => {
       anchorId: 'prd-product',
     })
 
-    fireEvent.click(screen.getByText('US-1-1 · As an operator, I can inspect retry state.').closest('button')!)
+    fireEvent.click(screen.getByText(`${TEST.storyId} · As a user, I can perform the test action.`).closest('button')!)
 
     const prdStoryFocusEvent = dispatchSpy.mock.calls
       .map(([event]) => event)
@@ -108,7 +48,7 @@ describe('PrdApprovalNavigator', () => {
 
     expect(prdStoryFocusEvent?.detail).toEqual({
       ticketId: TEST.ticketId,
-      anchorId: getPrdUserStoryAnchorId('EPIC-1', 'US-1-1'),
+      anchorId: getPrdUserStoryAnchorId(TEST.epicId, TEST.storyId),
     })
   })
 })

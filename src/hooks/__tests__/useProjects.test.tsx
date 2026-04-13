@@ -3,17 +3,9 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOG_STORAGE_PREFIX } from '@/context/logUtils'
+import { createTestQueryClient } from '@/test/renderHelpers'
 import { getTicketArtifactsQueryKey } from '../useTicketArtifacts'
 import { useCreateProject, useDeleteProject } from '../useProjects'
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { retry: false, gcTime: Infinity },
-    },
-  })
-}
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -39,7 +31,7 @@ describe('useProjects', () => {
       }),
     })))
 
-    const queryClient = createQueryClient()
+    const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const { result } = renderHook(() => useCreateProject(), {
       wrapper: createWrapper(queryClient),
@@ -69,7 +61,7 @@ describe('useProjects', () => {
       }),
     })))
 
-    const queryClient = createQueryClient()
+    const queryClient = createTestQueryClient()
     const deletedProjectId = 7
     const deletedTicketId = '7-RST-1'
     const keptTicketId = '8-KEP-1'

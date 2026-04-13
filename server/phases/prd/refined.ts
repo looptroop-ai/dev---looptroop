@@ -4,6 +4,7 @@ import type {
   RefinementChangeAttributionStatus,
   RefinementChangeItem,
 } from '@shared/refinementChanges'
+import { isRecord } from '@shared/typeGuards'
 import type { PromptPart } from '../../opencode/types'
 import type {
   PrdDocument,
@@ -53,10 +54,6 @@ export interface PrdRefinedArtifact {
   changes?: RefinementChange[]
   structuredOutput?: StructuredOutputMetadata
   draftMetrics: PrdDraftMetrics
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function buildItemLookupKey(item: Pick<NormalizedPrdRefinementItem, 'itemType' | 'id' | 'label'>): string {
@@ -156,10 +153,6 @@ function cloneCanonicalItem(item: NormalizedPrdRefinementItem): RefinementChange
   return item.detail
     ? { id: item.id, label: item.label, detail: item.detail }
     : { id: item.id, label: item.label }
-}
-
-function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMetadata | undefined {
-  return normalizeStructuredOutputMetadata(value)
 }
 
 function normalizeDraftMetrics(value: unknown): PrdDraftMetrics | null {
@@ -676,7 +669,7 @@ export function parsePrdRefinedArtifact(content: string): PrdRefinedArtifact {
   const refinedContent = typeof parsed.refinedContent === 'string' ? parsed.refinedContent : ''
   const winnerDraftContent = typeof parsed.winnerDraftContent === 'string' ? parsed.winnerDraftContent : ''
   const changes = Array.isArray(parsed.changes) ? parsed.changes as RefinementChange[] : []
-  const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
+  const structuredOutput = normalizeStructuredOutputMetadata(parsed.structuredOutput)
   const draftMetrics = normalizeDraftMetrics(parsed.draftMetrics) ?? deriveDraftMetricsFromRefinedContent(refinedContent)
 
   if (!refinedContent.trim()) {

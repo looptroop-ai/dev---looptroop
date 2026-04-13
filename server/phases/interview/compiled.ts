@@ -1,4 +1,5 @@
 import { extractInterviewQuestionPreviews } from '@shared/interviewQuestions'
+import { isRecord } from '@shared/typeGuards'
 import type { ParsedInterviewQuestion } from './questions'
 import { normalizeInterviewRefinementOutput, type StructuredOutputMetadata } from '../../structuredOutput'
 import { normalizeStructuredOutputMetadata } from '../../structuredOutput/metadata'
@@ -9,10 +10,6 @@ export interface CompiledInterviewArtifact {
   questions: ParsedInterviewQuestion[]
   questionCount: number
   structuredOutput?: StructuredOutputMetadata
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function formatArtifactPhase(phase: string): string {
@@ -39,9 +36,6 @@ function normalizeArtifactQuestion(value: unknown, index: number): ParsedIntervi
   return { id, phase, question }
 }
 
-function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMetadata | undefined {
-  return normalizeStructuredOutputMetadata(value)
-}
 
 export function buildCompiledInterviewArtifact(
   winnerId: string,
@@ -97,7 +91,7 @@ export function parseCompiledInterviewArtifact(content: string): CompiledIntervi
   const refinedContent = typeof parsed.refinedContent === 'string' ? parsed.refinedContent : ''
   const rawQuestions = parsed.questions
   const rawQuestionCount = parsed.questionCount
-  const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
+  const structuredOutput = normalizeStructuredOutputMetadata(parsed.structuredOutput)
   if (!refinedContent.trim()) {
     throw new Error('Compiled interview artifact is missing refinedContent')
   }

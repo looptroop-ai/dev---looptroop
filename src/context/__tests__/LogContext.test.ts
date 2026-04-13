@@ -4,17 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { formatLogLine, mergeEntry, type LogEntry } from '@/context/logUtils'
 import { LogProvider } from '@/context/LogContext'
 import { useLogs } from '@/context/useLogContext'
+import { createJsonResponse } from '@/test/renderHelpers'
 
 let latestLogApi: ReturnType<typeof useLogs> = null
-
-function createJsonResponse(payload: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
-}
 
 function LogHarness() {
   const logApi = useLogs()

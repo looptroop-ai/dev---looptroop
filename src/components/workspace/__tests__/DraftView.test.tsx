@@ -1,25 +1,16 @@
 import { useEffect } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { act } from '@testing-library/react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket, TEST } from '@/test/factories'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { createJsonResponse, createTestQueryClient, renderWithProviders as sharedRenderWithProviders } from '@/test/renderHelpers'
 import { LogProvider } from '@/context/LogContext'
 import { useLogs } from '@/context/useLogContext'
 import { DraftView } from '../DraftView'
 
 const queryClients: QueryClient[] = []
 let latestLogApi: ReturnType<typeof useLogs> = null
-
-function createJsonResponse(payload: unknown, status: number = 200) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
-}
 
 function createDeferredJsonResponse(payload: unknown, status: number = 200) {
   let resolveResponse: ((value: Response) => void) | null = null
@@ -54,12 +45,7 @@ function renderWithProviders(
   ui: React.ReactElement,
   options?: { withLogProvider?: boolean; logProviderTicketId?: string | null },
 ) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { retry: false, gcTime: Infinity },
-    },
-  })
+  const queryClient = createTestQueryClient()
   queryClients.push(queryClient)
 
   const wrapped = options?.withLogProvider
@@ -70,13 +56,7 @@ function renderWithProviders(
     )
     : ui
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        {wrapped}
-      </TooltipProvider>
-    </QueryClientProvider>,
-  )
+  return sharedRenderWithProviders(wrapped, { queryClient })
 }
 
 const projectData = {

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useQuery } from '@tanstack/react-query'
+import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { dispatchPrdApprovalFocus, buildPrdApprovalOutline, parsePrdDocument } from '@/lib/prdDocument'
 
 function focusPrdAnchor(ticketId: string, anchorId: string) {
@@ -47,7 +48,7 @@ export function PrdApprovalNavigator({ ticketId }: { ticketId: string }) {
       const payload = await response.json()
       return typeof payload?.content === 'string' ? payload.content : ''
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: QUERY_STALE_TIME_5M,
   })
 
   const document = parsePrdDocument(fetchedContent ?? '')

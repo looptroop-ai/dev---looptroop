@@ -4,6 +4,7 @@ import {
   type StructuredRetryDiagnostic,
   withStructuredRetryDiagnosticAttempt,
 } from '@shared/structuredRetryDiagnostics'
+import { isRecord } from '@shared/typeGuards'
 
 const EXCERPT_CONTEXT_LINES = 2
 const MAX_EXCERPT_LINES = 8
@@ -12,10 +13,6 @@ const MAX_EXCERPT_CHARS = 700
 type StructuredRetryDiagnosticCarrier = Error & {
   retryDiagnostic?: StructuredRetryDiagnostic
   structuredFailureClass?: StructuredFailureClass
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function normalizeString(value: unknown): string | undefined {

@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { TEST } from '@/test/factories'
+import { renderWithProviders } from '@/test/renderHelpers'
 import { PhaseArtifactsPanel } from '../PhaseArtifactsPanel'
 
 /** Find the innermost element whose full textContent (including children) matches exactly. */
@@ -34,18 +34,6 @@ async function expectFirstInspirationTooltip(bodyText: string | string[]) {
 function expectCoverageAttributionUiHidden() {
   expect(document.querySelector('.lucide-lightbulb')).toBeNull()
   expect(screen.queryAllByText('No source recorded')).toHaveLength(0)
-}
-
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
 }
 
 function buildInterviewDocumentContent() {
@@ -118,11 +106,11 @@ function buildPrdDocumentContent({
     '  error_handling_rules: []',
     '  tooling_assumptions: []',
     'epics:',
-    '  - id: "EPIC-1"',
+    `  - id: "${TEST.epicId}"`,
     `    title: "${epicTitle}"`,
     '    objective: "Make PRD artifacts easy to inspect."',
     '    user_stories:',
-    '      - id: "US-1"',
+    `      - id: "${TEST.storyId}"`,
     `        title: "${storyTitle}"`,
     '        acceptance_criteria:',
     `          - "${acceptanceCriterion}"`,
@@ -142,7 +130,7 @@ function buildBeadsDocumentContent(
     ...beads.flatMap((bead) => [
       `  - id: "${bead.id}"`,
       `    title: "${bead.title}"`,
-      '    prdRefs: ["EPIC-1 / US-1"]',
+      `    prdRefs: ["${TEST.epicId} / ${TEST.storyId}"]`,
       `    description: "${bead.description ?? `Deliver ${bead.title.toLowerCase()}.`}"`,
       '    contextGuidance: "Keep attribution deterministic."',
       '    acceptanceCriteria:',

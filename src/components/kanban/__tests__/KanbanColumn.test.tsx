@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { UIProvider } from '@/context/UIContext'
 import type { Project } from '@/hooks/useProjects'
 import { makeTicket } from '@/test/factories'
@@ -31,13 +32,15 @@ function makeCompletedTickets(count: number) {
 describe('KanbanColumn', () => {
   it('lets you jump to a page by editing the current page number', () => {
     render(
-      <UIProvider>
-        <KanbanColumn
-          column={{ id: 'done', title: 'Done', description: 'Completed tickets' }}
-          tickets={makeCompletedTickets(31)}
-          projectMap={new Map<number, Project>()}
-        />
-      </UIProvider>,
+      <TooltipProvider>
+        <UIProvider>
+          <KanbanColumn
+            column={{ id: 'done', title: 'Done', description: 'Completed tickets' }}
+            tickets={makeCompletedTickets(31)}
+            projectMap={new Map<number, Project>()}
+          />
+        </UIProvider>
+      </TooltipProvider>,
     )
 
     const pageInput = screen.getByRole('textbox', { name: /done current page/i })

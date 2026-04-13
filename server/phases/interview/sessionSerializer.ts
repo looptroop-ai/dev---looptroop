@@ -2,11 +2,7 @@ import type { ParsedInterviewQuestion } from './questions'
 import { parseInterviewQuestions } from './questions'
 import type { BatchQuestion } from './qa'
 import type {
-  InterviewBatchHistoryEntry,
-  InterviewFollowUpRound,
-  InterviewQuestionSource,
   InterviewQuestionView,
-  InterviewSessionAnswer,
   InterviewSessionQuestion,
   InterviewSessionSnapshot,
 } from '@shared/interviewSession'
@@ -14,6 +10,7 @@ import type { InterviewDocument, InterviewDocumentQuestion } from '@shared/inter
 import { calculateFollowUpLimit } from './followUpBudget'
 import { buildInterviewDocumentYaml } from '../../structuredOutput'
 import { isRecord, parseYamlOrJsonCandidate } from '../../structuredOutput/yamlUtils'
+import { nowIso, normalizeQuestion, cloneSnapshot } from './interviewUtils'
 
 const INTERVIEW_SESSION_NESTED_MAPPING_CHILDREN = {
   generated_by: ['winner_model', 'generated_at', 'canonicalization'],
@@ -21,61 +18,12 @@ const INTERVIEW_SESSION_NESTED_MAPPING_CHILDREN = {
   approval: ['approved_by', 'approved_at'],
 } as const
 
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
-}
-
-function normalizeQuestion(input: BatchQuestion | ParsedInterviewQuestion, source: InterviewQuestionSource, roundNumber?: number): InterviewSessionQuestion {
-  const priority = 'priority' in input && typeof input.priority === 'string' && input.priority.trim()
-    ? input.priority.trim()
-    : undefined
-  const rationale = 'rationale' in input && typeof input.rationale === 'string' && input.rationale.trim()
-    ? input.rationale.trim()
-    : undefined
-  const answerType = 'answerType' in input && (input.answerType === 'single_choice' || input.answerType === 'multiple_choice')
-    ? input.answerType
-    : undefined
-  const options = 'options' in input && Array.isArray(input.options) && input.options.length > 0
-    ? input.options
-    : undefined
-
-  return {
-    id: input.id.trim(),
-    question: input.question.trim(),
-    phase: input.phase?.trim() || 'Structure',
-    ...(priority ? { priority } : {}),
-    ...(rationale ? { rationale } : {}),
-    source,
-    ...(roundNumber !== undefined ? { roundNumber } : {}),
-    ...(answerType ? { answerType } : {}),
-    ...(options ? { options } : {}),
-  }
-}
-
-function cloneSnapshot(snapshot: InterviewSessionSnapshot): InterviewSessionSnapshot {
-  return {
-    ...snapshot,
-    questions: snapshot.questions.map((question) => ({ ...question })),
-    answers: Object.fromEntries(
-      Object.entries(snapshot.answers).map(([id, answer]) => [id, { ...answer } satisfies InterviewSessionAnswer]),
-    ),
-    currentBatch: snapshot.currentBatch
-      ? {
-          ...snapshot.currentBatch,
-          questions: snapshot.currentBatch.questions.map((question) => ({ ...question })),
-        }
-      : null,
-    batchHistory: snapshot.batchHistory.map((entry) => ({ ...entry } satisfies InterviewBatchHistoryEntry)),
-    followUpRounds: snapshot.followUpRounds.map((round) => ({ ...round } satisfies InterviewFollowUpRound)),
-  }
 }
 
 export function createInterviewSessionSnapshot(input: {

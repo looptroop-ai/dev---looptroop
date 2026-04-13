@@ -1,22 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { screen, fireEvent } from '@testing-library/react'
 import { PhaseTimeline } from '../PhaseTimeline'
-import { TooltipProvider } from '@/components/ui/tooltip'
-
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  })
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>{ui}</TooltipProvider>
-    </QueryClientProvider>,
-  )
-}
+import { renderWithProviders } from '@/test/renderHelpers'
 
 describe('PhaseTimeline', () => {
   it('renders phase groups', () => {

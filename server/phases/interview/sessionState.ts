@@ -22,12 +22,10 @@ export {
 } from './sessionSerializer'
 
 import type {
-  InterviewBatchHistoryEntry,
-  InterviewFollowUpRound,
-  InterviewSessionAnswer,
   InterviewSessionSnapshot,
 } from '@shared/interviewSession'
 import { recordBatchAnswers } from './batchManagement'
+import { cloneSnapshot, nowIso } from './interviewUtils'
 
 export const INTERVIEW_SESSION_ARTIFACT = 'interview_session'
 export const INTERVIEW_PROM4_FINAL_ARTIFACT = 'interview_prom4_final'
@@ -35,28 +33,6 @@ export const INTERVIEW_QA_SESSION_ARTIFACT = 'interview_qa_session'
 export const INTERVIEW_CURRENT_BATCH_ARTIFACT = 'interview_current_batch'
 export const INTERVIEW_BATCH_HISTORY_ARTIFACT = 'interview_batch_history'
 export const INTERVIEW_COVERAGE_FOLLOWUPS_ARTIFACT = 'interview_coverage_followups'
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
-function cloneSnapshot(snapshot: InterviewSessionSnapshot): InterviewSessionSnapshot {
-  return {
-    ...snapshot,
-    questions: snapshot.questions.map((question) => ({ ...question })),
-    answers: Object.fromEntries(
-      Object.entries(snapshot.answers).map(([id, answer]) => [id, { ...answer } satisfies InterviewSessionAnswer]),
-    ),
-    currentBatch: snapshot.currentBatch
-      ? {
-          ...snapshot.currentBatch,
-          questions: snapshot.currentBatch.questions.map((question) => ({ ...question })),
-        }
-      : null,
-    batchHistory: snapshot.batchHistory.map((entry) => ({ ...entry } satisfies InterviewBatchHistoryEntry)),
-    followUpRounds: snapshot.followUpRounds.map((round) => ({ ...round } satisfies InterviewFollowUpRound)),
-  }
-}
 
 export function completeInterviewBySkippingRemaining(
   snapshot: InterviewSessionSnapshot,

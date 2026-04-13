@@ -4,7 +4,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { LogProvider } from '@/context/LogContext'
 import { LOG_STORAGE_PREFIX, serverLogCache, type LogEntry } from '@/context/logUtils'
 import { makeTicket } from '@/test/factories'
-import { renderWithProviders } from '@/test/renderHelpers'
+import { renderWithProviders, createJsonResponse } from '@/test/renderHelpers'
 import { PhaseReviewView } from '../PhaseReviewView'
 
 vi.mock('@/components/ui/scroll-area', () => ({
@@ -32,15 +32,6 @@ vi.mock('@/hooks/useTicketArtifacts', async () => {
     useTicketArtifacts: () => ({ artifacts: [], isLoading: false }),
   }
 })
-
-function createJsonResponse(payload: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
-}
 
 function setPersistedDraftLogs(ticketId: string, logs: LogEntry[]) {
   localStorage.setItem(`${LOG_STORAGE_PREFIX}${ticketId}-DRAFT`, JSON.stringify(logs))

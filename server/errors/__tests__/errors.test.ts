@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { createError } from '../handler'
-import { CircuitBreaker } from '../circuitBreaker'
 import { recoverFromCrash } from '../recovery'
 import { initializeDatabase } from '../../db/init'
 
@@ -15,26 +14,6 @@ describe('Error Handler', () => {
   it('handles unknown error codes', () => {
     const error = createError('UNKNOWN', 'test', 'test error')
     expect(error.severity).toBe('recoverable')
-  })
-})
-
-describe('Circuit Breaker', () => {
-  it('trips after max failures', () => {
-    const cb = new CircuitBreaker(3)
-    cb.recordFailure('key')
-    cb.recordFailure('key')
-    expect(cb.isTripped('key')).toBe(false)
-    cb.recordFailure('key')
-    expect(cb.isTripped('key')).toBe(true)
-  })
-
-  it('resets on success', () => {
-    const cb = new CircuitBreaker(3)
-    cb.recordFailure('key')
-    cb.recordFailure('key')
-    cb.recordSuccess('key')
-    expect(cb.isTripped('key')).toBe(false)
-    expect(cb.getFailureCount('key')).toBe(0)
   })
 })
 

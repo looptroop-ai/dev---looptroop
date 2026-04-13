@@ -5,6 +5,7 @@ import { useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import { useTicketArtifacts, clearTicketArtifactsCache } from '@/hooks/useTicketArtifacts'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import type { Ticket } from '@/hooks/useTickets'
@@ -135,7 +136,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
       const data = await r.json()
       return Array.isArray(data) ? data as unknown[] : []
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: QUERY_STALE_TIME_5M,
   })
 
   const beadsArray = useMemo(() => fetchedBeads ?? [], [fetchedBeads])

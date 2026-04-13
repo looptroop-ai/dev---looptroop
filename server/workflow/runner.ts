@@ -167,7 +167,6 @@ function startCodingPhase(
     .catch(err => {
       if (err instanceof CancelledError) return
       const errMsg = err instanceof Error ? err.message : String(err)
-      console.error(`[runner] CODING failed for ticket ${context.externalId}: ${errMsg}`)
       emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', errMsg)
       sendEvent({ type: 'ERROR', message: errMsg, codes: ['CODING_FAILED'] })
     })
@@ -231,7 +230,6 @@ export function attachWorkflowRunner(
           .catch((err: unknown) => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] ${state} failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, state, 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['MOCK_LIFECYCLE_FAILED'] })
           })
@@ -248,7 +246,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] SCANNING_RELEVANT_FILES failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'SCANNING_RELEVANT_FILES', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['RELEVANT_FILES_SCAN_FAILED'] })
         })
@@ -268,7 +265,6 @@ export function attachWorkflowRunner(
             : isWorkspace
               ? ['WORKSPACE_NOT_INITIALIZED']
               : ['QUORUM_NOT_MET']
-          console.error(`[runner] COUNCIL_DELIBERATING failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'COUNCIL_DELIBERATING', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes })
         })
@@ -282,7 +278,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] COUNCIL_VOTING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
           })
@@ -299,7 +294,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] COMPILING_INTERVIEW failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg })
           })
@@ -318,7 +312,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] Interview QA start failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['PROM4_INIT_FAILED'] })
           })
@@ -332,7 +325,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] VERIFYING_INTERVIEW_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_INTERVIEW_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
         })
@@ -345,7 +337,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] DRAFTING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
         })
@@ -359,7 +350,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] COUNCIL_VOTING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
           })
@@ -376,7 +366,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] REFINING_PRD failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg })
           })
@@ -392,7 +381,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] VERIFYING_PRD_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_PRD_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
         })
@@ -405,7 +393,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] DRAFTING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
         })
@@ -419,7 +406,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] COUNCIL_VOTING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
           })
@@ -436,7 +422,6 @@ export function attachWorkflowRunner(
           .catch(err => {
             if (err instanceof CancelledError) return
             const errMsg = err instanceof Error ? err.message : String(err)
-            console.error(`[runner] REFINING_BEADS failed for ticket ${context.externalId}: ${errMsg}`)
             emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg })
           })
@@ -452,7 +437,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] VERIFYING_BEADS_COVERAGE failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_BEADS_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
         })
@@ -465,7 +449,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] PRE_FLIGHT_CHECK failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['PREFLIGHT_FAILED'] })
         })
@@ -480,7 +463,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] RUNNING_FINAL_TEST failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['TESTS_FAILED'] })
         })
@@ -493,7 +475,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] INTEGRATING_CHANGES failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['INTEGRATION_FAILED'] })
         })
@@ -506,7 +487,6 @@ export function attachWorkflowRunner(
         .catch(err => {
           if (err instanceof CancelledError) return
           const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[runner] CLEANING_ENV failed for ticket ${context.externalId}: ${errMsg}`)
           emitPhaseLog(ticketId, context.externalId, 'CLEANING_ENV', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['CLEANUP_FAILED'] })
         })

@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import { YamlEditor } from '@/components/editor/YamlEditor'
@@ -57,7 +58,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
       const payload = await response.json() as { content?: string }
       return payload.content ?? ''
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: QUERY_STALE_TIME_5M,
   })
   const { artifacts } = useTicketArtifacts(ticket.id)
 

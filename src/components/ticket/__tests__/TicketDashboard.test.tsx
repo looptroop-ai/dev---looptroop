@@ -8,6 +8,7 @@ import { makeTicket } from '@/test/factories'
 import { patchTicketStatusInCache } from '@/hooks/ticketStatusCache'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT } from '@/lib/workspaceNavigation'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { createJsonResponse } from '@/test/renderHelpers'
 
 const selectedTicketId = '1:T-42'
 const dispatchMock = vi.fn()
@@ -124,15 +125,6 @@ function simulateSSE(from: string, to: string) {
     type: 'state_change',
     data: { ticketId: selectedTicketId, from, to },
   })
-}
-
-function createJsonResponse(payload: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
 }
 
 function renderDashboard() {

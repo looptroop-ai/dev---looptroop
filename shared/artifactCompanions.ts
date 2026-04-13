@@ -1,3 +1,5 @@
+import { isRecord } from './typeGuards'
+
 export interface UiArtifactCompanionArtifact<T = Record<string, unknown>> {
   baseArtifactType: string
   generatedAt: string
@@ -6,10 +8,6 @@ export interface UiArtifactCompanionArtifact<T = Record<string, unknown>> {
 
 export function buildUiArtifactCompanionArtifactType(baseArtifactType: string): string {
   return `ui_artifact_companion:${baseArtifactType}`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function buildUiArtifactCompanionArtifact<T = Record<string, unknown>>(

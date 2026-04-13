@@ -80,11 +80,11 @@ function buildPrdDocumentContent({
     '  error_handling_rules: []',
     '  tooling_assumptions: []',
     'epics:',
-    '  - id: "EPIC-1"',
+    `  - id: "${TEST.epicId}"`,
     `    title: "${epicTitle}"`,
     '    objective: "Make PRD artifacts easy to inspect."',
     '    user_stories:',
-    '      - id: "US-1"',
+    `      - id: "${TEST.storyId}"`,
     `        title: "${storyTitle}"`,
     '        acceptance_criteria:',
     `          - "${acceptanceCriterion}"`,
@@ -111,7 +111,7 @@ function buildBeadsDraftContent({
     {
       id: 'bead-1',
       title,
-      prdRefs: ['EPIC-1', 'US-1'],
+      prdRefs: [TEST.epicId, TEST.storyId],
       description: 'Keep bead guidance readable in artifact dialogs.',
       contextGuidance: guidance,
     },
@@ -1421,16 +1421,16 @@ describe('ArtifactContentViewer', () => {
                     summary: 'The ticket_id did not match the current ticket.',
                     why: 'The model produced a ticket_id that does not match the current ticket.',
                     how: 'LoopTroop replaced ticket_id with the runtime value.',
-                    exactCorrection: 'Changed ticket_id from "PROJ-OLD" to "PROJ-123".',
+                    exactCorrection: `Changed ticket_id from "${TEST.shortname}-OLD" to "${TEST.shortname}-123".`,
                     rule: { id: 'cleanup_ticket_id', label: 'Ticket ID' },
                     examples: [
                       {
                         scope: 'ticket_id',
-                        before: 'PROJ-OLD',
-                        after: 'PROJ-123',
+                        before: `${TEST.shortname}-OLD`,
+                        after: `${TEST.shortname}-123`,
                       },
                     ],
-                    technicalDetail: 'Canonicalized ticket_id from "PROJ-OLD" to "PROJ-123".',
+                    technicalDetail: `Canonicalized ticket_id from "${TEST.shortname}-OLD" to "${TEST.shortname}-123".`,
                   },
                 ],
               },
@@ -1443,14 +1443,14 @@ describe('ArtifactContentViewer', () => {
     openNotice('LoopTroop adjusted this PRD draft.')
 
     expect(screen.getByText('Exact correction:')).toBeInTheDocument()
-    expect(screen.getByText('Changed ticket_id from "PROJ-OLD" to "PROJ-123".')).toBeInTheDocument()
+    expect(screen.getByText(`Changed ticket_id from "${TEST.shortname}-OLD" to "${TEST.shortname}-123".`)).toBeInTheDocument()
     expect(screen.getByText('Rule:')).toBeInTheDocument()
     expect(screen.getByText('Ticket ID')).toBeInTheDocument()
     expect(screen.getByText('cleanup_ticket_id')).toBeInTheDocument()
     expect(screen.getByText('Before:')).toBeInTheDocument()
-    expect(screen.getByText('PROJ-OLD')).toBeInTheDocument()
+    expect(screen.getByText(`${TEST.shortname}-OLD`)).toBeInTheDocument()
     expect(screen.getByText('After:')).toBeInTheDocument()
-    expect(screen.getByText('PROJ-123')).toBeInTheDocument()
+    expect(screen.getByText(`${TEST.shortname}-123`)).toBeInTheDocument()
   })
 
   it('shows a collapsed parser notice for coverage review artifacts', () => {

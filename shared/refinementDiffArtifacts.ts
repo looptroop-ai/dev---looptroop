@@ -1,4 +1,5 @@
 import jsYaml from 'js-yaml'
+import { isRecord } from './typeGuards'
 import type {
   InterviewQuestionChange,
   InterviewQuestionChangeAttributionStatus,
@@ -133,10 +134,6 @@ const PRD_TECHNICAL_SECTION_CONFIG: Array<{
   { key: 'error_handling_rules', itemKind: 'technical_requirements.error_handling_rules', label: 'Error Handling Rules' },
   { key: 'tooling_assumptions', itemKind: 'technical_requirements.tooling_assumptions', label: 'Tooling Assumptions' },
 ]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function readYamlRecord<T>(content: string): T | null {
   try {

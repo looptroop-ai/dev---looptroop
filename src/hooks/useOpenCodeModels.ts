@@ -1,6 +1,6 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query'
 import type { OpenCodeCatalogModel } from '@shared/opencodeCatalog'
-import { MODEL_FETCH_TIMEOUT_MS } from '@/lib/constants'
+import { MODEL_FETCH_TIMEOUT_MS, QUERY_STALE_TIME_5M, OPENCODE_RETRY_COUNT, SSE_RECONNECT_DELAY_MS } from '@/lib/constants'
 
 export interface ModelsApiResponse {
   models: OpenCodeCatalogModel[]
@@ -44,9 +44,9 @@ export function useOpenCodeModels() {
   return useQuery({
     queryKey: OPENCODE_MODELS_QUERY_KEY,
     queryFn: fetchModelsApi,
-    staleTime: 5 * 60 * 1000,
-    retry: 8,
-    retryDelay: 3000,
+    staleTime: QUERY_STALE_TIME_5M,
+    retry: OPENCODE_RETRY_COUNT,
+    retryDelay: SSE_RECONNECT_DELAY_MS,
     select: (data) => data.models,
   })
 }
@@ -56,9 +56,9 @@ export function useAllOpenCodeModels() {
   return useQuery({
     queryKey: OPENCODE_MODELS_QUERY_KEY,
     queryFn: fetchModelsApi,
-    staleTime: 5 * 60 * 1000,
-    retry: 8,
-    retryDelay: 3000,
+    staleTime: QUERY_STALE_TIME_5M,
+    retry: OPENCODE_RETRY_COUNT,
+    retryDelay: SSE_RECONNECT_DELAY_MS,
     select: (data) => data.allModels,
   })
 }

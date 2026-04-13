@@ -1,10 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { getTicketPaths } from '../../storage/tickets'
 import { upsertLatestPhaseArtifact } from '../../storage/ticketArtifacts'
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
+import { nowIso } from '../../lib/dateUtils'
 
 function resolveBeadsPath(ticketId: string): string {
   const paths = getTicketPaths(ticketId)

@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { useLogs } from '@/context/useLogContext'
 import { useQuery } from '@tanstack/react-query'
+import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { Loader2, CheckCircle2, Circle, Play, Eye, FileCode2, List, Brain, Clock, GitCommit, Tag, Link2, ArrowRight, ArrowUpToLine, ArrowDownToLine, Copy, Check } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -240,7 +241,7 @@ function usePrdDocument(ticketId: string): { prd: PrdDocument | null; isLoading:
       const payload = await response.json() as { content?: string }
       return payload.content ?? ''
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: QUERY_STALE_TIME_5M,
   })
   const prd = useMemo(
     () => fetchedContent ? normalizePrdDocumentLike(parsePrdDocument(fetchedContent) ?? parsePrdDocumentContent(fetchedContent).document) : null,

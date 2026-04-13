@@ -9,6 +9,7 @@ import { getTicketByRef, getTicketContext, getTicketPaths } from '../../storage/
 import { normalizePrdYamlOutput } from '../../structuredOutput'
 import { buildYamlDocument } from '../../structuredOutput/yamlUtils'
 import { phaseIntermediate, phaseResults } from '../../workflow/phases/state'
+import { nowIso } from '../../lib/dateUtils'
 
 const BEADS_DOWNSTREAM_PHASES = new Set([
   'DRAFTING_BEADS',
@@ -21,10 +22,6 @@ const BEADS_DOWNSTREAM_PHASES = new Set([
 const BEADS_DOWNSTREAM_ARTIFACT_TYPES = new Set([
   'ui_state:approval_beads',
 ])
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
 
 function getPrdPath(ticketId: string): string {
   const paths = getTicketPaths(ticketId)

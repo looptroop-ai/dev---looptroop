@@ -1,8 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InterviewSessionView } from '@shared/interviewSession'
 import { TEST } from '@/test/factories'
+import { renderWithProviders as sharedRenderWithProviders } from '@/test/renderHelpers'
 import { InterviewNavigator } from '../InterviewNavigator'
 
 let interviewData: InterviewSessionView = {
@@ -18,11 +19,7 @@ function renderWithProviders(ui: React.ReactElement) {
   })
   queryClient.setQueryData(['interview', TEST.ticketId], interviewData)
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
+  return sharedRenderWithProviders(ui, { queryClient })
 }
 
 describe('InterviewNavigator', () => {

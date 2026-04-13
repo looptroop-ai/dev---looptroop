@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useQuery } from '@tanstack/react-query'
+import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
 
 function focusBeadAnchor(ticketId: string, anchorId: string) {
@@ -35,7 +36,7 @@ export function BeadsApprovalNavigator({ ticketId }: { ticketId: string }) {
       if (!response.ok) throw new Error('Failed to load beads')
       return response.json()
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: QUERY_STALE_TIME_5M,
   })
 
   const outline = Array.isArray(beadsData) ? parseBeadsOutline(beadsData) : []

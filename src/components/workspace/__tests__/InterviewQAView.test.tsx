@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { TooltipProvider } from '@radix-ui/react-tooltip'
+import { QueryClient } from '@tanstack/react-query'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InterviewSessionView, PersistedInterviewBatch } from '@shared/interviewSession'
 import { makeTicket, TEST } from '@/test/factories'
+import { createJsonResponse, renderWithProviders as sharedRenderWithProviders } from '@/test/renderHelpers'
 import { InterviewQAView } from '../InterviewQAView'
 
 let submittedBody: { answers?: Record<string, string>; selectedOptions?: Record<string, string[]> } | null = null
@@ -15,15 +15,6 @@ let interviewData: InterviewSessionView = {
   raw: 'questions:\n  - id: Q01',
   session: null,
   questions: [],
-}
-
-function createJsonResponse(payload: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
 }
 
 function emptyUiState() {
@@ -42,13 +33,7 @@ function renderWithProviders(ui: React.ReactElement) {
       : emptyUiState(),
   )
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        {ui}
-      </TooltipProvider>
-    </QueryClientProvider>,
-  )
+  return sharedRenderWithProviders(ui, { queryClient })
 }
 
 function makeBatch(overrides: Partial<PersistedInterviewBatch> = {}): PersistedInterviewBatch {

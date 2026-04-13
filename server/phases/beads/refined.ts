@@ -4,6 +4,7 @@ import type {
   RefinementChangeAttributionStatus,
   RefinementChangeItem,
 } from '@shared/refinementChanges'
+import { isRecord } from '@shared/typeGuards'
 import type { PromptPart } from '../../opencode/types'
 import type { StructuredOutputMetadata } from '../../structuredOutput'
 import { normalizeBeadRefinementOutput } from '../../structuredOutput'
@@ -83,10 +84,6 @@ interface PreparedBeadRefinementChange {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function normalizeFingerprintList(values: string[] | undefined): string[] {
   return Array.isArray(values)
@@ -674,10 +671,6 @@ function resolveBeadChangeItem(
 // Artifact builders
 // ---------------------------------------------------------------------------
 
-function normalizeArtifactStructuredOutput(value: unknown): StructuredOutputMetadata | undefined {
-  return normalizeStructuredOutputMetadata(value)
-}
-
 function normalizeDraftMetrics(value: unknown): BeadsDraftMetrics | null {
   if (!isRecord(value)) return null
 
@@ -780,7 +773,7 @@ export function parseBeadsRefinedArtifact(content: string): BeadsRefinedArtifact
   const refinedContent = typeof parsed.refinedContent === 'string' ? parsed.refinedContent : ''
   const winnerDraftContent = typeof parsed.winnerDraftContent === 'string' ? parsed.winnerDraftContent : ''
   const changes = Array.isArray(parsed.changes) ? parsed.changes as RefinementChange[] : []
-  const structuredOutput = normalizeArtifactStructuredOutput(parsed.structuredOutput)
+  const structuredOutput = normalizeStructuredOutputMetadata(parsed.structuredOutput)
   const draftMetrics = normalizeDraftMetrics(parsed.draftMetrics) ?? deriveDraftMetricsFromRefinedContent(refinedContent)
   const pipelineSteps = normalizePipelineSteps(parsed.pipelineSteps)
 
