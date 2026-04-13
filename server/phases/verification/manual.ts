@@ -45,6 +45,8 @@ function tryGit(projectPath: string, args: string[]): boolean {
   return false
 }
 
+const FILTERED_STATUS_ARGS = ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(top,exclude).looptroop']
+
 export interface ManualVerificationMergeReport {
   success: boolean
   baseBranch: string
@@ -74,7 +76,7 @@ export function completeManualVerificationMerge(params: {
   let remotePushError: string | null = null
 
   try {
-    const worktreeStatus = runGit(params.projectPath, ['status', '--porcelain'])
+    const worktreeStatus = runGit(params.projectPath, FILTERED_STATUS_ARGS)
     if (worktreeStatus) {
       return {
         success: false,

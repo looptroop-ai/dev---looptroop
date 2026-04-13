@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -43,6 +45,8 @@ function gitCommandSucceeds(projectPath: string, args: string[]) {
   }
   return ok
 }
+
+const LOOP_TROOP_EXCLUDE_RULE = '/.looptroop/'
 
 export function getCurrentBranch(projectPath: string): string | null {
   try {
@@ -95,4 +99,26 @@ export function readGitStdout(projectPath: string, args: string[]): string {
 
 export function gitRefExists(projectPath: string, ref: string): boolean {
   return gitCommandSucceeds(projectPath, ['show-ref', '--verify', '--quiet', ref])
+}
+
+export function ensureLocalGitExclude(projectPath: string, rule = LOOP_TROOP_EXCLUDE_RULE) {
+  const excludeGitPath = runGit(projectPath, ['rev-parse', '--git-path', 'info/exclude'])
+  const excludePath = resolve(projectPath, excludeGitPath)
+  const raw = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : ''
+  const normalized = raw.replace(/\r\n/g, '\n')
+  const hasRule = normalized.split('\n').includes(rule)
+  const newline = raw.includes('\r\n') ? '\r\n' : '\n'
+
+  let next = raw
+  if (!hasRule) {
+    const separator = raw.length === 0 || raw.endsWith('\n') ? '' : newline
+    next = `${raw}${separator}${rule}${newline}`
+  } else if (raw.length > 0 && !raw.endsWith('\n')) {
+    next = `${raw}${newline}`
+  }
+
+  if (next !== raw) {
+    mkdirSync(dirname(excludePath), { recursive: true })
+    writeFileSync(excludePath, next, 'utf8')
+  }
 }

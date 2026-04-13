@@ -3,6 +3,7 @@ import { rmSync } from 'fs'
 import { db as appDb } from '../db/index'
 import { closeProjectDatabase, getExistingProjectDatabase, getProjectDatabase } from '../db/project'
 import { attachedProjects, projects, tickets } from '../db/schema'
+import { ensureLocalGitExclude } from '../git/repository'
 import {
   ensureProjectStorageDirs,
   getProjectLoopTroopDir,
@@ -143,6 +144,7 @@ export function attachProject(input: {
     throw new Error(`Folder is not a git repository: ${input.folderPath}`)
   }
 
+  ensureLocalGitExclude(projectRoot)
   const localProject = ensureLocalProject(projectRoot, input)
   const attached = ensureAttachedProject(projectRoot)
 
@@ -161,6 +163,7 @@ export function attachExistingProject(input: {
     throw new Error(`Folder is not a git repository: ${projectRootOrFolder}`)
   }
 
+  ensureLocalGitExclude(projectRoot)
   const localProject = ensureLocalProject(projectRoot)
   const patch = typeof input === 'string'
     ? null

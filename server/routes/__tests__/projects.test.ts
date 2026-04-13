@@ -1,11 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { Hono } from 'hono'
+import { resolve } from 'node:path'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
 import { clearProjectDatabaseCache } from '../../db/project'
 import { getProjectLoopTroopDir } from '../../storage/paths'
-import { attachProject, listProjects, resolveProjectState } from '../../storage/projects'
+import { attachExistingProject, attachProject, listProjects, resolveProjectState } from '../../storage/projects'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
 import { projectRouter } from '../projects'
 
@@ -15,6 +17,20 @@ const repoManager = createFixtureRepoManager({
     'README.md': '# LoopTroop Project Route Test\n',
   },
 })
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+}
+
+function getLocalExcludePath(repoDir: string): string {
+  return resolve(repoDir, git(repoDir, ['rev-parse', '--git-path', 'info/exclude']))
+}
+
+function readLocalExcludeRules(repoDir: string): string[] {
+  return readFileSync(getLocalExcludePath(repoDir), 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+}
 
 describe('projectRouter project cleanup', () => {
   beforeEach(() => {
@@ -26,6 +42,37 @@ describe('projectRouter project cleanup', () => {
   afterAll(() => {
     clearProjectDatabaseCache()
     repoManager.cleanup()
+  })
+
+  it('installs a repo-local .looptroop exclude and keeps git status clean', () => {
+    const repoDir = repoManager.createRepo()
+
+    attachProject({
+      folderPath: repoDir,
+      name: 'Original Project',
+      shortname: 'OLD',
+    })
+
+    writeFileSync(resolve(getProjectLoopTroopDir(repoDir), 'runtime-marker.txt'), 'runtime\n')
+
+    expect(readLocalExcludeRules(repoDir)).toContain('/.looptroop/')
+    expect(git(repoDir, ['status', '--porcelain'])).toBe('')
+  })
+
+  it('does not duplicate the repo-local .looptroop exclude rule on reattach', () => {
+    const repoDir = repoManager.createRepo()
+
+    attachProject({
+      folderPath: repoDir,
+      name: 'Original Project',
+      shortname: 'OLD',
+    })
+    attachExistingProject(repoDir)
+
+    const loopTroopRules = readLocalExcludeRules(repoDir)
+      .filter((rule) => rule === '/.looptroop/')
+
+    expect(loopTroopRules).toHaveLength(1)
   })
 
   it('deletes project-local LoopTroop state and allows a clean re-attach', async () => {

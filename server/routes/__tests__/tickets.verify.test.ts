@@ -97,10 +97,10 @@ const repoManager = createFixtureRepoManager({
   templatePrefix: 'looptroop-ticket-route-verify-',
   files: {
     'README.md': 'base\n',
-    '.gitignore': '.looptroop/\n',
   },
 })
 const remoteDirs = new Set<string>()
+const FILTERED_STATUS_COMMAND = 'status --porcelain --untracked-files=all -- . :(top,exclude).looptroop'
 
 interface PersistedLogEvent {
   phase?: string
@@ -139,6 +139,7 @@ function setupVerifyTicketApp() {
     name: 'LoopTroop',
     shortname: 'LOOP',
   })
+  writeFileSync(resolve(repoDir, '.looptroop', 'runtime-marker.txt'), 'runtime\n')
   const ticket = createTicket({
     projectId: project.id,
     title: 'Manual verification',
@@ -211,6 +212,8 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
     const { app, repoDir, ticket, executionLogPath, candidateCommitSha } = setupVerifyTicketApp()
     const broadcastSpy = vi.spyOn(broadcaster, 'broadcast')
 
+    expect(git(repoDir, ['status', '--porcelain'])).toBe('')
+
     const response = await app.request(`/api/tickets/${ticket.id}/verify`, {
       method: 'POST',
     })
@@ -238,7 +241,7 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
 
     expect(emittedCommandLogs.length).toBeGreaterThan(0)
     expect(emittedCommandLogs.some((msg) => msg.includes('push --progress --force-with-lease'))).toBe(true)
-    expect(emittedCommandLogs.some((msg) => msg.includes('status --porcelain'))).toBe(true)
+    expect(emittedCommandLogs.some((msg) => msg.includes(FILTERED_STATUS_COMMAND))).toBe(true)
     expect(emittedCommandLogs.some((msg) => msg.includes('merge --no-edit'))).toBe(true)
 
     const persistedCommandLogs = readPersistedLogEvents(executionLogPath)
@@ -250,8 +253,49 @@ describe('ticketRouter POST /tickets/:id/verify', () => {
 
     expect(persistedCommandLogs.length).toBeGreaterThan(0)
     expect(persistedCommandLogs.some((msg) => msg.includes('push --progress --force-with-lease'))).toBe(true)
-    expect(persistedCommandLogs.some((msg) => msg.includes('status --porcelain'))).toBe(true)
+    expect(persistedCommandLogs.some((msg) => msg.includes(FILTERED_STATUS_COMMAND))).toBe(true)
     expect(persistedCommandLogs.some((msg) => msg.includes('merge --no-edit'))).toBe(true)
+
+    broadcaster.clearTicket(ticket.id)
+  })
+
+  it('blocks verify when the repo has dirty changes outside .looptroop', async () => {
+    const { app, repoDir, ticket, executionLogPath } = setupVerifyTicketApp()
+    const broadcastSpy = vi.spyOn(broadcaster, 'broadcast')
+
+    writeFileSync(resolve(repoDir, 'UNTRACKED.txt'), 'dirty\n')
+
+    const response = await app.request(`/api/tickets/${ticket.id}/verify`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { status?: string; message?: string }
+    expect(payload).toMatchObject({
+      status: 'BLOCKED_ERROR',
+      message: 'Verification failed and ticket was blocked',
+    })
+    expect(getTicketByRef(ticket.id)?.status).toBe('BLOCKED_ERROR')
+
+    const emittedCommandLogs = broadcastSpy.mock.calls
+      .filter(([, event, data]) =>
+        event === 'log'
+        && data.phase === 'WAITING_MANUAL_VERIFICATION'
+        && String(data.content ?? '').startsWith('[CMD]'))
+      .map(([, , data]) => String(data.content ?? ''))
+
+    expect(emittedCommandLogs.some((msg) => msg.includes(FILTERED_STATUS_COMMAND))).toBe(true)
+    expect(emittedCommandLogs.some((msg) => msg.includes('merge --no-edit'))).toBe(false)
+
+    const persistedCommandLogs = readPersistedLogEvents(executionLogPath)
+      .filter((entry) =>
+        entry.phase === 'WAITING_MANUAL_VERIFICATION'
+        && entry.status === 'WAITING_MANUAL_VERIFICATION')
+      .map((entry) => String(entry.message ?? entry.content ?? ''))
+      .filter((msg) => msg.startsWith('[CMD]'))
+
+    expect(persistedCommandLogs.some((msg) => msg.includes(FILTERED_STATUS_COMMAND))).toBe(true)
+    expect(persistedCommandLogs.some((msg) => msg.includes('merge --no-edit'))).toBe(false)
 
     broadcaster.clearTicket(ticket.id)
   })
