@@ -116,4 +116,28 @@ describe('server/git/github', () => {
       error: 'looptroop-ai (error): HTTP 401: Bad credentials',
     })
   })
+
+  it('omits an oversized patch instead of throwing during PR diff capture', async () => {
+    spawnSyncMock.mockImplementation((_command: string, args: readonly string[]) => {
+      if (args.includes('--stat')) {
+        return makeSpawnResult({ stdout: 'src/app.ts | 2 +-' })
+      }
+      if (args.includes('--name-status')) {
+        return makeSpawnResult({ stdout: 'M\tsrc/app.ts' })
+      }
+      if (args.includes('--unified=0')) {
+        return makeSpawnResult({ error: new Error('spawnSync git ENOBUFS') })
+      }
+      return makeSpawnResult()
+    })
+
+    const github = await import('../github')
+    const result = github.readGitDiff('/repo', 'base', 'head')
+
+    expect(result.stat).toBe('src/app.ts | 2 +-')
+    expect(result.nameStatus).toBe('M\tsrc/app.ts')
+    expect(result.patchTruncated).toBe(true)
+    expect(result.patchError).toBe('spawnSync git ENOBUFS')
+    expect(result.patch).toContain('omitted the full patch')
+  })
 })

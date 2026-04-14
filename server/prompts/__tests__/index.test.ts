@@ -211,6 +211,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(PROM20.outputFormat).toContain('patterns:')
     expect(PROM20.outputFormat).toContain('anti_patterns:')
     expect(PROM20.outputFormat).toContain('prefer a block scalar (`|-`) and otherwise use a double-quoted YAML string')
+    expect(PROM20.outputFormat).toContain('escape literal backslashes as `\\\\`')
     expect(PROM20.outputFormat).toContain('Never emit quoted block-scalar indicators such as `"|-"`')
     expect(PROM20.outputFormat).toContain('Never use YAML single-quoted scalars for punctuation-heavy commands, code snippets, regex-like text')
     expect(PROM22.outputFormat).toContain(PROM20.outputFormat)
@@ -223,6 +224,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(draftPrompt).toContain('patterns:')
     expect(draftPrompt).toContain('anti_patterns:')
     expect(draftPrompt).toContain('dense punctuation, quotes, backslashes, `: `, brackets, braces, shell metacharacters, or other code-like inline syntax')
+    expect(draftPrompt).toContain('Do not emit tool-call syntax such as `[TOOL_CALL]`')
     expect(draftPrompt).toContain('If you use a block scalar, emit the indicator unquoted on the key line')
 
     const refinePrompt = buildPromptFromTemplate(PROM22, [])

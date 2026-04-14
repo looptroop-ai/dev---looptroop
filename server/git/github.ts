@@ -17,6 +17,9 @@ function logCmd(
   }
 }
 
+const GIT_COMMAND_MAX_BUFFER_BYTES = 16 * 1024 * 1024
+const GIT_PATCH_MAX_BUFFER_BYTES = 2 * 1024 * 1024
+
 function runCommand(
   bin: string,
   args: string[],
@@ -24,6 +27,7 @@ function runCommand(
     cwd?: string
     input?: string
     env?: NodeJS.ProcessEnv
+    maxBuffer?: number
   },
 ): string {
   const result = spawnSync(bin, args, {
@@ -31,6 +35,7 @@ function runCommand(
     input: options?.input,
     encoding: 'utf8',
     env: options?.env,
+    maxBuffer: options?.maxBuffer ?? GIT_COMMAND_MAX_BUFFER_BYTES,
   })
   const stdout = (result.stdout ?? '').trim()
   const stderr = (result.stderr ?? '').trim()
@@ -52,6 +57,7 @@ function tryCommand(
     cwd?: string
     input?: string
     env?: NodeJS.ProcessEnv
+    maxBuffer?: number
   },
 ): { ok: true; stdout: string; stderr: string } | { ok: false; error: string } {
   const result = spawnSync(bin, args, {
@@ -59,6 +65,7 @@ function tryCommand(
     input: options?.input,
     encoding: 'utf8',
     env: options?.env,
+    maxBuffer: options?.maxBuffer ?? GIT_COMMAND_MAX_BUFFER_BYTES,
   })
   const stdout = (result.stdout ?? '').trim()
   const stderr = (result.stderr ?? '').trim()
@@ -99,6 +106,14 @@ export interface PullRequestInfo {
   updatedAt: string | null
   closedAt: string | null
   mergedAt: string | null
+}
+
+export interface GitDiffSummary {
+  stat: string
+  nameStatus: string
+  patch: string
+  patchTruncated: boolean
+  patchError: string | null
 }
 
 export interface GitRecoveryReceipt {
@@ -486,12 +501,37 @@ export function mergePullRequest(projectPath: string, prNumber: number, title: s
   return info
 }
 
-export function readGitDiff(projectPath: string, fromRef: string, toRef: string): { stat: string; nameStatus: string; patch: string } {
+export function readGitDiff(projectPath: string, fromRef: string, toRef: string): GitDiffSummary {
   const exclusion = ':(top,exclude).ticket'
   const stat = runGit(projectPath, ['diff', '--stat', `${fromRef}..${toRef}`, '--', '.', exclusion])
   const nameStatus = runGit(projectPath, ['diff', '--name-status', `${fromRef}..${toRef}`, '--', '.', exclusion])
-  const patch = runGit(projectPath, ['diff', '--no-ext-diff', '--unified=0', `${fromRef}..${toRef}`, '--', '.', exclusion])
-  return { stat, nameStatus, patch }
+  const patchResult = tryCommand(
+    'git',
+    ['-C', projectPath, 'diff', '--no-ext-diff', '--unified=0', `${fromRef}..${toRef}`, '--', '.', exclusion],
+    { maxBuffer: GIT_PATCH_MAX_BUFFER_BYTES },
+  )
+
+  if (!patchResult.ok) {
+    return {
+      stat,
+      nameStatus,
+      patch: [
+        '[LoopTroop omitted the full patch because it exceeded the safe capture limit or git diff failed.]',
+        `Diff capture error: ${patchResult.error}`,
+        'Use final_diff_stat and final_diff_name_status as the source of truth for changed files.',
+      ].join('\n'),
+      patchTruncated: true,
+      patchError: patchResult.error,
+    }
+  }
+
+  return {
+    stat,
+    nameStatus,
+    patch: patchResult.stdout,
+    patchTruncated: false,
+    patchError: null,
+  }
 }
 
 function parseStatusLines(statusOutput: string): {

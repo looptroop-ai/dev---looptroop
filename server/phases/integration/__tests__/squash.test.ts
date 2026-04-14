@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { afterAll, describe, expect, it } from 'vitest'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createFixtureRepoManager } from '../../../test/fixtureRepo'
 import { prepareSquashCandidate, pushSquashedCandidate } from '../squash'
@@ -81,8 +81,12 @@ describe('prepareSquashCandidate', () => {
     expect(commitMsg).toBe('TICKET-4: Single change')
   })
 
-  it('stages tracked changes plus explicit final-test files without sweeping unrelated untracked files', () => {
+  it('stages committed bead files plus explicit final-test files without sweeping unrelated worktree changes', () => {
     const repoDir = repoManager.createRepo()
+
+    writeFileSync(resolve(repoDir, 'generated.asset'), 'generated\n')
+    git(repoDir, ['add', 'generated.asset'])
+    git(repoDir, ['commit', '-m', 'add generated asset'])
 
     git(repoDir, ['checkout', '-b', 'TICKET-5'])
     writeFileSync(resolve(repoDir, 'tracked.ts'), 'export const tracked = 1\n')
@@ -92,18 +96,40 @@ describe('prepareSquashCandidate', () => {
     writeFileSync(resolve(repoDir, 'README.md'), 'base updated\n')
     writeFileSync(resolve(repoDir, 'final.test.ts'), 'export const final = true\n')
     writeFileSync(resolve(repoDir, 'runtime.db'), 'not for commit\n')
+    unlinkSync(resolve(repoDir, 'generated.asset'))
 
     const result = prepareSquashCandidate(repoDir, 'main', 'Selective stage', 'TICKET-5', ['final.test.ts'])
 
     expect(result.success).toBe(true)
     const showFiles = git(repoDir, ['show', '--pretty=', '--name-only', 'HEAD'])
     expect(showFiles).toContain('tracked.ts')
-    expect(showFiles).toContain('README.md')
     expect(showFiles).toContain('final.test.ts')
+    expect(showFiles).not.toContain('README.md')
+    expect(showFiles).not.toContain('generated.asset')
     expect(showFiles).not.toContain('runtime.db')
 
     const status = git(repoDir, ['status', '--porcelain'])
+    expect(status).toContain('M README.md')
+    expect(status).toContain(' D generated.asset')
     expect(status).toContain('?? runtime.db')
+  })
+
+  it('excludes committed LoopTroop ticket artifacts from the final candidate', () => {
+    const repoDir = repoManager.createRepo()
+
+    git(repoDir, ['checkout', '-b', 'TICKET-6'])
+    mkdirSync(resolve(repoDir, '.ticket'), { recursive: true })
+    writeFileSync(resolve(repoDir, '.ticket/prd.yaml'), 'prd: internal\n')
+    writeFileSync(resolve(repoDir, 'feature.ts'), 'export const feature = true\n')
+    git(repoDir, ['add', '.ticket/prd.yaml', 'feature.ts'])
+    git(repoDir, ['commit', '-m', 'feature with ticket metadata'])
+
+    const result = prepareSquashCandidate(repoDir, 'main', 'Exclude metadata', 'TICKET-6')
+
+    expect(result.success).toBe(true)
+    const showFiles = git(repoDir, ['show', '--pretty=', '--name-only', 'HEAD'])
+    expect(showFiles).toContain('feature.ts')
+    expect(showFiles).not.toContain('.ticket/prd.yaml')
   })
 })
 

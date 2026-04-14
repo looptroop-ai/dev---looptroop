@@ -23,6 +23,44 @@ export interface SquashResult {
   commitCount?: number
 }
 
+const GIT_ADD_BATCH_SIZE = 100
+
+function normalizeCandidatePath(filePath: string): string | null {
+  const trimmed = filePath.trim()
+  if (!trimmed || trimmed.includes('\0') || trimmed.includes('\n')) return null
+
+  const normalized = trimmed.startsWith('./') ? trimmed.slice(2) : trimmed
+  if (
+    !normalized
+    || normalized === '.'
+    || normalized === '..'
+    || normalized.startsWith('/')
+    || normalized.startsWith('../')
+    || normalized.includes('/../')
+    || normalized === '.ticket'
+    || normalized.startsWith('.ticket/')
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
+function uniqueCandidatePaths(files: string[]): string[] {
+  return [...new Set(files.map(normalizeCandidatePath).filter((file): file is string => file !== null))]
+}
+
+function parsePathList(output: string): string[] {
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function toLiteralPathspec(filePath: string): string {
+  return `:(literal)${filePath}`
+}
+
 export function prepareSquashCandidate(
   worktreePath: string,
   baseBranch: string,
@@ -30,6 +68,8 @@ export function prepareSquashCandidate(
   ticketId: string,
   extraFilesToStage: string[] = [],
 ): SquashResult {
+  let preSquashHead: string | undefined
+  let resetForSquash = false
   const runGit = (args: string[]) => {
     const fullArgs = ['-C', worktreePath, ...args]
     const result = spawnSync('git', fullArgs, { encoding: 'utf8' })
@@ -46,20 +86,45 @@ export function prepareSquashCandidate(
 
   try {
     const baseBranchRef = resolveBaseBranchRef(worktreePath, baseBranch)
-    const preSquashHead = runGit(['rev-parse', 'HEAD'])
+    preSquashHead = runGit(['rev-parse', 'HEAD'])
     const mergeBase = runGit(['merge-base', 'HEAD', baseBranchRef])
     const commitCount = Number(runGit(['rev-list', '--count', `${mergeBase}..HEAD`]))
+    const committedCandidateFiles = uniqueCandidatePaths(parsePathList(runGit([
+      'diff',
+      '--name-only',
+      '--no-renames',
+      `${mergeBase}..${preSquashHead}`,
+      '--',
+      '.',
+      ':(top,exclude).ticket',
+    ])))
+    const explicitFiles = uniqueCandidatePaths(extraFilesToStage)
+    const candidateFiles = uniqueCandidatePaths([
+      ...committedCandidateFiles,
+      ...explicitFiles,
+    ])
 
-    runGit(['reset', '--soft', mergeBase])
-    runGit(['add', '-v', '-u', '--', '.', ':(top,exclude).ticket'])
-    const explicitFiles = [...new Set(extraFilesToStage.filter((file) => file.trim().length > 0))]
-    if (explicitFiles.length > 0) {
-      runGit(['add', '-v', '--', ...explicitFiles.filter((file) => !file.startsWith('.ticket/'))])
+    if (candidateFiles.length === 0) {
+      return {
+        success: false,
+        message: 'No candidate changes were available to squash',
+        mergeBase,
+        preSquashHead,
+        commitCount,
+      }
     }
 
-    const stagedChanges = runGit(['status', '--porcelain'])
+    runGit(['reset', '--mixed', mergeBase])
+    resetForSquash = true
+
+    for (let index = 0; index < candidateFiles.length; index += GIT_ADD_BATCH_SIZE) {
+      const batch = candidateFiles.slice(index, index + GIT_ADD_BATCH_SIZE)
+      runGit(['add', '-v', '-A', '--', ...batch.map(toLiteralPathspec)])
+    }
+
+    const stagedChanges = runGit(['diff', '--cached', '--name-only', '--', '.', ':(top,exclude).ticket'])
     if (!stagedChanges) {
-      runGit(['reset', '--soft', preSquashHead])
+      runGit(['reset', '--mixed', preSquashHead])
       return {
         success: false,
         message: 'No candidate changes were available to squash',
@@ -80,6 +145,7 @@ export function prepareSquashCandidate(
       `${ticketId}: ${ticketTitle}`,
     ])
     const commitHash = runGit(['rev-parse', 'HEAD'])
+    resetForSquash = false
     return {
       success: true,
       message: `Prepared candidate commit ${commitHash} from ${commitCount} commit(s) on ${ticketId}`,
@@ -89,6 +155,13 @@ export function prepareSquashCandidate(
       commitCount,
     }
   } catch (error) {
+    if (resetForSquash && preSquashHead) {
+      try {
+        runGit(['reset', '--mixed', preSquashHead])
+      } catch {
+        // Preserve the original error; caller-level recovery records the failure context.
+      }
+    }
     return {
       success: false,
       message: error instanceof Error ? error.message : String(error),
