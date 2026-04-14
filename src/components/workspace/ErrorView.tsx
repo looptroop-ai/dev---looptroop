@@ -125,8 +125,8 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
     && visibleOccurrence?.resolvedAt === null
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <div className="p-4 shrink-0">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+      <div className="min-h-0 shrink overflow-y-auto p-4">
         <Card className={isLiveError ? 'border-destructive' : 'border-amber-300 dark:border-amber-800'}>
           <CardHeader className="py-3">
             <CardTitle className="text-sm flex items-center gap-2 text-destructive">
@@ -227,6 +227,7 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
         phase={visibleOccurrence?.blockedFromStatus ?? 'BLOCKED_ERROR'}
         logs={errorLogs}
         ticket={ticket}
+        defaultExpanded={false}
         className="px-4 pb-4"
       />
     </div>
