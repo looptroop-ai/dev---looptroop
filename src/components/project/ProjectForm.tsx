@@ -25,6 +25,20 @@ interface GitCheckResponse {
   existingProject?: ExistingProjectPreview | null
 }
 
+function formatRelativeTime(dateStr: string) {
+  const date = new Date(dateStr)
+  const diffInSeconds = Math.floor((Date.now() - date.getTime()) / 1000)
+  
+  if (diffInSeconds < 60) return 'Just now'
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
+  const days = Math.floor(diffInSeconds / 86400)
+  if (days === 1) return 'Yesterday'
+  if (days < 30) return `${days} days ago`
+  if (days < 365) return `${Math.floor(days / 30)} months ago`
+  return `${Math.floor(days / 365)} years ago`
+}
+
 export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const createProject = useCreateProject()
   const updateProject = useUpdateProject()
@@ -232,9 +246,36 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
             </div>
           </div>
           {isEditing ? (
-            <div>
-              <label className="text-sm font-medium block mb-1">Project Folder</label>
-              <span className="text-sm text-muted-foreground font-mono">{folder}</span>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-1">Project Folder</label>
+                <span className="text-sm text-muted-foreground font-mono">{folder}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 border-t border-border pt-4">
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 block">Project Created</label>
+                  <span 
+                    className="text-sm font-medium cursor-help"
+                    title={new Date(project.createdAt).toLocaleString()}
+                  >
+                    {formatRelativeTime(project.createdAt)}
+                  </span>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 block">Last Update</label>
+                  <span 
+                    className="text-sm font-medium cursor-help"
+                    title={`${new Date(project.updatedAt).toLocaleString()}${project.latestActivityTicketExternalId ? ` - Ticket ${project.latestActivityTicketExternalId}` : ''}`}
+                  >
+                    {formatRelativeTime(project.updatedAt)}
+                    {project.latestActivityTicketExternalId && (
+                      <span className="ml-1 text-muted-foreground font-normal">
+                        ({project.latestActivityTicketExternalId})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
             </div>
           ) : (
             <div>

@@ -17,6 +17,7 @@ type LocalTicketRow = typeof tickets.$inferSelect
 
 export interface PublicProject extends Omit<LocalProjectRow, 'id'> {
   id: number
+  latestActivityTicketExternalId?: string
 }
 
 export interface ProjectContext {
@@ -202,7 +203,28 @@ export function listProjects(): PublicProject[] {
   for (const attached of attachedRows) {
     const localProject = readLocalProject(attached.folderPath)
     if (!localProject) continue
-    aggregated.push(hydrateProject(attached, localProject))
+
+    let lastUpdate = new Date(localProject.updatedAt).getTime()
+    let latestActivityTicketExternalId: string | undefined = undefined
+    const projectDb = getExistingProjectDatabase(attached.folderPath)
+    if (projectDb) {
+      const { db } = projectDb
+      const allTickets = db.select({ updatedAt: tickets.updatedAt, externalId: tickets.externalId }).from(tickets).all()
+      for (const t of allTickets) {
+        const tTime = new Date(t.updatedAt).getTime()
+        if (tTime > lastUpdate) {
+          lastUpdate = tTime
+          latestActivityTicketExternalId = t.externalId
+        }
+      }
+    }
+
+    const hydrated = hydrateProject(attached, localProject)
+    hydrated.updatedAt = new Date(lastUpdate).toISOString()
+    if (latestActivityTicketExternalId) {
+      hydrated.latestActivityTicketExternalId = latestActivityTicketExternalId
+    }
+    aggregated.push(hydrated)
   }
   return aggregated.sort((a, b) => a.name.localeCompare(b.name))
 }

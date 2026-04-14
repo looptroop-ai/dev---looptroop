@@ -20,6 +20,7 @@ interface Project {
   ticketCounter: number
   createdAt: string
   updatedAt: string
+  latestActivityTicketExternalId?: string
 }
 
 interface ExistingProjectPreview {

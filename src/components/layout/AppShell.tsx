@@ -1,6 +1,5 @@
 import { SunMoon, Moon, Sun, Settings, FolderOpen, Plus, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useUI } from '@/context/useUI'
@@ -118,7 +117,6 @@ export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket,
           </DropdownMenu>
         </div>
       </header>
-      <Separator />
       <main className="flex-1">
         {children}
       </main>
