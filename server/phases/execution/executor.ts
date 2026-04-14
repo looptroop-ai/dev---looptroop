@@ -16,6 +16,7 @@ import { SessionManager } from '../../opencode/sessionManager'
 import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { buildPromptFromTemplate, buildSameSessionPromptFromTemplate, PROM_CODING, PROM51 } from '../../prompts/index'
+import { BEAD_RETRY_BUDGET_EXHAUSTED } from '../../../shared/errorCodes'
 
 const BEAD_STATUS_SCHEMA_REMINDER = [
   'Return exactly one <BEAD_STATUS>...</BEAD_STATUS> block and nothing else.',
@@ -40,6 +41,7 @@ export interface ExecutionResult {
   iteration: number
   output: string
   errors: string[]
+  errorCodes?: string[]
 }
 
 type ContextPartsInput = PromptPart[] | (() => Promise<PromptPart[]>)
@@ -250,12 +252,18 @@ export async function executeBead(
     onContextWipe?: (entry: { beadId: string; notes: string; iteration: number }) => Promise<void>
   },
 ): Promise<ExecutionResult> {
-  let iteration = 0
+  const startingIteration = Number.isInteger(bead.iteration) && bead.iteration > 0
+    ? bead.iteration
+    : 0
+  const maxAttemptIteration = maxIterations > 0
+    ? startingIteration + maxIterations
+    : null
+  let iteration = startingIteration
   let lastOutput = ''
   const errors: string[] = []
   const sessionManager = callbacks?.ticketId ? new SessionManager(adapter) : null
 
-  while (maxIterations <= 0 || iteration < maxIterations) {
+  while (maxAttemptIteration == null || iteration < maxAttemptIteration) {
     iteration++
     throwIfAborted(signal)
     let activeSessionId: string | null = null
@@ -506,11 +514,18 @@ export async function executeBead(
     throwIfAborted(signal)
   }
 
+  if (maxAttemptIteration !== null && iteration >= maxAttemptIteration) {
+    errors.push(`Reached the configured per-bead retry budget at iteration ${iteration}.`)
+  }
+
   return {
     beadId: bead.id,
     success: false,
     iteration,
     output: lastOutput,
     errors,
+    ...(maxAttemptIteration !== null && iteration >= maxAttemptIteration
+      ? { errorCodes: [BEAD_RETRY_BUDGET_EXHAUSTED] }
+      : {}),
   }
 }

@@ -336,8 +336,7 @@ function buildRuntime(
 ): PublicTicket['runtime'] {
   const projectContext = getProjectContextById(projectId)
   const profile = appDb.select().from(profiles).get()
-  const snapshot = parseJsonObject<{ context?: { iterationCount?: unknown; maxIterations?: unknown } }>(ticket.xstateSnapshot)
-  const iterationCount = typeof snapshot?.context?.iterationCount === 'number' ? snapshot.context.iterationCount : 0
+  const snapshot = parseJsonObject<{ context?: { maxIterations?: unknown } }>(ticket.xstateSnapshot)
   const maxIterations = typeof snapshot?.context?.maxIterations === 'number'
     ? snapshot.context.maxIterations
     : projectContext?.project.maxIterations
@@ -406,7 +405,7 @@ function buildRuntime(
     completedBeads,
     totalBeads,
     percentComplete: Math.round(ticket.percentComplete ?? 0),
-    iterationCount,
+    iterationCount: 0,
     maxIterations,
     maxIterationsPerBead: maxIterations,
     perIterationTimeoutMs,

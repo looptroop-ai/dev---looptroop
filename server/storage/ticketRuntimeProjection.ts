@@ -31,7 +31,6 @@ function buildRuntimeProjection(ticket: PublicTicket) {
       completedBeads: ticket.runtime.completedBeads,
       totalBeads: ticket.runtime.totalBeads,
       percentComplete: ticket.runtime.percentComplete,
-      iterationCount: ticket.runtime.iterationCount,
       maxIterationsPerBead: ticket.runtime.maxIterationsPerBead,
       activeBeadId: ticket.runtime.activeBeadId,
       activeBeadIteration: ticket.runtime.activeBeadIteration,

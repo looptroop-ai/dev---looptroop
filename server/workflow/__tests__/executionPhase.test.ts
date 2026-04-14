@@ -4,6 +4,7 @@ import { createInitializedTestTicket, createTestRepoManager, makeTicketContextFr
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { readTicketBeads, recoverFailedCodingBead, writeTicketBeads } from '../phases/beadsPhase'
 import { phaseIntermediate, phaseResults } from '../phases/state'
+import { BEAD_RETRY_BUDGET_EXHAUSTED } from '../../../shared/errorCodes'
 
 const {
   executeBeadMock,
@@ -240,6 +241,35 @@ describe('handleCoding', () => {
 
     const finalBeads = readTicketBeads(ticket.id)
     expect(finalBeads.find((b) => b.id === 'bead-1')?.status).toBe('error')
+  })
+
+  it('propagates retry-budget exhaustion codes when a bead uses its per-bead window', async () => {
+    const { ticket, context } = createInitializedTestTicket(repoManager, {
+      title: 'Bead retry budget exhaustion',
+    })
+    writeTicketBeads(ticket.id, [makePendingBead('bead-1', 1, { iteration: 5 })])
+    const sendEvent = vi.fn()
+
+    executeBeadMock.mockResolvedValueOnce({
+      success: false,
+      beadId: 'bead-1',
+      iteration: 10,
+      output: '',
+      errors: ['Reached the configured per-bead retry budget at iteration 10.'],
+      errorCodes: [BEAD_RETRY_BUDGET_EXHAUSTED],
+    })
+
+    await handleCoding(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(sendEvent).toHaveBeenCalledWith({
+      type: 'BEAD_ERROR',
+      codes: [BEAD_RETRY_BUDGET_EXHAUSTED],
+    })
+
+    const finalBeads = readTicketBeads(ticket.id)
+    const failedBead = finalBeads.find((b) => b.id === 'bead-1')
+    expect(failedBead?.status).toBe('error')
+    expect(failedBead?.iteration).toBe(10)
   })
 
   it('invokes resetToBeadStart and persists notes through the fresh-reload when onContextWipe fires', async () => {

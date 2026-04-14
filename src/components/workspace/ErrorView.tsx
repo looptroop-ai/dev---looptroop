@@ -16,6 +16,7 @@ import {
   type TicketErrorOccurrence,
 } from '@/lib/errorOccurrences'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
+import { BEAD_RETRY_BUDGET_EXHAUSTED } from '@shared/errorCodes'
 
 interface ErrorViewProps {
   ticket: Ticket
@@ -92,6 +93,14 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
         .filter(Boolean)
     : []
   const visibleOccurrence = occurrence ?? getActiveErrorOccurrence(ticket)
+  const retryActionLabel = (
+    visibleOccurrence?.blockedFromStatus === 'CODING'
+    && visibleOccurrence.errorCodes.includes(BEAD_RETRY_BUDGET_EXHAUSTED)
+    && typeof ticket.runtime.maxIterationsPerBead === 'number'
+    && ticket.runtime.maxIterationsPerBead > 0
+  )
+    ? `Try again ${ticket.runtime.maxIterationsPerBead} ${ticket.runtime.maxIterationsPerBead === 1 ? 'retry' : 'retries'}`
+    : 'Retry'
   const errorLogs = (() => {
     if (!visibleOccurrence) {
       return logCtx?.getLogsForPhase('BLOCKED_ERROR') ?? []
@@ -215,7 +224,7 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
                   disabled={isPending}
                   className="h-7 text-xs"
                 >
-                  🔄 Retry
+                  {retryActionLabel}
                 </Button>
               </div>
             )}

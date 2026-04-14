@@ -6,6 +6,7 @@ import type { Bead } from '../../beads/types'
 import { PROFILE_DEFAULTS } from '../../../db/defaults'
 import { patchTicket } from '../../../storage/tickets'
 import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/factories'
+import { BEAD_RETRY_BUDGET_EXHAUSTED } from '../../../../shared/errorCodes'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   private promptCounts = new Map<string, number>()
@@ -69,7 +70,7 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
   }
 }
 
-function buildBead(): Bead {
+function buildBead(overrides: Partial<Bead> = {}): Bead {
   return {
     id: 'bead-1',
     title: 'Normalize structured outputs',
@@ -87,12 +88,13 @@ function buildBead(): Bead {
     dependencies: { blocked_by: [], blocks: [] },
     targetFiles: [],
     notes: '',
-    iteration: 1,
+    iteration: 0,
     createdAt: '',
     updatedAt: '',
     completedAt: '',
     startedAt: '',
     beadStartCommit: null,
+    ...overrides,
   }
 }
 
@@ -390,6 +392,65 @@ describe('executeBead', () => {
     expect(contextSnapshots).toHaveLength(2)
     expect(contextSnapshots[0]).toBe('')
     expect(contextSnapshots[1]).toContain('Retry with the new note')
+  })
+
+  it('starts a recovered bead on the next absolute iteration instead of resetting to 1', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const sessionIterations: number[] = []
+    const result = await executeBead(
+      adapter,
+      buildBead({ iteration: 5 }),
+      [{ type: 'text', content: 'Recovered bead context' }],
+      '/tmp/test',
+      5,
+      PROFILE_DEFAULTS.perIterationTimeout,
+      undefined,
+      {
+        onSessionCreated: (_sessionId, iteration) => {
+          sessionIterations.push(iteration)
+        },
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.iteration).toBe(6)
+    expect(sessionIterations).toEqual([6])
+  })
+
+  it('exhausts a recovered bead retry window at the correct absolute iteration', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = new SequencedMockOpenCodeAdapter()
+      for (let index = 1; index <= 5; index += 1) {
+        adapter.promptFailures.set(`mock-session-${index}#1`, 'stallUntilAbort')
+        adapter.mockResponses.set(`mock-session-${index}#2`, `Recovered bead note ${index}`)
+      }
+
+      const runPromise = executeBead(
+        adapter,
+        buildBead({ iteration: 5 }),
+        [{ type: 'text', content: 'Recovered bead context' }],
+        '/tmp/test',
+        5,
+        1,
+      )
+
+      await vi.runAllTimersAsync()
+      const result = await runPromise
+
+      expect(result.success).toBe(false)
+      expect(result.iteration).toBe(10)
+      expect(result.errorCodes).toEqual([BEAD_RETRY_BUDGET_EXHAUSTED])
+      expect(result.errors).toContain('Reached the configured per-bead retry budget at iteration 10.')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reuses the timed-out session for PROM51 before starting the next coding session', async () => {

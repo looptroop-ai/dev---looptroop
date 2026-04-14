@@ -24,6 +24,7 @@ export const ticketMachine = setup({
         if (event.type === 'ERROR') return event.codes ?? []
         if (event.type === 'INIT_FAILED') return event.codes ?? []
         if (event.type === 'CHECKS_FAILED') return event.errors
+        if (event.type === 'BEAD_ERROR') return event.codes ?? []
         return []
       },
     }),
@@ -35,9 +36,6 @@ export const ticketMachine = setup({
       previousStatus: ({ context }) => context.status,
       status: (_, params: { status: string }) => params.status,
       updatedAt: () => new Date().toISOString(),
-    }),
-    incrementIteration: assign({
-      iterationCount: ({ context }) => context.iterationCount + 1,
     }),
   },
   guards: {
@@ -307,7 +305,7 @@ export const ticketMachine = setup({
       on: {
         BEAD_COMPLETE: [
           { guard: 'allBeadsComplete', target: 'RUNNING_FINAL_TEST' },
-          { target: 'CODING', actions: ['incrementIteration'] },
+          { target: 'CODING' },
         ],
         ALL_BEADS_DONE: { target: 'RUNNING_FINAL_TEST' },
         BEAD_ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
