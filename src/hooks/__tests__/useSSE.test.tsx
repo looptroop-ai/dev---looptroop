@@ -215,6 +215,36 @@ describe('useSSE', () => {
     })
   })
 
+  it('refreshes ticket runtime when coding bead retry metadata arrives via SSE logs', async () => {
+    const ticketId = '1:T-42'
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    const source = MockEventSource.instances[0]!
+
+    await act(async () => {
+      source.emit('log', {
+        ticketId,
+        phase: 'CODING',
+        type: 'info',
+        source: 'system',
+        beadId: 'bead-1',
+        content: 'Reset bead bead-1 to its start snapshot and appended retry notes for attempt 2.',
+        streaming: false,
+      }, '1')
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-beads', ticketId] })
+    })
+  })
+
   it('tracks reconnecting state when the live stream drops', async () => {
     const ticketId = '1:T-42'
     const { result } = renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))

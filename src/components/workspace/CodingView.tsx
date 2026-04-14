@@ -182,6 +182,52 @@ function normalizeBead(input: {
   }
 }
 
+function mergeBeadRuntimeOverlay(
+  beads: TicketBead[],
+  runtimeBeads: Ticket['runtime']['beads'] | undefined,
+): TicketBead[] {
+  if (!Array.isArray(runtimeBeads) || runtimeBeads.length === 0) return beads
+
+  const runtimeById = new Map(
+    runtimeBeads
+      .filter((bead): bead is NonNullable<Ticket['runtime']['beads']>[number] =>
+        Boolean(bead && typeof bead.id === 'string' && bead.id.length > 0),
+      )
+      .map((bead) => [bead.id, normalizeBead(bead)]),
+  )
+
+  const seen = new Set<string>()
+  const merged = beads.map((bead) => {
+    const runtimeBead = runtimeById.get(bead.id)
+    if (!runtimeBead) return bead
+    seen.add(bead.id)
+
+    if (
+      bead.title === runtimeBead.title
+      && bead.status === runtimeBead.status
+      && bead.iteration === runtimeBead.iteration
+      && bead.notes === runtimeBead.notes
+    ) {
+      return bead
+    }
+
+    return {
+      ...bead,
+      title: runtimeBead.title || bead.title,
+      status: runtimeBead.status,
+      iteration: runtimeBead.iteration,
+      notes: runtimeBead.notes,
+    }
+  })
+
+  for (const runtimeBead of runtimeById.values()) {
+    if (seen.has(runtimeBead.id)) continue
+    merged.push(runtimeBead)
+  }
+
+  return merged
+}
+
 async function fetchTicketBeads(ticketId: string): Promise<TicketBead[]> {
   const response = await fetch(`/api/tickets/${ticketId}/beads`)
   if (!response.ok) return []
@@ -621,7 +667,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
 
   const logCtx = useLogs()
   const { mutate: performAction, isPending } = useTicketAction()
-  const { data: beads = [] } = useQuery({
+  const { data: fetchedBeads = [] } = useQuery({
     queryKey: ['ticket-beads', ticket.id],
     queryFn: () => fetchTicketBeads(ticket.id),
     enabled: ticket.runtime.totalBeads > 0,
@@ -629,6 +675,10 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
     staleTime: 5000,
     refetchOnMount: false,
   })
+  const beads = useMemo(
+    () => mergeBeadRuntimeOverlay(fetchedBeads, ticket.runtime.beads),
+    [fetchedBeads, ticket.runtime.beads],
+  )
 
   const total = ticket.runtime.totalBeads || beads.length
   const current = ticket.runtime.currentBead

@@ -100,6 +100,22 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
+          const phase = typeof data.phase === 'string' ? data.phase : ''
+          const beadId = typeof data.beadId === 'string' ? data.beadId : ''
+          const source = typeof data.source === 'string' ? data.source : ''
+          const kind = typeof data.kind === 'string' ? data.kind : ''
+          const streaming = data.streaming === true
+
+          if (
+            ticketId
+            && phase === 'CODING'
+            && beadId.length > 0
+            && !streaming
+            && (source === 'system' || kind === 'milestone')
+          ) {
+            queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
+            queryClient.invalidateQueries({ queryKey: ['ticket-beads', ticketId] })
+          }
           onEventRef.current?.({ type: 'log', data })
         } catch {
           // ignore parse errors

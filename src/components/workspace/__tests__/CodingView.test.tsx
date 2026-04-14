@@ -291,6 +291,82 @@ describe('CodingView', () => {
     expect(screen.getByText(/second note/)).toBeTruthy()
   })
 
+  it('overlays live runtime retry metadata onto stale fetched bead details', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify([
+        {
+          id: 'bead-1',
+          title: 'Retry bead',
+          status: 'in_progress',
+          iteration: 1,
+          description: 'Full bead details',
+          notes: '',
+        },
+      ]), { status: 200 }),
+    )
+
+    const baseTicket = makeTicket({
+      status: 'CODING',
+      runtime: {
+        ...makeTicket().runtime,
+        totalBeads: 1,
+        currentBead: 1,
+        activeBeadId: 'bead-1',
+        activeBeadIteration: 1,
+        beads: [
+          { id: 'bead-1', title: 'Retry bead', status: 'in_progress', iteration: 1, notes: '' },
+        ],
+      },
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <CodingView ticket={baseTicket} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith('/api/tickets/1:TEST-1/beads')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Retry bead/ }))
+
+    const updatedTicket = makeTicket({
+      ...baseTicket,
+      runtime: {
+        ...baseTicket.runtime,
+        activeBeadIteration: 2,
+        beads: [
+          {
+            id: 'bead-1',
+            title: 'Retry bead',
+            status: 'error',
+            iteration: 2,
+            notes: 'retry note after timeout',
+          },
+        ],
+      },
+    })
+
+    rerender(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <CodingView ticket={updatedTicket} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByText(/Retry bead · Iteration 2/)).toBeTruthy()
+    expect(screen.getAllByText('2x').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/iteration 2/i).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/retry note after timeout/i)).toBeTruthy()
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => url === '/api/tickets/1:TEST-1/beads'),
+    ).toHaveLength(1)
+  })
+
   it('shows the full non-debug bead transcript in the Log tab', () => {
     const beadLogs: LogEntry[] = [
       {
