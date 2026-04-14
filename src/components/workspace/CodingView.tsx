@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { parsePrdDocument, parsePrdDocumentContent, normalizePrdDocumentLike } from '@/lib/prdDocument'
 import type { PrdDocument } from '@/lib/prdDocument'
+import { isStatusAtOrPast } from '@shared/workflowMeta'
 
 interface CodingViewProps {
   ticket: Ticket
@@ -49,6 +50,32 @@ interface TicketBead {
   completedAt: string
   startedAt: string
   beadStartCommit: string | null
+}
+
+function resolveCodingReviewStatus(ticket: Pick<Ticket, 'status' | 'previousStatus' | 'reviewCutoffStatus'>): string | null {
+  if (ticket.status === 'BLOCKED_ERROR') {
+    return ticket.previousStatus ?? ticket.reviewCutoffStatus ?? null
+  }
+
+  if (ticket.status === 'CANCELED') {
+    if (ticket.reviewCutoffStatus) return ticket.reviewCutoffStatus
+    return ticket.previousStatus && ticket.previousStatus !== 'BLOCKED_ERROR'
+      ? ticket.previousStatus
+      : null
+  }
+
+  return ticket.status
+}
+
+function shouldShowCompletedCodingState(
+  ticket: Pick<Ticket, 'status' | 'previousStatus' | 'reviewCutoffStatus'>,
+  readOnly?: boolean,
+): boolean {
+  if (ticket.status === 'COMPLETED') return true
+  if (!readOnly) return false
+
+  const reviewStatus = resolveCodingReviewStatus(ticket)
+  return reviewStatus ? isStatusAtOrPast(reviewStatus, 'RUNNING_FINAL_TEST') : false
 }
 
 function normalizeNotes(input: unknown): string {
@@ -685,15 +712,16 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const percent = ticket.runtime.percentComplete
   const activeIteration = ticket.runtime.activeBeadIteration
   const maxIterationsPerBead = ticket.runtime.maxIterationsPerBead
+  const phaseForView = readOnly ? 'CODING' : ticket.status
   const activeBead = ticket.runtime.activeBeadId
     ? beads.find((bead) => bead.id === ticket.runtime.activeBeadId)
     : null
-  const phaseLabel = getStatusUserLabel(ticket.status, {
+  const phaseLabel = getStatusUserLabel(phaseForView, {
     currentBead: current,
     totalBeads: total,
     errorMessage: ticket.errorMessage,
   })
-  const isCompleted = readOnly || ticket.status === 'COMPLETED'
+  const isCompleted = shouldShowCompletedCodingState(ticket, readOnly)
   const isAwaitingManualVerification = !readOnly && ticket.status === 'WAITING_PR_REVIEW'
   const viewedBead = useMemo(
     () => beads.find((bead) => bead.id === viewingBeadId) ?? null,
@@ -702,10 +730,10 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const { prd, isLoading: prdLoading, isError: prdError } = usePrdDocument(ticket.id)
   const beadLogEntries = useMemo(() => {
     if (!viewedBead) return []
-    const phaseLogs = logCtx?.getLogsForPhase(readOnly ? 'CODING' : ticket.status) ?? []
+    const phaseLogs = logCtx?.getLogsForPhase(phaseForView) ?? []
     const beadLogs = phaseLogs.filter((entry) => entry.beadId === viewedBead.id)
     return filterBeadLogEntries(beadLogs)
-  }, [logCtx, viewedBead, readOnly, ticket.status])
+  }, [logCtx, phaseForView, viewedBead])
   
   useEffect(() => {
     if (detailTab === 'model' && autoScrollEnabledRef.current) {
@@ -762,7 +790,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
             onClick={() => setViewingBeadId(null)}
             className="text-xs h-6 px-2 mx-auto"
           >
-            {isCompleted ? 'Close' : 'Back to live'}
+            {readOnly || isCompleted ? 'Close' : 'Back to live'}
           </Button>
         </div>
       )}
@@ -774,7 +802,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
       )}
 
       <div className="px-3 py-1.5 border-b border-border shrink-0">
-        <PhaseArtifactsPanel phase={readOnly ? 'CODING' : ticket.status} isCompleted={isCompleted} ticketId={ticket.id} />
+        <PhaseArtifactsPanel phase={phaseForView} isCompleted={isCompleted} ticketId={ticket.id} />
       </div>
 
       <div className="flex-1 min-h-0 px-2 py-2 flex flex-col">
@@ -1116,7 +1144,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
             )}
           </div>
         ) : (
-          <CollapsiblePhaseLogSection phase={readOnly ? 'CODING' : ticket.status} ticket={ticket} />
+          <CollapsiblePhaseLogSection phase={phaseForView} ticket={ticket} />
         )}
       </div>
     </div>

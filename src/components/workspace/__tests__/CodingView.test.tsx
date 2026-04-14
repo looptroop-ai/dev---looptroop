@@ -453,6 +453,70 @@ describe('CodingView', () => {
     expect(screen.queryByText(/hidden debug row/)).toBeNull()
   })
 
+  it('keeps blocked coding reviews on the interrupted bead progress instead of forcing completion', () => {
+    const blockedTicket = makeTicket({
+      status: 'BLOCKED_ERROR',
+      previousStatus: 'CODING',
+      reviewCutoffStatus: 'CODING',
+      errorMessage: 'Bead failed after max retries.',
+      runtime: {
+        ...makeTicket().runtime,
+        currentBead: 2,
+        totalBeads: 18,
+        percentComplete: 11,
+        activeBeadId: 'bead-2',
+        activeBeadIteration: 5,
+        maxIterationsPerBead: 5,
+        beads: [
+          {
+            id: 'bead-2',
+            title: 'Add show_matched_attributes to GET query struct',
+            status: 'error',
+            iteration: 5,
+            notes: 'retry note',
+          },
+        ],
+      },
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <CodingView ticket={blockedTicket} readOnly />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByText('Completed Successfully')).toBeNull()
+    expect(screen.getByText('Implementing (Bead 2/18)')).toBeTruthy()
+    expect(screen.getByText('2/18')).toBeTruthy()
+    expect(screen.queryByText('18/18')).toBeNull()
+    expect(screen.getByText(/Add show_matched_attributes to GET query struct · Iteration 5\/5/)).toBeTruthy()
+  })
+
+  it('keeps completed coding reviews marked complete after coding already advanced past execution', () => {
+    const completedCodingTicket = makeTicket({
+      status: 'WAITING_PR_REVIEW',
+      runtime: {
+        ...makeTicket().runtime,
+        currentBead: 3,
+        totalBeads: 3,
+        percentComplete: 100,
+      },
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <CodingView ticket={completedCodingTicket} readOnly />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByText('Completed Successfully')).toBeTruthy()
+    expect(screen.getAllByText('3/3').length).toBeGreaterThanOrEqual(1)
+  })
+
   describe('WAITING_PR_REVIEW', () => {
     it('renders VerificationSummaryPanel when status is WAITING_PR_REVIEW', () => {
       renderCoding({
