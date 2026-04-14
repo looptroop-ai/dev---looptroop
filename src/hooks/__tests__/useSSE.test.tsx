@@ -212,6 +212,40 @@ describe('useSSE', () => {
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-beads', ticketId] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['bead-diff', ticketId, 'bead-2'], exact: true })
+    })
+  })
+
+  it('refreshes the bead diff when a bead diff artifact arrives', async () => {
+    const ticketId = '1:T-42'
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    const source = MockEventSource.instances[0]!
+
+    await act(async () => {
+      source.emit('artifact_change', {
+        ticketId,
+        artifactType: 'bead_diff:bead-2',
+        artifact: {
+          id: 17,
+          ticketId,
+          phase: 'CODING',
+          artifactType: 'bead_diff:bead-2',
+          filePath: null,
+          content: 'diff --git a/file.ts b/file.ts',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      }, '1')
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['bead-diff', ticketId, 'bead-2'], exact: true })
     })
   })
 

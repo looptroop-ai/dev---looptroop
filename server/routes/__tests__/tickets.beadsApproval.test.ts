@@ -10,6 +10,7 @@ import {
   createTicket,
   getLatestPhaseArtifact,
   getTicketPaths,
+  insertPhaseArtifact,
   patchTicket,
 } from '../../storage/tickets'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
@@ -270,6 +271,35 @@ describe('ticketRouter beads approval routes', () => {
     expect(response.status).toBe(500)
     const payload = (await response.json()) as { error: string; details: string }
     expect(payload.details).toContain('not found')
+  })
+
+  it('returns stored diffs for uppercase bead ids', async () => {
+    const { app, ticket } = setupBeadsApprovalTicket()
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'CODING',
+      artifactType: 'bead_diff:MSEAR-1-001',
+      content: 'diff --git a/file.ts b/file.ts',
+    })
+
+    const response = await app.request(`/api/tickets/${ticket.id}/beads/MSEAR-1-001/diff`)
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { captured: boolean; diff: string }
+    expect(payload).toEqual({
+      captured: true,
+      diff: 'diff --git a/file.ts b/file.ts',
+    })
+  })
+
+  it('rejects malformed bead ids on the diff route', async () => {
+    const { app, ticket } = setupBeadsApprovalTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/beads/bad_id/diff`)
+
+    expect(response.status).toBe(400)
+    const payload = await response.json() as { error: string }
+    expect(payload.error).toBe('Invalid bead ID')
   })
 
   it('returns 500 when beads file contains invalid JSON', async () => {

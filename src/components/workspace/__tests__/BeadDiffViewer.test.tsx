@@ -95,6 +95,42 @@ describe('parseDiffStats', () => {
 })
 
 describe('BeadDiffViewer', () => {
+  it('shows a load error when the diff request fails', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Invalid bead ID' }), { status: 400 }),
+    )
+
+    renderBeadDiffViewer()
+
+    expect(await screen.findByText('Could not load diff for this bead.')).toBeInTheDocument()
+  })
+
+  it('shows pending capture state only when the backend reports uncaptured diff', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({
+        captured: false,
+        diff: '',
+      }), { status: 200 }),
+    )
+
+    renderBeadDiffViewer()
+
+    expect(await screen.findByText('Diff not yet captured for this bead.')).toBeInTheDocument()
+  })
+
+  it('shows no code changes when the diff artifact is captured but empty', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({
+        captured: true,
+        diff: '',
+      }), { status: 200 }),
+    )
+
+    renderBeadDiffViewer()
+
+    expect(await screen.findByText('No code changes in this bead.')).toBeInTheDocument()
+  })
+
   it('wraps long execution diff lines in the bead changes view', async () => {
     const longLine = '+const extremelyLongDiffIdentifierWithoutNaturalBreaks = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"'
 

@@ -60,7 +60,7 @@ beadsRouter.put('/tickets/:id/beads', async (c) => {
   return c.json({ success: true })
 })
 
-const BEAD_ID_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/
+const BEAD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/
 
 beadsRouter.get('/tickets/:id/beads/:beadId/diff', (c) => {
   const ticketId = c.req.param('id')

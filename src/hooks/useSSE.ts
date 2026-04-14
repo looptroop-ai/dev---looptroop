@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { queryClient } from '@/lib/queryClient'
 import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
 import { SSE_RECONNECT_DELAY_MS } from '@/lib/constants'
+import { getBeadDiffQueryKey } from '@/lib/beadDiffQuery'
 import { patchTicketStatusInCache } from './ticketStatusCache'
 import {
   getTicketArtifactsQueryKey,
@@ -16,6 +17,17 @@ interface SSEOptions {
 }
 
 export type SSEConnectionState = 'connecting' | 'connected' | 'reconnecting'
+
+function invalidateBeadDiffQuery(ticketId: string, beadId: unknown) {
+  if (typeof beadId !== 'string' || beadId.length === 0) return
+  queryClient.invalidateQueries({ queryKey: getBeadDiffQueryKey(ticketId, beadId), exact: true })
+}
+
+function getBeadIdFromArtifactType(artifactType: unknown): string | null {
+  if (typeof artifactType !== 'string' || !artifactType.startsWith('bead_diff:')) return null
+  const beadId = artifactType.slice('bead_diff:'.length)
+  return beadId.length > 0 ? beadId : null
+}
 
 export function useSSE({ ticketId, onEvent }: SSEOptions) {
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -141,6 +153,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
           const data = JSON.parse(e.data) as Record<string, unknown>
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
           queryClient.invalidateQueries({ queryKey: ['ticket-beads', ticketId] })
+          invalidateBeadDiffQuery(ticketId, data.beadId)
           onEventRef.current?.({ type: 'bead_complete', data })
         } catch {
           // ignore parse errors
@@ -181,6 +194,13 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
               )
             } else {
               queryClient.invalidateQueries({ queryKey: getTicketArtifactsQueryKey(ticketId) })
+            }
+
+            const beadId = getBeadIdFromArtifactType(
+              typeof data.artifactType === 'string' ? data.artifactType : snapshot?.artifactType,
+            )
+            if (beadId) {
+              invalidateBeadDiffQuery(ticketId, beadId)
             }
           }
           onEventRef.current?.({ type: 'artifact_change', data })

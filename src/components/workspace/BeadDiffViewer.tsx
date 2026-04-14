@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2, FileCode2, ChevronRight, ChevronDown } from 'lucide-react'
 import { parseDiffStats, parseFileDiffs, computeLineNumbersWithWordDiff, type FileDiff } from './diffUtils'
 import { renderUnifiedDiffLineText } from './diffWordHighlights'
+import { getBeadDiffQueryKey } from '@/lib/beadDiffQuery'
 
 interface BeadDiffViewerProps {
   ticketId: string
@@ -16,7 +17,9 @@ interface DiffResponse {
 
 async function fetchBeadDiff(ticketId: string, beadId: string): Promise<DiffResponse> {
   const response = await fetch(`/api/tickets/${ticketId}/beads/${beadId}/diff`)
-  if (!response.ok) return { diff: '', captured: false }
+  if (!response.ok) {
+    throw new Error(`Failed to load bead diff (${response.status})`)
+  }
   return response.json()
 }
 
@@ -88,8 +91,8 @@ function DiffContent({ diff }: { diff: string }) {
 }
 
 export function BeadDiffViewer({ ticketId, beadId }: BeadDiffViewerProps) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['bead-diff', ticketId, beadId],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: getBeadDiffQueryKey(ticketId, beadId),
     queryFn: () => fetchBeadDiff(ticketId, beadId),
     staleTime: 30_000,
   })
@@ -99,6 +102,15 @@ export function BeadDiffViewer({ ticketId, beadId }: BeadDiffViewerProps) {
       <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading diff…
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+        <FileCode2 className="h-4 w-4" />
+        Could not load diff for this bead.
       </div>
     )
   }
