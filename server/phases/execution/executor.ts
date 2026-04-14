@@ -200,6 +200,7 @@ async function generateContextWipeNote(
     timeoutMs: COUNCIL_RESPONSE_TIMEOUT_MS,
     model: options?.model,
     variant: options?.variant,
+    erroredSessionPolicy: 'discard_errored_session_output',
     toolPolicy: PROM51.toolPolicy,
     onStreamEvent: (event) => {
       if (options?.iteration == null) return
@@ -281,6 +282,7 @@ export async function executeBead(
         timeoutMs: getRemainingTimeoutMs(deadlineAt),
         model: callbacks?.model,
         variant: callbacks?.variant,
+        erroredSessionPolicy: 'discard_errored_session_output',
         toolPolicy: PROM_CODING.toolPolicy,
         ...(callbacks?.ticketId
           ? {
@@ -368,6 +370,7 @@ export async function executeBead(
               signal,
               timeoutMs: remainingMs,
               model: callbacks?.model,
+              erroredSessionPolicy: 'discard_errored_session_output',
               onStreamEvent: (event) => {
                 callbacks?.onOpenCodeStreamEvent?.({
                   sessionId: runResult.session.id,
@@ -410,6 +413,7 @@ export async function executeBead(
           timeoutMs: remainingMs,
           model: callbacks?.model,
           variant: callbacks?.variant,
+          erroredSessionPolicy: 'discard_errored_session_output',
           toolPolicy: PROM_CODING.toolPolicy,
           onStreamEvent: (event) => {
             callbacks?.onOpenCodeStreamEvent?.({

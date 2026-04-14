@@ -10,6 +10,9 @@ export interface OpenCodeResponseMeta {
   latestAssistantError?: string
   latestAssistantErrorInfo?: ModelErrorInfo
   latestAssistantWasStale: boolean
+  sessionErrored?: boolean
+  sessionError?: string
+  sessionErrorDetails?: unknown
 }
 
 export interface AssistantMessageAnalysis {

@@ -1,6 +1,7 @@
 import type {
   HealthStatus,
   Message,
+  MessageInfo,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -13,6 +14,8 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
   public messages: Map<string, Message[]> = new Map()
   public mockResponses: Map<string, string> = new Map()
+  public mockStreamEvents: Map<string, StreamEvent[]> = new Map()
+  public mockAssistantInfos: Map<string, Partial<MessageInfo>> = new Map()
   public sessionCreateCalls: Array<{
     projectPath: string
     options?: OpenCodeSessionCreateOptions
@@ -48,6 +51,8 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
     this.promptCalls.push({ sessionId, parts, options })
     const promptText = parts.map(part => part.content).join('\n')
     const response = this.mockResponses.get(sessionId) ?? this.buildMockResponse(promptText)
+    const queuedStreamEvents = this.mockStreamEvents.get(sessionId) ?? []
+    const queuedAssistantInfo = this.mockAssistantInfos.get(sessionId)
 
     const messages = this.messages.get(sessionId) ?? []
     for (const part of parts) {
@@ -59,11 +64,26 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
       })
     }
 
+    for (const event of queuedStreamEvents) {
+      options?.onEvent?.(event)
+    }
+
+    const assistantMessageId = `msg-${Date.now()}-resp`
     const assistantMessage: Message = {
-      id: `msg-${Date.now()}-resp`,
+      id: assistantMessageId,
       role: 'assistant',
       content: response,
       timestamp: new Date().toISOString(),
+      ...(queuedAssistantInfo
+        ? {
+            info: {
+              id: assistantMessageId,
+              sessionID: sessionId,
+              role: 'assistant',
+              ...queuedAssistantInfo,
+            },
+          }
+        : {}),
     }
     messages.push(assistantMessage)
     this.messages.set(sessionId, messages)

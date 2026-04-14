@@ -7,6 +7,7 @@ import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../opencode/permissions'
 import type {
   HealthStatus,
   Message,
+  MessageInfo,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -43,7 +44,12 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
   private readonly queuedResponses: Array<
     | string
     | Deferred<string>
-    | { response: string | Deferred<string>; messageContent?: string }
+    | {
+        response: string | Deferred<string>
+        messageContent?: string
+        messageInfo?: Partial<MessageInfo>
+        streamEvents?: StreamEvent[]
+      }
   >
   private readonly sessionMessages = new Map<string, Message[]>()
   public readonly sessionCreateCalls: Array<{
@@ -57,7 +63,16 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
   }> = []
   private sessionCounter = 0
 
-  constructor(responses: Array<string | Deferred<string> | { response: string | Deferred<string>; messageContent?: string }>) {
+  constructor(responses: Array<
+    | string
+    | Deferred<string>
+    | {
+        response: string | Deferred<string>
+        messageContent?: string
+        messageInfo?: Partial<MessageInfo>
+        streamEvents?: StreamEvent[]
+      }
+  >) {
     this.queuedResponses = [...responses]
   }
 
@@ -100,12 +115,35 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     const messageContent = typeof queued === 'object' && 'response' in queued && typeof queued.messageContent === 'string'
       ? queued.messageContent
       : response
+    const streamEvents = typeof queued === 'object' && 'response' in queued && Array.isArray(queued.streamEvents)
+      ? queued.streamEvents
+      : []
+    const messageInfo = typeof queued === 'object' && 'response' in queued
+      ? queued.messageInfo
+      : undefined
+    const assistantMessageId = typeof messageInfo?.id === 'string'
+      ? messageInfo.id
+      : `msg-${sessionId}-${this.sessionMessages.size + 1}`
+
+    for (const event of streamEvents) {
+      options?.onEvent?.(event)
+    }
 
     const assistantMessage: Message = {
-      id: `msg-${sessionId}-${this.sessionMessages.size + 1}`,
+      id: assistantMessageId,
       role: 'assistant',
       content: messageContent,
       timestamp: new Date().toISOString(),
+      ...(messageInfo
+        ? {
+            info: {
+              id: assistantMessageId,
+              sessionID: sessionId,
+              role: 'assistant',
+              ...messageInfo,
+            },
+          }
+        : {}),
     }
     this.sessionMessages.set(sessionId, [assistantMessage])
 
@@ -642,6 +680,74 @@ describe('runOpenCodePrompt', () => {
       latestAssistantWasEmpty: true,
       latestAssistantHasError: true,
       latestAssistantError: "Provider returned error: The last message cannot have role 'assistant'",
+    })
+  })
+
+  it('discards parseable output when the session stream emitted a provider error and the caller opts in', async () => {
+    const adapter = new TestOpenCodeAdapter([{
+      response: '<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>',
+      messageContent: '<RELEVANT_FILES_RESULT>streamed artifact</RELEVANT_FILES_RESULT>',
+      streamEvents: [{
+        type: 'session_error',
+        sessionId: 'ses-1',
+        error: "Provider returned error: The last message cannot have role 'assistant'",
+      }],
+    }])
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      erroredSessionPolicy: 'discard_errored_session_output',
+    })
+
+    expect(result.response).toBe('')
+    expect(result.responseMeta).toMatchObject({
+      sessionErrored: true,
+      sessionError: "Provider returned error: The last message cannot have role 'assistant'",
+      latestAssistantHasError: false,
+    })
+    expect(result.attemptMeta).toMatchObject({
+      outcome: 'errored_session',
+      responseAccepted: false,
+      discardedResponse: true,
+      sessionErrored: true,
+      latestAssistantErrored: false,
+      errorSource: 'session_error',
+      error: "Provider returned error: The last message cannot have role 'assistant'",
+    })
+  })
+
+  it('discards output when the latest assistant snapshot carries provider error metadata and the caller opts in', async () => {
+    const adapter = new TestOpenCodeAdapter([{
+      response: '<RELEVANT_FILES_RESULT>provider response</RELEVANT_FILES_RESULT>',
+      messageContent: '<RELEVANT_FILES_RESULT>provider response</RELEVANT_FILES_RESULT>',
+      messageInfo: {
+        error: "Provider returned error: The last message cannot have role 'assistant'",
+      },
+    }])
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      erroredSessionPolicy: 'discard_errored_session_output',
+    })
+
+    expect(result.response).toBe('')
+    expect(result.responseMeta).toMatchObject({
+      sessionErrored: false,
+      latestAssistantHasError: true,
+      latestAssistantError: "Provider returned error: The last message cannot have role 'assistant'",
+    })
+    expect(result.attemptMeta).toMatchObject({
+      outcome: 'errored_session',
+      responseAccepted: false,
+      discardedResponse: true,
+      sessionErrored: false,
+      latestAssistantErrored: true,
+      errorSource: 'assistant_error',
+      error: "Provider returned error: The last message cannot have role 'assistant'",
     })
   })
 

@@ -5,6 +5,7 @@ import {
 } from '../opencode/assistantMessageAnalysis'
 import type {
   Message,
+  SessionErrorStreamEvent,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -48,6 +49,7 @@ export interface OpenCodePromptCompletedEvent {
   response: string
   messages: Message[]
   responseMeta: OpenCodeResponseMeta
+  attemptMeta: OpenCodeAttemptMeta
   model?: string
   agent?: string
   variant?: string
@@ -63,6 +65,7 @@ export interface OpenCodeRunOptions extends OpenCodeRunCallbacks {
   variant?: string
   toolPolicy?: OpenCodeToolPolicy
   sessionOwnership?: OpenCodeSessionOwnership
+  erroredSessionPolicy?: OpenCodeErroredSessionPolicy
 }
 
 export interface OpenCodeRunResult {
@@ -70,6 +73,20 @@ export interface OpenCodeRunResult {
   response: string
   messages: Message[]
   responseMeta: OpenCodeResponseMeta
+  attemptMeta: OpenCodeAttemptMeta
+}
+
+export type OpenCodeErroredSessionPolicy = 'allow' | 'discard_errored_session_output'
+
+export interface OpenCodeAttemptMeta {
+  outcome: 'clean' | 'errored_session'
+  responseAccepted: boolean
+  discardedResponse: boolean
+  sessionErrored: boolean
+  latestAssistantErrored: boolean
+  errorSource?: 'session_error' | 'assistant_error'
+  error?: string
+  errorDetails?: unknown
 }
 
 const sessionPromptDispatchCounts = new Map<string, number>()
@@ -106,6 +123,61 @@ function reconcileResponseWithLatestAssistant(
   return response
 }
 
+function mergeSessionErrorIntoResponseMeta(
+  responseMeta: OpenCodeResponseMeta,
+  sessionErrorEvent?: SessionErrorStreamEvent,
+): OpenCodeResponseMeta {
+  if (!sessionErrorEvent) {
+    return {
+      ...responseMeta,
+      sessionErrored: false,
+    }
+  }
+
+  return {
+    ...responseMeta,
+    sessionErrored: true,
+    sessionError: sessionErrorEvent.error,
+    sessionErrorDetails: sessionErrorEvent.details,
+  }
+}
+
+function buildAttemptMeta(
+  responseMeta: OpenCodeResponseMeta,
+  erroredSessionPolicy: OpenCodeErroredSessionPolicy | undefined,
+): OpenCodeAttemptMeta {
+  const sessionErrored = Boolean(responseMeta.sessionErrored)
+  const latestAssistantErrored = Boolean(responseMeta.latestAssistantHasError)
+  const erroredSessionDetected = sessionErrored || latestAssistantErrored
+  const discardedResponse = erroredSessionDetected && erroredSessionPolicy === 'discard_errored_session_output'
+  const errorSource = sessionErrored
+    ? 'session_error'
+    : latestAssistantErrored
+      ? 'assistant_error'
+      : undefined
+  const error = sessionErrored
+    ? responseMeta.sessionError
+    : latestAssistantErrored
+      ? responseMeta.latestAssistantError
+      : undefined
+  const errorDetails = sessionErrored
+    ? responseMeta.sessionErrorDetails
+    : latestAssistantErrored
+      ? responseMeta.latestAssistantErrorInfo
+      : undefined
+
+  return {
+    outcome: erroredSessionDetected ? 'errored_session' : 'clean',
+    responseAccepted: !discardedResponse,
+    discardedResponse,
+    sessionErrored,
+    latestAssistantErrored,
+    ...(errorSource ? { errorSource } : {}),
+    ...(error ? { error } : {}),
+    ...(errorDetails !== undefined ? { errorDetails } : {}),
+  }
+}
+
 function resolveSessionCreateOptions(
   sessionOwnership?: OpenCodeSessionOwnership,
 ): OpenCodeSessionCreateOptions | undefined {
@@ -129,6 +201,7 @@ export async function runOpenCodePrompt({
   variant,
   toolPolicy,
   sessionOwnership,
+  erroredSessionPolicy,
   onSessionCreated,
   onPromptDispatched,
   onStreamEvent,
@@ -167,6 +240,7 @@ export async function runOpenCodePrompt({
       agent,
       variant,
       toolPolicy,
+      erroredSessionPolicy,
       onPromptDispatched,
       onStreamEvent,
       onPromptCompleted,
@@ -194,6 +268,7 @@ export async function runOpenCodeSessionPrompt({
   variant,
   toolPolicy,
   sessionOwnership,
+  erroredSessionPolicy,
   onPromptDispatched,
   onStreamEvent,
   onStreamError,
@@ -234,8 +309,14 @@ export async function runOpenCodeSessionPrompt({
     ...(agent ? { agent } : {}),
     ...(variant ? { variant } : {}),
     ...(tools ? { tools } : {}),
-    ...(onStreamEvent ? { onEvent: onStreamEvent } : {}),
     ...(stepFinishSafetyMs !== undefined ? { stepFinishSafetyMs } : {}),
+  }
+  let sessionErrorEvent: SessionErrorStreamEvent | undefined
+  promptOptions.onEvent = (event) => {
+    if (event.type === 'session_error') {
+      sessionErrorEvent = event
+    }
+    onStreamEvent?.(event)
   }
 
   try {
@@ -282,6 +363,7 @@ export async function runOpenCodeSessionPrompt({
     latestAssistantWasEmpty: true,
     latestAssistantHasError: false,
     latestAssistantWasStale: false,
+    sessionErrored: false,
   }
   try {
     messages = await adapter.getSessionMessages(resolvedSession.id)
@@ -291,13 +373,18 @@ export async function runOpenCodeSessionPrompt({
   } catch {
     messages = []
   }
-  response = reconcileResponseWithLatestAssistant(response, latestAssistantResponse, responseMeta)
+  responseMeta = mergeSessionErrorIntoResponseMeta(responseMeta, sessionErrorEvent)
+  const attemptMeta = buildAttemptMeta(responseMeta, erroredSessionPolicy)
+  response = attemptMeta.discardedResponse
+    ? ''
+    : reconcileResponseWithLatestAssistant(response, latestAssistantResponse, responseMeta)
 
   const result = {
     session: resolvedSession,
     response,
     messages,
     responseMeta,
+    attemptMeta,
   }
   onPromptCompleted?.({
     session: resolvedSession,
@@ -305,6 +392,7 @@ export async function runOpenCodeSessionPrompt({
     response,
     messages,
     responseMeta,
+    attemptMeta,
     ...(model ? { model } : {}),
     ...(agent ? { agent } : {}),
     ...(variant ? { variant } : {}),

@@ -51,6 +51,14 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
     if (queuedResponse !== undefined) {
       this.mockResponses.set(sessionId, queuedResponse)
     }
+    const queuedStreamEvents = this.mockStreamEvents.get(`${sessionId}#${nextCount}`)
+    if (queuedStreamEvents !== undefined) {
+      this.mockStreamEvents.set(sessionId, queuedStreamEvents)
+    }
+    const queuedAssistantInfo = this.mockAssistantInfos.get(`${sessionId}#${nextCount}`)
+    if (queuedAssistantInfo !== undefined) {
+      this.mockAssistantInfos.set(sessionId, queuedAssistantInfo)
+    }
 
     return await super.promptSession(...args)
   }
@@ -301,6 +309,38 @@ describe('executeBead', () => {
       '  lint: pass',
       '  typecheck: pass',
       '  qualitative: pass',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+
+    const result = await executeBead(
+      adapter,
+      buildBead(),
+      [{ type: 'text', content: 'Bead context' }],
+      '/tmp/test',
+      1,
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.iteration).toBe(1)
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('restarts the bead iteration in a fresh session after a provider session error', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
+      '</BEAD_STATUS>',
+    ].join('\n'))
+    adapter.mockStreamEvents.set('mock-session-1#1', [{
+      type: 'session_error',
+      sessionId: 'mock-session-1',
+      error: "Provider returned error: The last message cannot have role 'assistant'",
+    }])
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<BEAD_STATUS>',
+      '{"bead_id":"bead-1","status":"done","checks":{"tests":"pass","lint":"pass","typecheck":"pass","qualitative":"pass"}}',
       '</BEAD_STATUS>',
     ].join('\n'))
 

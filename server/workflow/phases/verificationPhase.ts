@@ -497,6 +497,7 @@ async function runPrdCoverageAuditPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
+        erroredSessionPolicy: 'discard_errored_session_output',
         toolPolicy: getCoveragePromptTemplate('prd').toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
@@ -702,6 +703,7 @@ async function runPrdCoverageResolutionPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
+        erroredSessionPolicy: 'discard_errored_session_output',
         toolPolicy: PROM13b.toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
@@ -854,6 +856,7 @@ async function runBeadsCoverageAuditPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
+        erroredSessionPolicy: 'discard_errored_session_output',
         toolPolicy: getCoveragePromptTemplate('beads').toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
@@ -1058,6 +1061,7 @@ async function runBeadsCoverageResolutionPrompt(params: {
         timeoutMs: params.councilSettings.draftTimeoutMs,
         model: params.winnerId,
         variant: 'coverage',
+        erroredSessionPolicy: 'discard_errored_session_output',
         toolPolicy: PROM24.toolPolicy,
         sessionOwnership: {
           ticketId: params.ticketId,
@@ -2029,6 +2033,7 @@ export async function handleRelevantFilesScan(
       timeoutMs: draftTimeoutMs,
       model: codingModelId,
       variant: 'relevant_files_scan',
+      erroredSessionPolicy: 'discard_errored_session_output',
       toolPolicy: PROM0.toolPolicy,
       onSessionCreated: (session) => {
         sessionId = session.id
@@ -2126,6 +2131,7 @@ export async function handleRelevantFilesScan(
           signal,
           timeoutMs: draftTimeoutMs,
           model: codingModelId,
+          erroredSessionPolicy: 'discard_errored_session_output',
           toolPolicy: PROM0.toolPolicy,
           onStreamEvent: (event) => {
             if (!sessionId) return
@@ -2174,6 +2180,7 @@ export async function handleRelevantFilesScan(
           timeoutMs: draftTimeoutMs,
           model: codingModelId,
           variant: 'relevant_files_scan',
+          erroredSessionPolicy: 'discard_errored_session_output',
           toolPolicy: PROM0.toolPolicy,
           onSessionCreated: (session) => {
             sessionId = session.id
@@ -2639,6 +2646,7 @@ export async function handleCoverageVerification(
         signal,
         timeoutMs: councilSettings.draftTimeoutMs,
         model: winnerId,
+        erroredSessionPolicy: 'discard_errored_session_output',
         toolPolicy: promptTemplate.toolPolicy,
         sessionOwnership: {
           ticketId,

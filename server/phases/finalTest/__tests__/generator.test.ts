@@ -17,6 +17,14 @@ class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
     if (queuedResponse !== undefined) {
       this.mockResponses.set(sessionId, queuedResponse)
     }
+    const queuedStreamEvents = this.mockStreamEvents.get(`${sessionId}#${nextCount}`)
+    if (queuedStreamEvents !== undefined) {
+      this.mockStreamEvents.set(sessionId, queuedStreamEvents)
+    }
+    const queuedAssistantInfo = this.mockAssistantInfos.get(`${sessionId}#${nextCount}`)
+    if (queuedAssistantInfo !== undefined) {
+      this.mockAssistantInfos.set(sessionId, queuedAssistantInfo)
+    }
 
     return await super.promptSession(...args)
   }
@@ -134,6 +142,51 @@ describe('generateFinalTests', () => {
       }),
     ])
     expect(result.structuredOutput.interventions?.some((intervention) => intervention.category === 'retry')).toBe(true)
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
+    expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+  })
+
+  it('restarts final test generation in a fresh session after a provider session error', async () => {
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', [
+      '<FINAL_TEST_COMMANDS>',
+      'commands:',
+      '  - npm run test:server',
+      'summary: verify end-to-end ticket coverage',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n'))
+    adapter.mockStreamEvents.set('mock-session-1#1', [{
+      type: 'session_error',
+      sessionId: 'mock-session-1',
+      error: "Provider returned error: The last message cannot have role 'assistant'",
+    }])
+    adapter.mockResponses.set('mock-session-2#1', [
+      '<FINAL_TEST_COMMANDS>',
+      'commands:',
+      '  - npm run test:server',
+      'summary: verify end-to-end ticket coverage',
+      '</FINAL_TEST_COMMANDS>',
+    ].join('\n'))
+
+    const result = await generateFinalTests(
+      adapter,
+      [{ type: 'text', content: 'Ticket context' }],
+      '/tmp/test',
+    )
+
+    expect(result.commandPlan.commands).toEqual(['npm run test:server'])
+    expect(result.structuredOutput).toMatchObject({
+      autoRetryCount: 1,
+      validationError: 'No final test command marker found',
+    })
+    expect(result.structuredOutput.retryDiagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        validationError: 'No final test command marker found',
+        failureClass: 'session_protocol_error',
+        excerpt: '[empty response]',
+      }),
+    ])
     expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1', 'mock-session-2'])
     expect(adapter.messages.get('mock-session-1')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
   })

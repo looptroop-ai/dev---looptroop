@@ -33,6 +33,10 @@ export function classifyStructuredFailureFromValidation(
   response: string,
   responseMeta?: OpenCodeResponseMeta,
 ): StructuredFailureClass {
+  if (responseMeta?.sessionErrored) {
+    return classifyStructuredFailureFromMessage(responseMeta.sessionError ?? responseMeta.latestAssistantError ?? '')
+  }
+
   if (responseMeta?.latestAssistantHasError) {
     return classifyStructuredFailureFromMessage(responseMeta.latestAssistantError ?? '')
   }
