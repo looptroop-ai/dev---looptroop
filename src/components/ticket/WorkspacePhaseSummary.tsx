@@ -11,6 +11,7 @@ import { findLatestArtifactByType, findLatestCompanionArtifact, parseArtifactCom
 import { buildCoverageArtifactContent, parseCoverageArtifact } from '@/components/workspace/phaseArtifactTypes'
 import type { WorkflowContextKey } from '@shared/workflowMeta'
 import { getWorkflowPhaseMeta } from '@shared/workflowMeta'
+import { ActiveBeadCountdown } from '../navigator/ActiveBeadCountdown'
 
 const CONTEXT_KEY_LABELS: Record<WorkflowContextKey, { label: string; description: string }> = {
   ticket_details: { label: 'Ticket Details', description: 'The ticket title, full description text, priority level, project metadata, and any user-supplied implementation notes. This is the root context that every planning phase receives.' },
@@ -236,6 +237,18 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
         >
           <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
           <span>{phaseLabel}</span>
+          {phase === 'CODING' && ticket.runtime.activeBeadId && ticket.runtime.perIterationTimeoutMs ? (() => {
+            const activeBead = ticket.runtime.beads?.find(b => b.id === ticket.runtime.activeBeadId)
+            if (activeBead?.status === 'in_progress' && activeBead.startedAt) {
+              return (
+                <ActiveBeadCountdown 
+                  startedAt={activeBead.startedAt} 
+                  perIterationTimeoutMs={ticket.runtime.perIterationTimeoutMs} 
+                />
+              )
+            }
+            return null
+          })() : null}
         </button>
         {expanded ? (
           <p id={descriptionId} className="mt-1 ml-5 text-[11px] text-muted-foreground">

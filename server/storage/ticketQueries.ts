@@ -50,6 +50,7 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
     iterationCount: number
     maxIterations: number | null
     maxIterationsPerBead: number | null
+    perIterationTimeoutMs: number | null
     activeBeadId: string | null
     activeBeadIteration: number | null
     lastFailedBeadId: string | null
@@ -60,6 +61,7 @@ export interface PublicTicket extends Omit<LocalTicketRow, 'id' | 'lockedCouncil
       status: string
       iteration: number
       notes?: string
+      startedAt?: string | null
     }>
     candidateCommitSha: string | null
     preSquashHead: string | null
@@ -269,6 +271,7 @@ export function toPublicTicket(projectId: number, ticket: LocalTicketRow): Publi
     iterationCount: 0,
     maxIterations: null,
     maxIterationsPerBead: null,
+    perIterationTimeoutMs: null,
     activeBeadId: null,
     activeBeadIteration: null,
     lastFailedBeadId: null,
@@ -340,6 +343,9 @@ function buildRuntime(
     : projectContext?.project.maxIterations
       ?? profile?.maxIterations
       ?? PROFILE_DEFAULTS.maxIterations
+  const perIterationTimeoutMs = projectContext?.project.perIterationTimeout
+    ?? profile?.perIterationTimeout
+    ?? PROFILE_DEFAULTS.perIterationTimeout
   const finalTestArtifact = projectContext?.projectDb.select().from(phaseArtifacts)
     .where(and(
       eq(phaseArtifacts.ticketId, ticket.id),
@@ -403,6 +409,7 @@ function buildRuntime(
     iterationCount,
     maxIterations,
     maxIterationsPerBead: maxIterations,
+    perIterationTimeoutMs,
     activeBeadId: inProgressBead?.id ?? (blockedFromCoding ? lastFailedBead?.id ?? null : null),
     activeBeadIteration: inProgressBead?.iteration ?? (blockedFromCoding ? lastFailedBead?.iteration ?? null : null),
     lastFailedBeadId: blockedFromCoding ? lastFailedBead?.id ?? null : null,
@@ -413,6 +420,7 @@ function buildRuntime(
       status: bead.status,
       iteration: bead.iteration,
       notes: bead.notes,
+      startedAt: bead.startedAt,
     })),
     candidateCommitSha: integrationReport?.candidateCommitSha ?? null,
     preSquashHead: integrationReport?.preSquashHead ?? null,
@@ -434,6 +442,7 @@ function readRuntimeBeads(projectRoot: string, externalId: string, baseBranch: s
         iteration: typeof bead.iteration === 'number' ? bead.iteration : 0,
         notes: typeof bead.notes === 'string' ? bead.notes : '',
         updatedAt: typeof bead.updatedAt === 'string' ? bead.updatedAt : null,
+        startedAt: typeof bead.startedAt === 'string' ? bead.startedAt : null,
       }))
       .filter((bead) => bead.id.length > 0)
   } catch {

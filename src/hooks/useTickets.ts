@@ -16,6 +16,7 @@ interface TicketRuntime {
   iterationCount: number
   maxIterations: number | null
   maxIterationsPerBead: number | null
+  perIterationTimeoutMs?: number | null
   activeBeadId: string | null
   activeBeadIteration: number | null
   lastFailedBeadId: string | null
@@ -26,6 +27,7 @@ interface TicketRuntime {
     status: string
     iteration: number
     notes?: string
+    startedAt?: string | null
   }>
   candidateCommitSha: string | null
   preSquashHead: string | null

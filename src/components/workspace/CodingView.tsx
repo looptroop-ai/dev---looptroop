@@ -133,7 +133,7 @@ function normalizeBead(input: {
   createdAt?: string
   updatedAt?: string
   completedAt?: string
-  startedAt?: string
+  startedAt?: string | null
   beadStartCommit?: string | null
 }): TicketBead {
   const STATUS_MAP: Record<string, TicketBead['status']> = {
