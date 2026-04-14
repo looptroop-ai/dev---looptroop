@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { WORKFLOW_PHASES } from '@shared/workflowMeta'
+import { WORKFLOW_PHASES, getAvailableWorkflowActions } from '@shared/workflowMeta'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 
 describe.concurrent('getCascadeEditWarningMessage', () => {
@@ -39,6 +39,15 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
 })
 
 describe.concurrent('workflow metadata', () => {
+  it('keeps cancel available during PR review', () => {
+    expect(getAvailableWorkflowActions('WAITING_PR_REVIEW')).toEqual(['merge', 'close_unmerged', 'cancel'])
+  })
+
+  it('removes all actions for terminal statuses', () => {
+    expect(getAvailableWorkflowActions('COMPLETED')).toEqual([])
+    expect(getAvailableWorkflowActions('CANCELED')).toEqual([])
+  })
+
   it('provides long-form details for every workflow phase', () => {
     for (const phase of WORKFLOW_PHASES) {
       expect(phase.details.overview.trim().length).toBeGreaterThan(0)

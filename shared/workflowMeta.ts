@@ -1261,7 +1261,7 @@ export function getAvailableWorkflowActions(status: string): WorkflowAction[] {
     case 'WAITING_BEADS_APPROVAL':
       return ['approve', 'cancel']
     case 'WAITING_PR_REVIEW':
-      return ['merge', 'close_unmerged']
+      return ['merge', 'close_unmerged', 'cancel']
     case 'BLOCKED_ERROR':
       return ['retry', 'cancel']
     case 'COMPLETED':
