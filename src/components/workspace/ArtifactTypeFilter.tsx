@@ -35,7 +35,7 @@ export function ArtifactTypeFilter({ artifacts, getArtifactState, action, isComp
               <span className="text-muted-foreground">{artifact.icon}</span>
               <div className="text-left">
                 <span className="font-medium">{artifact.label}</span>
-                {artifactState.detail && <div className="text-[10px] text-blue-500">{artifactState.detail}</div>}
+                {artifactState.detail && <div className="max-w-[28rem] whitespace-normal break-all text-[10px] text-blue-500">{artifactState.detail}</div>}
               </div>
               <span className="ml-auto shrink-0">{statusEmoji}</span>
             </button>
@@ -51,7 +51,7 @@ export function ArtifactTypeFilter({ artifacts, getArtifactState, action, isComp
             <span className="text-muted-foreground">{artifact.icon}</span>
             <div className="text-left">
               <span className="font-medium">{artifact.label}</span>
-              {artifactState.detail && <div className="text-[10px] text-blue-500">{artifactState.detail}</div>}
+              {artifactState.detail && <div className="max-w-[28rem] whitespace-normal break-all text-[10px] text-blue-500">{artifactState.detail}</div>}
             </div>
             <span className="ml-auto shrink-0">{statusEmoji}</span>
           </button>

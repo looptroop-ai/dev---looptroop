@@ -2804,4 +2804,44 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Which fallback should be used?')).toBeInTheDocument()
     expect(screen.getByText('Close the final interview gap before PRD generation.')).toBeInTheDocument()
   })
+
+  it('shows pull request metadata directly on the Creating PR artifact and opens the structured report', () => {
+    const pullRequestArtifact = makeArtifact({
+      phase: 'CREATING_PULL_REQUEST',
+      artifactType: 'pull_request_report',
+      content: JSON.stringify({
+        status: 'passed',
+        completedAt: '2026-04-10T15:58:47.116Z',
+        baseBranch: 'master',
+        headBranch: 'POBA-9',
+        candidateCommitSha: 'c2708197a117389f594e4f6f8cc4262bf9d3bd6d',
+        prNumber: 42,
+        prUrl: 'https://github.com/looptroop-ai/pocketbase-master/pull/42',
+        prState: 'draft',
+        prHeadSha: 'c2708197a117389f594e4f6f8cc4262bf9d3bd6d',
+        title: 'POBA-9: t13',
+        body: '## Summary\n- Adds the scoped theme regression test.',
+        message: 'Draft pull request ready at https://github.com/looptroop-ai/pocketbase-master/pull/42.',
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="CREATING_PULL_REQUEST"
+        isCompleted={true}
+        preloadedArtifacts={[pullRequestArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('Pull Request Report')).toBeInTheDocument()
+    expect(screen.getByText('#42 · draft')).toBeInTheDocument()
+    expect(screen.queryByText(/https:\/\/github\.com\/looptroop-ai\/pocketbase-master\/pull\/42/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Pull Request Report/i }))
+    expect(screen.getByRole('link', { name: /open draft pr in github/i })).toHaveAttribute(
+      'href',
+      'https://github.com/looptroop-ai/pocketbase-master/pull/42',
+    )
+    expect(screen.getByText('Adds the scoped theme regression test.')).toBeInTheDocument()
+  })
 })

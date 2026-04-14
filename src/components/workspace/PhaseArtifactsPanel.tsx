@@ -22,6 +22,7 @@ import {
   buildCoverageArtifactContent,
   getArtifactTargetPhases,
   parseRefinementArtifact,
+  parsePullRequestReport,
   resolveStaticArtifact,
   shouldCollapseVotingMemberArtifacts,
 } from './phaseArtifactTypes'
@@ -395,6 +396,17 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
             <span className="text-red-600 dark:text-red-400">-{stats.deletions}</span>
           </span>
         ),
+      }
+    }
+
+    if (artifact.id === 'pull-request-report') {
+      const report = parsePullRequestReport(content)
+      const detailParts: string[] = []
+      if (report?.prNumber != null) detailParts.push(`#${report.prNumber}`)
+      if (report?.prState) detailParts.push(report.prState)
+      return {
+        outcome: report?.status === 'failed' ? 'failed' : report?.prUrl ? 'completed' : 'pending',
+        detail: detailParts.join(' · ') || undefined,
       }
     }
 

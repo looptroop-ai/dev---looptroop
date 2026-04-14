@@ -354,6 +354,25 @@ export interface IntegrationReportData {
   message?: string
 }
 
+export interface PullRequestReportData {
+  status?: string
+  completedAt?: string
+  baseBranch?: string
+  headBranch?: string
+  candidateCommitSha?: string | null
+  prNumber?: number | null
+  prUrl?: string | null
+  prState?: 'draft' | 'open' | 'merged' | 'closed' | string | null
+  prHeadSha?: string | null
+  title?: string | null
+  body?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  mergedAt?: string | null
+  closedAt?: string | null
+  message?: string
+}
+
 export interface CleanupReportData {
   removedDirs: string[]
   removedFiles: string[]
@@ -569,6 +588,66 @@ export function parseIntegrationReport(content: string): IntegrationReportData |
     pushed: typeof parsed.pushed === 'boolean' ? parsed.pushed : undefined,
     pushDeferred: typeof parsed.pushDeferred === 'boolean' ? parsed.pushDeferred : undefined,
     pushError: normalizeNullableString(parsed.pushError),
+    message: normalizeOptionalString(parsed.message),
+  }
+}
+
+function normalizeNullableString(value: unknown): string | null | undefined {
+  if (value === null) return null
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+export function parsePullRequestReport(content: string): PullRequestReportData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+
+  if (
+    !('status' in parsed)
+    && !('completedAt' in parsed)
+    && !('baseBranch' in parsed)
+    && !('headBranch' in parsed)
+    && !('candidateCommitSha' in parsed)
+    && !('prNumber' in parsed)
+    && !('prUrl' in parsed)
+    && !('prState' in parsed)
+    && !('prHeadSha' in parsed)
+    && !('title' in parsed)
+    && !('body' in parsed)
+    && !('message' in parsed)
+  ) {
+    return null
+  }
+
+  const prNumber = typeof parsed.prNumber === 'number' && Number.isFinite(parsed.prNumber)
+    ? parsed.prNumber
+    : parsed.prNumber === null
+      ? null
+      : undefined
+
+  return {
+    status: normalizeOptionalString(parsed.status),
+    completedAt: normalizeOptionalString(parsed.completedAt),
+    baseBranch: normalizeOptionalString(parsed.baseBranch),
+    headBranch: normalizeOptionalString(parsed.headBranch),
+    candidateCommitSha: normalizeNullableString(parsed.candidateCommitSha),
+    prNumber,
+    prUrl: normalizeNullableString(parsed.prUrl),
+    prState: normalizeNullableString(parsed.prState),
+    prHeadSha: normalizeNullableString(parsed.prHeadSha),
+    title: normalizeNullableString(parsed.title),
+    body: normalizeNullableString(parsed.body),
+    createdAt: normalizeNullableString(parsed.createdAt),
+    updatedAt: normalizeNullableString(parsed.updatedAt),
+    mergedAt: normalizeNullableString(parsed.mergedAt),
+    closedAt: normalizeNullableString(parsed.closedAt),
     message: normalizeOptionalString(parsed.message),
   }
 }

@@ -13,7 +13,7 @@ import {
   type StructuredRetryDiagnostic,
 } from '@shared/structuredRetryDiagnostics'
 import { encode } from 'gpt-tokenizer'
-import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb, CheckCircle2, XCircle, AlertTriangle, FileCode2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb, CheckCircle2, XCircle, AlertTriangle, FileCode2, ExternalLink, GitPullRequest } from 'lucide-react'
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
@@ -34,6 +34,7 @@ import type {
   CouncilOutcome,
   FinalTestExecutionReportData,
   IntegrationReportData,
+  PullRequestReportData,
   RelevantFileScanEntry,
   RelevantFilesScanData,
   InspirationDiffSource,
@@ -50,6 +51,7 @@ import {
   parseCleanupReport,
   parseCoverageArtifact,
   parseIntegrationReport,
+  parsePullRequestReport,
   parseInterviewQuestions,
   parseRefinementArtifact,
 } from './phaseArtifactTypes'
@@ -3133,7 +3135,7 @@ function FinalTestResultsView({ content }: { content: string }) {
   )
 }
 
-function formatArtifactTimestampLabel(value: string | undefined): string | null {
+function formatArtifactTimestampLabel(value: string | null | undefined): string | null {
   if (!value) return null
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
@@ -3324,6 +3326,207 @@ function IntegrationReportView({ content }: { content: string }) {
             <div className="mt-1 whitespace-pre-wrap break-words">{parsed.pushError}</div>
           </div>
         ) : null}
+      </div>
+    </WithRawTab>
+  )
+}
+
+interface PullRequestBodySection {
+  title: string
+  lines: string[]
+}
+
+function parsePullRequestBodySections(body: string): PullRequestBodySection[] {
+  const sections: PullRequestBodySection[] = []
+  let current: PullRequestBodySection | null = null
+
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.trim()
+    const heading = line.match(/^##\s+(.+)$/)
+    if (heading?.[1]) {
+      current = { title: heading[1].trim(), lines: [] }
+      sections.push(current)
+      continue
+    }
+    if (!current) {
+      if (!line) continue
+      current = { title: 'Body', lines: [] }
+      sections.push(current)
+    }
+    if (line) current.lines.push(line.replace(/^-\s+/, ''))
+  }
+
+  return sections
+}
+
+function PullRequestBodyPreview({ body }: { body: string }) {
+  const sections = parsePullRequestBodySections(body)
+  if (sections.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+        No pull request body was recorded.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {sections.map((section) => (
+        <div key={section.title} className="rounded-md border border-border bg-background px-3 py-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</div>
+          {section.lines.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-xs text-foreground">
+              {section.lines.map((line, index) => (
+                <li key={`${section.title}:${index}`} className="flex gap-2 leading-5">
+                  <span className="mt-2 h-1 w-1 rounded-full bg-muted-foreground/70 shrink-0" />
+                  <span className="min-w-0 whitespace-pre-wrap break-words">{line}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-xs text-muted-foreground">No details recorded.</div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PullRequestReportView({ content }: { content: string }) {
+  const parsed: PullRequestReportData | null = parsePullRequestReport(content)
+  if (!parsed) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const completedAtLabel = formatArtifactTimestampLabel(parsed.completedAt)
+  const createdAtLabel = formatArtifactTimestampLabel(parsed.createdAt)
+  const updatedAtLabel = formatArtifactTimestampLabel(parsed.updatedAt)
+  const isPassed = parsed.status === 'passed'
+  const isFailed = parsed.status === 'failed'
+  const title = isPassed
+    ? 'Draft pull request ready'
+    : isFailed
+      ? 'Pull request creation failed'
+      : 'Pull request report'
+  const message = parsed.message
+    ?? (isPassed
+      ? 'The candidate branch was pushed and the draft pull request metadata was recorded.'
+      : 'Pull request metadata was recorded.')
+
+  const metadataCards: Array<React.ReactNode> = []
+
+  if (parsed.prNumber != null) {
+    metadataCards.push(
+      <MetadataCard key="pr-number" label="PR Number" value={`#${parsed.prNumber}`} hint="GitHub pull request number" tone="info" />,
+    )
+  }
+  if (parsed.prState) {
+    metadataCards.push(
+      <MetadataCard key="pr-state" label="PR State" value={parsed.prState} hint="Current state when this report was recorded" tone={parsed.prState === 'draft' || parsed.prState === 'open' ? 'success' : 'default'} />,
+    )
+  }
+  if (parsed.baseBranch) {
+    metadataCards.push(
+      <MetadataCard key="base-branch" label="Base Branch" value={parsed.baseBranch} mono hint="Target branch for the pull request" />,
+    )
+  }
+  if (parsed.headBranch) {
+    metadataCards.push(
+      <MetadataCard key="head-branch" label="Head Branch" value={parsed.headBranch} mono hint="Ticket branch pushed to GitHub" />,
+    )
+  }
+  if (parsed.candidateCommitSha) {
+    metadataCards.push(
+      <MetadataCard key="candidate-commit" label="Candidate Commit" value={parsed.candidateCommitSha} mono hint="Squashed candidate commit used for the PR" />,
+    )
+  }
+  if (parsed.prHeadSha) {
+    metadataCards.push(
+      <MetadataCard key="pr-head" label="PR Head SHA" value={parsed.prHeadSha} mono hint="GitHub head SHA reported for the PR" />,
+    )
+  }
+
+  const body = parsed.body ?? ''
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Report"
+      header={<div className="text-xs font-semibold px-1">Pull Request Report</div>}
+    >
+      <div className="space-y-4">
+        <div className={cn(
+          'rounded-md border px-3 py-3',
+          isPassed
+            ? 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100'
+            : isFailed
+              ? 'border-red-300 bg-red-50 text-red-950 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-100'
+              : 'border-border bg-background text-foreground',
+        )}>
+          <div className="flex items-start gap-2">
+            {isPassed
+              ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+              : isFailed
+                ? <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                : <GitPullRequest className="h-4 w-4 shrink-0 mt-0.5" />}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{title}</div>
+              <div className="mt-1 text-xs leading-5">{message}</div>
+              {completedAtLabel ? (
+                <div className="mt-2 text-[11px] opacity-80">Completed at {completedAtLabel}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {parsed.prUrl ? (
+          <a
+            href={parsed.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-start gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-blue-950 transition-colors hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-100 dark:hover:bg-blue-950/30"
+          >
+            <GitPullRequest className="h-4 w-4 shrink-0 mt-0.5" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold">Open draft PR in GitHub</span>
+              <span className="mt-1 block text-[11px] font-mono break-all">{parsed.prUrl}</span>
+            </span>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          </a>
+        ) : (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+            No pull request URL was recorded yet.
+          </div>
+        )}
+
+        {parsed.title ? (
+          <div className="rounded-md border border-border bg-background px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PR Title</div>
+            <div className="mt-1 text-sm font-semibold text-foreground break-words">{parsed.title}</div>
+          </div>
+        ) : null}
+
+        {metadataCards.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {metadataCards}
+          </div>
+        ) : null}
+
+        {(createdAtLabel || updatedAtLabel || parsed.mergedAt || parsed.closedAt) ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {createdAtLabel ? <MetadataCard label="Created At" value={createdAtLabel} /> : null}
+            {updatedAtLabel ? <MetadataCard label="Updated At" value={updatedAtLabel} /> : null}
+            {parsed.mergedAt ? <MetadataCard label="Merged At" value={formatArtifactTimestampLabel(parsed.mergedAt)} tone="success" /> : null}
+            {parsed.closedAt ? <MetadataCard label="Closed At" value={formatArtifactTimestampLabel(parsed.closedAt)} tone="warning" /> : null}
+          </div>
+        ) : null}
+
+        <CollapsibleSection
+          title="Generated PR Description"
+          defaultOpen={Boolean(body)}
+        >
+          <PullRequestBodyPreview body={body} />
+        </CollapsibleSection>
       </div>
     </WithRawTab>
   )
@@ -3620,6 +3823,9 @@ export function ArtifactContent({ content, artifactId, phase }: { content: strin
   }
   if (artifactId === 'commit-summary') {
     return <IntegrationReportView content={content} />
+  }
+  if (artifactId === 'pull-request-report') {
+    return <PullRequestReportView content={content} />
   }
   if (artifactId === 'test-results') {
     return <FinalTestResultsView content={content} />

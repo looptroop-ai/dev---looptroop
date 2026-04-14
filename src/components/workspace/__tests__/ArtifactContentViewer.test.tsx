@@ -1727,6 +1727,51 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText(/permission denied/i)).toBeInTheDocument()
   })
 
+  it('renders pull request reports with a prominent GitHub link and generated description', () => {
+    render(
+      <ArtifactContent
+        artifactId="pull-request-report"
+        phase="CREATING_PULL_REQUEST"
+        content={JSON.stringify({
+          status: 'passed',
+          completedAt: '2026-04-10T15:58:47.116Z',
+          baseBranch: 'master',
+          headBranch: 'POBA-9',
+          candidateCommitSha: 'c2708197a117389f594e4f6f8cc4262bf9d3bd6d',
+          prNumber: 42,
+          prUrl: 'https://github.com/looptroop-ai/pocketbase-master/pull/42',
+          prState: 'draft',
+          prHeadSha: 'c2708197a117389f594e4f6f8cc4262bf9d3bd6d',
+          title: 'POBA-9: t13',
+          body: [
+            '## Summary',
+            '- Adds the scoped theme regression test.',
+            '',
+            '## Validation',
+            '- npm test -- src/theme-scope.test.js',
+          ].join('\n'),
+          createdAt: '2026-04-10T15:58:40.116Z',
+          updatedAt: '2026-04-10T15:58:47.116Z',
+          message: 'Draft pull request ready at https://github.com/looptroop-ai/pocketbase-master/pull/42.',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Pull Request Report')).toBeInTheDocument()
+    expect(screen.getByText('Draft pull request ready')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open draft pr in github/i })).toHaveAttribute(
+      'href',
+      'https://github.com/looptroop-ai/pocketbase-master/pull/42',
+    )
+    expect(screen.getByText('PR Number')).toBeInTheDocument()
+    expect(screen.getByText('#42')).toBeInTheDocument()
+    expect(screen.getByText('Head Branch')).toBeInTheDocument()
+    expect(screen.getByText('POBA-9')).toBeInTheDocument()
+    expect(screen.getByText('Generated PR Description')).toBeInTheDocument()
+    expect(screen.getByText('Adds the scoped theme regression test.')).toBeInTheDocument()
+    expect(screen.getByText('npm test -- src/theme-scope.test.js')).toBeInTheDocument()
+  })
+
   it('renders cleanup reports with counts and categorized path sections', () => {
     render(
       <ArtifactContent
@@ -1766,6 +1811,18 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('not valid integration json')).toBeInTheDocument()
+  })
+
+  it('falls back to the raw viewer for malformed pull request reports', () => {
+    render(
+      <ArtifactContent
+        artifactId="pull-request-report"
+        phase="CREATING_PULL_REQUEST"
+        content="not valid pull request json"
+      />,
+    )
+
+    expect(screen.getByText('not valid pull request json')).toBeInTheDocument()
   })
 
   it('falls back to the raw viewer for malformed cleanup reports', () => {
