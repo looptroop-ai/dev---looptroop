@@ -1,18 +1,18 @@
-import { useMemo } from 'react'
-import { DraftView } from '@/components/workspace/DraftView'
-import { CouncilView } from '@/components/workspace/CouncilView'
-import { InterviewQAView } from '@/components/workspace/InterviewQAView'
-import { ApprovalView } from '@/components/workspace/ApprovalView'
-import { CodingView } from '@/components/workspace/CodingView'
-import { ErrorView } from '@/components/workspace/ErrorView'
-import { CanceledView } from '@/components/workspace/CanceledView'
-import { PhaseReviewView } from '@/components/workspace/PhaseReviewView'
+import { lazy, Suspense, useMemo } from 'react'
 import type { Ticket } from '@/hooks/useTickets'
 import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 import { getActiveErrorOccurrence, getTicketErrorOccurrences } from '@/lib/errorOccurrences'
 import { isBeforeExecution } from '@shared/workflowMeta'
 
-import { FullLogView } from '@/components/workspace/FullLogView'
+const DraftView = lazy(() => import('@/components/workspace/DraftView').then(m => ({ default: m.DraftView })))
+const CouncilView = lazy(() => import('@/components/workspace/CouncilView').then(m => ({ default: m.CouncilView })))
+const InterviewQAView = lazy(() => import('@/components/workspace/InterviewQAView').then(m => ({ default: m.InterviewQAView })))
+const ApprovalView = lazy(() => import('@/components/workspace/ApprovalView').then(m => ({ default: m.ApprovalView })))
+const CodingView = lazy(() => import('@/components/workspace/CodingView').then(m => ({ default: m.CodingView })))
+const ErrorView = lazy(() => import('@/components/workspace/ErrorView').then(m => ({ default: m.ErrorView })))
+const CanceledView = lazy(() => import('@/components/workspace/CanceledView').then(m => ({ default: m.CanceledView })))
+const PhaseReviewView = lazy(() => import('@/components/workspace/PhaseReviewView').then(m => ({ default: m.PhaseReviewView })))
+const FullLogView = lazy(() => import('@/components/workspace/FullLogView').then(m => ({ default: m.FullLogView })))
 
 interface ActiveWorkspaceProps {
   ticket: Ticket
@@ -111,7 +111,9 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
 
   return (
     <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
-      {content}
+      <Suspense fallback={<div className="flex flex-1 items-center justify-center text-muted-foreground">Loading…</div>}>
+        {content}
+      </Suspense>
     </div>
   )
 }

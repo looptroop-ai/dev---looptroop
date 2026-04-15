@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 import { TicketDashboard } from '@/components/ticket/TicketDashboard'
 import { CenteredModal } from '@/components/shared/CenteredModal'
-import { ProfileSetup } from '@/components/config/ProfileSetup'
-import { ProjectsPanel } from '@/components/project/ProjectsPanel'
-import { TicketForm } from '@/components/ticket/TicketForm'
+
+const ProfileSetup = lazy(() => import('@/components/config/ProfileSetup').then(m => ({ default: m.ProfileSetup })))
+const ProjectsPanel = lazy(() => import('@/components/project/ProjectsPanel').then(m => ({ default: m.ProjectsPanel })))
+const TicketForm = lazy(() => import('@/components/ticket/TicketForm').then(m => ({ default: m.TicketForm })))
 import { KeyboardShortcuts } from '@/components/shared/KeyboardShortcuts'
 import { StartupRestorePopup } from '@/components/shared/StartupRestorePopup'
 import { ToastProvider } from '@/components/shared/Toast'
@@ -155,15 +156,21 @@ function App() {
       </AppShell>
 
       <CenteredModal open={showProfile} onClose={closeProfile} title="Configuration" maxWidth="max-w-2xl">
-        <ProfileSetup onClose={closeProfile} />
+        <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
+          <ProfileSetup onClose={closeProfile} />
+        </Suspense>
       </CenteredModal>
 
       <CenteredModal open={showProject} onClose={closeProject} title="Projects" maxWidth="max-w-2xl">
-        <ProjectsPanel onClose={closeProject} />
+        <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
+          <ProjectsPanel onClose={closeProject} />
+        </Suspense>
       </CenteredModal>
 
       <CenteredModal open={showTicket} onClose={closeTicket} title="New Ticket" maxWidth="max-w-xl">
-        <TicketForm onClose={closeTicket} />
+        <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
+          <TicketForm onClose={closeTicket} />
+        </Suspense>
       </CenteredModal>
 
       <KeyboardShortcuts />
