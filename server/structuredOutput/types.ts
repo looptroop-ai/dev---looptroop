@@ -96,6 +96,81 @@ export interface FinalTestCommandPayload {
   testsCount: number | null
 }
 
+export interface ExecutionSetupReusableArtifactPayload {
+  path: string
+  kind: string
+  purpose: string
+}
+
+export interface ExecutionSetupPlanStepPayload {
+  id: string
+  title: string
+  purpose: string
+  commands: string[]
+  required: boolean
+  rationale: string
+  cautions: string[]
+}
+
+export interface ExecutionSetupPlanPayload {
+  schemaVersion: number
+  ticketId: string
+  artifact: 'execution_setup_plan'
+  status: 'draft'
+  summary: string
+  tempRoots: string[]
+  steps: ExecutionSetupPlanStepPayload[]
+  projectCommands: {
+    prepare: string[]
+    testFull: string[]
+    lintFull: string[]
+    typecheckFull: string[]
+  }
+  qualityGatePolicy: {
+    tests: string
+    lint: string
+    typecheck: string
+    fullProjectFallback: string
+  }
+  cautions: string[]
+}
+
+export interface ExecutionSetupProfilePayload {
+  schemaVersion: number
+  ticketId: string
+  artifact: 'execution_setup_profile'
+  status: 'ready'
+  summary: string
+  tempRoots: string[]
+  bootstrapCommands: string[]
+  reusableArtifacts: ExecutionSetupReusableArtifactPayload[]
+  projectCommands: {
+    prepare: string[]
+    testFull: string[]
+    lintFull: string[]
+    typecheckFull: string[]
+  }
+  qualityGatePolicy: {
+    tests: string
+    lint: string
+    typecheck: string
+    fullProjectFallback: string
+  }
+  cautions: string[]
+}
+
+export interface ExecutionSetupResultPayload {
+  status: 'ready'
+  summary: string
+  profile: ExecutionSetupProfilePayload
+  checks: {
+    workspace: string
+    tooling: string
+    tempScope: string
+    policy: string
+  }
+}
+
 export interface VoteScorecard {
   draftScores: Record<string, Record<string, number>>
 }

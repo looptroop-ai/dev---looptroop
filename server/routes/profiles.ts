@@ -15,6 +15,7 @@ const profileSchema = z.object({
   councilMemberVariants: z.string().optional(),
   minCouncilQuorum: z.number().int().min(1).max(4).optional(),
   perIterationTimeout: z.number().int().nonnegative().optional(), // 0 = no timeout
+  executionSetupTimeout: z.number().int().nonnegative().optional(), // 0 = no timeout
   councilResponseTimeout: z.number().int().positive().optional(),
   interviewQuestions: z.number().int().nonnegative().optional(), // 0 = infinite questions
   coverageFollowUpBudgetPercent: z.number().int().min(0).max(100).optional(),

@@ -66,6 +66,10 @@ const ALWAYS_ALLOW_PATHS = [
 
 const GIT_OP_MAX_BUFFER_BYTES = 16 * 1024 * 1024
 
+interface ResetWorktreeOptions {
+  preservePaths?: string[]
+}
+
 export function isAllowedFile(path: string): boolean {
   // Check blocked patterns first
   for (const pattern of BLOCKED_PATTERNS) {
@@ -233,15 +237,19 @@ export function captureBeadDiff(worktreePath: string, beadStartCommit: string): 
   return result.ok ? result.stdout : ''
 }
 
-export function resetWorktreeToCommit(worktreePath: string, commit: string): void {
+export function resetWorktreeToCommit(worktreePath: string, commit: string, options?: ResetWorktreeOptions): void {
   runGitOp(worktreePath, ['reset', '--hard', commit])
-  runGitOp(worktreePath, ['clean', '-fdq'])
+  const cleanArgs = ['clean', '-fdq']
+  for (const path of options?.preservePaths ?? []) {
+    cleanArgs.push('-e', path)
+  }
+  runGitOp(worktreePath, cleanArgs)
 }
 
 /**
  * Reset the worktree to the bead start commit on context wipe / new iteration.
  * This ensures the next retry starts from a clean state.
  */
-export function resetToBeadStart(worktreePath: string, beadStartCommit: string): void {
-  resetWorktreeToCommit(worktreePath, beadStartCommit)
+export function resetToBeadStart(worktreePath: string, beadStartCommit: string, options?: ResetWorktreeOptions): void {
+  resetWorktreeToCommit(worktreePath, beadStartCommit, options)
 }

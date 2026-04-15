@@ -33,8 +33,14 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   beads_expand: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
   // PROM23: "Final PRD + semantic Beads blueprint"
   beads_coverage: ['prd', 'beads'],
+  // Execution setup-plan review: approved planning context + prior regenerate notes
+  execution_setup_plan: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan_notes'],
+  // Execution setup-plan regenerate: same as above plus current draft plan
+  execution_setup_plan_regenerate: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_plan_notes'],
+  // Execution setup: approved planning context + prior setup retry notes
+  execution_setup: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
   // Execution: bead data + notes from previous iterations
-  coding: ['bead_data', 'bead_notes'],
+  coding: ['bead_data', 'bead_notes', 'execution_setup_profile'],
   // PROM51: "Current bead data + error context from failed iteration"
   context_wipe: ['bead_data', 'error_context'],
   // PROM52: "Ticket details + Interview Results + PRD + Beads list + prior final-test retry notes"
@@ -50,6 +56,8 @@ const DEFAULT_TOKEN_BUDGET = 100000
 const TRIM_PRIORITY: { key: string; sources: string[] }[] = [
   { key: 'error_context', sources: ['error_context'] },
   { key: 'bead_notes', sources: ['bead_note'] },
+  { key: 'execution_setup_plan_notes', sources: ['execution_setup_plan_note'] },
+  { key: 'execution_setup_notes', sources: ['execution_setup_note'] },
   { key: 'final_test_notes', sources: ['final_test_note'] },
   { key: 'user_answers', sources: ['user_answers'] },
   { key: 'tests', sources: ['tests'] },
@@ -61,6 +69,8 @@ const TRIM_PRIORITY: { key: string; sources: string[] }[] = [
   { key: 'interview', sources: ['interview'] },
   { key: 'prd', sources: ['prd'] },
   { key: 'relevant_files', sources: ['relevant_files'] },
+  { key: 'execution_setup_plan', sources: ['execution_setup_plan'] },
+  { key: 'execution_setup_profile', sources: ['execution_setup_profile'] },
   { key: 'ticket_details', sources: ['ticket_details'] },
 ]
 
@@ -133,6 +143,10 @@ export interface TicketState {
   votes?: string[]
   beadData?: string
   beadNotes?: string[]
+  executionSetupProfile?: string
+  executionSetupPlan?: string
+  executionSetupPlanNotes?: string[]
+  executionSetupNotes?: string[]
   finalTestNotes?: string[]
   userAnswers?: string
   tests?: string
@@ -237,6 +251,32 @@ export function buildMinimalContext(
         if (ticketState.beadNotes) {
           for (const note of ticketState.beadNotes) {
             parts.push({ source: 'bead_note', content: note, order: order++ })
+          }
+        }
+        break
+      }
+      case 'execution_setup_profile': {
+        const content = ticketState.executionSetupProfile ?? ''
+        if (content) parts.push({ source, content, order: order++ })
+        break
+      }
+      case 'execution_setup_plan': {
+        const content = ticketState.executionSetupPlan ?? ''
+        if (content) parts.push({ source, content, order: order++ })
+        break
+      }
+      case 'execution_setup_plan_notes': {
+        if (ticketState.executionSetupPlanNotes) {
+          for (const note of ticketState.executionSetupPlanNotes) {
+            parts.push({ source: 'execution_setup_plan_note', content: note, order: order++ })
+          }
+        }
+        break
+      }
+      case 'execution_setup_notes': {
+        if (ticketState.executionSetupNotes) {
+          for (const note of ticketState.executionSetupNotes) {
+            parts.push({ source: 'execution_setup_note', content: note, order: order++ })
           }
         }
         break

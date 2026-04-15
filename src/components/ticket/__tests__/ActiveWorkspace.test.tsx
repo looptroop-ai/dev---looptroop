@@ -57,7 +57,7 @@ vi.mock('@/hooks/useTicketArtifacts', async () => {
 })
 
 describe('ActiveWorkspace', () => {
-  it('renders the selected workspace inside a constrained flex container', () => {
+  it('renders the selected workspace inside a constrained flex container', async () => {
     const { container } = renderWithProviders(
       <ActiveWorkspace
         ticket={makeTicket({ status: 'WAITING_BEADS_APPROVAL' })}
@@ -67,10 +67,10 @@ describe('ActiveWorkspace', () => {
     )
 
     expect(container.firstElementChild).toHaveClass('flex-1', 'min-h-0', 'overflow-hidden')
-    expect(screen.getByText('approval view')).toBeInTheDocument()
+    expect(await screen.findByText('approval view')).toBeInTheDocument()
   })
 
-  it('opens live error mode when the ticket is currently blocked', () => {
+  it('opens live error mode when the ticket is currently blocked', async () => {
     const ticket = makeTicket({ status: 'BLOCKED_ERROR' })
     ticket.errorOccurrences = [
       {
@@ -97,10 +97,10 @@ describe('ActiveWorkspace', () => {
       />,
     )
 
-    expect(screen.getByText(/error view:err-live(:live|:readonly)?|Blocked — Error/)).toBeInTheDocument()
+    expect(await screen.findByText(/error view:err-live(:live|:readonly)?|Blocked — Error/)).toBeInTheDocument()
   })
 
-  it('opens read-only error review mode for a resolved error occurrence', () => {
+  it('opens read-only error review mode for a resolved error occurrence', async () => {
     const ticket = makeTicket({ status: 'CANCELED' })
     ticket.errorOccurrences = [
       {
@@ -127,6 +127,6 @@ describe('ActiveWorkspace', () => {
       />,
     )
 
-    expect(screen.getByText(/error view:err-1(:live|:readonly)?|Error Review/)).toBeInTheDocument()
+    expect(await screen.findByText(/error view:err-1(:live|:readonly)?|Error Review/)).toBeInTheDocument()
   })
 })

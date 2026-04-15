@@ -53,7 +53,7 @@ function isFrontendApiUrl(url: URL) {
 }
 
 function getDevReadyProbeUrl(path: string) {
-  return new URL(path, window.location.origin).toString()
+  return new URL(path, __LOOPTROOP_DEV_BACKEND_ORIGIN__).toString()
 }
 
 async function pingDevBackend() {
@@ -63,9 +63,10 @@ async function pingDevBackend() {
   try {
     const response = await nativeFetch(getDevReadyProbeUrl(DEV_BACKEND_HEALTH_PATH), {
       cache: 'no-store',
+      mode: 'no-cors',
       signal: controller.signal,
     })
-    return response.ok
+    return response.type === 'opaque' || response.ok
   } catch {
     return false
   } finally {

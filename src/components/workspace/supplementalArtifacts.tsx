@@ -53,6 +53,18 @@ export function getSupplementalArtifacts(phase: string, isCompleted = false): Ar
   if (phase === 'PRE_FLIGHT_CHECK') {
     return [{ id: 'diagnostics', label: 'Doctor Diagnostics', description: 'Pre-flight validation report', icon: <CheckCircle2 className="h-3.5 w-3.5" /> }]
   }
+  if (phase === 'WAITING_EXECUTION_SETUP_APPROVAL') {
+    return [
+      { id: 'execution-setup-plan', label: 'Execution Setup Plan', description: 'Reviewable temporary environment-setup plan drafted after pre-flight.', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'execution-setup-plan-report', label: 'Setup Plan Report', description: 'Plan-generation diagnostics and regenerate history.', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+    ]
+  }
+  if (phase === 'PREPARING_EXECUTION_ENV') {
+    return [
+      { id: 'execution-setup-profile', label: 'Execution Setup Profile', description: 'Reusable temporary setup profile for later coding beads', icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: 'execution-setup-report', label: 'Execution Setup Report', description: 'Attempt history and final setup status', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+    ]
+  }
   if (phase === 'CODING') {
     return isCompleted
       ? [{ id: 'bead-commits', label: 'Bead Commits', description: 'Per-bead git commits', icon: <FileText className="h-3.5 w-3.5" /> }]

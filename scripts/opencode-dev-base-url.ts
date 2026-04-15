@@ -4,6 +4,7 @@ import {
   inspectPortOccupants,
   type PortOccupantInspection,
 } from './port-occupants'
+import { getOpenCodeBasicAuthHeader } from '../shared/opencodeAuth'
 
 const MAX_PORT_SCAN_ATTEMPTS = 50
 
@@ -84,7 +85,9 @@ async function canConnect(hostname: string, port: number) {
 
 async function isOpenCodeResponding(url: URL, hostname: string, port: number) {
   try {
+    const authHeader = getOpenCodeBasicAuthHeader()
     const res = await fetch(`${url.protocol}//${hostname}:${port}/provider`, {
+      ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
       signal: AbortSignal.timeout(1000),
     })
     return res.ok

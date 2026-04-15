@@ -27,6 +27,7 @@ export function getStatusColor(status: string): string {
     case 'VERIFYING_BEADS_COVERAGE':
       return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
     case 'PRE_FLIGHT_CHECK':
+    case 'PREPARING_EXECUTION_ENV':
       return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300'
     case 'RUNNING_FINAL_TEST':
       return 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300'
@@ -92,6 +93,7 @@ export function getStatusRingColor(status: string): string {
     case 'VERIFYING_BEADS_COVERAGE':
       return 'text-purple-500'
     case 'PRE_FLIGHT_CHECK':
+    case 'PREPARING_EXECUTION_ENV':
       return 'text-cyan-500'
     case 'RUNNING_FINAL_TEST':
       return 'text-teal-500'

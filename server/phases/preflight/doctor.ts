@@ -15,6 +15,10 @@ import {
   readOriginRemoteUrl,
 } from '../../git/github'
 import { fetchConnectedModelIds } from '../../opencode/providerCatalog'
+import { buildPromptFromTemplate, PROM_EXECUTION_CAPABILITY_PROBE } from '../../prompts/index'
+import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../opencode/permissions'
+import { resolveOpenCodeTools } from '../../opencode/toolPolicy'
+import { parseModelRef } from '../../opencode/types'
 
 export interface DoctorDeps {
   fileExists: (path: string) => boolean
@@ -45,6 +49,40 @@ export const defaultDoctorDeps: DoctorDeps = {
     const ticket = getTicketContext(ticketId)
     return ticket ? findProjectExecutionBandConflict(ticket.projectId, ticket.ticketRef) : null
   },
+}
+
+async function runExecutionCapabilityProbe(
+  adapter: OpenCodeAdapter,
+  worktreePath: string,
+  preFlightContext: PreFlightContext,
+  signal?: AbortSignal,
+): Promise<void> {
+  const session = await raceWithCancel(
+    adapter.createSession(worktreePath, signal, {
+      permission: OPENCODE_EXECUTION_YOLO_PERMISSIONS,
+    }),
+    signal,
+  )
+  try {
+    const response = await raceWithCancel(
+      adapter.promptSession(
+        session.id,
+        [{ type: 'text', content: buildPromptFromTemplate(PROM_EXECUTION_CAPABILITY_PROBE, []) }],
+        signal,
+        {
+          model: parseModelRef(preFlightContext.lockedMainImplementer),
+          variant: preFlightContext.lockedMainImplementerVariant ?? undefined,
+          tools: resolveOpenCodeTools(PROM_EXECUTION_CAPABILITY_PROBE.toolPolicy),
+        },
+      ),
+      signal,
+    )
+    if (response.trim() !== 'OK') {
+      throw new Error(`Probe returned unexpected response: ${response.trim() || '<empty>'}`)
+    }
+  } finally {
+    await adapter.abortSession(session.id).catch(() => false)
+  }
 }
 
 export async function runPreFlightChecks(
@@ -401,7 +439,37 @@ export async function runPreFlightChecks(
     })
   }
 
-  // 16. Project execution exclusivity
+  // 16. OpenCode execution-band capability
+  if (preFlightContext.lockedMainImplementer && paths?.worktreePath) {
+    try {
+      throwIfAborted(signal, ticketId)
+      await runExecutionCapabilityProbe(adapter, paths.worktreePath, preFlightContext, signal)
+      throwIfAborted(signal, ticketId)
+      checks.push({
+        name: 'OpenCode Execution Capability',
+        category: 'connectivity',
+        result: 'pass',
+        message: 'Execution-mode session creation and read-only prompt probe succeeded',
+      })
+    } catch (err) {
+      throwIfCancelled(err, signal, ticketId)
+      checks.push({
+        name: 'OpenCode Execution Capability',
+        category: 'connectivity',
+        result: 'fail',
+        message: `Execution-mode probe failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      })
+    }
+  } else {
+    checks.push({
+      name: 'OpenCode Execution Capability',
+      category: 'connectivity',
+      result: 'fail',
+      message: 'Execution-mode probe could not run because the worktree or main implementer was unavailable',
+    })
+  }
+
+  // 17. Project execution exclusivity
   const executionConflict = deps.findExecutionBandConflict(ticketId)
   checks.push({
     name: 'Project Execution Lock',
@@ -412,7 +480,7 @@ export async function runPreFlightChecks(
       : 'No competing execution-band ticket found for this project',
   })
 
-  // 17. Runtime safety budgets
+  // 18. Runtime safety budgets
   if (preFlightContext.maxIterations < 0) {
     checks.push({
       name: 'Runtime Budget',

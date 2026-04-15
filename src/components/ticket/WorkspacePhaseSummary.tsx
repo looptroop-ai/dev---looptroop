@@ -27,6 +27,10 @@ const CONTEXT_KEY_LABELS: Record<WorkflowContextKey, { label: string; descriptio
   tests: { label: 'Verification Tests', description: 'Coverage and final test context including test commands, expected outcomes, and test intent derived from the PRD and beads plan. Used during self-testing and integration phases.' },
   bead_data: { label: 'Current Bead Data', description: 'The active bead specification being executed, including its description, acceptance criteria, dependencies, file targets, and any retry/iteration context from previous attempts.' },
   bead_notes: { label: 'Bead Notes', description: 'Accumulated iteration notes and prior-attempt context for the current bead. Includes error messages, partial progress, and diagnostic hints from failed attempts to help the next retry succeed.' },
+  execution_setup_plan: { label: 'Execution Setup Plan', description: 'The user-reviewable temporary workspace-preparation plan drafted after pre-flight. It contains ordered setup steps, proposed commands, discovered project command families, and the quality-gate policy the execution setup phase should start from.' },
+  execution_setup_plan_notes: { label: 'Execution Setup Plan Notes', description: 'Append-only commentary and regenerate notes captured while revising the execution setup plan before approval.' },
+  execution_setup_profile: { label: 'Execution Setup Profile', description: 'A compact reusable runtime profile produced by the execution setup phase. It records temporary setup roots, discovered command families, reusable artifacts, and the quality-gate policy later coding beads should follow.' },
+  execution_setup_notes: { label: 'Execution Setup Notes', description: 'Append-only retry notes from failed execution setup attempts. These help the next setup retry avoid repeating the same environment mistakes or policy violations.' },
   error_context: { label: 'Error Context', description: 'Failure context from the most recent blocked error, including the error message, error codes, the phase where the failure occurred, occurrence timing, and diagnostic details to help with retry decisions.' },
 }
 
@@ -383,7 +387,7 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
                 {phaseMeta.reviewArtifactType ? (
                   <>
                     <dt className="text-muted-foreground">Review Artifact</dt>
-                    <dd className="text-foreground capitalize">{phaseMeta.reviewArtifactType}</dd>
+                    <dd className="text-foreground capitalize">{phaseMeta.reviewArtifactType.replace(/_/g, ' ')}</dd>
                   </>
                 ) : null}
               </dl>

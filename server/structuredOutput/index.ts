@@ -9,6 +9,11 @@ export type {
   InterviewBatchPayload,
   InterviewTurnOutput,
   BeadCompletionPayload,
+  ExecutionSetupPlanStepPayload,
+  ExecutionSetupPlanPayload,
+  ExecutionSetupReusableArtifactPayload,
+  ExecutionSetupProfilePayload,
+  ExecutionSetupResultPayload,
   FinalTestCommandPayload,
   VoteScorecard,
   PrdDocument,
@@ -53,6 +58,8 @@ export { normalizeVoteScorecardOutput } from './voteOutput'
 
 export {
   normalizeBeadCompletionMarkerOutput,
+  normalizeExecutionSetupPlanOutput,
+  normalizeExecutionSetupResultOutput,
   normalizeFinalTestCommandsOutput,
 } from './completionOutput'
 

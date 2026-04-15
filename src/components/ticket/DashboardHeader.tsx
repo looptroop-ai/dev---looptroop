@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, useEffect } from 'react'
 import { FolderOpen, Copy, Check as CheckIcon, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useUI } from '@/context/useUI'
 import { useTicketAction, useUpdateTicket } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
@@ -223,6 +223,9 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
         <DialogContent closeButtonVariant="dashboard" className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-sm">Ticket Details</DialogTitle>
+            <DialogDescription className="sr-only">
+              Review ticket metadata, project details, file locations, and the current description.
+            </DialogDescription>
           </DialogHeader>
           <div className="relative flex-1 min-h-0 overflow-hidden">
           <div

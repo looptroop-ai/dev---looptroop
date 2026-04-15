@@ -37,13 +37,19 @@ export function cleanupTicketResources(ticketId: string): CleanupReport {
     resolve(ticketRoot, '.ticket', 'runtime', 'streams'),
     resolve(ticketRoot, '.ticket', 'runtime', 'tmp'),
     resolve(ticketRoot, '.ticket', 'runtime', 'state.yaml'),
+    paths.executionSetupDir,
+    paths.executionSetupProfilePath,
   ]
 
   for (const targetPath of runtimePaths) {
     if (existsSync(targetPath)) {
       try {
         rmSync(targetPath, { recursive: true, force: true })
-        report.removedDirs.push(targetPath)
+        if (targetPath === paths.executionSetupProfilePath || targetPath.endsWith('.yaml') || targetPath.endsWith('.json')) {
+          report.removedFiles.push(targetPath)
+        } else {
+          report.removedDirs.push(targetPath)
+        }
       } catch (err) {
         report.errors.push(
           `Failed to remove ${targetPath}: ${err instanceof Error ? err.message : 'Unknown'}`,

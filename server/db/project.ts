@@ -46,6 +46,7 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       council_members TEXT,
       max_iterations INTEGER,
       per_iteration_timeout INTEGER,
+      execution_setup_timeout INTEGER,
       council_response_timeout INTEGER,
       min_council_quorum INTEGER,
       interview_questions INTEGER,
@@ -145,6 +146,7 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   ensureColumn(sqlite, 'tickets', 'locked_main_implementer_variant', 'TEXT')
   ensureColumn(sqlite, 'tickets', 'locked_council_member_variants', 'TEXT')
   ensureColumn(sqlite, 'opencode_sessions', 'step', 'TEXT')
+  ensureColumn(sqlite, 'projects', 'execution_setup_timeout', 'INTEGER')
 
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase_step

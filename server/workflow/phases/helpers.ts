@@ -949,6 +949,26 @@ export function resolveExecutionRuntimeSettings(context: TicketContext): {
   }
 }
 
+export function resolveExecutionSetupRuntimeSettings(context: TicketContext): {
+  maxIterations: number
+  timeoutMs: number
+} {
+  const storedContext = getStoredTicketContext(context.ticketId)
+  const profile = appDb.select().from(profiles).get()
+  const maxIterations = storedContext?.localProject.maxIterations
+    ?? profile?.maxIterations
+    ?? context.maxIterations
+    ?? PROFILE_DEFAULTS.maxIterations
+  const timeoutMs = storedContext?.localProject.executionSetupTimeout
+    ?? profile?.executionSetupTimeout
+    ?? PROFILE_DEFAULTS.executionSetupTimeout
+
+  return {
+    maxIterations,
+    timeoutMs,
+  }
+}
+
 export function formatDurationMs(durationMs: number): string {
   if (durationMs >= 60000) return `${(durationMs / 60000).toFixed(1)}m`
   if (durationMs >= 1000) return `${(durationMs / 1000).toFixed(1)}s`

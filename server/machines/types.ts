@@ -52,6 +52,12 @@ export type TicketEvent =
   | { type: 'DRAFTS_READY' }
   | { type: 'REFINED' }
   | { type: 'CHECKS_PASSED' }
+  | { type: 'EXECUTION_SETUP_PLAN_READY' }
+  | { type: 'EXECUTION_SETUP_PLAN_FAILED'; errors?: string[] }
+  | { type: 'REGENERATE_EXECUTION_SETUP_PLAN' }
+  | { type: 'APPROVE_EXECUTION_SETUP_PLAN' }
+  | { type: 'EXECUTION_SETUP_READY' }
+  | { type: 'EXECUTION_SETUP_FAILED'; errors?: string[] }
   | { type: 'CHECKS_FAILED'; errors: string[] }
   | { type: 'BEAD_COMPLETE' }
   | { type: 'BEAD_ERROR'; codes?: string[] }
@@ -91,6 +97,8 @@ export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
   VERIFYING_BEADS_COVERAGE: 'in_progress',
   WAITING_BEADS_APPROVAL: 'needs_input',
   PRE_FLIGHT_CHECK: 'in_progress',
+  WAITING_EXECUTION_SETUP_APPROVAL: 'needs_input',
+  PREPARING_EXECUTION_ENV: 'in_progress',
   CODING: 'in_progress',
   RUNNING_FINAL_TEST: 'in_progress',
   INTEGRATING_CHANGES: 'in_progress',

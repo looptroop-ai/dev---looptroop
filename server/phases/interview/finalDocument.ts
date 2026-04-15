@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import type { InterviewAnswerUpdate, InterviewDocument } from '@shared/interviewArtifact'
 import { phaseArtifacts } from '../../db/schema'
 import { safeAtomicWrite } from '../../io/atomicWrite'
+import { clearExecutionSetupState } from '../executionSetup/storage'
 import { broadcaster } from '../../sse/broadcaster'
 import { getTicketByRef, getTicketContext, getTicketPaths } from '../../storage/tickets'
 import {
@@ -113,6 +114,9 @@ export function invalidateDownstreamPlanningArtifacts(ticketId: string): {
     }
   }
 
+  const executionSetupInvalidation = clearExecutionSetupState(ticketId)
+  removedFiles.push(...executionSetupInvalidation.removedFiles)
+
   const artifacts = ticketContext.projectDb
     .select()
     .from(phaseArtifacts)
@@ -136,6 +140,8 @@ export function invalidateDownstreamPlanningArtifacts(ticketId: string): {
   phaseResults.delete(`${ticketId}:beads`)
   phaseIntermediate.delete(`${ticketId}:prd`)
   phaseIntermediate.delete(`${ticketId}:beads`)
+
+  removedArtifacts += executionSetupInvalidation.removedArtifacts
 
   if (removedArtifacts > 0 || removedFiles.length > 0) {
     broadcaster.broadcast(ticketId, 'artifact_change', {

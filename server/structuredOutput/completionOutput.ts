@@ -1,6 +1,13 @@
 import type { BeadChecks } from '../phases/execution/completionSchema'
 import { looksLikePromptEcho } from '../lib/promptEcho'
-import type { BeadCompletionPayload, FinalTestCommandPayload, StructuredOutputResult } from './types'
+import type {
+  BeadCompletionPayload,
+  ExecutionSetupPlanPayload,
+  ExecutionSetupProfilePayload,
+  ExecutionSetupResultPayload,
+  FinalTestCommandPayload,
+  StructuredOutputResult,
+} from './types'
 import {
   isRecord,
   normalizeKey,
@@ -269,6 +276,440 @@ export function normalizeFinalTestCommandsOutput(rawContent: string): Structured
     rawContent,
     looksLikePromptEcho(rawContent)
       ? 'Final test command output echoed the prompt instead of returning a <FINAL_TEST_COMMANDS> artifact'
+      : lastError,
+    { cause: lastErrorCause },
+  )
+}
+
+function normalizeExecutionSetupStatus(value: unknown): 'ready' {
+  const raw = getRequiredString({ status: value }, ['status'], 'status')
+  const normalized = normalizeKey(raw)
+  if (['ready', 'ok', 'complete', 'completed', 'success', 'succeeded'].includes(normalized)) {
+    return 'ready'
+  }
+  throw new Error(`Invalid execution setup status: ${raw}`)
+}
+
+function normalizeExecutionSetupPlanStatus(value: unknown): 'draft' {
+  const raw = getRequiredString({ status: value }, ['status'], 'status')
+  const normalized = normalizeKey(raw)
+  if (['draft', 'planned', 'plan', 'review'].includes(normalized)) {
+    return 'draft'
+  }
+  throw new Error(`Invalid execution setup plan status: ${raw}`)
+}
+
+function normalizeExecutionSetupPath(value: unknown, fieldLabel: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${fieldLabel} must be a non-empty string`)
+  }
+  const path = value.trim().replace(/\\/g, '/').replace(/^\.\//, '')
+  if (
+    path !== '.ticket/runtime/execution-setup'
+    && path !== '.ticket/runtime/execution-setup-profile.json'
+    && path !== '.ticket/runtime/execution-log.jsonl'
+    && !path.startsWith('.ticket/runtime/execution-setup/')
+  ) {
+    throw new Error(`${fieldLabel} must stay inside .ticket/runtime/execution-setup`)
+  }
+  return path
+}
+
+function normalizeExecutionSetupProjectCommands(value: unknown, fieldLabel: string): ExecutionSetupPlanPayload['projectCommands'] {
+  if (!isRecord(value)) throw new Error(`${fieldLabel} missing object`)
+  return {
+    prepare: toStringArray(getValueByAliases(value, ['prepare', 'bootstrap', 'setup'])),
+    testFull: toStringArray(getValueByAliases(value, ['testfull', 'tests'])),
+    lintFull: toStringArray(getValueByAliases(value, ['lintfull', 'lint'])),
+    typecheckFull: toStringArray(getValueByAliases(value, ['typecheckfull', 'typecheck'])),
+  }
+}
+
+function normalizeExecutionSetupQualityGatePolicy(value: unknown, fieldLabel: string): ExecutionSetupPlanPayload['qualityGatePolicy'] {
+  if (!isRecord(value)) throw new Error(`${fieldLabel} missing object`)
+  return {
+    tests: getRequiredString(value, ['tests'], `${fieldLabel}.tests`),
+    lint: getRequiredString(value, ['lint'], `${fieldLabel}.lint`),
+    typecheck: getRequiredString(value, ['typecheck'], `${fieldLabel}.typecheck`),
+    fullProjectFallback: getRequiredString(value, ['fullprojectfallback'], `${fieldLabel}.full_project_fallback`),
+  }
+}
+
+function normalizeExecutionSetupPlan(value: unknown): ExecutionSetupPlanPayload {
+  if (!isRecord(value)) throw new Error('Execution setup plan is missing')
+
+  const schemaVersion = toInteger(getValueByAliases(value, ['schemaversion', 'version']))
+  if (schemaVersion == null || schemaVersion < 1) {
+    throw new Error('Execution setup plan requires schema_version >= 1')
+  }
+
+  const ticketId = getRequiredString(value, ['ticketid'], 'ticket_id')
+  const artifactRaw = getRequiredString(value, ['artifact'], 'artifact')
+  if (normalizeKey(artifactRaw) !== 'executionsetupplan' && artifactRaw !== 'execution_setup_plan') {
+    throw new Error(`Execution setup plan artifact must be execution_setup_plan (received ${artifactRaw})`)
+  }
+
+  const status = normalizeExecutionSetupPlanStatus(getValueByAliases(value, ['status']))
+  const summary = getRequiredString(value, ['summary', 'reason'], 'summary')
+
+  const tempRoots = toStringArray(getValueByAliases(value, ['temproots', 'temproot']))
+    .map((entry) => normalizeExecutionSetupPath(entry, 'temp_roots entry'))
+  if (tempRoots.length === 0) {
+    throw new Error('Execution setup plan requires at least one temp_root')
+  }
+
+  const rawSteps = getValueByAliases(value, ['steps', 'plansteps'])
+  if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+    throw new Error('Execution setup plan requires a non-empty steps list')
+  }
+  const steps = rawSteps.map((entry, index) => {
+    if (!isRecord(entry)) throw new Error(`steps[${index}] must be an object`)
+    return {
+      id: getRequiredString(entry, ['id'], `steps[${index}].id`),
+      title: getRequiredString(entry, ['title', 'name'], `steps[${index}].title`),
+      purpose: getRequiredString(entry, ['purpose', 'goal'], `steps[${index}].purpose`),
+      commands: toStringArray(getValueByAliases(entry, ['commands', 'command'])),
+      required: Boolean(getValueByAliases(entry, ['required', 'isrequired']) ?? false),
+      rationale: getRequiredString(entry, ['rationale', 'reason'], `steps[${index}].rationale`),
+      cautions: toStringArray(getValueByAliases(entry, ['cautions', 'warnings', 'notes'])),
+    }
+  })
+
+  const projectCommands = normalizeExecutionSetupProjectCommands(
+    getValueByAliases(value, ['projectcommands', 'commands']),
+    'Execution setup plan project_commands',
+  )
+  const qualityGatePolicy = normalizeExecutionSetupQualityGatePolicy(
+    getValueByAliases(value, ['qualitygatepolicy', 'qualitypolicy']),
+    'Execution setup plan quality_gate_policy',
+  )
+  const cautions = toStringArray(getValueByAliases(value, ['cautions', 'warnings', 'notes']))
+
+  return {
+    schemaVersion,
+    ticketId,
+    artifact: 'execution_setup_plan',
+    status,
+    summary,
+    tempRoots: [...new Set(tempRoots)],
+    steps,
+    projectCommands,
+    qualityGatePolicy,
+    cautions,
+  }
+}
+
+function normalizeExecutionSetupProfile(value: unknown): ExecutionSetupProfilePayload {
+  if (!isRecord(value)) throw new Error('Execution setup profile is missing')
+
+  const schemaVersion = toInteger(getValueByAliases(value, ['schemaversion', 'version']))
+  if (schemaVersion == null || schemaVersion < 1) {
+    throw new Error('Execution setup profile requires schema_version >= 1')
+  }
+
+  const ticketId = getRequiredString(value, ['ticketid'], 'ticket_id')
+  const artifactRaw = getRequiredString(value, ['artifact'], 'artifact')
+  if (normalizeKey(artifactRaw) !== 'executionsetupprofile' && artifactRaw !== 'execution_setup_profile') {
+    throw new Error(`Execution setup artifact must be execution_setup_profile (received ${artifactRaw})`)
+  }
+
+  const status = normalizeExecutionSetupStatus(getValueByAliases(value, ['status']))
+  const summary = getRequiredString(value, ['summary', 'reason'], 'summary')
+
+  const tempRoots = toStringArray(getValueByAliases(value, ['temproots', 'temproot']))
+    .map((entry) => normalizeExecutionSetupPath(entry, 'temp_roots entry'))
+  if (tempRoots.length === 0) {
+    throw new Error('Execution setup profile requires at least one temp_root')
+  }
+
+  const bootstrapCommands = toStringArray(getValueByAliases(value, ['bootstrapcommands', 'bootstrap']))
+
+  const rawReusableArtifacts = getValueByAliases(value, ['reusableartifacts', 'artifacts'])
+  const reusableArtifacts = Array.isArray(rawReusableArtifacts)
+    ? rawReusableArtifacts.map((entry, index) => {
+        if (!isRecord(entry)) throw new Error(`reusable_artifacts[${index}] must be an object`)
+        return {
+          path: normalizeExecutionSetupPath(getValueByAliases(entry, ['path']), `reusable_artifacts[${index}].path`),
+          kind: getRequiredString(entry, ['kind', 'type'], `reusable_artifacts[${index}].kind`),
+          purpose: getRequiredString(entry, ['purpose', 'reason', 'summary'], `reusable_artifacts[${index}].purpose`),
+        }
+      })
+    : []
+
+  const projectCommands = normalizeExecutionSetupProjectCommands(
+    getValueByAliases(value, ['projectcommands', 'commands']),
+    'Execution setup profile project_commands',
+  )
+  const qualityGatePolicy = normalizeExecutionSetupQualityGatePolicy(
+    getValueByAliases(value, ['qualitygatepolicy', 'qualitypolicy']),
+    'Execution setup profile quality_gate_policy',
+  )
+
+  const cautions = toStringArray(getValueByAliases(value, ['cautions', 'warnings', 'notes']))
+
+  return {
+    schemaVersion,
+    ticketId,
+    artifact: 'execution_setup_profile',
+    status,
+    summary,
+    tempRoots: [...new Set(tempRoots)],
+    bootstrapCommands,
+    reusableArtifacts,
+    projectCommands,
+    qualityGatePolicy,
+    cautions,
+  }
+}
+
+function normalizeExecutionSetupChecks(value: unknown): ExecutionSetupResultPayload['checks'] {
+  if (!isRecord(value)) throw new Error('Execution setup result missing checks object')
+  const workspace = getValueByAliases(value, ['workspace'])
+  const tooling = getValueByAliases(value, ['tooling'])
+  const tempScope = getValueByAliases(value, ['tempscope'])
+  const policy = getValueByAliases(value, ['policy'])
+  if (workspace === undefined) throw new Error('Execution setup checks missing workspace')
+  if (tooling === undefined) throw new Error('Execution setup checks missing tooling')
+  if (tempScope === undefined) throw new Error('Execution setup checks missing temp_scope')
+  if (policy === undefined) throw new Error('Execution setup checks missing policy')
+  return {
+    workspace: normalizeCompletionCheckValue(workspace),
+    tooling: normalizeCompletionCheckValue(tooling),
+    tempScope: normalizeCompletionCheckValue(tempScope),
+    policy: normalizeCompletionCheckValue(policy),
+  }
+}
+
+function toCanonicalExecutionSetupPlanPayload(value: ExecutionSetupPlanPayload): Record<string, unknown> {
+  return {
+    schema_version: value.schemaVersion,
+    ticket_id: value.ticketId,
+    artifact: value.artifact,
+    status: value.status,
+    summary: value.summary,
+    temp_roots: value.tempRoots,
+    steps: value.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      purpose: step.purpose,
+      commands: step.commands,
+      required: step.required,
+      rationale: step.rationale,
+      cautions: step.cautions,
+    })),
+    project_commands: {
+      prepare: value.projectCommands.prepare,
+      test_full: value.projectCommands.testFull,
+      lint_full: value.projectCommands.lintFull,
+      typecheck_full: value.projectCommands.typecheckFull,
+    },
+    quality_gate_policy: {
+      tests: value.qualityGatePolicy.tests,
+      lint: value.qualityGatePolicy.lint,
+      typecheck: value.qualityGatePolicy.typecheck,
+      full_project_fallback: value.qualityGatePolicy.fullProjectFallback,
+    },
+    cautions: value.cautions,
+  }
+}
+
+function toCanonicalExecutionSetupResultPayload(value: ExecutionSetupResultPayload): Record<string, unknown> {
+  return {
+    status: value.status,
+    summary: value.summary,
+    profile: {
+      schema_version: value.profile.schemaVersion,
+      ticket_id: value.profile.ticketId,
+      artifact: value.profile.artifact,
+      status: value.profile.status,
+      summary: value.profile.summary,
+      temp_roots: value.profile.tempRoots,
+      bootstrap_commands: value.profile.bootstrapCommands,
+      reusable_artifacts: value.profile.reusableArtifacts.map((artifact) => ({
+        path: artifact.path,
+        kind: artifact.kind,
+        purpose: artifact.purpose,
+      })),
+      project_commands: {
+        prepare: value.profile.projectCommands.prepare,
+        test_full: value.profile.projectCommands.testFull,
+        lint_full: value.profile.projectCommands.lintFull,
+        typecheck_full: value.profile.projectCommands.typecheckFull,
+      },
+      quality_gate_policy: {
+        tests: value.profile.qualityGatePolicy.tests,
+        lint: value.profile.qualityGatePolicy.lint,
+        typecheck: value.profile.qualityGatePolicy.typecheck,
+        full_project_fallback: value.profile.qualityGatePolicy.fullProjectFallback,
+      },
+      cautions: value.profile.cautions,
+    },
+    checks: {
+      workspace: value.checks.workspace,
+      tooling: value.checks.tooling,
+      temp_scope: value.checks.tempScope,
+      policy: value.checks.policy,
+    },
+  }
+}
+
+export function normalizeExecutionSetupPlanOutput(rawContent: string): StructuredOutputResult<ExecutionSetupPlanPayload> {
+  const candidates = collectTaggedCandidates(rawContent, 'EXECUTION_SETUP_PLAN')
+  let lastError = 'No execution setup plan marker found'
+  let lastErrorCause: unknown = null
+
+  if (candidates.length === 0) {
+    return buildStructuredOutputFailure(
+      rawContent,
+      looksLikePromptEcho(rawContent)
+        ? 'Execution setup plan output echoed the prompt instead of returning an <EXECUTION_SETUP_PLAN> artifact'
+        : lastError,
+    )
+  }
+
+  for (const candidate of candidates) {
+    const candidateWarnings: string[] = []
+    let parsedCandidate: unknown
+    try {
+      parsedCandidate = parseYamlOrJsonCandidate(candidate, {
+        repairWarnings: candidateWarnings,
+      })
+
+      const maybeUnwrapped = maybeUnwrapRecord(parsedCandidate, [
+        'executionsetupplan',
+        'execution_setup_plan',
+        'executionsetupplanresult',
+        'execution_setup_plan_result',
+        'plan',
+        'data',
+        'result',
+      ])
+      if (maybeUnwrapped !== parsedCandidate) {
+        parsedCandidate = maybeUnwrapped
+        appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'EXECUTION_SETUP_PLAN' })
+      }
+
+      if (!isRecord(parsedCandidate)) {
+        throw new Error('Execution setup plan payload is not a YAML/JSON object')
+      }
+
+      const explicitWrapperPath = findExplicitWrapperPath(parsedCandidate, [
+        'executionsetupplan',
+        'execution_setup_plan',
+        'executionsetupplanresult',
+        'execution_setup_plan_result',
+        'plan',
+      ])
+      if (explicitWrapperPath) {
+        const unwrapped = unwrapExplicitWrapperRecord(parsedCandidate, explicitWrapperPath)
+        if (isRecord(unwrapped) && unwrapped !== parsedCandidate) {
+          parsedCandidate = unwrapped
+          appendWrapperKeyRepairWarning(candidateWarnings, explicitWrapperPath)
+        }
+      } else {
+        const wrappedPlan = maybeUnwrapRecord(parsedCandidate, [
+          'executionsetupplan',
+          'execution_setup_plan',
+          'executionsetupplanresult',
+          'execution_setup_plan_result',
+          'plan',
+        ])
+        if (wrappedPlan !== parsedCandidate) {
+          parsedCandidate = wrappedPlan
+          appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'EXECUTION_SETUP_PLAN' })
+        }
+      }
+
+      const value = normalizeExecutionSetupPlan(parsedCandidate)
+      return {
+        ok: true,
+        value,
+        normalizedContent: JSON.stringify(toCanonicalExecutionSetupPlanPayload(value)),
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'EXECUTION_SETUP_PLAN' }),
+        repairWarnings: candidateWarnings,
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
+    }
+  }
+
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
+      ? 'Execution setup plan output echoed the prompt instead of returning an <EXECUTION_SETUP_PLAN> artifact'
+      : lastError,
+    { cause: lastErrorCause },
+  )
+}
+
+export function normalizeExecutionSetupResultOutput(rawContent: string): StructuredOutputResult<ExecutionSetupResultPayload> {
+  const candidates = collectTaggedCandidates(rawContent, 'EXECUTION_SETUP_RESULT')
+  let lastError = 'No execution setup result marker found'
+  let lastErrorCause: unknown = null
+
+  if (candidates.length === 0) {
+    return buildStructuredOutputFailure(
+      rawContent,
+      looksLikePromptEcho(rawContent)
+        ? 'Execution setup output echoed the prompt instead of returning an <EXECUTION_SETUP_RESULT> artifact'
+        : lastError,
+    )
+  }
+
+  for (const candidate of candidates) {
+    const candidateWarnings: string[] = []
+    try {
+      const parsedCandidate = parseYamlOrJsonCandidate(candidate, { repairWarnings: candidateWarnings })
+      const parsed = unwrapExplicitWrapperRecord(parsedCandidate, [
+        'executionsetupresult',
+        'execution_setup_result',
+        'result',
+        'output',
+        'data',
+      ])
+      if (!isRecord(parsed)) throw new Error('Execution setup payload is not a YAML/JSON object')
+      if (parsed !== parsedCandidate && isRecord(parsedCandidate)) {
+        appendWrapperKeyRepairWarning(candidateWarnings, findExplicitWrapperPath(parsedCandidate, [
+          'executionsetupresult',
+          'execution_setup_result',
+          'result',
+          'output',
+          'data',
+        ]))
+      }
+
+      const status = normalizeExecutionSetupStatus(getValueByAliases(parsed, ['status']))
+      const summary = getRequiredString(parsed, ['summary', 'reason'], 'summary')
+      const profile = normalizeExecutionSetupProfile(getValueByAliases(parsed, ['profile']))
+      const checks = normalizeExecutionSetupChecks(getValueByAliases(parsed, ['checks']))
+
+      appendStructuredCandidateRecoveryWarning(candidateWarnings, rawContent, candidate, { tag: 'EXECUTION_SETUP_RESULT' })
+
+      const value = {
+        status,
+        summary,
+        profile,
+        checks,
+      }
+
+      return {
+        ok: true,
+        value,
+        normalizedContent: JSON.stringify(toCanonicalExecutionSetupResultPayload(value)),
+        repairApplied: candidateWarnings.length > 0 || shouldRecordStructuredCandidateRecovery(rawContent, candidate, { tag: 'EXECUTION_SETUP_RESULT' }),
+        repairWarnings: candidateWarnings,
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+      lastErrorCause = error
+    }
+  }
+
+  return buildStructuredOutputFailure(
+    rawContent,
+    looksLikePromptEcho(rawContent)
+      ? 'Execution setup output echoed the prompt instead of returning an <EXECUTION_SETUP_RESULT> artifact'
       : lastError,
     { cause: lastErrorCause },
   )

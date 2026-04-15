@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { ToastProvider } from '@/components/shared/Toast'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { ProfileSetup } from '../ProfileSetup'
 import { OPENCODE_MODELS_QUERY_KEY } from '@/hooks/useOpenCodeModels'
 
@@ -15,6 +16,7 @@ const existingProfile = {
   councilMembers: JSON.stringify(['opencode/big-pickle', 'openai/gpt-5.1-codex']),
   minCouncilQuorum: 1,
   perIterationTimeout: 1_200_000,
+  executionSetupTimeout: 1_500_000,
   councilResponseTimeout: 1_200_000,
   interviewQuestions: 50,
   coverageFollowUpBudgetPercent: 20,
@@ -74,9 +76,11 @@ describe('ProfileSetup', () => {
     await act(async () => {
       render(
         <QueryClientProvider client={queryClient}>
-          <ToastProvider>
-            <ProfileSetup onClose={() => undefined} />
-          </ToastProvider>
+          <TooltipProvider>
+            <ToastProvider>
+              <ProfileSetup onClose={() => undefined} />
+            </ToastProvider>
+          </TooltipProvider>
         </QueryClientProvider>,
       )
       await Promise.resolve()
@@ -85,6 +89,7 @@ describe('ProfileSetup', () => {
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
     expect(screen.getByText('Coverage Follow-Up Budget (%)')).toBeInTheDocument()
     expect(screen.getByText('Interview Coverage Passes')).toBeInTheDocument()
+    expect(screen.getByText('Execution Setup Timeout (s)')).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
     expect(screen.queryByText('Icon')).not.toBeInTheDocument()

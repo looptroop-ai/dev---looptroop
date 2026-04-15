@@ -14,6 +14,7 @@ interface Project {
   councilMembers: string | null
   maxIterations: number | null
   perIterationTimeout: number | null
+  executionSetupTimeout: number | null
   councilResponseTimeout: number | null
   minCouncilQuorum: number | null
   interviewQuestions: number | null
@@ -39,6 +40,7 @@ interface CreateProjectInput {
   icon?: string
   color?: string
   profileId?: number
+  executionSetupTimeout?: number
 }
 
 interface CachedProjectTicket {
@@ -100,7 +102,7 @@ async function createProject(input: CreateProjectInput): Promise<Project> {
   return res.json()
 }
 
-async function updateProject(id: number, input: Partial<Pick<Project, 'name' | 'icon' | 'color'>>): Promise<Project> {
+async function updateProject(id: number, input: Partial<Pick<Project, 'name' | 'icon' | 'color' | 'executionSetupTimeout'>>): Promise<Project> {
   const res = await fetch(`/api/projects/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -152,7 +154,7 @@ export function useDeleteProject() {
 export function useUpdateProject() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: number } & Partial<Pick<Project, 'name' | 'icon' | 'color'>>) =>
+    mutationFn: ({ id, ...input }: { id: number } & Partial<Pick<Project, 'name' | 'icon' | 'color' | 'executionSetupTimeout'>>) =>
       updateProject(id, input),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })

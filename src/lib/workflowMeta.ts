@@ -45,7 +45,7 @@ export function getCascadeEditWarningMessage(
   const effectiveStatus = currentStatus === 'BLOCKED_ERROR' && previousStatus
     ? previousStatus
     : currentStatus
-  if (artifactType === 'beads') return null
+  if (artifactType === 'beads' || artifactType === 'execution_setup_plan') return null
 
   const affectedPhases: string[] = []
 

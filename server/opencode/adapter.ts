@@ -21,7 +21,10 @@ import { resolve } from 'path'
 import { logIfVerbose, warnIfVerbose } from '../runtime'
 import { getOpenCodeBaseUrl } from './runtimeConfig'
 import type { Bead } from '../phases/beads/types'
+import { parseExecutionSetupPlanNotes } from '../phases/executionSetupPlan/types'
+import { parseExecutionSetupRetryNotes } from '../phases/executionSetup/types'
 import { looksLikePromptEcho } from '../lib/promptEcho'
+import { getOpenCodeBasicAuthHeader } from '../../shared/opencodeAuth'
 import {
   ADAPTER_RETRY_DELAY_MS,
   SDK_OPERATION_TIMEOUT_MS,
@@ -107,7 +110,11 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const baseUrl = typeof baseUrlOrPort === 'number'
       ? `http://localhost:${baseUrlOrPort}`
       : baseUrlOrPort
-    this.client = client ?? createOpencodeClient({ baseUrl })
+    const authHeader = getOpenCodeBasicAuthHeader()
+    this.client = client ?? createOpencodeClient({
+      baseUrl,
+      ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
+    })
   }
 
   async createSession(
@@ -442,7 +449,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
   private async loadTicketState(ticketId: string, beadId?: string): Promise<TicketState> {
     const { existsSync, readFileSync } = await import('fs')
-    const { getTicketContext, getTicketPaths } = await import('../storage/tickets')
+    const { getLatestPhaseArtifact, getTicketContext, getTicketPaths } = await import('../storage/tickets')
 
     const state: TicketState = { ticketId }
 
@@ -474,6 +481,26 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
 
     const beadsPath = paths.beadsPath
+    const executionSetupProfilePath = paths.executionSetupProfilePath
+    const executionSetupPlanArtifact = getLatestPhaseArtifact(ticketId, 'execution_setup_plan', 'WAITING_EXECUTION_SETUP_APPROVAL')
+    if (executionSetupPlanArtifact?.content) {
+      state.executionSetupPlan = executionSetupPlanArtifact.content
+    }
+
+    const executionSetupPlanNotesArtifact = getLatestPhaseArtifact(ticketId, 'execution_setup_plan_notes', 'WAITING_EXECUTION_SETUP_APPROVAL')
+    state.executionSetupPlanNotes = parseExecutionSetupPlanNotes(executionSetupPlanNotesArtifact?.content)
+
+    if (existsSync(executionSetupProfilePath)) {
+      try {
+        state.executionSetupProfile = readFileSync(executionSetupProfilePath, 'utf-8')
+      } catch (err) {
+        warnIfVerbose('[adapter] Failed to read execution setup profile:', err)
+      }
+    }
+
+    const executionSetupNotesArtifact = getLatestPhaseArtifact(ticketId, 'execution_setup_retry_notes', 'PREPARING_EXECUTION_ENV')
+    state.executionSetupNotes = parseExecutionSetupRetryNotes(executionSetupNotesArtifact?.content)
+
     if (existsSync(beadsPath)) {
       try {
         const beadFile = readFileSync(beadsPath, 'utf-8')

@@ -1,0 +1,256 @@
+import type { OpenCodeAdapter } from '../../opencode/adapter'
+import type { PromptPart, StreamEvent } from '../../opencode/types'
+import {
+  buildPromptFromTemplate,
+  PROM_EXECUTION_SETUP_PLAN,
+  PROM_EXECUTION_SETUP_PLAN_REGENERATE,
+} from '../../prompts/index'
+import {
+  runOpenCodePrompt,
+  runOpenCodeSessionPrompt,
+  type OpenCodePromptCompletedEvent,
+  type OpenCodePromptDispatchEvent,
+} from '../../workflow/runOpenCodePrompt'
+import { throwIfAborted } from '../../council/types'
+import { throwIfCancelled } from '../../lib/abort'
+import { buildStructuredRetryPrompt } from '../../structuredOutput'
+import { buildStructuredOutputMetadata } from '../../structuredOutput/metadata'
+import { SessionManager } from '../../opencode/sessionManager'
+import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
+import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
+import { resolveStructuredRetryDiagnostic } from '../../lib/structuredRetryDiagnostics'
+import type { StructuredOutputMetadata } from '../../structuredOutput/types'
+import { parseExecutionSetupPlanResult } from './parser'
+import type { ExecutionSetupPlanGenerationResult } from './types'
+
+const EXECUTION_SETUP_PLAN_SCHEMA_REMINDER = [
+  'Return exactly one <EXECUTION_SETUP_PLAN>...</EXECUTION_SETUP_PLAN> block and nothing else.',
+  'Inside the marker, return a single JSON or YAML object with top-level keys: schema_version, ticket_id, artifact, status, summary, temp_roots, steps, project_commands, quality_gate_policy, cautions.',
+  'artifact must be execution_setup_plan.',
+  'status must be draft.',
+  'temp_roots must stay inside .ticket/runtime/execution-setup.',
+  'steps must be a non-empty ordered list of setup steps.',
+].join('\n')
+
+type ExecutionSetupPlanPromptStage =
+  | 'execution_setup_plan_main'
+  | 'execution_setup_plan_structured_retry'
+
+type ExecutionSetupPlanTemplate =
+  | typeof PROM_EXECUTION_SETUP_PLAN
+  | typeof PROM_EXECUTION_SETUP_PLAN_REGENERATE
+
+export async function generateExecutionSetupPlan(
+  adapter: OpenCodeAdapter,
+  ticketContext: PromptPart[],
+  projectPath: string,
+  signal?: AbortSignal,
+  callbacks?: {
+    ticketId?: string
+    model?: string
+    variant?: string
+    timeoutMs?: number
+    phaseAttempt?: number
+    promptTemplate?: ExecutionSetupPlanTemplate
+    onSessionCreated?: (sessionId: string) => void
+    onOpenCodeStreamEvent?: (entry: { sessionId: string; event: StreamEvent }) => void
+    onPromptDispatched?: (entry: { sessionId: string; event: OpenCodePromptDispatchEvent }) => void
+    onPromptCompleted?: (entry: { stage: ExecutionSetupPlanPromptStage; event: OpenCodePromptCompletedEvent }) => void
+  },
+): Promise<ExecutionSetupPlanGenerationResult> {
+  const template = callbacks?.promptTemplate ?? PROM_EXECUTION_SETUP_PLAN
+  const promptContent = buildPromptFromTemplate(template, ticketContext)
+  const promptParts = [{ type: 'text', content: promptContent }] as PromptPart[]
+  let sessionId = ''
+  let activeSessionId: string | null = null
+  const sessionManager = callbacks?.ticketId ? new SessionManager(adapter) : null
+  throwIfAborted(signal)
+  let result: Awaited<ReturnType<typeof runOpenCodePrompt>>
+
+  try {
+    result = await runOpenCodePrompt({
+      adapter,
+      projectPath,
+      parts: promptParts,
+      signal,
+      timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
+      model: callbacks?.model,
+      variant: callbacks?.variant,
+      erroredSessionPolicy: 'discard_errored_session_output',
+      toolPolicy: template.toolPolicy,
+      ...(callbacks?.ticketId
+        ? {
+            sessionOwnership: {
+              ticketId: callbacks.ticketId,
+              phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+              phaseAttempt: callbacks.phaseAttempt ?? 1,
+              keepActive: true,
+              step: 'execution_setup_plan',
+              ...(callbacks.model ? { memberId: callbacks.model } : {}),
+            },
+          }
+        : {}),
+      onSessionCreated: (session) => {
+        sessionId = session.id
+        activeSessionId = session.id
+        callbacks?.onSessionCreated?.(session.id)
+      },
+      onStreamEvent: (event) => {
+        if (!sessionId) return
+        callbacks?.onOpenCodeStreamEvent?.({ sessionId, event })
+      },
+      onPromptDispatched: (event) => {
+        callbacks?.onPromptDispatched?.({ sessionId: event.session.id, event })
+      },
+      onPromptCompleted: (event) => {
+        callbacks?.onPromptCompleted?.({ stage: 'execution_setup_plan_main', event })
+      },
+    })
+  } catch (error) {
+    if (activeSessionId && sessionManager) {
+      await sessionManager.abandonSession(activeSessionId)
+    }
+    throwIfCancelled(error, signal)
+    throw error
+  }
+
+  throwIfAborted(signal)
+  activeSessionId = result.session.id
+
+  let response = result.response
+  let parsed = parseExecutionSetupPlanResult(response)
+  const retryDiagnostics: NonNullable<StructuredOutputMetadata['retryDiagnostics']> = []
+  let structuredOutput = buildStructuredOutputMetadata({
+    autoRetryCount: 0,
+    repairApplied: Boolean(parsed.repairApplied),
+    repairWarnings: parsed.repairWarnings ?? [],
+    ...(parsed.validationError ? { validationError: parsed.validationError } : {}),
+  })
+
+  if (parsed.errors.length > 0) {
+    const retryDecision = getStructuredRetryDecision(response, result.responseMeta)
+    retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+      attempt: 1,
+      rawResponse: response,
+      validationError: parsed.validationError ?? parsed.errors.join('; '),
+      failureClass: retryDecision.failureClass,
+      retryDiagnostic: parsed.retryDiagnostic,
+    }))
+    structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
+      autoRetryCount: 1,
+      validationError: parsed.validationError,
+      retryDiagnostics,
+    })
+
+    try {
+      if (retryDecision.reuseSession) {
+        const retryParts = buildStructuredRetryPrompt([], {
+          validationError: parsed.errors.join('; '),
+          rawResponse: response,
+          schemaReminder: EXECUTION_SETUP_PLAN_SCHEMA_REMINDER,
+        })
+        const retryResult = await runOpenCodeSessionPrompt({
+          adapter,
+          session: result.session,
+          parts: retryParts,
+          signal,
+          timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
+          model: callbacks?.model,
+          erroredSessionPolicy: 'discard_errored_session_output',
+          toolPolicy: template.toolPolicy,
+          onStreamEvent: (event) => {
+            if (!sessionId) return
+            callbacks?.onOpenCodeStreamEvent?.({ sessionId, event })
+          },
+          onPromptDispatched: (event) => {
+            callbacks?.onPromptDispatched?.({ sessionId: event.session.id, event })
+          },
+          onPromptCompleted: (event) => {
+            callbacks?.onPromptCompleted?.({ stage: 'execution_setup_plan_structured_retry', event })
+          },
+        })
+        throwIfAborted(signal)
+        response = retryResult.response
+      } else {
+        if (activeSessionId && sessionManager) {
+          await sessionManager.abandonSession(activeSessionId)
+          activeSessionId = null
+        }
+        result = await runOpenCodePrompt({
+          adapter,
+          projectPath,
+          parts: promptParts,
+          signal,
+          timeoutMs: callbacks?.timeoutMs ?? COUNCIL_RESPONSE_TIMEOUT_MS,
+          model: callbacks?.model,
+          variant: callbacks?.variant,
+          erroredSessionPolicy: 'discard_errored_session_output',
+          toolPolicy: template.toolPolicy,
+          ...(callbacks?.ticketId
+            ? {
+                sessionOwnership: {
+                  ticketId: callbacks.ticketId,
+                  phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+                  phaseAttempt: callbacks.phaseAttempt ?? 1,
+                  keepActive: true,
+                  step: 'execution_setup_plan',
+                  ...(callbacks.model ? { memberId: callbacks.model } : {}),
+                },
+              }
+            : {}),
+          onSessionCreated: (session) => {
+            sessionId = session.id
+            activeSessionId = session.id
+            callbacks?.onSessionCreated?.(session.id)
+          },
+          onStreamEvent: (event) => {
+            if (!sessionId) return
+            callbacks?.onOpenCodeStreamEvent?.({ sessionId, event })
+          },
+          onPromptDispatched: (event) => {
+            callbacks?.onPromptDispatched?.({ sessionId: event.session.id, event })
+          },
+          onPromptCompleted: (event) => {
+            callbacks?.onPromptCompleted?.({ stage: 'execution_setup_plan_main', event })
+          },
+        })
+        throwIfAborted(signal)
+        activeSessionId = result.session.id
+        response = result.response
+      }
+    } catch (error) {
+      if (activeSessionId && sessionManager) {
+        await sessionManager.abandonSession(activeSessionId)
+        activeSessionId = null
+      }
+      throwIfCancelled(error, signal)
+      throw error
+    }
+
+    parsed = parseExecutionSetupPlanResult(response)
+    structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
+      repairApplied: Boolean(parsed.repairApplied),
+      repairWarnings: parsed.repairWarnings ?? [],
+      ...(parsed.validationError ? { validationError: parsed.validationError } : {}),
+    })
+    if (parsed.errors.length > 0) {
+      retryDiagnostics.push(resolveStructuredRetryDiagnostic({
+        attempt: 2,
+        rawResponse: response,
+        validationError: parsed.validationError ?? parsed.errors.join('; '),
+        retryDiagnostic: parsed.retryDiagnostic,
+      }))
+      structuredOutput = buildStructuredOutputMetadata(structuredOutput, {
+        retryDiagnostics,
+      })
+    }
+  }
+
+  return {
+    session: result.session,
+    output: response,
+    plan: parsed.plan,
+    parse: parsed,
+    structuredOutput,
+  }
+}

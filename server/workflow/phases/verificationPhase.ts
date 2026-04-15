@@ -33,6 +33,7 @@ import type { FinalTestGenerationResult } from '../../phases/finalTest/generator
 import { executeFinalTestWithRetries } from '../../phases/finalTest/executor'
 import { executeFinalTestCommands } from '../../phases/finalTest/runner'
 import { recordWorktreeStartCommit, resetWorktreeToCommit } from '../../phases/execution/gitOps'
+import { EXECUTION_RUNTIME_PRESERVE_PATHS } from '../../phases/executionSetup/storage'
 import { broadcaster } from '../../sse/broadcaster'
 import { resolveInterviewCoverageFollowUpResolution } from '../interviewCoverageFollowUps'
 import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../coverageControl'
@@ -2980,6 +2981,7 @@ export async function handlePreFlight(
   const beads = readTicketBeads(ticketId)
   const preFlightContext = {
     lockedMainImplementer: context.lockedMainImplementer,
+    lockedMainImplementerVariant: context.lockedMainImplementerVariant,
     maxIterations: context.maxIterations,
   }
   const report = await runPreFlightChecks(adapter, ticketId, beads, preFlightContext, signal)
@@ -3475,7 +3477,9 @@ export async function handleFinalTest(
         )
       },
       beforeRetry: ({ nextAttempt }) => {
-        resetWorktreeToCommit(worktreePath, phaseStartCommit)
+        resetWorktreeToCommit(worktreePath, phaseStartCommit, {
+          preservePaths: [...EXECUTION_RUNTIME_PRESERVE_PATHS],
+        })
         emitPhaseLog(
           ticketId,
           context.externalId,

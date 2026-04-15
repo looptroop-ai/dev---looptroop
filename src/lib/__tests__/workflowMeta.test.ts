@@ -116,4 +116,21 @@ describe.concurrent('workflow metadata', () => {
       },
     ])
   })
+
+  it('adds a dedicated preparing-workspace execution phase before coding', () => {
+    const preFlightPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'PRE_FLIGHT_CHECK')
+    const setupApprovalPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'WAITING_EXECUTION_SETUP_APPROVAL')
+    const setupPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'PREPARING_EXECUTION_ENV')
+    const codingPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'CODING')
+
+    expect(preFlightPhase?.details.transitions).toContain(
+      'All Checks Pass → Review Setup Plan: The workflow advances to the setup-plan approval gate, which drafts the temporary workspace-preparation plan before anything mutates the worktree.',
+    )
+    expect(setupApprovalPhase?.label).toBe('Review Setup Plan')
+    expect(setupApprovalPhase?.reviewArtifactType).toBe('execution_setup_plan')
+    expect(setupPhase?.label).toBe('Preparing Workspace')
+    expect(setupPhase?.description).toBe('Initializing a reusable temporary execution environment before coding begins.')
+    expect(setupPhase?.contextSummary).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
+    expect(codingPhase?.contextSummary).toEqual(['bead_data', 'bead_notes', 'execution_setup_profile'])
+  })
 })

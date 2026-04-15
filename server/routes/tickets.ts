@@ -17,14 +17,18 @@ import {
   handleApproveInterview,
   handleApprovePrd,
   handleApproveBeads,
+  handleApproveExecutionSetupPlan,
   handleMergeTicket,
   handleCloseUnmergedTicket,
   handleVerifyTicket,
   handleRetryTicket,
   handleDevEvent,
   handleGetInterview,
+  handleGetExecutionSetupPlan,
   handlePutInterview,
   handlePutInterviewAnswers,
+  handlePutExecutionSetupPlan,
+  handleRegenerateExecutionSetupPlan,
   handleGetArtifacts,
 } from './ticketHandlers'
 
@@ -46,9 +50,13 @@ ticketRouter.post('/tickets/:id/answer-batch', async (c) => handleAnswerBatch(c)
 ticketRouter.patch('/tickets/:id/edit-answer', async (c) => handleEditAnswer(c))
 ticketRouter.put('/tickets/:id/interview', async (c) => handlePutInterview(c))
 ticketRouter.put('/tickets/:id/interview-answers', async (c) => handlePutInterviewAnswers(c))
+ticketRouter.get('/tickets/:id/execution-setup-plan', (c) => handleGetExecutionSetupPlan(c))
+ticketRouter.put('/tickets/:id/execution-setup-plan', async (c) => handlePutExecutionSetupPlan(c))
+ticketRouter.post('/tickets/:id/regenerate-execution-setup-plan', async (c) => handleRegenerateExecutionSetupPlan(c))
 ticketRouter.post('/tickets/:id/approve-interview', (c) => handleApproveInterview(c))
 ticketRouter.post('/tickets/:id/approve-prd', (c) => handleApprovePrd(c))
 ticketRouter.post('/tickets/:id/approve-beads', (c) => handleApproveBeads(c))
+ticketRouter.post('/tickets/:id/approve-execution-setup-plan', (c) => handleApproveExecutionSetupPlan(c))
 ticketRouter.post('/tickets/:id/merge', (c) => handleMergeTicket(c))
 ticketRouter.post('/tickets/:id/close-unmerged', (c) => handleCloseUnmergedTicket(c))
 ticketRouter.post('/tickets/:id/verify', (c) => handleVerifyTicket(c))

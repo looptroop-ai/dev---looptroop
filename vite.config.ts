@@ -3,16 +3,62 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import type { IncomingMessage, ServerResponse } from 'http'
 import { getBackendOrigin, getFrontendPort } from './shared/appConfig'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const backendOrigin = getBackendOrigin()
 
+function isBackendHealthProbe(req: IncomingMessage) {
+  if ((req.method ?? 'GET').toUpperCase() !== 'GET') return false
+  if (!req.url) return false
+  const url = new URL(req.url, 'http://localhost')
+  return url.pathname === '/api/health'
+}
+
+async function respondToBackendHealthProbe(req: IncomingMessage, res: ServerResponse) {
+  const url = new URL(req.url ?? '/api/health', backendOrigin)
+
+  try {
+    const response = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(1_000),
+    })
+
+    res.statusCode = response.status
+    const contentType = response.headers.get('content-type')
+    if (contentType) {
+      res.setHeader('Content-Type', contentType)
+    }
+
+    res.end(await response.text())
+  } catch {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Backend not ready' }))
+  }
+}
+
 export default defineConfig({
   define: {
     __LOOPTROOP_DEV_BACKEND_ORIGIN__: JSON.stringify(backendOrigin),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: 'looptroop-dev-health-probe',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (!isBackendHealthProbe(req)) {
+            next()
+            return
+          }
+
+          void respondToBackendHealthProbe(req, res)
+        })
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

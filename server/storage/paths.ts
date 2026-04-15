@@ -81,6 +81,14 @@ export function getTicketExecutionLogPath(projectRoot: string, externalId: strin
   return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-log.jsonl')
 }
 
+export function getTicketExecutionSetupDir(projectRoot: string, externalId: string): string {
+  return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-setup')
+}
+
+export function getTicketExecutionSetupProfilePath(projectRoot: string, externalId: string): string {
+  return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-setup-profile.json')
+}
+
 export function getTicketRuntimeStatePath(projectRoot: string, externalId: string): string {
   return resolve(getTicketRuntimeDir(projectRoot, externalId), 'state.yaml')
 }

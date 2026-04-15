@@ -18,6 +18,7 @@ describe('dev preflight helpers', () => {
     expect(isLoopTroopDevProcess(`sh -c CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts`, repoRoot)).toBe(true)
     expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/tsx scripts/dev-opencode.ts`, repoRoot)).toBe(true)
     expect(isLoopTroopDevProcess(`node ${repoRoot}/server/index.ts`, repoRoot)).toBe(true)
+    expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/vitest run`, repoRoot)).toBe(false)
     expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/tsx scripts/dev-preflight.ts`, repoRoot)).toBe(false)
     expect(isLoopTroopDevProcess(`python -m http.server 3000`, repoRoot)).toBe(false)
   })

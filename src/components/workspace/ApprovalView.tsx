@@ -15,10 +15,11 @@ import { BeadsDraftView } from './ArtifactContentViewer'
 import { BeadsApprovalEditor, type ParsedBead } from './BeadsApprovalEditor'
 import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
+import { ExecutionSetupPlanApprovalPane } from './ExecutionSetupPlanApprovalPane'
 
 interface ApprovalViewProps {
   ticket: Ticket
-  artifactType: 'interview' | 'prd' | 'beads'
+  artifactType: 'interview' | 'prd' | 'beads' | 'execution_setup_plan'
 }
 
 type EditTab = 'structured' | 'jsonl'
@@ -517,6 +518,10 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
 
   if (artifactType === 'prd') {
     return <PrdApprovalPane ticket={ticket} />
+  }
+
+  if (artifactType === 'execution_setup_plan') {
+    return <ExecutionSetupPlanApprovalPane ticket={ticket} />
   }
 
   return <BeadsApprovalPane ticket={ticket} />

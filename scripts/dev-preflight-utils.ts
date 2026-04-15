@@ -47,6 +47,28 @@ function normalizeCommandLine(args: string): string {
   return args.trim().replace(/\s+/g, ' ')
 }
 
+function isFragmentBoundary(char?: string) {
+  return char == null || /[\s"'=:/\\()[\]{}]/.test(char)
+}
+
+function containsCommandFragment(command: string, fragment: string): boolean {
+  let index = command.indexOf(fragment)
+
+  while (index >= 0) {
+    const before = index === 0 ? undefined : command[index - 1]
+    const afterIndex = index + fragment.length
+    const after = afterIndex >= command.length ? undefined : command[afterIndex]
+
+    if (isFragmentBoundary(before) && isFragmentBoundary(after)) {
+      return true
+    }
+
+    index = command.indexOf(fragment, index + 1)
+  }
+
+  return false
+}
+
 export function isLoopTroopDevProcess(args: string, repoRoot: string): boolean {
   const command = normalizeCommandLine(args)
   const repoMarkers = [
@@ -69,7 +91,7 @@ export function isLoopTroopDevProcess(args: string, repoRoot: string): boolean {
     'npm:dev:backend',
   ]
 
-  return repoMarkers.some((marker) => command.includes(marker))
+  return repoMarkers.some((marker) => containsCommandFragment(command, marker))
 }
 
 export function findOwningRootProcess(

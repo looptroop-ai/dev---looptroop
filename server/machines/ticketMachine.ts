@@ -16,6 +16,8 @@ export const ticketMachine = setup({
         if (event.type === 'ERROR') return event.message
         if (event.type === 'INIT_FAILED') return event.message
         if (event.type === 'CHECKS_FAILED') return 'Pre-flight check failed'
+        if (event.type === 'EXECUTION_SETUP_PLAN_FAILED') return 'Execution setup plan failed'
+        if (event.type === 'EXECUTION_SETUP_FAILED') return 'Execution setup failed'
         if (event.type === 'TESTS_FAILED') return 'Final test failed'
         if (event.type === 'BEAD_ERROR') return 'Bead execution failed'
         return 'Unknown error'
@@ -24,6 +26,8 @@ export const ticketMachine = setup({
         if (event.type === 'ERROR') return event.codes ?? []
         if (event.type === 'INIT_FAILED') return event.codes ?? []
         if (event.type === 'CHECKS_FAILED') return event.errors
+        if (event.type === 'EXECUTION_SETUP_PLAN_FAILED') return event.errors ?? []
+        if (event.type === 'EXECUTION_SETUP_FAILED') return event.errors ?? []
         if (event.type === 'BEAD_ERROR') return event.codes ?? []
         return []
       },
@@ -292,8 +296,32 @@ export const ticketMachine = setup({
         { type: 'updateStatus', params: { status: 'PRE_FLIGHT_CHECK' } },
       ],
       on: {
-        CHECKS_PASSED: { target: 'CODING' },
+        CHECKS_PASSED: { target: 'WAITING_EXECUTION_SETUP_APPROVAL' },
         CHECKS_FAILED: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        CANCEL: { target: 'CANCELED' },
+      },
+    },
+    WAITING_EXECUTION_SETUP_APPROVAL: {
+      entry: [
+        { type: 'updateStatus', params: { status: 'WAITING_EXECUTION_SETUP_APPROVAL' } },
+      ],
+      on: {
+        EXECUTION_SETUP_PLAN_READY: {},
+        REGENERATE_EXECUTION_SETUP_PLAN: {},
+        APPROVE_EXECUTION_SETUP_PLAN: { target: 'PREPARING_EXECUTION_ENV' },
+        EXECUTION_SETUP_PLAN_FAILED: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        CANCEL: { target: 'CANCELED' },
+      },
+    },
+    PREPARING_EXECUTION_ENV: {
+      entry: [
+        { type: 'updateStatus', params: { status: 'PREPARING_EXECUTION_ENV' } },
+      ],
+      on: {
+        EXECUTION_SETUP_READY: { target: 'CODING' },
+        EXECUTION_SETUP_FAILED: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -396,6 +424,8 @@ export const ticketMachine = setup({
           { guard: ({ context }) => context.previousStatus === 'VERIFYING_BEADS_COVERAGE', target: 'VERIFYING_BEADS_COVERAGE' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'WAITING_BEADS_APPROVAL', target: 'WAITING_BEADS_APPROVAL' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'PRE_FLIGHT_CHECK', target: 'PRE_FLIGHT_CHECK' as const, actions: ['clearError'] },
+          { guard: ({ context }) => context.previousStatus === 'WAITING_EXECUTION_SETUP_APPROVAL', target: 'WAITING_EXECUTION_SETUP_APPROVAL' as const, actions: ['clearError'] },
+          { guard: ({ context }) => context.previousStatus === 'PREPARING_EXECUTION_ENV', target: 'PREPARING_EXECUTION_ENV' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'CODING', target: 'CODING' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'RUNNING_FINAL_TEST', target: 'RUNNING_FINAL_TEST' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'INTEGRATING_CHANGES', target: 'INTEGRATING_CHANGES' as const, actions: ['clearError'] },

@@ -1,6 +1,6 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
@@ -126,10 +126,17 @@ function setupBeadsApprovalTicket() {
 }
 
 describe('ticketRouter beads approval routes', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     clearProjectDatabaseCache()
     initializeDatabase()
     sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore()
   })
 
   afterAll(() => {
@@ -261,7 +268,6 @@ describe('ticketRouter beads approval routes', () => {
     const { app, ticket, paths } = setupBeadsApprovalTicket()
 
     // Remove beads file
-    const { unlinkSync } = await import('node:fs')
     unlinkSync(paths.beadsPath)
 
     const response = await app.request(`/api/tickets/${ticket.id}/approve-beads`, {
@@ -327,7 +333,6 @@ describe('ticketRouter beads approval routes', () => {
     expect(response.status).toBe(200)
 
     // Beads JSONL file should remain unchanged
-    const { readFileSync } = await import('node:fs')
     const afterContent = readFileSync(paths.beadsPath, 'utf-8')
     expect(afterContent).toBe(beadsContent)
   })
@@ -397,5 +402,47 @@ describe('ticketRouter beads approval routes', () => {
     const savedBead = JSON.parse(lines[0]!)
     expect(savedBead.title).toBe('Updated title')
     expect(savedBead.description).toBe('Updated description.')
+  })
+
+  it('clears execution setup state when beads are edited', async () => {
+    const { app, ticket, paths } = setupBeadsApprovalTicket()
+
+    mkdirSync(paths.executionSetupDir, { recursive: true })
+    writeFileSync(`${paths.executionSetupDir}/cache.txt`, 'warm\n')
+    writeFileSync(paths.executionSetupProfilePath, '{"status":"ready"}\n')
+    insertPhaseArtifact(ticket.id, {
+      phase: 'PREPARING_EXECUTION_ENV',
+      artifactType: 'execution_setup_profile',
+      content: '{"status":"ready"}',
+    })
+
+    const response = await app.request(`/api/tickets/${ticket.id}/beads`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([
+        {
+          id: 'bead-001',
+          title: 'Retouched bead',
+          description: 'Updated description.',
+          prdRefs: ['E01-S01'],
+          acceptanceCriteria: ['Updated criterion'],
+          tests: ['updated test'],
+          testCommands: ['npm test'],
+          targetFiles: ['src/db/schema.ts'],
+          contextGuidance: { patterns: ['use drizzle'], anti_patterns: [] },
+          dependencies: { blocked_by: [], blocks: [] },
+          priority: 1,
+          status: 'pending',
+          issueType: 'task',
+          labels: [],
+        },
+      ]),
+    })
+
+    expect(response.status).toBe(200)
+    expect(getLatestPhaseArtifact(ticket.id, 'execution_setup_profile', 'PREPARING_EXECUTION_ENV')).toBeUndefined()
+
+    expect(existsSync(paths.executionSetupDir)).toBe(false)
+    expect(existsSync(paths.executionSetupProfilePath)).toBe(false)
   })
 })

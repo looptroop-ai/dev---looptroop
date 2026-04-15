@@ -171,6 +171,28 @@ describe('resetToBeadStart', () => {
 
     expect(readFileSync(join(dir, 'debug.log'), 'utf8')).toBe('log content\n')
   })
+
+  it('preserves execution runtime log and setup artifacts when exclusions are supplied', () => {
+    const [dir, sha] = makeFreshRepo()
+    mkdirSync(join(dir, '.ticket', 'runtime', 'execution-setup'), { recursive: true })
+    writeFileSync(join(dir, '.ticket', 'runtime', 'execution-log.jsonl'), '{"message":"kept"}\n')
+    writeFileSync(join(dir, '.ticket', 'runtime', 'execution-setup-profile.json'), '{"status":"ready"}\n')
+    writeFileSync(join(dir, '.ticket', 'runtime', 'execution-setup', 'cache.txt'), 'warm\n')
+    writeFileSync(join(dir, 'scratch.ts'), 'throw new Error("remove")\n')
+
+    resetToBeadStart(dir, sha, {
+      preservePaths: [
+        '.ticket/runtime/execution-log.jsonl',
+        '.ticket/runtime/execution-setup',
+        '.ticket/runtime/execution-setup-profile.json',
+      ],
+    })
+
+    expect(readFileSync(join(dir, '.ticket', 'runtime', 'execution-log.jsonl'), 'utf8')).toContain('"kept"')
+    expect(readFileSync(join(dir, '.ticket', 'runtime', 'execution-setup-profile.json'), 'utf8')).toContain('"ready"')
+    expect(readFileSync(join(dir, '.ticket', 'runtime', 'execution-setup', 'cache.txt'), 'utf8')).toBe('warm\n')
+    expect(() => readFileSync(join(dir, 'scratch.ts'), 'utf8')).toThrow()
+  })
 })
 
 // ---------------------------------------------------------------------------

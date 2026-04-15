@@ -139,6 +139,10 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
       return '<FINAL_TEST_COMMANDS>{"commands":["echo mock-final-test"],"summary":"mock final test plan"}</FINAL_TEST_COMMANDS>'
     }
 
+    if (promptText.includes('reply with exactly OK') || promptText.includes('reply with exactly `OK`')) {
+      return 'OK'
+    }
+
     return 'Mock response'
   }
 

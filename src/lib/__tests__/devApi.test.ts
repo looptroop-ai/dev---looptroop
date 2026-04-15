@@ -12,9 +12,9 @@ describe('devApi', () => {
     expect(getApiUrl('/api/stream', { directInDevelopment: true })).toBe(`${window.location.origin}/api/stream`)
   })
 
-  it('builds same-origin readiness probe URLs for development', async () => {
+  it('builds direct backend readiness probe URLs for development', async () => {
     const { __devApiForTests } = await import('../devApi')
 
-    expect(__devApiForTests.getDevReadyProbeUrl('/api/health')).toBe(`${window.location.origin}/api/health`)
+    expect(__devApiForTests.getDevReadyProbeUrl('/api/health')).toBe(`${__LOOPTROOP_DEV_BACKEND_ORIGIN__}/api/health`)
   })
 })

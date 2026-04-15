@@ -24,6 +24,7 @@ const perProjectOverrides = {
   councilMembers: z.string().optional(),
   maxIterations: z.number().int().min(0).max(20).optional(),
   perIterationTimeout: z.number().int().nonnegative().optional(),
+  executionSetupTimeout: z.number().int().nonnegative().optional(),
   councilResponseTimeout: z.number().int().positive().optional(),
   minCouncilQuorum: z.number().int().min(1).max(4).optional(),
   interviewQuestions: z.number().int().min(0).max(50).optional(),

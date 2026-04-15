@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { getTicketByRef, getTicketPaths, getLatestPhaseArtifact } from '../storage/tickets'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { syncTicketRuntimeProjection } from '../storage/ticketRuntimeProjection'
+import { clearExecutionSetupState } from '../phases/executionSetup/storage'
 
 const beadsRouter = new Hono()
 
@@ -52,6 +53,7 @@ beadsRouter.put('/tickets/:id/beads', async (c) => {
   try {
     const jsonl = body.map((item: unknown) => JSON.stringify(item)).join('\n') + '\n'
     safeAtomicWrite(filePath, jsonl)
+    clearExecutionSetupState(ticketId)
     syncTicketRuntimeProjection(ticketId)
   } catch {
     return c.json({ error: 'Failed to write file' }, 500)

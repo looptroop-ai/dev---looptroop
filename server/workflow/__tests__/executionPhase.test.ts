@@ -310,7 +310,17 @@ describe('handleCoding', () => {
 
     await handleCoding(ticket.id, context, sendEvent, new AbortController().signal)
 
-    expect(resetToBeadStartMock).toHaveBeenCalledWith(expect.any(String), 'abc123')
+    expect(resetToBeadStartMock).toHaveBeenCalledWith(
+      expect.any(String),
+      'abc123',
+      expect.objectContaining({
+        preservePaths: expect.arrayContaining([
+          '.ticket/runtime/execution-log.jsonl',
+          '.ticket/runtime/execution-setup',
+          '.ticket/runtime/execution-setup-profile.json',
+        ]),
+      }),
+    )
 
     // The fresh-reload in handleCoding must not wipe callback-persisted notes.
     const finalBeads = readTicketBeads(ticket.id)

@@ -48,6 +48,8 @@ import {
 
   // Execution phase
   handleCoding,
+  handleExecutionSetupPlanApprovalState,
+  handleExecutionSetup,
   handleMockExecutionUnsupported,
 
   // Verification phase
@@ -127,6 +129,12 @@ async function handleMockLifecycleState(
       return
     case 'PRE_FLIGHT_CHECK':
       await handleMockExecutionUnsupported(ticketId, context, 'PRE_FLIGHT_CHECK', sendEvent)
+      return
+    case 'WAITING_EXECUTION_SETUP_APPROVAL':
+      await handleMockExecutionUnsupported(ticketId, context, 'WAITING_EXECUTION_SETUP_APPROVAL', sendEvent)
+      return
+    case 'PREPARING_EXECUTION_ENV':
+      await handleMockExecutionUnsupported(ticketId, context, 'PREPARING_EXECUTION_ENV', sendEvent)
       return
     case 'CODING':
       await handleMockExecutionUnsupported(ticketId, context, 'CODING', sendEvent)
@@ -222,6 +230,8 @@ export function attachWorkflowRunner(
         'REFINING_BEADS',
         'VERIFYING_BEADS_COVERAGE',
         'PRE_FLIGHT_CHECK',
+        'WAITING_EXECUTION_SETUP_APPROVAL',
+        'PREPARING_EXECUTION_ENV',
         'CODING',
         'RUNNING_FINAL_TEST',
         'INTEGRATING_CHANGES',
@@ -456,6 +466,30 @@ export function attachWorkflowRunner(
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['PREFLIGHT_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'WAITING_EXECUTION_SETUP_APPROVAL') {
+      runningPhases.add(key)
+      handleExecutionSetupPlanApprovalState(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          emitPhaseLog(ticketId, context.externalId, 'WAITING_EXECUTION_SETUP_APPROVAL', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['EXECUTION_SETUP_PLAN_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'PREPARING_EXECUTION_ENV') {
+      runningPhases.add(key)
+      handleExecutionSetup(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (err instanceof CancelledError) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          emitPhaseLog(ticketId, context.externalId, 'PREPARING_EXECUTION_ENV', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['EXECUTION_SETUP_FAILED'] })
         })
         .finally(() => {
           runningPhases.delete(key)

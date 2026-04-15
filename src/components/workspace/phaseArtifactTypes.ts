@@ -1277,6 +1277,7 @@ export function getArtifactTargetPhases(phase: string): string[] {
     WAITING_INTERVIEW_APPROVAL: ['VERIFYING_INTERVIEW_COVERAGE', 'WAITING_INTERVIEW_ANSWERS', 'COMPILING_INTERVIEW'],
     WAITING_PRD_APPROVAL: ['VERIFYING_PRD_COVERAGE', 'REFINING_PRD'],
     WAITING_BEADS_APPROVAL: ['VERIFYING_BEADS_COVERAGE', 'REFINING_BEADS'],
+    WAITING_EXECUTION_SETUP_APPROVAL: ['WAITING_EXECUTION_SETUP_APPROVAL', 'PRE_FLIGHT_CHECK'],
     WAITING_PR_REVIEW: ['WAITING_PR_REVIEW', 'CREATING_PULL_REQUEST', 'INTEGRATING_CHANGES', 'RUNNING_FINAL_TEST', 'CODING'],
   }
 
@@ -1331,6 +1332,14 @@ export function resolveStaticArtifact(
       return findExactType('relevant_files_scan')
     case 'diagnostics':
       return findExactType('preflight_report')
+    case 'execution-setup-plan':
+      return findExactType('execution_setup_plan')
+    case 'execution-setup-plan-report':
+      return findExactType('execution_setup_plan_report')
+    case 'execution-setup-profile':
+      return findExactType('execution_setup_profile')
+    case 'execution-setup-report':
+      return findExactType('execution_setup_report')
     case 'bead-commits':
       return findByPredicate(artifact => artifact.artifactType.startsWith('bead_diff:'))
     case 'test-results':

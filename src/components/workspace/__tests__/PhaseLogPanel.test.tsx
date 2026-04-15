@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react'
-import { act, render, screen, fireEvent } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -32,6 +32,7 @@ const scrollToMock = vi.fn(function scrollTo(this: HTMLElement, options?: Scroll
     this.scrollTop = options.top
   }
 })
+const originalQueueMicrotask = globalThis.queueMicrotask
 
 function flushAnimationFrames() {
   act(() => {
@@ -68,6 +69,14 @@ function renderWithTooltipProvider(ui: React.ReactElement) {
 }
 
 beforeAll(() => {
+  Object.defineProperty(globalThis, 'queueMicrotask', {
+    configurable: true,
+    writable: true,
+    value: (callback: VoidFunction) => {
+      callback()
+    },
+  })
+
   Object.defineProperty(globalThis.navigator, 'clipboard', {
     configurable: true,
     value: {
@@ -121,6 +130,14 @@ beforeAll(() => {
     configurable: true,
     writable: true,
     value: scrollToMock,
+  })
+})
+
+afterAll(() => {
+  Object.defineProperty(globalThis, 'queueMicrotask', {
+    configurable: true,
+    writable: true,
+    value: originalQueueMicrotask,
   })
 })
 
@@ -452,16 +469,15 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
-      fireEvent.click(screen.getByTitle('Copy all logs'))
-      await Promise.resolve()
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
+    fireEvent.click(screen.getByTitle('Copy all logs'))
 
-    expect(writeTextMock).toHaveBeenCalledWith([
-      '[2026-04-07T07:30:44.719Z] [ERROR-minimax-m2.5-free] Session retry #1: <none> [model: opencode/minimax-m2.5-free]',
-      '[2026-04-07T07:31:44.719Z] [ERROR-gpt-5-codex] Session retry #1: rate limited [model: openai/gpt-5-codex]',
-    ].join('\n'))
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith([
+        '[2026-04-07T07:30:44.719Z] [ERROR-minimax-m2.5-free] Session retry #1: <none> [model: opencode/minimax-m2.5-free]',
+        '[2026-04-07T07:31:44.719Z] [ERROR-gpt-5-codex] Session retry #1: rate limited [model: openai/gpt-5-codex]',
+      ].join('\n'))
+    })
   })
 
   it('shows prompt entries in ALL and AI while keeping generic AI session details AI-only', () => {
@@ -760,14 +776,14 @@ describe('PhaseLogPanel', () => {
     )
 
     const trigger = screen.getByRole('button', { name: '2 entries' })
-    await act(async () => {
-      fireEvent.focus(trigger)
-    })
+    fireEvent.focus(trigger)
 
-    const legends = screen.getAllByText('Log Colors Legend')
-    expect(legends.length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Input (Prompt)').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('System').length).toBeGreaterThan(0)
+    await waitFor(() => {
+      const legends = screen.getAllByText('Log Colors Legend')
+      expect(legends.length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Input (Prompt)').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('System').length).toBeGreaterThan(0)
+    })
   })
 
   it('shows non-error command chatter in SYS while keeping ALL focused on higher-signal entries', () => {

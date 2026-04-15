@@ -653,6 +653,173 @@ export const PROM25: PromptTemplate = {
 }
 
 // Execution Prompts
+export const PROM_EXECUTION_CAPABILITY_PROBE: PromptTemplate = {
+  id: 'PROM_EXECUTION_CAPABILITY_PROBE',
+  description: 'Execution Capability Probe Prompt',
+  systemRole: 'You are a read-only execution capability probe.',
+  task: 'Verify that the workspace is accessible with read-only tooling and respond with a strict success token.',
+  instructions: [
+    'Use only read-only repository inspection tools.',
+    'Perform exactly one harmless read-only workspace check, such as listing the current directory or reading a manifest file.',
+    'Do not edit files, run mutating commands, request permissions, or create artifacts.',
+    'After the read-only check succeeds, reply with exactly OK and nothing else.',
+  ],
+  outputFormat: 'Exactly `OK` after one successful read-only workspace check.',
+  contextInputs: [],
+  toolPolicy: 'read_only',
+}
+
+export const PROM_EXECUTION_SETUP_PLAN: PromptTemplate = {
+  id: 'PROM_EXECUTION_SETUP_PLAN',
+  description: 'Execution Setup Plan Prompt',
+  systemRole: 'You are an expert execution-planning analyst drafting a temporary-only workspace setup plan for later coding.',
+  task: 'Inspect the approved planning context, discover how the environment should be initialized, and return a reviewable execution setup plan without modifying the repository.',
+  instructions: [
+    'Scope: Your job is to plan temporary workspace preparation, not to execute it.',
+    'Read-Only Discovery: Inspect the ticket details, relevant files, PRD, beads plan, and any prior setup-plan notes. You may inspect repository files and manifests, but do not edit files, install dependencies, or run mutating commands.',
+    'Temporary Runtime Policy: The setup plan may propose commands that create or update runtime artifacts only under `.ticket/runtime/execution-setup/**` when executed later. Do not propose permanent repository edits as part of the setup plan.',
+    'Plan Structure: Return an ordered list of setup steps. Each step must explain its purpose, contain the commands to run, and state whether it is required.',
+    'Command Families: Discover project-level command families for prepare/bootstrap, full test, full lint, and full typecheck when possible. If a family is unavailable, return an empty list rather than inventing commands.',
+    'Quality Gate Policy: Default to bead test commands first, then impacted-or-package scoped lint/typecheck, and never block later phases on unrelated baseline debt.',
+    'No Execution: Do not initialize the environment yet. This phase stops at the plan artifact so the user can review and edit it.',
+    'Output Discipline: End with exactly one `<EXECUTION_SETUP_PLAN>...</EXECUTION_SETUP_PLAN>` block and nothing else.',
+  ],
+  outputFormat: `JSON or YAML inside \`<EXECUTION_SETUP_PLAN>...</EXECUTION_SETUP_PLAN>\` with this exact shape:
+{
+  "schema_version": 1,
+  "ticket_id": "PROJ-123",
+  "artifact": "execution_setup_plan",
+  "status": "draft",
+  "summary": "short human-readable summary",
+  "temp_roots": [".ticket/runtime/execution-setup"],
+  "steps": [
+    {
+      "id": "bootstrap-deps",
+      "title": "Install dependencies",
+      "purpose": "prepare the runtime for later beads",
+      "commands": ["npm ci"],
+      "required": true,
+      "rationale": "why this step exists",
+      "cautions": ["optional note"]
+    }
+  ],
+  "project_commands": {
+    "prepare": ["..."],
+    "test_full": ["..."],
+    "lint_full": ["..."],
+    "typecheck_full": ["..."]
+  },
+  "quality_gate_policy": {
+    "tests": "bead-test-commands-first",
+    "lint": "impacted-or-package",
+    "typecheck": "impacted-or-package",
+    "full_project_fallback": "never-block-on-unrelated-baseline"
+  },
+  "cautions": ["..."]
+}`,
+  contextInputs: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan_notes'],
+  toolPolicy: 'read_only',
+}
+
+export const PROM_EXECUTION_SETUP_PLAN_REGENERATE: PromptTemplate = {
+  id: 'PROM_EXECUTION_SETUP_PLAN_REGENERATE',
+  description: 'Execution Setup Plan Regenerate Prompt',
+  systemRole: 'You are revising an existing execution setup plan for a temporary-only workspace initialization phase.',
+  task: 'Revise the current execution setup plan using the provided user commentary while keeping the plan temporary-only and reviewable.',
+  instructions: [
+    'Treat the provided `execution_setup_plan` as the current draft baseline.',
+    'Apply the user commentary from `execution_setup_plan_note` entries directly to the plan when it is compatible with the repository and temporary-runtime policy.',
+    'Preserve good existing steps when the commentary does not require changing them.',
+    'Do not execute commands or mutate the repository while revising the plan.',
+    'Return a full replacement setup plan artifact, not a diff or patch note.',
+    'Output Discipline: End with exactly one `<EXECUTION_SETUP_PLAN>...</EXECUTION_SETUP_PLAN>` block and nothing else.',
+  ],
+  outputFormat: PROM_EXECUTION_SETUP_PLAN.outputFormat,
+  contextInputs: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_plan_notes'],
+  toolPolicy: 'read_only',
+}
+
+export const PROM_EXECUTION_SETUP: PromptTemplate = {
+  id: 'PROM_EXECUTION_SETUP',
+  description: 'Execution Setup Prompt',
+  systemRole: 'You are an expert execution-environment initializer preparing a temporary reusable workspace for future coding beads.',
+  task: 'Execute the approved temporary setup plan, initialize only temporary reusable execution state, discover any missing project command details, and return a structured execution setup result.',
+  instructions: [
+    'Scope: Your job is only to prepare a reusable temporary execution environment for later coding beads. You are not implementing ticket features.',
+    'Approved Plan First: Read the approved `execution_setup_plan` context before taking action. Treat user-edited plan steps and commands as the primary setup contract.',
+    'Context Review: Read the ticket details, relevant files, PRD, beads plan, and any prior `execution_setup_note` context before taking action. Avoid repeating failed setup approaches.',
+    'Prefer Native Bootstrap: Prefer repository-native manifests, lockfiles, scripts, and codegen commands when discovering how to initialize the environment.',
+    'Temporary-Only Writes: You may write only inside `.ticket/runtime/execution-setup/**`. You may also update the mirrored setup profile file only through the returned result object, not by writing your own file elsewhere.',
+    'Permanent File Ban: Do not modify permanent source files, tracked configs, repo-root scratch files, dependency versions, or project configuration. If the setup would require permanent repository changes, stop and report the policy issue in the final result instead of making the change.',
+    'Approved Plan Execution: Start from the approved setup-plan steps and commands. Reuse them directly when they are still correct for the repository state.',
+    'Audited Augmentations: If the approved plan is insufficient and you must run additional temporary-only commands, keep those additions minimal and make sure `bootstrap_commands` lists every command actually used, including additions beyond the approved plan.',
+    'Reusable Outputs: Place any reusable cache, generated temp artifact, or bootstrap output only inside `.ticket/runtime/execution-setup/**`.',
+    'Discovery Goal: Discover project-level command families for prepare/bootstrap, full test, full lint, and full typecheck when possible. If a command family is unavailable, return an empty list for that field instead of inventing a fake command.',
+    'Quality Gate Policy: Default to bead test commands first, then impacted-or-package scoped lint/typecheck, and never block later phases on unrelated baseline debt.',
+    'Do Not Stop Early: Continue working until the environment is ready, you hit a hard blocker, or the app interrupts you.',
+    'No Progress Prose: Do not return conversational status updates. Use tools until you can return the final structured result.',
+    'Output Discipline: End with exactly one `<EXECUTION_SETUP_RESULT>...</EXECUTION_SETUP_RESULT>` block and nothing else.',
+  ],
+  outputFormat: `JSON or YAML inside \`<EXECUTION_SETUP_RESULT>...</EXECUTION_SETUP_RESULT>\` with this exact shape:
+{
+  "status": "ready",
+  "summary": "short human-readable summary",
+  "profile": {
+    "schema_version": 1,
+    "ticket_id": "PROJ-123",
+    "artifact": "execution_setup_profile",
+    "status": "ready",
+    "summary": "environment initialized and reusable",
+    "temp_roots": [".ticket/runtime/execution-setup"],
+    "bootstrap_commands": ["..."],
+    "reusable_artifacts": [
+      {
+        "path": ".ticket/runtime/execution-setup/...",
+        "kind": "cache",
+        "purpose": "why this exists"
+      }
+    ],
+    "project_commands": {
+      "prepare": ["..."],
+      "test_full": ["..."],
+      "lint_full": ["..."],
+      "typecheck_full": ["..."]
+    },
+    "quality_gate_policy": {
+      "tests": "bead-test-commands-first",
+      "lint": "impacted-or-package",
+      "typecheck": "impacted-or-package",
+      "full_project_fallback": "never-block-on-unrelated-baseline"
+    },
+    "cautions": ["..."]
+  },
+  "checks": {
+    "workspace": "pass",
+    "tooling": "pass",
+    "temp_scope": "pass",
+    "policy": "pass"
+  }
+}`,
+  contextInputs: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
+  toolPolicy: 'default',
+}
+
+export const PROM_EXECUTION_SETUP_NOTE: PromptTemplate = {
+  id: 'PROM_EXECUTION_SETUP_NOTE',
+  description: 'Execution Setup Retry Note Prompt',
+  systemRole: 'You are a concise technical analyst summarizing a failed execution setup attempt for the next retry.',
+  task: 'Write a short append-only retry note describing what initialization work was attempted, what blocked it, and what the next setup attempt should preserve or avoid.',
+  instructions: [
+    'Summarize the attempted environment initialization work and the most relevant commands or actions.',
+    'Capture the specific blocker or policy violation that prevented setup from succeeding.',
+    'Guide the next retry toward the safest next step without repeating full logs.',
+    'Keep it concise and directly actionable.',
+  ],
+  outputFormat: 'Plain text - one concise append-only retry note',
+  contextInputs: ['ticket_details', 'error_context'],
+  toolPolicy: 'disabled',
+}
+
 export const PROM_CODING: PromptTemplate = {
   id: 'PROM_CODING',
   description: 'Bead Implementation Prompt — guides the AI implementer through executing a single bead',
@@ -661,11 +828,12 @@ export const PROM_CODING: PromptTemplate = {
   instructions: [
     'Read and Understand: Read the bead specification from the context — including description, acceptance criteria, target files, and test commands. The `bead_data` and `active_bead` context sections identify which bead you are implementing.',
     'Check Prior Notes: If bead notes exist from prior iteration failures, carefully read them and avoid repeating the same mistakes. These notes describe what went wrong previously and what to do differently.',
+    'Reuse Execution Setup: If `execution_setup_profile` context is present, trust it as the canonical temporary setup profile for this ticket. Reuse its temp roots and discovered command families instead of rediscovering the environment from scratch.',
     'Implement Changes: Make the necessary code changes in the worktree to fulfill the bead requirements. Follow existing code patterns and conventions in the project.',
-    'Environment Readiness: At the start of the bead, inspect the repository manifests, lockfiles, and required commands, then verify the worktree has the dependencies, toolchains, and generated artifacts those commands need. If required executables or packages are missing, install or bootstrap them using the repository\'s standard tooling and lockfiles before running quality gates. Keep the setup cleanup-safe and repository-compatible: prefer existing ignored cache locations or LoopTroop-owned temporary paths for heavy toolchains, caches, and build artifacts when possible, and avoid leaving large untracked setup directories in the repo root. Do not change dependency versions or project configuration unless the bead explicitly requires it.',
-    'Repair Loop: After implementing the bead, run the bead\'s tests first, then lint and typecheck. If any required check fails, inspect the real failure output, fix the underlying problem, and rerun the same checks. Repeat until every required gate passes or the app stops the iteration.',
+    'Environment Readiness: If no valid `execution_setup_profile` is present, do only the minimum repair needed to proceed safely. Do not rediscover or rebuild the full environment unless the existing setup is missing or invalid.',
+    'Repair Loop: After implementing the bead, run the bead\'s test commands first. Then run impacted, package-scoped, or file-scoped lint and typecheck commands when the project supports them. If a scoped lint/typecheck command is unavailable, fall back to the best safe project-native command family from `execution_setup_profile` without blocking on unrelated baseline debt.',
     'Run Tests: Execute the bead\'s test commands and keep fixing failures until they pass.',
-    'Run Lint & Typecheck: Run the project\'s lint and typecheck commands. Keep fixing failures until they pass.',
+    'Run Lint & Typecheck: Prefer scoped lint and typecheck for the code you touched. Do not fail the bead because of unrelated pre-existing project-wide lint/typecheck debt.',
     'Self-Verify Quality: Review each acceptance criterion and confirm the implementation satisfies it qualitatively. Check edge cases and error handling.',
     'Do Not Self-Terminate Early: Do not stop just because lint, tests, or typecheck fail. Continue working in the same session while time remains. The app will decide when to stop the iteration.',
     'No Progress Prose: While the bead is still in progress, do not reply with plain-language status updates such as "I\'m installing dependencies" or "I\'ll rerun tests next". Keep using tools and continue working until you can return the required completion marker or the app interrupts you.',
@@ -675,7 +843,7 @@ export const PROM_CODING: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'JSON inside <BEAD_STATUS>...</BEAD_STATUS> tags with bead_id, status, checks (tests, lint, typecheck, qualitative), and optional reason',
-  contextInputs: ['bead_data', 'bead_notes'],
+  contextInputs: ['bead_data', 'bead_notes', 'execution_setup_profile'],
   toolPolicy: 'default',
 }
 
@@ -710,6 +878,7 @@ export const PROM52: PromptTemplate = {
     'Determinism: Tests must be deterministic and repeatable. Avoid any external dependencies, network calls, or non-deterministic timing.',
     'Test Artifacts: You MUST create or modify at least one test file. These test files become permanent regression tests for the project. Record the paths of all test files you created or modified in the `test_files` field of the output marker.',
     'Modified Files Contract: Record in `modified_files` every permanent repository file that you created or modified during this final-test phase and that should remain in the final candidate. Include all paths from `test_files`, plus any production files you intentionally changed. Exclude ephemeral runtime data, logs, caches, databases, build output, temp files, or other scratch artifacts.',
+    'Ephemeral Runtime Exclusion: `.ticket/runtime/execution-setup/**` and `.ticket/runtime/execution-setup-profile.json` are temporary runtime state and must never appear in `modified_files`.',
     'Mandatory Self-Execution: Before returning `<FINAL_TEST_COMMANDS>`, you MUST run the exact command(s) you plan to return in this same worktree.',
     'Repair Loop: If any planned command fails, inspect the real failure output, fix the underlying implementation and/or the final test files, and rerun the same command(s). Repeat until the exact planned command(s) pass or you run out of time.',
     'Scope Discipline: You may modify production code and test files during this phase, but keep changes minimal and strictly within the approved ticket, Interview Results, PRD, and Beads scope.',
@@ -810,6 +979,11 @@ export const ALL_PROMPTS = {
   PROM23,
   PROM24,
   PROM25,
+  PROM_EXECUTION_CAPABILITY_PROBE,
+  PROM_EXECUTION_SETUP_PLAN,
+  PROM_EXECUTION_SETUP_PLAN_REGENERATE,
+  PROM_EXECUTION_SETUP,
+  PROM_EXECUTION_SETUP_NOTE,
   PROM_CODING,
   PROM51,
   PROM52,

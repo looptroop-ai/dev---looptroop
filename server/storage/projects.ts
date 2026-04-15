@@ -89,6 +89,7 @@ function ensureLocalProject(projectRoot: string, input?: {
   councilMembers?: string
   maxIterations?: number
   perIterationTimeout?: number
+  executionSetupTimeout?: number
   councilResponseTimeout?: number
   minCouncilQuorum?: number
   interviewQuestions?: number
@@ -112,6 +113,7 @@ function ensureLocalProject(projectRoot: string, input?: {
       councilMembers: input.councilMembers ?? null,
       maxIterations: input.maxIterations ?? null,
       perIterationTimeout: input.perIterationTimeout ?? null,
+      executionSetupTimeout: input.executionSetupTimeout ?? null,
       councilResponseTimeout: input.councilResponseTimeout ?? null,
       minCouncilQuorum: input.minCouncilQuorum ?? null,
       interviewQuestions: input.interviewQuestions ?? null,
@@ -136,6 +138,7 @@ export function attachProject(input: {
   councilMembers?: string
   maxIterations?: number
   perIterationTimeout?: number
+  executionSetupTimeout?: number
   councilResponseTimeout?: number
   minCouncilQuorum?: number
   interviewQuestions?: number
@@ -249,7 +252,7 @@ export function getProjectContextById(id: number): ProjectContext | undefined {
   return { attached, projectRoot, projectDb: db, project }
 }
 
-export function updateProject(id: number, patch: Partial<Pick<LocalProjectRow, 'name' | 'icon' | 'color' | 'councilMembers' | 'maxIterations' | 'perIterationTimeout' | 'councilResponseTimeout' | 'minCouncilQuorum' | 'interviewQuestions'>>): PublicProject | undefined {
+export function updateProject(id: number, patch: Partial<Pick<LocalProjectRow, 'name' | 'icon' | 'color' | 'councilMembers' | 'maxIterations' | 'perIterationTimeout' | 'executionSetupTimeout' | 'councilResponseTimeout' | 'minCouncilQuorum' | 'interviewQuestions'>>): PublicProject | undefined {
   const context = getProjectContextById(id)
   if (!context) return undefined
   context.projectDb.update(projects)

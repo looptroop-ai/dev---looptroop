@@ -3,7 +3,13 @@ import { db as appDb } from '../db/index'
 import { PROFILE_DEFAULTS } from '../db/defaults'
 import { getProjectContextById, getProjectById, listProjects } from './projects'
 import { phaseArtifacts, profiles, projects, ticketErrorOccurrences, tickets } from '../db/schema'
-import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
+import {
+  getTicketDir,
+  getTicketExecutionLogPath,
+  getTicketExecutionSetupDir,
+  getTicketExecutionSetupProfilePath,
+  getTicketWorktreePath,
+} from './paths'
 import { readJsonl } from '../io/jsonl'
 import { getAvailableWorkflowActions } from '@shared/workflowMeta'
 import { getTicketBeadsPath, resolveTicketBaseBranch } from '../ticket/metadata'
@@ -556,6 +562,8 @@ export function getTicketPaths(ticketRef: string): {
   worktreePath: string
   ticketDir: string
   executionLogPath: string
+  executionSetupDir: string
+  executionSetupProfilePath: string
   baseBranch: string
   beadsPath: string
 } | undefined {
@@ -566,6 +574,8 @@ export function getTicketPaths(ticketRef: string): {
     worktreePath: getTicketWorktreePath(storage.projectRoot, storage.externalId),
     ticketDir: getTicketDir(storage.projectRoot, storage.externalId),
     executionLogPath: getTicketExecutionLogPath(storage.projectRoot, storage.externalId),
+    executionSetupDir: getTicketExecutionSetupDir(storage.projectRoot, storage.externalId),
+    executionSetupProfilePath: getTicketExecutionSetupProfilePath(storage.projectRoot, storage.externalId),
     baseBranch,
     beadsPath: getTicketBeadsPath(storage.projectRoot, storage.externalId, baseBranch),
   }

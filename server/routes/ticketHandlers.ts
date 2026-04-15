@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import { z } from 'zod'
+import type { TicketContext as MachineTicketContext } from '../machines/types'
 import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
 import { PROFILE_DEFAULTS } from '../db/defaults'
@@ -57,6 +58,14 @@ import {
 } from '../phases/prd/document'
 import { approveBeadsDocument } from '../phases/beads/document'
 import {
+  approveExecutionSetupPlan,
+  readExecutionSetupPlan,
+  saveExecutionSetupPlan,
+  saveExecutionSetupPlanRawContent,
+} from '../phases/executionSetupPlan/document'
+import type { ExecutionSetupPlan } from '../phases/executionSetupPlan/types'
+import { serializeExecutionSetupPlan } from '../phases/executionSetupPlan/types'
+import {
   completeCloseUnmerged,
   completeMergedPullRequest,
   readPullRequestReport,
@@ -69,7 +78,9 @@ import { isBeforeExecution, isStatusAtOrPast } from '@shared/workflowMeta'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { recoverFailedCodingBead } from '../workflow/phases/beadsPhase'
+import { regenerateExecutionSetupPlanDraft } from '../workflow/phases/executionSetupPlanPhase'
 import { isExecutionBandStatus } from '../workflow/executionBand'
+import { normalizeExecutionSetupPlanOutput } from '../structuredOutput'
 
 export const createTicketSchema = z.object({
   projectId: z.number().int().positive(),
@@ -126,6 +137,24 @@ const structuredPrdSaveSchema = z.object({
   document: z.custom<PrdDocument>((value) => Boolean(value) && typeof value === 'object', {
     message: 'document must be an object',
   }),
+})
+
+const rawExecutionSetupPlanSaveSchema = z.object({
+  content: z.string(),
+})
+
+const structuredExecutionSetupPlanSaveSchema = z.object({
+  plan: z.custom<ExecutionSetupPlan>((value) => Boolean(value) && typeof value === 'object', {
+    message: 'plan must be an object',
+  }),
+})
+
+const regenerateExecutionSetupPlanSchema = z.object({
+  commentary: z.string().trim().min(1),
+  plan: z.custom<ExecutionSetupPlan>((value) => value === undefined || (Boolean(value) && typeof value === 'object'), {
+    message: 'plan must be an object when provided',
+  }).optional(),
+  rawContent: z.string().optional(),
 })
 
 import { MAX_UI_STATE_BYTES } from '../lib/constants'
@@ -226,6 +255,15 @@ function emitRoutePhaseLog(
 
 function getTicketParam(c: Context): string {
   return c.req.param('id') || c.req.param('ticketId')
+}
+
+function getMachineContext(ticketId: string): MachineTicketContext {
+  ensureActorForTicket(ticketId)
+  const state = getTicketState(ticketId)
+  if (!state) {
+    throw new Error('Ticket actor state is unavailable')
+  }
+  return state.context as MachineTicketContext
 }
 
 function buildExecutionBandConflictMessage(conflict: {
@@ -718,7 +756,7 @@ export function handleApproveTicket(c: Context) {
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
 
-  const approvalStates = ['WAITING_INTERVIEW_APPROVAL', 'WAITING_PRD_APPROVAL', 'WAITING_BEADS_APPROVAL']
+  const approvalStates = ['WAITING_INTERVIEW_APPROVAL', 'WAITING_PRD_APPROVAL', 'WAITING_BEADS_APPROVAL', 'WAITING_EXECUTION_SETUP_APPROVAL']
   if (!approvalStates.includes(ticket.status)) {
     return c.json({ error: 'Ticket is not in an approval state' }, 409)
   }
@@ -731,6 +769,9 @@ export function handleApproveTicket(c: Context) {
   }
   if (ticket.status === 'WAITING_BEADS_APPROVAL') {
     return handleApproveBeads(c)
+  }
+  if (ticket.status === 'WAITING_EXECUTION_SETUP_APPROVAL') {
+    return handleApproveExecutionSetupPlan(c)
   }
 
   try {
@@ -1048,6 +1089,118 @@ export async function handlePutPrd(c: Context) {
   }
 }
 
+export function handleGetExecutionSetupPlan(c: Context) {
+  const ticketId = getTicketParam(c)
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
+
+  try {
+    const current = readExecutionSetupPlan(ticketId)
+    return c.json({
+      exists: Boolean(current.plan),
+      artifactId: current.artifactId,
+      updatedAt: current.updatedAt,
+      raw: current.raw,
+      plan: current.plan,
+    })
+  } catch (err) {
+    return c.json({
+      error: 'Failed to read execution setup plan',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+}
+
+export async function handlePutExecutionSetupPlan(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for execution setup plan approval' }, 409)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const rawParsed = rawExecutionSetupPlanSaveSchema.safeParse(body)
+  if (rawParsed.success) {
+    try {
+      const { raw, plan } = saveExecutionSetupPlanRawContent(ticketId, rawParsed.data.content)
+      return c.json({ success: true, raw, plan })
+    } catch (err) {
+      return c.json({
+        error: 'Failed to save execution setup plan',
+        details: err instanceof Error ? err.message : String(err),
+      }, 400)
+    }
+  }
+
+  const structuredParsed = structuredExecutionSetupPlanSaveSchema.safeParse(body)
+  if (!structuredParsed.success) {
+    return c.json({ error: 'Invalid execution setup plan payload', details: structuredParsed.error.flatten() }, 400)
+  }
+
+  try {
+    const { raw, plan } = saveExecutionSetupPlan(ticketId, structuredParsed.data.plan)
+    return c.json({ success: true, raw, plan })
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save execution setup plan',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+}
+
+export async function handleRegenerateExecutionSetupPlan(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for execution setup plan approval' }, 409)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = regenerateExecutionSetupPlanSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid regenerate payload', details: parsed.error.flatten() }, 400)
+  }
+
+  let currentPlan = parsed.data.plan ?? null
+  if (!currentPlan && parsed.data.rawContent) {
+    const normalized = normalizeExecutionSetupPlanOutput(parsed.data.rawContent)
+    if (!normalized.ok) {
+      return c.json({ error: 'Invalid raw setup plan draft', details: normalized.error }, 400)
+    }
+    currentPlan = normalized.value
+  }
+  if (!currentPlan) {
+    currentPlan = readExecutionSetupPlan(ticketId).plan
+  }
+
+  try {
+    const report = await regenerateExecutionSetupPlanDraft({
+      ticketId,
+      context: getMachineContext(ticketId),
+      commentary: parsed.data.commentary,
+      currentPlan,
+    })
+    if (!report.plan) {
+      return c.json({
+        error: 'Failed to regenerate execution setup plan',
+        details: report.errors.join('; ') || 'Generation failed',
+      }, 400)
+    }
+    return c.json({
+      success: true,
+      raw: serializeExecutionSetupPlan(report.plan),
+      plan: report.plan,
+      report,
+    })
+  } catch (err) {
+    return c.json({
+      error: 'Failed to regenerate execution setup plan',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
+}
+
 export function handleApproveInterview(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
@@ -1132,6 +1285,44 @@ export function handleApproveBeads(c: Context) {
   }
 
   return respondWithState(c, ticketId, 'Beads approved')
+}
+
+export function handleApproveExecutionSetupPlan(c: Context) {
+  const ticketId = getTicketParam(c)
+  const ticket = getTicketByRef(ticketId)
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+  if (ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL') {
+    return c.json({ error: 'Ticket is not waiting for execution setup plan approval' }, 409)
+  }
+
+  const executionConflict = findProjectExecutionBandConflict(ticket.projectId, ticket.id)
+  if (executionConflict) {
+    return c.json({ error: buildExecutionBandConflictMessage(executionConflict) }, 409)
+  }
+
+  let plan: ExecutionSetupPlan | null = null
+  try {
+    plan = readExecutionSetupPlan(ticketId).plan
+    if (!plan) {
+      return c.json({ error: 'Execution setup plan is not ready yet' }, 409)
+    }
+
+    approveExecutionSetupPlan(ticketId, plan)
+    ensureActorForTicket(ticketId)
+
+    const phase = 'WAITING_EXECUTION_SETUP_APPROVAL'
+    emitRoutePhaseLog(ticketId, phase, 'info', 'Execution setup plan approved by user.')
+
+    sendTicketEvent(ticketId, { type: 'APPROVE_EXECUTION_SETUP_PLAN' })
+  } catch (err) {
+    console.error(`[tickets] Failed to approve execution setup plan for ${ticketId}:`, err)
+    return c.json({
+      error: 'Failed to approve execution setup plan',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500)
+  }
+
+  return respondWithState(c, ticketId, 'Execution setup plan approved')
 }
 
 export function handleMergeTicket(c: Context) {

@@ -96,6 +96,18 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     icon: '📓',
     description: 'Iteration notes and prior-attempt context.',
   },
+  execution_setup_profile: {
+    id: 'execution_setup_profile',
+    label: 'Execution Setup Profile',
+    icon: '🧰',
+    description: 'Compact runtime setup profile with temp roots, reusable artifacts, and discovered command families.',
+  },
+  execution_setup_notes: {
+    id: 'execution_setup_notes',
+    label: 'Execution Setup Notes',
+    icon: '🛠️',
+    description: 'Retry-note history from prior execution setup attempts.',
+  },
   error_context: {
     id: 'error_context',
     label: 'Error Context',

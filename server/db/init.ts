@@ -43,6 +43,7 @@ function migrateLegacyProfilesTable() {
         council_members TEXT,
         min_council_quorum INTEGER DEFAULT ${PROFILE_DEFAULTS.minCouncilQuorum},
         per_iteration_timeout INTEGER DEFAULT ${PROFILE_DEFAULTS.perIterationTimeout},
+        execution_setup_timeout INTEGER DEFAULT ${PROFILE_DEFAULTS.executionSetupTimeout},
         council_response_timeout INTEGER DEFAULT ${PROFILE_DEFAULTS.councilResponseTimeout},
         interview_questions INTEGER DEFAULT ${PROFILE_DEFAULTS.interviewQuestions},
         coverage_follow_up_budget_percent INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent},
@@ -58,6 +59,7 @@ function migrateLegacyProfilesTable() {
         council_members,
         min_council_quorum,
         per_iteration_timeout,
+        execution_setup_timeout,
         council_response_timeout,
         interview_questions,
         coverage_follow_up_budget_percent,
@@ -72,6 +74,7 @@ function migrateLegacyProfilesTable() {
         ${selectLegacyProfileColumn(columnSet, 'council_members')},
         ${selectLegacyProfileValue(columnSet, 'min_council_quorum', PROFILE_DEFAULTS.minCouncilQuorum)},
         ${selectLegacyProfileValue(columnSet, 'per_iteration_timeout', PROFILE_DEFAULTS.perIterationTimeout)},
+        ${selectLegacyProfileValue(columnSet, 'execution_setup_timeout', PROFILE_DEFAULTS.executionSetupTimeout)},
         ${selectLegacyProfileValue(columnSet, 'council_response_timeout', PROFILE_DEFAULTS.councilResponseTimeout)},
         ${selectLegacyProfileValue(columnSet, 'interview_questions', PROFILE_DEFAULTS.interviewQuestions)},
         ${selectLegacyProfileValue(columnSet, 'coverage_follow_up_budget_percent', PROFILE_DEFAULTS.coverageFollowUpBudgetPercent)},
@@ -97,6 +100,7 @@ export function initializeDatabase() {
       council_members TEXT,
       min_council_quorum INTEGER DEFAULT ${PROFILE_DEFAULTS.minCouncilQuorum},
       per_iteration_timeout INTEGER DEFAULT ${PROFILE_DEFAULTS.perIterationTimeout},
+      execution_setup_timeout INTEGER DEFAULT ${PROFILE_DEFAULTS.executionSetupTimeout},
       council_response_timeout INTEGER DEFAULT ${PROFILE_DEFAULTS.councilResponseTimeout},
       interview_questions INTEGER DEFAULT ${PROFILE_DEFAULTS.interviewQuestions},
       coverage_follow_up_budget_percent INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent},
@@ -123,6 +127,7 @@ export function initializeDatabase() {
   migrateLegacyProfilesTable()
   ensureColumn('profiles', 'coverage_follow_up_budget_percent', `INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent}`)
   ensureColumn('profiles', 'max_coverage_passes', `INTEGER DEFAULT ${PROFILE_DEFAULTS.maxCoveragePasses}`)
+  ensureColumn('profiles', 'execution_setup_timeout', `INTEGER DEFAULT ${PROFILE_DEFAULTS.executionSetupTimeout}`)
   ensureColumn('profiles', 'main_implementer_variant', 'TEXT')
   ensureColumn('profiles', 'council_member_variants', 'TEXT')
 

@@ -7,6 +7,8 @@ const mockGetTicketPaths = vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnV
   executionLogPath: '/tmp/test-execution-log.jsonl',
   worktreePath: '/tmp/test-worktree',
   ticketDir: '/tmp/test-ticket-dir',
+  executionSetupDir: '/tmp/test-ticket-dir/.ticket/runtime/execution-setup',
+  executionSetupProfilePath: '/tmp/test-ticket-dir/.ticket/runtime/execution-setup-profile.json',
   baseBranch: 'main',
   beadsPath: '/tmp/test-beads.jsonl',
 })

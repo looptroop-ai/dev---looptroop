@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import type { PrdDocument } from '../../structuredOutput/types'
 import { phaseArtifacts } from '../../db/schema'
 import { safeAtomicWrite } from '../../io/atomicWrite'
+import { clearExecutionSetupState } from '../executionSetup/storage'
 import { broadcaster } from '../../sse/broadcaster'
 import { getTicketByRef, getTicketContext, getTicketPaths } from '../../storage/tickets'
 import { normalizePrdYamlOutput } from '../../structuredOutput'
@@ -141,6 +142,9 @@ export function invalidateDownstreamBeadsArtifacts(ticketId: string): {
     }
   }
 
+  const executionSetupInvalidation = clearExecutionSetupState(ticketId)
+  removedFiles.push(...executionSetupInvalidation.removedFiles)
+
   const artifacts = ticketContext.projectDb
     .select()
     .from(phaseArtifacts)
@@ -162,6 +166,8 @@ export function invalidateDownstreamBeadsArtifacts(ticketId: string): {
 
   phaseResults.delete(`${ticketId}:beads`)
   phaseIntermediate.delete(`${ticketId}:beads`)
+
+  removedArtifacts += executionSetupInvalidation.removedArtifacts
 
   if (removedArtifacts > 0 || removedFiles.length > 0) {
     broadcaster.broadcast(ticketId, 'artifact_change', {

@@ -17,5 +17,6 @@ export interface PreFlightReport {
 
 export interface PreFlightContext {
   lockedMainImplementer: string | null
+  lockedMainImplementerVariant: string | null
   maxIterations: number
 }

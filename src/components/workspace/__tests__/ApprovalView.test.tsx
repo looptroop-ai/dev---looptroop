@@ -36,6 +36,10 @@ vi.mock('../PrdApprovalPane', () => ({
   PrdApprovalPane: ({ ticket }: { ticket: Ticket }) => <div data-testid="prd-approval-pane">{ticket.id}</div>,
 }))
 
+vi.mock('../ExecutionSetupPlanApprovalPane', () => ({
+  ExecutionSetupPlanApprovalPane: ({ ticket }: { ticket: Ticket }) => <div data-testid="execution-setup-plan-approval-pane">{ticket.id}</div>,
+}))
+
 vi.mock('../PhaseLogPanel', () => ({
   PhaseLogPanel: () => <div data-testid="phase-log-panel" />,
 }))
@@ -67,7 +71,7 @@ vi.mock('@/components/editor/YamlEditor', () => ({
   ),
 }))
 
-async function renderApprovalView(ticket: Ticket, artifactType: 'interview' | 'prd' | 'beads' = 'interview') {
+async function renderApprovalView(ticket: Ticket, artifactType: 'interview' | 'prd' | 'beads' | 'execution_setup_plan' = 'interview') {
   const { ApprovalView } = await import('../ApprovalView')
   return renderWithProviders(<ApprovalView ticket={ticket} artifactType={artifactType} />)
 }
@@ -245,6 +249,12 @@ describe('Interview approval UI', () => {
     await renderApprovalView(makeTicket({ status: 'WAITING_PRD_APPROVAL' }), 'prd')
 
     expect(screen.getByTestId('prd-approval-pane')).toBeInTheDocument()
+  })
+
+  it('routes execution setup plan approvals to the dedicated pane', async () => {
+    await renderApprovalView(makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' }), 'execution_setup_plan')
+
+    expect(screen.getByTestId('execution-setup-plan-approval-pane')).toBeInTheDocument()
   })
 
   it('lets the interview summary collapse and reopen in approval view', async () => {

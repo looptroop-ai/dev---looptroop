@@ -9,6 +9,7 @@ export const profiles = sqliteTable('profiles', {
   councilMemberVariants: text('council_member_variants'), // JSON map: { "provider/model": "variant" }
   minCouncilQuorum: integer('min_council_quorum').default(PROFILE_DEFAULTS.minCouncilQuorum),
   perIterationTimeout: integer('per_iteration_timeout').default(PROFILE_DEFAULTS.perIterationTimeout),
+  executionSetupTimeout: integer('execution_setup_timeout').default(PROFILE_DEFAULTS.executionSetupTimeout),
   councilResponseTimeout: integer('council_response_timeout').default(PROFILE_DEFAULTS.councilResponseTimeout),
   interviewQuestions: integer('interview_questions').default(PROFILE_DEFAULTS.interviewQuestions),
   coverageFollowUpBudgetPercent: integer('coverage_follow_up_budget_percent').default(PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
@@ -42,6 +43,7 @@ export const projects = sqliteTable('projects', {
   councilMembers: text('council_members'), // JSON array, nullable override
   maxIterations: integer('max_iterations'),
   perIterationTimeout: integer('per_iteration_timeout'),
+  executionSetupTimeout: integer('execution_setup_timeout'),
   councilResponseTimeout: integer('council_response_timeout'),
   minCouncilQuorum: integer('min_council_quorum'),
   interviewQuestions: integer('interview_questions'),

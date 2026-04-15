@@ -30,6 +30,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     mainImplementer: profile?.mainImplementer ?? '',
     minCouncilQuorum: profile?.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
     perIterationTimeout: profile?.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
+    executionSetupTimeout: profile?.executionSetupTimeout ?? PROFILE_DEFAULTS.executionSetupTimeout,
     councilResponseTimeout: profile?.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
     interviewQuestions: profile?.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
     coverageFollowUpBudgetPercent: profile?.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
@@ -68,6 +69,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       mainImplementer: profile.mainImplementer ?? '',
       minCouncilQuorum: profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
       perIterationTimeout: profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
+      executionSetupTimeout: profile.executionSetupTimeout ?? PROFILE_DEFAULTS.executionSetupTimeout,
       councilResponseTimeout: profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
       interviewQuestions: profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
       coverageFollowUpBudgetPercent: profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
@@ -76,6 +78,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     })
     setRawNumeric({
       perIterationTimeout: numericFields.perIterationTimeout.fromStore(profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout),
+      executionSetupTimeout: numericFields.executionSetupTimeout.fromStore(profile.executionSetupTimeout ?? PROFILE_DEFAULTS.executionSetupTimeout),
       councilResponseTimeout: numericFields.councilResponseTimeout.fromStore(profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout),
       maxIterations: String(profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations),
       minCouncilQuorum: String(profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum),
@@ -322,6 +325,15 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
           <div className="grid grid-cols-2 gap-3">
             <NumericField fieldKey="maxIterations" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum automatic retries per bead during coding (0–20). Final test retries use the same limit." />
             <NumericField fieldKey="perIterationTimeout" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Timeout for each attempt (10–3600s)" />
+          </div>
+          <div className="mt-3">
+            <NumericField
+              fieldKey="executionSetupTimeout"
+              rawNumeric={rawNumeric}
+              onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))}
+              hint="Timeout for the one-time execution setup phase before coding starts (0–3600s)."
+              tooltip="Runs a one-time temporary setup step after pre-flight and before coding. It can install toolchains, warm caches, and prepare reusable runtime artifacts inside LoopTroop-owned paths only. Nothing from this step is committed or pushed."
+            />
           </div>
 
           {openCodeConnected !== null && (

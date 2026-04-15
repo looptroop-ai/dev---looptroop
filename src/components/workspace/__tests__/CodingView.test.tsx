@@ -363,7 +363,7 @@ describe('CodingView', () => {
     expect(screen.getAllByText(/iteration 2/i).length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText(/retry note after timeout/i)).toBeTruthy()
     expect(
-      fetchSpy.mock.calls.filter(([url]: any) => url === '/api/tickets/1:TEST-1/beads'),
+      fetchSpy.mock.calls.filter(([url]: [string, ...unknown[]]) => url === '/api/tickets/1:TEST-1/beads'),
     ).toHaveLength(1)
   })
 

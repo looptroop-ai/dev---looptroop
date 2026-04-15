@@ -18,6 +18,11 @@ import {
   PROM23,
   PROM24,
   PROM25,
+  PROM_EXECUTION_CAPABILITY_PROBE,
+  PROM_EXECUTION_SETUP_PLAN,
+  PROM_EXECUTION_SETUP_PLAN_REGENERATE,
+  PROM_EXECUTION_SETUP,
+  PROM_EXECUTION_SETUP_NOTE,
   PROM_CODING,
   PROM51,
   PROM52,
@@ -82,10 +87,15 @@ describe.concurrent('structured prompt hardening', () => {
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
 
-    for (const prompt of [PROM0, PROM25, PROM_CODING, PROM52]) {
+    for (const prompt of [PROM0, PROM25, PROM_EXECUTION_SETUP, PROM_CODING, PROM52]) {
       expect(prompt.toolPolicy).toBe('default')
       expect(buildPromptFromTemplate(prompt, [])).not.toContain('Do not use tools.')
     }
+
+    expect(PROM_EXECUTION_CAPABILITY_PROBE.toolPolicy).toBe('read_only')
+    expect(buildPromptFromTemplate(PROM_EXECUTION_CAPABILITY_PROBE, [])).not.toContain('Do not use tools.')
+    expect(PROM_EXECUTION_SETUP_PLAN.toolPolicy).toBe('read_only')
+    expect(PROM_EXECUTION_SETUP_PLAN_REGENERATE.toolPolicy).toBe('read_only')
   })
 
   it('uses same-session rules for prompts that continue an existing session', () => {
@@ -224,7 +234,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(draftPrompt).toContain('patterns:')
     expect(draftPrompt).toContain('anti_patterns:')
     expect(draftPrompt).toContain('dense punctuation, quotes, backslashes, `: `, brackets, braces, shell metacharacters, or other code-like inline syntax')
-    expect(draftPrompt).toContain('Do not emit tool-call syntax such as `[TOOL_CALL]`')
+    expect(draftPrompt).toContain('Boundary Rule: Begin output at the `beads:` key. End after the last bead item.')
     expect(draftPrompt).toContain('If you use a block scalar, emit the indicator unquoted on the key line')
 
     const refinePrompt = buildPromptFromTemplate(PROM22, [])
@@ -245,18 +255,46 @@ describe.concurrent('structured prompt hardening', () => {
     expect(votePrompt).toContain('Do not output prose, explanations, markdown fences')
   })
 
+  it('defines execution setup prompts with explicit temporary-only execution rules', () => {
+    const probePrompt = buildPromptFromTemplate(PROM_EXECUTION_CAPABILITY_PROBE, [])
+    const setupPlanPrompt = buildPromptFromTemplate(PROM_EXECUTION_SETUP_PLAN, [])
+    const setupPlanRegeneratePrompt = buildPromptFromTemplate(PROM_EXECUTION_SETUP_PLAN_REGENERATE, [])
+    const setupPrompt = buildPromptFromTemplate(PROM_EXECUTION_SETUP, [])
+    const setupNotePrompt = buildPromptFromTemplate(PROM_EXECUTION_SETUP_NOTE, [])
+
+    expect(probePrompt).toContain('reply with exactly OK and nothing else')
+    expect(probePrompt).toContain('read-only')
+    expect(PROM_EXECUTION_CAPABILITY_PROBE.toolPolicy).toBe('read_only')
+    expect(setupPlanPrompt).toContain('<EXECUTION_SETUP_PLAN>')
+    expect(setupPlanPrompt).toContain('No Execution')
+    expect(setupPlanPrompt).toContain('execution_setup_plan')
+    expect(setupPlanPrompt).toContain('.ticket/runtime/execution-setup')
+    expect(PROM_EXECUTION_SETUP_PLAN.contextInputs).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan_notes'])
+    expect(setupPlanRegeneratePrompt).toContain('current draft baseline')
+    expect(PROM_EXECUTION_SETUP_PLAN_REGENERATE.contextInputs).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_plan_notes'])
+    expect(setupPrompt).toContain('<EXECUTION_SETUP_RESULT>')
+    expect(setupPrompt).toContain('Approved Plan First')
+    expect(setupPrompt).toContain('Audited Augmentations')
+    expect(setupPrompt).toContain('.ticket/runtime/execution-setup')
+    expect(setupPrompt).toContain('Do not modify permanent source files')
+    expect(setupPrompt).toContain('execution_setup_profile')
+    expect(PROM_EXECUTION_SETUP.contextInputs).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
+    expect(setupNotePrompt).toContain('append-only retry note')
+  })
+
   it('PROM_CODING includes completion instructions, bead context guidance, and self-check', () => {
     const prompt = buildPromptFromTemplate(PROM_CODING, [])
     expect(prompt).toContain('BEAD_STATUS')
     expect(prompt).toContain('bead_data')
     expect(prompt).toContain('bead notes')
-    expect(prompt).toContain('dependencies, toolchains, and generated artifacts')
-    expect(prompt).toContain("repository's standard tooling and lockfiles")
-    expect(prompt).toContain('avoid leaving large untracked setup directories in the repo root')
+    expect(prompt).toContain('execution_setup_profile')
+    expect(prompt).toContain('Reuse Execution Setup')
+    expect(prompt).toContain('Do not rediscover or rebuild the full environment unless the existing setup is missing or invalid')
+    expect(prompt).toContain('unrelated baseline debt')
     expect(prompt).toContain('plain-language status updates')
     expect(prompt).toContain('Final Self-Check')
     expect(prompt).toContain('quality gates')
-    expect(PROM_CODING.contextInputs).toEqual(['bead_data', 'bead_notes'])
+    expect(PROM_CODING.contextInputs).toEqual(['bead_data', 'bead_notes', 'execution_setup_profile'])
   })
 
   it('keeps PROM25 explicit about expansion-only ownership, preserved order, and tool-assisted target files', () => {
@@ -293,6 +331,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(finalTestPrompt).toContain('fix the underlying implementation and/or the final test files')
     expect(finalTestPrompt).toContain('Do Not Game The Tests')
     expect(finalTestPrompt).toContain('Return `<FINAL_TEST_COMMANDS>` only after the exact listed command(s) have passed locally')
+    expect(finalTestPrompt).toContain('.ticket/runtime/execution-setup/**')
+    expect(finalTestPrompt).toContain('.ticket/runtime/execution-setup-profile.json')
     expect(interviewPrompt).toContain('follow_up_rounds:')
     expect(interviewPrompt).not.toContain('PROM5.output_file schema')
     expect(finalTestPrompt).toContain('Output Discipline')

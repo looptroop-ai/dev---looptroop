@@ -1,7 +1,7 @@
 export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
 type WorkflowGroupId = 'todo' | 'interview' | 'prd' | 'beads' | 'execution' | 'done'
 type WorkflowUIView = 'draft' | 'council' | 'interview_qa' | 'approval' | 'coding' | 'error' | 'done' | 'canceled'
-export type EditableArtifactType = 'interview' | 'prd' | 'beads'
+export type EditableArtifactType = 'interview' | 'prd' | 'beads' | 'execution_setup_plan'
 export type WorkflowContextKey =
   | 'ticket_details'
   | 'relevant_files'
@@ -16,6 +16,10 @@ export type WorkflowContextKey =
   | 'tests'
   | 'bead_data'
   | 'bead_notes'
+  | 'execution_setup_plan'
+  | 'execution_setup_plan_notes'
+  | 'execution_setup_profile'
+  | 'execution_setup_notes'
   | 'error_context'
 
 export interface WorkflowPhaseDetails {
@@ -595,37 +599,91 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   PRE_FLIGHT_CHECK: {
-    overview: 'LoopTroop runs a comprehensive set of validation checks to ensure everything is ready for automated code execution. This includes verifying coding agent connectivity, workspace directory integrity, required artifact availability, and the bead dependency graph\'s structural correctness. The pre-flight check prevents the coding loop from starting in a broken state.',
+    overview: 'LoopTroop runs a deterministic pre-flight gate before any execution-band AI work starts. This validates coding-agent connectivity, execution-mode session capability, workspace integrity, required artifact availability, and the bead dependency graph\'s structural correctness. The pre-flight check exists to prevent the execution setup and coding phases from starting in a broken state.',
     steps: [
       'Workspace Validation: LoopTroop verifies that the ticket workspace directory exists, is writable, and contains the expected artifact files (relevant files, interview, PRD, beads data).',
-      'Coding Agent Connectivity: The pre-flight doctor checks that the configured coding agent (OpenCode) is reachable and responsive. This catches connectivity issues, authentication problems, or configuration errors before the first bead attempts to run.',
+      'Coding Agent Connectivity: The pre-flight doctor checks that the configured coding agent (OpenCode) is reachable and responsive. This catches connectivity issues, authentication problems, or configuration errors before execution-band work begins.',
+      'Execution Capability Probe: LoopTroop creates a temporary execution-band session using the same model/variant combination planned for real work, sends a tiny read-only probe prompt, requires the exact response `OK`, and then tears the probe session down. This catches session-create or tool-mode incompatibilities that a generic health check would miss.',
       'Bead Availability Check: LoopTroop confirms that the approved beads data file exists, is parseable, and contains at least one runnable bead with valid structure.',
       'Dependency Graph Validation: The bead dependency graph is checked for structural integrity — no circular dependencies, no references to non-existent beads, and at least one bead with no dependencies (so the execution loop has a valid starting point).',
       'Pre-Flight Report: A structured pre-flight report is generated with pass, warning, and failure entries for each check. This report is persisted regardless of the overall outcome so you can inspect exactly what passed and what failed.',
-      'Progress Initialization: If all checks pass, LoopTroop initializes bead progress counters (current bead: 0, total beads: N) and marks the ticket as ready for coding execution.',
+      'Execution Handoff: If all checks pass, LoopTroop advances into the dedicated execution-setup phase. Bead progress is not started here — coding still begins later at bead 1/N.',
     ],
     outputs: [
       'Pre-flight report artifact with pass, warning, and failure entries for each validation check.',
-      'Updated bead progress metadata (bead counters initialized) when all checks pass.',
-      'Execution readiness decision — either "ready to code" or "blocked with specific failure reason."',
+      'Execution readiness decision — either "ready to draft the setup plan" or "blocked with specific failure reason."',
     ],
     transitions: [
-      'All Checks Pass → Implementing: The workflow advances to the coding loop, which begins executing the first runnable bead.',
+      'All Checks Pass → Review Setup Plan: The workflow advances to the setup-plan approval gate, which drafts the temporary workspace-preparation plan before anything mutates the worktree.',
       'Any Critical Failure → Blocked Error: Connectivity failures, missing artifacts, dependency graph problems, or workspace integrity issues route the ticket to Blocked Error with a detailed failure reason.',
     ],
     notes: [
-      'Context available: Relevant Files + Ticket Details.',
-      'The pre-flight check is designed to catch environmental issues early, before the coding agent wastes time on a bead that would fail due to missing prerequisites.',
+      'This phase is intentionally deterministic and lightweight — it does not perform ticket-specific execution setup or permanent repository changes.',
+      'The pre-flight check is designed to catch environmental issues early, before the execution setup or coding agent wastes time on work that would fail due to missing prerequisites.',
       'Warning-level results (non-critical issues) are recorded but do not block execution. Only critical failures prevent the coding loop from starting.',
     ],
   },
+  WAITING_EXECUTION_SETUP_APPROVAL: {
+    overview: 'LoopTroop drafts a temporary environment-setup plan and pauses for your review before any execution setup commands run. This gate keeps environment preparation separate from the beads blueprint: beads approval decides what to build, while setup-plan approval decides how LoopTroop may prepare the worktree for coding. You can edit the ordered setup steps directly, tweak or replace commands, regenerate the draft with commentary, and approve only when the temporary setup strategy matches your environment expectations.',
+    steps: [
+      'Automatic Drafting On Entry: When this state is entered, LoopTroop asks the locked main implementer to inspect the approved ticket details, relevant files, PRD, and beads, then propose a temporary-only setup plan. The draft is created automatically if no current setup-plan artifact exists.',
+      'Structured Setup Plan: The draft plan captures ordered setup steps, the reason each step exists, the commands to run, whether the step is required, the allowed temp roots, discovered project-wide command families, and the default quality-gate policy later coding beads should follow.',
+      'User Review And Editing: The approval UI lets you review the setup steps in structured form, edit commands or descriptions, and fall back to raw YAML/JSON editing when you need full control over the artifact.',
+      'Regenerate With Commentary: If the initial plan is close but not correct, you can send commentary describing what should change. LoopTroop will regenerate the draft in the same approval state, reusing the active planning session when possible so the revision stays grounded in the previous attempt.',
+      'Approval Handoff: Once approved, this plan becomes the primary execution contract for the next phase. The execution-setup agent must start from the approved plan rather than rediscovering workspace initialization from scratch.',
+    ],
+    outputs: [
+      'Editable `execution_setup_plan` artifact containing the proposed temporary environment-setup plan.',
+      'Plan-generation report and notes artifacts capturing structured-output diagnostics and regenerate commentary history.',
+      'Approval receipt confirming the reviewed setup plan was explicitly approved before execution setup begins.',
+    ],
+    transitions: [
+      'Approve → Preparing Workspace: The workflow advances to the execution setup phase, which executes the approved temporary setup plan and writes the reusable runtime profile.',
+      'Regenerate → Stays Here: Regeneration replaces the current setup-plan draft while remaining in the same approval state for another review pass.',
+      'Generation Failure → Blocked Error: If LoopTroop cannot produce a valid setup-plan artifact, the ticket routes to Blocked Error with the plan report preserved for diagnosis.',
+    ],
+    notes: [
+      'This state is still pre-coding. No permanent repository files should be modified here.',
+      'No AI execution proceeds past this gate until you approve the proposed setup plan.',
+      'The approved setup plan is separate from the final execution setup profile. The profile is produced only after the next phase actually runs the plan inside LoopTroop-owned runtime paths.',
+    ],
+  },
+  PREPARING_EXECUTION_ENV: {
+    overview: 'LoopTroop runs a dedicated execution setup phase after the setup-plan approval gate and before coding. This is an AI-driven, retryable, temporary-only phase whose only job is to execute the approved setup plan, initialize a reusable execution environment under LoopTroop-owned runtime paths, and persist a compact setup profile for later beads to consume.',
+    steps: [
+      'Approved Plan First: The locked main implementer reads the approved setup-plan artifact first, then loads the supporting planning context — ticket details, relevant files, PRD, beads plan, and any prior setup retry notes. User edits in the approved plan take precedence over the model\'s original draft.',
+      'Temporary-Only Initialization: The setup agent executes the approved temporary steps, may inspect the repository, run repo-native bootstrap commands, warm caches, or prepare generated runtime artifacts, but only inside LoopTroop-owned runtime paths under `.ticket/runtime/execution-setup/**` plus the profile mirror file `.ticket/runtime/execution-setup-profile.json`.',
+      'Reusable Profile Generation: The agent finishes by returning a structured execution setup result that records the temp roots it prepared, bootstrap commands it used, reusable artifacts it created, discovered project command families, and the quality-gate policy later coding beads should follow.',
+      'Audited Augmentations: If the approved plan is insufficient and the setup agent must run extra temporary-only commands, those additions are recorded in the setup report so you can see exactly how execution diverged from the approved draft.',
+      'Structured Validation: LoopTroop parses the result via a strict marker/schema contract. If the marker or schema is wrong, it sends a same-session structured retry prompt instead of treating the attempt as an implementation failure.',
+      'Filesystem Policy Enforcement: After each attempt, LoopTroop verifies in code that setup touched only the allowed runtime paths. Any tracked file changes or off-policy untracked output immediately fail the attempt and produce a retry note describing the violation.',
+      'Retry and Reset: If an attempt fails, LoopTroop records retry notes, resets tracked repository files back to the setup phase start commit, clears the setup temp roots/profile mirror, preserves the execution log, and retries until the normal iteration budget is exhausted.',
+    ],
+    outputs: [
+      'Canonical execution setup profile artifact describing reusable temp roots, discovered command families, and quality-gate policy for later coding beads.',
+      'Execution setup report artifact with attempt history, final status, retry notes, and structured-output diagnostics.',
+      'Temporary runtime artifacts stored only under `.ticket/runtime/execution-setup/**` plus the profile mirror file `.ticket/runtime/execution-setup-profile.json`.',
+    ],
+    transitions: [
+      'Setup Ready → Implementing: A valid setup profile advances the workflow into coding, where the first real bead starts at 1/N.',
+      'Setup Failure → Blocked Error: Retry exhaustion, provider/session failures, or temp-only policy violations route the ticket to Blocked Error with the setup report preserved for diagnosis.',
+    ],
+    notes: [
+      'This phase is not a real bead. It does not change bead counts, does not participate in final testing scope, and never produces commits or pushes.',
+      'Coding consumes the compact setup profile rather than full setup transcripts, keeping later execution context small while still avoiding repeated environment rediscovery.',
+      'The approved setup plan remains the user-facing review artifact. Execution setup may augment it temporarily, but those augmentations are audited in the execution report instead of silently rewriting the approved plan.',
+      'Everything created here is temporary runtime state. Cleanup removes the temp roots at ticket end while preserving audit artifacts and the execution log.',
+    ],
+  },
   CODING: {
-    overview: 'LoopTroop runs the approved beads one at a time, choosing the next runnable bead based on dependency satisfaction, executing it with the coding agent, and updating progress after each attempt. The status label shows current bead progress (e.g., "Implementing (Bead 3/7)"). Only beads whose dependencies are fully satisfied (all prerequisite beads marked "done") can be picked for execution. Each bead runs in an isolated session with its own context, retry budget, and timeout.',
+    overview: 'LoopTroop runs the approved beads one at a time, choosing the next runnable bead based on dependency satisfaction, executing it with the coding agent, and updating progress after each attempt. The status label shows current bead progress (e.g., "Implementing (Bead 3/7)"). Only beads whose dependencies are fully satisfied (all prerequisite beads marked "done") can be picked for execution. Each bead runs in an isolated session with its own context, retry budget, and timeout, while reusing the compact execution setup profile created earlier.',
     steps: [
       'Bead Selection: LoopTroop reads the authoritative bead tracker, identifies all runnable beads (dependencies satisfied, not yet started), and selects the next bead to execute. The selection follows the topological order established during expansion, respecting the dependency graph.',
-      'Context Assembly: For the selected bead, LoopTroop assembles bead-specific context: the bead description, acceptance criteria, file targets, test commands, and any iteration notes from prior attempts (if this is a retry). The coding agent receives only this bead\'s context — it does not see the full plan or other beads\' details.',
+      'Context Assembly: For the selected bead, LoopTroop assembles bead-specific context: the bead description, acceptance criteria, file targets, test commands, any iteration notes from prior attempts, and the compact execution setup profile. The coding agent still receives only this bead-focused context — it does not see the full plan or other beads\' details.',
+      'Environment Reuse: The coding agent reads the execution setup profile and reuses its temp roots, bootstrap outputs, and discovered command families instead of repeatedly rediscovering environment setup from scratch.',
       'Agent Execution: The locked main implementer launches a coding session with the configured retry and timeout settings. The agent reads the bead specification, writes code, creates or modifies files, runs tests, and attempts to satisfy the acceptance criteria.',
       'Live Streaming: Execution events, prompts, agent responses, file modifications, test results, and session lifecycle events are streamed into the phase log in real time. You can watch the agent work and see its progress.',
+      'Scoped Verification: During each bead, LoopTroop prefers bead-specific tests first, then impacted or package-scoped lint/typecheck commands derived from the setup profile. It avoids failing beads solely because of unrelated repository-wide baseline debt.',
       'Success Handling: When a bead succeeds (acceptance criteria met), LoopTroop marks it "done" in the bead tracker, records the execution artifact (what was changed, test results), updates the ticket progress counters (e.g., 3/7 → 4/7), and broadcasts bead completion to the UI.',
       'Failure Handling: If a bead fails after exhausting its retry budget, it is marked "error" in the bead tracker. Execution stops for that bead, and iteration notes (error messages, partial progress, diagnostic hints) are recorded to help the next retry attempt if you choose to retry from the Blocked Error state.',
       'Loop Continuation: If more runnable beads remain after a successful completion, the state stays in Coding and the loop immediately picks the next runnable bead. The process continues until all beads are done or a bead fails.',
@@ -642,8 +700,8 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'Only runnable beads (all dependencies satisfied, not yet started) can be selected for execution.',
-      'Context available: Current Bead Data (description, acceptance criteria, file targets) + Bead Notes (iteration history from prior retry attempts, if any).',
-      'The coding agent sees only the current bead — it does not have access to the full plan, other beads\' results, or the overall PRD during execution.',
+      'Context available: Current Bead Data + Bead Notes + Execution Setup Profile.',
+      'The coding agent sees only the current bead plus the compact setup profile — it does not have access to the full plan, other beads\' results, or the overall PRD during execution.',
       'Each bead has its own retry budget and timeout. The agent can make multiple attempts at a single bead before marking it failed.',
     ],
   },
@@ -1111,6 +1169,31 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     contextSummary: [],
   },
   {
+    id: 'WAITING_EXECUTION_SETUP_APPROVAL',
+    label: 'Review Setup Plan',
+    description: 'Review and edit the proposed temporary environment setup before execution runs it.',
+    details: WORKFLOW_PHASE_DETAILS.WAITING_EXECUTION_SETUP_APPROVAL,
+    kanbanPhase: 'needs_input',
+    groupId: 'execution',
+    uiView: 'approval',
+    editable: true,
+    multiModelLogs: false,
+    reviewArtifactType: 'execution_setup_plan',
+    contextSummary: [],
+  },
+  {
+    id: 'PREPARING_EXECUTION_ENV',
+    label: 'Preparing Workspace',
+    description: 'Initializing a reusable temporary execution environment before coding begins.',
+    details: WORKFLOW_PHASE_DETAILS.PREPARING_EXECUTION_ENV,
+    kanbanPhase: 'in_progress',
+    groupId: 'execution',
+    uiView: 'coding',
+    editable: false,
+    multiModelLogs: false,
+    contextSummary: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
+  },
+  {
     id: 'CODING',
     label: 'Implementing (Bead ?/?)',
     description: 'AI coding agent executes beads with retry loop.',
@@ -1121,7 +1204,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     editable: false,
     multiModelLogs: false,
     progressKind: 'beads',
-    contextSummary: ['bead_data', 'bead_notes'],
+    contextSummary: ['bead_data', 'bead_notes', 'execution_setup_profile'],
   },
   {
     id: 'RUNNING_FINAL_TEST',
@@ -1259,6 +1342,7 @@ export function getAvailableWorkflowActions(status: string): WorkflowAction[] {
     case 'WAITING_INTERVIEW_APPROVAL':
     case 'WAITING_PRD_APPROVAL':
     case 'WAITING_BEADS_APPROVAL':
+    case 'WAITING_EXECUTION_SETUP_APPROVAL':
       return ['approve', 'cancel']
     case 'WAITING_PR_REVIEW':
       return ['merge', 'close_unmerged', 'cancel']

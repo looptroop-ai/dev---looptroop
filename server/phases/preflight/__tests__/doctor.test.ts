@@ -35,6 +35,7 @@ function makeBead(overrides: Partial<Bead> = {}): Bead {
 
 const defaultContext: PreFlightContext = {
   lockedMainImplementer: 'model-a',
+  lockedMainImplementerVariant: 'high',
   maxIterations: 5,
 }
 
@@ -46,6 +47,8 @@ describe('Pre-Flight Doctor', () => {
     worktreePath: '/tmp/test-worktree',
     ticketDir: '/tmp/test-worktree/.ticket',
     executionLogPath: '/tmp/test-worktree/.ticket/runtime/execution-log.jsonl',
+    executionSetupDir: '/tmp/test-worktree/.ticket/runtime/execution-setup',
+    executionSetupProfilePath: '/tmp/test-worktree/.ticket/runtime/execution-setup-profile.json',
     baseBranch: 'main',
     beadsPath: '/tmp/beads',
   }
@@ -97,6 +100,10 @@ describe('Pre-Flight Doctor', () => {
 
     expect(report.passed).toBe(true)
     expect(report.criticalFailures).toHaveLength(0)
+    const capabilityCheck = report.checks.find((check) => check.name === 'OpenCode Execution Capability')
+    expect(capabilityCheck?.result).toBe('pass')
+    expect(adapter.sessionCreateCalls).toHaveLength(1)
+    expect(adapter.promptCalls[0]?.options?.variant).toBe('high')
   })
 
   it('detects circular dependencies', async () => {
@@ -239,5 +246,16 @@ describe('Pre-Flight Doctor', () => {
     const lockCheck = report.criticalFailures.find(c => c.name === 'Project Execution Lock')
     expect(lockCheck).toBeDefined()
     expect(lockCheck?.message).toContain('TEST-2')
+  })
+
+  it('fails when the execution capability probe does not return the exact OK marker', async () => {
+    const beads = [makeBead()]
+    adapter.mockResponses.set('mock-session-1', 'NOT OK')
+
+    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+
+    const capabilityCheck = report.criticalFailures.find((check) => check.name === 'OpenCode Execution Capability')
+    expect(capabilityCheck).toBeDefined()
+    expect(capabilityCheck?.message).toContain('unexpected response')
   })
 })

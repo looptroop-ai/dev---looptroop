@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,7 @@ const childEnv = { ...process.env }
 
 delete childEnv.NO_COLOR
 
-const { baseUrl, note } = await resolveOpenCodeBaseUrl({
+const { baseUrl, note, status } = await resolveOpenCodeBaseUrl({
   requestedBaseUrl,
   hasExplicitBaseUrl,
   mockMode: process.env.LOOPTROOP_OPENCODE_MODE === 'mock',
@@ -21,6 +22,12 @@ const { baseUrl, note } = await resolveOpenCodeBaseUrl({
 
 if (note) {
   console.log(`[dev] ${note}`)
+}
+
+if (status === 'ready-to-start' && !childEnv.OPENCODE_SERVER_PASSWORD?.trim()) {
+  childEnv.OPENCODE_SERVER_USERNAME = childEnv.OPENCODE_SERVER_USERNAME?.trim() || 'opencode'
+  childEnv.OPENCODE_SERVER_PASSWORD = randomBytes(18).toString('base64url')
+  console.log('[dev] Securing the local OpenCode dev server with ephemeral basic auth.')
 }
 
 console.log(

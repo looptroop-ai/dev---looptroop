@@ -8,6 +8,7 @@ interface Profile {
   councilMemberVariants: string | null
   minCouncilQuorum: number
   perIterationTimeout: number
+  executionSetupTimeout: number
   councilResponseTimeout: number
   interviewQuestions: number
   coverageFollowUpBudgetPercent: number
@@ -24,6 +25,7 @@ interface CreateProfileInput {
   councilMemberVariants?: string
   minCouncilQuorum?: number
   perIterationTimeout?: number
+  executionSetupTimeout?: number
   councilResponseTimeout?: number
   interviewQuestions?: number
   coverageFollowUpBudgetPercent?: number

@@ -19,4 +19,19 @@ describe.concurrent('getSupplementalArtifacts', () => {
       }),
     )
   })
+
+  it('surfaces the setup-plan artifacts during execution setup approval', () => {
+    expect(getSupplementalArtifacts('WAITING_EXECUTION_SETUP_APPROVAL')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'execution-setup-plan',
+          description: 'Reviewable temporary environment-setup plan drafted after pre-flight.',
+        }),
+        expect.objectContaining({
+          id: 'execution-setup-plan-report',
+          description: 'Plan-generation diagnostics and regenerate history.',
+        }),
+      ]),
+    )
+  })
 })
