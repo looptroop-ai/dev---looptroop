@@ -49,7 +49,12 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const [councilVariants, setCouncilVariants] = useState<Record<string, string>>({})
 
   // Models data for variant info
-  const { data: models } = useOpenCodeModels()
+  const {
+    data: models,
+    isLoading: modelsLoading,
+    isError: modelsError,
+    isFetching: modelsFetching,
+  } = useOpenCodeModels()
   const modelVariantMap = useMemo(() => {
     const map = new Map<string, Record<string, Record<string, unknown>>>()
     if (models) {
@@ -126,6 +131,23 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     // The model query can race the OpenCode health check on mount.
     void refetchOpenCodeModelsQuery(queryClient)
   }, [openCodeConnected, queryClient])
+
+  const openCodeStatus = useMemo(() => {
+    if (openCodeConnected === null) return null
+    if (openCodeConnected === false) {
+      return { dotClass: 'bg-red-500', label: 'OpenCode not connected' }
+    }
+    if (modelsError && !modelsFetching) {
+      return { dotClass: 'bg-amber-500', label: 'OpenCode connected, but model discovery failed' }
+    }
+    if (modelsLoading || modelsFetching) {
+      return { dotClass: 'bg-amber-500', label: 'OpenCode connected, checking models…' }
+    }
+    if ((models?.length ?? 0) === 0) {
+      return { dotClass: 'bg-amber-500', label: 'OpenCode connected, but no models are available' }
+    }
+    return { dotClass: 'bg-green-500', label: 'OpenCode connected and working' }
+  }, [openCodeConnected, models, modelsError, modelsFetching, modelsLoading])
 
   useEffect(() => {
     const err = createProfile.error || updateProfile.error
@@ -336,14 +358,12 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
             />
           </div>
 
-          {openCodeConnected !== null && (
+          {openCodeStatus && (
             <>
               <Separator />
               <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${openCodeConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-xs text-muted-foreground">
-                  {openCodeConnected ? 'OpenCode connected' : 'OpenCode not connected'}
-                </span>
+                <span className={`h-2 w-2 rounded-full ${openCodeStatus.dotClass}`} />
+                <span className="text-xs text-muted-foreground">{openCodeStatus.label}</span>
               </div>
             </>
           )}

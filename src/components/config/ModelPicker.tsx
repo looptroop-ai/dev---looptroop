@@ -28,6 +28,26 @@ function ctxLabel(ctx: number): string {
   return String(ctx)
 }
 
+function getModelQueryErrorCopy(error: unknown): { trigger: string; detail: string } {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  if (message.includes('not reachable')) {
+    return {
+      trigger: 'OpenCode not reachable',
+      detail: 'LoopTroop could not reach OpenCode. It starts automatically with npm run dev, so check that the OpenCode process launched successfully.',
+    }
+  }
+  if (message.includes('model discovery failed') || message.includes('catalog')) {
+    return {
+      trigger: 'OpenCode connected, models unavailable',
+      detail: 'LoopTroop reached OpenCode, but could not load its model catalog. Retry after OpenCode finishes starting or check the OpenCode server logs.',
+    }
+  }
+  return {
+    trigger: 'OpenCode models unavailable',
+    detail: 'LoopTroop could not load models from OpenCode.',
+  }
+}
+
 function ModelRow({ model, selected, disabled, onSelect }: {
   model: OpenCodeModel
   selected: boolean
@@ -148,12 +168,26 @@ function ProviderGroup({
 
 export function ModelPicker({ value, onChange, placeholder = 'Search models…', disabledValues = [] }: ModelPickerProps) {
   const [showAll, setShowAll] = useState(false)
-  const { data: connectedModels, isLoading: loadingConnected, isError: errorConnected, isFetching: fetchingConnected } = useOpenCodeModels()
-  const { data: allModels, isLoading: loadingAll, isError: errorAll, isFetching: fetchingAll } = useAllOpenCodeModels()
+  const {
+    data: connectedModels,
+    isLoading: loadingConnected,
+    isError: hasConnectedError,
+    error: connectedError,
+    isFetching: fetchingConnected,
+  } = useOpenCodeModels()
+  const {
+    data: allModels,
+    isLoading: loadingAll,
+    isError: hasAllError,
+    error: allError,
+    isFetching: fetchingAll,
+  } = useAllOpenCodeModels()
   const models = showAll ? allModels : connectedModels
   const isLoading = showAll ? loadingAll : loadingConnected
-  const isError = showAll ? errorAll : errorConnected
+  const isError = showAll ? hasAllError : hasConnectedError
   const isFetching = showAll ? fetchingAll : fetchingConnected
+  const activeError = showAll ? allError : connectedError
+  const errorCopy = useMemo(() => getModelQueryErrorCopy(activeError), [activeError])
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [showOnlyFree, setShowOnlyFree] = useState(false)
@@ -270,7 +304,7 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
         )}
         <span className="flex-1 truncate">
           {isError && !isFetching ? (
-            <span className="text-destructive text-xs">OpenCode not reachable</span>
+            <span className="text-destructive text-xs">{errorCopy.trigger}</span>
           ) : isError && isFetching ? (
             <span className="text-muted-foreground text-xs">Connecting to OpenCode…</span>
           ) : selected ? (
@@ -281,7 +315,9 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
           ) : value ? (
             <span className="font-mono text-xs">{value}</span>
           ) : (
-            <span className="text-muted-foreground">{isLoading ? 'Loading models…' : placeholder}</span>
+            <span className="text-muted-foreground">
+              {isLoading ? 'Loading models…' : models && models.length === 0 ? 'No models available' : placeholder}
+            </span>
           )}
         </span>
         <ChevronDown className={cn('h-4 w-4 text-muted-foreground shrink-0 transition-transform', open && 'rotate-180')} aria-hidden="true" />
@@ -341,8 +377,7 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
             {isError && !isFetching && (
               <div className="flex items-center gap-2 px-4 py-6 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                LoopTroop could not connect to OpenCode. It starts automatically with{' '}
-                <code className="font-mono text-xs">npm run dev</code> — check that it launched successfully.
+                {errorCopy.detail}
               </div>
             )}
 
@@ -355,7 +390,11 @@ export function ModelPicker({ value, onChange, placeholder = 'Search models…',
 
             {!isLoading && !isError && grouped.length === 0 && (
               <div className="px-4 py-6 text-sm text-muted-foreground text-center">
-                No models match "{query}"
+                {query
+                  ? `No models match "${query}"`
+                  : showOnlyFree
+                    ? 'No free models match the current filters.'
+                    : 'OpenCode is connected, but no models are currently available.'}
               </div>
             )}
 

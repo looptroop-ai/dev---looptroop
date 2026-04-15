@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { ToastProvider } from '@/components/shared/Toast'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ProfileSetup } from '../ProfileSetup'
@@ -54,10 +54,30 @@ describe('ProfileSetup', () => {
   beforeEach(() => {
     updateProfileMutate.mockReset()
     createProfileMutate.mockReset()
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ status: 'ok' }),
-    })))
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+
+      if (url === '/api/health/opencode') {
+        return {
+          ok: true,
+          json: async () => ({ status: 'ok' }),
+        }
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          models: [{ fullId: 'opencode/big-pickle' }],
+          allModels: [{ fullId: 'opencode/big-pickle' }],
+          connectedProviders: ['opencode'],
+          defaultModels: {},
+        }),
+      }
+    }))
   })
 
   afterEach(() => {
@@ -95,6 +115,9 @@ describe('ProfileSetup', () => {
     expect(screen.queryByText('Icon')).not.toBeInTheDocument()
     expect(screen.queryByText('Background')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    await waitFor(() => {
+      expect(screen.getByText('OpenCode connected and working')).toBeInTheDocument()
+    })
     expect(refetchQueriesSpy).toHaveBeenCalledWith({
       queryKey: OPENCODE_MODELS_QUERY_KEY,
       exact: true,

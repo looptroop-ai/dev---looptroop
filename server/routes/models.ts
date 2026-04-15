@@ -22,7 +22,7 @@ modelsRouter.get('/models', async (c) => {
       connectedProviders: [],
       defaultModels: {},
       message: health.available
-        ? 'OpenCode catalog is not available.'
+        ? 'OpenCode is connected, but model discovery failed.'
         : 'OpenCode server is not reachable. Start it with `opencode serve`.',
     })
   }

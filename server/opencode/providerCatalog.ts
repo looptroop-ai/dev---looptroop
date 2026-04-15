@@ -2,6 +2,9 @@ import { getOpenCodeBaseUrl } from './runtimeConfig'
 import type { OpenCodeCatalogModel, OpenCodeCatalogResponse } from '../../shared/opencodeCatalog'
 import { isMockOpenCodeMode } from './factory'
 import { SDK_OPERATION_TIMEOUT_MS, DEFAULT_CONTEXT_WINDOW_LIMIT } from '../lib/constants'
+import { getOpenCodeBasicAuthHeader } from '../../shared/opencodeAuth'
+
+type OpenCodeCatalogProvider = OpenCodeCatalogResponse['all'][number]
 
 function buildMockCatalog(): OpenCodeCatalogResponse {
   return {
@@ -79,19 +82,15 @@ export async function fetchProviderCatalog(): Promise<OpenCodeCatalogResponse> {
     return buildMockCatalog()
   }
 
-  const response = await fetch(`${getOpenCodeBaseUrl()}/provider`, {
-    signal: AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS),
-  })
+  let response = await fetchCatalogEndpoint('/provider')
+  if (response.status === 404) {
+    response = await fetchCatalogEndpoint('/config/providers')
+  }
   if (!response.ok) {
     throw new Error(`OpenCode provider catalog request failed with ${response.status}`)
   }
 
-  const data = await response.json() as OpenCodeCatalogResponse
-  return {
-    all: Array.isArray(data.all) ? data.all : [],
-    connected: Array.isArray(data.connected) ? data.connected.filter((item): item is string => typeof item === 'string') : [],
-    default: data.default && typeof data.default === 'object' ? data.default : {},
-  }
+  return normalizeProviderCatalog(await response.json())
 }
 
 export function flattenCatalogModels(
@@ -137,4 +136,64 @@ export function flattenCatalogModels(
 export async function fetchConnectedModelIds(): Promise<string[]> {
   const catalog = await fetchProviderCatalog()
   return flattenCatalogModels(catalog, 'connected').map((model) => model.fullId)
+}
+
+function fetchCatalogEndpoint(path: string) {
+  const authHeader = getOpenCodeBasicAuthHeader()
+  return fetch(`${getOpenCodeBaseUrl()}${path}`, {
+    signal: AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS),
+    ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
+  })
+}
+
+function normalizeProviderCatalog(data: unknown): OpenCodeCatalogResponse {
+  const record = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+  const all = coerceProviders(record.all)
+  if (all.length > 0 || Array.isArray(record.all)) {
+    return {
+      all,
+      connected: Array.isArray(record.connected) ? record.connected.filter((item): item is string => typeof item === 'string') : [],
+      default: coerceDefaultModels(record.default),
+    }
+  }
+
+  const providers = coerceProviders(record.providers)
+  return {
+    all: providers,
+    connected: providers.map((provider) => provider.id),
+    default: coerceDefaultModels(record.default),
+  }
+}
+
+function coerceProviders(value: unknown): OpenCodeCatalogProvider[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((provider): OpenCodeCatalogProvider | null => {
+      if (!provider || typeof provider !== 'object') return null
+      const record = provider as Record<string, unknown>
+      if (typeof record.id !== 'string' || typeof record.name !== 'string') return null
+      const models = record.models && typeof record.models === 'object' && !Array.isArray(record.models)
+        ? record.models as OpenCodeCatalogProvider['models']
+        : {}
+      return {
+        id: record.id,
+        name: record.name,
+        ...(Array.isArray(record.env)
+          ? { env: record.env.filter((item): item is string => typeof item === 'string') }
+          : {}),
+        ...(Array.isArray(record.npm)
+          ? { npm: record.npm.filter((item): item is string => typeof item === 'string') }
+          : {}),
+        models,
+      }
+    })
+    .filter((provider): provider is OpenCodeCatalogProvider => provider !== null)
+}
+
+function coerceDefaultModels(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
 }
