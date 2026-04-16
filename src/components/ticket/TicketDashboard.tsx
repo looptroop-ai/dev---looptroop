@@ -453,6 +453,7 @@ export function TicketDashboard() {
   const summaryErrorMessage = selectedErrorOccurrence?.errorMessage
     ?? liveErrorOccurrence?.errorMessage
     ?? effectiveTicket.errorMessage
+  const isReconnecting = liveUpdatesState === 'reconnecting'
 
   return (
     <LogProvider key={ticketId} ticketId={ticketId} currentStatus={currentStatus}>
@@ -464,113 +465,132 @@ export function TicketDashboard() {
       />
       <div className="fixed inset-0 z-[60] bg-background flex flex-col">
         <DashboardHeader ticket={effectiveTicket} />
-        {liveUpdatesState === 'reconnecting' && (
-          <div className="border-b border-amber-200 bg-amber-50/90 px-3 py-1.5 dark:border-amber-900/60 dark:bg-amber-950/40">
-            <Badge
-              variant="outline"
-              className="gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-              title="Realtime updates disconnected. LoopTroop is refetching the ticket and will reconnect automatically."
-            >
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              Live updates reconnecting...
-            </Badge>
-          </div>
-        )}
-
-        {/* Mobile nav toggle */}
-        <div className="md:hidden flex items-center px-3 py-2 border-b border-border">
-          <button
-            className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
-            onClick={() => setMobileNavOpen(true)}
-            aria-label="Open navigation"
+        {isReconnecting && (
+          <div
+            className="border-b border-amber-200 bg-amber-50/90 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/40"
+            role="status"
+            aria-live="polite"
           >
-            <Menu className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Mobile nav overlay */}
-        {mobileNavOpen && (
-          <div className="md:hidden fixed inset-0 z-[70]">
-            <div className="fixed inset-0 bg-black/50" onClick={closeMobileNav} />
-            <div className="fixed left-0 top-0 bottom-0 z-[71] w-72 bg-background border-r border-border shadow-xl flex flex-col">
-              <div className="flex items-center justify-end p-2">
-                <button
-                  className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
-                  onClick={closeMobileNav}
-                  aria-label="Close navigation"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <NavigatorPanel
-                  ticketId={ticket.id}
-                  ticket={effectiveTicket}
-                  currentStatus={currentStatus}
-                  selectedPhase={activePhase}
-                  selectedErrorOccurrenceId={selectedErrorOccurrenceId}
-                  reviewCutoffStatus={reviewCutoffStatus}
-                  previousStatus={previousStatus}
-                  fullLogOpen={fullLogOpen}
-                  onSelectPhase={(phase) => {
-                    handleSelectPhase(phase)
-                    setMobileNavOpen(false)
-                  }}
-                  onSelectErrorOccurrence={(occurrenceId) => {
-                    handleSelectErrorOccurrence(occurrenceId)
-                    setMobileNavOpen(false)
-                  }}
-                  onOpenFullLog={() => {
-                    handleOpenFullLog()
-                    setMobileNavOpen(false)
-                  }}
-                  contextPhase={contextPhase}
-                />
-              </div>
+            <div className="flex flex-col gap-1">
+              <Badge
+                variant="outline"
+                className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                title="Realtime updates disconnected. LoopTroop is refetching the ticket and will reconnect automatically."
+              >
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Live updates reconnecting...
+              </Badge>
+              <p className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/80">
+                LoopTroop is refetching the latest ticket state and will reconnect automatically.
+              </p>
             </div>
           </div>
         )}
 
-        <div className="flex flex-1 overflow-hidden">
-          {/* Navigator Panel — hidden on mobile */}
-          <div
-            className="hidden md:block flex-shrink-0 border-r border-border overflow-hidden"
-            style={{ width: navWidth }}
-          >
-            <NavigatorPanel
-              ticketId={ticket.id}
-              ticket={effectiveTicket}
-              currentStatus={currentStatus}
-              selectedPhase={activePhase}
-              selectedErrorOccurrenceId={selectedErrorOccurrenceId}
-              reviewCutoffStatus={reviewCutoffStatus}
-              previousStatus={previousStatus}
-              fullLogOpen={fullLogOpen}
-              onSelectPhase={handleSelectPhase}
-              onSelectErrorOccurrence={handleSelectErrorOccurrence}
-              onOpenFullLog={handleOpenFullLog}
-              contextPhase={contextPhase}
+        <div className="relative flex flex-1 flex-col overflow-hidden">
+          {isReconnecting && (
+            <div
+              aria-hidden="true"
+              data-testid="live-updates-reconnecting-overlay"
+              className="pointer-events-none absolute inset-0 z-10 bg-slate-300/10 backdrop-blur-[1px] transition-all duration-200 dark:bg-slate-950/10"
             />
+          )}
+
+          {/* Mobile nav toggle */}
+          <div className="md:hidden flex items-center px-3 py-2 border-b border-border">
+            <button
+              className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
           </div>
-          <ResizeHandle onResize={setNavWidth} />
-          {/* Active Workspace */}
-          <div className="flex flex-col flex-1 overflow-hidden">
-            {!fullLogOpen && (
-              <WorkspacePhaseSummary
-                key={effectiveTicket.id}
-                phase={summaryPhase}
+
+          {/* Mobile nav overlay */}
+          {mobileNavOpen && (
+            <div className="md:hidden fixed inset-0 z-[70]">
+              <div className="fixed inset-0 bg-black/50" onClick={closeMobileNav} />
+              <div className="fixed left-0 top-0 bottom-0 z-[71] w-72 bg-background border-r border-border shadow-xl flex flex-col">
+                <div className="flex items-center justify-end p-2">
+                  <button
+                    className="flex items-center justify-center h-8 w-8 rounded-md border border-border text-foreground hover:bg-accent"
+                    onClick={closeMobileNav}
+                    aria-label="Close navigation"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <NavigatorPanel
+                    ticketId={ticket.id}
+                    ticket={effectiveTicket}
+                    currentStatus={currentStatus}
+                    selectedPhase={activePhase}
+                    selectedErrorOccurrenceId={selectedErrorOccurrenceId}
+                    reviewCutoffStatus={reviewCutoffStatus}
+                    previousStatus={previousStatus}
+                    fullLogOpen={fullLogOpen}
+                    onSelectPhase={(phase) => {
+                      handleSelectPhase(phase)
+                      setMobileNavOpen(false)
+                    }}
+                    onSelectErrorOccurrence={(occurrenceId) => {
+                      handleSelectErrorOccurrence(occurrenceId)
+                      setMobileNavOpen(false)
+                    }}
+                    onOpenFullLog={() => {
+                      handleOpenFullLog()
+                      setMobileNavOpen(false)
+                    }}
+                    contextPhase={contextPhase}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-1 overflow-hidden">
+            {/* Navigator Panel — hidden on mobile */}
+            <div
+              className="hidden md:block flex-shrink-0 border-r border-border overflow-hidden"
+              style={{ width: navWidth }}
+            >
+              <NavigatorPanel
+                ticketId={ticket.id}
                 ticket={effectiveTicket}
-                errorMessage={summaryErrorMessage}
+                currentStatus={currentStatus}
+                selectedPhase={activePhase}
+                selectedErrorOccurrenceId={selectedErrorOccurrenceId}
+                reviewCutoffStatus={reviewCutoffStatus}
+                previousStatus={previousStatus}
+                fullLogOpen={fullLogOpen}
+                onSelectPhase={handleSelectPhase}
+                onSelectErrorOccurrence={handleSelectErrorOccurrence}
+                onOpenFullLog={handleOpenFullLog}
+                contextPhase={contextPhase}
               />
-            )}
-            <ActiveWorkspace
-              ticket={effectiveTicket}
-              selectedPhase={activePhase}
-              selectedErrorOccurrenceId={activeErrorOccurrenceId}
-              previousStatus={previousStatus}
-              reviewCutoffStatus={reviewCutoffStatus}
-              fullLogOpen={fullLogOpen}
-            />
+            </div>
+            <ResizeHandle onResize={setNavWidth} />
+            {/* Active Workspace */}
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {!fullLogOpen && (
+                <WorkspacePhaseSummary
+                  key={effectiveTicket.id}
+                  phase={summaryPhase}
+                  ticket={effectiveTicket}
+                  errorMessage={summaryErrorMessage}
+                />
+              )}
+              <ActiveWorkspace
+                ticket={effectiveTicket}
+                selectedPhase={activePhase}
+                selectedErrorOccurrenceId={activeErrorOccurrenceId}
+                previousStatus={previousStatus}
+                reviewCutoffStatus={reviewCutoffStatus}
+                fullLogOpen={fullLogOpen}
+              />
+            </div>
           </div>
         </div>
       </div>

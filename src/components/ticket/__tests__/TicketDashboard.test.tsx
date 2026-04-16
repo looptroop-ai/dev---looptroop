@@ -284,6 +284,10 @@ describe('TicketDashboard', () => {
     renderDashboard()
 
     expect(await screen.findByText('Live updates reconnecting...')).toBeInTheDocument()
+    expect(
+      screen.getByText('LoopTroop is refetching the latest ticket state and will reconnect automatically.'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('live-updates-reconnecting-overlay')).toBeInTheDocument()
   })
 
   it('keeps a manually selected past phase pinned across live transitions', async () => {
