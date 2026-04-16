@@ -21,6 +21,12 @@ function buildPlan(ticketId: string, summary = 'Prepare the temporary runtime.')
     artifact: 'execution_setup_plan',
     status: 'draft',
     summary,
+    readiness: {
+      status: 'partial',
+      actions_required: true,
+      evidence: ['Repository manifest files are present.'],
+      gaps: ['Reusable workspace dependencies have not been prepared yet.'],
+    },
     temp_roots: ['.ticket/runtime/execution-setup'],
     steps: [
       {
@@ -89,6 +95,12 @@ vi.mock('../../workflow/phases/executionSetupPlanPhase', async () => {
           artifact: 'execution_setup_plan',
           status: 'draft',
           summary: nextPlan.summary as string,
+          readiness: {
+            status: 'partial',
+            actionsRequired: true,
+            evidence: ['Repository manifest files are present.'],
+            gaps: ['Reusable workspace dependencies have not been prepared yet.'],
+          },
           tempRoots: ['.ticket/runtime/execution-setup'],
           steps: [
             {
@@ -256,6 +268,12 @@ describe('ticketRouter execution setup plan approval routes', () => {
           artifact: 'execution_setup_plan',
           status: 'draft',
           summary: 'Structured save',
+          readiness: {
+            status: 'partial',
+            actionsRequired: true,
+            evidence: ['Manifest files were found.'],
+            gaps: ['Dependencies still need a temporary bootstrap step.'],
+          },
           tempRoots: ['.ticket/runtime/execution-setup'],
           steps: [
             {
@@ -290,6 +308,107 @@ describe('ticketRouter execution setup plan approval routes', () => {
     expect(payload.plan.summary).toBe('Structured save')
     const stored = getLatestPhaseArtifact(ticket.id, 'execution_setup_plan', 'WAITING_EXECUTION_SETUP_APPROVAL')
     expect(stored?.content).toContain('Structured save')
+  })
+
+  it('saves a no-op execution setup plan when the workspace is already ready', async () => {
+    const { app, ticket } = setupExecutionSetupPlanTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/execution-setup-plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan: {
+          schemaVersion: 1,
+          ticketId: ticket.externalId,
+          artifact: 'execution_setup_plan',
+          status: 'draft',
+          summary: 'Workspace already looks ready.',
+          readiness: {
+            status: 'ready',
+            actionsRequired: false,
+            evidence: ['Reusable setup profile already exists.'],
+            gaps: [],
+          },
+          tempRoots: ['.ticket/runtime/execution-setup'],
+          steps: [],
+          projectCommands: {
+            prepare: [],
+            testFull: [],
+            lintFull: [],
+            typecheckFull: [],
+          },
+          qualityGatePolicy: {
+            tests: 'bead-test-commands-first',
+            lint: 'impacted-or-package',
+            typecheck: 'impacted-or-package',
+            fullProjectFallback: 'never-block-on-unrelated-baseline',
+          },
+          cautions: [],
+        },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      plan: { readiness: { status: string; actionsRequired: boolean }; steps: unknown[] }
+    }
+    expect(payload.plan.readiness.status).toBe('ready')
+    expect(payload.plan.readiness.actionsRequired).toBe(false)
+    expect(payload.plan.steps).toHaveLength(0)
+  })
+
+  it('rejects inconsistent structured execution setup plans', async () => {
+    const { app, ticket } = setupExecutionSetupPlanTicket()
+
+    const response = await app.request(`/api/tickets/${ticket.id}/execution-setup-plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan: {
+          schemaVersion: 1,
+          ticketId: ticket.externalId,
+          artifact: 'execution_setup_plan',
+          status: 'draft',
+          summary: 'Invalid plan',
+          readiness: {
+            status: 'ready',
+            actionsRequired: false,
+            evidence: ['Existing runtime artifacts were found.'],
+            gaps: [],
+          },
+          tempRoots: ['.ticket/runtime/execution-setup'],
+          steps: [
+            {
+              id: 'still-has-step',
+              title: 'This should not be allowed',
+              purpose: 'Contradicts ready status.',
+              commands: ['echo invalid'],
+              required: false,
+              rationale: 'Invalid by design for the test.',
+              cautions: [],
+            },
+          ],
+          projectCommands: {
+            prepare: [],
+            testFull: [],
+            lintFull: [],
+            typecheckFull: [],
+          },
+          qualityGatePolicy: {
+            tests: 'bead-test-commands-first',
+            lint: 'impacted-or-package',
+            typecheck: 'impacted-or-package',
+            fullProjectFallback: 'never-block-on-unrelated-baseline',
+          },
+          cautions: [],
+        },
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    const payload = await response.json() as { error: string; details: string }
+    expect(payload.error).toBe('Failed to save execution setup plan')
+    expect(payload.details).toContain('cannot include setup steps when readiness is ready')
   })
 
   it('regenerates the execution setup plan with commentary', async () => {

@@ -69,6 +69,12 @@ function buildRegenerateContext(baseContext: PromptPart[], currentPlan: Executio
         artifact: currentPlan.artifact,
         status: currentPlan.status,
         summary: currentPlan.summary,
+        readiness: {
+          status: currentPlan.readiness.status,
+          actions_required: currentPlan.readiness.actionsRequired,
+          evidence: currentPlan.readiness.evidence,
+          gaps: currentPlan.readiness.gaps,
+        },
         temp_roots: currentPlan.tempRoots,
         steps: currentPlan.steps,
         project_commands: {
@@ -131,8 +137,8 @@ async function generateAndPersistExecutionSetupPlan(input: {
     'WAITING_EXECUTION_SETUP_APPROVAL',
     'info',
     input.source === 'auto'
-      ? 'Drafting the execution setup plan for review.'
-      : 'Regenerating the execution setup plan from user commentary.',
+      ? 'Auditing workspace readiness and drafting the execution setup plan for review.'
+      : 'Regenerating the readiness assessment and execution setup plan from user commentary.',
   )
 
   const generation = await generateExecutionSetupPlan(
@@ -236,7 +242,7 @@ async function generateAndPersistExecutionSetupPlan(input: {
     'WAITING_EXECUTION_SETUP_APPROVAL',
     report.ready ? 'info' : 'error',
     report.ready
-      ? 'Execution setup plan draft is ready for review.'
+      ? 'Execution setup readiness plan is ready for review.'
       : `Execution setup plan generation failed: ${report.errors.join('; ') || 'validation failed'}`,
   )
 

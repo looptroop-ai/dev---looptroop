@@ -614,7 +614,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Execution readiness decision — either "ready to draft the setup plan" or "blocked with specific failure reason."',
     ],
     transitions: [
-      'All Checks Pass → Approve Workspace Setup: The workflow advances to the setup-plan approval gate, which drafts the temporary workspace-preparation plan before anything mutates the worktree.',
+      'All Checks Pass → Approve Workspace Setup: The workflow advances to the setup-plan approval gate, which audits workspace readiness and drafts only any missing temporary setup before anything mutates the worktree.',
       'Any Critical Failure → Blocked Error: Connectivity failures, missing artifacts, dependency graph problems, or workspace integrity issues route the ticket to Blocked Error with a detailed failure reason.',
     ],
     notes: [
@@ -624,35 +624,37 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   WAITING_EXECUTION_SETUP_APPROVAL: {
-    overview: 'LoopTroop drafts a temporary environment-setup plan and pauses for your review before any execution setup commands run. This gate keeps environment preparation separate from the beads blueprint: beads approval decides what to build, while setup-plan approval decides how LoopTroop may prepare the worktree for coding. You can edit the ordered setup steps directly, tweak or replace commands, regenerate the draft with commentary, and approve only when the temporary setup strategy matches your environment expectations.',
+    overview: 'LoopTroop audits the current workspace, drafts only the temporary setup that is still missing, and pauses for your review before any execution setup commands run. This gate keeps environment preparation separate from the beads blueprint: beads approval decides what to build, while setup-plan approval decides whether anything must be prepared and, if so, how LoopTroop may prepare the worktree for coding. The review artifact now includes an explicit readiness assessment, so it can cleanly say "already ready, no actions required" without forcing placeholder setup steps.',
     steps: [
-      'Automatic Drafting On Entry: When this state is entered, LoopTroop asks the locked main implementer to inspect the approved ticket details, relevant files, PRD, and beads, then propose a temporary-only setup plan. The draft is created automatically if no current setup-plan artifact exists.',
-      'Structured Setup Plan: The draft plan captures ordered setup steps, the reason each step exists, the commands to run, whether the step is required, the allowed temp roots, discovered project-wide command families, and the default quality-gate policy later coding beads should follow.',
-      'User Review And Editing: The approval UI lets you review the setup steps in structured form, edit commands or descriptions, and fall back to raw YAML/JSON editing when you need full control over the artifact.',
-      'Regenerate With Commentary: If the initial plan is close but not correct, you can send commentary describing what should change. LoopTroop will regenerate the draft in the same approval state, reusing the active planning session when possible so the revision stays grounded in the previous attempt.',
-      'Approval Handoff: Once approved, this plan becomes the primary execution contract for the next phase. The execution-setup agent must start from the approved plan rather than rediscovering workspace initialization from scratch.',
+      'Automatic Readiness Audit On Entry: When this state is entered, LoopTroop asks the locked main implementer to inspect the approved ticket details, relevant files, PRD, beads, the current worktree, and any prior reusable setup profile, then decide whether temporary setup is actually needed. The draft is created automatically if no current setup-plan artifact exists.',
+      'Structured Setup Plan: The draft plan captures an explicit readiness assessment (`ready`, `partial`, or `missing`), whether actions are required, the evidence gathered, unresolved gaps, any ordered setup steps that remain necessary, the allowed temp roots, discovered project-wide command families, and the default quality-gate policy later coding beads should follow.',
+      'No-Action Cases Are First-Class: If the audit finds that the environment already has everything needed, the plan stays reviewable but contains no setup steps. You can still approve it as-is or edit it to add commands if you want LoopTroop to do additional temporary preparation.',
+      'User Review And Editing: The approval UI lets you review the readiness assessment and setup steps in structured form, edit commands or descriptions, add or remove steps, and fall back to raw YAML/JSON editing when you need full control over the artifact.',
+      'Regenerate With Commentary: If the initial assessment or plan is close but not correct, you can send commentary describing what should change. LoopTroop will regenerate the draft in the same approval state, reusing the active planning session when possible so the revision stays grounded in the previous attempt.',
+      'Approval Handoff: Once approved, this plan becomes the primary execution contract for the next phase. The execution-setup agent must respect the approved readiness assessment and start from the approved plan rather than rediscovering workspace initialization from scratch.',
     ],
     outputs: [
-      'Editable `execution_setup_plan` artifact containing the proposed temporary environment-setup plan plus its user-facing diagnostics and regenerate commentary history.',
+      'Editable `execution_setup_plan` artifact containing the readiness assessment, any proposed temporary environment-setup steps, user-facing diagnostics, and regenerate commentary history.',
       'Underlying plan-generation report and notes artifacts retained for workflow context, auditability, and regenerate continuity.',
       'Approval receipt confirming the reviewed setup plan was explicitly approved before execution setup begins.',
     ],
     transitions: [
-      'Approve → Setting Up Workspace: The workflow advances to the execution setup phase, which executes the approved temporary setup plan and writes the reusable runtime profile.',
+      'Approve → Preparing Workspace Runtime: The workflow advances to the execution setup phase, which verifies the approved readiness assessment, performs only the missing temporary setup, and writes the reusable runtime profile.',
       'Regenerate → Stays Here: Regeneration replaces the current setup-plan draft while remaining in the same approval state for another review pass.',
       'Generation Failure → Blocked Error: If LoopTroop cannot produce a valid setup-plan artifact, the ticket routes to Blocked Error with the plan report preserved for diagnosis.',
     ],
     notes: [
       'This state is still pre-coding. No permanent repository files should be modified here.',
       'No AI execution proceeds past this gate until you approve the proposed setup plan.',
-      'The approved setup plan is separate from the final execution setup profile. The profile is produced only after the next phase actually runs the plan inside LoopTroop-owned runtime paths.',
+      'The approved setup plan is separate from the final execution setup profile. The profile is produced only after the next phase verifies readiness and runs any approved temporary setup inside LoopTroop-owned runtime paths.',
     ],
   },
   PREPARING_EXECUTION_ENV: {
-    overview: 'LoopTroop runs a dedicated execution setup phase after the setup-plan approval gate and before coding. This is an AI-driven, retryable, temporary-only phase whose only job is to execute the approved setup plan, initialize a reusable execution environment under LoopTroop-owned runtime paths, and persist a compact setup profile for later beads to consume.',
+    overview: 'LoopTroop runs a dedicated execution setup phase after the setup-plan approval gate and before coding. This is an AI-driven, retryable, temporary-only phase whose job is to verify the approved readiness assessment, perform only the missing temporary setup under LoopTroop-owned runtime paths, and persist a compact setup profile for later beads to consume. When the approved plan says the environment is already ready, this phase should stay effectively no-op aside from verification and profile emission.',
     steps: [
-      'Approved Plan First: The locked main implementer reads the approved setup-plan artifact first, then loads the supporting planning context — ticket details, relevant files, PRD, beads plan, and any prior setup retry notes. User edits in the approved plan take precedence over the model\'s original draft.',
-      'Temporary-Only Initialization: The setup agent executes the approved temporary steps, may inspect the repository, run repo-native bootstrap commands, warm caches, or prepare generated runtime artifacts, but only inside LoopTroop-owned runtime paths under `.ticket/runtime/execution-setup/**` plus the profile mirror file `.ticket/runtime/execution-setup-profile.json`.',
+      'Approved Plan First: The locked main implementer reads the approved setup-plan artifact first, then loads the supporting planning context — ticket details, relevant files, PRD, beads plan, any prior reusable setup profile, and any prior setup retry notes. User edits in the approved plan take precedence over the model\'s original draft.',
+      'Readiness Verification Before Action: The setup agent must verify the approved readiness assessment first. If the approved plan says no actions are required and that remains true, it should avoid running bootstrap commands and simply emit a reusable profile describing the ready environment.',
+      'Temporary-Only Initialization: When setup is still missing, the agent executes only the approved temporary steps, may inspect the repository, run repo-native bootstrap commands, warm caches, or prepare generated runtime artifacts, but only inside LoopTroop-owned runtime paths under `.ticket/runtime/execution-setup/**` plus the profile mirror file `.ticket/runtime/execution-setup-profile.json`.',
       'Reusable Profile Generation: The agent finishes by returning a structured execution setup result that records the temp roots it prepared, bootstrap commands it used, reusable artifacts it created, discovered project command families, and the quality-gate policy later coding beads should follow.',
       'Audited Augmentations: If the approved plan is insufficient and the setup agent must run extra temporary-only commands, those additions are recorded in the setup report so you can see exactly how execution diverged from the approved draft.',
       'Structured Validation: LoopTroop parses the result via a strict marker/schema contract. If the marker or schema is wrong, it sends a same-session structured retry prompt instead of treating the attempt as an implementation failure.',
@@ -1171,7 +1173,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_EXECUTION_SETUP_APPROVAL',
     label: 'Approve Workspace Setup',
-    description: 'Review and approve the proposed temporary workspace preparation before execution runs it.',
+    description: 'Review the readiness audit and approve any temporary workspace preparation before execution runs it.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_EXECUTION_SETUP_APPROVAL,
     kanbanPhase: 'needs_input',
     groupId: 'execution',
@@ -1183,8 +1185,8 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'PREPARING_EXECUTION_ENV',
-    label: 'Setting Up Workspace',
-    description: 'Initializing a reusable temporary execution environment before coding begins.',
+    label: 'Preparing Workspace Runtime',
+    description: 'Verifying readiness and performing only the missing temporary execution setup before coding begins.',
     details: WORKFLOW_PHASE_DETAILS.PREPARING_EXECUTION_ENV,
     kanbanPhase: 'in_progress',
     groupId: 'execution',

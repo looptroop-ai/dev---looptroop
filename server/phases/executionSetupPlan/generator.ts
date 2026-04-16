@@ -25,11 +25,13 @@ import type { ExecutionSetupPlanGenerationResult } from './types'
 
 const EXECUTION_SETUP_PLAN_SCHEMA_REMINDER = [
   'Return exactly one <EXECUTION_SETUP_PLAN>...</EXECUTION_SETUP_PLAN> block and nothing else.',
-  'Inside the marker, return a single JSON or YAML object with top-level keys: schema_version, ticket_id, artifact, status, summary, temp_roots, steps, project_commands, quality_gate_policy, cautions.',
+  'Inside the marker, return a single JSON or YAML object with top-level keys: schema_version, ticket_id, artifact, status, summary, readiness, temp_roots, steps, project_commands, quality_gate_policy, cautions.',
   'artifact must be execution_setup_plan.',
   'status must be draft.',
+  'readiness.status must be ready, partial, or missing.',
+  'readiness.actions_required must be false only when readiness.status is ready.',
   'temp_roots must stay inside .ticket/runtime/execution-setup.',
-  'steps must be a non-empty ordered list of setup steps.',
+  'steps must be empty when readiness says the environment is ready, otherwise steps must be a non-empty ordered list of setup steps.',
 ].join('\n')
 
 type ExecutionSetupPlanPromptStage =

@@ -56,8 +56,13 @@ export function saveExecutionSetupPlan(ticketId: string, plan: ExecutionSetupPla
   plan: ExecutionSetupPlan
 } {
   const raw = serializeExecutionSetupPlan(plan)
-  upsertLatestPhaseArtifact(ticketId, EXECUTION_SETUP_PLAN_ARTIFACT_TYPE, EXECUTION_SETUP_PLAN_PHASE, raw)
-  return { raw, plan }
+  const normalized = normalizeStoredExecutionSetupPlanContent(raw)
+  if (!normalized.ok) {
+    throw new Error(normalized.error)
+  }
+  const canonicalRaw = serializeExecutionSetupPlan(normalized.value)
+  upsertLatestPhaseArtifact(ticketId, EXECUTION_SETUP_PLAN_ARTIFACT_TYPE, EXECUTION_SETUP_PLAN_PHASE, canonicalRaw)
+  return { raw: canonicalRaw, plan: normalized.value }
 }
 
 export function saveExecutionSetupPlanRawContent(ticketId: string, rawContent: string): {

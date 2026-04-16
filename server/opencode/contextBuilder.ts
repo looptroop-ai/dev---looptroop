@@ -33,10 +33,10 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   beads_expand: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
   // PROM23: "Final PRD + semantic Beads blueprint"
   beads_coverage: ['prd', 'beads'],
-  // Execution setup-plan review: approved planning context + prior regenerate notes
-  execution_setup_plan: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan_notes'],
+  // Execution setup-plan review: approved planning context + any prior reusable setup profile + prior regenerate notes
+  execution_setup_plan: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_profile', 'execution_setup_plan_notes'],
   // Execution setup-plan regenerate: same as above plus current draft plan
-  execution_setup_plan_regenerate: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_plan_notes'],
+  execution_setup_plan_regenerate: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_profile', 'execution_setup_plan', 'execution_setup_plan_notes'],
   // Execution setup: approved planning context + prior setup retry notes
   execution_setup: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
   // Execution: bead data + notes from previous iterations

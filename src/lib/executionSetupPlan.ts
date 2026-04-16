@@ -12,12 +12,20 @@ export interface ExecutionSetupPlanStep {
   cautions: string[]
 }
 
+export interface ExecutionSetupPlanReadiness {
+  status: 'ready' | 'partial' | 'missing'
+  actionsRequired: boolean
+  evidence: string[]
+  gaps: string[]
+}
+
 export interface ExecutionSetupPlan {
   schemaVersion: number
   ticketId: string
   artifact: 'execution_setup_plan'
   status: 'draft'
   summary: string
+  readiness: ExecutionSetupPlanReadiness
   tempRoots: string[]
   steps: ExecutionSetupPlanStep[]
   projectCommands: {
@@ -43,6 +51,15 @@ function toStringArray(value: unknown): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeReadinessStatus(value: unknown): ExecutionSetupPlanReadiness['status'] {
+  if (typeof value !== 'string') return 'ready'
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'ready') return 'ready'
+  if (normalized === 'missing') return 'missing'
+  if (['partial', 'needs_setup', 'needs-setup', 'incomplete'].includes(normalized)) return 'partial'
+  return 'ready'
 }
 
 function toExecutionSetupPlan(value: unknown): ExecutionSetupPlan | null {
@@ -75,6 +92,22 @@ function toExecutionSetupPlan(value: unknown): ExecutionSetupPlan | null {
       })
     : []
 
+  const readinessRecord = isRecord(value.readiness)
+    ? value.readiness
+    : isRecord(value.environment_readiness)
+      ? value.environment_readiness
+      : null
+
+  const derivedReadinessStatus: ExecutionSetupPlanReadiness['status'] = steps.length > 0 ? 'partial' : 'ready'
+  const readinessStatus = readinessRecord
+    ? normalizeReadinessStatus(readinessRecord.status)
+    : derivedReadinessStatus
+  const actionsRequired = readinessRecord && typeof readinessRecord.actionsRequired === 'boolean'
+    ? readinessRecord.actionsRequired
+    : readinessRecord && typeof readinessRecord.actions_required === 'boolean'
+      ? readinessRecord.actions_required
+      : readinessStatus !== 'ready'
+
   return {
     schemaVersion: typeof value.schemaVersion === 'number'
       ? value.schemaVersion
@@ -89,6 +122,12 @@ function toExecutionSetupPlan(value: unknown): ExecutionSetupPlan | null {
     artifact: 'execution_setup_plan',
     status: 'draft',
     summary: typeof value.summary === 'string' ? value.summary : '',
+    readiness: {
+      status: readinessStatus,
+      actionsRequired,
+      evidence: toStringArray(readinessRecord?.evidence),
+      gaps: toStringArray(readinessRecord?.gaps),
+    },
     tempRoots: toStringArray(value.tempRoots ?? value.temp_roots),
     steps,
     projectCommands: {
@@ -125,6 +164,19 @@ export function parseExecutionSetupPlanContent(content: string): { plan: Executi
     if (!plan || !plan.summary) {
       return { plan: null, error: 'Execution setup plan content is missing required fields.' }
     }
+    if (plan.readiness.status === 'ready') {
+      if (plan.readiness.actionsRequired) {
+        return { plan: null, error: 'Ready execution setup plans cannot require actions.' }
+      }
+      if (plan.readiness.gaps.length > 0) {
+        return { plan: null, error: 'Ready execution setup plans cannot list unresolved gaps.' }
+      }
+      if (plan.steps.length > 0) {
+        return { plan: null, error: 'Ready execution setup plans must not include setup steps.' }
+      }
+    } else if (plan.steps.length === 0) {
+      return { plan: null, error: 'Execution setup plans with missing work must include at least one setup step.' }
+    }
     return { plan, error: null }
   } catch (error) {
     return {
@@ -141,6 +193,12 @@ export function serializeExecutionSetupPlan(plan: ExecutionSetupPlan): string {
     artifact: plan.artifact,
     status: plan.status,
     summary: plan.summary,
+    readiness: {
+      status: plan.readiness.status,
+      actions_required: plan.readiness.actionsRequired,
+      evidence: plan.readiness.evidence,
+      gaps: plan.readiness.gaps,
+    },
     temp_roots: plan.tempRoots,
     steps: plan.steps,
     project_commands: {

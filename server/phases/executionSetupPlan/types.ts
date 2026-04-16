@@ -52,6 +52,12 @@ export function serializeExecutionSetupPlan(plan: ExecutionSetupPlan): string {
     artifact: plan.artifact,
     status: plan.status,
     summary: plan.summary,
+    readiness: {
+      status: plan.readiness.status,
+      actions_required: plan.readiness.actionsRequired,
+      evidence: plan.readiness.evidence,
+      gaps: plan.readiness.gaps,
+    },
     temp_roots: plan.tempRoots,
     steps: plan.steps.map((step) => ({
       id: step.id,

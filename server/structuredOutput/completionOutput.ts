@@ -315,6 +315,21 @@ function normalizeExecutionSetupPath(value: unknown, fieldLabel: string): string
   return path
 }
 
+function normalizeExecutionSetupPlanReadinessStatus(value: unknown): 'ready' | 'partial' | 'missing' {
+  const raw = getRequiredString({ status: value }, ['status'], 'readiness.status')
+  const normalized = normalizeKey(raw)
+  if (['ready', 'complete', 'completed', 'ok'].includes(normalized)) {
+    return 'ready'
+  }
+  if (['partial', 'needssetup', 'incomplete'].includes(normalized)) {
+    return 'partial'
+  }
+  if (['missing', 'notready', 'uninitialized'].includes(normalized)) {
+    return 'missing'
+  }
+  throw new Error(`Invalid execution setup readiness status: ${raw}`)
+}
+
 function normalizeExecutionSetupProjectCommands(value: unknown, fieldLabel: string): ExecutionSetupPlanPayload['projectCommands'] {
   if (!isRecord(value)) throw new Error(`${fieldLabel} missing object`)
   return {
@@ -332,6 +347,33 @@ function normalizeExecutionSetupQualityGatePolicy(value: unknown, fieldLabel: st
     lint: getRequiredString(value, ['lint'], `${fieldLabel}.lint`),
     typecheck: getRequiredString(value, ['typecheck'], `${fieldLabel}.typecheck`),
     fullProjectFallback: getRequiredString(value, ['fullprojectfallback'], `${fieldLabel}.full_project_fallback`),
+  }
+}
+
+function normalizeExecutionSetupPlanReadiness(
+  value: unknown,
+  defaults: { status: 'ready' | 'partial' | 'missing'; actionsRequired: boolean },
+): ExecutionSetupPlanPayload['readiness'] {
+  if (!isRecord(value)) {
+    return {
+      status: defaults.status,
+      actionsRequired: defaults.actionsRequired,
+      evidence: [],
+      gaps: [],
+    }
+  }
+
+  const status = normalizeExecutionSetupPlanReadinessStatus(getValueByAliases(value, ['status']))
+  const actionsRequiredRaw = getValueByAliases(value, ['actionsrequired', 'actions_required'])
+  const actionsRequired = typeof actionsRequiredRaw === 'boolean'
+    ? actionsRequiredRaw
+    : status !== 'ready'
+
+  return {
+    status,
+    actionsRequired,
+    evidence: toStringArray(getValueByAliases(value, ['evidence', 'signals', 'findings'])),
+    gaps: toStringArray(getValueByAliases(value, ['gaps', 'missing', 'missingwork'])),
   }
 }
 
@@ -359,10 +401,7 @@ function normalizeExecutionSetupPlan(value: unknown): ExecutionSetupPlanPayload 
   }
 
   const rawSteps = getValueByAliases(value, ['steps', 'plansteps'])
-  if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
-    throw new Error('Execution setup plan requires a non-empty steps list')
-  }
-  const steps = rawSteps.map((entry, index) => {
+  const steps = Array.isArray(rawSteps) ? rawSteps.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`steps[${index}] must be an object`)
     return {
       id: getRequiredString(entry, ['id'], `steps[${index}].id`),
@@ -373,7 +412,34 @@ function normalizeExecutionSetupPlan(value: unknown): ExecutionSetupPlanPayload 
       rationale: getRequiredString(entry, ['rationale', 'reason'], `steps[${index}].rationale`),
       cautions: toStringArray(getValueByAliases(entry, ['cautions', 'warnings', 'notes'])),
     }
-  })
+  }) : []
+
+  const readiness = normalizeExecutionSetupPlanReadiness(
+    getValueByAliases(value, ['readiness', 'environmentreadiness', 'environment_readiness']),
+    {
+      status: steps.length > 0 ? 'partial' : 'ready',
+      actionsRequired: steps.length > 0,
+    },
+  )
+
+  if (readiness.status === 'ready') {
+    if (readiness.actionsRequired) {
+      throw new Error('Execution setup plan readiness cannot be ready when actions_required is true')
+    }
+    if (readiness.gaps.length > 0) {
+      throw new Error('Execution setup plan readiness cannot list gaps when status is ready')
+    }
+    if (steps.length > 0) {
+      throw new Error('Execution setup plan cannot include setup steps when readiness is ready')
+    }
+  } else {
+    if (!readiness.actionsRequired) {
+      throw new Error('Execution setup plan readiness must require actions unless status is ready')
+    }
+    if (steps.length === 0) {
+      throw new Error('Execution setup plan requires at least one setup step when actions are required')
+    }
+  }
 
   const projectCommands = normalizeExecutionSetupProjectCommands(
     getValueByAliases(value, ['projectcommands', 'commands']),
@@ -391,6 +457,7 @@ function normalizeExecutionSetupPlan(value: unknown): ExecutionSetupPlanPayload 
     artifact: 'execution_setup_plan',
     status,
     summary,
+    readiness,
     tempRoots: [...new Set(tempRoots)],
     steps,
     projectCommands,
@@ -487,6 +554,12 @@ function toCanonicalExecutionSetupPlanPayload(value: ExecutionSetupPlanPayload):
     artifact: value.artifact,
     status: value.status,
     summary: value.summary,
+    readiness: {
+      status: value.readiness.status,
+      actions_required: value.readiness.actionsRequired,
+      evidence: value.readiness.evidence,
+      gaps: value.readiness.gaps,
+    },
     temp_roots: value.tempRoots,
     steps: value.steps.map((step) => ({
       id: step.id,

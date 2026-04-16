@@ -1,7 +1,11 @@
 import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { ExecutionSetupPlan, ExecutionSetupPlanStep } from '@/lib/executionSetupPlan'
+import type {
+  ExecutionSetupPlan,
+  ExecutionSetupPlanReadiness,
+  ExecutionSetupPlanStep,
+} from '@/lib/executionSetupPlan'
 
 function StringListEditor({
   items,
@@ -92,6 +96,31 @@ function PolicyField({
   )
 }
 
+function createEmptySetupStep(index: number): ExecutionSetupPlanStep {
+  const stepNumber = index + 1
+  return {
+    id: `setup-step-${stepNumber}`,
+    title: `Setup Step ${stepNumber}`,
+    purpose: '',
+    commands: [],
+    required: true,
+    rationale: '',
+    cautions: [],
+  }
+}
+
+function applyReadinessStatus(
+  readiness: ExecutionSetupPlanReadiness,
+  status: ExecutionSetupPlanReadiness['status'],
+): ExecutionSetupPlanReadiness {
+  return {
+    ...readiness,
+    status,
+    actionsRequired: status !== 'ready',
+    gaps: status === 'ready' ? [] : readiness.gaps,
+  }
+}
+
 interface ExecutionSetupPlanEditorProps {
   plan: ExecutionSetupPlan
   disabled?: boolean
@@ -99,7 +128,7 @@ interface ExecutionSetupPlanEditorProps {
 }
 
 export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: ExecutionSetupPlanEditorProps) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(0)
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(plan.steps.length > 0 ? 0 : null)
 
   const updatePlan = useCallback((update: Partial<ExecutionSetupPlan>) => {
     onChange({
@@ -115,12 +144,49 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
     updatePlan({ steps: nextSteps })
   }, [plan.steps, updatePlan])
 
+  const updateReadiness = useCallback((update: Partial<ExecutionSetupPlanReadiness>) => {
+    const nextStatus = update.status ?? plan.readiness.status
+    const nextReadiness = applyReadinessStatus({
+      ...plan.readiness,
+      ...update,
+    }, nextStatus)
+    updatePlan({ readiness: nextReadiness })
+  }, [plan.readiness, updatePlan])
+
+  const addStep = useCallback(() => {
+    const nextIndex = plan.steps.length
+    const nextStatus = plan.readiness.status === 'ready' ? 'partial' : plan.readiness.status
+    updatePlan({
+      readiness: applyReadinessStatus(plan.readiness, nextStatus),
+      steps: [...plan.steps, createEmptySetupStep(nextIndex)],
+    })
+    setExpandedIndex(nextIndex)
+  }, [plan.readiness, plan.steps, updatePlan])
+
+  const removeStep = useCallback((index: number) => {
+    const nextSteps = plan.steps.filter((_, stepIndex) => stepIndex !== index)
+    const nextReadiness = nextSteps.length === 0
+      ? applyReadinessStatus(plan.readiness, 'ready')
+      : applyReadinessStatus(plan.readiness, plan.readiness.status === 'ready' ? 'partial' : plan.readiness.status)
+    updatePlan({
+      readiness: nextReadiness,
+      steps: nextSteps,
+    })
+    setExpandedIndex((current) => {
+      if (current == null) return null
+      if (nextSteps.length === 0) return null
+      if (current === index) return Math.min(index, nextSteps.length - 1)
+      if (current > index) return current - 1
+      return current
+    })
+  }, [plan.readiness, plan.steps, updatePlan])
+
   return (
     <div className="space-y-3">
       <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
         <div className="font-semibold">Structured setup-plan editor</div>
         <p className="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/90">
-          Review the ordered setup steps, their commands, and the shared command families the execution phase will use later.
+          Review the readiness assessment first, then adjust only the temporary setup steps that should run later.
           Use the raw tab for full-power editing.
         </p>
       </div>
@@ -148,13 +214,71 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <SectionLabel>Readiness Status</SectionLabel>
+              <select
+                value={plan.readiness.status}
+                onChange={(event) => updateReadiness({
+                  status: event.target.value as ExecutionSetupPlanReadiness['status'],
+                })}
+                disabled={disabled}
+                className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+              >
+                <option value="ready">Ready</option>
+                <option value="partial">Partial</option>
+                <option value="missing">Missing</option>
+              </select>
+              {plan.readiness.status === 'ready' && plan.steps.length > 0 ? (
+                <div className="mt-1 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+                  Ready status requires removing all setup steps before saving.
+                </div>
+              ) : null}
+            </div>
+            <Badge variant={plan.readiness.actionsRequired ? 'default' : 'outline'} className="h-5 text-[10px] shrink-0">
+              {plan.readiness.actionsRequired ? 'actions required' : 'no actions required'}
+            </Badge>
+          </div>
+          <div>
+            <SectionLabel>Observed Evidence</SectionLabel>
+            <StringListEditor
+              items={plan.readiness.evidence}
+              onChange={(evidence) => updateReadiness({ evidence })}
+              disabled={disabled}
+              placeholder="Observed repository or runtime evidence..."
+            />
+          </div>
+          <div>
+            <SectionLabel>Open Gaps</SectionLabel>
+            <StringListEditor
+              items={plan.readiness.gaps}
+              onChange={(gaps) => updateReadiness({ gaps })}
+              disabled={disabled || plan.readiness.status === 'ready'}
+              placeholder="Missing prerequisite or unresolved setup gap..."
+            />
+          </div>
+        </div>
+
         <div>
-          <SectionLabel>Prepare Commands</SectionLabel>
+          <SectionLabel>Plan Cautions</SectionLabel>
+          <StringListEditor
+            items={plan.cautions}
+            onChange={(cautions) => updatePlan({ cautions })}
+            disabled={disabled}
+            placeholder="Potential risk or caveat..."
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <SectionLabel>Prepare / Bootstrap Commands</SectionLabel>
           <StringListEditor
             items={plan.projectCommands.prepare}
             onChange={(prepare) => updatePlan({ projectCommands: { ...plan.projectCommands, prepare } })}
             disabled={disabled}
-            placeholder="npm ci"
+            placeholder="Repository-native prepare or bootstrap command"
           />
         </div>
         <div>
@@ -163,7 +287,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
             items={plan.projectCommands.testFull}
             onChange={(testFull) => updatePlan({ projectCommands: { ...plan.projectCommands, testFull } })}
             disabled={disabled}
-            placeholder="npm test"
+            placeholder="Repository-native full test command"
           />
         </div>
         <div>
@@ -172,7 +296,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
             items={plan.projectCommands.lintFull}
             onChange={(lintFull) => updatePlan({ projectCommands: { ...plan.projectCommands, lintFull } })}
             disabled={disabled}
-            placeholder="npm run lint"
+            placeholder="Repository-native full lint command"
           />
         </div>
         <div>
@@ -181,7 +305,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
             items={plan.projectCommands.typecheckFull}
             onChange={(typecheckFull) => updatePlan({ projectCommands: { ...plan.projectCommands, typecheckFull } })}
             disabled={disabled}
-            placeholder="npm run typecheck"
+            placeholder="Repository-native full typecheck command"
           />
         </div>
       </div>
@@ -224,22 +348,34 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
             />
           </div>
         </div>
-        <div>
-          <SectionLabel>Plan Cautions</SectionLabel>
-          <StringListEditor
-            items={plan.cautions}
-            onChange={(cautions) => updatePlan({ cautions })}
-            disabled={disabled}
-            placeholder="Potential risk or caveat..."
-          />
-        </div>
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Setup Steps</div>
-          <Badge variant="outline" className="h-5 text-[10px]">{plan.steps.length}</Badge>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Setup Steps</div>
+            <Badge variant="outline" className="h-5 text-[10px]">{plan.steps.length}</Badge>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addStep}
+            disabled={disabled}
+            className="text-xs"
+          >
+            Add Step
+          </Button>
         </div>
+
+        {plan.steps.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-xs text-muted-foreground">
+            {plan.readiness.actionsRequired
+              ? 'No setup steps are recorded yet. Add the missing temporary steps before saving.'
+              : 'No setup steps are recorded because the current readiness assessment says no actions are required. Add a step if you want LoopTroop to run extra temporary preparation.'}
+          </div>
+        ) : null}
+
         {plan.steps.map((step, index) => {
           const expanded = expandedIndex === index
           return (
@@ -260,6 +396,18 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
               </button>
               {expanded ? (
                 <div className="px-3 pb-3 pt-3 border-t border-border space-y-3">
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeStep(index)}
+                      disabled={disabled}
+                      className="text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      Remove Step
+                    </Button>
+                  </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
                       <SectionLabel>Step Id</SectionLabel>
@@ -296,7 +444,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
                       items={step.commands}
                       onChange={(commands) => updateStep(index, { commands })}
                       disabled={disabled}
-                      placeholder="pnpm install"
+                      placeholder="Repository-native temporary setup command"
                     />
                   </div>
                   <div>

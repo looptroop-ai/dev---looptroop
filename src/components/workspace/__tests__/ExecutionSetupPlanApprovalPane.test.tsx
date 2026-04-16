@@ -15,6 +15,12 @@ function buildPlan(summary = 'Prepare the temporary runtime.') {
     artifact: 'execution_setup_plan' as const,
     status: 'draft' as const,
     summary,
+    readiness: {
+      status: 'partial' as const,
+      actionsRequired: true,
+      evidence: ['Manifest and lockfile were detected.'],
+      gaps: ['Temporary workspace dependencies still need to be prepared.'],
+    },
     tempRoots: ['.ticket/runtime/execution-setup'],
     steps: [
       {
@@ -50,6 +56,12 @@ function buildRawPlan(summary = 'Prepare the temporary runtime.') {
     artifact: 'execution_setup_plan',
     status: 'draft',
     summary,
+    readiness: {
+      status: 'partial',
+      actions_required: true,
+      evidence: ['Manifest and lockfile were detected.'],
+      gaps: ['Temporary workspace dependencies still need to be prepared.'],
+    },
     temp_roots: ['.ticket/runtime/execution-setup'],
     steps: [
       {
@@ -245,7 +257,7 @@ describe('ExecutionSetupPlanApprovalPane', () => {
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Regenerate setup plan')).toBeInTheDocument()
-    expect(within(dialog).getByText(/describe what should change in the temporary workspace-preparation plan/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/describe what should change in the readiness assessment or temporary workspace-preparation plan/i)).toBeInTheDocument()
 
     fireEvent.change(within(dialog).getByRole('textbox'), {
       target: { value: 'Please switch the bootstrap commands from npm to pnpm.' },

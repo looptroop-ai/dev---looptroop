@@ -349,7 +349,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
           <DialogHeader>
             <DialogTitle className="text-sm">Regenerate setup plan</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              Describe what should change in the temporary workspace-preparation plan. If you currently have unsaved edits open, LoopTroop uses that draft as the regenerate baseline.
+              Describe what should change in the readiness assessment or temporary workspace-preparation plan. If you currently have unsaved edits open, LoopTroop uses that draft as the regenerate baseline.
             </DialogDescription>
           </DialogHeader>
 
@@ -363,7 +363,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
                   if (regenerateError) setRegenerateError(null)
                 }}
                 rows={6}
-                placeholder="Describe what should change in the setup plan..."
+                placeholder="Describe what should change in the readiness assessment or setup plan..."
                 className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs resize-y"
               />
             </div>
@@ -385,7 +385,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-semibold">Execution Setup Plan</span>
-          <span className="flex-1 text-xs text-muted-foreground">Review the temporary workspace-preparation plan, edit it if needed, regenerate with commentary, then approve.</span>
+          <span className="flex-1 text-xs text-muted-foreground">Review the workspace readiness audit and any temporary setup steps, edit if needed, regenerate with commentary, then approve.</span>
           <Button
             variant="outline"
             size="sm"
@@ -466,7 +466,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
             <div className="rounded-2xl border border-border bg-muted/20 p-6 text-sm">
               <div className="font-semibold">Building the setup plan.</div>
               <p className="mt-2 text-xs text-muted-foreground">
-                LoopTroop is drafting the temporary workspace-preparation plan now. Live logs remain available below while the draft is being generated.
+                LoopTroop is auditing workspace readiness and drafting any missing temporary setup now. Live logs remain available below while the draft is being generated.
               </p>
             </div>
           ) : editMode ? (
@@ -474,7 +474,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
               {editTab === 'raw' ? (
                 <div className="space-y-3">
                   <div className="rounded-xl border border-border bg-background/80 p-3 text-xs text-muted-foreground">
-                    Raw mode lets you edit the full setup-plan artifact as JSON or YAML.
+                    Raw mode lets you edit the full readiness-and-setup artifact as JSON or YAML.
                   </div>
                   <YamlEditor value={rawDraft} onChange={setRawDraft} className="min-h-[520px] rounded-xl border border-border bg-background" />
                   {rawValidation ? (

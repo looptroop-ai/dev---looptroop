@@ -125,6 +125,12 @@ function buildExecutionSetupPlanContent(summary = 'Prepare temporary runtime ass
     artifact: 'execution_setup_plan',
     status: 'draft',
     summary,
+    readiness: {
+      status: 'partial',
+      actions_required: true,
+      evidence: ['Manifest and lockfile were detected.'],
+      gaps: ['Temporary bootstrap outputs are still missing.'],
+    },
     temp_roots: ['.ticket/runtime/execution-setup', '.ticket/runtime/execution-setup/cache'],
     steps: [
       {
@@ -255,6 +261,8 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('Prepare temporary runtime assets safely.')).toBeInTheDocument()
+    expect(screen.getByText('Observed Evidence')).toBeInTheDocument()
+    expect(screen.getByText('Temporary bootstrap outputs are still missing.')).toBeInTheDocument()
     expect(screen.getByText('Project Command Families')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Generation Details/i }))

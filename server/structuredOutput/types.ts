@@ -112,12 +112,20 @@ export interface ExecutionSetupPlanStepPayload {
   cautions: string[]
 }
 
+export interface ExecutionSetupPlanReadinessPayload {
+  status: 'ready' | 'partial' | 'missing'
+  actionsRequired: boolean
+  evidence: string[]
+  gaps: string[]
+}
+
 export interface ExecutionSetupPlanPayload {
   schemaVersion: number
   ticketId: string
   artifact: 'execution_setup_plan'
   status: 'draft'
   summary: string
+  readiness: ExecutionSetupPlanReadinessPayload
   tempRoots: string[]
   steps: ExecutionSetupPlanStepPayload[]
   projectCommands: {

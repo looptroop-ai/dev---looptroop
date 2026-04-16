@@ -3058,6 +3058,17 @@ function describeExecutionSetupQualityGatePolicy(
   return 'Fallback rule for how later phases should handle broader repository-wide gate failures.'
 }
 
+function labelExecutionSetupReadiness(status: 'ready' | 'partial' | 'missing'): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready'
+    case 'missing':
+      return 'Missing'
+    default:
+      return 'Partial'
+  }
+}
+
 function ExecutionSetupPlanView({
   content,
   reportContent,
@@ -3079,6 +3090,12 @@ function ExecutionSetupPlanView({
   const optionalStepCount = Math.max(stepCount - requiredStepCount, 0)
   const commandCount = plan.steps.reduce((total, step) => total + step.commands.length, 0)
   const generatedAtLabel = formatArtifactTimestampLabel(report?.generatedAt)
+  const readinessLabel = labelExecutionSetupReadiness(plan.readiness.status)
+  const readinessTone = plan.readiness.status === 'ready'
+    ? 'success'
+    : plan.readiness.status === 'missing'
+      ? 'danger'
+      : 'warning'
   const qualityGateEntries = [
     {
       label: 'Tests',
@@ -3166,7 +3183,9 @@ function ExecutionSetupPlanView({
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">{report?.summary || plan.summary}</div>
               <div className="mt-1 text-xs leading-5">
-                Temporary-only setup contract for preparing the workspace before coding begins.
+                {plan.readiness.actionsRequired
+                  ? 'Temporary-only setup contract for preparing the workspace before coding begins.'
+                  : 'Workspace audited as already ready. Approving this plan keeps execution setup effectively no-op unless you edit the plan later.'}
               </div>
               {(generatedAtLabel || report?.source) ? (
                 <div className="mt-2 text-[11px] opacity-80">
@@ -3178,14 +3197,28 @@ function ExecutionSetupPlanView({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+          <MetadataCard label="Readiness" value={readinessLabel} tone={readinessTone} />
+          <MetadataCard label="Actions" value={plan.readiness.actionsRequired ? 'Yes' : 'No'} tone={plan.readiness.actionsRequired ? 'warning' : 'success'} />
           <MetadataCard label="Steps" value={stepCount.toLocaleString()} tone="info" />
           <MetadataCard label="Required" value={requiredStepCount.toLocaleString()} tone={requiredStepCount > 0 ? 'success' : 'default'} />
           <MetadataCard label="Optional" value={optionalStepCount.toLocaleString()} tone={optionalStepCount > 0 ? 'warning' : 'default'} />
           <MetadataCard label="Commands" value={commandCount.toLocaleString()} tone={commandCount > 0 ? 'info' : 'default'} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <ArtifactListSection
+            title="Observed Evidence"
+            items={plan.readiness.evidence}
+            emptyLabel="No readiness evidence was recorded."
+            tone="default"
+          />
+          <ArtifactListSection
+            title="Open Gaps"
+            items={plan.readiness.gaps}
+            emptyLabel={plan.readiness.status === 'ready' ? 'No unresolved setup gaps remain.' : 'No explicit setup gaps were recorded.'}
+            tone={plan.readiness.status === 'ready' ? 'preserved' : 'error'}
+          />
           <ArtifactListSection
             title="Temporary Roots"
             items={plan.tempRoots}
@@ -3210,50 +3243,56 @@ function ExecutionSetupPlanView({
           defaultOpen
         >
           <div className="space-y-3">
-            {plan.steps.map((step, index) => (
-              <div key={step.id || index} className="rounded-lg border border-border bg-background px-3 py-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-mono text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                    #{index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1 text-sm font-semibold">{step.title || `Step ${index + 1}`}</div>
-                  <span className={cn(
-                    'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
-                    step.required
-                      ? 'border-green-300 bg-green-50 text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200'
-                      : 'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-200',
-                  )}>
-                    {step.required ? 'Required' : 'Optional'}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground leading-5">{step.purpose}</p>
-                {step.commands.length > 0 ? (
-                  <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-muted/30 p-3 text-[11px] font-mono whitespace-pre-wrap">
-                    <code>{step.commands.join('\n')}</code>
-                  </pre>
-                ) : (
-                  <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    No commands were recorded for this step.
-                  </div>
-                )}
-                {step.rationale ? (
-                  <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rationale</div>
-                    <div className="mt-1 text-xs leading-5">{step.rationale}</div>
-                  </div>
-                ) : null}
-                {step.cautions.length > 0 ? (
-                  <div className="mt-3">
-                    <ArtifactListSection
-                      title="Step Cautions"
-                      items={step.cautions}
-                      emptyLabel="No step cautions were recorded."
-                      tone="error"
-                    />
-                  </div>
-                ) : null}
+            {plan.steps.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-xs text-muted-foreground">
+                No temporary setup steps are proposed for this ticket. The readiness assessment says the current workspace is already sufficient for coding.
               </div>
-            ))}
+            ) : (
+              plan.steps.map((step, index) => (
+                <div key={step.id || index} className="rounded-lg border border-border bg-background px-3 py-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-mono text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                      #{index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1 text-sm font-semibold">{step.title || `Step ${index + 1}`}</div>
+                    <span className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
+                      step.required
+                        ? 'border-green-300 bg-green-50 text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200'
+                        : 'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-200',
+                    )}>
+                      {step.required ? 'Required' : 'Optional'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground leading-5">{step.purpose}</p>
+                  {step.commands.length > 0 ? (
+                    <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-muted/30 p-3 text-[11px] font-mono whitespace-pre-wrap">
+                      <code>{step.commands.join('\n')}</code>
+                    </pre>
+                  ) : (
+                    <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      No commands were recorded for this step.
+                    </div>
+                  )}
+                  {step.rationale ? (
+                    <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rationale</div>
+                      <div className="mt-1 text-xs leading-5">{step.rationale}</div>
+                    </div>
+                  ) : null}
+                  {step.cautions.length > 0 ? (
+                    <div className="mt-3">
+                      <ArtifactListSection
+                        title="Step Cautions"
+                        items={step.cautions}
+                        emptyLabel="No step cautions were recorded."
+                        tone="error"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            )}
           </div>
         </CollapsibleSection>
 

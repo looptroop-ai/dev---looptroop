@@ -65,6 +65,7 @@ describe('contextBuilder interview_qa context', () => {
       relevantFiles: '# Relevant Files',
       prd: 'artifact: prd',
       beads: '{"id":"bead-1"}',
+      executionSetupProfile: '{"artifact":"execution_setup_profile","status":"ready"}',
       executionSetupPlanNotes: ['Use pnpm instead of npm.'],
     })
 
@@ -73,6 +74,7 @@ describe('contextBuilder interview_qa context', () => {
       'relevant_files',
       'prd',
       'beads',
+      'execution_setup_profile',
       'execution_setup_plan_note',
     ])
   })

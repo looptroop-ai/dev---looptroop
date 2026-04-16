@@ -26,6 +26,12 @@ describe('ApprovalNavigator', () => {
   it('renders the execution setup plan navigator for setup-plan approval phases', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       plan: {
+        readiness: {
+          status: 'partial',
+          actionsRequired: true,
+          evidence: [],
+          gaps: ['Dependencies are not prepared yet.'],
+        },
         steps: [
           { id: 'deps', title: 'Install dependencies', required: true },
         ],
