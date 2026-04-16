@@ -163,6 +163,101 @@ function buildBeadsDraftCompanionContent() {
   })
 }
 
+function buildExecutionSetupProfileArtifactContent() {
+  return JSON.stringify({
+    schema_version: 1,
+    ticket_id: TEST.externalId,
+    artifact: 'execution_setup_profile',
+    status: 'ready',
+    summary: 'Runtime cache ready for implementation beads.',
+    temp_roots: ['.ticket/runtime/execution-setup'],
+    bootstrap_commands: ['pnpm install --frozen-lockfile'],
+    reusable_artifacts: [
+      {
+        path: '.ticket/runtime/execution-setup/cache.json',
+        kind: 'cache',
+        purpose: 'Reuse warmed runtime metadata.',
+      },
+    ],
+    project_commands: {
+      prepare: ['pnpm install --frozen-lockfile'],
+      test_full: ['pnpm test'],
+      lint_full: ['pnpm lint'],
+      typecheck_full: ['pnpm typecheck'],
+    },
+    quality_gate_policy: {
+      tests: 'bead-test-commands-first',
+      lint: 'impacted-or-package',
+      typecheck: 'impacted-or-package',
+      full_project_fallback: 'never-block-on-unrelated-baseline',
+    },
+    cautions: ['Keep generated files under runtime roots.'],
+  })
+}
+
+function buildExecutionSetupReportArtifactContent() {
+  return JSON.stringify({
+    status: 'ready',
+    ready: true,
+    checkedAt: '2026-03-25T10:20:00.000Z',
+    preparedBy: 'openai/gpt-5',
+    summary: 'Runtime profile is ready for coding beads.',
+    profile: {
+      schemaVersion: 1,
+      ticketId: TEST.externalId,
+      artifact: 'execution_setup_profile',
+      status: 'ready',
+      summary: 'Runtime cache ready for implementation beads.',
+      tempRoots: ['.ticket/runtime/execution-setup'],
+      bootstrapCommands: ['pnpm install --frozen-lockfile'],
+      reusableArtifacts: [
+        {
+          path: '.ticket/runtime/execution-setup/cache.json',
+          kind: 'cache',
+          purpose: 'Reuse warmed runtime metadata.',
+        },
+      ],
+      projectCommands: {
+        prepare: ['pnpm install --frozen-lockfile'],
+        testFull: ['pnpm test'],
+        lintFull: ['pnpm lint'],
+        typecheckFull: ['pnpm typecheck'],
+      },
+      qualityGatePolicy: {
+        tests: 'bead-test-commands-first',
+        lint: 'impacted-or-package',
+        typecheck: 'impacted-or-package',
+        fullProjectFallback: 'never-block-on-unrelated-baseline',
+      },
+      cautions: ['Keep generated files under runtime roots.'],
+    },
+    checks: {
+      workspace: 'pass',
+      tooling: 'pass',
+      tempScope: 'pass',
+      policy: 'pass',
+    },
+    modelOutput: '<EXECUTION_SETUP_RESULT>{"status":"ready"}</EXECUTION_SETUP_RESULT>',
+    errors: [],
+    attempt: 1,
+    maxIterations: 3,
+    attemptHistory: [
+      {
+        attempt: 1,
+        status: 'ready',
+        checkedAt: '2026-03-25T10:20:00.000Z',
+        summary: 'Runtime profile is ready for coding beads.',
+        tempRoots: ['.ticket/runtime/execution-setup'],
+        bootstrapCommands: ['pnpm install --frozen-lockfile'],
+        errors: [],
+      },
+    ],
+    retryNotes: [],
+    approvedPlanCommands: ['pnpm install --frozen-lockfile'],
+    executionAddedCommands: ['pnpm store status'],
+  })
+}
+
 let nextArtifactId = 1
 function makeArtifact(overrides: Partial<DBartifact> & Pick<DBartifact, 'phase' | 'artifactType' | 'content'>): DBartifact {
   return {
@@ -177,6 +272,38 @@ function makeArtifact(overrides: Partial<DBartifact> & Pick<DBartifact, 'phase' 
 describe('PhaseArtifactsPanel', () => {
   beforeEach(() => {
     nextArtifactId = 1
+  })
+
+  it('shows the execution setup runtime as one structured artifact with useful chip details', () => {
+    const profileArtifact = makeArtifact({
+      phase: 'PREPARING_EXECUTION_ENV',
+      artifactType: 'execution_setup_profile',
+      content: buildExecutionSetupProfileArtifactContent(),
+    })
+    const reportArtifact = makeArtifact({
+      phase: 'PREPARING_EXECUTION_ENV',
+      artifactType: 'execution_setup_report',
+      content: buildExecutionSetupReportArtifactContent(),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="PREPARING_EXECUTION_ENV"
+        isCompleted
+        preloadedArtifacts={[profileArtifact, reportArtifact]}
+      />,
+    )
+
+    expect(screen.getByText('Execution Setup Runtime')).toBeInTheDocument()
+    expect(screen.getByText('ready · 1 attempt · 1 root · 1 bootstrap · 1 reusable')).toBeInTheDocument()
+    expect(screen.queryByText('Execution Setup Profile')).not.toBeInTheDocument()
+    expect(screen.queryByText('Execution Setup Report')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Execution Setup Runtime/i }))
+    expect(screen.getAllByText('Runtime profile is ready for coding beads.').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Runtime' })).toBeInTheDocument()
+    expect(screen.getByText('Command Audit')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Raw' })).toBeInTheDocument()
   })
 
   it('collapses interview voting artifacts into a winning draft card plus shared voting details', () => {

@@ -23,4 +23,17 @@ describe.concurrent('getSupplementalArtifacts', () => {
   it('does not duplicate the setup plan artifact during execution setup approval', () => {
     expect(getSupplementalArtifacts('WAITING_EXECUTION_SETUP_APPROVAL')).toEqual([])
   })
+
+  it('combines execution setup runtime profile and report into one review artifact', () => {
+    const artifacts = getSupplementalArtifacts('PREPARING_EXECUTION_ENV')
+
+    expect(artifacts).toEqual([
+      expect.objectContaining({
+        id: 'execution-setup-runtime',
+        label: 'Execution Setup Runtime',
+      }),
+    ])
+    expect(artifacts).not.toContainEqual(expect.objectContaining({ id: 'execution-setup-profile' }))
+    expect(artifacts).not.toContainEqual(expect.objectContaining({ id: 'execution-setup-report' }))
+  })
 })

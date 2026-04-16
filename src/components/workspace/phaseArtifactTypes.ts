@@ -353,6 +353,72 @@ export interface ExecutionSetupPlanReportData {
   source?: 'auto' | 'regenerate' | string
 }
 
+export interface ExecutionSetupReusableArtifactData {
+  path: string
+  kind: string
+  purpose: string
+}
+
+export interface ExecutionSetupProfileData {
+  schemaVersion?: number
+  ticketId?: string
+  artifact?: string
+  status?: string
+  summary?: string
+  tempRoots: string[]
+  bootstrapCommands: string[]
+  reusableArtifacts: ExecutionSetupReusableArtifactData[]
+  projectCommands: {
+    prepare: string[]
+    testFull: string[]
+    lintFull: string[]
+    typecheckFull: string[]
+  }
+  qualityGatePolicy: {
+    tests: string
+    lint: string
+    typecheck: string
+    fullProjectFallback: string
+  }
+  cautions: string[]
+}
+
+export interface ExecutionSetupAttemptHistoryEntryData {
+  attempt: number
+  status: string
+  checkedAt?: string
+  summary?: string
+  tempRoots: string[]
+  bootstrapCommands: string[]
+  errors: string[]
+  failureReason?: string
+  noteAppended?: string
+}
+
+export interface ExecutionSetupRuntimeReportData {
+  status?: string
+  ready?: boolean
+  checkedAt?: string
+  preparedBy?: string
+  summary?: string
+  profile: ExecutionSetupProfileData | null
+  checks: {
+    workspace: string
+    tooling: string
+    tempScope: string
+    policy: string
+  } | null
+  modelOutput?: string
+  errors: string[]
+  structuredOutput?: ArtifactStructuredOutputData
+  attempt?: number
+  maxIterations?: number | null
+  attemptHistory: ExecutionSetupAttemptHistoryEntryData[]
+  retryNotes: string[]
+  approvedPlanCommands: string[]
+  executionAddedCommands: string[]
+}
+
 export interface IntegrationReportData {
   status?: string
   completedAt?: string
@@ -719,6 +785,159 @@ export function parseExecutionSetupPlanReport(content: string): ExecutionSetupPl
     structuredOutput: normalizeArtifactStructuredOutput(parsed.structuredOutput),
     notes: normalizeStringArray(parsed.notes),
     source: normalizeOptionalString(parsed.source),
+  }
+}
+
+function getValueByAliases(record: Record<string, unknown>, aliases: string[]): unknown {
+  for (const alias of aliases) {
+    if (alias in record) return record[alias]
+  }
+  return undefined
+}
+
+function normalizeNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  return undefined
+}
+
+function parseExecutionSetupProfileRecord(record: Record<string, unknown>): ExecutionSetupProfileData | null {
+  const artifact = normalizeOptionalString(getValueByAliases(record, ['artifact']))
+  const tempRoots = normalizeStringArray(getValueByAliases(record, ['tempRoots', 'temp_roots']))
+  const bootstrapCommands = normalizeStringArray(getValueByAliases(record, ['bootstrapCommands', 'bootstrap_commands']))
+  const reusableArtifactsRaw = getValueByAliases(record, ['reusableArtifacts', 'reusable_artifacts'])
+  const projectCommandsRaw = getValueByAliases(record, ['projectCommands', 'project_commands'])
+  const qualityGatePolicyRaw = getValueByAliases(record, ['qualityGatePolicy', 'quality_gate_policy'])
+
+  if (
+    artifact !== 'execution_setup_profile'
+    && tempRoots.length === 0
+    && bootstrapCommands.length === 0
+    && !isRecord(projectCommandsRaw)
+    && !isRecord(qualityGatePolicyRaw)
+  ) {
+    return null
+  }
+
+  const projectCommands = isRecord(projectCommandsRaw) ? projectCommandsRaw : {}
+  const qualityGatePolicy = isRecord(qualityGatePolicyRaw) ? qualityGatePolicyRaw : {}
+
+  const reusableArtifacts = Array.isArray(reusableArtifactsRaw)
+    ? reusableArtifactsRaw
+        .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+        .map((entry) => ({
+          path: normalizeOptionalString(getValueByAliases(entry, ['path'])) ?? '',
+          kind: normalizeOptionalString(getValueByAliases(entry, ['kind', 'type'])) ?? '',
+          purpose: normalizeOptionalString(getValueByAliases(entry, ['purpose', 'reason', 'summary'])) ?? '',
+        }))
+        .filter((entry) => entry.path || entry.kind || entry.purpose)
+    : []
+
+  return {
+    schemaVersion: normalizeNumber(getValueByAliases(record, ['schemaVersion', 'schema_version'])),
+    ticketId: normalizeOptionalString(getValueByAliases(record, ['ticketId', 'ticket_id'])),
+    artifact,
+    status: normalizeOptionalString(getValueByAliases(record, ['status'])),
+    summary: normalizeOptionalString(getValueByAliases(record, ['summary'])),
+    tempRoots,
+    bootstrapCommands,
+    reusableArtifacts,
+    projectCommands: {
+      prepare: normalizeStringArray(getValueByAliases(projectCommands, ['prepare'])),
+      testFull: normalizeStringArray(getValueByAliases(projectCommands, ['testFull', 'test_full'])),
+      lintFull: normalizeStringArray(getValueByAliases(projectCommands, ['lintFull', 'lint_full'])),
+      typecheckFull: normalizeStringArray(getValueByAliases(projectCommands, ['typecheckFull', 'typecheck_full'])),
+    },
+    qualityGatePolicy: {
+      tests: normalizeOptionalString(getValueByAliases(qualityGatePolicy, ['tests'])) ?? '',
+      lint: normalizeOptionalString(getValueByAliases(qualityGatePolicy, ['lint'])) ?? '',
+      typecheck: normalizeOptionalString(getValueByAliases(qualityGatePolicy, ['typecheck'])) ?? '',
+      fullProjectFallback: normalizeOptionalString(getValueByAliases(qualityGatePolicy, ['fullProjectFallback', 'full_project_fallback'])) ?? '',
+    },
+    cautions: normalizeStringArray(getValueByAliases(record, ['cautions', 'warnings', 'notes'])),
+  }
+}
+
+export function parseExecutionSetupProfile(content: string): ExecutionSetupProfileData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+  return parseExecutionSetupProfileRecord(parsed)
+}
+
+function parseExecutionSetupChecks(value: unknown): ExecutionSetupRuntimeReportData['checks'] {
+  if (!isRecord(value)) return null
+  const workspace = normalizeOptionalString(getValueByAliases(value, ['workspace']))
+  const tooling = normalizeOptionalString(getValueByAliases(value, ['tooling']))
+  const tempScope = normalizeOptionalString(getValueByAliases(value, ['tempScope', 'temp_scope']))
+  const policy = normalizeOptionalString(getValueByAliases(value, ['policy']))
+  if (!workspace && !tooling && !tempScope && !policy) return null
+  return {
+    workspace: workspace ?? '',
+    tooling: tooling ?? '',
+    tempScope: tempScope ?? '',
+    policy: policy ?? '',
+  }
+}
+
+function parseExecutionSetupAttemptHistory(value: unknown): ExecutionSetupAttemptHistoryEntryData[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+    .map((entry, index) => ({
+      attempt: normalizeNumber(getValueByAliases(entry, ['attempt'])) ?? index + 1,
+      status: normalizeOptionalString(getValueByAliases(entry, ['status'])) ?? 'unknown',
+      checkedAt: normalizeOptionalString(getValueByAliases(entry, ['checkedAt', 'checked_at'])),
+      summary: normalizeOptionalString(getValueByAliases(entry, ['summary'])),
+      tempRoots: normalizeStringArray(getValueByAliases(entry, ['tempRoots', 'temp_roots'])),
+      bootstrapCommands: normalizeStringArray(getValueByAliases(entry, ['bootstrapCommands', 'bootstrap_commands'])),
+      errors: normalizeStringArray(getValueByAliases(entry, ['errors'])),
+      failureReason: normalizeOptionalString(getValueByAliases(entry, ['failureReason', 'failure_reason'])),
+      noteAppended: normalizeOptionalString(getValueByAliases(entry, ['noteAppended', 'note_appended'])),
+    }))
+}
+
+export function parseExecutionSetupRuntimeReport(content: string): ExecutionSetupRuntimeReportData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+
+  const profileRaw = getValueByAliases(parsed, ['profile'])
+  const profile = isRecord(profileRaw) ? parseExecutionSetupProfileRecord(profileRaw) : null
+  const checks = parseExecutionSetupChecks(getValueByAliases(parsed, ['checks']))
+  const status = normalizeOptionalString(getValueByAliases(parsed, ['status']))
+  const readyRaw = getValueByAliases(parsed, ['ready'])
+  const modelOutput = normalizeOptionalString(getValueByAliases(parsed, ['modelOutput', 'model_output']))
+  const errors = normalizeStringArray(getValueByAliases(parsed, ['errors']))
+  const attemptHistory = parseExecutionSetupAttemptHistory(getValueByAliases(parsed, ['attemptHistory', 'attempt_history']))
+
+  if (
+    !status
+    && typeof readyRaw !== 'boolean'
+    && !profile
+    && !checks
+    && !modelOutput
+    && errors.length === 0
+    && attemptHistory.length === 0
+  ) {
+    return null
+  }
+
+  const maxIterationsRaw = getValueByAliases(parsed, ['maxIterations', 'max_iterations'])
+  return {
+    status,
+    ready: typeof readyRaw === 'boolean' ? readyRaw : undefined,
+    checkedAt: normalizeOptionalString(getValueByAliases(parsed, ['checkedAt', 'checked_at'])),
+    preparedBy: normalizeOptionalString(getValueByAliases(parsed, ['preparedBy', 'prepared_by'])),
+    summary: normalizeOptionalString(getValueByAliases(parsed, ['summary'])),
+    profile,
+    checks,
+    modelOutput,
+    errors,
+    structuredOutput: normalizeArtifactStructuredOutput(getValueByAliases(parsed, ['structuredOutput', 'structured_output'])),
+    attempt: normalizeNumber(getValueByAliases(parsed, ['attempt'])),
+    maxIterations: maxIterationsRaw === null ? null : normalizeNumber(maxIterationsRaw),
+    attemptHistory,
+    retryNotes: normalizeStringArray(getValueByAliases(parsed, ['retryNotes', 'retry_notes'])),
+    approvedPlanCommands: normalizeStringArray(getValueByAliases(parsed, ['approvedPlanCommands', 'approved_plan_commands'])),
+    executionAddedCommands: normalizeStringArray(getValueByAliases(parsed, ['executionAddedCommands', 'execution_added_commands'])),
   }
 }
 
@@ -1385,6 +1604,8 @@ export function resolveStaticArtifact(
       return findExactType('execution_setup_plan')
     case 'execution-setup-plan-report':
       return findExactType('execution_setup_plan_report')
+    case 'execution-setup-runtime':
+      return findExactType('execution_setup_report') ?? findExactType('execution_setup_profile')
     case 'execution-setup-profile':
       return findExactType('execution_setup_profile')
     case 'execution-setup-report':

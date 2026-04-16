@@ -20,6 +20,7 @@ import { ExecutionSetupPlanApprovalPane } from './ExecutionSetupPlanApprovalPane
 interface ApprovalViewProps {
   ticket: Ticket
   artifactType: 'interview' | 'prd' | 'beads' | 'execution_setup_plan'
+  readOnly?: boolean
 }
 
 type EditTab = 'structured' | 'jsonl'
@@ -511,7 +512,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
   )
 }
 
-export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
+export function ApprovalView({ ticket, artifactType, readOnly }: ApprovalViewProps) {
   if (artifactType === 'interview') {
     return <InterviewApprovalPane ticket={ticket} />
   }
@@ -521,7 +522,7 @@ export function ApprovalView({ ticket, artifactType }: ApprovalViewProps) {
   }
 
   if (artifactType === 'execution_setup_plan') {
-    return <ExecutionSetupPlanApprovalPane ticket={ticket} />
+    return <ExecutionSetupPlanApprovalPane ticket={ticket} readOnly={readOnly} />
   }
 
   return <BeadsApprovalPane ticket={ticket} />

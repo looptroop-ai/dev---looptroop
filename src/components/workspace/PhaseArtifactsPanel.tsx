@@ -22,6 +22,8 @@ import {
   buildCoverageArtifactContent,
   getArtifactTargetPhases,
   parseRefinementArtifact,
+  parseExecutionSetupProfile,
+  parseExecutionSetupRuntimeReport,
   parsePullRequestReport,
   resolveStaticArtifact,
   shouldCollapseVotingMemberArtifacts,
@@ -415,6 +417,62 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       return {
         outcome: report?.status === 'failed' ? 'failed' : report?.prUrl ? 'completed' : 'pending',
         detail: detailParts.join(' · ') || undefined,
+      }
+    }
+
+    if (artifact.id === 'execution-setup-runtime') {
+      const report = parseExecutionSetupRuntimeReport(content)
+      const profileContent = findExactArtifact('execution_setup_profile')?.content
+      const profile = report?.profile ?? (profileContent ? parseExecutionSetupProfile(profileContent) : null)
+      const failed = report ? report.ready === false || report.status === 'failed' : false
+      const attemptCount = report ? report.attemptHistory.length || report.attempt || 0 : 0
+      const detailParts: string[] = []
+
+      if (report) {
+        detailParts.push(failed ? 'failed' : report.status || 'ready')
+        if (attemptCount > 0) {
+          detailParts.push(`${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`)
+        }
+      }
+      if (profile) {
+        detailParts.push(`${profile.tempRoots.length} root${profile.tempRoots.length === 1 ? '' : 's'}`)
+        detailParts.push(`${profile.bootstrapCommands.length} bootstrap`)
+        detailParts.push(`${profile.reusableArtifacts.length} reusable`)
+      }
+
+      return {
+        outcome: failed ? 'failed' : (report?.ready || profile?.status === 'ready') ? 'completed' : 'pending',
+        detail: detailParts.join(' · ') || undefined,
+      }
+    }
+
+    if (artifact.id === 'execution-setup-profile') {
+      const profile = parseExecutionSetupProfile(content)
+      if (!profile) return {}
+      const detailParts = [
+        `${profile.tempRoots.length} root${profile.tempRoots.length === 1 ? '' : 's'}`,
+        `${profile.bootstrapCommands.length} bootstrap`,
+        `${profile.reusableArtifacts.length} reusable`,
+      ]
+      return {
+        outcome: profile.status === 'ready' ? 'completed' : 'pending',
+        detail: detailParts.join(' · '),
+      }
+    }
+
+    if (artifact.id === 'execution-setup-report') {
+      const report = parseExecutionSetupRuntimeReport(content)
+      if (!report) return {}
+      const attemptCount = report.attemptHistory.length || report.attempt || 0
+      const detailParts = [
+        report.ready === false || report.status === 'failed' ? 'failed' : report.status || 'ready',
+      ]
+      if (attemptCount > 0) {
+        detailParts.push(`${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`)
+      }
+      return {
+        outcome: report.ready === false || report.status === 'failed' ? 'failed' : report.ready ? 'completed' : 'pending',
+        detail: detailParts.join(' · '),
       }
     }
 

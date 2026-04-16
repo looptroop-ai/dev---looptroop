@@ -58,8 +58,7 @@ export function getSupplementalArtifacts(phase: string, isCompleted = false): Ar
   }
   if (phase === 'PREPARING_EXECUTION_ENV') {
     return [
-      { id: 'execution-setup-profile', label: 'Execution Setup Profile', description: 'Reusable temporary setup profile for later coding beads', icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: 'execution-setup-report', label: 'Execution Setup Report', description: 'Attempt history and final setup status', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+      { id: 'execution-setup-runtime', label: 'Execution Setup Runtime', description: 'Reusable setup profile, attempt history, and final setup status', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
     ]
   }
   if (phase === 'CODING') {

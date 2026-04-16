@@ -17,7 +17,7 @@ vi.mock('@/components/workspace/InterviewQAView', () => ({
 }))
 
 vi.mock('@/components/workspace/ApprovalView', () => ({
-  ApprovalView: () => <div>approval view</div>,
+  ApprovalView: ({ readOnly }: { readOnly?: boolean }) => <div>approval view:{readOnly ? 'readonly' : 'live'}</div>,
 }))
 
 vi.mock('@/components/workspace/CodingView', () => ({
@@ -67,7 +67,31 @@ describe('ActiveWorkspace', () => {
     )
 
     expect(container.firstElementChild).toHaveClass('flex-1', 'min-h-0', 'overflow-hidden')
-    expect(await screen.findByText('approval view')).toBeInTheDocument()
+    expect(await screen.findByText('approval view:live')).toBeInTheDocument()
+  })
+
+  it('opens completed execution setup approval as a read-only approval pane', async () => {
+    renderWithProviders(
+      <ActiveWorkspace
+        ticket={makeTicket({ status: 'PREPARING_EXECUTION_ENV' })}
+        selectedPhase="WAITING_EXECUTION_SETUP_APPROVAL"
+        previousStatus="WAITING_EXECUTION_SETUP_APPROVAL"
+      />,
+    )
+
+    expect(await screen.findByText('approval view:readonly')).toBeInTheDocument()
+  })
+
+  it('keeps live execution setup approval editable while it is current', async () => {
+    renderWithProviders(
+      <ActiveWorkspace
+        ticket={makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' })}
+        selectedPhase="WAITING_EXECUTION_SETUP_APPROVAL"
+        previousStatus="PRE_FLIGHT_CHECK"
+      />,
+    )
+
+    expect(await screen.findByText('approval view:live')).toBeInTheDocument()
   })
 
   it('opens live error mode when the ticket is currently blocked', async () => {

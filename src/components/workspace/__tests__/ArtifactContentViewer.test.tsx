@@ -173,6 +173,105 @@ function buildExecutionSetupPlanReportContent() {
   })
 }
 
+function buildExecutionSetupProfileContent() {
+  return JSON.stringify({
+    schema_version: 1,
+    ticket_id: TEST.externalId,
+    artifact: 'execution_setup_profile',
+    status: 'ready',
+    summary: 'Runtime cache and command policy are ready.',
+    temp_roots: ['.ticket/runtime/execution-setup'],
+    bootstrap_commands: ['pnpm install --frozen-lockfile'],
+    reusable_artifacts: [
+      {
+        path: '.ticket/runtime/execution-setup/cache.json',
+        kind: 'cache',
+        purpose: 'Reuse warmed runtime metadata during coding beads.',
+      },
+    ],
+    project_commands: {
+      prepare: ['pnpm install --frozen-lockfile'],
+      test_full: ['pnpm test'],
+      lint_full: ['pnpm lint'],
+      typecheck_full: ['pnpm typecheck'],
+    },
+    quality_gate_policy: {
+      tests: 'bead-test-commands-first',
+      lint: 'impacted-or-package',
+      typecheck: 'impacted-or-package',
+      full_project_fallback: 'never-block-on-unrelated-baseline',
+    },
+    cautions: ['Keep generated files under runtime roots.'],
+  }, null, 2)
+}
+
+function buildExecutionSetupRuntimeReportContent() {
+  return JSON.stringify({
+    status: 'ready',
+    ready: true,
+    checkedAt: '2026-03-25T10:20:00.000Z',
+    preparedBy: 'openai/gpt-5',
+    summary: 'Runtime profile is ready for coding beads.',
+    profile: {
+      schemaVersion: 1,
+      ticketId: TEST.externalId,
+      artifact: 'execution_setup_profile',
+      status: 'ready',
+      summary: 'Runtime cache and command policy are ready.',
+      tempRoots: ['.ticket/runtime/execution-setup'],
+      bootstrapCommands: ['pnpm install --frozen-lockfile'],
+      reusableArtifacts: [
+        {
+          path: '.ticket/runtime/execution-setup/cache.json',
+          kind: 'cache',
+          purpose: 'Reuse warmed runtime metadata during coding beads.',
+        },
+      ],
+      projectCommands: {
+        prepare: ['pnpm install --frozen-lockfile'],
+        testFull: ['pnpm test'],
+        lintFull: ['pnpm lint'],
+        typecheckFull: ['pnpm typecheck'],
+      },
+      qualityGatePolicy: {
+        tests: 'bead-test-commands-first',
+        lint: 'impacted-or-package',
+        typecheck: 'impacted-or-package',
+        fullProjectFallback: 'never-block-on-unrelated-baseline',
+      },
+      cautions: ['Keep generated files under runtime roots.'],
+    },
+    checks: {
+      workspace: 'pass',
+      tooling: 'pass',
+      tempScope: 'pass',
+      policy: 'pass',
+    },
+    modelOutput: '<EXECUTION_SETUP_RESULT>{"status":"ready"}</EXECUTION_SETUP_RESULT>',
+    errors: [],
+    structuredOutput: {
+      repairApplied: true,
+      repairWarnings: ['Recovered setup result from model wrapper.'],
+    },
+    attempt: 1,
+    maxIterations: 3,
+    attemptHistory: [
+      {
+        attempt: 1,
+        status: 'ready',
+        checkedAt: '2026-03-25T10:20:00.000Z',
+        summary: 'Runtime profile is ready for coding beads.',
+        tempRoots: ['.ticket/runtime/execution-setup'],
+        bootstrapCommands: ['pnpm install --frozen-lockfile'],
+        errors: [],
+      },
+    ],
+    retryNotes: [],
+    approvedPlanCommands: ['pnpm install --frozen-lockfile'],
+    executionAddedCommands: ['pnpm store status'],
+  }, null, 2)
+}
+
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
 }
@@ -272,6 +371,93 @@ describe('ArtifactContentViewer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
     expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
     expect(screen.getByText(/pnpm install --frozen-lockfile/)).toBeInTheDocument()
+  })
+
+  it('renders execution setup profiles with structured sections and raw access', () => {
+    render(
+      <ArtifactContent
+        artifactId="execution-setup-profile"
+        phase="PREPARING_EXECUTION_ENV"
+        content={buildExecutionSetupProfileContent()}
+      />,
+    )
+
+    expect(screen.getByText('Execution Setup Profile')).toBeInTheDocument()
+    expect(screen.getByText('Runtime cache and command policy are ready.')).toBeInTheDocument()
+    expect(screen.getByText('Reusable Artifacts')).toBeInTheDocument()
+    expect(screen.getByText('.ticket/runtime/execution-setup/cache.json')).toBeInTheDocument()
+    expect(screen.getByText('Quality Gate Policy')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByText(/execution_setup_profile/)).toBeInTheDocument()
+  })
+
+  it('renders execution setup reports with checks, attempts, commands, and raw access', () => {
+    render(
+      <ArtifactContent
+        artifactId="execution-setup-report"
+        phase="PREPARING_EXECUTION_ENV"
+        content={buildExecutionSetupRuntimeReportContent()}
+      />,
+    )
+
+    expect(screen.getAllByText('Runtime profile is ready for coding beads.').length).toBeGreaterThan(0)
+    expect(screen.getByText('Checks')).toBeInTheDocument()
+    expect(screen.getByText('Workspace')).toBeInTheDocument()
+    expect(screen.getByText('Attempt History')).toBeInTheDocument()
+    expect(screen.getByText('Attempt 1')).toBeInTheDocument()
+    expect(screen.getByText('Command Audit')).toBeInTheDocument()
+    expect(screen.getByText('pnpm store status')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByText(/executionAddedCommands/)).toBeInTheDocument()
+  })
+
+  it('renders the combined execution setup runtime artifact with one structured runtime tab', () => {
+    render(
+      <ArtifactContent
+        artifactId="execution-setup-runtime"
+        phase="PREPARING_EXECUTION_ENV"
+        content={buildExecutionSetupRuntimeReportContent()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Runtime' })).toBeInTheDocument()
+    expect(screen.getAllByText('Runtime profile is ready for coding beads.').length).toBeGreaterThan(0)
+    expect(screen.getByText('Profile Snapshot')).toBeInTheDocument()
+    expect(screen.getByText('Command Audit')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByText(/executionAddedCommands/)).toBeInTheDocument()
+  })
+
+  it('falls back to raw output for malformed execution setup runtime artifacts', () => {
+    render(
+      <div>
+        <ArtifactContent
+          artifactId="execution-setup-profile"
+          phase="PREPARING_EXECUTION_ENV"
+          content="not a profile"
+        />
+        <ArtifactContent
+          artifactId="execution-setup-report"
+          phase="PREPARING_EXECUTION_ENV"
+          content="not a report"
+        />
+        <ArtifactContent
+          artifactId="execution-setup-runtime"
+          phase="PREPARING_EXECUTION_ENV"
+          content="not runtime"
+        />
+      </div>,
+    )
+
+    expect(screen.getByText('not a profile')).toBeInTheDocument()
+    expect(screen.getByText('not a report')).toBeInTheDocument()
+    expect(screen.getByText('not runtime')).toBeInTheDocument()
   })
 
   it('renders canonical free-text answers', () => {

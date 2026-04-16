@@ -69,6 +69,12 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
     if (selectedPhase === 'CODING') {
       content = <CodingView ticket={ticket} readOnly />
     } else if (
+      selectedPhase === 'WAITING_EXECUTION_SETUP_APPROVAL'
+      && pastPhaseMeta?.uiView === 'approval'
+      && pastPhaseMeta.reviewArtifactType
+    ) {
+      content = <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} readOnly />
+    } else if (
       pastPhaseMeta?.uiView === 'approval'
       && pastPhaseMeta.reviewArtifactType
       && isBeforeExecution(ticket.status, previousStatus)

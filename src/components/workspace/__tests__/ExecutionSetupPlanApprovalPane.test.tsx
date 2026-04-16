@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/renderHelpers'
 import { ExecutionSetupPlanApprovalPane } from '../ExecutionSetupPlanApprovalPane'
 
 const mockSaveUiState = vi.fn()
+const mockUseTicketUIState = vi.fn()
 const mockClearTicketArtifactsCache = vi.fn()
 const mockUseTicketArtifacts = vi.fn()
 
@@ -108,9 +109,7 @@ vi.mock('@/hooks/useTickets', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useTickets')>('@/hooks/useTickets')
   return {
     ...actual,
-    useTicketUIState: () => ({
-      data: { scope: 'approval_execution_setup', exists: false, data: null, updatedAt: null },
-    }),
+    useTicketUIState: (...args: unknown[]) => mockUseTicketUIState(...args),
     useSaveTicketUIState: () => ({ mutate: mockSaveUiState }),
   }
 })
@@ -170,18 +169,38 @@ vi.mock('../ArtifactContentViewer', () => ({
 describe('ExecutionSetupPlanApprovalPane', () => {
   beforeEach(() => {
     mockSaveUiState.mockReset()
+    mockUseTicketUIState.mockReset()
     mockClearTicketArtifactsCache.mockReset()
     mockUseTicketArtifacts.mockReset()
+    mockUseTicketUIState.mockReturnValue({
+      data: { scope: 'approval_execution_setup', exists: false, data: null, updatedAt: null },
+    })
     mockUseTicketArtifacts.mockReturnValue({
-      artifacts: [{
-        id: 11,
-        ticketId: TEST.ticketId,
-        phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
-        artifactType: 'execution_setup_plan_report',
-        filePath: null,
-        content: buildReportContent(),
-        createdAt: '2026-03-25T10:15:00.000Z',
-      }],
+      artifacts: [
+        {
+          id: 11,
+          ticketId: TEST.ticketId,
+          phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+          artifactType: 'execution_setup_plan_report',
+          filePath: null,
+          content: buildReportContent(),
+          createdAt: '2026-03-25T10:15:00.000Z',
+        },
+        {
+          id: 12,
+          ticketId: TEST.ticketId,
+          phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+          artifactType: 'approval_receipt',
+          filePath: null,
+          content: JSON.stringify({
+            approved_by: 'user',
+            approved_at: '2026-03-25T10:30:00.000Z',
+            step_count: 1,
+            command_count: 1,
+          }),
+          createdAt: '2026-03-25T10:30:00.000Z',
+        },
+      ],
       isLoading: false,
     })
 
@@ -278,5 +297,52 @@ describe('ExecutionSetupPlanApprovalPane', () => {
     await waitFor(() => {
       expect(screen.queryByText('Regenerate setup plan')).not.toBeInTheDocument()
     })
+  })
+
+  it('renders saved setup plan content without mutation controls in read-only mode', async () => {
+    renderWithProviders(<ExecutionSetupPlanApprovalPane ticket={makeTicket({ status: 'PREPARING_EXECUTION_ENV' })} readOnly />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artifact-content')).toHaveTextContent('execution-setup-plan:with-report:plan')
+    })
+
+    expect(screen.getByText('Approved Execution Setup Plan')).toBeInTheDocument()
+    expect(screen.getByText('Approved setup contract')).toBeInTheDocument()
+    expect(screen.getByText('Approved by user')).toBeInTheDocument()
+    expect(screen.getByText('1 step')).toBeInTheDocument()
+    expect(screen.getByText('1 command')).toBeInTheDocument()
+    expect(screen.getByText('Initial generated draft')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Regenerate ...' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('execution-setup-plan-editor')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
+  })
+
+  it('ignores persisted edit mode while rendering read-only setup plan review', async () => {
+    mockUseTicketUIState.mockReturnValue({
+      data: {
+        scope: 'approval_execution_setup',
+        exists: true,
+        updatedAt: '2026-03-25T10:15:00.000Z',
+        data: {
+          editMode: true,
+          editTab: 'raw',
+          rawDraft: buildRawPlan('Unsaved persisted draft.'),
+          structuredDraft: buildPlan('Unsaved persisted draft.'),
+          commentary: 'Regenerate this later.',
+        },
+      },
+    })
+
+    renderWithProviders(<ExecutionSetupPlanApprovalPane ticket={makeTicket({ status: 'PREPARING_EXECUTION_ENV' })} readOnly />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artifact-content')).toHaveTextContent('execution-setup-plan:with-report:plan')
+    })
+
+    expect(screen.queryByTestId('execution-setup-plan-editor')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
+    expect(screen.queryByText('Unsaved persisted draft.')).not.toBeInTheDocument()
   })
 })

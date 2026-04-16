@@ -4,11 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { YamlEditor } from '@/components/editor/YamlEditor'
+import { CheckCircle2 } from 'lucide-react'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { ArtifactContent } from './ArtifactContentViewer'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { clearTicketArtifactsCache, useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 import { useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
+import { parseExecutionSetupPlanReport } from './phaseArtifactTypes'
 import {
   EXECUTION_SETUP_PLAN_APPROVAL_FOCUS_EVENT,
   parseExecutionSetupPlanContent,
@@ -35,7 +37,97 @@ interface ExecutionSetupPlanApprovalUiState {
   commentary?: string
 }
 
-export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
+interface ExecutionSetupApprovalReceipt {
+  approved_by?: string
+  approved_at?: string
+  step_count?: number
+  command_count?: number
+}
+
+function parseExecutionSetupApprovalReceipt(content?: string | null): ExecutionSetupApprovalReceipt | null {
+  if (!content) return null
+  try {
+    const parsed = JSON.parse(content) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const record = parsed as Record<string, unknown>
+    return {
+      approved_by: typeof record.approved_by === 'string' ? record.approved_by : undefined,
+      approved_at: typeof record.approved_at === 'string' ? record.approved_at : undefined,
+      step_count: typeof record.step_count === 'number' && Number.isFinite(record.step_count) ? record.step_count : undefined,
+      command_count: typeof record.command_count === 'number' && Number.isFinite(record.command_count) ? record.command_count : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+function formatReviewTimestamp(value?: string | null): string | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+}
+
+function ApprovedSetupPlanBanner({
+  receipt,
+  updatedAt,
+  reportContent,
+}: {
+  receipt: ExecutionSetupApprovalReceipt | null
+  updatedAt?: string | null
+  reportContent?: string | null
+}) {
+  const approvedAtLabel = formatReviewTimestamp(receipt?.approved_at)
+  const updatedAtLabel = formatReviewTimestamp(updatedAt)
+  const report = reportContent ? parseExecutionSetupPlanReport(reportContent) : null
+  const updatedAtMs = updatedAt ? Date.parse(updatedAt) : Number.NaN
+  const generatedAtMs = report?.generatedAt ? Date.parse(report.generatedAt) : Number.NaN
+  const editedAfterGeneration = Number.isFinite(updatedAtMs)
+    && Number.isFinite(generatedAtMs)
+    && updatedAtMs - generatedAtMs > 1000
+  const sourceChips = [
+    report?.source === 'regenerate'
+      ? 'Regenerated before approval'
+      : report?.source === 'auto'
+        ? 'Initial generated draft'
+        : report?.source
+          ? 'Saved setup plan'
+          : null,
+    editedAfterGeneration ? 'Edited before approval' : null,
+  ].filter((item): item is string => Boolean(item))
+  const detailChips = [
+    receipt?.approved_by ? `Approved by ${receipt.approved_by}` : 'Approved',
+    approvedAtLabel ? `Approved at ${approvedAtLabel}` : null,
+    typeof receipt?.step_count === 'number' ? `${receipt.step_count} step${receipt.step_count === 1 ? '' : 's'}` : null,
+    typeof receipt?.command_count === 'number' ? `${receipt.command_count} command${receipt.command_count === 1 ? '' : 's'}` : null,
+    ...sourceChips,
+    updatedAtLabel ? `Saved at ${updatedAtLabel}` : null,
+  ].filter((item): item is string => Boolean(item))
+
+  return (
+    <div className="rounded-md border border-green-300/70 bg-green-50/80 px-3 py-3 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100">
+      <div className="flex items-start gap-2">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">Approved setup contract</div>
+          <div className="mt-1 text-xs leading-5">
+            This is the reviewed plan that was handed to Preparing Workspace Runtime. It is locked here for review only.
+          </div>
+          {detailChips.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {detailChips.map((chip) => (
+                <span key={chip} className="rounded-full border border-green-300/70 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-foreground dark:border-green-900/60">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { ticket: Ticket; readOnly?: boolean }) {
   const queryClient = useQueryClient()
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_execution_setup'
@@ -66,6 +158,14 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
       ?? [...artifacts].reverse().find((artifact) => artifact.artifactType === 'execution_setup_plan_report')
     return matchingArtifact?.content ?? null
   }, [artifacts])
+  const approvalReceipt = useMemo(() => {
+    const matchingArtifact = [...artifacts].reverse().find((artifact) => (
+      artifact.artifactType === 'approval_receipt'
+      && artifact.phase === 'WAITING_EXECUTION_SETUP_APPROVAL'
+    ))
+    return parseExecutionSetupApprovalReceipt(matchingArtifact?.content)
+  }, [artifacts])
+  const artifactPanelPhase = readOnly ? 'WAITING_EXECUTION_SETUP_APPROVAL' : ticket.status
 
   const [editMode, setEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('structured')
@@ -107,7 +207,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
     const nextRawDraft = typeof persisted?.rawDraft === 'string' ? persisted.rawDraft : rawContent
     const nextCommentary = typeof persisted?.commentary === 'string' ? persisted.commentary : ''
 
-    setEditMode(nextEditMode && Boolean(plan))
+    setEditMode(!readOnly && nextEditMode && Boolean(plan))
     setEditTab(nextEditTab)
     setStructuredDraft(nextStructuredDraft ?? null)
     setRawDraft(nextRawDraft)
@@ -121,7 +221,14 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
       commentary: nextCommentary,
     })
     restoredDraftRef.current = true
-  }, [isPlanGenerating, persistedUiState, plan, rawContent])
+  }, [isPlanGenerating, persistedUiState, plan, rawContent, readOnly])
+
+  useEffect(() => {
+    if (!readOnly) return
+    setEditMode(false)
+    setDiscardTarget(null)
+    setShowRegenerateDialog(false)
+  }, [readOnly])
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -137,7 +244,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
   }, [ticket.id])
 
   useEffect(() => {
-    if (!restoredDraftRef.current) return
+    if (readOnly || !restoredDraftRef.current) return
 
     const snapshot = {
       editMode,
@@ -159,7 +266,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [commentary, editMode, editTab, rawDraft, saveUiState, structuredDraft, ticket.id, uiStateScope])
+  }, [commentary, editMode, editTab, rawDraft, readOnly, saveUiState, structuredDraft, ticket.id, uiStateScope])
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {
@@ -322,7 +429,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
 
   return (
     <div ref={containerRef} className="h-full flex flex-col overflow-hidden">
-      <Dialog open={discardTarget !== null} onOpenChange={(open) => !open && setDiscardTarget(null)}>
+      <Dialog open={!readOnly && discardTarget !== null} onOpenChange={(open) => !open && setDiscardTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm">Discard unsaved setup-plan edits?</DialogTitle>
@@ -341,7 +448,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showRegenerateDialog} onOpenChange={(open) => {
+      <Dialog open={!readOnly && showRegenerateDialog} onOpenChange={(open) => {
         setShowRegenerateDialog(open)
         if (open) setRegenerateError(null)
       }}>
@@ -384,41 +491,54 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
 
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold">Execution Setup Plan</span>
-          <span className="flex-1 text-xs text-muted-foreground">Review the workspace readiness audit and any temporary setup steps, edit if needed, regenerate with commentary, then approve.</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setRegenerateError(null)
-              setShowRegenerateDialog(true)
-            }}
-            className="text-xs shrink-0"
-            disabled={isPlanGenerating || saving || approving || regenerating}
-          >
-            Regenerate ...
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleToggleEdit}
-            className="text-xs shrink-0"
-            disabled={!plan}
-          >
-            {editMode ? 'View' : 'Edit'}
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleApprove}
-            disabled={approving || saving || regenerating || (editMode && hasUnsavedChanges) || !plan || ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL'}
-            className="text-xs shrink-0"
-          >
-            {approving ? 'Approving…' : 'Approve'}
-          </Button>
+          <span className="font-semibold">{readOnly ? 'Approved Execution Setup Plan' : 'Execution Setup Plan'}</span>
+          {readOnly ? (
+            <span className="rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200">
+              Approved
+            </span>
+          ) : null}
+          <span className="flex-1 text-xs text-muted-foreground">
+            {readOnly
+              ? 'Review the approved workspace readiness audit and temporary setup contract.'
+              : 'Review the workspace readiness audit and any temporary setup steps, edit if needed, regenerate with commentary, then approve.'}
+          </span>
+          {!readOnly ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRegenerateError(null)
+                  setShowRegenerateDialog(true)
+                }}
+                className="text-xs shrink-0"
+                disabled={isPlanGenerating || saving || approving || regenerating}
+              >
+                Regenerate ...
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleToggleEdit}
+                className="text-xs shrink-0"
+                disabled={!plan}
+              >
+                {editMode ? 'View' : 'Edit'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApprove}
+                disabled={approving || saving || regenerating || (editMode && hasUnsavedChanges) || !plan || ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL'}
+                className="text-xs shrink-0"
+              >
+                {approving ? 'Approving…' : 'Approve'}
+              </Button>
+            </>
+          ) : null}
         </div>
 
         <PhaseArtifactsPanel
-          phase={ticket.status}
+          phase={artifactPanelPhase}
           isCompleted={false}
           ticketId={ticket.id}
           councilMemberCount={ticket.lockedCouncilMembers.length || 1}
@@ -426,7 +546,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
           preloadedArtifacts={artifacts}
         />
 
-        {editMode ? (
+        {!readOnly && editMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
               <button
@@ -462,6 +582,14 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
 
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
         <div className="space-y-3">
+          {readOnly ? (
+            <ApprovedSetupPlanBanner
+              receipt={approvalReceipt}
+              updatedAt={fetchedPlan?.updatedAt}
+              reportContent={executionSetupPlanReportContent}
+            />
+          ) : null}
+
           {isPlanGenerating ? (
             <div className="rounded-2xl border border-border bg-muted/20 p-6 text-sm">
               <div className="font-semibold">Building the setup plan.</div>
@@ -469,7 +597,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
                 LoopTroop is auditing workspace readiness and drafting any missing temporary setup now. Live logs remain available below while the draft is being generated.
               </p>
             </div>
-          ) : editMode ? (
+          ) : !readOnly && editMode ? (
             <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
               {editTab === 'raw' ? (
                 <div className="space-y-3">

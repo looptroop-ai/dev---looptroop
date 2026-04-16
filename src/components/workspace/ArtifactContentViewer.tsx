@@ -33,7 +33,9 @@ import type {
   CouncilResultData,
   CouncilVoterDetailData,
   CouncilOutcome,
+  ExecutionSetupProfileData,
   ExecutionSetupPlanReportData,
+  ExecutionSetupRuntimeReportData,
   FinalTestExecutionReportData,
   IntegrationReportData,
   PullRequestReportData,
@@ -52,7 +54,9 @@ import {
   normalizeCoverageFollowUpArtifacts,
   parseCleanupReport,
   parseCoverageArtifact,
+  parseExecutionSetupProfile,
   parseExecutionSetupPlanReport,
+  parseExecutionSetupRuntimeReport,
   parseIntegrationReport,
   parsePullRequestReport,
   parseInterviewQuestions,
@@ -3364,6 +3368,457 @@ function ExecutionSetupPlanView({
   )
 }
 
+function ExecutionSetupCommandFamilies({
+  projectCommands,
+}: {
+  projectCommands: ExecutionSetupProfileData['projectCommands']
+}) {
+  const projectCommandGroups: Array<{ title: string; items: string[]; emptyLabel: string }> = [
+    {
+      title: 'Prepare Commands',
+      items: projectCommands.prepare,
+      emptyLabel: 'No shared prepare commands were recorded.',
+    },
+    {
+      title: 'Full Test Commands',
+      items: projectCommands.testFull,
+      emptyLabel: 'No full test commands were recorded.',
+    },
+    {
+      title: 'Full Lint Commands',
+      items: projectCommands.lintFull,
+      emptyLabel: 'No full lint commands were recorded.',
+    },
+    {
+      title: 'Full Typecheck Commands',
+      items: projectCommands.typecheckFull,
+      emptyLabel: 'No full typecheck commands were recorded.',
+    },
+  ]
+
+  return (
+    <CollapsibleSection title="Project Command Families" defaultOpen>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {projectCommandGroups.map((group) => (
+          <ArtifactListSection
+            key={group.title}
+            title={group.title}
+            items={group.items}
+            emptyLabel={group.emptyLabel}
+            tone="default"
+          />
+        ))}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+function ExecutionSetupQualityGateGrid({
+  qualityGatePolicy,
+}: {
+  qualityGatePolicy: ExecutionSetupProfileData['qualityGatePolicy']
+}) {
+  const qualityGateEntries = [
+    {
+      label: 'Tests',
+      value: qualityGatePolicy.tests,
+      hint: describeExecutionSetupQualityGatePolicy('tests', qualityGatePolicy.tests),
+    },
+    {
+      label: 'Lint',
+      value: qualityGatePolicy.lint,
+      hint: describeExecutionSetupQualityGatePolicy('lint', qualityGatePolicy.lint),
+    },
+    {
+      label: 'Typecheck',
+      value: qualityGatePolicy.typecheck,
+      hint: describeExecutionSetupQualityGatePolicy('typecheck', qualityGatePolicy.typecheck),
+    },
+    {
+      label: 'Fallback',
+      value: qualityGatePolicy.fullProjectFallback,
+      hint: describeExecutionSetupQualityGatePolicy('fullProjectFallback', qualityGatePolicy.fullProjectFallback),
+    },
+  ] as const
+
+  return (
+    <CollapsibleSection title="Quality Gate Policy" defaultOpen>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {qualityGateEntries.map((entry) => (
+          <MetadataCard
+            key={entry.label}
+            label={entry.label}
+            value={entry.value || 'Not specified'}
+            hint={entry.hint}
+            tone="info"
+          />
+        ))}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+function ExecutionSetupReusableArtifacts({
+  artifacts,
+}: {
+  artifacts: ExecutionSetupProfileData['reusableArtifacts']
+}) {
+  return (
+    <CollapsibleSection
+      title={(
+        <span className="flex items-center gap-2">
+          <span>Reusable Artifacts</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{artifacts.length}</span>
+        </span>
+      )}
+      defaultOpen={artifacts.length > 0}
+    >
+      {artifacts.length > 0 ? (
+        <div className="space-y-2">
+          {artifacts.map((artifact, index) => (
+            <div key={`${artifact.path}:${index}`} className="rounded-md border border-border bg-background px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono break-all">{artifact.path}</code>
+                {artifact.kind ? (
+                  <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {artifact.kind}
+                  </span>
+                ) : null}
+              </div>
+              {artifact.purpose ? <p className="mt-2 text-xs text-muted-foreground leading-5">{artifact.purpose}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground">No reusable artifacts were recorded.</div>
+      )}
+    </CollapsibleSection>
+  )
+}
+
+function ExecutionSetupProfileSummary({
+  profile,
+}: {
+  profile: ExecutionSetupProfileData
+}) {
+  const statusReady = profile.status === 'ready'
+  const statusTone = statusReady
+    ? 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100'
+    : 'border-blue-300 bg-blue-50 text-blue-950 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-100'
+
+  return (
+    <div className="space-y-4">
+      <div className={cn('rounded-md border px-3 py-3', statusTone)}>
+        <div className="flex items-start gap-2">
+          {statusReady
+            ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+            : <FileCode2 className="h-4 w-4 shrink-0 mt-0.5" />}
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold">{profile.summary || 'Execution setup profile'}</div>
+            <div className="mt-1 text-xs leading-5">
+              Reusable workspace runtime guidance for coding beads.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+        <MetadataCard label="Status" value={profile.status || 'Unknown'} tone={statusReady ? 'success' : 'info'} />
+        <MetadataCard label="Temp Roots" value={profile.tempRoots.length.toLocaleString()} tone="info" />
+        <MetadataCard label="Bootstrap" value={profile.bootstrapCommands.length.toLocaleString()} tone={profile.bootstrapCommands.length > 0 ? 'info' : 'default'} />
+        <MetadataCard label="Reusable" value={profile.reusableArtifacts.length.toLocaleString()} tone={profile.reusableArtifacts.length > 0 ? 'success' : 'default'} />
+        <MetadataCard label="Ticket" value={profile.ticketId || 'Unknown'} mono />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <ArtifactListSection
+          title="Temporary Roots"
+          items={profile.tempRoots}
+          emptyLabel="No temporary runtime roots were recorded."
+          tone="default"
+        />
+        <ArtifactListSection
+          title="Bootstrap Commands"
+          items={profile.bootstrapCommands}
+          emptyLabel="No bootstrap commands were recorded."
+          tone="default"
+        />
+      </div>
+
+      <ExecutionSetupReusableArtifacts artifacts={profile.reusableArtifacts} />
+      <ExecutionSetupCommandFamilies projectCommands={profile.projectCommands} />
+      <ExecutionSetupQualityGateGrid qualityGatePolicy={profile.qualityGatePolicy} />
+      <ArtifactListSection
+        title="Cautions"
+        items={profile.cautions}
+        emptyLabel="No profile cautions were recorded."
+        tone="error"
+      />
+    </div>
+  )
+}
+
+function ExecutionSetupProfileView({ content }: { content: string }) {
+  const profile = parseExecutionSetupProfile(content)
+  if (!profile) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Profile"
+      header={<div className="text-xs font-semibold px-1">Execution Setup Profile</div>}
+    >
+      <ExecutionSetupProfileSummary profile={profile} />
+    </WithRawTab>
+  )
+}
+
+function getExecutionSetupCheckTone(value: string): 'default' | 'success' | 'warning' | 'danger' | 'info' {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return 'default'
+  if (normalized === 'pass' || normalized === 'passed' || normalized === 'ready' || normalized === 'ok') return 'success'
+  if (normalized === 'fail' || normalized === 'failed' || normalized === 'error') return 'danger'
+  return 'warning'
+}
+
+function ExecutionSetupChecksView({
+  checks,
+}: {
+  checks: NonNullable<ExecutionSetupRuntimeReportData['checks']>
+}) {
+  const entries = [
+    { label: 'Workspace', value: checks.workspace },
+    { label: 'Tooling', value: checks.tooling },
+    { label: 'Temp Scope', value: checks.tempScope },
+    { label: 'Policy', value: checks.policy },
+  ]
+
+  return (
+    <CollapsibleSection title="Checks" defaultOpen>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        {entries.map((entry) => (
+          <MetadataCard
+            key={entry.label}
+            label={entry.label}
+            value={entry.value || 'Not recorded'}
+            tone={getExecutionSetupCheckTone(entry.value)}
+          />
+        ))}
+      </div>
+    </CollapsibleSection>
+  )
+}
+
+function ExecutionSetupAttemptHistoryView({
+  attempts,
+}: {
+  attempts: ExecutionSetupRuntimeReportData['attemptHistory']
+}) {
+  return (
+    <CollapsibleSection
+      title={(
+        <span className="flex items-center gap-2">
+          <span>Attempt History</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{attempts.length}</span>
+        </span>
+      )}
+      defaultOpen={attempts.length > 0}
+    >
+      {attempts.length > 0 ? (
+        <div className="space-y-3">
+          {attempts.map((attempt) => {
+            const failed = attempt.status === 'failed'
+            const checkedAtLabel = formatArtifactTimestampLabel(attempt.checkedAt)
+            return (
+              <div key={attempt.attempt} className="rounded-md border border-border bg-background px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold">Attempt {attempt.attempt}</span>
+                  <span className={cn(
+                    'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
+                    failed
+                      ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-200'
+                      : 'border-green-300 bg-green-50 text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200',
+                  )}>
+                    {attempt.status}
+                  </span>
+                  {checkedAtLabel ? <span className="text-[11px] text-muted-foreground">{checkedAtLabel}</span> : null}
+                </div>
+                {attempt.summary ? <p className="mt-2 text-xs text-muted-foreground leading-5">{attempt.summary}</p> : null}
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <ArtifactListSection
+                    title="Temp Roots"
+                    items={attempt.tempRoots}
+                    emptyLabel="No temp roots were recorded for this attempt."
+                  />
+                  <ArtifactListSection
+                    title="Bootstrap Commands"
+                    items={attempt.bootstrapCommands}
+                    emptyLabel="No bootstrap commands were recorded for this attempt."
+                  />
+                </div>
+                {(attempt.errors.length > 0 || attempt.failureReason || attempt.noteAppended) ? (
+                  <div className="mt-3 space-y-3">
+                    <ArtifactListSection
+                      title="Errors"
+                      items={attempt.errors.length > 0 ? attempt.errors : (attempt.failureReason ? [attempt.failureReason] : [])}
+                      emptyLabel="No attempt errors were recorded."
+                      tone="error"
+                    />
+                    {attempt.noteAppended ? (
+                      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground leading-5">
+                        <span className="font-medium text-foreground">Retry note:</span> {attempt.noteAppended}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground">No attempt history was recorded.</div>
+      )}
+    </CollapsibleSection>
+  )
+}
+
+function ExecutionSetupReportView({ content, runtimeLabel = false }: { content: string; runtimeLabel?: boolean }) {
+  const report = parseExecutionSetupRuntimeReport(content)
+  if (!report) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const failed = report.ready === false || report.status === 'failed'
+  const checkedAtLabel = formatArtifactTimestampLabel(report.checkedAt)
+  const attemptCount = report.attemptHistory.length || report.attempt || 0
+  const statusLabel = failed ? 'failed' : report.status || (report.ready ? 'ready' : 'unknown')
+  const statusTone = failed
+    ? 'border-red-300 bg-red-50 text-red-950 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-100'
+    : 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100'
+  const header = report.preparedBy
+    ? (
+      <ModelBadge modelId={report.preparedBy} active className="px-3 py-2 h-auto flex-1 justify-start">
+        <div className="text-left">
+          <div className="text-xs font-medium">{getModelDisplayName(report.preparedBy)}</div>
+          <div className="text-[10px] opacity-80 mt-0.5">
+            {runtimeLabel ? 'Execution setup runtime' : 'Execution setup report'}
+            {checkedAtLabel ? ` · ${checkedAtLabel}` : ''}
+          </div>
+        </div>
+      </ModelBadge>
+      )
+    : <div className="text-xs font-semibold px-1">{runtimeLabel ? 'Execution Setup Runtime' : 'Execution Setup Report'}</div>
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel={runtimeLabel ? 'Runtime' : 'Report'}
+      header={header}
+      notice={<ArtifactProcessingNotice structuredOutput={report.structuredOutput} kind="artifact" status={failed ? 'failed' : 'completed'} />}
+    >
+      <div className="space-y-4">
+        <div className={cn('rounded-md border px-3 py-3', statusTone)}>
+          <div className="flex items-start gap-2">
+            {failed
+              ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              : <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{report.summary || (failed ? 'Execution setup failed' : 'Execution setup ready')}</div>
+              <div className="mt-1 text-xs leading-5">
+                {failed
+                  ? 'Workspace runtime setup did not produce an accepted reusable profile.'
+                  : 'Workspace runtime setup produced a reusable profile for coding beads.'}
+              </div>
+              {checkedAtLabel ? <div className="mt-2 text-[11px] opacity-80">Checked at {checkedAtLabel}</div> : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+          <MetadataCard label="Status" value={statusLabel} tone={failed ? 'danger' : 'success'} />
+          <MetadataCard label="Ready" value={report.ready === undefined ? 'Unknown' : report.ready ? 'Yes' : 'No'} tone={report.ready ? 'success' : failed ? 'danger' : 'default'} />
+          <MetadataCard label="Attempt" value={report.attempt?.toLocaleString() ?? (attemptCount > 0 ? attemptCount.toLocaleString() : 'Unknown')} tone="info" />
+          <MetadataCard label="Max Iterations" value={report.maxIterations == null ? 'Unlimited' : report.maxIterations.toLocaleString()} tone="default" />
+          <MetadataCard label="Added Commands" value={report.executionAddedCommands.length.toLocaleString()} tone={report.executionAddedCommands.length > 0 ? 'warning' : 'success'} />
+        </div>
+
+        {report.checks ? <ExecutionSetupChecksView checks={report.checks} /> : null}
+
+        {report.profile ? (
+          <CollapsibleSection title="Profile Snapshot" defaultOpen>
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground leading-5">{report.profile.summary || 'No profile summary was recorded.'}</p>
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                <MetadataCard label="Temp Roots" value={report.profile.tempRoots.length.toLocaleString()} tone="info" />
+                <MetadataCard label="Bootstrap" value={report.profile.bootstrapCommands.length.toLocaleString()} tone={report.profile.bootstrapCommands.length > 0 ? 'info' : 'default'} />
+                <MetadataCard label="Reusable" value={report.profile.reusableArtifacts.length.toLocaleString()} tone={report.profile.reusableArtifacts.length > 0 ? 'success' : 'default'} />
+                <MetadataCard label="Status" value={report.profile.status || 'Unknown'} tone={report.profile.status === 'ready' ? 'success' : 'default'} />
+              </div>
+            </div>
+          </CollapsibleSection>
+        ) : null}
+
+        <ExecutionSetupAttemptHistoryView attempts={report.attemptHistory} />
+
+        <CollapsibleSection title="Command Audit" defaultOpen={report.executionAddedCommands.length > 0}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ArtifactListSection
+              title="Approved Plan Commands"
+              items={report.approvedPlanCommands}
+              emptyLabel="No approved plan commands were recorded."
+            />
+            <ArtifactListSection
+              title="Execution Added Commands"
+              items={report.executionAddedCommands}
+              emptyLabel="No additional execution setup commands were recorded."
+              tone={report.executionAddedCommands.length > 0 ? 'error' : 'preserved'}
+            />
+          </div>
+        </CollapsibleSection>
+
+        <ArtifactListSection
+          title="Retry Notes"
+          items={report.retryNotes}
+          emptyLabel="No retry notes were recorded."
+          tone="default"
+        />
+
+        <ArtifactListSection
+          title="Errors"
+          items={report.errors}
+          emptyLabel="No execution setup errors were recorded."
+          tone="error"
+        />
+
+        {report.modelOutput ? (
+          <CollapsibleSection title="Model Output">
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <CopyButton content={report.modelOutput} title="Copy model output" />
+              </div>
+              <pre className="rounded-md border border-border bg-background p-3 text-[11px] font-mono whitespace-pre-wrap break-all overflow-x-auto overflow-y-hidden">
+                {report.modelOutput}
+              </pre>
+            </div>
+          </CollapsibleSection>
+        ) : null}
+      </div>
+    </WithRawTab>
+  )
+}
+
+function ExecutionSetupRuntimeView({ content }: { content: string }) {
+  if (parseExecutionSetupRuntimeReport(content)) {
+    return <ExecutionSetupReportView content={content} runtimeLabel />
+  }
+  if (parseExecutionSetupProfile(content)) {
+    return <ExecutionSetupProfileView content={content} />
+  }
+  return <RawContentWithCopy content={content} />
+}
+
 function FinalTestResultsView({ content }: { content: string }) {
   const parsed = tryParseStructuredContent(content) as FinalTestExecutionReportData | null
   if (
@@ -4189,6 +4644,15 @@ export function ArtifactContent({
         header={<div className="text-xs font-semibold px-1">Execution Setup Plan</div>}
       />
     )
+  }
+  if (artifactId === 'execution-setup-runtime') {
+    return <ExecutionSetupRuntimeView content={content} />
+  }
+  if (artifactId === 'execution-setup-profile') {
+    return <ExecutionSetupProfileView content={content} />
+  }
+  if (artifactId === 'execution-setup-report') {
+    return <ExecutionSetupReportView content={content} />
   }
   if (artifactId === 'diagnostics') {
     return <PreFlightReportView content={content} />
