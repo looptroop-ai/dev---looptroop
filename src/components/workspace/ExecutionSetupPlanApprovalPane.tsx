@@ -456,7 +456,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
           <DialogHeader>
             <DialogTitle className="text-sm">Regenerate setup plan</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              Describe what should change in the readiness assessment or temporary workspace-preparation plan. If you currently have unsaved edits open, LoopTroop uses that draft as the regenerate baseline.
+              Describe what should change in the readiness assessment or workspace-preparation plan. If you currently have unsaved edits open, LoopTroop uses that draft as the regenerate baseline.
             </DialogDescription>
           </DialogHeader>
 
@@ -499,8 +499,8 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
           ) : null}
           <span className="flex-1 text-xs text-muted-foreground">
             {readOnly
-              ? 'Review the approved workspace readiness audit and temporary setup contract.'
-              : 'Review the workspace readiness audit and any temporary setup steps, edit if needed, regenerate with commentary, then approve.'}
+              ? 'Review the approved workspace readiness audit and setup contract.'
+              : 'Review the workspace readiness audit and any setup steps, edit if needed, regenerate with commentary, then approve.'}
           </span>
           {!readOnly ? (
             <>
@@ -594,7 +594,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
             <div className="rounded-2xl border border-border bg-muted/20 p-6 text-sm">
               <div className="font-semibold">Building the setup plan.</div>
               <p className="mt-2 text-xs text-muted-foreground">
-                LoopTroop is auditing workspace readiness and drafting any missing temporary setup now. Live logs remain available below while the draft is being generated.
+                LoopTroop is auditing workspace readiness and drafting any missing setup now. Live logs remain available below while the draft is being generated.
               </p>
             </div>
           ) : !readOnly && editMode ? (

@@ -24,7 +24,7 @@ const EXECUTION_SETUP_SCHEMA_REMINDER = [
   'Inside the marker, return a single JSON or YAML object with top-level keys: status, summary, profile, checks.',
   'status must be ready.',
   'profile.artifact must be execution_setup_profile.',
-  'profile.temp_roots and profile.reusable_artifacts[].path must stay inside .ticket/runtime/execution-setup.',
+  'profile.temp_roots and profile.reusable_artifacts[].path may name any repository-local or tool-cache path used by setup.',
   'checks must contain exactly: workspace, tooling, temp_scope, policy.',
 ].join('\n')
 

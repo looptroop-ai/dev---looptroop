@@ -30,11 +30,8 @@ import { readExecutionSetupPlan } from '../../phases/executionSetupPlan/document
 import { flattenExecutionSetupPlanCommands } from '../../phases/executionSetupPlan/types'
 import {
   clearExecutionSetupRuntimeArtifacts,
-  createExecutionSetupPathSnapshot,
   describeExecutionSetupPaths,
   EXECUTION_RUNTIME_PRESERVE_PATHS,
-  removeExecutionSetupPathViolations,
-  validateExecutionSetupPaths,
   writeExecutionSetupProfileMirror,
 } from '../../phases/executionSetup/storage'
 import {
@@ -162,7 +159,6 @@ export async function handleExecutionSetup(
 
       const runtimeSettings = resolveExecutionSetupRuntimeSettings(context)
       const phaseStartCommit = recordWorktreeStartCommit(paths.worktreePath)
-      const pathSnapshot = createExecutionSetupPathSnapshot(paths.worktreePath)
       const approvedPlan = readExecutionSetupPlan(ticketId).plan
       if (!approvedPlan) {
         throw new Error('Approved execution setup plan is missing')
@@ -197,13 +193,6 @@ export async function handleExecutionSetup(
 
             if (result && !allChecksPass(result)) {
               errors.push('Execution setup checks must all pass before the setup profile can be accepted.')
-            }
-
-            const pathValidation = validateExecutionSetupPaths(paths.worktreePath, pathSnapshot)
-            if (!pathValidation.ok) {
-              errors.push(
-                `Execution setup wrote outside allowed temporary paths: ${pathValidation.violations.join(', ')}`,
-              )
             }
 
             return buildExecutionSetupReport({
@@ -354,7 +343,6 @@ export async function handleExecutionSetup(
               preservePaths: [...EXECUTION_RUNTIME_PRESERVE_PATHS],
             })
             clearExecutionSetupRuntimeArtifacts(ticketId)
-            const removedPolicyViolations = removeExecutionSetupPathViolations(paths.worktreePath, pathSnapshot)
             emitPhaseLog(
               ticketId,
               context.externalId,
@@ -364,7 +352,6 @@ export async function handleExecutionSetup(
               {
                 commit: phaseStartCommit,
                 nextAttempt,
-                removedPolicyViolations,
               },
             )
           },

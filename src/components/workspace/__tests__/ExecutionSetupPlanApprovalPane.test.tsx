@@ -9,7 +9,7 @@ const mockUseTicketUIState = vi.fn()
 const mockClearTicketArtifactsCache = vi.fn()
 const mockUseTicketArtifacts = vi.fn()
 
-function buildPlan(summary = 'Prepare the temporary runtime.') {
+function buildPlan(summary = 'Prepare the workspace runtime.') {
   return {
     schemaVersion: 1,
     ticketId: TEST.externalId,
@@ -20,25 +20,25 @@ function buildPlan(summary = 'Prepare the temporary runtime.') {
       status: 'partial' as const,
       actionsRequired: true,
       evidence: ['Manifest and lockfile were detected.'],
-      gaps: ['Temporary workspace dependencies still need to be prepared.'],
+      gaps: ['Workspace setup outputs still need to be prepared.'],
     },
-    tempRoots: ['.ticket/runtime/execution-setup'],
+    tempRoots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
     steps: [
       {
-        id: 'install-deps',
-        title: 'Install dependencies',
+        id: 'bootstrap-workspace',
+        title: 'Bootstrap workspace',
         purpose: 'Prepare the runtime for later coding.',
-        commands: ['pnpm install --frozen-lockfile'],
+        commands: ['project bootstrap'],
         required: true,
-        rationale: 'Dependencies need to be present before execution can continue.',
+        rationale: 'Repository-native setup must run before execution can continue.',
         cautions: ['Can take a while on cold cache.'],
       },
     ],
     projectCommands: {
-      prepare: ['pnpm install --frozen-lockfile'],
-      testFull: ['pnpm test'],
-      lintFull: ['pnpm lint'],
-      typecheckFull: ['pnpm typecheck'],
+      prepare: ['project bootstrap'],
+      testFull: ['project test'],
+      lintFull: ['project lint'],
+      typecheckFull: ['project typecheck'],
     },
     qualityGatePolicy: {
       tests: 'bead-test-commands-first',
@@ -46,11 +46,11 @@ function buildPlan(summary = 'Prepare the temporary runtime.') {
       typecheck: 'impacted-or-package',
       fullProjectFallback: 'never-block-on-unrelated-baseline',
     },
-    cautions: ['Stay inside LoopTroop runtime paths only.'],
+    cautions: ['Repository-native bootstrap may create local dependency caches.'],
   }
 }
 
-function buildRawPlan(summary = 'Prepare the temporary runtime.') {
+function buildRawPlan(summary = 'Prepare the workspace runtime.') {
   return JSON.stringify({
     schema_version: 1,
     ticket_id: TEST.externalId,
@@ -61,25 +61,25 @@ function buildRawPlan(summary = 'Prepare the temporary runtime.') {
       status: 'partial',
       actions_required: true,
       evidence: ['Manifest and lockfile were detected.'],
-      gaps: ['Temporary workspace dependencies still need to be prepared.'],
+      gaps: ['Workspace setup outputs still need to be prepared.'],
     },
-    temp_roots: ['.ticket/runtime/execution-setup'],
+    temp_roots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
     steps: [
       {
-        id: 'install-deps',
-        title: 'Install dependencies',
+        id: 'bootstrap-workspace',
+        title: 'Bootstrap workspace',
         purpose: 'Prepare the runtime for later coding.',
-        commands: ['pnpm install --frozen-lockfile'],
+        commands: ['project bootstrap'],
         required: true,
-        rationale: 'Dependencies need to be present before execution can continue.',
+        rationale: 'Repository-native setup must run before execution can continue.',
         cautions: ['Can take a while on cold cache.'],
       },
     ],
     project_commands: {
-      prepare: ['pnpm install --frozen-lockfile'],
-      test_full: ['pnpm test'],
-      lint_full: ['pnpm lint'],
-      typecheck_full: ['pnpm typecheck'],
+      prepare: ['project bootstrap'],
+      test_full: ['project test'],
+      lint_full: ['project lint'],
+      typecheck_full: ['project typecheck'],
     },
     quality_gate_policy: {
       tests: 'bead-test-commands-first',
@@ -87,7 +87,7 @@ function buildRawPlan(summary = 'Prepare the temporary runtime.') {
       typecheck: 'impacted-or-package',
       full_project_fallback: 'never-block-on-unrelated-baseline',
     },
-    cautions: ['Stay inside LoopTroop runtime paths only.'],
+    cautions: ['Repository-native bootstrap may create local dependency caches.'],
   }, null, 2)
 }
 
@@ -97,10 +97,10 @@ function buildReportContent() {
     ready: true,
     generatedAt: '2026-03-25T10:15:00.000Z',
     generatedBy: 'openai/gpt-5',
-    summary: 'Prepare the temporary runtime.',
+    summary: 'Prepare the workspace runtime.',
     modelOutput: '<EXECUTION_SETUP_PLAN>\nsummary: generated\n</EXECUTION_SETUP_PLAN>',
     errors: [],
-    notes: ['Prefer pnpm over npm.'],
+    notes: ['Prefer the project-native bootstrap command.'],
     source: 'auto',
   })
 }
@@ -276,10 +276,10 @@ describe('ExecutionSetupPlanApprovalPane', () => {
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Regenerate setup plan')).toBeInTheDocument()
-    expect(within(dialog).getByText(/describe what should change in the readiness assessment or temporary workspace-preparation plan/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/describe what should change in the readiness assessment or workspace-preparation plan/i)).toBeInTheDocument()
 
     fireEvent.change(within(dialog).getByRole('textbox'), {
-      target: { value: 'Please switch the bootstrap commands from npm to pnpm.' },
+      target: { value: 'Please switch to the project-native bootstrap command.' },
     })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Regenerate' }))
 
@@ -289,7 +289,7 @@ describe('ExecutionSetupPlanApprovalPane', () => {
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: expect.stringContaining('Please switch the bootstrap commands from npm to pnpm.'),
+          body: expect.stringContaining('Please switch to the project-native bootstrap command.'),
         }),
       )
     })

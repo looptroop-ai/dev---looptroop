@@ -16,12 +16,14 @@ describe('parseExecutionSetupResult', () => {
         artifact: 'execution_setup_profile',
         status: 'ready',
         summary: 'environment initialized and reusable',
-        temp_roots: ['.ticket/runtime/execution-setup'],
-        bootstrap_commands: ['npm install'],
-        reusable_artifacts: [],
+        temp_roots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
+        bootstrap_commands: ['project bootstrap'],
+        reusable_artifacts: [
+          { path: '.cache/project-tooling/dependencies', kind: 'cache', purpose: 'project dependency cache' },
+        ],
         project_commands: {
-          prepare: ['npm install'],
-          test_full: ['npm test'],
+          prepare: ['project bootstrap'],
+          test_full: ['project test'],
           lint_full: [],
           typecheck_full: [],
         },
@@ -44,7 +46,8 @@ describe('parseExecutionSetupResult', () => {
     expect(parsed.markerFound).toBe(true)
     expect(parsed.errors).toEqual([])
     expect(parsed.result?.profile.artifact).toBe('execution_setup_profile')
-    expect(parsed.result?.profile.tempRoots).toEqual(['.ticket/runtime/execution-setup'])
+    expect(parsed.result?.profile.tempRoots).toEqual(['.ticket/runtime/execution-setup', '.cache/project-tooling'])
+    expect(parsed.result?.profile.reusableArtifacts[0]?.path).toBe('.cache/project-tooling/dependencies')
   })
 
   it('repairs fenced YAML payloads inside the execution setup marker', () => {
@@ -61,7 +64,7 @@ describe('parseExecutionSetupResult', () => {
       '  temp_roots:',
       '    - .ticket/runtime/execution-setup',
       '  bootstrap_commands:',
-      '    - npm install',
+      '    - project bootstrap',
       '  reusable_artifacts: []',
       '  project_commands:',
       '    prepare: []',

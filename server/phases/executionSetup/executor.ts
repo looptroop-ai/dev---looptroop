@@ -52,7 +52,7 @@ function buildDeterministicExecutionSetupRetryNote(input: {
   return [
     `Attempt ${attempt} failed.`,
     failureReason,
-    `${tempRoots}Next attempt: keep writes inside .ticket/runtime/execution-setup, reuse repository-native bootstrap hints, and avoid permanent repository changes.`,
+    `${tempRoots}Next attempt: reuse repository-native bootstrap hints, keep setup work minimal, and avoid implementing ticket feature changes during workspace preparation.`,
   ].join(' ').trim()
 }
 

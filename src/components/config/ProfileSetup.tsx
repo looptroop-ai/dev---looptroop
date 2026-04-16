@@ -354,7 +354,7 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
               rawNumeric={rawNumeric}
               onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))}
               hint="Timeout for the one-time execution setup phase before coding starts (0–3600s)."
-              tooltip="Runs a one-time temporary setup step after pre-flight and before coding. It can install toolchains, warm caches, and prepare reusable runtime artifacts inside LoopTroop-owned paths only. Nothing from this step is committed or pushed."
+              tooltip="Runs a one-time setup step after pre-flight and before coding. It can install toolchains, warm caches, and prepare repository-local runtime artifacts when the approved setup plan requires them."
             />
           </div>
 

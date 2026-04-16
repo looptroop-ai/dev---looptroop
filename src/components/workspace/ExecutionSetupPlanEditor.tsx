@@ -186,7 +186,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
       <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
         <div className="font-semibold">Structured setup-plan editor</div>
         <p className="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/90">
-          Review the readiness assessment first, then adjust only the temporary setup steps that should run later.
+          Review the readiness assessment first, then adjust only the setup steps that should run later.
           Use the raw tab for full-power editing.
         </p>
       </div>
@@ -208,7 +208,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
             items={plan.tempRoots}
             onChange={(tempRoots) => updatePlan({ tempRoots })}
             disabled={disabled}
-            placeholder=".ticket/runtime/execution-setup"
+            placeholder=".ticket/runtime/execution-setup or .cache/project-tooling"
           />
         </div>
       </div>
@@ -444,7 +444,7 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
                       items={step.commands}
                       onChange={(commands) => updateStep(index, { commands })}
                       disabled={disabled}
-                      placeholder="Repository-native temporary setup command"
+                      placeholder="Repository-native setup command"
                     />
                   </div>
                   <div>

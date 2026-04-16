@@ -171,7 +171,7 @@ function buildExecutionSetupProfileArtifactContent() {
     status: 'ready',
     summary: 'Runtime cache ready for implementation beads.',
     temp_roots: ['.ticket/runtime/execution-setup'],
-    bootstrap_commands: ['pnpm install --frozen-lockfile'],
+    bootstrap_commands: ['project bootstrap'],
     reusable_artifacts: [
       {
         path: '.ticket/runtime/execution-setup/cache.json',
@@ -180,10 +180,10 @@ function buildExecutionSetupProfileArtifactContent() {
       },
     ],
     project_commands: {
-      prepare: ['pnpm install --frozen-lockfile'],
-      test_full: ['pnpm test'],
-      lint_full: ['pnpm lint'],
-      typecheck_full: ['pnpm typecheck'],
+      prepare: ['project bootstrap'],
+      test_full: ['project test'],
+      lint_full: ['project lint'],
+      typecheck_full: ['project typecheck'],
     },
     quality_gate_policy: {
       tests: 'bead-test-commands-first',
@@ -209,7 +209,7 @@ function buildExecutionSetupReportArtifactContent() {
       status: 'ready',
       summary: 'Runtime cache ready for implementation beads.',
       tempRoots: ['.ticket/runtime/execution-setup'],
-      bootstrapCommands: ['pnpm install --frozen-lockfile'],
+      bootstrapCommands: ['project bootstrap'],
       reusableArtifacts: [
         {
           path: '.ticket/runtime/execution-setup/cache.json',
@@ -218,10 +218,10 @@ function buildExecutionSetupReportArtifactContent() {
         },
       ],
       projectCommands: {
-        prepare: ['pnpm install --frozen-lockfile'],
-        testFull: ['pnpm test'],
-        lintFull: ['pnpm lint'],
-        typecheckFull: ['pnpm typecheck'],
+        prepare: ['project bootstrap'],
+        testFull: ['project test'],
+        lintFull: ['project lint'],
+        typecheckFull: ['project typecheck'],
       },
       qualityGatePolicy: {
         tests: 'bead-test-commands-first',
@@ -248,13 +248,13 @@ function buildExecutionSetupReportArtifactContent() {
         checkedAt: '2026-03-25T10:20:00.000Z',
         summary: 'Runtime profile is ready for coding beads.',
         tempRoots: ['.ticket/runtime/execution-setup'],
-        bootstrapCommands: ['pnpm install --frozen-lockfile'],
+        bootstrapCommands: ['project bootstrap'],
         errors: [],
       },
     ],
     retryNotes: [],
-    approvedPlanCommands: ['pnpm install --frozen-lockfile'],
-    executionAddedCommands: ['pnpm store status'],
+    approvedPlanCommands: ['project bootstrap'],
+    executionAddedCommands: ['project cache verify'],
   })
 }
 

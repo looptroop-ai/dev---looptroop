@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { phaseArtifacts } from '../../db/schema'
 import { safeAtomicWrite } from '../../io/atomicWrite'
@@ -66,16 +66,9 @@ function listGitPaths(worktreePath: string, args: string[]): string[] {
     .filter(Boolean)
 }
 
-function listUntrackedPathsIncludingIgnored(worktreePath: string): string[] {
-  return [
-    ...listGitPaths(worktreePath, ['ls-files', '--others', '--exclude-standard']),
-    ...listGitPaths(worktreePath, ['ls-files', '--others', '--ignored', '--exclude-standard']),
-  ]
-}
-
 export function createExecutionSetupPathSnapshot(worktreePath: string): ExecutionSetupPathSnapshot {
   return {
-    untrackedPaths: [...new Set(listUntrackedPathsIncludingIgnored(worktreePath))],
+    untrackedPaths: [...new Set(listGitPaths(worktreePath, ['ls-files', '--others', '--exclude-standard']))],
   }
 }
 
@@ -87,41 +80,28 @@ export function validateExecutionSetupPaths(
   violations: string[]
   changedPaths: string[]
 } {
+  // Execution setup is allowed to prepare repository-local dependency and cache output.
+  // Keep returning changed paths for diagnostics, but do not fail the phase on path scope.
   const baselineUntracked = new Set(baseline?.untrackedPaths ?? [])
   const changedPaths = [
     ...listGitPaths(worktreePath, ['diff', '--name-only', 'HEAD']),
-    ...listUntrackedPathsIncludingIgnored(worktreePath)
+    ...listGitPaths(worktreePath, ['ls-files', '--others', '--exclude-standard'])
       .filter((path) => !baselineUntracked.has(path)),
   ]
   const uniqueChangedPaths = [...new Set(changedPaths)]
-  const violations = uniqueChangedPaths.filter((path) => !isAllowedExecutionSetupRuntimePath(path))
   return {
-    ok: violations.length === 0,
-    violations,
+    ok: true,
+    violations: [],
     changedPaths: uniqueChangedPaths,
   }
 }
 
-function isPathInside(parentPath: string, candidatePath: string): boolean {
-  const parent = resolve(parentPath)
-  const candidate = resolve(candidatePath)
-  const rel = relative(parent, candidate)
-  return rel === '' || (rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel))
-}
-
 export function removeExecutionSetupPathViolations(
-  worktreePath: string,
-  baseline?: ExecutionSetupPathSnapshot,
+  _worktreePath: string,
+  _baseline?: ExecutionSetupPathSnapshot,
 ): string[] {
-  const validation = validateExecutionSetupPaths(worktreePath, baseline)
-  const removed: string[] = []
-  for (const violation of validation.violations) {
-    const targetPath = resolve(worktreePath, violation)
-    if (!isPathInside(worktreePath, targetPath) || !existsSync(targetPath)) continue
-    rmSync(targetPath, { recursive: true, force: true })
-    removed.push(violation)
-  }
-  return removed
+  // Compatibility no-op: repository-local setup outputs are no longer policy violations.
+  return []
 }
 
 export function writeExecutionSetupProfileMirror(ticketId: string, profile: ExecutionSetupProfile): string | null {

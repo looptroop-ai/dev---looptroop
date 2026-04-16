@@ -30,7 +30,7 @@ const EXECUTION_SETUP_PLAN_SCHEMA_REMINDER = [
   'status must be draft.',
   'readiness.status must be ready, partial, or missing.',
   'readiness.actions_required must be false only when readiness.status is ready.',
-  'temp_roots must stay inside .ticket/runtime/execution-setup.',
+  'temp_roots may name any repository-local or tool-cache path needed by the approved setup commands.',
   'steps must be empty when readiness says the environment is ready, otherwise steps must be a non-empty ordered list of setup steps.',
 ].join('\n')
 

@@ -672,15 +672,16 @@ export const PROM_EXECUTION_CAPABILITY_PROBE: PromptTemplate = {
 export const PROM_EXECUTION_SETUP_PLAN: PromptTemplate = {
   id: 'PROM_EXECUTION_SETUP_PLAN',
   description: 'Execution Setup Plan Prompt',
-  systemRole: 'You are an expert execution-planning analyst drafting a temporary-only workspace setup plan for later coding.',
-  task: 'Inspect the approved planning context and the current workspace state, decide whether temporary setup is actually needed, and return a reviewable execution setup plan without modifying the repository.',
+  systemRole: 'You are an expert execution-planning analyst drafting a workspace setup plan for later coding.',
+  task: 'Inspect the approved planning context and the current workspace state, decide whether setup is actually needed, and return a reviewable execution setup plan without modifying the repository.',
   instructions: [
-    'Scope: Your job is to audit current readiness first, then plan only the missing temporary workspace preparation. Do not assume setup is needed just because this phase exists.',
+    'Scope: Your job is to audit current readiness first, then plan only the missing workspace preparation. Do not assume setup is needed just because this phase exists.',
     'Read-Only Discovery: Inspect the ticket details, relevant files, PRD, beads plan, any prior setup-plan notes, and any existing execution_setup_profile context. You may inspect repository files, manifests, lockfiles, runtime directories, and generated temp artifacts, but do not edit files, install dependencies, or run mutating commands.',
     'Existing Readiness First: Determine whether the current worktree already has what later coding beads need. If the environment is already ready, set `readiness.status` to `ready`, set `readiness.actions_required` to `false`, record concrete evidence, leave `readiness.gaps` empty, and return an empty `steps` list.',
-    'Missing Work Only: If the environment is not fully ready, set `readiness.status` to `partial` or `missing`, set `readiness.actions_required` to `true`, record concrete gaps, and include only the smallest credible set of temporary setup steps needed to close those gaps.',
+    'Missing Work Only: If the environment is not fully ready, set `readiness.status` to `partial` or `missing`, set `readiness.actions_required` to `true`, record concrete gaps, and include only the smallest credible set of setup steps needed to close those gaps.',
     'Language Agnosticism: Infer tooling from the repository itself. Do not assume Node, npm, pnpm, Python, Cargo, Maven, Gradle, Go, or any other ecosystem unless the repository evidence supports it. Never invent commands for a language or toolchain you did not actually observe.',
-    'Temporary Runtime Policy: The setup plan may propose commands that create or update runtime artifacts only under `.ticket/runtime/execution-setup/**` when executed later. Do not propose permanent repository edits as part of the setup plan.',
+    'Workspace Setup Policy: The setup plan may propose repository-native bootstrap commands even when they create or update dependency directories, build caches, generated outputs, or tool caches outside `.ticket/runtime/execution-setup/**`. Do not propose ticket feature implementation as part of setup.',
+    'Tracked Change Caution: If a setup command is likely to modify tracked manifests, lockfiles, generated assets, or configuration, keep the command only when it is necessary and call that risk out in `cautions` instead of hiding it.',
     'Plan Structure: Return an ordered list of setup steps only when actions are required. Each step must explain its purpose, contain the commands to run, and state whether it is required.',
     'Command Families: Discover project-level command families for prepare/bootstrap, full test, full lint, and full typecheck when possible. If a family is unavailable, return an empty list rather than inventing commands.',
     'Quality Gate Policy: Default to bead test commands first, then impacted-or-package scoped lint/typecheck, and never block later phases on unrelated baseline debt.',
@@ -700,7 +701,7 @@ export const PROM_EXECUTION_SETUP_PLAN: PromptTemplate = {
     "evidence": ["observed fact proving readiness"],
     "gaps": []
   },
-  "temp_roots": [".ticket/runtime/execution-setup"],
+  "temp_roots": [".ticket/runtime/execution-setup", ".cache/project-tooling"],
   "steps": [],
   "project_commands": {
     "prepare": ["<repository-native prepare command when discovered>"],
@@ -724,11 +725,11 @@ export const PROM_EXECUTION_SETUP_PLAN: PromptTemplate = {
 export const PROM_EXECUTION_SETUP_PLAN_REGENERATE: PromptTemplate = {
   id: 'PROM_EXECUTION_SETUP_PLAN_REGENERATE',
   description: 'Execution Setup Plan Regenerate Prompt',
-  systemRole: 'You are revising an existing execution setup plan for a temporary-only workspace initialization phase.',
-  task: 'Revise the current execution setup plan using the provided user commentary while keeping the plan temporary-only and reviewable.',
+  systemRole: 'You are revising an existing execution setup plan for a workspace initialization phase.',
+  task: 'Revise the current execution setup plan using the provided user commentary while keeping the plan scoped to workspace preparation and reviewable.',
   instructions: [
     'Treat the provided `execution_setup_plan` as the current draft baseline.',
-    'Apply the user commentary from `execution_setup_plan_note` entries directly to the plan when it is compatible with the repository and temporary-runtime policy.',
+    'Apply the user commentary from `execution_setup_plan_note` entries directly to the plan when it is compatible with the repository and workspace setup policy.',
     'Re-audit current readiness while revising. Preserve or strengthen a no-op plan when the environment is already ready; only add steps if the commentary or repository evidence shows missing work.',
     'Preserve good existing steps when the commentary does not require changing them.',
     'Remain language-agnostic. Do not switch ecosystems or invent commands unless the repository evidence supports the change.',
@@ -745,7 +746,7 @@ export const PROM_EXECUTION_SETUP: PromptTemplate = {
   id: 'PROM_EXECUTION_SETUP',
   description: 'Execution Setup Prompt',
   systemRole: 'You are an expert execution-environment initializer preparing a temporary reusable workspace for future coding beads.',
-  task: 'Execute the approved temporary setup plan, initialize only temporary reusable execution state, discover any missing project command details, and return a structured execution setup result.',
+  task: 'Execute the approved setup plan, initialize reusable execution state, discover any missing project command details, and return a structured execution setup result.',
   instructions: [
     'Scope: Your job is only to prepare a reusable temporary execution environment for later coding beads. You are not implementing ticket features.',
     'Approved Plan First: Read the approved `execution_setup_plan` context before taking action. Treat user-edited plan steps and commands as the primary setup contract.',
@@ -753,12 +754,12 @@ export const PROM_EXECUTION_SETUP: PromptTemplate = {
     'Context Review: Read the ticket details, relevant files, PRD, beads plan, and any prior `execution_setup_note` context before taking action. Avoid repeating failed setup approaches.',
     'Prefer Native Bootstrap: Prefer repository-native manifests, lockfiles, scripts, and codegen commands when discovering how to initialize the environment.',
     'Language Agnosticism: Do not assume a language or package manager. Use only the repository-native tooling that is actually present.',
-    'Temporary-Only Writes: You may write only inside `.ticket/runtime/execution-setup/**`. You may also update the mirrored setup profile file only through the returned result object, not by writing your own file elsewhere.',
-    'Permanent File Ban: Do not modify permanent source files, tracked configs, repo-root scratch files, dependency versions, or project configuration. If the setup would require permanent repository changes, stop and report the policy issue in the final result instead of making the change.',
+    'Workspace Writes: You may run repository-native setup commands from the approved plan even when they create or update dependency directories, build caches, generated outputs, or tool caches outside `.ticket/runtime/execution-setup/**`. You may also write setup logs and reusable notes under `.ticket/runtime/execution-setup/**`.',
+    'Feature-Work Ban: Do not implement ticket feature code, broad source edits, or unrelated refactors during setup. If a repository-native bootstrap command changes tracked manifests, lockfiles, generated assets, or configuration, record that in `cautions` and keep going when the change is necessary for readiness.',
     'Approved Plan Execution: Start from the approved setup-plan steps and commands. Reuse them directly when they are still correct for the repository state.',
     'Minimum Necessary Work: If the environment is already ready or only partially missing one prerequisite, do only the missing temporary work. Do not rebuild or re-bootstrap the environment from scratch without evidence.',
-    'Audited Augmentations: If the approved plan is insufficient and you must run additional temporary-only commands, keep those additions minimal and make sure `bootstrap_commands` lists every command actually used, including additions beyond the approved plan.',
-    'Reusable Outputs: Place any reusable cache, generated temp artifact, or bootstrap output only inside `.ticket/runtime/execution-setup/**`.',
+    'Audited Augmentations: If the approved plan is insufficient and you must run additional setup commands, keep those additions minimal and make sure `bootstrap_commands` lists every command actually used, including additions beyond the approved plan.',
+    'Reusable Outputs: Record any reusable dependency directory, build cache, generated temp artifact, tool cache, or setup note path in `temp_roots` or `reusable_artifacts`, whether it lives under `.ticket/runtime/execution-setup/**` or another setup-created location.',
     'Discovery Goal: Discover project-level command families for prepare/bootstrap, full test, full lint, and full typecheck when possible. If a command family is unavailable, return an empty list for that field instead of inventing a fake command.',
     'Quality Gate Policy: Default to bead test commands first, then impacted-or-package scoped lint/typecheck, and never block later phases on unrelated baseline debt.',
     'Do Not Stop Early: Continue working until the environment is ready, you hit a hard blocker, or the app interrupts you.',
@@ -775,11 +776,11 @@ export const PROM_EXECUTION_SETUP: PromptTemplate = {
     "artifact": "execution_setup_profile",
     "status": "ready",
     "summary": "environment initialized and reusable",
-    "temp_roots": [".ticket/runtime/execution-setup"],
+    "temp_roots": [".ticket/runtime/execution-setup", ".cache/project-tooling"],
     "bootstrap_commands": ["..."],
     "reusable_artifacts": [
       {
-        "path": ".ticket/runtime/execution-setup/...",
+        "path": ".cache/project-tooling",
         "kind": "cache",
         "purpose": "why this exists"
       }

@@ -304,14 +304,6 @@ function normalizeExecutionSetupPath(value: unknown, fieldLabel: string): string
     throw new Error(`${fieldLabel} must be a non-empty string`)
   }
   const path = value.trim().replace(/\\/g, '/').replace(/^\.\//, '')
-  if (
-    path !== '.ticket/runtime/execution-setup'
-    && path !== '.ticket/runtime/execution-setup-profile.json'
-    && path !== '.ticket/runtime/execution-log.jsonl'
-    && !path.startsWith('.ticket/runtime/execution-setup/')
-  ) {
-    throw new Error(`${fieldLabel} must stay inside .ticket/runtime/execution-setup`)
-  }
   return path
 }
 

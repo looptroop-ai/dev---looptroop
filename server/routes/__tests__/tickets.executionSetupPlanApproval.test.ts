@@ -14,7 +14,7 @@ import { createFixtureRepoManager } from '../../test/fixtureRepo'
 import { initializeTicket } from '../../ticket/initialize'
 import { ticketRouter } from '../tickets'
 
-function buildPlan(ticketId: string, summary = 'Prepare the temporary runtime.'): Record<string, unknown> {
+function buildPlan(ticketId: string, summary = 'Prepare the workspace runtime.'): Record<string, unknown> {
   return {
     schema_version: 1,
     ticket_id: ticketId,
@@ -25,25 +25,25 @@ function buildPlan(ticketId: string, summary = 'Prepare the temporary runtime.')
       status: 'partial',
       actions_required: true,
       evidence: ['Repository manifest files are present.'],
-      gaps: ['Reusable workspace dependencies have not been prepared yet.'],
+      gaps: ['Reusable workspace setup outputs have not been prepared yet.'],
     },
-    temp_roots: ['.ticket/runtime/execution-setup'],
+    temp_roots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
     steps: [
       {
-        id: 'install-deps',
-        title: 'Install dependencies',
+        id: 'bootstrap-workspace',
+        title: 'Bootstrap workspace',
         purpose: 'Prepare the runtime for later beads.',
-        commands: ['npm ci'],
+        commands: ['project bootstrap'],
         required: true,
-        rationale: 'Dependencies are required before later execution can reuse the workspace.',
+        rationale: 'Repository-native setup is required before later execution can reuse the workspace.',
         cautions: ['May take a while on the first run.'],
       },
     ],
     project_commands: {
-      prepare: ['npm ci'],
-      test_full: ['npm test'],
-      lint_full: ['npm run lint'],
-      typecheck_full: ['npm run typecheck'],
+      prepare: ['project bootstrap'],
+      test_full: ['project test'],
+      lint_full: ['project lint'],
+      typecheck_full: ['project typecheck'],
     },
     quality_gate_policy: {
       tests: 'bead-test-commands-first',
@@ -51,7 +51,7 @@ function buildPlan(ticketId: string, summary = 'Prepare the temporary runtime.')
       typecheck: 'impacted-or-package',
       full_project_fallback: 'never-block-on-unrelated-baseline',
     },
-    cautions: ['Use temporary runtime paths only.'],
+    cautions: ['Repository-native bootstrap may create local dependency caches.'],
   }
 }
 
@@ -99,25 +99,25 @@ vi.mock('../../workflow/phases/executionSetupPlanPhase', async () => {
             status: 'partial',
             actionsRequired: true,
             evidence: ['Repository manifest files are present.'],
-            gaps: ['Reusable workspace dependencies have not been prepared yet.'],
+            gaps: ['Reusable workspace setup outputs have not been prepared yet.'],
           },
-          tempRoots: ['.ticket/runtime/execution-setup'],
+          tempRoots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
           steps: [
             {
-              id: 'install-deps',
-              title: 'Install dependencies',
+              id: 'bootstrap-workspace',
+              title: 'Bootstrap workspace',
               purpose: 'Prepare the runtime for later beads.',
-              commands: ['npm ci'],
+              commands: ['project bootstrap'],
               required: true,
-              rationale: 'Dependencies are required before later execution can reuse the workspace.',
+              rationale: 'Repository-native setup is required before later execution can reuse the workspace.',
               cautions: ['May take a while on the first run.'],
             },
           ],
           projectCommands: {
-            prepare: ['npm ci'],
-            testFull: ['npm test'],
-            lintFull: ['npm run lint'],
-            typecheckFull: ['npm run typecheck'],
+            prepare: ['project bootstrap'],
+            testFull: ['project test'],
+            lintFull: ['project lint'],
+            typecheckFull: ['project typecheck'],
           },
           qualityGatePolicy: {
             tests: 'bead-test-commands-first',
@@ -125,7 +125,7 @@ vi.mock('../../workflow/phases/executionSetupPlanPhase', async () => {
             typecheck: 'impacted-or-package',
             fullProjectFallback: 'never-block-on-unrelated-baseline',
           },
-          cautions: ['Use temporary runtime paths only.'],
+          cautions: ['Repository-native bootstrap may create local dependency caches.'],
         },
         modelOutput: JSON.stringify(nextPlan),
         errors: [],
@@ -252,7 +252,7 @@ describe('ticketRouter execution setup plan approval routes', () => {
     expect(response.status).toBe(200)
     const payload = await response.json() as { exists: boolean; plan: { summary: string } }
     expect(payload.exists).toBe(true)
-    expect(payload.plan.summary).toBe('Prepare the temporary runtime.')
+    expect(payload.plan.summary).toBe('Prepare the workspace runtime.')
   })
 
   it('saves a structured execution setup plan draft', async () => {
@@ -272,25 +272,25 @@ describe('ticketRouter execution setup plan approval routes', () => {
             status: 'partial',
             actionsRequired: true,
             evidence: ['Manifest files were found.'],
-            gaps: ['Dependencies still need a temporary bootstrap step.'],
+            gaps: ['Workspace setup outputs still need a bootstrap step.'],
           },
-          tempRoots: ['.ticket/runtime/execution-setup'],
+          tempRoots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
           steps: [
             {
-              id: 'install-deps',
-              title: 'Install dependencies',
+              id: 'bootstrap-workspace',
+              title: 'Bootstrap workspace',
               purpose: 'Prepare the runtime for later beads.',
-              commands: ['npm ci'],
+              commands: ['project bootstrap'],
               required: true,
-              rationale: 'Dependencies are required.',
+              rationale: 'Repository-native setup is required.',
               cautions: [],
             },
           ],
           projectCommands: {
-            prepare: ['npm ci'],
-            testFull: ['npm test'],
-            lintFull: ['npm run lint'],
-            typecheckFull: ['npm run typecheck'],
+            prepare: ['project bootstrap'],
+            testFull: ['project test'],
+            lintFull: ['project lint'],
+            typecheckFull: ['project typecheck'],
           },
           qualityGatePolicy: {
             tests: 'bead-test-commands-first',
@@ -417,14 +417,14 @@ describe('ticketRouter execution setup plan approval routes', () => {
     const response = await app.request(`/api/tickets/${ticket.id}/regenerate-execution-setup-plan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commentary: 'Use pnpm instead of npm.' }),
+      body: JSON.stringify({ commentary: 'Use the project-native bootstrap command.' }),
     })
 
     expect(response.status).toBe(200)
     const payload = await response.json() as { plan: { summary: string } }
-    expect(payload.plan.summary).toContain('Use pnpm instead of npm.')
+    expect(payload.plan.summary).toContain('Use the project-native bootstrap command.')
     const stored = getLatestPhaseArtifact(ticket.id, 'execution_setup_plan', 'WAITING_EXECUTION_SETUP_APPROVAL')
-    expect(stored?.content).toContain('Use pnpm instead of npm.')
+    expect(stored?.content).toContain('Use the project-native bootstrap command.')
   })
 
   it('approves the execution setup plan, stamps approval receipt, and advances the ticket', async () => {

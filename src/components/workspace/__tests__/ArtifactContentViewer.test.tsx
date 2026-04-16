@@ -118,7 +118,7 @@ function buildBeadsDraftContent({
   ])
 }
 
-function buildExecutionSetupPlanContent(summary = 'Prepare temporary runtime assets safely.') {
+function buildExecutionSetupPlanContent(summary = 'Prepare workspace runtime assets safely.') {
   return JSON.stringify({
     schema_version: 1,
     ticket_id: TEST.externalId,
@@ -129,25 +129,25 @@ function buildExecutionSetupPlanContent(summary = 'Prepare temporary runtime ass
       status: 'partial',
       actions_required: true,
       evidence: ['Manifest and lockfile were detected.'],
-      gaps: ['Temporary bootstrap outputs are still missing.'],
+      gaps: ['Workspace bootstrap outputs are still missing.'],
     },
-    temp_roots: ['.ticket/runtime/execution-setup', '.ticket/runtime/execution-setup/cache'],
+    temp_roots: ['.ticket/runtime/execution-setup', '.cache/project-tooling'],
     steps: [
       {
-        id: 'install',
-        title: 'Install dependencies',
+        id: 'bootstrap',
+        title: 'Bootstrap workspace',
         purpose: 'Prepare the runtime for later coding beads.',
-        commands: ['pnpm install --frozen-lockfile'],
+        commands: ['project bootstrap'],
         required: true,
-        rationale: 'Later commands depend on the workspace dependencies being present.',
+        rationale: 'Later commands depend on the workspace setup outputs being present.',
         cautions: ['This can take longer on the first run.'],
       },
     ],
     project_commands: {
-      prepare: ['pnpm install --frozen-lockfile'],
-      test_full: ['pnpm test'],
-      lint_full: ['pnpm lint'],
-      typecheck_full: ['pnpm typecheck'],
+      prepare: ['project bootstrap'],
+      test_full: ['project test'],
+      lint_full: ['project lint'],
+      typecheck_full: ['project typecheck'],
     },
     quality_gate_policy: {
       tests: 'bead-test-commands-first',
@@ -155,7 +155,7 @@ function buildExecutionSetupPlanContent(summary = 'Prepare temporary runtime ass
       typecheck: 'impacted-or-package',
       full_project_fallback: 'never-block-on-unrelated-baseline',
     },
-    cautions: ['Stay inside LoopTroop-owned runtime paths only.'],
+    cautions: ['Repository-native bootstrap may create local dependency caches.'],
   }, null, 2)
 }
 
@@ -165,10 +165,10 @@ function buildExecutionSetupPlanReportContent() {
     ready: true,
     generatedAt: '2026-03-25T10:15:00.000Z',
     generatedBy: 'openai/gpt-5',
-    summary: 'Prepare temporary runtime assets safely.',
+    summary: 'Prepare workspace runtime assets safely.',
     modelOutput: '<EXECUTION_SETUP_PLAN>\nsummary: regenerated\n</EXECUTION_SETUP_PLAN>',
     errors: [],
-    notes: ['Switch npm ci to pnpm install.'],
+    notes: ['Switch to the project-native bootstrap command.'],
     source: 'regenerate',
   })
 }
@@ -181,7 +181,7 @@ function buildExecutionSetupProfileContent() {
     status: 'ready',
     summary: 'Runtime cache and command policy are ready.',
     temp_roots: ['.ticket/runtime/execution-setup'],
-    bootstrap_commands: ['pnpm install --frozen-lockfile'],
+    bootstrap_commands: ['project bootstrap'],
     reusable_artifacts: [
       {
         path: '.ticket/runtime/execution-setup/cache.json',
@@ -190,10 +190,10 @@ function buildExecutionSetupProfileContent() {
       },
     ],
     project_commands: {
-      prepare: ['pnpm install --frozen-lockfile'],
-      test_full: ['pnpm test'],
-      lint_full: ['pnpm lint'],
-      typecheck_full: ['pnpm typecheck'],
+      prepare: ['project bootstrap'],
+      test_full: ['project test'],
+      lint_full: ['project lint'],
+      typecheck_full: ['project typecheck'],
     },
     quality_gate_policy: {
       tests: 'bead-test-commands-first',
@@ -219,7 +219,7 @@ function buildExecutionSetupRuntimeReportContent() {
       status: 'ready',
       summary: 'Runtime cache and command policy are ready.',
       tempRoots: ['.ticket/runtime/execution-setup'],
-      bootstrapCommands: ['pnpm install --frozen-lockfile'],
+      bootstrapCommands: ['project bootstrap'],
       reusableArtifacts: [
         {
           path: '.ticket/runtime/execution-setup/cache.json',
@@ -228,10 +228,10 @@ function buildExecutionSetupRuntimeReportContent() {
         },
       ],
       projectCommands: {
-        prepare: ['pnpm install --frozen-lockfile'],
-        testFull: ['pnpm test'],
-        lintFull: ['pnpm lint'],
-        typecheckFull: ['pnpm typecheck'],
+        prepare: ['project bootstrap'],
+        testFull: ['project test'],
+        lintFull: ['project lint'],
+        typecheckFull: ['project typecheck'],
       },
       qualityGatePolicy: {
         tests: 'bead-test-commands-first',
@@ -262,13 +262,13 @@ function buildExecutionSetupRuntimeReportContent() {
         checkedAt: '2026-03-25T10:20:00.000Z',
         summary: 'Runtime profile is ready for coding beads.',
         tempRoots: ['.ticket/runtime/execution-setup'],
-        bootstrapCommands: ['pnpm install --frozen-lockfile'],
+        bootstrapCommands: ['project bootstrap'],
         errors: [],
       },
     ],
     retryNotes: [],
-    approvedPlanCommands: ['pnpm install --frozen-lockfile'],
-    executionAddedCommands: ['pnpm store status'],
+    approvedPlanCommands: ['project bootstrap'],
+    executionAddedCommands: ['project cache verify'],
   }, null, 2)
 }
 
@@ -359,18 +359,18 @@ describe('ArtifactContentViewer', () => {
       />,
     )
 
-    expect(screen.getByText('Prepare temporary runtime assets safely.')).toBeInTheDocument()
+    expect(screen.getByText('Prepare workspace runtime assets safely.')).toBeInTheDocument()
     expect(screen.getByText('Observed Evidence')).toBeInTheDocument()
-    expect(screen.getByText('Temporary bootstrap outputs are still missing.')).toBeInTheDocument()
+    expect(screen.getByText('Workspace bootstrap outputs are still missing.')).toBeInTheDocument()
     expect(screen.getByText('Project Command Families')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Generation Details/i }))
     expect(screen.getByText('Regenerate Commentary')).toBeInTheDocument()
-    expect(screen.getByText('Switch npm ci to pnpm install.')).toBeInTheDocument()
+    expect(screen.getByText('Switch to the project-native bootstrap command.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
     expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
-    expect(screen.getByText(/pnpm install --frozen-lockfile/)).toBeInTheDocument()
+    expect(screen.getByText(/project bootstrap/)).toBeInTheDocument()
   })
 
   it('renders execution setup profiles with structured sections and raw access', () => {
@@ -408,7 +408,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Attempt History')).toBeInTheDocument()
     expect(screen.getByText('Attempt 1')).toBeInTheDocument()
     expect(screen.getByText('Command Audit')).toBeInTheDocument()
-    expect(screen.getByText('pnpm store status')).toBeInTheDocument()
+    expect(screen.getByText('project cache verify')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
     expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()

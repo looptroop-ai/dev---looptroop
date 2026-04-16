@@ -255,7 +255,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(votePrompt).toContain('Do not output prose, explanations, markdown fences')
   })
 
-  it('defines execution setup prompts with explicit temporary-only execution rules', () => {
+  it('defines execution setup prompts with explicit workspace setup rules', () => {
     const probePrompt = buildPromptFromTemplate(PROM_EXECUTION_CAPABILITY_PROBE, [])
     const setupPlanPrompt = buildPromptFromTemplate(PROM_EXECUTION_SETUP_PLAN, [])
     const setupPlanRegeneratePrompt = buildPromptFromTemplate(PROM_EXECUTION_SETUP_PLAN_REGENERATE, [])
@@ -271,6 +271,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(setupPlanPrompt).toContain('actions_required')
     expect(setupPlanPrompt).toContain('execution_setup_plan')
     expect(setupPlanPrompt).toContain('.ticket/runtime/execution-setup')
+    expect(setupPlanPrompt).toContain('outside `.ticket/runtime/execution-setup/**`')
     expect(PROM_EXECUTION_SETUP_PLAN.contextInputs).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_profile', 'execution_setup_plan_notes'])
     expect(setupPlanRegeneratePrompt).toContain('current draft baseline')
     expect(setupPlanRegeneratePrompt).toContain('Remain language-agnostic')
@@ -280,7 +281,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(setupPrompt).toContain('Readiness Respect')
     expect(setupPrompt).toContain('Audited Augmentations')
     expect(setupPrompt).toContain('.ticket/runtime/execution-setup')
-    expect(setupPrompt).toContain('Do not modify permanent source files')
+    expect(setupPrompt).toContain('Workspace Writes')
+    expect(setupPrompt).toContain('Feature-Work Ban')
     expect(setupPrompt).toContain('execution_setup_profile')
     expect(PROM_EXECUTION_SETUP.contextInputs).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
     expect(setupNotePrompt).toContain('append-only retry note')

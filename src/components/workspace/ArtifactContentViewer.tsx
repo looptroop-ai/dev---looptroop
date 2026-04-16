@@ -3249,7 +3249,7 @@ function ExecutionSetupPlanView({
           <div className="space-y-3">
             {plan.steps.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-xs text-muted-foreground">
-                No temporary setup steps are proposed for this ticket. The readiness assessment says the current workspace is already sufficient for coding.
+                No setup steps are proposed for this ticket. The readiness assessment says the current workspace is already sufficient for coding.
               </div>
             ) : (
               plan.steps.map((step, index) => (
