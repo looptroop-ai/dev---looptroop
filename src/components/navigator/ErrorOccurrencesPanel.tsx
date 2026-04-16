@@ -21,9 +21,9 @@ interface ErrorOccurrencesPanelProps {
 }
 
 function getOccurrenceSubtitle(occurrence: TicketErrorOccurrence) {
-  const startedAt = formatTimestampString(occurrence.occurredAt)
+  const startedAt = formatTimestampString(occurrence.occurredAt, { includeMilliseconds: false })
   if (occurrence.resolvedAt) {
-    return `Blocked ${startedAt} · Resolved ${formatTimestampString(occurrence.resolvedAt)}`
+    return `Blocked ${startedAt} · Resolved ${formatTimestampString(occurrence.resolvedAt, { includeMilliseconds: false })}`
   }
   return `Blocked ${startedAt}`
 }
@@ -51,22 +51,22 @@ function ErrorOccurrenceRow({
           : 'border-border hover:bg-accent/60',
       )}
     >
-      <div className="flex items-start gap-2">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
         <StatusIndicator status={occurrence.resolvedAt ? 'completed' : 'error'} className="mt-0.5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="truncate text-xs font-semibold">
-              {formatErrorOccurrenceLabel(occurrence, occurrence.occurrenceNumber)}
-            </span>
-            <Badge variant="outline" className="text-[10px] shrink-0">
+        <div className="min-w-0 space-y-1">
+          <span className="block text-xs font-semibold leading-tight break-words">
+            {formatErrorOccurrenceLabel(occurrence, occurrence.occurrenceNumber)}
+          </span>
+          <div className="flex flex-wrap items-start gap-1.5">
+            <Badge variant="outline" className="max-w-full text-[10px] leading-tight whitespace-normal break-words">
               {status}
             </Badge>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground leading-tight">
+          <p className="text-[11px] text-muted-foreground leading-tight break-words">
             {summary}
           </p>
           {occurrence.errorMessage && (
-            <p className="mt-1 text-[11px] font-mono text-muted-foreground/90 line-clamp-2 [overflow-wrap:anywhere]">
+            <p className="text-[11px] font-mono text-muted-foreground/90 line-clamp-2 [overflow-wrap:anywhere]">
               {occurrence.errorMessage}
             </p>
           )}

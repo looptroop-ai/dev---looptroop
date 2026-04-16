@@ -160,14 +160,19 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1" title={visibleOccurrence?.occurredAt ? formatTimestampString(visibleOccurrence.occurredAt) : undefined}>
+                <span
+                  className="flex items-center gap-1"
+                  title={visibleOccurrence?.occurredAt
+                    ? formatTimestampString(visibleOccurrence.occurredAt, { includeMilliseconds: false })
+                    : undefined}
+                >
                   <Clock3 className="h-3.5 w-3.5" />
                   {visibleOccurrence ? `Blocked from ${getStatusUserLabel(visibleOccurrence.blockedFromStatus)}` : 'Blocked error'}
                 </span>
                 {visibleOccurrence?.resolvedAt && (
                   <span className="flex items-center gap-1">
                     <RotateCcw className="h-3.5 w-3.5" />
-                    Resolved {formatTimestamp(visibleOccurrence.resolvedAt)}
+                    Resolved {formatTimestamp(visibleOccurrence.resolvedAt, { includeMilliseconds: false })}
                   </span>
                 )}
               </div>

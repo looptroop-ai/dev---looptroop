@@ -103,4 +103,33 @@ describe('ErrorView', () => {
 
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
+
+  it('omits milliseconds from occurrence timestamps', () => {
+    const occurrence = {
+      id: '3',
+      occurrenceNumber: 1,
+      blockedFromStatus: 'CODING',
+      errorMessage: 'Workspace setup timed out.',
+      errorCodes: [],
+      occurredAt: '2026-01-01T00:00:00.123Z',
+      resolvedAt: '2026-01-01T00:01:00.456Z',
+      resolutionStatus: 'RETRIED' as const,
+      resumedToStatus: 'WAITING_EXECUTION_SETUP_APPROVAL',
+    }
+    const ticket = makeTicket({
+      status: 'CANCELED',
+      previousStatus: 'BLOCKED_ERROR',
+      errorOccurrences: [occurrence],
+      activeErrorOccurrenceId: null,
+    })
+
+    renderWithProviders(<ErrorView ticket={ticket} occurrence={occurrence} readOnly />)
+
+    const blockedLabel = screen.getByText(/Blocked from /)
+    expect(blockedLabel).toHaveAttribute('title')
+    expect(blockedLabel.getAttribute('title')).not.toContain('.123')
+
+    const resolvedLabel = screen.getByText(/Resolved /)
+    expect(resolvedLabel).not.toHaveTextContent('.456')
+  })
 })

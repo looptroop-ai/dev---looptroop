@@ -119,4 +119,40 @@ describe('ErrorOccurrencesPanel', () => {
     expect(screen.getByRole('button', { name: /errors/i })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Error 1 — Implementing (Bead ?/?)')).toBeInTheDocument()
   })
+
+  it('wraps long status labels and omits milliseconds in the summary subtitle', () => {
+    const ticket = makeTicket({
+      status: 'CANCELED',
+      errorOccurrences: [
+        {
+          id: 'error-1',
+          occurrenceNumber: 1,
+          blockedFromStatus: 'CODING',
+          errorMessage: 'Workspace setup timed out.',
+          errorCodes: [],
+          occurredAt: '2026-03-11T10:10:00.456Z',
+          resolvedAt: '2026-03-11T10:11:00.789Z',
+          resolutionStatus: 'RETRIED',
+          resumedToStatus: 'WAITING_EXECUTION_SETUP_APPROVAL',
+        },
+      ],
+      activeErrorOccurrenceId: null,
+      hasPastErrors: true,
+    })
+
+    render(
+      <ErrorOccurrencesPanel
+        ticket={ticket}
+        selectedErrorOccurrenceId="error-1"
+        onSelectErrorOccurrence={vi.fn()}
+      />,
+    )
+
+    const statusBadge = screen.getByText('Retried to Approve Workspace Setup')
+    expect(statusBadge).toHaveClass('max-w-full', 'whitespace-normal', 'break-words')
+
+    const occurrenceRow = screen.getByRole('button', { name: /error 1/i })
+    expect(occurrenceRow).not.toHaveTextContent('.456')
+    expect(occurrenceRow).not.toHaveTextContent('.789')
+  })
 })

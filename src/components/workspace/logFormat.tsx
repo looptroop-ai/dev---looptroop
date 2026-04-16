@@ -87,29 +87,23 @@ export function getEntryColor(entry: LogEntry): string {
   return 'text-foreground'
 }
 
-export function formatTimestampString(timestamp?: string): string {
-  if (!timestamp) return '--:--:--.---'
-  const parsed = new Date(timestamp)
-  if (Number.isNaN(parsed.getTime())) return '--:--:--.---'
-  
-  const timeString = parsed.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
-  
-  const ms = parsed.getMilliseconds().toString().padStart(3, '0')
-  return `${timeString}.${ms}`
+interface TimestampFormatOptions {
+  includeMilliseconds?: boolean
 }
 
-export function formatTimestamp(timestamp?: string): React.ReactNode {
-  if (!timestamp) return '--:--:--.---'
+function getTimestampPlaceholder(includeMilliseconds: boolean): string {
+  return includeMilliseconds ? '--:--:--.---' : '--:--:--'
+}
+
+function resolveTimestampParts(
+  timestamp?: string,
+  options: TimestampFormatOptions = {},
+): { timeString: string; milliseconds: string | null } | null {
+  const { includeMilliseconds = true } = options
+  if (!timestamp) return null
   const parsed = new Date(timestamp)
-  if (Number.isNaN(parsed.getTime())) return '--:--:--.---'
-  
+  if (Number.isNaN(parsed.getTime())) return null
+
   const timeString = parsed.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -118,12 +112,30 @@ export function formatTimestamp(timestamp?: string): React.ReactNode {
     second: '2-digit',
     hour12: false,
   })
-  
-  const ms = parsed.getMilliseconds().toString().padStart(3, '0')
-  
+
+  return {
+    timeString,
+    milliseconds: includeMilliseconds ? parsed.getMilliseconds().toString().padStart(3, '0') : null,
+  }
+}
+
+export function formatTimestampString(timestamp?: string, options: TimestampFormatOptions = {}): string {
+  const { includeMilliseconds = true } = options
+  const resolved = resolveTimestampParts(timestamp, options)
+  if (!resolved) return getTimestampPlaceholder(includeMilliseconds)
+
+  return resolved.milliseconds ? `${resolved.timeString}.${resolved.milliseconds}` : resolved.timeString
+}
+
+export function formatTimestamp(timestamp?: string, options: TimestampFormatOptions = {}): React.ReactNode {
+  const { includeMilliseconds = true } = options
+  const resolved = resolveTimestampParts(timestamp, options)
+  if (!resolved) return getTimestampPlaceholder(includeMilliseconds)
+  if (!resolved.milliseconds) return resolved.timeString
+
   return (
     <>
-      {timeString}.<span className="opacity-40">{ms}</span>
+      {resolved.timeString}.<span className="opacity-40">{resolved.milliseconds}</span>
     </>
   )
 }
