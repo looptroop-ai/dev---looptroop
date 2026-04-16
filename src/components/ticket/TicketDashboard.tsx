@@ -492,7 +492,7 @@ export function TicketDashboard() {
             <div
               aria-hidden="true"
               data-testid="live-updates-reconnecting-overlay"
-              className="pointer-events-none absolute inset-0 z-10 bg-slate-300/10 backdrop-blur-[1px] transition-all duration-200 dark:bg-slate-950/10"
+              className="pointer-events-none absolute inset-0 z-10 bg-slate-400/12 backdrop-blur-[0.5px] transition-all duration-200 dark:bg-slate-950/16"
             />
           )}
 
