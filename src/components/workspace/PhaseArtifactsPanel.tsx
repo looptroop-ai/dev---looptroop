@@ -318,6 +318,14 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     return match?.content ?? null
   }, [findCompanionArtifact, findExactArtifact, phase, reversedArtifacts])
 
+  const findReportContent = useCallback((artifactDef: ArtifactDef): string | null => {
+    if (artifactDef.id !== 'execution-setup-plan') return null
+
+    return findExactArtifact('execution_setup_plan_report')?.content
+      ?? reversedArtifacts.find((artifact) => artifact.artifactType === 'execution_setup_plan_report')?.content
+      ?? null
+  }, [findExactArtifact, reversedArtifacts])
+
   const displayedSupplementalArtifacts = useMemo(() => {
     const baseArtifacts = supplementalArtifacts.map((artifact) => {
       if (artifact.id === 'final-prd-draft') {
@@ -473,9 +481,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       label: artifact.label,
       description: artifact.description,
       content: findDbContent(artifact) ?? '',
+      reportContent: findReportContent(artifact),
       icon: artifact.icon,
     }
-  }, [displayedSupplementalArtifacts, findDbContent, fullAnswerArtifacts, memberArtifacts, viewingSelection])
+  }, [displayedSupplementalArtifacts, findDbContent, findReportContent, fullAnswerArtifacts, memberArtifacts, viewingSelection])
 
   const visibleMemberArtifacts = collapseVotingMemberArtifacts || phase === 'VERIFYING_PRD_COVERAGE' ? [] : memberArtifacts
   const compactInterviewArtifacts = phase === 'COMPILING_INTERVIEW'
@@ -609,6 +618,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
                       ? (viewingArtifact.content || `# ${viewingArtifact.label}\n\n${viewingArtifact.description}\n\nNo content available yet — artifact will be generated during this phase.`)
                       : ''}
                     phase={phase}
+                    reportContent={viewingArtifact?.reportContent}
                   />
                 </ErrorBoundary>
               )}

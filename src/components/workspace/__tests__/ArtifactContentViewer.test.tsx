@@ -118,6 +118,55 @@ function buildBeadsDraftContent({
   ])
 }
 
+function buildExecutionSetupPlanContent(summary = 'Prepare temporary runtime assets safely.') {
+  return JSON.stringify({
+    schema_version: 1,
+    ticket_id: TEST.externalId,
+    artifact: 'execution_setup_plan',
+    status: 'draft',
+    summary,
+    temp_roots: ['.ticket/runtime/execution-setup', '.ticket/runtime/execution-setup/cache'],
+    steps: [
+      {
+        id: 'install',
+        title: 'Install dependencies',
+        purpose: 'Prepare the runtime for later coding beads.',
+        commands: ['pnpm install --frozen-lockfile'],
+        required: true,
+        rationale: 'Later commands depend on the workspace dependencies being present.',
+        cautions: ['This can take longer on the first run.'],
+      },
+    ],
+    project_commands: {
+      prepare: ['pnpm install --frozen-lockfile'],
+      test_full: ['pnpm test'],
+      lint_full: ['pnpm lint'],
+      typecheck_full: ['pnpm typecheck'],
+    },
+    quality_gate_policy: {
+      tests: 'bead-test-commands-first',
+      lint: 'impacted-or-package',
+      typecheck: 'impacted-or-package',
+      full_project_fallback: 'never-block-on-unrelated-baseline',
+    },
+    cautions: ['Stay inside LoopTroop-owned runtime paths only.'],
+  }, null, 2)
+}
+
+function buildExecutionSetupPlanReportContent() {
+  return JSON.stringify({
+    status: 'draft',
+    ready: true,
+    generatedAt: '2026-03-25T10:15:00.000Z',
+    generatedBy: 'openai/gpt-5',
+    summary: 'Prepare temporary runtime assets safely.',
+    modelOutput: '<EXECUTION_SETUP_PLAN>\nsummary: regenerated\n</EXECUTION_SETUP_PLAN>',
+    errors: [],
+    notes: ['Switch npm ci to pnpm install.'],
+    source: 'regenerate',
+  })
+}
+
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
 }
@@ -194,6 +243,27 @@ describe('ArtifactContentViewer', () => {
     openFoundationGroup()
     expect(screen.getByText('Which constraints are fixed?')).toBeInTheDocument()
     expect(screen.getByText('Keep imports idempotent.')).toBeInTheDocument()
+  })
+
+  it('merges execution setup plan diagnostics into the setup plan artifact view', () => {
+    render(
+      <ArtifactContent
+        artifactId="execution-setup-plan"
+        content={buildExecutionSetupPlanContent()}
+        reportContent={buildExecutionSetupPlanReportContent()}
+      />,
+    )
+
+    expect(screen.getByText('Prepare temporary runtime assets safely.')).toBeInTheDocument()
+    expect(screen.getByText('Project Command Families')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Generation Details/i }))
+    expect(screen.getByText('Regenerate Commentary')).toBeInTheDocument()
+    expect(screen.getByText('Switch npm ci to pnpm install.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByText(/pnpm install --frozen-lockfile/)).toBeInTheDocument()
   })
 
   it('renders canonical free-text answers', () => {

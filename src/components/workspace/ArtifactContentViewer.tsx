@@ -18,6 +18,7 @@ import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadg
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
 import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
+import { parseExecutionSetupPlanContent } from '@/lib/executionSetupPlan'
 import type {
   ArtifactStructuredOutputData,
   CleanupReportData,
@@ -32,6 +33,7 @@ import type {
   CouncilResultData,
   CouncilVoterDetailData,
   CouncilOutcome,
+  ExecutionSetupPlanReportData,
   FinalTestExecutionReportData,
   IntegrationReportData,
   PullRequestReportData,
@@ -50,6 +52,7 @@ import {
   normalizeCoverageFollowUpArtifacts,
   parseCleanupReport,
   parseCoverageArtifact,
+  parseExecutionSetupPlanReport,
   parseIntegrationReport,
   parsePullRequestReport,
   parseInterviewQuestions,
@@ -252,7 +255,7 @@ export function WithRawTab({
         </>
       ) : (
         <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
             {content}
           </pre>
         </div>
@@ -332,7 +335,7 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
         </>
       ) : currentTab === 'raw' ? (
         <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
             {content}
           </pre>
         </div>
@@ -1247,7 +1250,7 @@ function FinalInterviewArtifactView({
       </div>
       {currentTab === 'raw' ? (
         <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
             {content}
           </pre>
         </div>
@@ -1329,7 +1332,7 @@ function FinalPrdDraftView({
       </div>
       {currentTab === 'raw' ? (
         <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
             {content}
           </pre>
         </div>
@@ -2956,7 +2959,7 @@ function RelevantFilesScanView({ content }: { content: string }) {
             <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
           </div>
           <div className="min-w-0 w-full overflow-hidden">
-            <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto whitespace-pre-wrap max-h-[500px] break-all">
+            <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
               {content}
             </pre>
           </div>
@@ -3005,6 +3008,320 @@ function RelevantFilesScanView({ content }: { content: string }) {
         </>
       )}
     </div>
+  )
+}
+
+function extractExecutionSetupPlanPayloadText(value: string): string {
+  const trimmed = value.trim()
+  const markerMatch = trimmed.match(/<EXECUTION_SETUP_PLAN>\s*([\s\S]*?)\s*<\/EXECUTION_SETUP_PLAN>/)
+  return markerMatch?.[1]?.trim() ?? trimmed
+}
+
+function isExecutionSetupModelOutputEquivalentToRawPlan(rawPlanContent: string, modelOutput?: string | null): boolean {
+  if (!modelOutput?.trim()) return false
+
+  const normalizedModelOutput = extractExecutionSetupPlanPayloadText(modelOutput)
+  if (normalizedModelOutput === rawPlanContent.trim()) return true
+
+  const rawPlan = parseExecutionSetupPlanContent(rawPlanContent).plan
+  const modelPlan = parseExecutionSetupPlanContent(normalizedModelOutput).plan
+  if (!rawPlan || !modelPlan) return false
+
+  return JSON.stringify(rawPlan) === JSON.stringify(modelPlan)
+}
+
+function describeExecutionSetupQualityGatePolicy(
+  field: 'tests' | 'lint' | 'typecheck' | 'fullProjectFallback',
+  value: string,
+): string {
+  if (!value.trim()) {
+    return 'No default policy text was recorded for this gate.'
+  }
+
+  if (field === 'tests') {
+    if (value === 'bead-test-commands-first') {
+      return 'Later coding beads should start with the bead-specific test commands before broadening to larger suites.'
+    }
+    return 'Default test gate that later coding beads should try first.'
+  }
+
+  if (field === 'lint' || field === 'typecheck') {
+    if (value === 'impacted-or-package') {
+      return `Prefer ${field === 'lint' ? 'linting' : 'typechecking'} the impacted package, workspace, or narrowed scope before escalating to the whole repository.`
+    }
+    return `Default ${field === 'lint' ? 'lint' : 'typecheck'} scope guidance for later coding beads.`
+  }
+
+  if (value === 'never-block-on-unrelated-baseline') {
+    return 'If the full repository already has unrelated baseline debt, later phases should not fail solely because of that unrelated debt.'
+  }
+  return 'Fallback rule for how later phases should handle broader repository-wide gate failures.'
+}
+
+function ExecutionSetupPlanView({
+  content,
+  reportContent,
+  header,
+}: {
+  content: string
+  reportContent?: string | null
+  header?: React.ReactNode
+}) {
+  const { plan, error } = parseExecutionSetupPlanContent(content)
+  const report: ExecutionSetupPlanReportData | null = reportContent ? parseExecutionSetupPlanReport(reportContent) : null
+
+  if (!plan || error) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const stepCount = plan.steps.length
+  const requiredStepCount = plan.steps.filter((step) => step.required).length
+  const optionalStepCount = Math.max(stepCount - requiredStepCount, 0)
+  const commandCount = plan.steps.reduce((total, step) => total + step.commands.length, 0)
+  const generatedAtLabel = formatArtifactTimestampLabel(report?.generatedAt)
+  const qualityGateEntries = [
+    {
+      label: 'Tests',
+      value: plan.qualityGatePolicy.tests,
+      hint: describeExecutionSetupQualityGatePolicy('tests', plan.qualityGatePolicy.tests),
+    },
+    {
+      label: 'Lint',
+      value: plan.qualityGatePolicy.lint,
+      hint: describeExecutionSetupQualityGatePolicy('lint', plan.qualityGatePolicy.lint),
+    },
+    {
+      label: 'Typecheck',
+      value: plan.qualityGatePolicy.typecheck,
+      hint: describeExecutionSetupQualityGatePolicy('typecheck', plan.qualityGatePolicy.typecheck),
+    },
+    {
+      label: 'Fallback',
+      value: plan.qualityGatePolicy.fullProjectFallback,
+      hint: describeExecutionSetupQualityGatePolicy('fullProjectFallback', plan.qualityGatePolicy.fullProjectFallback),
+    },
+  ] as const
+  const sourceLabel = report?.source === 'regenerate'
+    ? 'Regenerated draft'
+    : report?.source === 'auto'
+      ? 'Initial draft'
+      : 'Draft'
+  const statusTone = report?.ready === false || report?.status === 'failed'
+    ? 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100'
+    : 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-100'
+  const errors = report?.errors ?? []
+  const notes = report?.notes ?? []
+  const showModelOutput = Boolean(report?.modelOutput)
+    && !isExecutionSetupModelOutputEquivalentToRawPlan(content, report?.modelOutput)
+  const projectCommandGroups: Array<{ title: string; items: string[]; emptyLabel: string }> = [
+    {
+      title: 'Prepare Commands',
+      items: plan.projectCommands.prepare,
+      emptyLabel: 'No shared prepare commands were recorded.',
+    },
+    {
+      title: 'Full Test Commands',
+      items: plan.projectCommands.testFull,
+      emptyLabel: 'No full test commands were recorded.',
+    },
+    {
+      title: 'Full Lint Commands',
+      items: plan.projectCommands.lintFull,
+      emptyLabel: 'No full lint commands were recorded.',
+    },
+    {
+      title: 'Full Typecheck Commands',
+      items: plan.projectCommands.typecheckFull,
+      emptyLabel: 'No full typecheck commands were recorded.',
+    },
+  ]
+
+  const resolvedHeader = report?.generatedBy
+    ? (
+      <ModelBadge modelId={report.generatedBy} active className="px-3 py-2 h-auto flex-1 justify-start">
+        <div className="text-left">
+          <div className="text-xs font-medium">{getModelDisplayName(report.generatedBy)}</div>
+          <div className="text-[10px] opacity-80 mt-0.5">
+            {sourceLabel}
+            {generatedAtLabel ? ` · ${generatedAtLabel}` : ''}
+          </div>
+        </div>
+      </ModelBadge>
+      )
+    : header ?? <div className="text-xs font-semibold px-1">Execution Setup Plan</div>
+
+  return (
+    <WithRawTab
+      content={content}
+      structuredLabel="Plan"
+      header={resolvedHeader}
+      notice={<ArtifactProcessingNotice structuredOutput={report?.structuredOutput} kind="artifact" />}
+    >
+      <div className="space-y-4">
+        <div className={cn('rounded-md border px-3 py-3', statusTone)}>
+          <div className="flex items-start gap-2">
+            {report?.ready === false || report?.status === 'failed'
+              ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              : <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{report?.summary || plan.summary}</div>
+              <div className="mt-1 text-xs leading-5">
+                Temporary-only setup contract for preparing the workspace before coding begins.
+              </div>
+              {(generatedAtLabel || report?.source) ? (
+                <div className="mt-2 text-[11px] opacity-80">
+                  {sourceLabel}
+                  {generatedAtLabel ? ` · ${generatedAtLabel}` : ''}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <MetadataCard label="Steps" value={stepCount.toLocaleString()} tone="info" />
+          <MetadataCard label="Required" value={requiredStepCount.toLocaleString()} tone={requiredStepCount > 0 ? 'success' : 'default'} />
+          <MetadataCard label="Optional" value={optionalStepCount.toLocaleString()} tone={optionalStepCount > 0 ? 'warning' : 'default'} />
+          <MetadataCard label="Commands" value={commandCount.toLocaleString()} tone={commandCount > 0 ? 'info' : 'default'} />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <ArtifactListSection
+            title="Temporary Roots"
+            items={plan.tempRoots}
+            emptyLabel="No temporary runtime roots were recorded."
+            tone="default"
+          />
+          <ArtifactListSection
+            title="Plan Cautions"
+            items={plan.cautions}
+            emptyLabel="No plan-level cautions were recorded."
+            tone="error"
+          />
+        </div>
+
+        <CollapsibleSection
+          title={(
+            <span className="flex items-center gap-2">
+              <span>Setup Steps</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{stepCount}</span>
+            </span>
+          )}
+          defaultOpen
+        >
+          <div className="space-y-3">
+            {plan.steps.map((step, index) => (
+              <div key={step.id || index} className="rounded-lg border border-border bg-background px-3 py-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-mono text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                    #{index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1 text-sm font-semibold">{step.title || `Step ${index + 1}`}</div>
+                  <span className={cn(
+                    'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
+                    step.required
+                      ? 'border-green-300 bg-green-50 text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200'
+                      : 'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-200',
+                  )}>
+                    {step.required ? 'Required' : 'Optional'}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground leading-5">{step.purpose}</p>
+                {step.commands.length > 0 ? (
+                  <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-muted/30 p-3 text-[11px] font-mono whitespace-pre-wrap">
+                    <code>{step.commands.join('\n')}</code>
+                  </pre>
+                ) : (
+                  <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    No commands were recorded for this step.
+                  </div>
+                )}
+                {step.rationale ? (
+                  <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rationale</div>
+                    <div className="mt-1 text-xs leading-5">{step.rationale}</div>
+                  </div>
+                ) : null}
+                {step.cautions.length > 0 ? (
+                  <div className="mt-3">
+                    <ArtifactListSection
+                      title="Step Cautions"
+                      items={step.cautions}
+                      emptyLabel="No step cautions were recorded."
+                      tone="error"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Project Command Families" defaultOpen>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {projectCommandGroups.map((group) => (
+              <ArtifactListSection
+                key={group.title}
+                title={group.title}
+                items={group.items}
+                emptyLabel={group.emptyLabel}
+                tone="default"
+              />
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Quality Gate Policy" defaultOpen>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {qualityGateEntries.map((entry) => (
+              <MetadataCard
+                key={entry.label}
+                label={entry.label}
+                value={entry.value || 'Not specified'}
+                hint={entry.hint}
+                tone="info"
+              />
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        {(notes.length > 0 || errors.length > 0 || showModelOutput) ? (
+          <CollapsibleSection title="Generation Details" defaultOpen={errors.length > 0}>
+            <div className="space-y-3">
+              {notes.length > 0 ? (
+                <ArtifactListSection
+                  title="Regenerate Commentary"
+                  items={notes}
+                  emptyLabel="No regenerate commentary was recorded."
+                  tone="default"
+                />
+              ) : null}
+
+              {errors.length > 0 ? (
+                <ArtifactListSection
+                  title="Generation Errors"
+                  items={errors}
+                  emptyLabel="No generation errors were recorded."
+                  tone="error"
+                />
+              ) : null}
+
+              {showModelOutput ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Model Output</div>
+                    <CopyButton content={report!.modelOutput!} title="Copy model output" />
+                  </div>
+                  <pre className="rounded-md border border-border bg-background p-3 text-[11px] font-mono whitespace-pre-wrap break-all overflow-x-auto overflow-y-hidden">
+                    {report!.modelOutput}
+                  </pre>
+                </div>
+              ) : null}
+            </div>
+          </CollapsibleSection>
+        ) : null}
+      </div>
+    </WithRawTab>
   )
 }
 
@@ -3814,7 +4131,26 @@ function BeadCommitsDiffView({ content }: { content: string }) {
   )
 }
 
-export function ArtifactContent({ content, artifactId, phase }: { content: string; artifactId?: string; phase?: string }) {
+export function ArtifactContent({
+  content,
+  artifactId,
+  phase,
+  reportContent,
+}: {
+  content: string
+  artifactId?: string
+  phase?: string
+  reportContent?: string | null
+}) {
+  if (artifactId === 'execution-setup-plan') {
+    return (
+      <ExecutionSetupPlanView
+        content={content}
+        reportContent={reportContent}
+        header={<div className="text-xs font-semibold px-1">Execution Setup Plan</div>}
+      />
+    )
+  }
   if (artifactId === 'diagnostics') {
     return <PreFlightReportView content={content} />
   }

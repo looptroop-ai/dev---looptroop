@@ -340,6 +340,19 @@ export interface FinalTestExecutionReportData {
   retryNotes?: string[]
 }
 
+export interface ExecutionSetupPlanReportData {
+  status?: 'draft' | 'failed' | string
+  ready?: boolean
+  generatedAt?: string
+  generatedBy?: string
+  summary?: string
+  modelOutput?: string
+  errors: string[]
+  structuredOutput?: ArtifactStructuredOutputData
+  notes?: string[]
+  source?: 'auto' | 'regenerate' | string
+}
+
 export interface IntegrationReportData {
   status?: string
   completedAt?: string
@@ -382,7 +395,10 @@ export interface CleanupReportData {
 
 import type { CouncilOutcome, CouncilViewerArtifact } from './councilArtifacts'
 
-export type ViewingArtifact = CouncilViewerArtifact & { icon?: React.ReactNode }
+export type ViewingArtifact = CouncilViewerArtifact & {
+  icon?: React.ReactNode
+  reportContent?: string | null
+}
 export type ViewingArtifactSelection =
   | { kind: 'member'; key: string }
   | { kind: 'supplemental'; id: string }
@@ -670,6 +686,39 @@ export function parseCleanupReport(content: string): CleanupReportData | null {
     removedFiles: normalizeStringArray(parsed.removedFiles),
     preservedPaths: normalizeStringArray(parsed.preservedPaths),
     errors: normalizeStringArray(parsed.errors),
+  }
+}
+
+export function parseExecutionSetupPlanReport(content: string): ExecutionSetupPlanReportData | null {
+  const parsed = tryParseStructuredContent(content)
+  if (!isRecord(parsed)) return null
+
+  if (
+    !('status' in parsed)
+    && !('ready' in parsed)
+    && !('generatedAt' in parsed)
+    && !('generatedBy' in parsed)
+    && !('summary' in parsed)
+    && !('modelOutput' in parsed)
+    && !('errors' in parsed)
+    && !('structuredOutput' in parsed)
+    && !('notes' in parsed)
+    && !('source' in parsed)
+  ) {
+    return null
+  }
+
+  return {
+    status: normalizeOptionalString(parsed.status),
+    ready: typeof parsed.ready === 'boolean' ? parsed.ready : undefined,
+    generatedAt: normalizeOptionalString(parsed.generatedAt),
+    generatedBy: normalizeOptionalString(parsed.generatedBy),
+    summary: normalizeOptionalString(parsed.summary),
+    modelOutput: normalizeOptionalString(parsed.modelOutput),
+    errors: normalizeStringArray(parsed.errors),
+    structuredOutput: normalizeArtifactStructuredOutput(parsed.structuredOutput),
+    notes: normalizeStringArray(parsed.notes),
+    source: normalizeOptionalString(parsed.source),
   }
 }
 

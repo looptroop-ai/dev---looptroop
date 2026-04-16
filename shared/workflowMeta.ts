@@ -614,7 +614,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Execution readiness decision — either "ready to draft the setup plan" or "blocked with specific failure reason."',
     ],
     transitions: [
-      'All Checks Pass → Review Setup Plan: The workflow advances to the setup-plan approval gate, which drafts the temporary workspace-preparation plan before anything mutates the worktree.',
+      'All Checks Pass → Approve Workspace Setup: The workflow advances to the setup-plan approval gate, which drafts the temporary workspace-preparation plan before anything mutates the worktree.',
       'Any Critical Failure → Blocked Error: Connectivity failures, missing artifacts, dependency graph problems, or workspace integrity issues route the ticket to Blocked Error with a detailed failure reason.',
     ],
     notes: [
@@ -633,12 +633,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'Approval Handoff: Once approved, this plan becomes the primary execution contract for the next phase. The execution-setup agent must start from the approved plan rather than rediscovering workspace initialization from scratch.',
     ],
     outputs: [
-      'Editable `execution_setup_plan` artifact containing the proposed temporary environment-setup plan.',
-      'Plan-generation report and notes artifacts capturing structured-output diagnostics and regenerate commentary history.',
+      'Editable `execution_setup_plan` artifact containing the proposed temporary environment-setup plan plus its user-facing diagnostics and regenerate commentary history.',
+      'Underlying plan-generation report and notes artifacts retained for workflow context, auditability, and regenerate continuity.',
       'Approval receipt confirming the reviewed setup plan was explicitly approved before execution setup begins.',
     ],
     transitions: [
-      'Approve → Preparing Workspace: The workflow advances to the execution setup phase, which executes the approved temporary setup plan and writes the reusable runtime profile.',
+      'Approve → Setting Up Workspace: The workflow advances to the execution setup phase, which executes the approved temporary setup plan and writes the reusable runtime profile.',
       'Regenerate → Stays Here: Regeneration replaces the current setup-plan draft while remaining in the same approval state for another review pass.',
       'Generation Failure → Blocked Error: If LoopTroop cannot produce a valid setup-plan artifact, the ticket routes to Blocked Error with the plan report preserved for diagnosis.',
     ],
@@ -1170,8 +1170,8 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'WAITING_EXECUTION_SETUP_APPROVAL',
-    label: 'Review Setup Plan',
-    description: 'Review and edit the proposed temporary environment setup before execution runs it.',
+    label: 'Approve Workspace Setup',
+    description: 'Review and approve the proposed temporary workspace preparation before execution runs it.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_EXECUTION_SETUP_APPROVAL,
     kanbanPhase: 'needs_input',
     groupId: 'execution',
@@ -1183,7 +1183,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'PREPARING_EXECUTION_ENV',
-    label: 'Preparing Workspace',
+    label: 'Setting Up Workspace',
     description: 'Initializing a reusable temporary execution environment before coding begins.',
     details: WORKFLOW_PHASE_DETAILS.PREPARING_EXECUTION_ENV,
     kanbanPhase: 'in_progress',

@@ -60,6 +60,38 @@ function SectionLabel({ children }: { children: string }) {
   return <label className="text-[10px] font-semibold uppercase tracking-widest text-foreground/60 block mb-1">{children}</label>
 }
 
+function PolicyField({
+  label,
+  value,
+  description,
+  placeholder,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: string
+  description: string
+  placeholder: string
+  disabled?: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className="space-y-1.5 rounded-md border border-border bg-muted/20 p-2">
+      <div>
+        <div className="text-[11px] font-semibold text-foreground">{label}</div>
+        <div className="text-[10px] leading-4 text-muted-foreground">{description}</div>
+      </div>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+        placeholder={placeholder}
+      />
+    </div>
+  )
+}
+
 interface ExecutionSetupPlanEditorProps {
   plan: ExecutionSetupPlan
   disabled?: boolean
@@ -158,33 +190,37 @@ export function ExecutionSetupPlanEditor({ plan, disabled, onChange }: Execution
         <div>
           <SectionLabel>Quality Gate Policy</SectionLabel>
           <div className="space-y-2 rounded-lg border border-border bg-background p-3">
-            <input
+            <PolicyField
+              label="Tests"
               value={plan.qualityGatePolicy.tests}
-              onChange={(event) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, tests: event.target.value } })}
+              description="Default testing strategy for later coding beads."
+              placeholder="bead-test-commands-first"
               disabled={disabled}
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
-              placeholder="tests policy"
+              onChange={(tests) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, tests } })}
             />
-            <input
+            <PolicyField
+              label="Lint"
               value={plan.qualityGatePolicy.lint}
-              onChange={(event) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, lint: event.target.value } })}
+              description="How broadly lint should run before escalating to repo-wide commands."
+              placeholder="impacted-or-package"
               disabled={disabled}
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
-              placeholder="lint policy"
+              onChange={(lint) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, lint } })}
             />
-            <input
+            <PolicyField
+              label="Typecheck"
               value={plan.qualityGatePolicy.typecheck}
-              onChange={(event) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, typecheck: event.target.value } })}
+              description="How broadly typecheck should run before escalating to repo-wide commands."
+              placeholder="impacted-or-package"
               disabled={disabled}
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
-              placeholder="typecheck policy"
+              onChange={(typecheck) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, typecheck } })}
             />
-            <input
+            <PolicyField
+              label="Fallback"
               value={plan.qualityGatePolicy.fullProjectFallback}
-              onChange={(event) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, fullProjectFallback: event.target.value } })}
+              description="What later phases should do if broad repo-wide gates fail because of unrelated baseline debt."
+              placeholder="never-block-on-unrelated-baseline"
               disabled={disabled}
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
-              placeholder="fallback policy"
+              onChange={(fullProjectFallback) => updatePlan({ qualityGatePolicy: { ...plan.qualityGatePolicy, fullProjectFallback } })}
             />
           </div>
         </div>

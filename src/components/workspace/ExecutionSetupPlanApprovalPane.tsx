@@ -5,8 +5,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
+import { ArtifactContent } from './ArtifactContentViewer'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
-import { clearTicketArtifactsCache } from '@/hooks/useTicketArtifacts'
+import { clearTicketArtifactsCache, useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 import { useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
 import {
   EXECUTION_SETUP_PLAN_APPROVAL_FOCUS_EVENT,
@@ -39,6 +40,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_execution_setup'
   const { data: persistedUiState } = useTicketUIState<ExecutionSetupPlanApprovalUiState>(ticket.id, uiStateScope, true)
+  const { artifacts } = useTicketArtifacts(ticket.id)
   const { data: fetchedPlan, isLoading, isFetching } = useQuery({
     queryKey: ['artifact', ticket.id, 'execution-setup-plan'],
     queryFn: async () => {
@@ -56,12 +58,21 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
   const rawContent = fetchedPlan?.raw ?? ''
   const plan = fetchedPlan?.plan ?? null
   const isPlanGenerating = ticket.status === 'WAITING_EXECUTION_SETUP_APPROVAL' && !plan && (isLoading || isFetching || !fetchedPlan?.exists)
+  const executionSetupPlanReportContent = useMemo(() => {
+    const matchingArtifact = [...artifacts].reverse().find((artifact) => (
+      artifact.artifactType === 'execution_setup_plan_report'
+      && artifact.phase === 'WAITING_EXECUTION_SETUP_APPROVAL'
+    ))
+      ?? [...artifacts].reverse().find((artifact) => artifact.artifactType === 'execution_setup_plan_report')
+    return matchingArtifact?.content ?? null
+  }, [artifacts])
 
   const [editMode, setEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('structured')
   const [structuredDraft, setStructuredDraft] = useState<ExecutionSetupPlan | null>(null)
   const [rawDraft, setRawDraft] = useState('')
   const [commentary, setCommentary] = useState('')
+  const [showRegenerateDialog, setShowRegenerateDialog] = useState(false)
   const [saving, setSaving] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [approving, setApproving] = useState(false)
@@ -237,6 +248,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
       queryClient.invalidateQueries({ queryKey: ['artifact', ticket.id, 'execution-setup-plan'] })
       clearTicketArtifactsCache(ticket.id)
       setCommentary('')
+      setShowRegenerateDialog(false)
       setEditMode(false)
       setEditTab('structured')
     } catch (error) {
@@ -329,10 +341,63 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showRegenerateDialog} onOpenChange={(open) => {
+        setShowRegenerateDialog(open)
+        if (open) setRegenerateError(null)
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Regenerate setup plan</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Describe what should change in the temporary workspace-preparation plan. If you currently have unsaved edits open, LoopTroop uses that draft as the regenerate baseline.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border bg-muted/20 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-foreground/60 mb-1">Commentary</div>
+              <textarea
+                value={commentary}
+                onChange={(event) => {
+                  setCommentary(event.target.value)
+                  if (regenerateError) setRegenerateError(null)
+                }}
+                rows={6}
+                placeholder="Describe what should change in the setup plan..."
+                className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs resize-y"
+              />
+            </div>
+
+            {regenerateError ? <p className="text-xs text-red-500">{regenerateError}</p> : null}
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowRegenerateDialog(false)} disabled={regenerating}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" onClick={handleRegenerate} disabled={regenerating || saving || approving || !commentary.trim()}>
+                {regenerating ? 'Regenerating…' : 'Regenerate'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-semibold">Execution Setup Plan</span>
           <span className="flex-1 text-xs text-muted-foreground">Review the temporary workspace-preparation plan, edit it if needed, regenerate with commentary, then approve.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRegenerateError(null)
+              setShowRegenerateDialog(true)
+            }}
+            className="text-xs shrink-0"
+            disabled={isPlanGenerating || saving || approving || regenerating}
+          >
+            Regenerate ...
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -358,57 +423,40 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
           ticketId={ticket.id}
           councilMemberCount={ticket.lockedCouncilMembers.length || 1}
           councilMemberNames={ticket.lockedCouncilMembers}
+          preloadedArtifacts={artifacts}
         />
 
-        <div className="rounded-2xl border border-border bg-muted/20 p-3 space-y-3">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-foreground/60 mb-1">Regenerate Commentary</div>
-            <textarea
-              value={commentary}
-              onChange={(event) => setCommentary(event.target.value)}
-              rows={3}
-              placeholder="Describe what should change in the setup plan…"
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs resize-y"
-            />
-          </div>
+        {editMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            {editMode ? (
-              <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
-                <button
-                  type="button"
-                  onClick={() => requestTabChange('structured')}
-                  className={editTab === 'structured'
-                    ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-                    : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
-                >
-                  Structured
-                </button>
-                <button
-                  type="button"
-                  onClick={() => requestTabChange('raw')}
-                  className={editTab === 'raw'
-                    ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
-                    : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
-                >
-                  Raw
-                </button>
-              </div>
-            ) : <div />}
+            <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
+              <button
+                type="button"
+                onClick={() => requestTabChange('structured')}
+                className={editTab === 'structured'
+                  ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+                  : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+              >
+                Structured
+              </button>
+              <button
+                type="button"
+                onClick={() => requestTabChange('raw')}
+                className={editTab === 'raw'
+                  ? 'rounded px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground'
+                  : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'}
+              >
+                Raw
+              </button>
+            </div>
             <div className="flex items-center gap-2">
-              {editMode ? (
-                <Button size="sm" variant="secondary" onClick={handleSave} disabled={saving || !hasUnsavedChanges}>
-                  {saving ? 'Saving…' : 'Save'}
-                </Button>
-              ) : null}
-              <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating || saving || approving || !commentary.trim()}>
-                {regenerating ? 'Regenerating…' : 'Regenerate'}
+              <Button size="sm" variant="secondary" onClick={handleSave} disabled={saving || !hasUnsavedChanges}>
+                {saving ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </div>
-        </div>
+        ) : null}
 
         {saveError ? <p className="text-xs text-red-500">{saveError}</p> : null}
-        {regenerateError ? <p className="text-xs text-red-500">{regenerateError}</p> : null}
         {approveError ? <p className="text-xs text-red-500">{approveError}</p> : null}
       </div>
 
@@ -451,39 +499,14 @@ export function ExecutionSetupPlanApprovalPane({ ticket }: { ticket: Ticket }) {
                 </div>
               )}
             </div>
-          ) : plan ? (
-            <div className="space-y-4 rounded-2xl border border-border bg-background p-4">
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">{plan.summary}</div>
-                {plan.cautions.length > 0 ? (
-                  <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                    {plan.cautions.map((caution, index) => <li key={index}>{caution}</li>)}
-                  </ul>
-                ) : null}
-              </div>
-              <div className="space-y-3">
-                {plan.steps.map((step, index) => (
-                  <div key={step.id || index} id={`execution-setup-step-${index}`} className="rounded-lg border border-border bg-muted/20 p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded text-[10px] font-mono shrink-0">
-                        #{index + 1}
-                      </span>
-                      <div className="text-sm font-medium flex-1">{step.title}</div>
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{step.required ? 'required' : 'optional'}</span>
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">{step.purpose}</p>
-                    {step.commands.length > 0 ? (
-                      <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-background p-3 text-xs"><code>{step.commands.join('\n')}</code></pre>
-                    ) : null}
-                    <p className="mt-3 text-xs">{step.rationale}</p>
-                    {step.cautions.length > 0 ? (
-                      <ul className="mt-3 list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                        {step.cautions.map((caution, cautionIndex) => <li key={cautionIndex}>{caution}</li>)}
-                      </ul>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+          ) : rawContent ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <ArtifactContent
+                artifactId="execution-setup-plan"
+                content={rawContent}
+                phase={ticket.status}
+                reportContent={executionSetupPlanReportContent}
+              />
             </div>
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No setup plan artifact is available yet.</div>
