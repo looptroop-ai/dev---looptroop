@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { StatusIndicator } from './StatusIndicator'
-import { ActiveBeadCountdown } from './ActiveBeadCountdown'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STATUS_DESCRIPTIONS, getStatusUserLabel } from '@/lib/workflowMeta'
@@ -203,13 +202,6 @@ export function PhaseTimeline({
                       totalBeads: ticket?.runtime?.totalBeads ?? ticket?.totalBeads,
                     })
 
-                    const activeBead = ticket?.runtime?.beads?.find(b => b.id === ticket?.runtime?.activeBeadId)
-                    const showCountdown = phase.id === 'CODING' 
-                      && isCurrent 
-                      && activeBead?.status === 'in_progress'
-                      && activeBead?.startedAt 
-                      && ticket?.runtime?.perIterationTimeoutMs
-
                     return (
                       <Tooltip key={phase.id}>
                         <TooltipTrigger asChild>
@@ -225,15 +217,7 @@ export function PhaseTimeline({
                             )}
                           >
                             <StatusIndicator status={indicatorStatus} />
-                            <span className="truncate flex-1 flex items-center">
-                              <span className="truncate">{phaseLabel}</span>
-                              {showCountdown && activeBead?.startedAt && ticket?.runtime?.perIterationTimeoutMs ? (
-                                <ActiveBeadCountdown 
-                                  startedAt={activeBead.startedAt} 
-                                  perIterationTimeoutMs={ticket.runtime.perIterationTimeoutMs} 
-                                />
-                              ) : null}
-                            </span>
+                            <span className="truncate flex-1">{phaseLabel}</span>
                           </button>
                         </TooltipTrigger>
                         <TooltipContent side="right">{getPhaseTooltip(phase.id)}</TooltipContent>

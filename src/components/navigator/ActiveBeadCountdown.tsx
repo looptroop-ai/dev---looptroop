@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { Clock3 } from 'lucide-react'
 
 interface ActiveBeadCountdownProps {
   startedAt: string
@@ -34,8 +35,11 @@ export function ActiveBeadCountdown({ startedAt, perIterationTimeoutMs }: Active
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="font-mono text-muted-foreground ml-1">
-          - {formatTime(remainingMs)} / {formatTime(perIterationTimeoutMs)}
+        <span className="ml-1.5 inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/40 px-2 font-mono text-[11px] font-medium text-muted-foreground shadow-sm">
+          <Clock3 className="h-3 w-3" aria-hidden="true" />
+          <span>{formatTime(remainingMs)}</span>
+          <span className="text-muted-foreground/50">/</span>
+          <span>{formatTime(perIterationTimeoutMs)}</span>
         </span>
       </TooltipTrigger>
       <TooltipContent>
