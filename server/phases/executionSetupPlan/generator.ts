@@ -32,6 +32,7 @@ const EXECUTION_SETUP_PLAN_SCHEMA_REMINDER = [
   'readiness.actions_required must be false only when readiness.status is ready.',
   'temp_roots may name any repository-local or tool-cache path needed by the approved setup commands.',
   'steps must be empty when readiness says the environment is ready, otherwise steps must be a non-empty ordered list of setup steps.',
+  'Every setup step must include id, title, purpose, commands, required, rationale, and cautions. Use cautions: [] when there are no step-specific cautions.',
 ].join('\n')
 
 type ExecutionSetupPlanPromptStage =

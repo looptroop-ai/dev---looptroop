@@ -369,7 +369,43 @@ function normalizeExecutionSetupPlanReadiness(
   }
 }
 
-function normalizeExecutionSetupPlan(value: unknown): ExecutionSetupPlanPayload {
+function normalizeExecutionSetupPlanStep(
+  entry: Record<string, unknown>,
+  index: number,
+  repairWarnings?: string[],
+): ExecutionSetupPlanPayload['steps'][number] {
+  const explicitId = toOptionalString(getValueByAliases(entry, ['id']))
+  const derivedOrdinal = index + 1
+  const id = explicitId ?? `setup-step-${derivedOrdinal}`
+  if (!explicitId) {
+    repairWarnings?.push(`Filled missing execution setup plan step id at index ${index} from list position.`)
+  }
+
+  const purpose = getRequiredString(entry, ['purpose', 'goal'], `steps[${index}].purpose`)
+  const explicitTitle = toOptionalString(getValueByAliases(entry, ['title', 'name']))
+  const title = explicitTitle ?? purpose
+  if (!explicitTitle) {
+    repairWarnings?.push(`Filled missing execution setup plan step title at index ${index} from existing purpose text.`)
+  }
+
+  const explicitRationale = toOptionalString(getValueByAliases(entry, ['rationale', 'reason']))
+  const rationale = explicitRationale ?? purpose
+  if (!explicitRationale) {
+    repairWarnings?.push(`Filled missing execution setup plan step rationale at index ${index} from existing purpose text.`)
+  }
+
+  return {
+    id,
+    title,
+    purpose,
+    commands: toStringArray(getValueByAliases(entry, ['commands', 'command'])),
+    required: Boolean(getValueByAliases(entry, ['required', 'isrequired']) ?? false),
+    rationale,
+    cautions: toStringArray(getValueByAliases(entry, ['cautions', 'warnings', 'notes'])),
+  }
+}
+
+function normalizeExecutionSetupPlan(value: unknown, repairWarnings?: string[]): ExecutionSetupPlanPayload {
   if (!isRecord(value)) throw new Error('Execution setup plan is missing')
 
   const schemaVersion = toInteger(getValueByAliases(value, ['schemaversion', 'version']))
@@ -395,15 +431,7 @@ function normalizeExecutionSetupPlan(value: unknown): ExecutionSetupPlanPayload 
   const rawSteps = getValueByAliases(value, ['steps', 'plansteps'])
   const steps = Array.isArray(rawSteps) ? rawSteps.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`steps[${index}] must be an object`)
-    return {
-      id: getRequiredString(entry, ['id'], `steps[${index}].id`),
-      title: getRequiredString(entry, ['title', 'name'], `steps[${index}].title`),
-      purpose: getRequiredString(entry, ['purpose', 'goal'], `steps[${index}].purpose`),
-      commands: toStringArray(getValueByAliases(entry, ['commands', 'command'])),
-      required: Boolean(getValueByAliases(entry, ['required', 'isrequired']) ?? false),
-      rationale: getRequiredString(entry, ['rationale', 'reason'], `steps[${index}].rationale`),
-      cautions: toStringArray(getValueByAliases(entry, ['cautions', 'warnings', 'notes'])),
-    }
+    return normalizeExecutionSetupPlanStep(entry, index, repairWarnings)
   }) : []
 
   const readiness = normalizeExecutionSetupPlanReadiness(
@@ -685,7 +713,7 @@ export function normalizeExecutionSetupPlanOutput(rawContent: string): Structure
         }
       }
 
-      const value = normalizeExecutionSetupPlan(parsedCandidate)
+      const value = normalizeExecutionSetupPlan(parsedCandidate, candidateWarnings)
       return {
         ok: true,
         value,

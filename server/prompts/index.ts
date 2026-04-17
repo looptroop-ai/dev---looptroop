@@ -682,7 +682,7 @@ export const PROM_EXECUTION_SETUP_PLAN: PromptTemplate = {
     'Language Agnosticism: Infer tooling from the repository itself. Do not assume Node, npm, pnpm, Python, Cargo, Maven, Gradle, Go, or any other ecosystem unless the repository evidence supports it. Never invent commands for a language or toolchain you did not actually observe.',
     'Workspace Setup Policy: The setup plan may propose repository-native bootstrap commands even when they create or update dependency directories, build caches, generated outputs, or tool caches outside `.ticket/runtime/execution-setup/**`. Do not propose ticket feature implementation as part of setup.',
     'Tracked Change Caution: If a setup command is likely to modify tracked manifests, lockfiles, generated assets, or configuration, keep the command only when it is necessary and call that risk out in `cautions` instead of hiding it.',
-    'Plan Structure: Return an ordered list of setup steps only when actions are required. Each step must explain its purpose, contain the commands to run, and state whether it is required.',
+    'Plan Structure: Return an ordered list of setup steps only when actions are required. Each step must include `id`, `title`, `purpose`, `commands`, `required`, `rationale`, and `cautions`; use `cautions: []` when no step-specific cautions apply.',
     'Command Families: Discover project-level command families for prepare/bootstrap, full test, full lint, and full typecheck when possible. If a family is unavailable, return an empty list rather than inventing commands.',
     'Quality Gate Policy: Default to bead test commands first, then impacted-or-package scoped lint/typecheck, and never block later phases on unrelated baseline debt.',
     'No Execution: Do not initialize the environment yet. This phase stops at the plan artifact so the user can review and edit it.',
@@ -717,7 +717,17 @@ export const PROM_EXECUTION_SETUP_PLAN: PromptTemplate = {
   },
   "cautions": ["..."]
 }
-\`steps\` must be empty when \`readiness.status\` is \`ready\` and \`readiness.actions_required\` is \`false\`. When actions are required, \`steps\` must be a non-empty ordered list.`,
+\`steps\` must be empty when \`readiness.status\` is \`ready\` and \`readiness.actions_required\` is \`false\`. When actions are required, \`steps\` must be a non-empty ordered list.
+Each setup step must have this exact shape:
+{
+  "id": "setup-step-1",
+  "title": "short step title",
+  "purpose": "why this workspace setup step is needed",
+  "commands": ["<repository-native setup command>"],
+  "required": true,
+  "rationale": "evidence or reasoning for this step",
+  "cautions": []
+}`,
   contextInputs: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_profile', 'execution_setup_plan_notes'],
   toolPolicy: 'read_only',
 }
