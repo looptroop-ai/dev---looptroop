@@ -456,4 +456,41 @@ describe('OpenCode log canonicalization', () => {
     ])
     expect(getPersistedEntries().some((entry) => String(entry.entryId).includes('transcript-summary'))).toBe(false)
   })
+
+  it('persists OpenCode tool input, output, and error details as model-attributed AI rows', () => {
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'CODING', 'openai/gpt-5.4', 'ses-tool', {
+      type: 'tool',
+      sessionId: 'ses-tool',
+      messageId: 'msg-tool',
+      partId: 'part-tool',
+      tool: 'bash',
+      callId: 'call-1',
+      status: 'error',
+      title: 'Run tests',
+      input: {
+        command: 'npm test -- --runInBand',
+        cwd: '/tmp/worktree',
+      },
+      output: 'stdout line',
+      error: 'stderr line',
+      complete: true,
+    }, createOpenCodeStreamState(), 'bead-1')
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'ses-tool:part-tool',
+        source: 'model:openai/gpt-5.4',
+        modelId: 'openai/gpt-5.4',
+        beadId: 'bead-1',
+        kind: 'tool',
+        content: expect.stringContaining('[TOOL] bash error: Run tests'),
+      }),
+    ]))
+
+    const toolEntry = getPersistedEntries().find((entry) => entry.entryId === 'ses-tool:part-tool')
+    expect(toolEntry?.content).toContain('Input:')
+    expect(toolEntry?.content).toContain('"command": "npm test -- --runInBand"')
+    expect(toolEntry?.content).toContain('Output:\nstdout line')
+    expect(toolEntry?.content).toContain('Error:\nstderr line')
+  })
 })

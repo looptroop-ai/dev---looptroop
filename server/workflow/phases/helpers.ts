@@ -169,6 +169,21 @@ export function stringifyForLog(value: unknown): string {
   }
 }
 
+function truncateToolDetail(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  return `${value.slice(0, maxChars)}\n… (truncated ${value.length - maxChars} chars)`
+}
+
+function stringifyToolDetail(value: unknown, maxChars: number): string {
+  if (typeof value === 'string') return truncateToolDetail(value.trimEnd(), maxChars)
+  if (value == null) return ''
+  try {
+    return truncateToolDetail(JSON.stringify(value, null, 2), maxChars)
+  } catch {
+    return truncateToolDetail(String(value), maxChars)
+  }
+}
+
 export function createOpenCodeStreamState(): OpenCodeStreamState {
   return {
     seenFirstActivity: false,
@@ -252,17 +267,25 @@ export function formatToolState(event: Extract<StreamEvent, { type: 'tool' }>): 
   const title = event.title
   const error = event.error
   const output = event.output
+  const lines = [`[TOOL] ${tool} ${status}${title ? `: ${title}` : ''}`]
 
-  if (status === 'error') {
-    return `${tool} failed${error ? `: ${error}` : '.'}`
+  if (event.input && Object.keys(event.input).length > 0) {
+    lines.push('Input:', stringifyToolDetail(event.input, 4000))
   }
-  if (status === 'completed') {
-    return `${tool} completed${title ? `: ${title}` : output ? `: ${output.slice(0, 160)}` : '.'}`
+
+  if (output) {
+    lines.push('Output:', stringifyToolDetail(output, 12000))
   }
-  if (status === 'running') {
-    return `${tool} running${title ? `: ${title}` : '.'}`
+
+  if (error) {
+    lines.push('Error:', stringifyToolDetail(error, 6000))
   }
-  return `${tool} pending.`
+
+  if (lines.length === 1) {
+    lines[0] = `${lines[0]}.`
+  }
+
+  return lines.join('\n')
 }
 
 export function emitStructuredPhaseLog(

@@ -10,6 +10,7 @@ import { LoadingText } from '@/components/ui/LoadingText'
 import type { Ticket } from '@/hooks/useTickets'
 import { filterEntries, formatLogLine, isSystem, isCommand } from './logFormat'
 import { LogEntryRow } from './LogLine'
+import { LogColorLegend } from './LogColorLegend'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 
@@ -618,15 +619,7 @@ export function FullLogView({ ticket }: FullLogViewProps) {
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" align="end" className="flex flex-col gap-1.5 p-2 bg-popover text-popover-foreground border border-border font-medium shadow-md">
-              <div className="font-semibold text-xs border-b border-border pb-1">Log Colors Legend</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-blue-500"></div> Input (Prompt)</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-emerald-600"></div> Final Output (Text)</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-green-500"></div> Other AI Events</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-purple-400"></div> Thinking</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-red-500"></div> Error</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-amber-600"></div> Debug</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-foreground"></div> System</div>
-              <div className="flex items-center gap-2 text-[11px]"><div className="w-2.5 h-2.5 rounded bg-zinc-500"></div> System Commands</div>
+              <LogColorLegend />
             </TooltipContent>
           </Tooltip>
           <button

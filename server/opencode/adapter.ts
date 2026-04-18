@@ -837,6 +837,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
 
     if (this.isToolPart(part)) {
+      const input = this.getRecord(part.state.input)
       return {
         type: 'tool',
         sessionId,
@@ -846,6 +847,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         callId: part.callID,
         status: part.state.status,
         title: part.state.title,
+        input: input ? { ...input } : undefined,
         output: typeof part.state.output === 'string' ? part.state.output : undefined,
         error: typeof part.state.error === 'string' ? part.state.error : undefined,
         metadata: part.metadata,
@@ -945,6 +947,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
         tool: part.tool,
         status: part.state?.status ?? null,
         title: part.state?.title ?? null,
+        input: part.state?.input ?? null,
         output: part.state?.output ?? null,
         error: part.state?.error ?? null,
       })

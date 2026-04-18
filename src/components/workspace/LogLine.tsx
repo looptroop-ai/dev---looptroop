@@ -1,8 +1,24 @@
-import { useState, useRef, useEffect, memo, useMemo } from 'react'
+import { useState, useRef, useEffect, memo, useMemo, useCallback } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { formatLogLine, getEntryColor, formatTimestamp } from './logFormat'
+
+type ToolSectionKind = 'input' | 'output' | 'error'
+
+interface ToolBodySection {
+  kind: ToolSectionKind
+  label: string
+  content: string
+}
+
+const TOOL_SECTION_TEXT_COLORS: Record<ToolSectionKind, string> = {
+  input: 'text-sky-300',
+  output: 'text-sky-700 dark:text-sky-500',
+  error: 'text-rose-950 dark:text-rose-300',
+}
+
+const TOOL_SECTION_PATTERN = /\n(Input|Output|Error):\n/g
 
 /** For streaming entries: returns [firstLine, ...last5Lines] with a separator when truncated. */
 function getStreamingVisibleLines(text: string): { lines: string[]; truncated: boolean } {
@@ -19,6 +35,11 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
   if (!formatted.tagText) return <>{formatted.visibleText}</>
 
   const color = getEntryColor(entry)
+  const isToolEntry = entry.kind === 'tool' || formatted.tagText === '[TOOL]'
+  if (isToolEntry) {
+    return renderToolLogLine(entry, formatted.tagText, formatted.tagTitle, formatted.bodyText)
+  }
+
   return (
     <>
       <span
@@ -28,6 +49,53 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
         {formatted.tagText}
       </span>
       {formatted.bodyText}
+    </>
+  )
+}
+
+function splitToolBody(bodyText: string): { introText: string; sections: ToolBodySection[] } {
+  const matches = Array.from(bodyText.matchAll(TOOL_SECTION_PATTERN))
+  if (matches.length === 0) return { introText: bodyText, sections: [] }
+
+  const firstSectionStart = matches[0]?.index ?? bodyText.length
+  const sections = matches.map((match, index): ToolBodySection => {
+    const rawLabel = match[1] ?? 'Output'
+    const contentStart = (match.index ?? 0) + match[0].length
+    const nextSectionStart = matches[index + 1]?.index ?? bodyText.length
+    return {
+      kind: rawLabel.toLowerCase() as ToolSectionKind,
+      label: rawLabel,
+      content: bodyText.slice(contentStart, nextSectionStart),
+    }
+  })
+
+  return {
+    introText: bodyText.slice(0, firstSectionStart),
+    sections,
+  }
+}
+
+function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | undefined, bodyText: string) {
+  const color = getEntryColor(entry)
+  const { introText, sections } = splitToolBody(bodyText)
+
+  return (
+    <>
+      <span
+        className={cn('font-semibold', color)}
+        title={tagTitle}
+      >
+        {tagText}
+      </span>
+      {introText}
+      {sections.map((section) => (
+        <span key={section.label} className={TOOL_SECTION_TEXT_COLORS[section.kind]}>
+          {'\n'}
+          <span className={cn('font-semibold', TOOL_SECTION_TEXT_COLORS[section.kind])}>{section.label}:</span>
+          {'\n'}
+          {section.content}
+        </span>
+      ))}
     </>
   )
 }
@@ -69,7 +137,14 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   const [copied, setCopied] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const isStreamingUiEntry = showsStreamingUi(entry)
-  
+  const handleCopyEntry = useCallback(() => {
+    const textToCopy = formatLogLine(entry, showModelName).copyText
+    const timestampedText = entry.timestamp ? `[${entry.timestamp}] ${textToCopy}` : textToCopy
+    void navigator.clipboard.writeText(timestampedText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [entry, showModelName])
+
   // Fast multiline check to predict if truncation is needed
   const isMultiline = useMemo(() => {
     if (isStreamingUiEntry) {
@@ -101,34 +176,41 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   }, [entry.line, isExpanded, isMultiline])
 
   const isTruncatable = isMultiline || isOverflowing
+  const renderCopyButton = (className: string) => (
+    <button
+      type="button"
+      onClick={handleCopyEntry}
+      className={cn('transition-colors cursor-pointer', className)}
+      title="Copy log entry"
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+    </button>
+  )
 
   return (
     <div className="py-0.5 border-b border-border/30 last:border-0 flex relative group">
       <div className="flex flex-col shrink-0 w-[105px] mr-2 pt-0.5 items-start">
         <div className="flex flex-row items-center gap-1 w-full pb-1">
           <span className="text-muted-foreground/40">{formatTimestamp(entry.timestamp)}</span>
-          <button
-            onClick={() => {
-              const textToCopy = formatLogLine(entry, showModelName).copyText
-              const timestampedText = entry.timestamp ? `[${entry.timestamp}] ${textToCopy}` : textToCopy
-              void navigator.clipboard.writeText(timestampedText)
-              setCopied(true)
-              setTimeout(() => setCopied(false), 2000)
-            }}
-            className="text-muted-foreground/40 hover:text-foreground hover:bg-muted p-0.5 rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
-            title="Copy log entry"
-          >
-            {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-          </button>
+          {!isTruncatable && renderCopyButton(
+            'text-muted-foreground/40 hover:text-foreground hover:bg-muted p-0.5 rounded opacity-0 group-hover:opacity-100',
+          )}
         </div>
         {isTruncatable && (
-          <div className="sticky top-1">
+          <div
+            className="sticky top-1 z-10 flex items-center gap-1"
+            data-log-entry-sticky-actions
+          >
             <button
+              type="button"
               onClick={() => setIsExpanded(!isExpanded)}
               className="text-[10px] bg-background/90 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-muted px-1.5 py-0.5 rounded border border-border/50 shadow-sm transition-colors cursor-pointer opacity-80 hover:opacity-100"
             >
               {isExpanded ? 'Less' : 'More'}
             </button>
+            {renderCopyButton(
+              'bg-background/90 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-muted p-1 rounded border border-border/50 shadow-sm opacity-80 hover:opacity-100',
+            )}
           </div>
         )}
         {isStreamingUiEntry && (

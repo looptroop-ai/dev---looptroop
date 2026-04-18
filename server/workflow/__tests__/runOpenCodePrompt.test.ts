@@ -1022,6 +1022,59 @@ describe('runOpenCodePrompt', () => {
     expect(events[events.length - 1]?.type).toBe('done')
   })
 
+  it('preserves OpenCode tool input, output, and error details in stream events', async () => {
+    const fakeClient = createFakeSdkClient({
+      get: async () => ({ data: { directory: '/tmp/project' } }),
+      subscribe: async () => ({
+        stream: (async function* () {
+          yield {
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part-tool-1',
+                type: 'tool',
+                callID: 'call-1',
+                tool: 'bash',
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+                state: {
+                  status: 'error',
+                  title: 'Run unit tests',
+                  input: {
+                    command: 'npm test',
+                  },
+                  output: 'stdout body',
+                  error: 'stderr body',
+                },
+              },
+            },
+          }
+          yield {
+            type: 'session.idle',
+            properties: { info: { id: 'ses-1' } },
+          }
+        })(),
+      }),
+    })
+    const sdkAdapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const events: StreamEvent[] = []
+    for await (const event of sdkAdapter.subscribeToEvents('ses-1')) {
+      events.push(event)
+    }
+
+    expect(events[0]).toMatchObject({
+      type: 'tool',
+      tool: 'bash',
+      status: 'error',
+      title: 'Run unit tests',
+      input: { command: 'npm test' },
+      output: 'stdout body',
+      error: 'stderr body',
+      complete: true,
+    })
+  })
+
   it('reports Timeout as an ERROR event, not as a CancelledError', async () => {
     const deferredResponse = createDeferred<string>()
     const testAdapter = new TestOpenCodeAdapter([deferredResponse])

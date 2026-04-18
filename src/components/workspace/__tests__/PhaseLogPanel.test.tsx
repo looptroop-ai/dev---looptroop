@@ -435,6 +435,41 @@ describe('PhaseLogPanel', () => {
     )
   })
 
+  it('keeps the single-entry copy button beside the sticky More/Less controls for long rows', () => {
+    const logs: LogEntry[] = [
+      makeLog(
+        'long-entry',
+        [
+          '[SYS] Long entry started',
+          'line 2',
+          'line 3',
+          'line 4',
+          'line 5',
+          'line 6',
+        ].join('\n'),
+      ),
+    ]
+
+    renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={logs} />)
+
+    const copyButton = screen.getByTitle('Copy log entry')
+    const stickyActions = copyButton.closest('[data-log-entry-sticky-actions]')
+
+    expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
+    expect(stickyActions).toBeInTheDocument()
+
+    fireEvent.click(copyButton)
+
+    expect(writeTextMock).toHaveBeenCalledWith([
+      '[2026-03-10T10:00:00.000Z] [SYS] Long entry started',
+      'line 2',
+      'line 3',
+      'line 4',
+      'line 5',
+      'line 6',
+    ].join('\n'))
+  })
+
   it('includes full model ids when copying filtered ERROR logs', async () => {
     const logs: LogEntry[] = [
       {
@@ -781,9 +816,36 @@ describe('PhaseLogPanel', () => {
     await waitFor(() => {
       const legends = screen.getAllByText('Log Colors Legend')
       expect(legends.length).toBeGreaterThan(0)
-      expect(screen.getAllByText('Input (Prompt)').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Prompt').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Final output').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Tool call').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Input').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Output').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Runtime').length).toBeGreaterThan(0)
       expect(screen.getAllByText('System').length).toBeGreaterThan(0)
     })
+  })
+
+  it('colors OpenCode tool rows distinctly from generic AI events', () => {
+    renderWithTooltipProvider(
+      <PhaseLogPanel
+        phase="CODING"
+        defaultTab="AI"
+        logs={[
+          makeLog('tool-1', '[TOOL] bash completed: npm test\nInput:\n{"command":"npm test"}\nOutput:\npass\nError:\nstderr', {
+            source: 'model:openai/gpt-5-mini',
+            audience: 'ai',
+            kind: 'tool',
+            modelId: 'openai/gpt-5-mini',
+          }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('[TOOL]')).toHaveClass('text-cyan-500')
+    expect(screen.getByText('Input:')).toHaveClass('text-sky-300')
+    expect(screen.getByText('Output:')).toHaveClass('text-sky-700')
+    expect(screen.getByText('Error:')).toHaveClass('text-rose-950')
   })
 
   it('shows non-error command chatter in SYS while keeping ALL focused on higher-signal entries', () => {

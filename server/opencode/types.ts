@@ -194,6 +194,7 @@ export interface ToolStreamEvent extends StreamEventBase {
   callId: string
   status: 'pending' | 'running' | 'completed' | 'error'
   title?: string
+  input?: Record<string, unknown>
   output?: string
   error?: string
   metadata?: Record<string, unknown>
