@@ -969,7 +969,7 @@ MVP generation rules:
 | 14 | `tests` | string[] | Bead-scoped tests — unit tests, integration tests, etc. Only these tests determine if the bead passes (not the full project test suite) |
 | 15 | `test_commands` | string[] | Exact commands to run the bead-scoped tests (e.g. `["npm test -- --grep \"login error\"", "npx eslint src/auth/"]`) |
 | 16 | `notes` | string | Append-only. Errors and learnings from previous attempts. Empty on first attempt. Each failed attempt appends its own details until max iterations reached |
-| 17 | `iteration` | integer | Starts at 0 before execution, then stores the active/latest attempt number. Incremented when a bead attempt starts and on each retry (context wipe). Used to track how many attempts have been made on this bead |
+| 17 | `iteration` | integer | Starts at 1 for the first execution attempt. After a failed attempt/context wipe, pending beads store the next attempt number so retry resumes at iteration 2, 3, etc. |
 | 18 | `created_at` | ISO 8601 | Timestamp of bead creation |
 | 19 | `updated_at` | ISO 8601 | Timestamp of last update |
 | 20 | `completed_at` | ISO 8601 | Timestamp when status is set to `done` (empty during planning) |

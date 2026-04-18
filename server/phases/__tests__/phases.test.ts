@@ -44,7 +44,7 @@ describe('Beads Coverage', () => {
     testCommands: ['npm test'], priority: 1, status: 'pending',
     issueType: 'task', externalRef: '',
     labels: [], dependencies: { blocked_by: [], blocks: [] }, targetFiles: [], notes: '',
-    iteration: 0, createdAt: '', updatedAt: '', completedAt: '', startedAt: '', beadStartCommit: null,
+    iteration: 1, createdAt: '', updatedAt: '', completedAt: '', startedAt: '', beadStartCommit: null,
   }
 
   it('passes with valid beads', () => {
@@ -91,7 +91,7 @@ describe('Beads Expansion', () => {
     expect(expanded.length).toBe(1)
     expect(expanded[0]!.priority).toBe(1)
     expect(expanded[0]!.status).toBe('pending')
-    expect(expanded[0]!.iteration).toBe(0)
+    expect(expanded[0]!.iteration).toBe(1)
     expect(expanded[0]!.beadStartCommit).toBeNull()
   })
 })

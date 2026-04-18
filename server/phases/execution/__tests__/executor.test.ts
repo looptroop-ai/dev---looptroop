@@ -88,7 +88,7 @@ function buildBead(overrides: Partial<Bead> = {}): Bead {
     dependencies: { blocked_by: [], blocks: [] },
     targetFiles: [],
     notes: '',
-    iteration: 0,
+    iteration: 1,
     createdAt: '',
     updatedAt: '',
     completedAt: '',
@@ -394,7 +394,7 @@ describe('executeBead', () => {
     expect(contextSnapshots[1]).toContain('Retry with the new note')
   })
 
-  it('starts a recovered bead on the next absolute iteration instead of resetting to 1', async () => {
+  it('starts a recovered bead from the persisted next iteration instead of resetting to 1', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
     adapter.mockResponses.set('mock-session-1#1', [
       '<BEAD_STATUS>',
@@ -405,7 +405,7 @@ describe('executeBead', () => {
     const sessionIterations: number[] = []
     const result = await executeBead(
       adapter,
-      buildBead({ iteration: 5 }),
+      buildBead({ iteration: 6 }),
       [{ type: 'text', content: 'Recovered bead context' }],
       '/tmp/test',
       5,
@@ -434,7 +434,7 @@ describe('executeBead', () => {
 
       const runPromise = executeBead(
         adapter,
-        buildBead({ iteration: 5 }),
+        buildBead({ iteration: 6 }),
         [{ type: 'text', content: 'Recovered bead context' }],
         '/tmp/test',
         5,

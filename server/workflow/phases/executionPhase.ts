@@ -185,8 +185,9 @@ export async function handleCoding(
         )
       },
       onContextWipe: async ({ beadId, notes, iteration }) => {
+        const nextIteration = iteration + 1
         if (!beadStartCommit) {
-          throw new Error(`Cannot reset bead ${beadId} for attempt ${iteration}: missing bead start commit`)
+          throw new Error(`Cannot reset bead ${beadId} for attempt ${nextIteration}: missing bead start commit`)
         }
 
         const beadsBeforeReset = readTicketBeads(ticketId)
@@ -201,7 +202,7 @@ export async function handleCoding(
         } catch (err) {
           const preservedFailureBeads = mergeBeadRetryMetadata(beadsBeforeReset, beadId, {
             notes,
-            iteration,
+            iteration: nextIteration,
             status: 'error',
             updatedAt: retryUpdatedAt,
           })
@@ -219,7 +220,7 @@ export async function handleCoding(
 
         const updated = mergeBeadRetryMetadata(beadsBeforeReset, beadId, {
           notes,
-          iteration,
+          iteration: nextIteration,
           status: 'pending',
           updatedAt: retryUpdatedAt,
         })
@@ -229,7 +230,7 @@ export async function handleCoding(
           context.externalId,
           'CODING',
           'info',
-          `Reset bead ${beadId} to its start snapshot and appended retry notes for attempt ${iteration + 1}.`,
+          `Reset bead ${beadId} to its start snapshot and appended retry notes for attempt ${nextIteration}.`,
           { source: 'system', modelId: codingModelId, beadId },
         )
       },

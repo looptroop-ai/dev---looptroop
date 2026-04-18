@@ -254,17 +254,18 @@ export async function executeBead(
 ): Promise<ExecutionResult> {
   const startingIteration = Number.isInteger(bead.iteration) && bead.iteration > 0
     ? bead.iteration
-    : 0
+    : 1
   const maxAttemptIteration = maxIterations > 0
-    ? startingIteration + maxIterations
+    ? startingIteration + maxIterations - 1
     : null
   let iteration = startingIteration
+  let lastAttemptIteration = startingIteration - 1
   let lastOutput = ''
   const errors: string[] = []
   const sessionManager = callbacks?.ticketId ? new SessionManager(adapter) : null
 
-  while (maxAttemptIteration == null || iteration < maxAttemptIteration) {
-    iteration++
+  while (maxAttemptIteration == null || iteration <= maxAttemptIteration) {
+    lastAttemptIteration = iteration
     throwIfAborted(signal)
     let activeSessionId: string | null = null
     let activeSession: Session | null = null
@@ -512,19 +513,24 @@ export async function executeBead(
       }
     }
     throwIfAborted(signal)
+
+    if (maxAttemptIteration !== null && iteration >= maxAttemptIteration) {
+      break
+    }
+    iteration++
   }
 
-  if (maxAttemptIteration !== null && iteration >= maxAttemptIteration) {
-    errors.push(`Reached the configured per-bead retry budget at iteration ${iteration}.`)
+  if (maxAttemptIteration !== null && lastAttemptIteration >= maxAttemptIteration) {
+    errors.push(`Reached the configured per-bead retry budget at iteration ${lastAttemptIteration}.`)
   }
 
   return {
     beadId: bead.id,
     success: false,
-    iteration,
+    iteration: lastAttemptIteration,
     output: lastOutput,
     errors,
-    ...(maxAttemptIteration !== null && iteration >= maxAttemptIteration
+    ...(maxAttemptIteration !== null && lastAttemptIteration >= maxAttemptIteration
       ? { errorCodes: [BEAD_RETRY_BUDGET_EXHAUSTED] }
       : {}),
   }

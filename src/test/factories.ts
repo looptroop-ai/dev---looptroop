@@ -170,7 +170,7 @@ export function makeBead(overrides: Record<string, unknown> = {}) {
     dependencies: { blocked_by: [], blocks: [] },
     targetFiles: ['src/test/example.ts'],
     notes: '',
-    iteration: 0,
+    iteration: 1,
     createdAt: TEST.timestamp,
     updatedAt: TEST.timestamp,
     completedAt: '',

@@ -81,7 +81,7 @@ function makePendingBead(id: string, priority: number, extra: Partial<Bead> = {}
     dependencies: { blocked_by: [], blocks: [] },
     targetFiles: [],
     notes: '',
-    iteration: 0,
+    iteration: 1,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     completedAt: '',
@@ -353,11 +353,11 @@ describe('handleCoding', () => {
         onContextWipe: (entry: { beadId: string; notes: string; iteration: number }) => Promise<void>
       },
     ) => {
-      callbacks.onSessionCreated?.('session-2', 2)
+      callbacks.onSessionCreated?.('session-1', 1)
       await expect(callbacks.onContextWipe({
         beadId: 'bead-1',
         notes: 'retry note after timeout',
-        iteration: 2,
+        iteration: 1,
       })).rejects.toThrow('spawnSync git ENOBUFS')
       throw new Error('spawnSync git ENOBUFS')
     })

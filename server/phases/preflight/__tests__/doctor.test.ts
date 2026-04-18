@@ -23,7 +23,7 @@ function makeBead(overrides: Partial<Bead> = {}): Bead {
     dependencies: { blocked_by: [], blocks: [] },
     targetFiles: [],
     notes: '',
-    iteration: 0,
+    iteration: 1,
     createdAt: '',
     updatedAt: '',
     completedAt: '',
