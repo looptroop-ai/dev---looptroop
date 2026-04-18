@@ -93,7 +93,7 @@ describe('NavigatorPanel', () => {
     expect(onOpenFullLog).toHaveBeenCalledTimes(1)
   })
 
-  it('hides "Allowed Context" when fullLogOpen is true', () => {
+  it('hides "Context & Output" when fullLogOpen is true', () => {
     renderWithProviders(
       <NavigatorPanel
         ticketId="1:T-42"
@@ -109,10 +109,10 @@ describe('NavigatorPanel', () => {
       />,
     )
 
-    expect(screen.queryByText(/allowed context/i)).toBeNull()
+    expect(screen.queryByText(/context & output/i)).toBeNull()
   })
 
-  it('shows "Allowed Context" when fullLogOpen is false', () => {
+  it('shows "Context & Output" when fullLogOpen is false', () => {
     renderWithProviders(
       <NavigatorPanel
         ticketId="1:T-42"
@@ -128,7 +128,7 @@ describe('NavigatorPanel', () => {
       />,
     )
 
-    expect(screen.getByText(/allowed context/i)).toBeTruthy()
+    expect(screen.getByText(/context & output/i)).toBeTruthy()
   })
 
   it('shows "Back to live" button when fullLogOpen is true', () => {

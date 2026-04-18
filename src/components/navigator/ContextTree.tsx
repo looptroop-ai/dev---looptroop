@@ -96,6 +96,18 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     icon: '📓',
     description: 'Iteration notes and prior-attempt context.',
   },
+  execution_setup_plan: {
+    id: 'execution_setup_plan',
+    label: 'Setup Plan',
+    icon: '🧾',
+    description: 'Approved workspace setup plan used before coding.',
+  },
+  execution_setup_plan_notes: {
+    id: 'execution_setup_plan_notes',
+    label: 'Setup Plan Notes',
+    icon: '🗒️',
+    description: 'Regeneration notes for the setup-plan approval gate.',
+  },
   execution_setup_profile: {
     id: 'execution_setup_profile',
     label: 'Execution Setup Profile',
@@ -114,6 +126,117 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     icon: '❌',
     description: 'Failure context from previous blocked iteration.',
   },
+}
+
+function getContextIcon(key: string, fallback = '📦'): string {
+  return CONTEXT_LABELS[key]?.icon ?? fallback
+}
+
+function outputItem(id: string, label: string, contextKey: string, description: string): ContextItem {
+  return {
+    id,
+    label,
+    icon: getContextIcon(contextKey),
+    description,
+  }
+}
+
+const PHASE_OUTPUTS: Record<string, ContextItem[]> = {
+  DRAFT: [
+    outputItem('ticket-details', 'Ticket Details', 'ticket_details', 'Seed context for the workflow.'),
+  ],
+  SCANNING_RELEVANT_FILES: [
+    outputItem('relevant-files', 'Relevant Files', 'relevant_files', 'File context used by planning phases.'),
+  ],
+  COUNCIL_DELIBERATING: [
+    outputItem('interview-drafts', 'Interview Drafts', 'drafts', 'Candidate question sets for voting.'),
+  ],
+  COUNCIL_VOTING_INTERVIEW: [
+    outputItem('winning-draft', 'Winning Draft', 'drafts', 'Selected draft used to build the interview.'),
+  ],
+  COMPILING_INTERVIEW: [
+    outputItem('interview', 'Interview', 'interview', 'Canonical questions for user answers.'),
+  ],
+  WAITING_INTERVIEW_ANSWERS: [
+    outputItem('user-answers', 'User Answers', 'user_answers', 'Answers saved into the interview.'),
+  ],
+  VERIFYING_INTERVIEW_COVERAGE: [
+    outputItem('coverage-result', 'Coverage Result', 'tests', 'Decision to approve or ask follow-ups.'),
+    outputItem('follow-ups', 'Follow-ups', 'interview', 'Extra questions when answers are incomplete.'),
+  ],
+  WAITING_INTERVIEW_APPROVAL: [
+    outputItem('approved-interview', 'Approved Interview', 'interview', 'Locked input for PRD drafting.'),
+  ],
+  DRAFTING_PRD: [
+    outputItem('full-answers', 'Full Answers', 'full_answers', 'Skipped answers filled for PRD drafting.'),
+    outputItem('prd-drafts', 'PRD Drafts', 'drafts', 'Candidate specs for voting.'),
+  ],
+  COUNCIL_VOTING_PRD: [
+    outputItem('winning-prd', 'Winning PRD', 'prd', 'Selected spec used for refinement.'),
+  ],
+  REFINING_PRD: [
+    outputItem('prd-candidate', 'PRD Candidate', 'prd', 'Refined spec for coverage checking.'),
+  ],
+  VERIFYING_PRD_COVERAGE: [
+    outputItem('coverage-result', 'Coverage Result', 'tests', 'Coverage decision for PRD approval.'),
+    outputItem('prd-candidate', 'PRD Candidate', 'prd', 'Latest checked spec for approval.'),
+  ],
+  WAITING_PRD_APPROVAL: [
+    outputItem('approved-prd', 'Approved PRD', 'prd', 'Locked input for beads drafting.'),
+  ],
+  DRAFTING_BEADS: [
+    outputItem('beads-drafts', 'Beads Drafts', 'drafts', 'Candidate task blueprints for voting.'),
+  ],
+  COUNCIL_VOTING_BEADS: [
+    outputItem('winning-blueprint', 'Winning Blueprint', 'beads_draft', 'Selected blueprint used for refinement.'),
+  ],
+  REFINING_BEADS: [
+    outputItem('semantic-blueprint', 'Semantic Blueprint', 'beads_draft', 'Refined task plan before expansion.'),
+  ],
+  VERIFYING_BEADS_COVERAGE: [
+    outputItem('semantic-blueprint', 'Semantic Blueprint', 'beads_draft', 'Latest checked task blueprint.'),
+    outputItem('beads-plan', 'Beads Plan', 'beads', 'Execution-ready tasks for approval.'),
+  ],
+  WAITING_BEADS_APPROVAL: [
+    outputItem('approved-beads', 'Approved Beads', 'beads', 'Locked task plan for coding.'),
+  ],
+  PRE_FLIGHT_CHECK: [
+    outputItem('preflight-report', 'Preflight Report', 'tests', 'Readiness check before setup.'),
+  ],
+  WAITING_EXECUTION_SETUP_APPROVAL: [
+    outputItem('setup-plan', 'Setup Plan', 'execution_setup_plan', 'Approved contract for setup.'),
+  ],
+  PREPARING_EXECUTION_ENV: [
+    outputItem('setup-profile', 'Setup Profile', 'execution_setup_profile', 'Runtime profile used by coding.'),
+  ],
+  CODING: [
+    outputItem('code-changes', 'Code Changes', 'bead_data', 'Repository changes from beads.'),
+    outputItem('bead-notes', 'Bead Notes', 'bead_notes', 'Retry context if a bead fails.'),
+  ],
+  RUNNING_FINAL_TEST: [
+    outputItem('test-report', 'Test Report', 'tests', 'Final verification for integration.'),
+  ],
+  INTEGRATING_CHANGES: [
+    outputItem('candidate-commit', 'Candidate Commit', 'tests', 'Squashed commit for PR creation.'),
+  ],
+  CREATING_PULL_REQUEST: [
+    outputItem('pull-request', 'Pull Request', 'tests', 'Draft PR for review.'),
+  ],
+  WAITING_PR_REVIEW: [
+    outputItem('merge-result', 'Merge Result', 'tests', 'Final merge or close decision.'),
+  ],
+  CLEANING_ENV: [
+    outputItem('cleanup-report', 'Cleanup Report', 'tests', 'What cleanup removed or kept.'),
+  ],
+  COMPLETED: [
+    outputItem('final-record', 'Final Record', 'tests', 'Preserved ticket history.'),
+  ],
+  CANCELED: [
+    outputItem('partial-history', 'Partial History', 'tests', 'Artifacts produced before canceling.'),
+  ],
+  BLOCKED_ERROR: [
+    outputItem('error-context', 'Error Context', 'error_context', 'Failure details used for retry.'),
+  ],
 }
 
 function getAllowedContextItems(keys: WorkflowContextKey[]): ContextItem[] {
@@ -149,6 +272,10 @@ function ContextRow({ item }: { item: ContextItem }) {
   )
 }
 
+function getOutputItems(phase: string): ContextItem[] {
+  return PHASE_OUTPUTS[phase] ?? []
+}
+
 export function ContextTree({ selectedPhase }: ContextTreeProps) {
   const { phaseMap } = useWorkflowMeta()
   const [collapsed, setCollapsed] = useState(true)
@@ -157,10 +284,8 @@ export function ContextTree({ selectedPhase }: ContextTreeProps) {
     phaseMeta?.contextSections,
     phaseMeta?.contextSummary ?? ['ticket_details'],
   )
-  const usesParts = sections.length > 1
-  const summaryText = usesParts
-    ? `${sections.length} parts`
-    : `${sections[0]?.items.length ?? 0}`
+  const outputItems = getOutputItems(selectedPhase)
+  const contextItemCount = sections.reduce((total, section) => total + section.items.length, 0)
 
   return (
     <div className="p-2">
@@ -169,34 +294,61 @@ export function ContextTree({ selectedPhase }: ContextTreeProps) {
         className="w-full flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5 hover:text-foreground transition-colors"
       >
         <ChevronRight className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-90')} />
-        Allowed Context
-        <span className="ml-auto text-[10px] font-normal normal-case">{summaryText}</span>
+        Context & Output
       </button>
       {!collapsed && (
-        <ScrollArea className="max-h-[250px]">
-          <div className="space-y-2">
-            {sections.map((section, index) => (
-              <div
-                key={`${section.label ?? 'context'}-${index}`}
-                className={cn(index > 0 && 'border-t border-border/40 pt-2')}
-              >
-                {section.label ? (
-                  <div className="px-2 pb-1">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-[11px] font-semibold text-foreground/80">{section.label}</span>
-                      {section.description ? (
-                        <span className="text-[11px] text-muted-foreground">- {section.description}</span>
-                      ) : null}
+        <ScrollArea className="max-h-[320px]">
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <div className="px-2 text-[11px] font-semibold uppercase text-muted-foreground">
+                Allowed Context
+              </div>
+              {contextItemCount > 0 ? (
+                sections.map((section, index) => (
+                  <div
+                    key={`${section.label ?? 'context'}-${index}`}
+                    className={cn(index > 0 && 'border-t border-border/40 pt-2')}
+                  >
+                    {section.label ? (
+                      <div className="px-2 pb-1">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[11px] font-semibold text-foreground/80">{section.label}</span>
+                          {section.description ? (
+                            <span className="text-[11px] text-muted-foreground">- {section.description}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="space-y-0.5">
+                      {section.items.map(item => (
+                        <ContextRow key={`${section.label ?? 'context'}:${item.id}`} item={item} />
+                      ))}
                     </div>
                   </div>
-                ) : null}
+                ))
+              ) : (
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  No AI context is passed in this phase.
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-border/50 pt-2">
+              <div className="px-2 pb-1 text-[11px] font-semibold uppercase text-muted-foreground">
+                Output
+              </div>
+              {outputItems.length > 0 ? (
                 <div className="space-y-0.5">
-                  {section.items.map(item => (
-                    <ContextRow key={`${section.label ?? 'context'}:${item.id}`} item={item} />
+                  {outputItems.map((item) => (
+                    <ContextRow key={`${selectedPhase}:${item.id}`} item={item} />
                   ))}
                 </div>
-              </div>
-            ))}
+              ) : (
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  No output is listed for this phase.
+                </div>
+              )}
+            </div>
           </div>
         </ScrollArea>
       )}

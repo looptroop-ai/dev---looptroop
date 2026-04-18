@@ -238,10 +238,10 @@ export function WorkspacePhaseSummary({ phase, ticket, errorMessage }: Workspace
           aria-expanded={expanded}
           aria-controls={descriptionId}
           aria-label={phaseLabel}
-          className="inline-flex max-w-full min-w-0 items-center rounded-md border border-border/70 bg-background px-2.5 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:border-border hover:bg-accent/35"
+          className="flex items-center gap-1 py-1 text-sm font-medium text-foreground transition-colors hover:text-foreground/80"
         >
           <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
-          <span className="min-w-0 truncate">{phaseLabel}</span>
+          <span>{phaseLabel}</span>
           {phase === 'CODING' && ticket.runtime.activeBeadId && ticket.runtime.perIterationTimeoutMs ? (() => {
             const activeBead = ticket.runtime.beads?.find(b => b.id === ticket.runtime.activeBeadId)
             if (activeBead?.status === 'in_progress' && activeBead.startedAt) {

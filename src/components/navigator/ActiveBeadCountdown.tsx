@@ -35,7 +35,7 @@ export function ActiveBeadCountdown({ startedAt, perIterationTimeoutMs }: Active
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="ml-1.5 inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/40 px-2 font-mono text-[11px] font-medium text-muted-foreground shadow-sm">
+        <span className="ml-0.5 inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/40 px-1.5 align-middle font-mono text-[10px] font-medium leading-none text-muted-foreground shadow-sm">
           <Clock3 className="h-3 w-3" aria-hidden="true" />
           <span>{formatTime(remainingMs)}</span>
           <span className="text-muted-foreground/50">/</span>
