@@ -287,7 +287,7 @@ describe.concurrent('structured prompt hardening', () => {
     expect(setupPrompt).toContain('Workspace Writes')
     expect(setupPrompt).toContain('Feature-Work Ban')
     expect(setupPrompt).toContain('execution_setup_profile')
-    expect(PROM_EXECUTION_SETUP.contextInputs).toEqual(['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
+    expect(PROM_EXECUTION_SETUP.contextInputs).toEqual(['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
     expect(setupNotePrompt).toContain('append-only retry note')
   })
 

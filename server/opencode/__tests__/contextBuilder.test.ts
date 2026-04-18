@@ -49,8 +49,6 @@ describe('contextBuilder interview_qa context', () => {
 
     expect(parts.map((part) => part.source)).toEqual([
       'ticket_details',
-      'relevant_files',
-      'prd',
       'beads',
       'execution_setup_plan',
       'execution_setup_note',

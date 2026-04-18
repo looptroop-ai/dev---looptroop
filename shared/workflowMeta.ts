@@ -652,7 +652,7 @@ const WORKFLOW_PHASE_DETAILS = {
   PREPARING_EXECUTION_ENV: {
     overview: 'LoopTroop runs a dedicated execution setup phase after the setup-plan approval gate and before coding. This is an AI-driven, retryable, temporary-only phase whose job is to verify the approved readiness assessment, perform only the missing temporary setup under LoopTroop-owned runtime paths, and persist a compact setup profile for later beads to consume. When the approved plan says the environment is already ready, this phase should stay effectively no-op aside from verification and profile emission.',
     steps: [
-      'Approved Plan First: The locked main implementer reads the approved setup-plan artifact first, then loads the supporting planning context — ticket details, relevant files, PRD, beads plan, any prior reusable setup profile, and any prior setup retry notes. User edits in the approved plan take precedence over the model\'s original draft.',
+      'Approved Plan First: The locked main implementer reads the approved setup-plan artifact first, then loads only the focused runtime context — ticket details, beads plan, and any prior setup retry notes. User edits in the approved plan take precedence over the model\'s original draft.',
       'Readiness Verification Before Action: The setup agent must verify the approved readiness assessment first. If the approved plan says no actions are required and that remains true, it should avoid running bootstrap commands and simply emit a reusable profile describing the ready environment.',
       'Temporary-Only Initialization: When setup is still missing, the agent executes only the approved temporary steps, may inspect the repository, run repo-native bootstrap commands, warm caches, or prepare generated runtime artifacts, but only inside LoopTroop-owned runtime paths under `.ticket/runtime/execution-setup/**` plus the profile mirror file `.ticket/runtime/execution-setup-profile.json`.',
       'Reusable Profile Generation: The agent finishes by returning a structured execution setup result that records the temp roots it prepared, bootstrap commands it used, reusable artifacts it created, discovered project command families, and the quality-gate policy later coding beads should follow.',
@@ -1193,7 +1193,7 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
-    contextSummary: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
+    contextSummary: ['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
   },
   {
     id: 'CODING',

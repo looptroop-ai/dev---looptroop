@@ -37,8 +37,8 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   execution_setup_plan: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_profile', 'execution_setup_plan_notes'],
   // Execution setup-plan regenerate: same as above plus current draft plan
   execution_setup_plan_regenerate: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_profile', 'execution_setup_plan', 'execution_setup_plan_notes'],
-  // Execution setup: approved planning context + prior setup retry notes
-  execution_setup: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
+  // Execution setup: approved setup plan + focused ticket/bead context + prior setup retry notes
+  execution_setup: ['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
   // Execution: bead data + notes from previous iterations
   coding: ['bead_data', 'bead_notes', 'execution_setup_profile'],
   // PROM51: "Current bead data + error context from failed iteration"

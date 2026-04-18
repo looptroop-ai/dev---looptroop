@@ -761,7 +761,7 @@ export const PROM_EXECUTION_SETUP: PromptTemplate = {
     'Scope: Your job is only to prepare a reusable temporary execution environment for later coding beads. You are not implementing ticket features.',
     'Approved Plan First: Read the approved `execution_setup_plan` context before taking action. Treat user-edited plan steps and commands as the primary setup contract.',
     'Readiness Respect: If the approved setup plan says `readiness.status` is `ready` and `readiness.actions_required` is `false`, verify that assessment and avoid bootstrap work unless a concrete missing prerequisite blocks later coding.',
-    'Context Review: Read the ticket details, relevant files, PRD, beads plan, and any prior `execution_setup_note` context before taking action. Avoid repeating failed setup approaches.',
+    'Context Review: Read the ticket details, approved setup plan, beads plan, and any prior `execution_setup_note` context before taking action. Use repository tools for any concrete file, manifest, or script details you need. Avoid repeating failed setup approaches.',
     'Prefer Native Bootstrap: Prefer repository-native manifests, lockfiles, scripts, and codegen commands when discovering how to initialize the environment.',
     'Language Agnosticism: Do not assume a language or package manager. Use only the repository-native tooling that is actually present.',
     'Workspace Writes: You may run repository-native setup commands from the approved plan even when they create or update dependency directories, build caches, generated outputs, or tool caches outside `.ticket/runtime/execution-setup/**`. You may also write setup logs and reusable notes under `.ticket/runtime/execution-setup/**`.',
@@ -816,7 +816,7 @@ export const PROM_EXECUTION_SETUP: PromptTemplate = {
     "policy": "pass"
   }
 }`,
-  contextInputs: ['ticket_details', 'relevant_files', 'prd', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
+  contextInputs: ['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
   toolPolicy: 'default',
 }
 
