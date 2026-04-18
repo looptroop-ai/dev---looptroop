@@ -28,7 +28,7 @@ export interface Bead {
   dependencies: BeadDependencies          // Field 12 — blocked_by + blocks
   targetFiles: string[]                   // Field 13
   notes: string                           // Field 16 — append-only, empty on first attempt
-  iteration: number                       // Field 17 — starts at 1
+  iteration: number                       // Field 17 — 0 until first execution attempt starts
   createdAt: string                       // Field 18
   updatedAt: string                       // Field 19
   completedAt: string                     // Field 20 — filled when status=done

@@ -735,7 +735,7 @@ function normalizeBeadRecord(value: unknown, index: number, repairWarnings: stri
     dependencies,
     targetFiles: toStringArray(getValueByAliases(value, ['targetfiles', 'target_files'])),
     notes: normalizeNotesField(getValueByAliases(value, ['notes'])),
-    iteration: Number(getValueByAliases(value, ['iteration']) ?? 1),
+    iteration: Number(getValueByAliases(value, ['iteration']) ?? 0),
     createdAt: typeof getValueByAliases(value, ['createdat', 'created_at']) === 'string'
       ? String(getValueByAliases(value, ['createdat', 'created_at'])).trim()
       : '',
