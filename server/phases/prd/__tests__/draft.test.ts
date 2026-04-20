@@ -4,6 +4,8 @@ import { OPENCODE_DISABLED_TOOLS } from '../../../opencode/toolPolicy'
 import type {
   HealthStatus,
   Message,
+  OpenCodeQuestionAnswer,
+  OpenCodeQuestionRequest,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -99,6 +101,9 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
 
   async listSessions(): Promise<Session[]> { return this.sessions }
   async getSessionMessages(sessionId: string): Promise<Message[]> { return this.messages.get(sessionId) ?? [] }
+  async listPendingQuestions(): Promise<OpenCodeQuestionRequest[]> { return [] }
+  async replyQuestion(_requestId: string, _answers: OpenCodeQuestionAnswer[]): Promise<void> { return undefined }
+  async rejectQuestion(_requestId: string): Promise<void> { return undefined }
   async *subscribeToEvents(sessionId: string, _signal?: AbortSignal): AsyncGenerator<StreamEvent> { yield { type: 'done', sessionId } }
   async abortSession(_sessionId: string): Promise<boolean> { return true }
   async assembleBeadContext(_ticketId: string, _beadId: string): Promise<PromptPart[]> { return [] }

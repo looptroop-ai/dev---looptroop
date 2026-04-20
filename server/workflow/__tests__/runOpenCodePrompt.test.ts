@@ -8,6 +8,8 @@ import type {
   HealthStatus,
   Message,
   MessageInfo,
+  OpenCodeQuestionAnswer,
+  OpenCodeQuestionRequest,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -172,6 +174,18 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     return this.sessionMessages.get(sessionId) ?? []
   }
 
+  async listPendingQuestions(): Promise<OpenCodeQuestionRequest[]> {
+    return []
+  }
+
+  async replyQuestion(_requestId: string, _answers: OpenCodeQuestionAnswer[]): Promise<void> {
+    return undefined
+  }
+
+  async rejectQuestion(_requestId: string): Promise<void> {
+    return undefined
+  }
+
   async *subscribeToEvents(sessionId: string, _signal?: AbortSignal): AsyncGenerator<StreamEvent> {
     yield { type: 'done', sessionId }
   }
@@ -293,7 +307,7 @@ describe('runOpenCodePrompt', () => {
     })
   })
 
-  it('creates YOLO sessions for execution-band phases only', async () => {
+  it('creates YOLO sessions for workflow phases', async () => {
     resetTestDb()
     const { ticket } = createInitializedTestTicket(repoManager, {
       title: 'Execution-band session permissions',
@@ -315,7 +329,7 @@ describe('runOpenCodePrompt', () => {
     expect(adapter.sessionCreateCalls[0]?.options?.permission).toEqual(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
   })
 
-  it('keeps non-execution phases on normal sessions', async () => {
+  it('also creates YOLO sessions for non-execution workflow phases', async () => {
     resetTestDb()
     const { ticket } = createInitializedTestTicket(repoManager, {
       title: 'Non execution session permissions',
@@ -334,7 +348,7 @@ describe('runOpenCodePrompt', () => {
     })
 
     expect(adapter.sessionCreateCalls).toHaveLength(1)
-    expect(adapter.sessionCreateCalls[0]?.options).toBeUndefined()
+    expect(adapter.sessionCreateCalls[0]?.options?.permission).toEqual(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
   })
 
   it('fails fast with an upgrade error when execution-band session permissions are rejected', async () => {
@@ -1073,6 +1087,163 @@ describe('runOpenCodePrompt', () => {
       error: 'stderr body',
       complete: true,
     })
+  })
+
+  it('normalizes OpenCode question events from the stream', async () => {
+    const fakeClient = createFakeSdkClient({
+      get: async () => ({ data: { directory: '/tmp/project' } }),
+      subscribe: async () => ({
+        stream: (async function* () {
+          yield {
+            type: 'question.asked',
+            properties: {
+              id: 'question-1',
+              sessionID: 'ses-1',
+              questions: [{
+                header: 'Deploy?',
+                question: 'Should I deploy now?',
+                options: [{ label: 'Yes', description: 'Deploy now' }],
+                custom: true,
+              }],
+              tool: { messageID: 'msg-1', callID: 'call-1' },
+            },
+          }
+          yield {
+            type: 'question.replied',
+            properties: {
+              sessionID: 'ses-1',
+              requestID: 'question-1',
+              answers: [['Yes']],
+            },
+          }
+          yield {
+            type: 'question.rejected',
+            properties: {
+              sessionID: 'ses-1',
+              requestID: 'question-2',
+            },
+          }
+          yield { type: 'session.idle', properties: { sessionID: 'ses-1' } }
+        })(),
+      }),
+    })
+    const sdkAdapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const events: StreamEvent[] = []
+    for await (const event of sdkAdapter.subscribeToEvents('ses-1')) {
+      events.push(event)
+    }
+
+    expect(events.filter((event) => event.type === 'question')).toEqual([
+      {
+        type: 'question',
+        action: 'asked',
+        sessionId: 'ses-1',
+        requestId: 'question-1',
+        questions: [{
+          header: 'Deploy?',
+          question: 'Should I deploy now?',
+          options: [{ label: 'Yes', description: 'Deploy now' }],
+          custom: true,
+        }],
+        tool: { messageID: 'msg-1', callID: 'call-1' },
+      },
+      {
+        type: 'question',
+        action: 'replied',
+        sessionId: 'ses-1',
+        requestId: 'question-1',
+        answers: [['Yes']],
+      },
+      {
+        type: 'question',
+        action: 'rejected',
+        sessionId: 'ses-1',
+        requestId: 'question-2',
+      },
+    ])
+  })
+
+  it('normalizes approved compact part and operational events without large bodies', async () => {
+    const fakeClient = createFakeSdkClient({
+      get: async () => ({ data: { directory: '/tmp/project' } }),
+      subscribe: async () => ({
+        stream: (async function* () {
+          yield {
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part-patch-1',
+                type: 'patch',
+                hash: 'abcdef1234567890',
+                files: ['src/a.ts', 'src/b.ts'],
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+              },
+            },
+          }
+          yield {
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part-retry-1',
+                type: 'retry',
+                attempt: 2,
+                error: { data: { message: 'rate limited' } },
+                sessionID: 'ses-1',
+                messageID: 'msg-1',
+              },
+            },
+          }
+          yield {
+            payload: {
+              type: 'file.edited',
+              properties: { file: 'src/a.ts' },
+            },
+            directory: '/tmp/project',
+          }
+          yield {
+            type: 'command.executed',
+            properties: {
+              sessionID: 'ses-1',
+              name: 'test',
+              arguments: 'npm test',
+              messageID: 'msg-1',
+            },
+          }
+          yield { type: 'session.idle', properties: { sessionID: 'ses-1' } }
+        })(),
+      }),
+    })
+    const sdkAdapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    const events: StreamEvent[] = []
+    for await (const event of sdkAdapter.subscribeToEvents('ses-1')) {
+      events.push(event)
+    }
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'part_summary',
+        partType: 'patch',
+        summary: expect.stringContaining('2 files'),
+      }),
+      expect.objectContaining({
+        type: 'part_summary',
+        partType: 'retry',
+        severity: 'error',
+        summary: expect.stringContaining('rate limited'),
+      }),
+      expect.objectContaining({
+        type: 'file_edited',
+        file: 'src/a.ts',
+      }),
+      expect.objectContaining({
+        type: 'debug_event',
+        eventName: 'command.executed',
+        summary: expect.stringContaining('npm test'),
+      }),
+    ]))
   })
 
   it('reports Timeout as an ERROR event, not as a CancelledError', async () => {

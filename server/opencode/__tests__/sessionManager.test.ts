@@ -3,6 +3,8 @@ import type { OpenCodeAdapter } from '../adapter'
 import type {
   HealthStatus,
   Message,
+  OpenCodeQuestionAnswer,
+  OpenCodeQuestionRequest,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -50,6 +52,18 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
 
   async getSessionMessages(_sessionId: string): Promise<Message[]> {
     return []
+  }
+
+  async listPendingQuestions(): Promise<OpenCodeQuestionRequest[]> {
+    return []
+  }
+
+  async replyQuestion(_requestId: string, _answers: OpenCodeQuestionAnswer[]): Promise<void> {
+    return undefined
+  }
+
+  async rejectQuestion(_requestId: string): Promise<void> {
+    return undefined
   }
 
   async *subscribeToEvents(sessionId: string, _signal?: AbortSignal): AsyncGenerator<StreamEvent> {

@@ -24,6 +24,7 @@ import { resolve } from 'path'
 import {
   getLatestPhaseArtifact,
   getTicketContext as getStoredTicketContext,
+  getTicketByRef,
   getTicketPaths,
   upsertLatestPhaseArtifact,
 } from '../../storage/tickets'
@@ -189,6 +190,7 @@ export function createOpenCodeStreamState(): OpenCodeStreamState {
     seenFirstActivity: false,
     liveKinds: new Map(),
     liveContents: new Map(),
+    todoStatuses: new Map(),
     liveTextMessages: new Map(),
     textPartToMessageIds: new Map(),
     finalizedTextEntryIds: new Set(),
@@ -431,6 +433,7 @@ export function finalizeOpenCodeParts(
   state.textPartToMessageIds.clear()
   state.liveKinds.clear()
   state.liveContents.clear()
+  state.todoStatuses.clear()
 }
 
 export function emitOpenCodeStreamEvent(
@@ -609,15 +612,17 @@ export function emitOpenCodeStreamEvent(
     return
   }
 
-  if (event.type === 'permission') {
+  if (event.type === 'question') {
+    emitFirstActivity()
+    const entryId = `${sessionId}:question:${event.requestId}:${event.action}`
     emitAiDetail(
       ticketId,
       ticketExternalId,
       phase,
       'info',
-      event.title ? `Permission requested: ${event.title}` : 'Permission requested.',
+      questionLogContent(event),
       {
-        entryId: `${sessionId}:${event.permissionId || 'permission'}`,
+        entryId,
         audience: 'ai',
         kind: 'session',
         op: 'append',
@@ -628,6 +633,120 @@ export function emitOpenCodeStreamEvent(
         streaming: false,
       },
     )
+    broadcaster.broadcast(ticketId, 'needs_input', buildQuestionSsePayload({
+      ticketId,
+      ticketExternalId,
+      phase,
+      memberId,
+      sessionId,
+      event,
+    }))
+    return
+  }
+
+  if (event.type === 'todo') {
+    emitFirstActivity()
+    const summary = formatTodoTransitionSummary(event.todos, state)
+    if (summary) {
+      emitAiDetail(
+        ticketId,
+        ticketExternalId,
+        phase,
+        'info',
+        summary,
+        {
+          entryId: `${sessionId}:todo:${Date.now()}`,
+          audience: 'ai',
+          kind: 'session',
+          op: 'append',
+          source,
+          modelId: memberId || undefined,
+          sessionId,
+          ...(beadId ? { beadId } : {}),
+          streaming: false,
+        },
+      )
+    }
+    return
+  }
+
+  if (event.type === 'part_summary') {
+    emitFirstActivity()
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      event.severity === 'error' ? 'error' : 'info',
+      event.summary,
+      {
+        entryId: `${sessionId}:${event.partId ?? event.partType}`,
+        audience: 'ai',
+        kind: event.severity === 'error' ? 'error' : 'session',
+        op: 'append',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        ...(beadId ? { beadId } : {}),
+        streaming: false,
+        ...(event.details ? { details: event.details } : {}),
+      },
+    )
+    return
+  }
+
+  if (event.type === 'file_edited') {
+    emitFirstActivity()
+    emitAiDetail(
+      ticketId,
+      ticketExternalId,
+      phase,
+      'info',
+      `[TOOL] File edited: ${event.file}`,
+      {
+        entryId: `${sessionId}:file-edited:${event.file}`,
+        audience: 'ai',
+        kind: 'tool',
+        op: 'append',
+        source,
+        modelId: memberId || undefined,
+        sessionId,
+        ...(beadId ? { beadId } : {}),
+        streaming: false,
+      },
+    )
+    return
+  }
+
+  if (event.type === 'debug_event') {
+    emitDebugLog(ticketId, phase, `opencode.${event.eventName}`, event.details ?? { summary: event.summary })
+    if (event.severity === 'error') {
+      emitErrorLogOnly(
+        ticketId,
+        phase,
+        `[ERROR] ${event.summary}`,
+        {
+          entryId: `${sessionId}:opencode:${event.eventName}:error`,
+          audience: 'debug',
+          kind: 'error',
+          op: 'append',
+          source: 'error',
+          modelId: memberId || undefined,
+          sessionId,
+          ...(beadId ? { beadId } : {}),
+          streaming: false,
+        },
+      )
+    }
+    return
+  }
+
+  if (event.type === 'permission') {
+    emitDebugLog(ticketId, phase, 'opencode.permission', event.details ?? {
+      permissionId: event.permissionId,
+      permission: event.permission,
+      title: event.title,
+      patterns: event.patterns,
+    })
     return
   }
 
@@ -778,6 +897,90 @@ export function emitOpenCodeSessionLogs(
   emitDebugLog(ticketId, phase, `opencode.${stage}.response`, { memberId, response })
   for (const message of messages) {
     emitDebugLog(ticketId, phase, `opencode.${stage}.raw_message`, { memberId, message })
+  }
+}
+
+function emitErrorLogOnly(
+  ticketId: string,
+  phase: string,
+  content: string,
+  data: StructuredLogFields,
+) {
+  emitStructuredPhaseLog(ticketId, ticketId, phase, 'error', content, {
+    ...data,
+    audience: data.audience ?? 'debug',
+    kind: 'error',
+    source: 'error',
+    streaming: false,
+    suppressDebugMirror: true,
+  })
+}
+
+function formatTodoTransitionSummary(
+  todos: Extract<StreamEvent, { type: 'todo' }>['todos'],
+  state: OpenCodeStreamState,
+): string | null {
+  const transitions: Array<{ content: string; status: string; priority: string }> = []
+
+  for (const todo of todos) {
+    const previous = state.todoStatuses.get(todo.content)
+    if (previous !== todo.status && (previous !== undefined || todo.status === 'in_progress' || todo.status === 'completed' || todo.status === 'cancelled')) {
+      transitions.push(todo)
+    }
+    state.todoStatuses.set(todo.content, todo.status)
+  }
+
+  if (transitions.length === 0) return null
+
+  const counts = transitions.reduce<Record<string, number>>((acc, todo) => {
+    acc[todo.status] = (acc[todo.status] ?? 0) + 1
+    return acc
+  }, {})
+  const countText = Object.entries(counts)
+    .map(([status, count]) => `${count} ${status.replace(/_/g, ' ')}`)
+    .join(', ')
+  const examples = transitions
+    .slice(0, 4)
+    .map((todo) => `${todo.status}: ${todo.content}`)
+  const suffix = transitions.length > examples.length ? `; +${transitions.length - examples.length} more` : ''
+  return `[TODO] ${countText}: ${examples.join('; ')}${suffix}`
+}
+
+function questionLogContent(event: Extract<StreamEvent, { type: 'question' }>): string {
+  if (event.action === 'asked') {
+    const count = event.questions?.length ?? 0
+    const preview = event.questions?.[0]?.question
+    return `[QUESTION] AI asked ${count || 1} question${count === 1 ? '' : 's'}${preview ? `: ${preview}` : '.'}`
+  }
+  if (event.action === 'replied') return '[QUESTION] AI question answered.'
+  return '[QUESTION] AI question rejected.'
+}
+
+function buildQuestionSsePayload(input: {
+  ticketId: string
+  ticketExternalId: string
+  phase: string
+  memberId: string
+  sessionId: string
+  event: Extract<StreamEvent, { type: 'question' }>
+}) {
+  const ticket = getTicketByRef(input.ticketId)
+  return {
+    type: input.event.action === 'asked' ? 'opencode_question' : 'opencode_question_resolved',
+    action: input.event.action,
+    ticketId: input.ticketId,
+    ticketExternalId: input.ticketExternalId,
+    ticketTitle: ticket?.title ?? input.ticketExternalId,
+    status: ticket?.status ?? input.phase,
+    phase: input.phase,
+    modelId: input.memberId || undefined,
+    sessionId: input.sessionId,
+    requestId: input.event.requestId,
+    questions: input.event.questions ?? [],
+    questionCount: input.event.questions?.length ?? 0,
+    answers: input.event.answers,
+    tool: input.event.tool,
+    timestamp: new Date().toISOString(),
   }
 }
 

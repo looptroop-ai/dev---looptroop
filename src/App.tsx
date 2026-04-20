@@ -10,6 +10,7 @@ const TicketForm = lazy(() => import('@/components/ticket/TicketForm').then(m =>
 import { KeyboardShortcuts } from '@/components/shared/KeyboardShortcuts'
 import { StartupRestorePopup } from '@/components/shared/StartupRestorePopup'
 import { ToastProvider } from '@/components/shared/Toast'
+import { AIQuestionProvider } from '@/context/AIQuestionContext'
 import {
   WelcomeDisclaimer,
   WELCOME_DISCLAIMER_STORAGE_KEY,
@@ -139,41 +140,43 @@ function App() {
 
   return (
     <ToastProvider>
-      <WelcomeDisclaimer open={showWelcome} onDismiss={dismissWelcome} />
-      {startupStatus && (
-        <StartupRestorePopup
-          open={showRestorePopup}
-          startupStatus={startupStatus}
-        />
-      )}
-      <AppShell
-        onOpenProfile={openProfile}
-        onOpenProject={openProject}
-        onOpenTicket={openTicket}
-        isModalOpen={isModalOpen}
-      >
-        {state.activeView === 'ticket' && state.selectedTicketId ? <TicketDashboard /> : <KanbanBoard />}
-      </AppShell>
+      <AIQuestionProvider tickets={tickets ?? []}>
+        <WelcomeDisclaimer open={showWelcome} onDismiss={dismissWelcome} />
+        {startupStatus && (
+          <StartupRestorePopup
+            open={showRestorePopup}
+            startupStatus={startupStatus}
+          />
+        )}
+        <AppShell
+          onOpenProfile={openProfile}
+          onOpenProject={openProject}
+          onOpenTicket={openTicket}
+          isModalOpen={isModalOpen}
+        >
+          {state.activeView === 'ticket' && state.selectedTicketId ? <TicketDashboard /> : <KanbanBoard />}
+        </AppShell>
 
-      <CenteredModal open={showProfile} onClose={closeProfile} title="Configuration" maxWidth="max-w-2xl">
-        <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
-          <ProfileSetup onClose={closeProfile} />
-        </Suspense>
-      </CenteredModal>
+        <CenteredModal open={showProfile} onClose={closeProfile} title="Configuration" maxWidth="max-w-2xl">
+          <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
+            <ProfileSetup onClose={closeProfile} />
+          </Suspense>
+        </CenteredModal>
 
-      <CenteredModal open={showProject} onClose={closeProject} title="Projects" maxWidth="max-w-2xl">
-        <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
-          <ProjectsPanel onClose={closeProject} />
-        </Suspense>
-      </CenteredModal>
+        <CenteredModal open={showProject} onClose={closeProject} title="Projects" maxWidth="max-w-2xl">
+          <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
+            <ProjectsPanel onClose={closeProject} />
+          </Suspense>
+        </CenteredModal>
 
-      <CenteredModal open={showTicket} onClose={closeTicket} title="New Ticket" maxWidth="max-w-xl">
-        <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
-          <TicketForm onClose={closeTicket} />
-        </Suspense>
-      </CenteredModal>
+        <CenteredModal open={showTicket} onClose={closeTicket} title="New Ticket" maxWidth="max-w-xl">
+          <Suspense fallback={<div className="p-4 text-center text-muted-foreground">Loading…</div>}>
+            <TicketForm onClose={closeTicket} />
+          </Suspense>
+        </CenteredModal>
 
-      <KeyboardShortcuts />
+        <KeyboardShortcuts />
+      </AIQuestionProvider>
     </ToastProvider>
   )
 }

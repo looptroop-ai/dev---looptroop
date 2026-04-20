@@ -37,6 +37,7 @@ export interface OpenCodeStreamState {
   seenFirstActivity: boolean
   liveKinds: Map<string, StructuredLogKind>
   liveContents: Map<string, string>
+  todoStatuses: Map<string, string>
   liveTextMessages: Map<string, {
     entryId: string
     partOrder: string[]

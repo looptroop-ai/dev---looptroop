@@ -17,7 +17,6 @@ import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { parseModelRef } from '../opencode/types'
 import { SessionManager, type SessionOwnership } from '../opencode/sessionManager'
 import { resolveOpenCodeTools } from '../opencode/toolPolicy'
-import { isExecutionBandStatus } from './executionBand'
 
 export interface OpenCodeRunCallbacks {
   onSessionCreated?: (session: Session) => void
@@ -178,13 +177,7 @@ function buildAttemptMeta(
   }
 }
 
-function resolveSessionCreateOptions(
-  sessionOwnership?: OpenCodeSessionOwnership,
-): OpenCodeSessionCreateOptions | undefined {
-  if (!sessionOwnership?.phase || !isExecutionBandStatus(sessionOwnership.phase)) {
-    return undefined
-  }
-
+function resolveSessionCreateOptions(): OpenCodeSessionCreateOptions {
   return {
     permission: OPENCODE_EXECUTION_YOLO_PERMISSIONS,
   }
@@ -208,7 +201,7 @@ export async function runOpenCodePrompt({
   onPromptCompleted,
 }: OpenCodeRunOptions & { projectPath: string }): Promise<OpenCodeRunResult> {
   const sessionManager = sessionOwnership ? new SessionManager(adapter) : null
-  const sessionCreateOptions = resolveSessionCreateOptions(sessionOwnership)
+  const sessionCreateOptions = resolveSessionCreateOptions()
   const session = sessionOwnership
     ? await sessionManager!.validateAndReconnect(sessionOwnership.ticketId, sessionOwnership.phase, {
       phaseAttempt: sessionOwnership.phaseAttempt,

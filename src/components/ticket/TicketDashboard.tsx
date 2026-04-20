@@ -133,6 +133,13 @@ function SSELogConnector({
       }), '*')
     }
 
+    if (
+      event.type === 'needs_input' &&
+      (event.data.type === 'opencode_question' || event.data.type === 'opencode_question_resolved')
+    ) {
+      return
+    }
+
     const phase = String(event.data.phase ?? logCtx?.activePhase ?? currentStatus ?? '')
     if (phase) {
       logCtx?.addLog(

@@ -2,6 +2,8 @@ import type {
   HealthStatus,
   Message,
   MessageInfo,
+  OpenCodeQuestionAnswer,
+  OpenCodeQuestionRequest,
   OpenCodeSessionCreateOptions,
   PromptPart,
   PromptSessionOptions,
@@ -16,6 +18,9 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
   public mockResponses: Map<string, string> = new Map()
   public mockStreamEvents: Map<string, StreamEvent[]> = new Map()
   public mockAssistantInfos: Map<string, Partial<MessageInfo>> = new Map()
+  public mockQuestions: OpenCodeQuestionRequest[] = []
+  public questionReplies: Array<{ requestId: string; answers: OpenCodeQuestionAnswer[]; projectPath?: string }> = []
+  public questionRejections: Array<{ requestId: string; projectPath?: string }> = []
   public sessionCreateCalls: Array<{
     projectPath: string
     options?: OpenCodeSessionCreateOptions
@@ -152,6 +157,23 @@ export class MockOpenCodeAdapter implements OpenCodeAdapter {
 
   async getSessionMessages(sessionId: string): Promise<Message[]> {
     return this.messages.get(sessionId) ?? []
+  }
+
+  async listPendingQuestions(projectPath?: string): Promise<OpenCodeQuestionRequest[]> {
+    return this.mockQuestions.filter((question) => {
+      const session = this.sessions.find((candidate) => candidate.id === question.sessionID)
+      return !projectPath || session?.projectPath === projectPath || session?.directory === projectPath
+    })
+  }
+
+  async replyQuestion(requestId: string, answers: OpenCodeQuestionAnswer[], projectPath?: string): Promise<void> {
+    this.questionReplies.push({ requestId, answers, ...(projectPath ? { projectPath } : {}) })
+    this.mockQuestions = this.mockQuestions.filter((question) => question.id !== requestId)
+  }
+
+  async rejectQuestion(requestId: string, projectPath?: string): Promise<void> {
+    this.questionRejections.push({ requestId, ...(projectPath ? { projectPath } : {}) })
+    this.mockQuestions = this.mockQuestions.filter((question) => question.id !== requestId)
   }
 
   async abortSession(_sessionId: string): Promise<boolean> {

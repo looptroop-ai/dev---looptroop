@@ -22,6 +22,9 @@ import {
   handleCloseUnmergedTicket,
   handleVerifyTicket,
   handleRetryTicket,
+  handleListOpenCodeQuestions,
+  handleReplyOpenCodeQuestion,
+  handleRejectOpenCodeQuestion,
   handleDevEvent,
   handleGetInterview,
   handleGetExecutionSetupPlan,
@@ -61,6 +64,9 @@ ticketRouter.post('/tickets/:id/merge', (c) => handleMergeTicket(c))
 ticketRouter.post('/tickets/:id/close-unmerged', (c) => handleCloseUnmergedTicket(c))
 ticketRouter.post('/tickets/:id/verify', (c) => handleVerifyTicket(c))
 ticketRouter.post('/tickets/:id/retry', (c) => handleRetryTicket(c))
+ticketRouter.get('/tickets/:id/opencode/questions', (c) => handleListOpenCodeQuestions(c))
+ticketRouter.post('/tickets/:id/opencode/questions/:requestId/reply', (c) => handleReplyOpenCodeQuestion(c))
+ticketRouter.post('/tickets/:id/opencode/questions/:requestId/reject', (c) => handleRejectOpenCodeQuestion(c))
 ticketRouter.post('/tickets/:id/dev-event', async (c) => handleDevEvent(c))
 ticketRouter.get('/tickets/:id/interview', (c) => handleGetInterview(c))
 ticketRouter.get('/tickets/:id/artifacts', (c) => handleGetArtifacts(c))

@@ -32,6 +32,39 @@ export interface OpenCodeSessionCreateOptions {
   permission?: ReadonlyArray<OpenCodePermissionRule>
 }
 
+export interface OpenCodeQuestionOption {
+  label: string
+  description?: string
+}
+
+export interface OpenCodeQuestionInfo {
+  question: string
+  header: string
+  options: OpenCodeQuestionOption[]
+  multiple?: boolean
+  custom?: boolean
+}
+
+export interface OpenCodeQuestionTool {
+  messageID: string
+  callID: string
+}
+
+export interface OpenCodeQuestionRequest {
+  id: string
+  sessionID: string
+  questions: OpenCodeQuestionInfo[]
+  tool?: OpenCodeQuestionTool
+}
+
+export type OpenCodeQuestionAnswer = string[]
+
+export interface OpenCodeTodo {
+  content: string
+  status: string
+  priority: string
+}
+
 export interface PromptSessionOptions {
   signal?: AbortSignal
   model?: ModelSelection
@@ -234,6 +267,42 @@ export interface PermissionStreamEvent extends StreamEventBase {
   details?: Record<string, unknown>
 }
 
+export interface QuestionStreamEvent extends StreamEventBase {
+  type: 'question'
+  action: 'asked' | 'replied' | 'rejected'
+  requestId: string
+  questions?: OpenCodeQuestionInfo[]
+  answers?: OpenCodeQuestionAnswer[]
+  tool?: OpenCodeQuestionTool
+}
+
+export interface TodoStreamEvent extends StreamEventBase {
+  type: 'todo'
+  todos: OpenCodeTodo[]
+}
+
+export interface PartSummaryStreamEvent extends StreamEventBase {
+  type: 'part_summary'
+  partType: 'file' | 'patch' | 'snapshot' | 'agent' | 'subtask' | 'retry' | 'compaction'
+  summary: string
+  details?: Record<string, unknown>
+  severity?: 'info' | 'error'
+  complete: boolean
+}
+
+export interface FileEditedStreamEvent extends StreamEventBase {
+  type: 'file_edited'
+  file: string
+}
+
+export interface DebugStreamEvent extends StreamEventBase {
+  type: 'debug_event'
+  eventName: string
+  summary: string
+  details?: Record<string, unknown>
+  severity?: 'debug' | 'error'
+}
+
 export interface PartRemovedStreamEvent extends StreamEventBase {
   type: 'part_removed'
 }
@@ -250,6 +319,11 @@ export type StreamEvent =
   | SessionStatusStreamEvent
   | SessionErrorStreamEvent
   | PermissionStreamEvent
+  | QuestionStreamEvent
+  | TodoStreamEvent
+  | PartSummaryStreamEvent
+  | FileEditedStreamEvent
+  | DebugStreamEvent
   | PartRemovedStreamEvent
   | DoneStreamEvent
 

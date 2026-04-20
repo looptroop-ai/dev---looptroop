@@ -5,7 +5,11 @@ import type {
   Message,
   MessageInfo,
   MessagePart,
+  OpenCodeQuestionAnswer,
+  OpenCodeQuestionInfo,
+  OpenCodeQuestionRequest,
   OpenCodeSessionCreateOptions,
+  OpenCodeTodo,
   PromptPart,
   PromptSessionOptions,
   ReasoningMessagePart,
@@ -40,6 +44,9 @@ import {
 interface RawEvent {
   type: string
   properties?: Record<string, unknown>
+  directory?: string
+  project?: string
+  workspace?: string
 }
 
 export interface OpenCodeAdapter {
@@ -53,6 +60,9 @@ export interface OpenCodeAdapter {
   listSessions(): Promise<Session[]>
   getSessionMessages(sessionId: string): Promise<Message[]>
   subscribeToEvents(sessionId: string, signal?: AbortSignal, stepFinishSafetyMs?: number): AsyncGenerator<StreamEvent>
+  listPendingQuestions(projectPath?: string, signal?: AbortSignal): Promise<OpenCodeQuestionRequest[]>
+  replyQuestion(requestId: string, answers: OpenCodeQuestionAnswer[], projectPath?: string, signal?: AbortSignal): Promise<void>
+  rejectQuestion(requestId: string, projectPath?: string, signal?: AbortSignal): Promise<void>
   abortSession(sessionId: string): Promise<boolean>
   assembleBeadContext(ticketId: string, beadId: string): Promise<PromptPart[]>
   assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]>
@@ -105,6 +115,7 @@ function formatBeadContext(bead: Bead): string {
 export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   private client: ReturnType<typeof createOpencodeClient>
   private sessionDirectories = new Map<string, string>()
+  private recentDirectoryEventKeys = new Map<string, number>()
 
   constructor(baseUrlOrPort: string | number = getOpenCodeBaseUrl(), client?: ReturnType<typeof createOpencodeClient>) {
     const baseUrl = typeof baseUrlOrPort === 'number'
@@ -139,8 +150,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       const errorMessage = err instanceof Error ? err.message : String(err)
       if (options?.permission) {
         throw new Error(
-          `Failed to create OpenCode session with execution permissions: ${errorMessage}. ` +
-          'Execution-band YOLO sessions require an OpenCode server that supports session-scoped permissions. ' +
+          `Failed to create OpenCode session with YOLO permissions: ${errorMessage}. ` +
+          'YOLO sessions require an OpenCode server that supports session-scoped permissions. ' +
           'Upgrade OpenCode and restart `opencode serve`.',
         )
       }
@@ -345,6 +356,36 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
+  async listPendingQuestions(projectPath?: string, signal?: AbortSignal): Promise<OpenCodeQuestionRequest[]> {
+    const res = await this.client.question.list(
+      projectPath ? { directory: projectPath } : undefined,
+      this.requestOptions(signal),
+    )
+    return Array.isArray(res.data)
+      ? res.data.map((request) => this.mapQuestionRequest(request)).filter((request): request is OpenCodeQuestionRequest => Boolean(request))
+      : []
+  }
+
+  async replyQuestion(
+    requestId: string,
+    answers: OpenCodeQuestionAnswer[],
+    projectPath?: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.client.question.reply({
+      requestID: requestId,
+      ...(projectPath ? { directory: projectPath } : {}),
+      answers,
+    }, this.requestOptions(signal))
+  }
+
+  async rejectQuestion(requestId: string, projectPath?: string, signal?: AbortSignal): Promise<void> {
+    await this.client.question.reject({
+      requestID: requestId,
+      ...(projectPath ? { directory: projectPath } : {}),
+    }, this.requestOptions(signal))
+  }
+
   async abortSession(sessionId: string): Promise<boolean> {
     try {
       const directory = await this.resolveSessionDirectory(sessionId)
@@ -399,7 +440,8 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
       if (result.done) break
 
-      const rawEvent = result.value
+      const rawEvent = this.unwrapRawEvent(result.value)
+      if (!rawEvent) continue
 
       if (!this.eventBelongsToSession(rawEvent, sessionId)) continue
 
@@ -681,6 +723,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   }
 
   private eventBelongsToSession(event: RawEvent, sessionId: string): boolean {
+    this.pruneRecentDirectoryEventKeys()
     const props = event.properties ?? {}
     const part = this.getRecord(props.part)
     const info = this.getRecord(props.info)
@@ -695,7 +738,13 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
             ? info.id
             : undefined
 
-    return eventSessionId === sessionId
+    if (eventSessionId) return eventSessionId === sessionId
+    if (!this.isSessionAgnosticDebugEvent(event.type)) return false
+
+    const dedupeKey = `${event.directory ?? ''}:${event.workspace ?? ''}:${event.type}:${this.safeStableStringify(props)}`
+    if (this.recentDirectoryEventKeys.has(dedupeKey)) return false
+    this.recentDirectoryEventKeys.set(dedupeKey, Date.now())
+    return true
   }
 
   private normalizeStreamEvent(
@@ -771,7 +820,52 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
           details: props.error ?? props,
         }
 
+      case 'question.asked': {
+        const request = this.mapQuestionRequest(props)
+        if (!request) return null
+        return {
+          type: 'question',
+          action: 'asked',
+          sessionId: request.sessionID,
+          requestId: request.id,
+          questions: request.questions,
+          tool: request.tool,
+        }
+      }
+
+      case 'question.replied': {
+        const requestId = typeof props.requestID === 'string' ? props.requestID : ''
+        const answers = Array.isArray(props.answers)
+          ? props.answers
+              .filter((answer): answer is unknown[] => Array.isArray(answer))
+              .map((answer) => answer.filter((item): item is string => typeof item === 'string'))
+          : undefined
+        return {
+          type: 'question',
+          action: 'replied',
+          sessionId,
+          requestId,
+          ...(answers ? { answers } : {}),
+        }
+      }
+
+      case 'question.rejected':
+        return {
+          type: 'question',
+          action: 'rejected',
+          sessionId,
+          requestId: typeof props.requestID === 'string' ? props.requestID : '',
+        }
+
+      case 'todo.updated': {
+        const todos = this.mapTodos(props.todos)
+        return todos.length > 0
+          ? { type: 'todo', sessionId, todos }
+          : null
+      }
+
       case 'permission.asked':
+      case 'permission.replied':
       case 'permission.updated': {
         const details = this.getRecord(props)
         return {
@@ -789,6 +883,28 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
 
       case 'session.idle':
         return { type: 'done', sessionId }
+
+      case 'session.compacted':
+      case 'session.created':
+      case 'session.updated':
+      case 'session.deleted':
+      case 'workspace.ready':
+      case 'workspace.restore':
+      case 'workspace.status':
+      case 'server.connected':
+      case 'server.instance.disposed':
+      case 'global.disposed':
+      case 'command.executed':
+      case 'vcs.branch.updated':
+        return this.mapDebugEvent(event, sessionId)
+
+      case 'workspace.failed':
+        return this.mapDebugEvent(event, sessionId, 'error')
+
+      case 'file.edited': {
+        const file = typeof props.file === 'string' ? props.file : ''
+        return file ? { type: 'file_edited', sessionId, file } : null
+      }
 
       default:
         return null
@@ -882,6 +998,10 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       }
     }
 
+    if (this.isCompactPartType(part.type)) {
+      return this.mapCompactPartUpdate(part, sessionId, messageId, partId)
+    }
+
     return null
   }
 
@@ -925,6 +1045,94 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     return typeof structuredClone === 'function'
       ? structuredClone(part)
       : JSON.parse(JSON.stringify(part)) as GenericMessagePart
+  }
+
+  private isCompactPartType(type: string): type is 'file' | 'patch' | 'snapshot' | 'agent' | 'subtask' | 'retry' | 'compaction' {
+    return type === 'file'
+      || type === 'patch'
+      || type === 'snapshot'
+      || type === 'agent'
+      || type === 'subtask'
+      || type === 'retry'
+      || type === 'compaction'
+  }
+
+  private mapCompactPartUpdate(
+    part: GenericMessagePart,
+    sessionId: string,
+    messageId: string,
+    partId: string,
+  ): StreamEvent | null {
+    const partType = part.type
+    if (!this.isCompactPartType(partType)) return null
+    const summary = this.summarizeCompactPart(part)
+    if (!summary) return null
+    return {
+      type: 'part_summary',
+      sessionId,
+      messageId,
+      partId,
+      partType,
+      summary,
+      details: this.compactPartDetails(part),
+      severity: partType === 'retry' ? 'error' : 'info',
+      complete: true,
+    }
+  }
+
+  private summarizeCompactPart(part: GenericMessagePart): string {
+    switch (part.type) {
+      case 'file': {
+        const filename = typeof part.filename === 'string' ? part.filename : undefined
+        const mime = typeof part.mime === 'string' ? part.mime : undefined
+        const source = this.getRecord(part.source)
+        const sourcePath = typeof source?.path === 'string' ? source.path : undefined
+        return `File attached: ${filename ?? sourcePath ?? 'unnamed file'}${mime ? ` (${mime})` : ''}.`
+      }
+      case 'patch': {
+        const files = Array.isArray(part.files) ? part.files.filter((file): file is string => typeof file === 'string') : []
+        const shown = files.slice(0, 6)
+        const hash = typeof part.hash === 'string' ? part.hash.slice(0, 12) : undefined
+        return `Patch prepared${hash ? ` ${hash}` : ''}: ${files.length} file${files.length === 1 ? '' : 's'}${shown.length ? ` (${shown.join(', ')}${files.length > shown.length ? ', …' : ''})` : ''}.`
+      }
+      case 'snapshot': {
+        const snapshot = typeof part.snapshot === 'string' ? part.snapshot.slice(0, 16) : undefined
+        return `Snapshot captured${snapshot ? `: ${snapshot}` : ''}.`
+      }
+      case 'agent': {
+        const name = typeof part.name === 'string' ? part.name : 'agent'
+        return `Agent context selected: ${name}.`
+      }
+      case 'subtask': {
+        const description = typeof part.description === 'string' ? part.description : undefined
+        const agent = typeof part.agent === 'string' ? part.agent : undefined
+        const command = typeof part.command === 'string' ? part.command : undefined
+        return [
+          `Subtask started${agent ? ` for ${agent}` : ''}${description ? `: ${this.truncateInline(description, 160)}` : '.'}`,
+          command ? `Command: ${this.truncateInline(command, 160)}` : '',
+        ].filter(Boolean).join('\n')
+      }
+      case 'retry': {
+        const attempt = typeof part.attempt === 'number' ? part.attempt : undefined
+        return `Retry requested${attempt !== undefined ? ` (attempt ${attempt})` : ''}: ${this.describeError(part.error)}`
+      }
+      case 'compaction': {
+        const mode = part.auto === true ? 'auto' : 'manual'
+        const overflow = part.overflow === true ? ' after context overflow' : ''
+        return `Context compaction (${mode})${overflow}.`
+      }
+      default:
+        return ''
+    }
+  }
+
+  private compactPartDetails(part: GenericMessagePart): Record<string, unknown> {
+    const details: Record<string, unknown> = { partType: part.type }
+    for (const key of ['filename', 'mime', 'url', 'hash', 'files', 'snapshot', 'name', 'agent', 'command', 'attempt', 'auto', 'overflow', 'tail_start_id']) {
+      if (part[key] !== undefined) details[key] = part[key]
+    }
+    if (part.type === 'retry' && part.error !== undefined) details.error = part.error
+    return details
   }
 
   private hasMeaningfulPartUpdate(previous: GenericMessagePart, next: GenericMessagePart) {
@@ -971,6 +1179,173 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
 
     return JSON.stringify(part)
+  }
+
+  private unwrapRawEvent(value: RawEvent | { payload?: unknown; directory?: unknown; project?: unknown; workspace?: unknown }): RawEvent | null {
+    const eventRecord = this.getRecord(value)
+    if (!eventRecord) return null
+
+    const payload = this.getRecord(eventRecord.payload)
+    if (payload && typeof payload.type === 'string') {
+      const payloadProps = this.getRecord(payload.properties)
+      return {
+        type: payload.type,
+        properties: payloadProps ?? {},
+        directory: typeof eventRecord.directory === 'string' ? eventRecord.directory : undefined,
+        project: typeof eventRecord.project === 'string' ? eventRecord.project : undefined,
+        workspace: typeof eventRecord.workspace === 'string' ? eventRecord.workspace : undefined,
+      }
+    }
+
+    if (typeof eventRecord.type !== 'string') return null
+    const properties = this.getRecord(eventRecord.properties)
+    return {
+      type: eventRecord.type,
+      properties: properties ?? {},
+      directory: typeof eventRecord.directory === 'string' ? eventRecord.directory : undefined,
+      project: typeof eventRecord.project === 'string' ? eventRecord.project : undefined,
+      workspace: typeof eventRecord.workspace === 'string' ? eventRecord.workspace : undefined,
+    }
+  }
+
+  private mapQuestionRequest(value: unknown): OpenCodeQuestionRequest | null {
+    const record = this.getRecord(value)
+    if (!record) return null
+    const id = typeof record.id === 'string' ? record.id : undefined
+    const sessionID = typeof record.sessionID === 'string' ? record.sessionID : undefined
+    if (!id || !sessionID) return null
+
+    const questions = Array.isArray(record.questions)
+      ? record.questions.map((question) => this.mapQuestionInfo(question)).filter((question): question is OpenCodeQuestionInfo => Boolean(question))
+      : []
+    const toolRecord = this.getRecord(record.tool)
+    const tool = typeof toolRecord?.messageID === 'string' && typeof toolRecord.callID === 'string'
+      ? { messageID: toolRecord.messageID, callID: toolRecord.callID }
+      : undefined
+
+    return {
+      id,
+      sessionID,
+      questions,
+      ...(tool ? { tool } : {}),
+    }
+  }
+
+  private mapQuestionInfo(value: unknown): OpenCodeQuestionInfo | null {
+    const record = this.getRecord(value)
+    if (!record) return null
+    const question = typeof record.question === 'string' ? record.question : ''
+    const header = typeof record.header === 'string' ? record.header : 'Question'
+    const options = Array.isArray(record.options)
+      ? record.options.map((option) => {
+          const optionRecord = this.getRecord(option)
+          if (!optionRecord || typeof optionRecord.label !== 'string') return null
+          return {
+            label: optionRecord.label,
+            ...(typeof optionRecord.description === 'string' ? { description: optionRecord.description } : {}),
+          }
+        }).filter((option): option is OpenCodeQuestionInfo['options'][number] => Boolean(option))
+      : []
+
+    if (!question && !header && options.length === 0) return null
+    return {
+      question,
+      header,
+      options,
+      ...(typeof record.multiple === 'boolean' ? { multiple: record.multiple } : {}),
+      ...(typeof record.custom === 'boolean' ? { custom: record.custom } : {}),
+    }
+  }
+
+  private mapTodos(value: unknown): OpenCodeTodo[] {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((todo) => {
+        const record = this.getRecord(todo)
+        if (!record || typeof record.content !== 'string') return null
+        return {
+          content: record.content,
+          status: typeof record.status === 'string' ? record.status : 'pending',
+          priority: typeof record.priority === 'string' ? record.priority : 'medium',
+        }
+      })
+      .filter((todo): todo is OpenCodeTodo => Boolean(todo))
+  }
+
+  private mapDebugEvent(event: RawEvent, sessionId: string, severity: 'debug' | 'error' = 'debug'): StreamEvent {
+    const props = event.properties ?? {}
+    return {
+      type: 'debug_event',
+      sessionId,
+      eventName: event.type,
+      summary: this.summarizeDebugEvent(event.type, props),
+      details: props,
+      severity,
+    }
+  }
+
+  private summarizeDebugEvent(eventName: string, props: Record<string, unknown>): string {
+    switch (eventName) {
+      case 'session.compacted':
+        return 'OpenCode session compacted.'
+      case 'session.created':
+        return `OpenCode session created${typeof props.sessionID === 'string' ? `: ${props.sessionID}` : ''}.`
+      case 'session.updated':
+        return `OpenCode session updated${typeof props.sessionID === 'string' ? `: ${props.sessionID}` : ''}.`
+      case 'session.deleted':
+        return `OpenCode session deleted${typeof props.sessionID === 'string' ? `: ${props.sessionID}` : ''}.`
+      case 'workspace.ready':
+        return `Workspace ready${typeof props.name === 'string' ? `: ${props.name}` : ''}.`
+      case 'workspace.failed':
+        return `Workspace failed: ${typeof props.message === 'string' ? props.message : 'unknown failure'}`
+      case 'workspace.restore':
+        return `Workspace restore ${typeof props.step === 'number' && typeof props.total === 'number' ? `${props.step}/${props.total}` : 'started'}.`
+      case 'workspace.status':
+        return `Workspace status: ${typeof props.status === 'string' ? props.status : 'unknown'}.`
+      case 'server.connected':
+        return 'OpenCode server connected.'
+      case 'server.instance.disposed':
+        return `OpenCode server instance disposed${typeof props.directory === 'string' ? `: ${props.directory}` : ''}.`
+      case 'global.disposed':
+        return 'OpenCode global disposed.'
+      case 'command.executed':
+        return `Command executed: ${typeof props.name === 'string' ? props.name : 'unknown'}${typeof props.arguments === 'string' && props.arguments ? ` ${this.truncateInline(props.arguments, 180)}` : ''}.`
+      case 'vcs.branch.updated':
+        return `VCS branch updated${typeof props.branch === 'string' ? `: ${props.branch}` : ''}.`
+      default:
+        return `OpenCode event: ${eventName}.`
+    }
+  }
+
+  private isSessionAgnosticDebugEvent(eventName: string): boolean {
+    return eventName === 'workspace.ready'
+      || eventName === 'workspace.failed'
+      || eventName === 'workspace.status'
+      || eventName === 'server.connected'
+      || eventName === 'server.instance.disposed'
+      || eventName === 'global.disposed'
+      || eventName === 'vcs.branch.updated'
+      || eventName === 'file.edited'
+  }
+
+  private pruneRecentDirectoryEventKeys() {
+    const now = Date.now()
+    for (const [key, seenAt] of this.recentDirectoryEventKeys.entries()) {
+      if (now - seenAt > 2_000) this.recentDirectoryEventKeys.delete(key)
+    }
+  }
+
+  private safeStableStringify(value: unknown): string {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+
+  private truncateInline(value: string, maxChars: number): string {
+    const normalized = value.replace(/\s+/g, ' ').trim()
+    return normalized.length > maxChars ? `${normalized.slice(0, maxChars)}…` : normalized
   }
 
   private describeError(error: unknown): string {

@@ -15,6 +15,8 @@ export interface SessionOwnership {
   step?: string | null
 }
 
+export type OpenCodeSessionRecord = typeof opencodeSessions.$inferSelect
+
 function findSessionRecord(sessionId: string) {
   for (const project of listProjects()) {
     const context = getProjectContextById(project.id)
@@ -27,6 +29,17 @@ function findSessionRecord(sessionId: string) {
     }
   }
   return null
+}
+
+export function listOpenCodeSessionsForTicket(ticketId: string, states: string[] = ['active']): OpenCodeSessionRecord[] {
+  const context = getTicketContext(ticketId)
+  if (!context) return []
+  return context.projectDb
+    .select()
+    .from(opencodeSessions)
+    .where(eq(opencodeSessions.ticketId, context.localTicketId))
+    .all()
+    .filter((session) => states.length === 0 || states.includes(session.state))
 }
 
 export class SessionManager {

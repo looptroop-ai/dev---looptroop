@@ -3,8 +3,9 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { Loader2, AlertTriangle, ChevronUp, ChevronDown, Minus } from 'lucide-react'
+import { Loader2, AlertTriangle, ChevronUp, ChevronDown, Minus, HelpCircle } from 'lucide-react'
 import { useUI } from '@/context/useUI'
+import { useAIQuestions } from '@/context/AIQuestionContext'
 import { STATUS_DESCRIPTIONS, STATUS_TO_PHASE, getStatusUserLabel } from '@/lib/workflowMeta'
 import {
   clearErrorTicketSeen,
@@ -81,6 +82,7 @@ function PriorityArrows({ priority }: { priority: number }) {
 
 export function TicketCard({ ticket, projectColor, projectIcon, projectName }: TicketCardProps) {
   const { dispatch } = useUI()
+  const { getPendingCount } = useAIQuestions()
   const isError = ticket.status === 'BLOCKED_ERROR'
   const isTerminal = ticket.status === 'COMPLETED' || ticket.status === 'CANCELED'
   const isInProgress = !isTerminal && STATUS_TO_PHASE[ticket.status] === 'in_progress'
@@ -92,6 +94,9 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
     errorMessage: ticket.errorMessage,
   })
   const errorSignature = getErrorTicketSignature(ticket)
+  const pendingAIQuestions = getPendingCount(ticket.id)
+  const hasPendingAIQuestion = pendingAIQuestions > 0
+  const attentionColor = projectColor ?? '#3b82f6'
 
   // Track "seen" state for BLOCKED_ERROR — stop flashing after first open
   const [errorSeen, setErrorSeen] = useState(() =>
@@ -119,8 +124,18 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
       className={cn(
         'cursor-pointer p-3 transition-all hover:shadow-md',
         isError && !errorSeen && 'animate-pulse border-destructive border-2 ring-4 ring-red-500/70 bg-red-50/60 dark:bg-red-950/30 shadow-[0_0_0_2px_rgba(239,68,68,0.6),0_0_20px_rgba(239,68,68,0.4),0_10px_30px_rgba(239,68,68,0.3)]',
+        hasPendingAIQuestion && !(isError && !errorSeen) && 'animate-pulse border-2 bg-primary/5',
       )}
-      style={{ borderLeftWidth: '4px', borderLeftColor: projectColor ?? '#3b82f6' }}
+      style={{
+        borderLeftWidth: '4px',
+        borderLeftColor: attentionColor,
+        ...(hasPendingAIQuestion && !(isError && !errorSeen)
+          ? {
+              borderColor: attentionColor,
+              boxShadow: `0 0 0 2px ${attentionColor}55, 0 0 18px ${attentionColor}40`,
+            }
+          : {}),
+      }}
       onClick={handleClick}
       aria-label={`Open ticket ${ticket.externalId}`}
     >
@@ -129,6 +144,7 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
         <div className="flex items-center gap-1">
           <PriorityArrows priority={ticket.priority} />
           {isInProgress && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+          {hasPendingAIQuestion && <HelpCircle className="h-3 w-3" style={{ color: attentionColor }} />}
           {isError && <AlertTriangle className="h-3 w-3 text-destructive" />}
         </div>
       </div>
@@ -150,6 +166,11 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
           {ticket.status === 'COMPLETED' && ticket.completionDisposition && (
             <Badge variant="outline" className="text-[10px]">
               {ticket.completionDisposition === 'merged' ? 'Merged' : 'Unmerged'}
+            </Badge>
+          )}
+          {hasPendingAIQuestion && (
+            <Badge variant="outline" className="text-[10px]" style={{ borderColor: attentionColor, color: attentionColor }}>
+              AI question {pendingAIQuestions}
             </Badge>
           )}
           {progress !== null && (
