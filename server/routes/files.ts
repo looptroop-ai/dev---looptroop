@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as readline from 'node:readline'
+import { extractLogFingerprint } from '@shared/logIdentity'
 import { getTicketByRef, getTicketPaths } from '../storage/tickets'
 import { safeAtomicWrite } from '../io/atomicWrite'
+import { foldPersistedLogEntries } from '../log/readDedupe'
 import { handlePutInterview, handlePutPrd } from './ticketHandlers'
 
 const filesRouter = new Hono()
@@ -24,6 +26,7 @@ function resolveTicketFilePath(ticketId: string, file: ValidFile): string | null
 function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
   if (!entry || typeof entry !== 'object') return null
   const record = entry as Record<string, unknown>
+  const fingerprint = extractLogFingerprint(record)
   const phase = typeof record.phase === 'string'
     ? record.phase
     : (typeof record.status === 'string' ? record.status : 'unknown')
@@ -61,40 +64,8 @@ function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
     ...(audience ? { audience } : {}),
     ...(kind ? { kind } : {}),
     ...(op ? { op } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
   }
-}
-
-function foldStreamingEntries(entries: Record<string, unknown>[]): Record<string, unknown>[] {
-  const passthrough: Array<{ index: number; entry: Record<string, unknown> }> = []
-  const folded = new Map<string, { index: number; entry: Record<string, unknown> }>()
-
-  entries.forEach((entry, index) => {
-    const entryId = typeof entry.entryId === 'string' ? entry.entryId : undefined
-    const op = typeof entry.op === 'string' ? entry.op : 'append'
-
-    if (!entryId || op === 'append') {
-      passthrough.push({ index, entry })
-      return
-    }
-
-    const previous = folded.get(entryId)
-    if (!previous) {
-      folded.set(entryId, { index, entry })
-      return
-    }
-
-    folded.set(entryId, {
-      index: previous.index,
-      entry: { ...previous.entry, ...entry },
-    })
-  })
-
-  return [
-    ...passthrough,
-    ...Array.from(folded.values()),
-  ]
-    .sort((a, b) => a.index - b.index)
-    .map(item => item.entry)
 }
 
 filesRouter.get('/files/:ticketId/logs', async (c) => {
@@ -121,7 +92,7 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
     }
   }
 
-  const foldedEntries = foldStreamingEntries(entries)
+  const foldedEntries = foldPersistedLogEntries(entries)
   foldedEntries.sort((a, b) => {
     const at = typeof a.timestamp === 'string' ? Date.parse(a.timestamp) : 0
     const bt = typeof b.timestamp === 'string' ? Date.parse(b.timestamp) : 0

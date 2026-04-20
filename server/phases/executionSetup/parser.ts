@@ -1,27 +1,36 @@
 import { EXECUTION_SETUP_RESULT_END, EXECUTION_SETUP_RESULT_MARKER } from './types'
 import { normalizeExecutionSetupResultOutput } from '../../structuredOutput'
+import { unwrapTaggedStructuredOutput } from '../parserTaggedStructuredOutput'
 import type { ExecutionSetupParseResult } from './types'
 
 export function parseExecutionSetupResult(output: string): ExecutionSetupParseResult {
-  const normalized = normalizeExecutionSetupResultOutput(output)
-  if (!normalized.ok) {
-    const markerFound = output.includes(EXECUTION_SETUP_RESULT_MARKER) && output.includes(EXECUTION_SETUP_RESULT_END)
+  const parsed = unwrapTaggedStructuredOutput(
+    output,
+    normalizeExecutionSetupResultOutput(output),
+    {
+      missingMarkerError: 'No execution setup result marker found',
+      markerStart: EXECUTION_SETUP_RESULT_MARKER,
+      markerEnd: EXECUTION_SETUP_RESULT_END,
+    },
+  )
+
+  if (!parsed.ok) {
     return {
-      markerFound,
+      markerFound: parsed.markerFound,
       result: null,
-      errors: [normalized.error],
-      repairApplied: normalized.repairApplied,
-      repairWarnings: normalized.repairWarnings,
-      validationError: normalized.error,
-      retryDiagnostic: normalized.retryDiagnostic,
+      errors: parsed.errors,
+      repairApplied: parsed.repairApplied,
+      repairWarnings: parsed.repairWarnings,
+      validationError: parsed.validationError,
+      retryDiagnostic: parsed.retryDiagnostic,
     }
   }
 
   return {
-    markerFound: true,
-    result: normalized.value,
+    markerFound: parsed.markerFound,
+    result: parsed.value,
     errors: [],
-    repairApplied: normalized.repairApplied,
-    repairWarnings: normalized.repairWarnings,
+    repairApplied: parsed.repairApplied,
+    repairWarnings: parsed.repairWarnings,
   }
 }

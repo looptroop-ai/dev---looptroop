@@ -126,4 +126,34 @@ describe('appendLogEvent', () => {
 
     expect(mockAppend).toHaveBeenCalledOnce()
   })
+
+  it('skips persisting repeated append events with the same fingerprint', () => {
+    appendLogEvent(
+      '1:T-42',
+      'info',
+      'CODING',
+      '[QUESTION] AI question answered.',
+      {
+        timestamp: '2026-04-20T10:00:00.000Z',
+        fingerprint: 'opencode-question:session-1:req-1:replied',
+      },
+      'opencode',
+      'CODING',
+    )
+
+    appendLogEvent(
+      '1:T-42',
+      'info',
+      'CODING',
+      '[QUESTION] AI question answered.',
+      {
+        timestamp: '2026-04-20T10:00:01.000Z',
+        fingerprint: 'opencode-question:session-1:req-1:replied',
+      },
+      'opencode',
+      'CODING',
+    )
+
+    expect(mockAppend).toHaveBeenCalledOnce()
+  })
 })

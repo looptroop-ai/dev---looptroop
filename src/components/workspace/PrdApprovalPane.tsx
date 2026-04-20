@@ -24,6 +24,11 @@ import {
   parsePrdDocument,
   parsePrdDocumentContent,
 } from '@/lib/prdDocument'
+import {
+  useApprovalDraftReset,
+  useApprovalFocusAnchor,
+  useDebouncedApprovalUiState,
+} from './approvalHooks'
 
 type EditTab = 'structured' | 'yaml'
 
@@ -101,10 +106,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
     [artifacts],
   )
 
-  useEffect(() => {
-    restoredDraftRef.current = false
-    lastSavedSnapshotRef.current = ''
-  }, [ticket.id])
+  useApprovalDraftReset(ticket.id, restoredDraftRef, lastSavedSnapshotRef)
 
   useEffect(() => {
     if (isLoading || restoredDraftRef.current || !prdDocument) return
@@ -130,43 +132,21 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
     restoredDraftRef.current = true
   }, [isLoading, persistedUiState, prdDocument, rawContent])
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ ticketId?: string; anchorId?: string }>).detail
-      if (!detail?.anchorId || String(detail.ticketId) !== String(ticket.id)) return
+  useApprovalFocusAnchor(ticket.id, PRD_APPROVAL_FOCUS_EVENT)
 
-      const target = document.getElementById(detail.anchorId)
-      if (!target) return
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-
-    window.addEventListener(PRD_APPROVAL_FOCUS_EVENT, handler as EventListener)
-    return () => window.removeEventListener(PRD_APPROVAL_FOCUS_EVENT, handler as EventListener)
-  }, [ticket.id])
-
-  useEffect(() => {
-    if (isLoading || !restoredDraftRef.current || structuredDraft === null) return
-
-    const snapshot = {
+  useDebouncedApprovalUiState({
+    enabled: !isLoading && restoredDraftRef.current && structuredDraft !== null,
+    snapshot: {
       isEditMode,
       editTab,
       yamlDraft,
       structuredDraft,
-    }
-    const serialized = JSON.stringify(snapshot)
-    if (serialized === lastSavedSnapshotRef.current) return
-
-    const timer = window.setTimeout(() => {
-      lastSavedSnapshotRef.current = serialized
-      saveUiState({
-        ticketId: ticket.id,
-        scope: uiStateScope,
-        data: snapshot,
-      })
-    }, 350)
-
-    return () => window.clearTimeout(timer)
-  }, [isEditMode, editTab, isLoading, saveUiState, structuredDraft, ticket.id, uiStateScope, yamlDraft])
+    },
+    ticketId: ticket.id,
+    scope: uiStateScope,
+    saveUiState,
+    lastSavedSnapshotRef,
+  })
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {

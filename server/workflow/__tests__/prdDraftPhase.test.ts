@@ -4,7 +4,8 @@ import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import type { Vote } from '../../council/types'
 import { clearProjectDatabaseCache } from '../../db/project'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
-import { TEST, makeInterviewYaml, makePrdYaml, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
+import { TEST, makeInterviewYaml, makePrdYaml } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { phaseIntermediate } from '../phases/state'
 
 const { draftPRDMock, conductVotingMock, selectWinnerMock } = vi.hoisted(() => ({

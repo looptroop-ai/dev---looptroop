@@ -218,6 +218,48 @@ describe('commandLogger', () => {
     ])
   })
 
+  it('dedupes identical command logs within the same async context', () => {
+    const logs: string[] = []
+
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('git', ['status'], { ok: true, stdout: 'all clean' })
+        logCommand('git', ['status'], { ok: true, stdout: 'all clean' })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+
+    expect(logs).toEqual([
+      '[CMD] $ git status  →  all clean',
+    ])
+  })
+
+  it('does not cross-dedupe identical command logs across separate async contexts', () => {
+    const logs: string[] = []
+
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('git', ['status'], { ok: true, stdout: 'all clean' })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('git', ['status'], { ok: true, stdout: 'all clean' })
+      },
+      (_phase, _type, content) => { logs.push(content) },
+    )
+
+    expect(logs).toEqual([
+      '[CMD] $ git status  →  all clean',
+      '[CMD] $ git status  →  all clean',
+    ])
+  })
+
   it('truncates output at 2500 characters', () => {
     const logs: string[] = []
     const longOutput = 'x'.repeat(3000)

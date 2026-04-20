@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { DROPDOWN_MARGIN, DROPDOWN_OFFSET, DROPDOWN_MAX_HEIGHT } from '@/lib/constants'
 
 export interface DropdownPickerProps {
-  trigger: React.ReactNode
-  children: React.ReactNode
+  trigger: ReactNode
+  children: ReactNode
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -64,30 +62,5 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
         document.body,
       )}
     </div>
-  )
-}
-
-// Reusable icon picker trigger button
-export function PickerTrigger({
-  label,
-  value,
-  className,
-}: {
-  label?: string
-  value: React.ReactNode
-  className?: string
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm transition hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-        className,
-      )}
-    >
-      <span className="text-xl leading-none">{value}</span>
-      {label && <span className="text-muted-foreground text-xs">{label}</span>}
-      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-    </button>
   )
 }

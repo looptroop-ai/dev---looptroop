@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import { z } from 'zod'
+import { buildOpenCodeQuestionLogIdentity, type OpenCodeQuestionLogAction } from '@shared/logIdentity'
 import type { TicketContext as MachineTicketContext } from '../machines/types'
 import { db as appDb } from '../db/index'
 import { profiles } from '../db/schema'
@@ -267,12 +268,17 @@ function emitOpenCodeQuestionLog(
     modelId?: string
     kind?: 'session' | 'error'
     type?: 'info' | 'error'
-    action?: 'replied' | 'rejected' | 'error'
+    action: OpenCodeQuestionLogAction
   },
 ) {
   const timestamp = new Date().toISOString()
   const logType = data.type ?? (data.kind === 'error' ? 'error' : 'info')
   const source = data.kind === 'error' ? 'error' : data.modelId ? `model:${data.modelId}` as const : 'opencode'
+  const identity = buildOpenCodeQuestionLogIdentity({
+    sessionId: data.sessionId,
+    requestId: data.requestId,
+    action: data.action,
+  })
   const payload = {
     ticketId,
     phase,
@@ -283,9 +289,8 @@ function emitOpenCodeQuestionLog(
     kind: data.kind ?? 'session',
     op: 'append' as const,
     streaming: false,
-    entryId: data.sessionId
-      ? `${data.sessionId}:question:${data.requestId}:${data.action ?? logType}`
-      : `opencode-question:${data.requestId}:${data.action ?? logType}`,
+    entryId: identity.entryId,
+    fingerprint: identity.fingerprint,
     ...(data.modelId ? { modelId: data.modelId } : {}),
     ...(data.sessionId ? { sessionId: data.sessionId } : {}),
     timestamp,
@@ -297,7 +302,7 @@ function emitOpenCodeQuestionLog(
     logType,
     phase,
     content,
-    { ticketId, requestId: data.requestId, timestamp },
+    { ticketId, requestId: data.requestId, fingerprint: identity.fingerprint, timestamp },
     source,
     phase,
     {
@@ -305,9 +310,8 @@ function emitOpenCodeQuestionLog(
       kind: data.kind ?? 'session',
       op: 'append',
       streaming: false,
-      entryId: data.sessionId
-        ? `${data.sessionId}:question:${data.requestId}:${data.action ?? logType}`
-        : `opencode-question:${data.requestId}:${data.action ?? logType}`,
+      entryId: identity.entryId,
+      fingerprint: identity.fingerprint,
       ...(data.modelId ? { modelId: data.modelId } : {}),
       ...(data.sessionId ? { sessionId: data.sessionId } : {}),
     },
@@ -1612,7 +1616,7 @@ export async function handleReplyOpenCodeQuestion(c: Context) {
       modelId: question.modelId,
       kind: 'error',
       type: 'error',
-      action: 'error',
+      action: 'reply_failed',
     })
     return c.json({ error: 'Failed to answer OpenCode question', details: message }, 500)
   }
@@ -1652,7 +1656,7 @@ export async function handleRejectOpenCodeQuestion(c: Context) {
       modelId: question.modelId,
       kind: 'error',
       type: 'error',
-      action: 'error',
+      action: 'reject_failed',
     })
     return c.json({ error: 'Failed to reject OpenCode question', details: message }, 500)
   }

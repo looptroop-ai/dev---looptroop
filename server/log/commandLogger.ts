@@ -8,6 +8,8 @@ interface CommandLogContext {
   fields?: Record<string, unknown>
   state: {
     isEmittingCommandLog: boolean
+    lastCommandLogContent: string
+    lastCommandLogTimestamp: number
   }
   /** Emitter callback for SYS log entries. */
   emit: (phase: string, type: 'info' | 'error', content: string, data?: Record<string, unknown>) => void
@@ -45,7 +47,7 @@ export function withCommandLogging<T>(
     externalId,
     phase,
     emit,
-    state: { isEmittingCommandLog: false },
+    state: { isEmittingCommandLog: false, lastCommandLogContent: '', lastCommandLogTimestamp: 0 },
   }, fn)
 }
 
@@ -64,14 +66,12 @@ export async function withCommandLoggingAsync<T>(
     externalId,
     phase,
     emit,
-    state: { isEmittingCommandLog: false },
+    state: { isEmittingCommandLog: false, lastCommandLogContent: '', lastCommandLogTimestamp: 0 },
   }, fn)
 }
 
 // Dedup window: suppress identical command log lines emitted within this interval
 const CMD_LOG_DEDUP_WINDOW_MS = 1000
-let lastCommandLogContent = ''
-let lastCommandLogTimestamp = 0
 
 function emitCommandLog(
   ctx: CommandLogContext,
@@ -84,11 +84,14 @@ function emitCommandLog(
 
   // Skip exact-duplicate log lines within the dedup window
   const now = Date.now()
-  if (content === lastCommandLogContent && now - lastCommandLogTimestamp < CMD_LOG_DEDUP_WINDOW_MS) {
+  if (
+    content === ctx.state.lastCommandLogContent
+    && now - ctx.state.lastCommandLogTimestamp < CMD_LOG_DEDUP_WINDOW_MS
+  ) {
     return
   }
-  lastCommandLogContent = content
-  lastCommandLogTimestamp = now
+  ctx.state.lastCommandLogContent = content
+  ctx.state.lastCommandLogTimestamp = now
 
   ctx.state.isEmittingCommandLog = true
   try {

@@ -323,29 +323,34 @@ describe('InterviewQAView', () => {
     expect((textareas[0] as HTMLTextAreaElement).value).toBe('Restored draft answer')
   })
 
-  it('auto-saves drafts after debounce', { timeout: 5000 }, async () => {
+  it('auto-saves drafts after debounce', async () => {
     renderWithProviders(<InterviewQAView ticket={makeTicket({ status: 'WAITING_INTERVIEW_ANSWERS' })} />)
 
     await waitFor(() => {
       expect(screen.getByText('How will retries be tested?')).toBeInTheDocument()
     })
 
-    const textareas = screen.getAllByRole('textbox')
-    fireEvent.change(textareas[0]!, { target: { value: 'My draft answer' } })
+    vi.useFakeTimers()
+    try {
+      const textareas = screen.getAllByRole('textbox')
+      fireEvent.change(textareas[0]!, { target: { value: 'My draft answer' } })
 
-    // Should not have saved immediately
-    expect(savedUiState).toBeNull()
+      expect(savedUiState).toBeNull()
 
-    // Wait for debounce (350ms) + React Query mutation to complete
-    await waitFor(() => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350)
+      })
+
       expect(savedUiState).not.toBeNull()
-    }, { timeout: 5000 })
 
-    const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
-    expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
+      const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
+      expect(data.draftAnswers['prom4:0:2']).toEqual({ QF01: 'My draft answer' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('clears persisted drafts after batch submission', { timeout: 5000 }, async () => {
+  it('clears persisted drafts after batch submission', async () => {
     const batchKey = 'prom4:0:2'
     preSeededDrafts = {
       draftAnswers: { [batchKey]: { QF01: 'Pre-filled answer' } },
@@ -358,18 +363,25 @@ describe('InterviewQAView', () => {
       expect((screen.getAllByRole('textbox')[0] as HTMLTextAreaElement).value).toBe('Pre-filled answer')
     })
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /submit batch/i }))
-    })
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /submit batch/i }))
+        await Promise.resolve()
+      })
 
-    expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' }, selectedOptions: {} })
+      expect(submittedBody).toEqual({ answers: { QF01: 'Pre-filled answer' }, selectedOptions: {} })
 
-    // Wait for debounce (350ms) + React Query mutation to complete
-    await waitFor(() => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350)
+      })
+
       expect(savedUiState).not.toBeNull()
-    }, { timeout: 5000 })
 
-    const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
-    expect(data.draftAnswers[batchKey]).toBeUndefined()
+      const data = savedUiState!.data as { draftAnswers: Record<string, Record<string, string>> }
+      expect(data.draftAnswers[batchKey]).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

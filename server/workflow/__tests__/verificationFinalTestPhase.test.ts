@@ -1,14 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeFileSync } from 'fs'
 import {
-  createInitializedTestTicket,
-  createTestRepoManager,
   makeBeadsYaml,
   makeInterviewYaml,
   makePrdYaml,
-  resetTestDb,
   TEST,
 } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { upsertLatestPhaseArtifact } from '../../storage/tickets'
 import { updateProject } from '../../storage/projects'
 

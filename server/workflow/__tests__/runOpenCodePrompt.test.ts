@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { patchTicket } from '../../storage/tickets'
-import { createInitializedTestTicket, createTestRepoManager, resetTestDb, TEST } from '../../test/factories'
+import { TEST } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { buildFormattedBatchAnswers } from '../phases/interviewPhase'
 import { OpenCodeSDKAdapter, type OpenCodeAdapter } from '../../opencode/adapter'
 import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../opencode/permissions'

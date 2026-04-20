@@ -12,10 +12,8 @@ import { phaseIntermediate, phaseResults } from '../phases/state'
 import {
   TEST,
   makeInterviewYaml,
-  createTestRepoManager,
-  resetTestDb,
-  createInitializedTestTicket,
 } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 
 const {
   refineDraftMock,

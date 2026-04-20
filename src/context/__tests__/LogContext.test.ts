@@ -168,4 +168,31 @@ describe('mergeEntry', () => {
     expect(merged).toHaveLength(1)
     expect(merged[0]).toBe(first)
   })
+
+  it('dedupes append entries with matching fingerprints', () => {
+    const first: LogEntry = {
+      id: 'entry-1',
+      entryId: 'session-1:question:req-1:replied',
+      fingerprint: 'opencode-question:session-1:req-1:replied',
+      line: '[QUESTION] AI question answered.',
+      source: 'model:openai/gpt-5-mini',
+      status: 'CODING',
+      timestamp: '2026-04-20T10:00:00.000Z',
+      audience: 'ai',
+      kind: 'session',
+      streaming: false,
+      op: 'append',
+    }
+    const duplicate: LogEntry = {
+      ...first,
+      id: 'entry-2',
+      entryId: 'different-entry-id',
+      timestamp: '2026-04-20T10:00:01.000Z',
+    }
+
+    const merged = mergeEntry([first], duplicate)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toBe(first)
+  })
 })

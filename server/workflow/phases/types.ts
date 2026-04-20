@@ -22,6 +22,7 @@ export type StructuredLogOp = 'append' | 'upsert' | 'finalize'
 
 export interface StructuredLogFields extends Record<string, unknown> {
   entryId: string
+  fingerprint?: string
   audience: StructuredLogAudience
   kind: StructuredLogKind
   op: StructuredLogOp

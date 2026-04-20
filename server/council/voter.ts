@@ -22,8 +22,6 @@ import { resolveStructuredRetryDiagnostic } from '../lib/structuredRetryDiagnost
 import { getStructuredRetryDecision } from '../lib/structuredOutputRetry'
 import { PHASE_DEADLINE_ERROR, isAbortError, isPhaseDeadlineError } from './draftUtils'
 
-export { parseScore } from './scoreParser'
-
 function buildStrictVoteSchemaReminder(rubric: typeof VOTING_RUBRIC): string {
   return [
     'Output strict machine-readable YAML with top-level `draft_scores` keyed by the exact presented draft labels (`Draft 1`, `Draft 2`, etc.).',

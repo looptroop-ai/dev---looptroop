@@ -1,8 +1,16 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { DBartifact } from '@/hooks/useTicketArtifacts'
 import { TEST } from '@/test/factories'
 import { renderWithProviders } from '@/test/renderHelpers'
+import {
+  buildBeadsDocumentContent,
+  buildBeadsDraftCompanionContent,
+  buildExecutionSetupProfileArtifactContent,
+  buildExecutionSetupReportArtifactContent,
+  buildPhaseArtifactsInterviewDocumentContent,
+  buildPrdDocumentContent,
+  createArtifactFactory,
+} from '@/test/workspaceArtifactBuilders'
 import { PhaseArtifactsPanel } from '../PhaseArtifactsPanel'
 
 /** Find the innermost element whose full textContent (including children) matches exactly. */
@@ -25,10 +33,12 @@ async function expectFirstInspirationTooltip(bodyText: string | string[]) {
   fireEvent.pointerMove(trigger)
   fireEvent.mouseEnter(trigger)
 
-  expect((await screen.findAllByText(/Inspired by /i)).length).toBeGreaterThan(0)
-  for (const text of Array.isArray(bodyText) ? bodyText : [bodyText]) {
-    expect((await screen.findAllByText(hasExactTextContent(text))).length).toBeGreaterThan(0)
-  }
+  await waitFor(() => {
+    expect(screen.queryAllByText(/Inspired by /i).length).toBeGreaterThan(0)
+    for (const text of Array.isArray(bodyText) ? bodyText : [bodyText]) {
+      expect(screen.queryAllByText(hasExactTextContent(text)).length).toBeGreaterThan(0)
+    }
+  })
 }
 
 function expectCoverageAttributionUiHidden() {
@@ -36,242 +46,11 @@ function expectCoverageAttributionUiHidden() {
   expect(screen.queryAllByText('No source recorded')).toHaveLength(0)
 }
 
-function buildInterviewDocumentContent() {
-  return [
-    'schema_version: 1',
-    `ticket_id: ${TEST.externalId}`,
-    'artifact: interview',
-    'status: draft',
-    'generated_by:',
-    '  winner_model: openai/gpt-5.2',
-    '  generated_at: 2026-03-25T09:00:00.000Z',
-    'questions:',
-    '  - id: Q01',
-    '    phase: Foundation',
-    '    prompt: "How should skipped answers be completed?"',
-    '    source: compiled',
-    '    answer_type: free_text',
-    '    options: []',
-    '    answer:',
-    '      skipped: false',
-    '      selected_option_ids: []',
-    '      free_text: "Use AI-authored answers and label them clearly."',
-    '      answered_by: ai_skip',
-    '      answered_at: 2026-03-25T09:00:00.000Z',
-    'follow_up_rounds: []',
-    'summary:',
-    '  goals: []',
-    '  constraints: []',
-    '  non_goals: []',
-    '  final_free_form_answer: ""',
-    'approval:',
-    '  approved_by: ""',
-    '  approved_at: ""',
-  ].join('\n')
-}
-
-function buildPrdDocumentContent({
-  epicTitle = 'Restore rich PRD views',
-  storyTitle = 'Review PRD drafts',
-  acceptanceCriterion = 'Show epics and user stories in the structured view.',
-}: {
-  epicTitle?: string
-  storyTitle?: string
-  acceptanceCriterion?: string
-} = {}) {
-  return [
-    'schema_version: 1',
-    `ticket_id: ${TEST.externalId}`,
-    'artifact: prd',
-    'status: draft',
-    'source_interview:',
-    '  content_sha256: mock-sha',
-    'product:',
-    '  problem_statement: "Restore the richer PRD artifact viewer."',
-    '  target_users:',
-    '    - "LoopTroop maintainers"',
-    'scope:',
-    '  in_scope:',
-    '    - "PRD artifact dialogs"',
-    '  out_of_scope:',
-    '    - "Workflow logic"',
-    'technical_requirements:',
-    '  architecture_constraints:',
-    '    - "UI-only change"',
-    '  data_model: []',
-    '  api_contracts: []',
-    '  security_constraints: []',
-    '  performance_constraints: []',
-    '  reliability_constraints: []',
-    '  error_handling_rules: []',
-    '  tooling_assumptions: []',
-    'epics:',
-    `  - id: "${TEST.epicId}"`,
-    `    title: "${epicTitle}"`,
-    '    objective: "Make PRD artifacts easy to inspect."',
-    '    user_stories:',
-    `      - id: "${TEST.storyId}"`,
-    `        title: "${storyTitle}"`,
-    '        acceptance_criteria:',
-    `          - "${acceptanceCriterion}"`,
-    'approval:',
-    '  approved_by: ""',
-    '  approved_at: ""',
-  ].join('\n')
-}
-
-function buildBeadsDocumentContent(
-  beads: Array<{ id: string; title: string; description?: string }> = [
-    { id: 'bead-1', title: 'Validate refinement attribution' },
-  ],
-) {
-  return [
-    'beads:',
-    ...beads.flatMap((bead) => [
-      `  - id: "${bead.id}"`,
-      `    title: "${bead.title}"`,
-      `    prdRefs: ["${TEST.epicId} / ${TEST.storyId}"]`,
-      `    description: "${bead.description ?? `Deliver ${bead.title.toLowerCase()}.`}"`,
-      '    contextGuidance: "Keep attribution deterministic."',
-      '    acceptanceCriteria:',
-      `      - "Validate ${bead.title.toLowerCase()}"`,
-      '    tests:',
-      `      - "Test ${bead.title.toLowerCase()}"`,
-      '    testCommands:',
-      '      - "npm run test:server"',
-    ]),
-  ].join('\n')
-}
-
-function buildBeadsDraftCompanionContent() {
-  return JSON.stringify({
-    baseArtifactType: 'beads_drafts',
-    generatedAt: '2026-03-12T11:49:31.000Z',
-    payload: {
-      draftDetails: [
-        {
-          memberId: 'openai/gpt-5.2',
-          duration: 42,
-          draftMetrics: {
-            beadCount: 2,
-            totalTestCount: 5,
-            totalAcceptanceCriteriaCount: 6,
-          },
-        },
-      ],
-    },
-  })
-}
-
-function buildExecutionSetupProfileArtifactContent() {
-  return JSON.stringify({
-    schema_version: 1,
-    ticket_id: TEST.externalId,
-    artifact: 'execution_setup_profile',
-    status: 'ready',
-    summary: 'Runtime cache ready for implementation beads.',
-    temp_roots: ['.ticket/runtime/execution-setup'],
-    bootstrap_commands: ['project bootstrap'],
-    reusable_artifacts: [
-      {
-        path: '.ticket/runtime/execution-setup/cache.json',
-        kind: 'cache',
-        purpose: 'Reuse warmed runtime metadata.',
-      },
-    ],
-    project_commands: {
-      prepare: ['project bootstrap'],
-      test_full: ['project test'],
-      lint_full: ['project lint'],
-      typecheck_full: ['project typecheck'],
-    },
-    quality_gate_policy: {
-      tests: 'bead-test-commands-first',
-      lint: 'impacted-or-package',
-      typecheck: 'impacted-or-package',
-      full_project_fallback: 'never-block-on-unrelated-baseline',
-    },
-    cautions: ['Keep generated files under runtime roots.'],
-  })
-}
-
-function buildExecutionSetupReportArtifactContent() {
-  return JSON.stringify({
-    status: 'ready',
-    ready: true,
-    checkedAt: '2026-03-25T10:20:00.000Z',
-    preparedBy: 'openai/gpt-5',
-    summary: 'Runtime profile is ready for coding beads.',
-    profile: {
-      schemaVersion: 1,
-      ticketId: TEST.externalId,
-      artifact: 'execution_setup_profile',
-      status: 'ready',
-      summary: 'Runtime cache ready for implementation beads.',
-      tempRoots: ['.ticket/runtime/execution-setup'],
-      bootstrapCommands: ['project bootstrap'],
-      reusableArtifacts: [
-        {
-          path: '.ticket/runtime/execution-setup/cache.json',
-          kind: 'cache',
-          purpose: 'Reuse warmed runtime metadata.',
-        },
-      ],
-      projectCommands: {
-        prepare: ['project bootstrap'],
-        testFull: ['project test'],
-        lintFull: ['project lint'],
-        typecheckFull: ['project typecheck'],
-      },
-      qualityGatePolicy: {
-        tests: 'bead-test-commands-first',
-        lint: 'impacted-or-package',
-        typecheck: 'impacted-or-package',
-        fullProjectFallback: 'never-block-on-unrelated-baseline',
-      },
-      cautions: ['Keep generated files under runtime roots.'],
-    },
-    checks: {
-      workspace: 'pass',
-      tooling: 'pass',
-      tempScope: 'pass',
-      policy: 'pass',
-    },
-    modelOutput: '<EXECUTION_SETUP_RESULT>{"status":"ready"}</EXECUTION_SETUP_RESULT>',
-    errors: [],
-    attempt: 1,
-    maxIterations: 3,
-    attemptHistory: [
-      {
-        attempt: 1,
-        status: 'ready',
-        checkedAt: '2026-03-25T10:20:00.000Z',
-        summary: 'Runtime profile is ready for coding beads.',
-        tempRoots: ['.ticket/runtime/execution-setup'],
-        bootstrapCommands: ['project bootstrap'],
-        errors: [],
-      },
-    ],
-    retryNotes: [],
-    approvedPlanCommands: ['project bootstrap'],
-    executionAddedCommands: ['project cache verify'],
-  })
-}
-
-let nextArtifactId = 1
-function makeArtifact(overrides: Partial<DBartifact> & Pick<DBartifact, 'phase' | 'artifactType' | 'content'>): DBartifact {
-  return {
-    id: nextArtifactId++,
-    ticketId: TEST.ticketId,
-    filePath: null,
-    createdAt: TEST.timestamp,
-    ...overrides,
-  }
-}
+const { makeArtifact, resetArtifactIds } = createArtifactFactory()
 
 describe('PhaseArtifactsPanel', () => {
   beforeEach(() => {
-    nextArtifactId = 1
+    resetArtifactIds()
   })
 
   it('shows the execution setup runtime as one structured artifact with useful chip details', () => {
@@ -570,7 +349,7 @@ describe('PhaseArtifactsPanel', () => {
           {
             memberId: 'openai/gpt-5.2',
             outcome: 'completed',
-            content: buildInterviewDocumentContent(),
+            content: buildPhaseArtifactsInterviewDocumentContent(),
             questionCount: 1,
           },
         ],
@@ -697,7 +476,7 @@ describe('PhaseArtifactsPanel', () => {
           {
             memberId: 'openai/gpt-5.2',
             outcome: 'completed',
-            content: buildInterviewDocumentContent(),
+            content: buildPhaseArtifactsInterviewDocumentContent(),
           },
         ],
         memberOutcomes: {
@@ -1065,8 +844,8 @@ describe('PhaseArtifactsPanel', () => {
     {
       scenario: 'prefers refinedContent when present',
       coverageInputContent: {
-        interview: buildInterviewDocumentContent(),
-        fullAnswers: buildInterviewDocumentContent(),
+        interview: buildPhaseArtifactsInterviewDocumentContent(),
+        fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Coverage input PRD',
           storyTitle: 'Inspect coverage input sections',
@@ -1085,8 +864,8 @@ describe('PhaseArtifactsPanel', () => {
     {
       scenario: 'falls back to prd when refinedContent is absent',
       coverageInputContent: {
-        interview: buildInterviewDocumentContent(),
-        fullAnswers: buildInterviewDocumentContent(),
+        interview: buildPhaseArtifactsInterviewDocumentContent(),
+        fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Coverage input PRD only',
           storyTitle: 'Inspect the exact saved PRD',
@@ -1210,8 +989,8 @@ describe('PhaseArtifactsPanel', () => {
       artifactType: 'prd_coverage_input',
       content: JSON.stringify({
         candidateVersion: 1,
-        interview: buildInterviewDocumentContent(),
-        fullAnswers: buildInterviewDocumentContent(),
+        interview: buildPhaseArtifactsInterviewDocumentContent(),
+        fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Initial PRD candidate',
           storyTitle: 'Inspect initial candidate sections',
@@ -1275,8 +1054,8 @@ describe('PhaseArtifactsPanel', () => {
         baseArtifactType: 'prd_coverage_input',
         generatedAt: '2026-03-25T10:16:31.000Z',
         payload: {
-          interview: buildInterviewDocumentContent(),
-          fullAnswers: buildInterviewDocumentContent(),
+          interview: buildPhaseArtifactsInterviewDocumentContent(),
+          fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
           prd: buildPrdDocumentContent({
             epicTitle: 'Audit input candidate',
             storyTitle: 'Inspect the audit input',

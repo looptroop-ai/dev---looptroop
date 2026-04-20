@@ -5,7 +5,7 @@ import { executeBead } from '../executor'
 import type { Bead } from '../../beads/types'
 import { PROFILE_DEFAULTS } from '../../../db/defaults'
 import { patchTicket } from '../../../storage/tickets'
-import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/integration'
 import { BEAD_RETRY_BUDGET_EXHAUSTED } from '../../../../shared/errorCodes'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {

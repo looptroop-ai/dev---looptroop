@@ -4,7 +4,8 @@ import { resolve } from 'node:path'
 import jsYaml from 'js-yaml'
 import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { getLatestPhaseArtifact, getTicketByRef, insertPhaseArtifact } from '../../storage/tickets'
-import { TEST, createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/factories'
+import { TEST } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { phaseIntermediate, phaseResults } from '../phases/state'
 
 const { refineDraftMock, runOpenCodePromptMock } = vi.hoisted(() => ({

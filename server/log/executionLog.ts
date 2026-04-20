@@ -8,7 +8,7 @@ type StructuredLogFields = Omit<LogEvent, 'timestamp' | 'type' | 'ticketId' | 'p
 // Keys that are promoted to top-level LogEvent fields by pickStructuredFields.
 // They are stripped from `data` before serialization to avoid redundant storage.
 const STRUCTURED_KEYS: ReadonlySet<string> = new Set([
-  'content', 'source', 'status', 'entryId', 'op', 'audience',
+  'content', 'source', 'status', 'entryId', 'fingerprint', 'op', 'audience',
   'kind', 'modelId', 'sessionId', 'beadId', 'streaming',
 ])
 
@@ -24,6 +24,7 @@ function pickStructuredFields(data?: Record<string, unknown>): Partial<LogEvent>
     ...(typeof data.source === 'string' ? { source: data.source as LogSource } : {}),
     ...(typeof data.status === 'string' ? { status: data.status } : {}),
     ...(typeof data.entryId === 'string' ? { entryId: data.entryId } : {}),
+    ...(typeof data.fingerprint === 'string' ? { fingerprint: data.fingerprint } : {}),
     ...(typeof data.op === 'string' ? { op: data.op as LogEvent['op'] } : {}),
     ...(typeof data.audience === 'string' ? { audience: data.audience as LogEvent['audience'] } : {}),
     ...(typeof data.kind === 'string' ? { kind: data.kind as LogEvent['kind'] } : {}),
@@ -104,6 +105,10 @@ export function appendLogEvent(
     ...extra,
   }
 
+  const fingerprint = typeof event.fingerprint === 'string' && event.fingerprint
+    ? event.fingerprint
+    : undefined
+
   const paths = getTicketPaths(ticketId)
   if (!paths) {
     throw new Error(`Ticket not found for execution log append: ${ticketId}`)
@@ -121,7 +126,37 @@ export function appendLogEvent(
     removeBuffered(event.entryId)
   }
 
+  if (fingerprint && hasPersistedFingerprint(ticketId, fingerprint)) {
+    return
+  }
+
   safeAtomicAppend(logPath, JSON.stringify(event))
+  if (fingerprint) {
+    rememberPersistedFingerprint(ticketId, fingerprint)
+  }
+}
+
+const MAX_PERSISTED_FINGERPRINTS_PER_TICKET = 256
+const persistedFingerprintsByTicket = new Map<string, Map<string, number>>()
+
+function hasPersistedFingerprint(ticketId: string, fingerprint: string): boolean {
+  return persistedFingerprintsByTicket.get(ticketId)?.has(fingerprint) ?? false
+}
+
+function rememberPersistedFingerprint(ticketId: string, fingerprint: string): void {
+  const bucket = persistedFingerprintsByTicket.get(ticketId) ?? new Map<string, number>()
+  if (bucket.has(fingerprint)) {
+    bucket.delete(fingerprint)
+  }
+  bucket.set(fingerprint, Date.now())
+
+  while (bucket.size > MAX_PERSISTED_FINGERPRINTS_PER_TICKET) {
+    const oldest = bucket.keys().next().value
+    if (!oldest) break
+    bucket.delete(oldest)
+  }
+
+  persistedFingerprintsByTicket.set(ticketId, bucket)
 }
 
 export function createLogEvent(

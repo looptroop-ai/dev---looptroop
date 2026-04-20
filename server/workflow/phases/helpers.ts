@@ -1,6 +1,7 @@
 import { broadcaster } from '../../sse/broadcaster'
 import { appendLogEvent } from '../../log/executionLog'
 import type { LogEventType, LogSource } from '../../log/types'
+import { buildOpenCodeQuestionLogIdentity } from '@shared/logIdentity'
 import { type TicketState } from '../../opencode/contextBuilder'
 import { analyzeAssistantMessages } from '../../opencode/assistantMessageAnalysis'
 import { hasRichModelErrorInfo, summarizeModelErrorForLog } from '../../opencode/errorDetails'
@@ -54,6 +55,7 @@ export function emitPhaseLog(
   const suppressDebugMirror = data?.suppressDebugMirror === true
   const structuredExtra = {
     ...(typeof data?.entryId === 'string' ? { entryId: data.entryId } : {}),
+    ...(typeof data?.fingerprint === 'string' ? { fingerprint: data.fingerprint } : {}),
     ...(typeof data?.op === 'string' ? { op: data.op as StructuredLogOp } : {}),
     ...(typeof data?.audience === 'string' ? { audience: data.audience as StructuredLogAudience } : {}),
     ...(typeof data?.kind === 'string' ? { kind: data.kind as StructuredLogKind } : {}),
@@ -614,7 +616,11 @@ export function emitOpenCodeStreamEvent(
 
   if (event.type === 'question') {
     emitFirstActivity()
-    const entryId = `${sessionId}:question:${event.requestId}:${event.action}`
+    const identity = buildOpenCodeQuestionLogIdentity({
+      sessionId,
+      requestId: event.requestId,
+      action: event.action,
+    })
     emitAiDetail(
       ticketId,
       ticketExternalId,
@@ -622,7 +628,8 @@ export function emitOpenCodeStreamEvent(
       'info',
       questionLogContent(event),
       {
-        entryId,
+        entryId: identity.entryId,
+        fingerprint: identity.fingerprint,
         audience: 'ai',
         kind: 'session',
         op: 'append',

@@ -18,6 +18,11 @@ import {
   type ExecutionSetupPlan,
 } from '@/lib/executionSetupPlan'
 import { ExecutionSetupPlanEditor } from './ExecutionSetupPlanEditor'
+import {
+  useApprovalDraftReset,
+  useApprovalFocusAnchor,
+  useDebouncedApprovalUiState,
+} from './approvalHooks'
 
 type EditTab = 'structured' | 'raw'
 type DiscardTarget = { type: 'close' } | { type: 'switch-tab'; tab: EditTab } | null
@@ -192,10 +197,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
   const hasUnsavedChanges = editTab === 'structured' ? hasStructuredChanges : hasRawChanges
   const rawValidation = editTab === 'raw' && rawDraft.trim().length > 0 ? parseExecutionSetupPlanContent(rawDraft).error : null
 
-  useEffect(() => {
-    restoredDraftRef.current = false
-    lastSavedSnapshotRef.current = ''
-  }, [ticket.id])
+  useApprovalDraftReset(ticket.id, restoredDraftRef, lastSavedSnapshotRef)
 
   useEffect(() => {
     if (restoredDraftRef.current || (!plan && !isPlanGenerating)) return
@@ -230,43 +232,22 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
     setShowRegenerateDialog(false)
   }, [readOnly])
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ ticketId?: string; anchorId?: string }>).detail
-      if (!detail?.anchorId || String(detail.ticketId) !== String(ticket.id)) return
-      const target = document.getElementById(detail.anchorId)
-      if (!target) return
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
+  useApprovalFocusAnchor(ticket.id, EXECUTION_SETUP_PLAN_APPROVAL_FOCUS_EVENT)
 
-    window.addEventListener(EXECUTION_SETUP_PLAN_APPROVAL_FOCUS_EVENT, handler as EventListener)
-    return () => window.removeEventListener(EXECUTION_SETUP_PLAN_APPROVAL_FOCUS_EVENT, handler as EventListener)
-  }, [ticket.id])
-
-  useEffect(() => {
-    if (readOnly || !restoredDraftRef.current) return
-
-    const snapshot = {
+  useDebouncedApprovalUiState({
+    enabled: !readOnly && restoredDraftRef.current,
+    snapshot: {
       isEditMode,
       editTab,
       rawDraft,
       structuredDraft,
       commentary,
-    }
-    const serialized = JSON.stringify(snapshot)
-    if (serialized === lastSavedSnapshotRef.current) return
-
-    const timer = window.setTimeout(() => {
-      lastSavedSnapshotRef.current = serialized
-      saveUiState({
-        ticketId: ticket.id,
-        scope: uiStateScope,
-        data: snapshot,
-      })
-    }, 350)
-
-    return () => window.clearTimeout(timer)
-  }, [commentary, isEditMode, editTab, rawDraft, readOnly, saveUiState, structuredDraft, ticket.id, uiStateScope])
+    },
+    ticketId: ticket.id,
+    scope: uiStateScope,
+    saveUiState,
+    lastSavedSnapshotRef,
+  })
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {

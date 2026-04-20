@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Bead } from '../../phases/beads/types'
-import { createInitializedTestTicket, createTestRepoManager, makeTicketContextFromTicket, resetTestDb } from '../../test/factories'
+import { makeTicketContextFromTicket } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { readTicketBeads, recoverFailedCodingBead, writeTicketBeads } from '../phases/beadsPhase'
 import { phaseIntermediate, phaseResults } from '../phases/state'

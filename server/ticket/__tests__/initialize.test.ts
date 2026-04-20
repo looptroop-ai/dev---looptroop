@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process'
 import { appendLogEvent } from '../../log/executionLog'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getTicketPaths } from '../../storage/tickets'
-import { createTestRepoManager, resetTestDb } from '../../test/factories'
+import { TEST } from '../../test/factories'
+import { createTestRepoManager, resetTestDb } from '../../test/integration'
 import { initializeTicket } from '../initialize'
 
 interface CommandLogContext {
@@ -72,8 +73,8 @@ describe('initializeTicket', () => {
     const repoDir = repoManager.createRepo()
     const project = attachProject({
       folderPath: repoDir,
-      name: 'LoopTroop',
-      shortname: 'LOOP',
+      name: TEST.projectName,
+      shortname: TEST.shortname,
     })
     const ticket = createTicket({
       projectId: project.id,

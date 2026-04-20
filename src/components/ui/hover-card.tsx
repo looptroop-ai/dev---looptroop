@@ -1,7 +1,22 @@
 import * as HoverCardPrimitive from '@radix-ui/react-hover-card'
 import { cn } from '@/lib/utils'
 
-const HoverCard = HoverCardPrimitive.Root
+const isTestRuntime = import.meta.env.MODE === 'test'
+
+function HoverCard({
+  openDelay,
+  closeDelay,
+  ...props
+}: React.ComponentProps<typeof HoverCardPrimitive.Root>) {
+  return (
+    <HoverCardPrimitive.Root
+      openDelay={isTestRuntime ? 0 : openDelay}
+      closeDelay={isTestRuntime ? 0 : closeDelay}
+      {...props}
+    />
+  )
+}
+
 const HoverCardTrigger = HoverCardPrimitive.Trigger
 
 function HoverCardContent({

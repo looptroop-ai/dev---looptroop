@@ -21,6 +21,11 @@ import {
   parseInterviewDocumentContent,
 } from '@/lib/interviewDocument'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
+import {
+  useApprovalDraftReset,
+  useApprovalFocusAnchor,
+  useDebouncedApprovalUiState,
+} from './approvalHooks'
 
 const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK — they will still be handled during PRD drafting. Each PRD council model will use the ticket context, codebase analysis, and best practices to make a best-effort decision for those gaps, and you can still edit the interview now before isApproving if you want to replace any skipped item with your own answer.'
 
@@ -108,10 +113,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   const hasUnsavedChanges = editTab === 'answers' ? hasAnswerChanges : hasYamlChanges
   const yamlValidation = editTab === 'yaml' ? parseInterviewDocumentContent(yamlDraft) : null
 
-  useEffect(() => {
-    restoredDraftRef.current = false
-    lastSavedSnapshotRef.current = ''
-  }, [ticket.id])
+  useApprovalDraftReset(ticket.id, restoredDraftRef, lastSavedSnapshotRef)
 
   useEffect(() => {
     if (isLoading || restoredDraftRef.current || !interviewDocument) return
@@ -137,43 +139,21 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
     restoredDraftRef.current = true
   }, [interviewDocument, isLoading, persistedUiState, rawContent])
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ ticketId?: string; anchorId?: string }>).detail
-      if (!detail?.anchorId || String(detail.ticketId) !== String(ticket.id)) return
+  useApprovalFocusAnchor(ticket.id, INTERVIEW_APPROVAL_FOCUS_EVENT)
 
-      const target = document.getElementById(detail.anchorId)
-      if (!target) return
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-
-    window.addEventListener(INTERVIEW_APPROVAL_FOCUS_EVENT, handler as EventListener)
-    return () => window.removeEventListener(INTERVIEW_APPROVAL_FOCUS_EVENT, handler as EventListener)
-  }, [ticket.id])
-
-  useEffect(() => {
-    if (isLoading || !restoredDraftRef.current) return
-
-    const snapshot = {
+  useDebouncedApprovalUiState({
+    enabled: !isLoading && restoredDraftRef.current,
+    snapshot: {
       isEditMode,
       editTab,
       yamlDraft,
       answerDrafts,
-    }
-    const serialized = JSON.stringify(snapshot)
-    if (serialized === lastSavedSnapshotRef.current) return
-
-    const timer = window.setTimeout(() => {
-      lastSavedSnapshotRef.current = serialized
-      saveUiState({
-        ticketId: ticket.id,
-        scope: uiStateScope,
-        data: snapshot,
-      })
-    }, 350)
-
-    return () => window.clearTimeout(timer)
-  }, [answerDrafts, isEditMode, editTab, isLoading, saveUiState, ticket.id, uiStateScope, yamlDraft])
+    },
+    ticketId: ticket.id,
+    scope: uiStateScope,
+    saveUiState,
+    lastSavedSnapshotRef,
+  })
 
   function resetDraftsFromSaved(nextTab: EditTab = 'answers') {
     startTransition(() => {

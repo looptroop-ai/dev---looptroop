@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
 import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../../opencode/permissions'
 import { patchTicket } from '../../../storage/tickets'
-import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/integration'
 import { generateFinalTests } from '../generator'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {

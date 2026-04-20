@@ -2,7 +2,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
-import { TEST, createTestRepoManager, resetTestDb, createInitializedTestTicket } from '../../test/factories'
+import { TEST } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { phaseIntermediate, phaseResults } from '../phases/state'
 
 const { draftBeadsMock } = vi.hoisted(() => ({

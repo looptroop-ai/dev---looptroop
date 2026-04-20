@@ -1,18 +1,21 @@
 /**
- * Shared test factories for server-side tests.
- * Eliminates hardcoded ticket IDs, model names, and project-specific data.
+ * Shared pure test factories for server-side tests.
+ * Keep this module free of DB, filesystem, git, or router helpers.
  */
+import jsYaml from 'js-yaml'
 import type { InterviewDocument, InterviewDocumentQuestion } from '@shared/interviewArtifact'
 import type { PrdDocument } from '../structuredOutput/types'
 import type { TicketContext } from '../machines/types'
-import { buildInterviewDocumentYaml } from '../structuredOutput'
-import { createTicket, getTicketPaths } from '../storage/tickets'
-import { attachProject } from '../storage/projects'
-import { initializeTicket } from '../ticket/initialize'
-import { createFixtureRepoManager } from './fixtureRepo'
-import { initializeDatabase } from '../db/init'
-import { sqlite } from '../db/index'
-import { clearProjectDatabaseCache } from '../db/project'
+
+interface TicketLike {
+  id: string
+  projectId: number
+  externalId: string
+  title: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
 
 // ---------------------------------------------------------------------------
 // Generic test constants — never reference real ticket/project names
@@ -28,6 +31,10 @@ export const TEST = {
   councilMembers: ['test-vendor/council-a', 'test-vendor/council-b'],
   timestamp: '2026-01-01T00:00:00.000Z',
 } as const
+
+function buildYamlDocument(value: unknown): string {
+  return jsYaml.dump(value, { lineWidth: 120, noRefs: true }) as string
+}
 
 // ---------------------------------------------------------------------------
 // Machine TicketContext factory
@@ -62,10 +69,10 @@ export function makeTicketContext(
 }
 
 /**
- * Build a TicketContext from a real PublicTicket returned by createTicket().
+ * Build a TicketContext from a real PublicTicket-like object returned by createTicket().
  */
 export function makeTicketContextFromTicket(
-  ticket: ReturnType<typeof createTicket>,
+  ticket: TicketLike,
   overrides: Partial<TicketContext> = {},
 ): TicketContext {
   return makeTicketContext({
@@ -136,7 +143,7 @@ export function makeInterviewDocument(
 export function makeInterviewYaml(
   overrides: Partial<InterviewDocument> = {},
 ): string {
-  return buildInterviewDocumentYaml(makeInterviewDocument(overrides))
+  return buildYamlDocument(makeInterviewDocument(overrides))
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +169,7 @@ export function makePrdYaml(overrides: {
       `    title: Epic ${e}`,
       `    objective: Deliver epic ${e}.`,
       `    implementation_steps: [Implement epic ${e}]`,
-      `    user_stories:`,
+      '    user_stories:',
     )
     for (let s = 1; s <= storyCount; s++) {
       epics.push(
@@ -170,8 +177,8 @@ export function makePrdYaml(overrides: {
         `        title: Story ${s}`,
         `        acceptance_criteria: [Criteria ${s}]`,
         `        implementation_steps: [Implement story ${s}]`,
-        `        verification:`,
-        `          required_commands: [npm run test]`,
+        '        verification:',
+        '          required_commands: [npm run test]',
       )
     }
   }
@@ -210,7 +217,10 @@ export function makePrdYaml(overrides: {
 // ---------------------------------------------------------------------------
 // Full interview document builder (for route / approval tests)
 // ---------------------------------------------------------------------------
-export function buildInterviewDocument(ticketId: string, status: 'draft' | 'approved' = 'approved'): InterviewDocument {
+export function buildInterviewDocument(
+  ticketId: string,
+  status: 'draft' | 'approved' = 'approved',
+): InterviewDocument {
   return {
     schema_version: 1,
     ticket_id: ticketId,
@@ -380,60 +390,6 @@ export function makeVote(overrides: {
     voterId: overrides.voterId ?? TEST.councilMembers[0],
     draftId: overrides.draftId ?? 'draft-1',
     scores,
-    totalScore: overrides.totalScore ?? scores.reduce((sum, s) => sum + s.score, 0),
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Initialized ticket with real DB + filesystem (for integration-style tests)
-// ---------------------------------------------------------------------------
-export function createTestRepoManager(prefix = 'test-') {
-  return createFixtureRepoManager({
-    templatePrefix: `looptroop-${prefix}`,
-    files: { 'README.md': '# Test Repository\n' },
-  })
-}
-
-export function resetTestDb() {
-  clearProjectDatabaseCache()
-  initializeDatabase()
-  sqlite.exec('DELETE FROM attached_projects; DELETE FROM profiles;')
-}
-
-export function createInitializedTestTicket(
-  repoManager: ReturnType<typeof createTestRepoManager>,
-  overrides: {
-    projectName?: string
-    shortname?: string
-    title?: string
-    description?: string
-  } = {},
-) {
-  const repoDir = repoManager.createRepo()
-  const project = attachProject({
-    folderPath: repoDir,
-    name: overrides.projectName ?? TEST.projectName,
-    shortname: overrides.shortname ?? TEST.shortname,
-  })
-  const ticket = createTicket({
-    projectId: project.id,
-    title: overrides.title ?? 'Test ticket',
-    description: overrides.description ?? 'Test description.',
-  })
-
-  initializeTicket({
-    projectFolder: repoDir,
-    externalId: ticket.externalId,
-  })
-
-  const paths = getTicketPaths(ticket.id)
-  if (!paths) throw new Error('Expected ticket paths after initialization')
-
-  return {
-    ticket,
-    context: makeTicketContextFromTicket(ticket),
-    paths,
-    repoDir,
-    project,
+    totalScore: overrides.totalScore ?? scores.reduce((sum, score) => sum + score.score, 0),
   }
 }

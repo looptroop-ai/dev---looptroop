@@ -189,6 +189,7 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
       content: line,
       ...(options?.timestamp ? { timestamp: options.timestamp } : {}),
       ...(options?.entryId ? { entryId: options.entryId } : {}),
+      ...(options?.fingerprint ? { fingerprint: options.fingerprint } : {}),
       ...(options?.op ? { op: options.op } : {}),
       ...(options?.modelId ? { modelId: options.modelId } : {}),
       ...(options?.sessionId ? { sessionId: options.sessionId } : {}),

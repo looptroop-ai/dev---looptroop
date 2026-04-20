@@ -1,6 +1,9 @@
+import { extractLogFingerprint, hasMatchingLogFingerprint } from '@shared/logIdentity'
+
 export interface LogEntry {
   id: string
   entryId: string
+  fingerprint?: string
   line: string
   source: string
   status: string
@@ -23,6 +26,7 @@ export interface PlainLogOptions {
   modelId?: string
   sessionId?: string
   entryId?: string
+  fingerprint?: string
   op?: LogEntry['op']
   streaming?: boolean
 }
@@ -164,6 +168,7 @@ export function normalizeLogRecord(data: Record<string, unknown>, fallbackPhase:
   const kind = deriveKind(data, type, audience)
   const status = String(data.status ?? data.phase ?? fallbackPhase)
   const timestamp = typeof data.timestamp === 'string' ? data.timestamp : undefined
+  const fingerprint = extractLogFingerprint(data)
   const line = formatLine(type, kind, extractContent(data), data)
   const entryId = typeof data.entryId === 'string' && data.entryId
     ? data.entryId
@@ -181,6 +186,7 @@ export function normalizeLogRecord(data: Record<string, unknown>, fallbackPhase:
     source,
     status,
     ...(timestamp ? { timestamp } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
     audience,
     kind,
     ...(modelId ? { modelId } : {}),
@@ -196,6 +202,7 @@ export function normalizeStoredEntry(entry: Partial<LogEntry>, fallbackStatus: s
   const status = String(entry.status ?? fallbackStatus)
   const line = String(entry.line ?? '')
   const timestamp = entry.timestamp ? String(entry.timestamp) : undefined
+  const fingerprint = extractLogFingerprint(entry as Record<string, unknown>)
   const audience = entry.audience === 'all' || entry.audience === 'ai' || entry.audience === 'debug'
     ? entry.audience
     : source === 'debug'
@@ -212,6 +219,7 @@ export function normalizeStoredEntry(entry: Partial<LogEntry>, fallbackStatus: s
     source,
     status,
     ...(timestamp ? { timestamp } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
     audience,
     kind: String(entry.kind ?? (audience === 'ai' ? 'text' : 'milestone')),
     ...(entry.modelId ? { modelId: String(entry.modelId) } : {}),
@@ -263,7 +271,9 @@ export function isBenignGitProbeErrorLine(line: string): boolean {
 }
 
 export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
-  const existingIndex = bucket.findIndex(existing => existing.entryId === entry.entryId)
+  const existingIndex = bucket.findIndex(existing =>
+    hasMatchingLogFingerprint(existing, entry) || existing.entryId === entry.entryId,
+  )
 
   if (entry.op === 'append') {
     if (existingIndex >= 0) {
@@ -287,19 +297,26 @@ export function mergeEntry(bucket: LogEntry[], entry: LogEntry): LogEntry[] {
         }
         return next
       }
+
+      if (hasMatchingLogFingerprint(existing, entry)) {
+        return bucket
+      }
     }
 
     const duplicate = bucket.some(existing =>
-      existing.line === entry.line
-      && existing.source === entry.source
-      && existing.status === entry.status
-      && (
-        existing.entryId === entry.entryId
-        || compareTimestamps(existing.timestamp, entry.timestamp) === 0
-        || (
-          isLowValueGitProbeLine(existing.line)
-          && isLowValueGitProbeLine(entry.line)
-          && (timestampDistanceMs(existing.timestamp, entry.timestamp) ?? 0) <= 2000
+      hasMatchingLogFingerprint(existing, entry)
+      || (
+        existing.line === entry.line
+        && existing.source === entry.source
+        && existing.status === entry.status
+        && (
+          existing.entryId === entry.entryId
+          || compareTimestamps(existing.timestamp, entry.timestamp) === 0
+          || (
+            isLowValueGitProbeLine(existing.line)
+            && isLowValueGitProbeLine(entry.line)
+            && (timestampDistanceMs(existing.timestamp, entry.timestamp) ?? 0) <= 2000
+          )
         )
       ))
     if (duplicate) return bucket

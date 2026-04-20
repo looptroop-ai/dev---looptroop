@@ -2,7 +2,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import yaml from 'js-yaml'
 import type { Bead } from '../../phases/beads/types'
-import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/factories'
+import { TEST } from '../../test/factories'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { patchTicket, getTicketPaths } from '../tickets'
 import { syncTicketRuntimeProjection } from '../ticketRuntimeProjection'
 import { writeTicketBeads } from '../../workflow/phases/beadsPhase'
@@ -22,14 +23,14 @@ function makeBead(overrides: Partial<Bead> = {}): Bead {
     testCommands: [],
     contextGuidance: { patterns: [], anti_patterns: [] },
     issueType: 'task',
-    externalRef: 'TEST-1',
+    externalRef: TEST.externalId,
     labels: [],
     dependencies: { blocked_by: [], blocks: [] },
     targetFiles: [],
     notes: '',
     iteration: 0,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
+    createdAt: TEST.timestamp,
+    updatedAt: TEST.timestamp,
     completedAt: '',
     startedAt: '',
     beadStartCommit: null,

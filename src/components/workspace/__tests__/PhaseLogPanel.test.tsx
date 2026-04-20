@@ -408,7 +408,7 @@ describe('PhaseLogPanel', () => {
     expect(screen.queryByText(/\[ERROR-/i)).not.toBeInTheDocument()
   })
 
-  it('includes the full model id when copying a single AI error row', () => {
+  it('includes the full model id when copying a single AI error row', async () => {
     const logs: LogEntry[] = [
       {
         id: 'ai-error',
@@ -430,12 +430,14 @@ describe('PhaseLogPanel', () => {
 
     fireEvent.click(screen.getByTitle('Copy log entry'))
 
-    expect(writeTextMock).toHaveBeenCalledWith(
-      '[2026-04-07T07:30:44.719Z] [ERROR-minimax-m2.5-free] Session retry #1: <none> [model: opencode/minimax-m2.5-free]',
-    )
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith(
+        '[2026-04-07T07:30:44.719Z] [ERROR-minimax-m2.5-free] Session retry #1: <none> [model: opencode/minimax-m2.5-free]',
+      )
+    })
   })
 
-  it('keeps the single-entry copy button beside the sticky More/Less controls for long rows', () => {
+  it('keeps the single-entry copy button beside the sticky More/Less controls for long rows', async () => {
     const logs: LogEntry[] = [
       makeLog(
         'long-entry',
@@ -460,14 +462,16 @@ describe('PhaseLogPanel', () => {
 
     fireEvent.click(copyButton)
 
-    expect(writeTextMock).toHaveBeenCalledWith([
-      '[2026-03-10T10:00:00.000Z] [SYS] Long entry started',
-      'line 2',
-      'line 3',
-      'line 4',
-      'line 5',
-      'line 6',
-    ].join('\n'))
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith([
+        '[2026-03-10T10:00:00.000Z] [SYS] Long entry started',
+        'line 2',
+        'line 3',
+        'line 4',
+        'line 5',
+        'line 6',
+      ].join('\n'))
+    })
   })
 
   it('includes full model ids when copying filtered ERROR logs', async () => {

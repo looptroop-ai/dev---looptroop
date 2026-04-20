@@ -1,5 +1,6 @@
 import { normalizeFinalTestCommandsOutput } from '../../structuredOutput'
 import type { StructuredRetryDiagnostic } from '@shared/structuredRetryDiagnostics'
+import { unwrapTaggedStructuredOutput } from '../parserTaggedStructuredOutput'
 
 export const FINAL_TEST_COMMANDS_MARKER = '<FINAL_TEST_COMMANDS>'
 export const FINAL_TEST_COMMANDS_END = '</FINAL_TEST_COMMANDS>'
@@ -19,32 +20,37 @@ export interface FinalTestCommandPlan {
 }
 
 export function parseFinalTestCommands(output: string): FinalTestCommandPlan {
-  const normalized = normalizeFinalTestCommandsOutput(output)
-  if (!normalized.ok) {
+  const parsed = unwrapTaggedStructuredOutput(
+    output,
+    normalizeFinalTestCommandsOutput(output),
+    { missingMarkerError: 'No final test command marker found' },
+  )
+
+  if (!parsed.ok) {
     return {
-      markerFound: normalized.error !== 'No final test command marker found',
+      markerFound: parsed.markerFound,
       commands: [],
       summary: null,
       testFiles: [],
       modifiedFiles: [],
       testsCount: null,
-      errors: [normalized.error],
-      repairApplied: normalized.repairApplied,
-      repairWarnings: normalized.repairWarnings,
-      validationError: normalized.error,
-      retryDiagnostic: normalized.retryDiagnostic,
+      errors: parsed.errors,
+      repairApplied: parsed.repairApplied,
+      repairWarnings: parsed.repairWarnings,
+      validationError: parsed.validationError,
+      retryDiagnostic: parsed.retryDiagnostic,
     }
   }
 
   return {
-    markerFound: true,
-    commands: normalized.value.commands,
-    summary: normalized.value.summary,
-    testFiles: normalized.value.testFiles,
-    modifiedFiles: normalized.value.modifiedFiles,
-    testsCount: normalized.value.testsCount,
+    markerFound: parsed.markerFound,
+    commands: parsed.value.commands,
+    summary: parsed.value.summary,
+    testFiles: parsed.value.testFiles,
+    modifiedFiles: parsed.value.modifiedFiles,
+    testsCount: parsed.value.testsCount,
     errors: [],
-    repairApplied: normalized.repairApplied,
-    repairWarnings: normalized.repairWarnings,
+    repairApplied: parsed.repairApplied,
+    repairWarnings: parsed.repairWarnings,
   }
 }

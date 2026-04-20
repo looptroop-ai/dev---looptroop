@@ -8,8 +8,8 @@ import { createFixtureRepoManager } from '../../test/fixtureRepo'
 import {
   TEST,
   makeTicketContextFromTicket,
-  resetTestDb,
 } from '../../test/factories'
+import { resetTestDb } from '../../test/integration'
 import { initializeTicket } from '../../ticket/initialize'
 
 const { runOpenCodePromptMock, runOpenCodeSessionPromptMock } = vi.hoisted(() => ({

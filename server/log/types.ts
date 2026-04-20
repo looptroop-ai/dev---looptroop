@@ -16,6 +16,7 @@ export interface LogEvent {
   status?: string
   data?: Record<string, unknown>
   entryId?: string
+  fingerprint?: string
   op?: LogEntryOperation
   audience?: LogAudience
   kind?: LogKind

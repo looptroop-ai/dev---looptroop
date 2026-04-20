@@ -16,6 +16,11 @@ import { BeadsApprovalEditor, type ParsedBead } from './BeadsApprovalEditor'
 import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
 import { ExecutionSetupPlanApprovalPane } from './ExecutionSetupPlanApprovalPane'
+import {
+  useApprovalDraftReset,
+  useApprovalFocusAnchor,
+  useDebouncedApprovalUiState,
+} from './approvalHooks'
 
 interface ApprovalViewProps {
   ticket: Ticket
@@ -174,11 +179,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
     [artifacts],
   )
 
-  // Reset on ticket change
-  useEffect(() => {
-    restoredDraftRef.current = false
-    lastSavedSnapshotRef.current = ''
-  }, [ticket.id])
+  useApprovalDraftReset(ticket.id, restoredDraftRef, lastSavedSnapshotRef)
 
   // Restore persisted UI state
   useEffect(() => {
@@ -207,43 +208,21 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
     restoredDraftRef.current = true
   }, [isLoading, fetchedBeads, persistedUiState, baseStructuredDraft, rawJsonl])
 
-  // Scroll anchoring for BEADS_APPROVAL_FOCUS_EVENT
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ ticketId?: string; anchorId?: string }>).detail
-      if (!detail?.anchorId || String(detail.ticketId) !== String(ticket.id)) return
-      const target = document.getElementById(detail.anchorId)
-      if (!target) return
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-    window.addEventListener(BEADS_APPROVAL_FOCUS_EVENT, handler as EventListener)
-    return () => window.removeEventListener(BEADS_APPROVAL_FOCUS_EVENT, handler as EventListener)
-  }, [ticket.id])
+  useApprovalFocusAnchor(ticket.id, BEADS_APPROVAL_FOCUS_EVENT)
 
-  // Persist UI state
-  useEffect(() => {
-    if (isLoading || !restoredDraftRef.current) return
-
-    const snapshot = {
+  useDebouncedApprovalUiState({
+    enabled: !isLoading && restoredDraftRef.current,
+    snapshot: {
       isEditMode,
       editTab,
       jsonlDraft,
       structuredDraft,
-    }
-    const serialized = JSON.stringify(snapshot)
-    if (serialized === lastSavedSnapshotRef.current) return
-
-    const timer = window.setTimeout(() => {
-      lastSavedSnapshotRef.current = serialized
-      saveUiState({
-        ticketId: ticket.id,
-        scope: uiStateScope,
-        data: snapshot,
-      })
-    }, 350)
-
-    return () => window.clearTimeout(timer)
-  }, [isEditMode, editTab, isLoading, saveUiState, structuredDraft, jsonlDraft, ticket.id, uiStateScope])
+    },
+    ticketId: ticket.id,
+    scope: uiStateScope,
+    saveUiState,
+    lastSavedSnapshotRef,
+  })
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {
