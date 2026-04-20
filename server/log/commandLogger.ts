@@ -30,6 +30,10 @@ function getSharedStore(): AsyncLocalStorage<CommandLogContext> {
 }
 const commandLogStore = getSharedStore()
 
+export type LoggedCommandResult =
+  | { ok: true; stdin?: string; stdout?: string; stderr?: string }
+  | { ok: false; error: string; stdin?: string; stdout?: string; stderr?: string }
+
 /**
  * Run `fn` with command-logging context active.  Any `logCommand()` calls
  * made anywhere in the call stack inside `fn` will emit SYS log entries
@@ -147,7 +151,7 @@ export async function withCommandLoggingFieldsAsync<T>(
 export function logCommand(
   bin: string,
   args: string[],
-  result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string },
+  result: LoggedCommandResult,
 ) {
   const ctx = commandLogStore.getStore()
   if (!ctx) return
@@ -161,7 +165,10 @@ export function logCommand(
   let type: 'info' | 'error'
 
   if (result.ok) {
-    const probeOutcome = formatKnownGitProbeSuccess(commandText, result.stdout, result.stderr)
+    const shouldUseStructuredOutput = shouldRenderStructuredCommandOutput(result)
+    const probeOutcome = shouldUseStructuredOutput
+      ? null
+      : formatKnownGitProbeSuccess(commandText, result.stdout, result.stderr)
     if (probeOutcome) {
       content = `[CMD] $ ${cmdStr}  →  ${truncateOutput(probeOutcome, 2500)}`
       type = 'info'
@@ -169,13 +176,20 @@ export function logCommand(
       return
     }
 
-    const outputStr = formatCompactCommandOutput(result.stdout, result.stderr)
-    content = outputStr
-      ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(outputStr, 2500)}`
-      : `[CMD] $ ${cmdStr}  →  ok`
+    if (shouldUseStructuredOutput) {
+      content = formatStructuredCommandLog(cmdStr, result)
+    } else {
+      const outputStr = formatCompactCommandOutput(result.stdout, result.stderr)
+      content = outputStr
+        ? `[CMD] $ ${cmdStr}  →  ${truncateOutput(outputStr, 2500)}`
+        : `[CMD] $ ${cmdStr}  →  ok`
+    }
     type = 'info'
   } else {
-    const benignProbeFailure = formatKnownGitProbeFailure(commandText, result.error)
+    const shouldUseStructuredOutput = shouldRenderStructuredCommandOutput(result)
+    const benignProbeFailure = shouldUseStructuredOutput
+      ? null
+      : formatKnownGitProbeFailure(commandText, result.error)
     if (benignProbeFailure) {
       content = `[CMD] $ ${cmdStr}  →  ${truncateOutput(benignProbeFailure, 2500)}`
       type = 'info'
@@ -183,8 +197,12 @@ export function logCommand(
       return
     }
 
-    const error = compactCommandText(result.error)
-    content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(error, 2500)}`
+    if (shouldUseStructuredOutput) {
+      content = formatStructuredCommandLog(cmdStr, result)
+    } else {
+      const error = compactCommandText(result.error)
+      content = `[CMD] $ ${cmdStr}  →  error: ${truncateOutput(error, 2500)}`
+    }
     type = 'error'
   }
 
@@ -211,7 +229,11 @@ function redactCwd(args: string[]): string[] {
 }
 
 function compactCommandText(text: string | undefined): string {
-  return (text ?? '').trim().replace(/\r?\n+/g, ' | ')
+  return normalizeCommandText(text).replace(/\n+/g, ' | ')
+}
+
+function normalizeCommandText(text: string | undefined): string {
+  return (text ?? '').replace(/\r\n/g, '\n').trim()
 }
 
 function formatCompactCommandOutput(stdout?: string, stderr?: string): string {
@@ -224,6 +246,52 @@ function formatCompactCommandOutput(stdout?: string, stderr?: string): string {
   if (normalizedStdout) return normalizedStdout
   if (normalizedStderr) return `STDERR: ${normalizedStderr}`
   return ''
+}
+
+function shouldRenderStructuredCommandOutput(result: LoggedCommandResult): boolean {
+  const stdin = normalizeCommandText(result.stdin)
+  const stdout = normalizeCommandText(result.stdout)
+  const stderr = normalizeCommandText(result.stderr)
+
+  if (stdin) return true
+  if (!result.ok && (stdout || stderr)) return true
+  if (stderr) return true
+  if (stdout.includes('\n')) return true
+  return false
+}
+
+function formatStructuredCommandLog(cmdStr: string, result: LoggedCommandResult): string {
+  const sections: string[] = []
+  const stdin = normalizeCommandText(result.stdin)
+  const stdout = normalizeCommandText(result.stdout)
+  const stderr = normalizeCommandText(result.stderr)
+
+  if (stdin) {
+    sections.push(`STDIN:\n${truncateOutput(stdin, 2500)}`)
+  }
+
+  if (!result.ok) {
+    const detail = normalizeCommandText(result.error)
+    if (shouldIncludeErrorSection(detail, stdout, stderr)) {
+      sections.push(`ERROR:\n${truncateOutput(detail, 2500)}`)
+    }
+  }
+
+  if (stdout) {
+    sections.push(`STDOUT:\n${truncateOutput(stdout, 2500)}`)
+  }
+
+  if (stderr) {
+    sections.push(`STDERR:\n${truncateOutput(stderr, 2500)}`)
+  }
+
+  return [`[CMD] $ ${cmdStr}`, ...sections].join('\n')
+}
+
+function shouldIncludeErrorSection(detail: string, stdout: string, stderr: string): boolean {
+  if (!detail) return false
+  if (detail === stdout || detail === stderr) return false
+  return true
 }
 
 function isLikelyBenignGitProbeFailure(error: string): boolean {

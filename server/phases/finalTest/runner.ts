@@ -6,7 +6,13 @@ import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
 
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
-function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
+function logCmd(
+  bin: string,
+  args: string[],
+  result:
+    | { ok: true; stdin?: string; stdout?: string; stderr?: string }
+    | { ok: false; error: string; stdin?: string; stdout?: string; stderr?: string },
+) {
   try {
     const { logCommand } = _require('../../log/commandLogger') as typeof import('../../log/commandLogger')
     logCommand(bin, args, result)
@@ -135,14 +141,22 @@ export async function executeFinalTestCommands(input: {
     commandResults.push(result)
 
     // Log the command execution to SYS
-    const combinedOutput = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
     if (result.exitCode === 0 && !result.timedOut) {
-      logCmd('/bin/bash', ['-lc', command], { ok: true, stdout: combinedOutput || undefined })
+      logCmd('/bin/bash', ['-lc', command], {
+        ok: true,
+        stdout: result.stdout.trim() || undefined,
+        stderr: result.stderr.trim() || undefined,
+      })
     } else {
       const errDetail = result.timedOut
         ? `timed out after ${result.durationMs}ms`
         : `exit code ${result.exitCode ?? 'unknown'}`
-      logCmd('/bin/bash', ['-lc', command], { ok: false, error: combinedOutput ? `${errDetail}\n${combinedOutput}` : errDetail })
+      logCmd('/bin/bash', ['-lc', command], {
+        ok: false,
+        error: errDetail,
+        stdout: result.stdout.trim() || undefined,
+        stderr: result.stderr.trim() || undefined,
+      })
     }
 
     if (result.exitCode !== 0 || result.timedOut) {

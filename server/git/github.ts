@@ -7,7 +7,9 @@ const _require = createRequire(import.meta.url)
 function logCmd(
   bin: string,
   args: string[],
-  result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string },
+  result:
+    | { ok: true; stdin?: string; stdout?: string; stderr?: string }
+    | { ok: false; error: string; stdin?: string; stdout?: string; stderr?: string },
 ) {
   try {
     const { logCommand } = _require('../log/commandLogger') as typeof import('../log/commandLogger')
@@ -41,12 +43,24 @@ function runCommand(
   const stderr = (result.stderr ?? '').trim()
 
   if (result.status !== 0 || result.error) {
+    const error = result.error?.message ?? `exit code ${result.status ?? '?'}`
     const detail = result.error?.message ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
-    logCmd(bin, args, { ok: false, error: detail })
+    logCmd(bin, args, {
+      ok: false,
+      error,
+      stdin: options?.input?.trim() || undefined,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
+    })
     throw new Error(detail)
   }
 
-  logCmd(bin, args, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
+  logCmd(bin, args, {
+    ok: true,
+    stdin: options?.input?.trim() || undefined,
+    stdout: stdout || undefined,
+    stderr: stderr || undefined,
+  })
   return stdout
 }
 
@@ -71,12 +85,24 @@ function tryCommand(
   const stderr = (result.stderr ?? '').trim()
 
   if (result.status !== 0 || result.error) {
+    const error = result.error?.message ?? `exit code ${result.status ?? '?'}`
     const detail = result.error?.message ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
-    logCmd(bin, args, { ok: false, error: detail })
+    logCmd(bin, args, {
+      ok: false,
+      error,
+      stdin: options?.input?.trim() || undefined,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
+    })
     return { ok: false, error: detail }
   }
 
-  logCmd(bin, args, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })
+  logCmd(bin, args, {
+    ok: true,
+    stdin: options?.input?.trim() || undefined,
+    stdout: stdout || undefined,
+    stderr: stderr || undefined,
+  })
   return { ok: true, stdout, stderr }
 }
 

@@ -49,7 +49,7 @@ describe('commandLogger', () => {
     expect(logs[2]!.content).toBe('[CMD] $ git push  →  error: remote rejected')
   })
 
-  it('emits stderr-only output in compact form', () => {
+  it('emits stderr-only output as a structured command section', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -61,11 +61,14 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('STDERR: Preparing worktree')
-    expect(logs[0]).not.toContain('\n')
+    expect(logs[0]).toBe([
+      '[CMD] $ git worktree add /tmp/wt BRANCH',
+      'STDERR:',
+      'Preparing worktree (new branch \'BRANCH\')',
+    ].join('\n'))
   })
 
-  it('shows both stdout and stderr in compact form', () => {
+  it('shows stdout and stderr as separate command sections', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -74,11 +77,16 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('STDOUT: abc1234')
-    expect(logs[0]).toContain('STDERR: 1 file changed')
+    expect(logs[0]).toBe([
+      '[CMD] $ git commit -m msg',
+      'STDOUT:',
+      'abc1234',
+      'STDERR:',
+      '1 file changed',
+    ].join('\n'))
   })
 
-  it('collapses multi-line output into a single visual line', () => {
+  it('preserves multi-line stdout as a structured section', () => {
     const logs: string[] = []
     withCommandLogging(
       'test-ticket', 'TEST-1', 'DRAFT',
@@ -90,8 +98,47 @@ describe('commandLogger', () => {
       },
       (_phase, _type, content) => { logs.push(content) },
     )
-    expect(logs[0]).toContain('M  file1.ts | A  file2.ts | D  file3.ts')
-    expect(logs[0]).not.toContain('\n')
+    expect(logs[0]).toBe([
+      '[CMD] $ git status --porcelain',
+      'STDOUT:',
+      'M  file1.ts',
+      'A  file2.ts',
+      'D  file3.ts',
+    ].join('\n'))
+  })
+
+  it('captures stdin stdout and stderr separately for structured failures', () => {
+    const logs: Array<{ type: string; content: string }> = []
+    withCommandLogging(
+      'test-ticket', 'TEST-1', 'CODING',
+      () => {
+        logCommand('gh', ['api', 'graphql'], {
+          ok: false,
+          error: 'exit code 1',
+          stdin: '{"query":"{ viewer { login } }"}',
+          stdout: '{"data":null}',
+          stderr: 'token expired',
+        })
+      },
+      (_phase, type, content) => { logs.push({ type, content }) },
+    )
+
+    expect(logs).toEqual([
+      {
+        type: 'error',
+        content: [
+          '[CMD] $ gh api graphql',
+          'STDIN:',
+          '{"query":"{ viewer { login } }"}',
+          'ERROR:',
+          'exit code 1',
+          'STDOUT:',
+          '{"data":null}',
+          'STDERR:',
+          'token expired',
+        ].join('\n'),
+      },
+    ])
   })
 
   it('downgrades missing origin/HEAD probes to info', () => {

@@ -847,9 +847,70 @@ describe('PhaseLogPanel', () => {
     )
 
     expect(screen.getByText('[TOOL]')).toHaveClass('text-cyan-500')
-    expect(screen.getByText('Input:')).toHaveClass('text-sky-300')
-    expect(screen.getByText('Output:')).toHaveClass('text-sky-700')
-    expect(screen.getByText('Error:')).toHaveClass('text-rose-950')
+    expect(screen.getByText('Input:')).toHaveClass('text-sky-700')
+    expect(screen.getByText('Output:')).toHaveClass('text-emerald-700')
+    expect(screen.getByText('Error:')).toHaveClass('text-rose-700')
+  })
+
+  it('separates command stdin stdout and stderr for both legacy and structured command rows', () => {
+    renderWithTooltipProvider(
+      <PhaseLogPanel
+        phase="CODING"
+        defaultTab="SYS"
+        logs={[
+          makeLog('cmd-legacy', '[CMD] $ git commit -m msg  →  STDOUT: abc1234 | STDERR: 1 file changed', {
+            status: 'CODING',
+            source: 'system',
+          }),
+          makeLog('cmd-structured', '[CMD] $ gh api graphql\nSTDIN:\n{"query":"{ viewer { login } }"}\nSTDOUT:\n{"data":{"viewer":{"login":"looptroop"}}}\nSTDERR:\nwarning: using cached token', {
+            status: 'CODING',
+            source: 'system',
+          }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('STDIN:')).toHaveClass('text-sky-700')
+    const stdoutLabels = screen.getAllByText('STDOUT:')
+    expect(stdoutLabels[0]).toHaveClass('text-emerald-700')
+    expect(stdoutLabels[1]).toHaveClass('text-emerald-700')
+    const stderrLabels = screen.getAllByText('STDERR:')
+    expect(stderrLabels[0]).toHaveClass('text-rose-700')
+    expect(stderrLabels[1]).toHaveClass('text-rose-700')
+    expect(screen.getByText('abc1234')).toBeInTheDocument()
+    expect(screen.getByText('1 file changed')).toBeInTheDocument()
+    expect(screen.getByText('warning: using cached token')).toBeInTheDocument()
+  })
+
+  it('promotes meaningful plain command output to stdout while keeping tiny probe output compact', () => {
+    renderWithTooltipProvider(
+      <PhaseLogPanel
+        phase="CREATING_PULL_REQUEST"
+        defaultTab="SYS"
+        logs={[
+          makeLog('cmd-json', '[CMD] $ gh repo view looptroop-ai/pocketbase-master --json nameWithOwner  →  {"nameWithOwner":"looptroop-ai/pocketbase-master"}', {
+            status: 'CREATING_PULL_REQUEST',
+            source: 'system',
+          }),
+          makeLog('cmd-version', '[CMD] $ gh --version  →  gh version 2.90.0 (2026-04-16) | https://github.com/cli/cli/releases/tag/v2.90.0', {
+            status: 'CREATING_PULL_REQUEST',
+            source: 'system',
+          }),
+          makeLog('cmd-short', '[CMD] $ git rev-parse HEAD  →  7e8c75dfb775861191b78a69b699ef13cd175ee9', {
+            status: 'CREATING_PULL_REQUEST',
+            source: 'system',
+          }),
+        ]}
+      />,
+    )
+
+    const stdoutLabels = screen.getAllByText('STDOUT:')
+    expect(stdoutLabels).toHaveLength(2)
+    expect(stdoutLabels[0]).toHaveClass('text-emerald-700')
+    expect(stdoutLabels[1]).toHaveClass('text-emerald-700')
+    expect(screen.getByText('{"nameWithOwner":"looptroop-ai/pocketbase-master"}')).toBeInTheDocument()
+    expect(screen.getByText(/gh version 2\.90\.0/)).toBeInTheDocument()
+    expect(screen.getByText(/\$ git rev-parse HEAD/)).toBeInTheDocument()
   })
 
   it('shows non-error command chatter in SYS while keeping ALL focused on higher-signal entries', () => {

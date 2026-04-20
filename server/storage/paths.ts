@@ -7,7 +7,13 @@ import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
 
 // Lazy-load commandLogger to avoid vitest mock-resolution deadlock.
-function logCmd(bin: string, args: string[], result: { ok: true; stdout?: string; stderr?: string } | { ok: false; error: string }) {
+function logCmd(
+  bin: string,
+  args: string[],
+  result:
+    | { ok: true; stdin?: string; stdout?: string; stderr?: string }
+    | { ok: false; error: string; stdin?: string; stdout?: string; stderr?: string },
+) {
   try {
     const { logCommand } = _require('../log/commandLogger') as typeof import('../log/commandLogger')
     logCommand(bin, args, result)
@@ -37,8 +43,12 @@ export function resolveGitRepoRoot(folderPath: string): string | null {
   const stdout = (result.stdout ?? '').trim()
   const stderr = (result.stderr ?? '').trim()
   if (result.status !== 0 || result.error) {
-    const detail = result.error?.message ?? ([stdout, stderr].filter(Boolean).join(' | ') || `exit code ${result.status ?? '?'}`)
-    logCmd('git', fullArgs, { ok: false, error: detail })
+    logCmd('git', fullArgs, {
+      ok: false,
+      error: result.error?.message ?? `exit code ${result.status ?? '?'}`,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
+    })
     return null
   }
   logCmd('git', fullArgs, { ok: true, stdout: stdout || undefined, stderr: stderr || undefined })

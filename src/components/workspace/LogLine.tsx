@@ -5,21 +5,44 @@ import type { LogEntry } from '@/context/LogContext'
 import { formatLogLine, getEntryColor, formatTimestamp } from './logFormat'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
-type ToolSectionKind = 'input' | 'output' | 'error'
+type StructuredSectionKind = 'input' | 'stdin' | 'output' | 'stdout' | 'error' | 'stderr'
 
-interface ToolBodySection {
-  kind: ToolSectionKind
+interface StructuredBodySection {
+  kind: StructuredSectionKind
   label: string
   content: string
 }
 
-const TOOL_SECTION_TEXT_COLORS: Record<ToolSectionKind, string> = {
-  input: 'text-sky-300',
-  output: 'text-sky-700 dark:text-sky-500',
-  error: 'text-rose-950 dark:text-rose-300',
+const STRUCTURED_SECTION_STYLES: Record<StructuredSectionKind, { container: string; label: string }> = {
+  input: {
+    container: 'border-sky-500/20 bg-sky-500/10',
+    label: 'text-sky-700 dark:text-sky-300',
+  },
+  stdin: {
+    container: 'border-sky-500/20 bg-sky-500/10',
+    label: 'text-sky-700 dark:text-sky-300',
+  },
+  output: {
+    container: 'border-emerald-500/20 bg-emerald-500/10',
+    label: 'text-emerald-700 dark:text-emerald-300',
+  },
+  stdout: {
+    container: 'border-emerald-500/20 bg-emerald-500/10',
+    label: 'text-emerald-700 dark:text-emerald-300',
+  },
+  error: {
+    container: 'border-rose-500/20 bg-rose-500/10',
+    label: 'text-rose-700 dark:text-rose-300',
+  },
+  stderr: {
+    container: 'border-rose-500/20 bg-rose-500/10',
+    label: 'text-rose-700 dark:text-rose-300',
+  },
 }
 
-const TOOL_SECTION_PATTERN = /\n(Input|Output|Error):\n/g
+const STRUCTURED_SECTION_PATTERN = /\n(Input|Output|Error|STDIN|STDOUT|STDERR):\n/g
+const LEGACY_COMMAND_SECTION_PATTERN = /(STDIN|STDOUT|STDERR): /g
+const COMMAND_RESULT_SEPARATOR = '  →  '
 
 /** For streaming entries: returns [firstLine, ...last5Lines] with a separator when truncated. */
 function getStreamingVisibleLines(text: string): { lines: string[]; truncated: boolean } {
@@ -37,8 +60,12 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
 
   const color = getEntryColor(entry)
   const isToolEntry = entry.kind === 'tool' || formatted.tagText === '[TOOL]'
+  const isCommandEntry = formatted.tagText === '[CMD]'
   if (isToolEntry) {
     return renderToolLogLine(entry, formatted.tagText, formatted.tagTitle, formatted.bodyText)
+  }
+  if (isCommandEntry) {
+    return renderCommandLogLine(entry, formatted.tagText, formatted.tagTitle, formatted.bodyText)
   }
 
   return (
@@ -54,21 +81,25 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
   )
 }
 
-function splitToolBody(bodyText: string): { introText: string; sections: ToolBodySection[] } {
-  const matches = Array.from(bodyText.matchAll(TOOL_SECTION_PATTERN))
+function toStructuredSectionKind(label: string): StructuredSectionKind {
+  return label.toLowerCase() as StructuredSectionKind
+}
+
+function splitStructuredBody(bodyText: string): { introText: string; sections: StructuredBodySection[] } {
+  const matches = Array.from(bodyText.matchAll(STRUCTURED_SECTION_PATTERN))
   if (matches.length === 0) return { introText: bodyText, sections: [] }
 
   const firstSectionStart = matches[0]?.index ?? bodyText.length
-  const sections = matches.map((match, index): ToolBodySection => {
+  const sections = matches.map((match, index): StructuredBodySection => {
     const rawLabel = match[1] ?? 'Output'
     const contentStart = (match.index ?? 0) + match[0].length
     const nextSectionStart = matches[index + 1]?.index ?? bodyText.length
     return {
-      kind: rawLabel.toLowerCase() as ToolSectionKind,
+      kind: toStructuredSectionKind(rawLabel),
       label: rawLabel,
       content: bodyText.slice(contentStart, nextSectionStart),
     }
-  })
+  }).filter(section => section.content.trim().length > 0)
 
   return {
     introText: bodyText.slice(0, firstSectionStart),
@@ -76,9 +107,86 @@ function splitToolBody(bodyText: string): { introText: string; sections: ToolBod
   }
 }
 
-function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | undefined, bodyText: string) {
+function splitLegacyCommandBody(bodyText: string): { introText: string; sections: StructuredBodySection[] } {
+  const separatorIndex = bodyText.indexOf(COMMAND_RESULT_SEPARATOR)
+  if (separatorIndex === -1) return { introText: bodyText, sections: [] }
+
+  const introText = bodyText.slice(0, separatorIndex)
+  const resultText = bodyText.slice(separatorIndex + COMMAND_RESULT_SEPARATOR.length).trim()
+  if (!resultText) return { introText: bodyText, sections: [] }
+
+  const streamMatches = Array.from(resultText.matchAll(LEGACY_COMMAND_SECTION_PATTERN))
+  if (streamMatches.length > 0) {
+    return {
+      introText,
+      sections: streamMatches
+        .map((match, index): StructuredBodySection => {
+          const rawLabel = match[1] ?? 'STDOUT'
+          const contentStart = (match.index ?? 0) + match[0].length
+          const nextSectionStart = streamMatches[index + 1]?.index ?? resultText.length
+          const content = resultText
+            .slice(contentStart, nextSectionStart)
+            .replace(/\s+\|\s*$/, '')
+            .trim()
+
+          return {
+            kind: toStructuredSectionKind(rawLabel),
+            label: rawLabel,
+            content,
+          }
+        })
+        .filter(section => section.content.length > 0),
+    }
+  }
+
+  if (resultText.toLowerCase().startsWith('error: ')) {
+    return {
+      introText,
+      sections: [
+        {
+          kind: 'error',
+          label: 'ERROR',
+          content: resultText.slice('error: '.length).trim(),
+        },
+      ],
+    }
+  }
+
+  if (shouldRenderImplicitStdoutSection(resultText)) {
+    return {
+      introText,
+      sections: [
+        {
+          kind: 'stdout',
+          label: 'STDOUT',
+          content: resultText,
+        },
+      ],
+    }
+  }
+
+  return { introText: bodyText, sections: [] }
+}
+
+function shouldRenderImplicitStdoutSection(resultText: string): boolean {
+  const trimmed = resultText.trim()
+  if (!trimmed || trimmed.toLowerCase() === 'ok') return false
+  if (trimmed.includes('\t')) return true
+  if (trimmed.includes(' | ')) return true
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return true
+  if (trimmed.length >= 80) return true
+  if (trimmed.split(/\s+/).length >= 5) return true
+  return false
+}
+
+function renderStructuredLogLine(
+  entry: LogEntry,
+  tagText: string,
+  tagTitle: string | undefined,
+  body: { introText: string; sections: StructuredBodySection[] },
+) {
   const color = getEntryColor(entry)
-  const { introText, sections } = splitToolBody(bodyText)
+  const { introText, sections } = body
 
   return (
     <>
@@ -90,13 +198,71 @@ function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | 
       </span>
       {introText}
       {sections.map((section) => (
-        <span key={section.label} className={TOOL_SECTION_TEXT_COLORS[section.kind]}>
-          {'\n'}
-          <span className={cn('font-semibold', TOOL_SECTION_TEXT_COLORS[section.kind])}>{section.label}:</span>
-          {'\n'}
-          {section.content}
+        <span
+          key={`${section.label}-${section.content}`}
+          className={cn(
+            'mt-2 block rounded-md border px-3 py-2 shadow-sm',
+            STRUCTURED_SECTION_STYLES[section.kind].container,
+          )}
+        >
+          <span
+            className={cn(
+              'mb-1 block text-[10px] font-semibold uppercase tracking-[0.22em]',
+              STRUCTURED_SECTION_STYLES[section.kind].label,
+            )}
+          >
+            {section.label}:
+          </span>
+          <span className="block whitespace-pre-wrap break-words text-foreground/90 [overflow-wrap:anywhere]">
+            {section.content}
+          </span>
         </span>
       ))}
+    </>
+  )
+}
+
+function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | undefined, bodyText: string) {
+  const body = splitStructuredBody(bodyText)
+  if (body.sections.length === 0) {
+    const color = getEntryColor(entry)
+    return (
+      <>
+        <span
+          className={cn('font-semibold', color)}
+          title={tagTitle}
+        >
+          {tagText}
+        </span>
+        {bodyText}
+      </>
+    )
+  }
+
+  return renderStructuredLogLine(entry, tagText, tagTitle, body)
+}
+
+function renderCommandLogLine(entry: LogEntry, tagText: string, tagTitle: string | undefined, bodyText: string) {
+  const structuredBody = splitStructuredBody(bodyText)
+  if (structuredBody.sections.length > 0) {
+    return renderStructuredLogLine(entry, tagText, tagTitle, structuredBody)
+  }
+
+  const legacyBody = splitLegacyCommandBody(bodyText)
+  if (legacyBody.sections.length > 0) {
+    return renderStructuredLogLine(entry, tagText, tagTitle, legacyBody)
+  }
+
+  const color = getEntryColor(entry)
+  return (
+    <>
+      <span
+        className={cn('font-semibold', color)}
+        title={tagTitle}
+      >
+        {tagText}
+      </span>
+      {bodyText}
     </>
   )
 }

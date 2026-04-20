@@ -23,9 +23,9 @@ const LOG_COLOR_LEGEND_GROUPS: LegendGroup[] = [
         label: 'Tool call',
         colorClass: 'bg-cyan-500',
         children: [
-          { label: 'Input', colorClass: 'bg-sky-300' },
-          { label: 'Output', colorClass: 'bg-sky-700 dark:bg-sky-500' },
-          { label: 'Error', colorClass: 'bg-rose-950 dark:bg-rose-300' },
+          { label: 'Input', colorClass: 'bg-sky-400 dark:bg-sky-300' },
+          { label: 'Output', colorClass: 'bg-emerald-600 dark:bg-emerald-300' },
+          { label: 'Error', colorClass: 'bg-rose-600 dark:bg-rose-300' },
         ],
       },
     ],
@@ -34,7 +34,15 @@ const LOG_COLOR_LEGEND_GROUPS: LegendGroup[] = [
     label: 'Runtime',
     items: [
       { label: 'System', colorClass: 'bg-foreground' },
-      { label: 'Command', colorClass: 'bg-zinc-500' },
+      {
+        label: 'Command',
+        colorClass: 'bg-zinc-500',
+        children: [
+          { label: 'Stdin', colorClass: 'bg-sky-400 dark:bg-sky-300' },
+          { label: 'Stdout', colorClass: 'bg-emerald-600 dark:bg-emerald-300' },
+          { label: 'Stderr', colorClass: 'bg-rose-600 dark:bg-rose-300' },
+        ],
+      },
       { label: 'Debug', colorClass: 'bg-amber-600' },
       { label: 'Error', colorClass: 'bg-red-500' },
     ],
