@@ -637,6 +637,8 @@ function BeadGrid({
 export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const [viewingBeadId, setViewingBeadId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'details' | 'changes' | 'model'>('details')
+  const phaseForView = readOnly ? 'CODING' : ticket.status
+  const showBeadControls = phaseForView === 'CODING'
   
   // -- Auto-scroll state for the model log tab --
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -697,14 +699,18 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const { data: fetchedBeads = [] } = useQuery({
     queryKey: ['ticket-beads', ticket.id],
     queryFn: () => fetchTicketBeads(ticket.id),
-    enabled: ticket.runtime.totalBeads > 0,
-    placeholderData: (ticket.runtime.beads ?? []).map((bead) => normalizeBead(bead)),
+    enabled: showBeadControls && ticket.runtime.totalBeads > 0,
+    placeholderData: showBeadControls
+      ? (ticket.runtime.beads ?? []).map((bead) => normalizeBead(bead))
+      : [],
     staleTime: 5000,
     refetchOnMount: false,
   })
   const beads = useMemo(
-    () => mergeBeadRuntimeOverlay(fetchedBeads, ticket.runtime.beads),
-    [fetchedBeads, ticket.runtime.beads],
+    () => showBeadControls
+      ? mergeBeadRuntimeOverlay(fetchedBeads, ticket.runtime.beads)
+      : [],
+    [fetchedBeads, showBeadControls, ticket.runtime.beads],
   )
 
   const total = ticket.runtime.totalBeads || beads.length
@@ -712,7 +718,6 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   const percent = ticket.runtime.percentComplete
   const activeIteration = ticket.runtime.activeBeadIteration
   const maxIterationsPerBead = ticket.runtime.maxIterationsPerBead
-  const phaseForView = readOnly ? 'CODING' : ticket.status
   const activeBead = ticket.runtime.activeBeadId
     ? beads.find((bead) => bead.id === ticket.runtime.activeBeadId)
     : null
@@ -743,6 +748,12 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
 
   const isViewingOther = viewedBead !== null
 
+  useEffect(() => {
+    if (!showBeadControls && viewingBeadId) {
+      setViewingBeadId(null)
+    }
+  }, [showBeadControls, viewingBeadId])
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="px-4 py-2 border-b border-border flex items-center gap-3 shrink-0">
@@ -752,16 +763,20 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
         <span className="text-sm font-medium">
           {isCompleted ? 'Completed Successfully' : phaseLabel}
         </span>
-        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-          <div
-            className={cn('h-full transition-all duration-500', isCompleted ? 'bg-green-600' : 'bg-primary')}
-            style={{ width: `${isCompleted ? 100 : percent}%` }}
-          />
-        </div>
-        <span className="text-xs font-mono text-muted-foreground shrink-0">
-          {isCompleted ? `${Math.max(total, 0)}/${Math.max(total, 0)}` : `${current}/${Math.max(total, 0)}`}
-        </span>
-        {activeIteration && activeIteration > 0 && (
+        {showBeadControls && (
+          <>
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className={cn('h-full transition-all duration-500', isCompleted ? 'bg-green-600' : 'bg-primary')}
+                style={{ width: `${isCompleted ? 100 : percent}%` }}
+              />
+            </div>
+            <span className="text-xs font-mono text-muted-foreground shrink-0">
+              {isCompleted ? `${Math.max(total, 0)}/${Math.max(total, 0)}` : `${current}/${Math.max(total, 0)}`}
+            </span>
+          </>
+        )}
+        {showBeadControls && activeIteration && activeIteration > 0 && (
           <span className="text-[11px] text-muted-foreground shrink-0">
             {activeBead?.title ?? ticket.runtime.activeBeadId ?? 'Bead'} · Iteration {activeIteration}
             {maxIterationsPerBead && maxIterationsPerBead > 0 ? `/${maxIterationsPerBead}` : ''}
@@ -795,7 +810,7 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
         </div>
       )}
 
-      {beads.length > 0 && (
+      {showBeadControls && beads.length > 0 && (
         <div className="px-4 py-2 border-b border-border shrink-0">
           <BeadGrid beads={beads} viewingBeadId={viewingBeadId} onSelect={setViewingBeadId} />
         </div>

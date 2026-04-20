@@ -121,6 +121,41 @@ describe('CodingView', () => {
     })
   })
 
+  it('does not show or fetch bead controls outside the implementing phase', async () => {
+    renderCoding({
+      status: 'PRE_FLIGHT_CHECK',
+      runtime: {
+        baseBranch: 'main',
+        currentBead: 0,
+        completedBeads: 0,
+        totalBeads: 2,
+        percentComplete: 0,
+        iterationCount: 0,
+        maxIterations: null,
+        artifactRoot: '/tmp/test',
+        candidateCommitSha: null,
+        preSquashHead: null,
+        finalTestStatus: 'pending',
+        beads: [
+          { id: 'bead-1', title: 'First setup-hidden bead', status: 'pending', iteration: 0 },
+          { id: 'bead-2', title: 'Second setup-hidden bead', status: 'pending', iteration: 0 },
+        ],
+      },
+    })
+
+    expect(screen.getByText('Initializing Agent')).toBeTruthy()
+    expect(screen.queryByText('First setup-hidden bead')).toBeNull()
+    expect(screen.queryByText('Second setup-hidden bead')).toBeNull()
+    expect(screen.queryByText('0/2')).toBeNull()
+
+    await waitFor(() => {
+      expect(fetchSpy.mock.calls.some(([url]: [string, ...unknown[]]) => url === '/api/files/1:TEST-1/prd')).toBe(true)
+    })
+    expect(
+      fetchSpy.mock.calls.some(([url]: [string, ...unknown[]]) => url === '/api/tickets/1:TEST-1/beads'),
+    ).toBe(false)
+  })
+
   describe('status normalization', () => {
     it('maps server "done" status to completed (green icon)', () => {
       renderCoding({
