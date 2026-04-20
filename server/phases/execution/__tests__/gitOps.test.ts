@@ -11,6 +11,9 @@ import {
   recordBeadStartCommit,
   resetToBeadStart,
 } from '../gitOps'
+import { TEST } from '../../../test/factories'
+
+const BRANCH = TEST.externalId
 
 describe('gitOps allowlist/denylist', () => {
   it('allows standard code extensions', () => {
@@ -286,13 +289,13 @@ describe('commitBeadChanges', () => {
     execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', remoteDir], { stdio: 'pipe' })
     const baseBranch = execFileSync('git', ['-C', dir, 'branch', '--show-current'], { encoding: 'utf8' }).trim()
     execFileSync('git', ['-C', dir, 'push', '-u', 'origin', baseBranch], { stdio: 'pipe' })
-    execFileSync('git', ['-C', dir, 'checkout', '-b', 'TICKET-1'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', dir, 'checkout', '-b', BRANCH], { stdio: 'pipe' })
     writeFileSync(join(dir, 'feature.ts'), 'export const feature = 42\n')
 
     const result = commitBeadChanges(dir, 'bead-remote', 'Push explicitly')
 
     expect(result).toMatchObject({ committed: true, pushed: true })
-    const remoteSha = execFileSync('git', ['-C', dir, 'ls-remote', '--heads', 'origin', 'refs/heads/TICKET-1'], {
+    const remoteSha = execFileSync('git', ['-C', dir, 'ls-remote', '--heads', 'origin', `refs/heads/${BRANCH}`], {
       encoding: 'utf8',
     }).trim().split(/\s+/)[0]
     expect(remoteSha).toBe(headSha(dir))

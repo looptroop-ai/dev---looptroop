@@ -16,8 +16,9 @@ import {
   updateInterviewDocumentAnswers,
 } from '../index'
 import { normalizeResolvedInterviewDocumentOutput } from '../interviewDocument'
+import { TEST } from '../../test/factories'
 
-const TICKET_ID = 'TEST-1'
+const TICKET_ID = TEST.externalId
 
 const VOTE_CATEGORIES = [
   'Coverage of requirements',

@@ -4,6 +4,7 @@ import { handleMockExecutionUnsupported } from './executionPhase'
 import type { PromptPart } from '../../opencode/types'
 import { CancelledError, throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
+import { COMMAND_OUTPUT_SLICE_LENGTH, MODEL_OUTPUT_PREVIEW_LENGTH } from '../../lib/constants'
 import { buildMinimalContext, type TicketState } from '../../opencode/contextBuilder'
 import { buildPromptFromTemplate, PROM0, PROM13b, PROM24, PROM53 } from '../../prompts/index'
 import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, countPhaseArtifacts, upsertLatestPhaseArtifact } from '../../storage/tickets'
@@ -3069,8 +3070,8 @@ function buildFinalTestRetryErrorContext(input: {
       return [
         `Command: ${command.command}`,
         `Result: ${status}`,
-        command.stdout ? `STDOUT:\n${command.stdout.slice(0, 1500)}` : '',
-        command.stderr ? `STDERR:\n${command.stderr.slice(0, 1500)}` : '',
+        command.stdout ? `STDOUT:\n${command.stdout.slice(0, COMMAND_OUTPUT_SLICE_LENGTH)}` : '',
+        command.stderr ? `STDERR:\n${command.stderr.slice(0, COMMAND_OUTPUT_SLICE_LENGTH)}` : '',
       ].filter(Boolean).join('\n')
     }).join('\n\n')
     : 'No commands were executed.'
@@ -3101,7 +3102,7 @@ function buildFinalTestRetryErrorContext(input: {
       executedCommands,
       '',
       '## Final Test Model Output (truncated)',
-      input.report.modelOutput.slice(0, 2000),
+      input.report.modelOutput.slice(0, MODEL_OUTPUT_PREVIEW_LENGTH),
     ].join('\n'),
   }
 }

@@ -17,7 +17,7 @@ import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb, CheckCircle2
 import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
-import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { parseExecutionSetupPlanContent } from '@/lib/executionSetupPlan'
 import type {
   ArtifactStructuredOutputData,
@@ -156,15 +156,12 @@ export function CollapsibleSection({
 }
 
 export function CopyButton({ content, className = '', title = 'Copy raw output' }: { content: string; className?: string; title?: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, copyToClipboard] = useCopyToClipboard()
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    navigator.clipboard.writeText(content).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
-    })
+    copyToClipboard(content)
   }
 
   return (
@@ -179,15 +176,12 @@ export function CopyButton({ content, className = '', title = 'Copy raw output' 
 }
 
 export function TextCopyButton({ content, title, className = '' }: { content: string; title: string; className?: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, copyToClipboard] = useCopyToClipboard()
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    navigator.clipboard.writeText(content).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
-    })
+    copyToClipboard(content)
   }
 
   return (

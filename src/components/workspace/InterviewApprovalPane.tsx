@@ -22,12 +22,12 @@ import {
 } from '@/lib/interviewDocument'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
 
-const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK — they will still be handled during PRD drafting. Each PRD council model will use the ticket context, codebase analysis, and best practices to make a best-effort decision for those gaps, and you can still edit the interview now before approving if you want to replace any skipped item with your own answer.'
+const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK — they will still be handled during PRD drafting. Each PRD council model will use the ticket context, codebase analysis, and best practices to make a best-effort decision for those gaps, and you can still edit the interview now before isApproving if you want to replace any skipped item with your own answer.'
 
 type EditTab = 'answers' | 'yaml'
 
 interface InterviewApprovalUiState {
-  editMode?: boolean
+  isEditMode?: boolean
   editTab?: EditTab
   yamlDraft?: string
   answerDrafts?: Record<string, InterviewAnswerUpdate['answer']>
@@ -81,12 +81,12 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   const showSkippedQuestionsNotice = hasSkippedInterviewAnswers(interviewDocument)
   const isPreparingStructuredInterview = !interviewDocument && Boolean(rawContent) && isFetching
 
-  const [editMode, setEditMode] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('answers')
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, InterviewAnswerUpdate['answer']>>({})
   const [yamlDraft, setYamlDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [approving, setApproving] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
@@ -117,18 +117,18 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
     if (isLoading || restoredDraftRef.current || !interviewDocument) return
 
     const persisted = persistedUiState?.data
-    const nextEditMode = Boolean(persisted?.editMode)
+    const nextEditMode = Boolean(persisted?.isEditMode)
     const nextEditTab: EditTab = persisted?.editTab === 'yaml' ? 'yaml' : 'answers'
     const nextAnswerDrafts = normalizePersistedAnswerDrafts(persisted?.answerDrafts, interviewDocument)
     const nextYamlDraft = typeof persisted?.yamlDraft === 'string' ? persisted.yamlDraft : rawContent
 
-    setEditMode(nextEditMode)
+    setIsEditMode(nextEditMode)
     setEditTab(nextEditTab)
     setAnswerDrafts(nextAnswerDrafts)
     setYamlDraft(nextYamlDraft)
 
     const snapshot = JSON.stringify({
-      editMode: nextEditMode,
+      isEditMode: nextEditMode,
       editTab: nextEditTab,
       yamlDraft: nextYamlDraft,
       answerDrafts: nextAnswerDrafts,
@@ -155,7 +155,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
     if (isLoading || !restoredDraftRef.current) return
 
     const snapshot = {
-      editMode,
+      isEditMode,
       editTab,
       yamlDraft,
       answerDrafts,
@@ -173,7 +173,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [answerDrafts, editMode, editTab, isLoading, saveUiState, ticket.id, uiStateScope, yamlDraft])
+  }, [answerDrafts, isEditMode, editTab, isLoading, saveUiState, ticket.id, uiStateScope, yamlDraft])
 
   function resetDraftsFromSaved(nextTab: EditTab = 'answers') {
     startTransition(() => {
@@ -187,7 +187,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
 
   function openFriendlyEditor() {
     resetDraftsFromSaved('answers')
-    setEditMode(true)
+    setIsEditMode(true)
   }
 
   async function handleSave() {
@@ -198,7 +198,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
       return
     }
 
-    setSaving(true)
+    setIsSaving(true)
     setSaveError(null)
 
     try {
@@ -235,17 +235,17 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
       const savedDocument = normalizeInterviewDocumentLike(payload.document) ?? parseInterviewDocument(payload.raw)
       setAnswerDrafts(savedDocument ? buildInterviewAnswerDrafts(savedDocument) : {})
       setYamlDraft(payload.raw ?? '')
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('answers')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Save failed')
     } finally {
-      setSaving(false)
+      setIsSaving(false)
     }
   }
 
   async function handleApprove() {
-    setApproving(true)
+    setIsApproving(true)
     setApproveError(null)
 
     try {
@@ -261,12 +261,12 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
       queryClient.invalidateQueries({ queryKey: ['interview', ticket.id] })
       clearTicketArtifactsCache(ticket.id)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('answers')
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : 'Failed to approve interview')
     } finally {
-      setApproving(false)
+      setIsApproving(false)
     }
   }
 
@@ -280,13 +280,13 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
   }
 
   function handleToggleEdit() {
-    if (editMode) {
+    if (isEditMode) {
       if (hasUnsavedChanges) {
         setDiscardTarget({ type: 'close' })
         return
       }
       resetDraftsFromSaved('answers')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
 
@@ -310,7 +310,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
 
     if (target.type === 'close') {
       resetDraftsFromSaved('answers')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
 
@@ -356,15 +356,15 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
             disabled={isPreparingStructuredInterview}
             className="text-xs shrink-0"
           >
-            {editMode ? 'View' : 'Edit'}
+            {isEditMode ? 'View' : 'Edit'}
           </Button>
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={approving || saving || (editMode && hasUnsavedChanges) || !interviewDocument || ticket.status !== 'WAITING_INTERVIEW_APPROVAL'}
+            disabled={isApproving || isSaving || (isEditMode && hasUnsavedChanges) || !interviewDocument || ticket.status !== 'WAITING_INTERVIEW_APPROVAL'}
             className="text-xs shrink-0"
           >
-            {approving ? 'Approving…' : 'Approve'}
+            {isApproving ? 'Approving…' : 'Approve'}
           </Button>
         </div>
 
@@ -378,7 +378,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
           </div>
         )}
 
-        {editMode ? (
+        {isEditMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
               <button
@@ -406,9 +406,9 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
                 size="sm"
                 variant="secondary"
                 onClick={handleSave}
-                disabled={saving || !hasUnsavedChanges}
+                disabled={isSaving || !hasUnsavedChanges}
               >
-                {saving ? 'Saving…' : 'Save'}
+                {isSaving ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </div>
@@ -430,7 +430,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
               </p>
             </div>
           </div>
-        ) : editMode ? (
+        ) : isEditMode ? (
           <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
             {editTab === 'yaml' ? (
               <div className="space-y-3">
@@ -452,7 +452,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
               <InterviewApprovalAnswerEditor
                 document={interviewDocument}
                 drafts={answerDrafts}
-                disabled={saving}
+                disabled={isSaving}
                 onAnswerChange={(questionId, answer) => {
                   setAnswerDrafts((current) => ({
                     ...current,

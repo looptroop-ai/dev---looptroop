@@ -28,7 +28,7 @@ import {
 type EditTab = 'structured' | 'yaml'
 
 interface PrdApprovalUiState {
-  editMode?: boolean
+  isEditMode?: boolean
   editTab?: EditTab
   yamlDraft?: string
   structuredDraft?: PrdApprovalDraft
@@ -69,12 +69,12 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
   const rawContent = fetchedContent ?? ''
   const isPreparingStructuredPrd = !prdDocument && Boolean(rawContent) && isFetching
 
-  const [editMode, setEditMode] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('structured')
   const [structuredDraft, setStructuredDraft] = useState<PrdApprovalDraft | null>(null)
   const [yamlDraft, setYamlDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [approving, setApproving] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
@@ -110,18 +110,18 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
     if (isLoading || restoredDraftRef.current || !prdDocument) return
 
     const persisted = persistedUiState?.data
-    const nextEditMode = Boolean(persisted?.editMode)
+    const nextEditMode = Boolean(persisted?.isEditMode)
     const nextEditTab: EditTab = persisted?.editTab === 'yaml' ? 'yaml' : 'structured'
     const nextStructuredDraft = normalizePrdApprovalDraft(persisted?.structuredDraft, prdDocument)
     const nextYamlDraft = typeof persisted?.yamlDraft === 'string' ? persisted.yamlDraft : rawContent
 
-    setEditMode(nextEditMode)
+    setIsEditMode(nextEditMode)
     setEditTab(nextEditTab)
     setStructuredDraft(nextStructuredDraft)
     setYamlDraft(nextYamlDraft)
 
     const snapshot = JSON.stringify({
-      editMode: nextEditMode,
+      isEditMode: nextEditMode,
       editTab: nextEditTab,
       yamlDraft: nextYamlDraft,
       structuredDraft: nextStructuredDraft,
@@ -148,7 +148,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
     if (isLoading || !restoredDraftRef.current || structuredDraft === null) return
 
     const snapshot = {
-      editMode,
+      isEditMode,
       editTab,
       yamlDraft,
       structuredDraft,
@@ -166,7 +166,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [editMode, editTab, isLoading, saveUiState, structuredDraft, ticket.id, uiStateScope, yamlDraft])
+  }, [isEditMode, editTab, isLoading, saveUiState, structuredDraft, ticket.id, uiStateScope, yamlDraft])
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {
@@ -180,7 +180,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
 
   function openFriendlyEditor() {
     resetDraftsFromSaved(baseStructuredDraft ? 'structured' : 'yaml')
-    setEditMode(true)
+    setIsEditMode(true)
   }
 
   async function handleSave() {
@@ -191,7 +191,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
       return
     }
 
-    setSaving(true)
+    setIsSaving(true)
     setSaveError(null)
 
     try {
@@ -219,17 +219,17 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
       const savedDocument = parsePrdDocument(nextRaw)
       setStructuredDraft(savedDocument ? buildPrdApprovalDraft(savedDocument) : null)
       setYamlDraft(nextRaw)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Save failed')
     } finally {
-      setSaving(false)
+      setIsSaving(false)
     }
   }
 
   async function handleApprove() {
-    setApproving(true)
+    setIsApproving(true)
     setApproveError(null)
 
     try {
@@ -245,12 +245,12 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
       queryClient.invalidateQueries({ queryKey: ['artifact', ticket.id, 'prd'] })
       clearTicketArtifactsCache(ticket.id)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : 'Failed to approve PRD')
     } finally {
-      setApproving(false)
+      setIsApproving(false)
     }
   }
 
@@ -264,13 +264,13 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
   }
 
   function handleToggleEdit() {
-    if (editMode) {
+    if (isEditMode) {
       if (hasUnsavedChanges) {
         setDiscardTarget({ type: 'close' })
         return
       }
       resetDraftsFromSaved('structured')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
 
@@ -294,7 +294,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
 
     if (target.type === 'close') {
       resetDraftsFromSaved(baseStructuredDraft ? 'structured' : 'yaml')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
 
@@ -340,19 +340,19 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
             disabled={isPreparingStructuredPrd}
             className="text-xs shrink-0"
           >
-            {editMode ? 'View' : 'Edit'}
+            {isEditMode ? 'View' : 'Edit'}
           </Button>
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={approving || saving || (editMode && (hasUnsavedChanges || structuredEditorUnavailable)) || !prdDocument || ticket.status !== 'WAITING_PRD_APPROVAL'}
+            disabled={isApproving || isSaving || (isEditMode && (hasUnsavedChanges || structuredEditorUnavailable)) || !prdDocument || ticket.status !== 'WAITING_PRD_APPROVAL'}
             className="text-xs shrink-0"
           >
-            {approving ? 'Approving…' : 'Approve'}
+            {isApproving ? 'Approving…' : 'Approve'}
           </Button>
         </div>
 
-        {editMode ? (
+        {isEditMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
               <button
@@ -380,9 +380,9 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
               size="sm"
               variant="secondary"
               onClick={handleSave}
-              disabled={saving || !hasUnsavedChanges || structuredEditorUnavailable}
+              disabled={isSaving || !hasUnsavedChanges || structuredEditorUnavailable}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {isSaving ? 'Saving…' : 'Save'}
             </Button>
           </div>
           </div>
@@ -406,7 +406,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
                 </p>
               </div>
             </div>
-          ) : editMode ? (
+          ) : isEditMode ? (
             <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
               {editTab === 'yaml' ? (
                 <div className="space-y-3">
@@ -427,7 +427,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
               ) : structuredDraft ? (
                 <PrdApprovalEditor
                   draft={structuredDraft}
-                  disabled={saving}
+                  disabled={isSaving}
                   onChange={setStructuredDraft}
                 />
               ) : (

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { LOG_TRUNCATION_LENGTH } from '../lib/constants'
 
 interface CommandLogContext {
   ticketId: string
@@ -269,7 +270,7 @@ function formatKnownGitProbeFailure(commandText: string, error: string): string 
   return null
 }
 
-function truncateOutput(text: string, maxLen = 800): string {
+function truncateOutput(text: string, maxLen = LOG_TRUNCATION_LENGTH): string {
   if (text.length <= maxLen) return text
   return `${text.slice(0, maxLen)}… (truncated)`
 }

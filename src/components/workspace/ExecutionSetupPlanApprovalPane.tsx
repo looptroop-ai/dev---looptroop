@@ -30,7 +30,7 @@ interface ExecutionSetupPlanApprovalResponse {
 }
 
 interface ExecutionSetupPlanApprovalUiState {
-  editMode?: boolean
+  isEditMode?: boolean
   editTab?: EditTab
   rawDraft?: string
   structuredDraft?: ExecutionSetupPlan | null
@@ -167,15 +167,15 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
   }, [artifacts])
   const artifactPanelPhase = readOnly ? 'WAITING_EXECUTION_SETUP_APPROVAL' : ticket.status
 
-  const [editMode, setEditMode] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('structured')
   const [structuredDraft, setStructuredDraft] = useState<ExecutionSetupPlan | null>(null)
   const [rawDraft, setRawDraft] = useState('')
   const [commentary, setCommentary] = useState('')
   const [showRegenerateDialog, setShowRegenerateDialog] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [regenerating, setRegenerating] = useState(false)
-  const [approving, setApproving] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [regenerateError, setRegenerateError] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
@@ -201,20 +201,20 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
     if (restoredDraftRef.current || (!plan && !isPlanGenerating)) return
 
     const persisted = persistedUiState?.data
-    const nextEditMode = Boolean(persisted?.editMode)
+    const nextEditMode = Boolean(persisted?.isEditMode)
     const nextEditTab: EditTab = persisted?.editTab === 'raw' ? 'raw' : 'structured'
     const nextStructuredDraft = persisted?.structuredDraft ?? plan
     const nextRawDraft = typeof persisted?.rawDraft === 'string' ? persisted.rawDraft : rawContent
     const nextCommentary = typeof persisted?.commentary === 'string' ? persisted.commentary : ''
 
-    setEditMode(!readOnly && nextEditMode && Boolean(plan))
+    setIsEditMode(!readOnly && nextEditMode && Boolean(plan))
     setEditTab(nextEditTab)
     setStructuredDraft(nextStructuredDraft ?? null)
     setRawDraft(nextRawDraft)
     setCommentary(nextCommentary)
 
     lastSavedSnapshotRef.current = JSON.stringify({
-      editMode: nextEditMode,
+      isEditMode: nextEditMode,
       editTab: nextEditTab,
       rawDraft: nextRawDraft,
       structuredDraft: nextStructuredDraft,
@@ -225,7 +225,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
 
   useEffect(() => {
     if (!readOnly) return
-    setEditMode(false)
+    setIsEditMode(false)
     setDiscardTarget(null)
     setShowRegenerateDialog(false)
   }, [readOnly])
@@ -247,7 +247,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
     if (readOnly || !restoredDraftRef.current) return
 
     const snapshot = {
-      editMode,
+      isEditMode,
       editTab,
       rawDraft,
       structuredDraft,
@@ -266,7 +266,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [commentary, editMode, editTab, rawDraft, readOnly, saveUiState, structuredDraft, ticket.id, uiStateScope])
+  }, [commentary, isEditMode, editTab, rawDraft, readOnly, saveUiState, structuredDraft, ticket.id, uiStateScope])
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {
@@ -286,7 +286,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
       return
     }
 
-    setSaving(true)
+    setIsSaving(true)
     setSaveError(null)
     try {
       const response = await fetch(`/api/tickets/${ticket.id}/execution-setup-plan`, {
@@ -313,22 +313,22 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
       queryClient.invalidateQueries({ queryKey: ['artifact', ticket.id, 'execution-setup-plan'] })
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
       clearTicketArtifactsCache(ticket.id)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Failed to save execution setup plan')
     } finally {
-      setSaving(false)
+      setIsSaving(false)
     }
   }
 
   async function handleRegenerate() {
     if (!commentary.trim()) {
-      setRegenerateError('Add commentary before regenerating the setup plan.')
+      setRegenerateError('Add commentary before isRegenerating the setup plan.')
       return
     }
 
-    setRegenerating(true)
+    setIsRegenerating(true)
     setRegenerateError(null)
     try {
       const response = await fetch(`/api/tickets/${ticket.id}/regenerate-execution-setup-plan`, {
@@ -356,17 +356,17 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
       clearTicketArtifactsCache(ticket.id)
       setCommentary('')
       setShowRegenerateDialog(false)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setRegenerateError(error instanceof Error ? error.message : 'Failed to regenerate execution setup plan')
     } finally {
-      setRegenerating(false)
+      setIsRegenerating(false)
     }
   }
 
   async function handleApprove() {
-    setApproving(true)
+    setIsApproving(true)
     setApproveError(null)
     try {
       const response = await fetch(`/api/tickets/${ticket.id}/approve-execution-setup-plan`, {
@@ -381,12 +381,12 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
       queryClient.invalidateQueries({ queryKey: ['artifact', ticket.id, 'execution-setup-plan'] })
       clearTicketArtifactsCache(ticket.id)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : 'Failed to approve execution setup plan')
     } finally {
-      setApproving(false)
+      setIsApproving(false)
     }
   }
 
@@ -400,17 +400,17 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
   }
 
   function handleToggleEdit() {
-    if (editMode) {
+    if (isEditMode) {
       if (hasUnsavedChanges) {
         setDiscardTarget({ type: 'close' })
         return
       }
       resetDraftsFromSaved('structured')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
     resetDraftsFromSaved('structured')
-    setEditMode(true)
+    setIsEditMode(true)
   }
 
   function handleConfirmDiscard() {
@@ -420,7 +420,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
 
     if (target.type === 'close') {
       resetDraftsFromSaved('structured')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
 
@@ -478,11 +478,11 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
             {regenerateError ? <p className="text-xs text-red-500">{regenerateError}</p> : null}
 
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setShowRegenerateDialog(false)} disabled={regenerating}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowRegenerateDialog(false)} disabled={isRegenerating}>
                 Cancel
               </Button>
-              <Button type="button" size="sm" onClick={handleRegenerate} disabled={regenerating || saving || approving || !commentary.trim()}>
-                {regenerating ? 'Regenerating…' : 'Regenerate'}
+              <Button type="button" size="sm" onClick={handleRegenerate} disabled={isRegenerating || isSaving || isApproving || !commentary.trim()}>
+                {isRegenerating ? 'Regenerating…' : 'Regenerate'}
               </Button>
             </div>
           </div>
@@ -512,7 +512,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
                   setShowRegenerateDialog(true)
                 }}
                 className="text-xs shrink-0"
-                disabled={isPlanGenerating || saving || approving || regenerating}
+                disabled={isPlanGenerating || isSaving || isApproving || isRegenerating}
               >
                 Regenerate ...
               </Button>
@@ -523,15 +523,15 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
                 className="text-xs shrink-0"
                 disabled={!plan}
               >
-                {editMode ? 'View' : 'Edit'}
+                {isEditMode ? 'View' : 'Edit'}
               </Button>
               <Button
                 size="sm"
                 onClick={handleApprove}
-                disabled={approving || saving || regenerating || (editMode && hasUnsavedChanges) || !plan || ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL'}
+                disabled={isApproving || isSaving || isRegenerating || (isEditMode && hasUnsavedChanges) || !plan || ticket.status !== 'WAITING_EXECUTION_SETUP_APPROVAL'}
                 className="text-xs shrink-0"
               >
-                {approving ? 'Approving…' : 'Approve'}
+                {isApproving ? 'Approving…' : 'Approve'}
               </Button>
             </>
           ) : null}
@@ -546,7 +546,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
           preloadedArtifacts={artifacts}
         />
 
-        {!readOnly && editMode ? (
+        {!readOnly && isEditMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
               <button
@@ -569,8 +569,8 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={handleSave} disabled={saving || !hasUnsavedChanges}>
-                {saving ? 'Saving…' : 'Save'}
+              <Button size="sm" variant="secondary" onClick={handleSave} disabled={isSaving || !hasUnsavedChanges}>
+                {isSaving ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </div>
@@ -597,7 +597,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
                 LoopTroop is auditing workspace readiness and drafting any missing setup now. Live logs remain available below while the draft is being generated.
               </p>
             </div>
-          ) : !readOnly && editMode ? (
+          ) : !readOnly && isEditMode ? (
             <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
               {editTab === 'raw' ? (
                 <div className="space-y-3">
@@ -618,7 +618,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
               ) : structuredDraft ? (
                 <ExecutionSetupPlanEditor
                   plan={structuredDraft}
-                  disabled={saving || regenerating}
+                  disabled={isSaving || isRegenerating}
                   onChange={setStructuredDraft}
                 />
               ) : (

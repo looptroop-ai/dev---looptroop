@@ -13,7 +13,7 @@ import { throwIfAborted } from '../../council/types'
 import { throwIfCancelled } from '../../lib/abort'
 import { buildStructuredRetryPrompt } from '../../structuredOutput'
 import { SessionManager } from '../../opencode/sessionManager'
-import { COUNCIL_RESPONSE_TIMEOUT_MS } from '../../lib/constants'
+import { COUNCIL_RESPONSE_TIMEOUT_MS, EXECUTOR_NOTE_TRUNCATION_LENGTH, EXECUTOR_DETAIL_TRUNCATION_LENGTH } from '../../lib/constants'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { buildPromptFromTemplate, buildSameSessionPromptFromTemplate, PROM_CODING, PROM51 } from '../../prompts/index'
 import { BEAD_RETRY_BUDGET_EXHAUSTED } from '../../../shared/errorCodes'
@@ -92,7 +92,7 @@ function shouldUseStructuredRetry(result: ReturnType<typeof parseCompletionMarke
   return !result.complete && (!result.markerFound || Boolean(result.validationError))
 }
 
-function truncateForNote(text: string, maxLength = 600): string {
+function truncateForNote(text: string, maxLength = EXECUTOR_NOTE_TRUNCATION_LENGTH): string {
   const trimmed = text.trim()
   if (!trimmed) return ''
   return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength)}...`
@@ -121,7 +121,7 @@ function extractRecentFailureExcerpts(messages: Message[], maxItems = 5): string
         : typeof state?.output === 'string'
           ? state.output
           : ''
-      const details = truncateForNote(rawDetails, 320)
+      const details = truncateForNote(rawDetails, EXECUTOR_DETAIL_TRUNCATION_LENGTH)
       const looksFailing = status === 'error' || /fail|error|exception|not ok|timed out/i.test(rawDetails)
       if (!looksFailing) continue
       excerpts.push(`${toolName} (${status ?? 'unknown'}): ${details || 'No details captured.'}`)

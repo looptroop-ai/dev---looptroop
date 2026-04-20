@@ -4,6 +4,9 @@ import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createFixtureRepoManager } from '../../../test/fixtureRepo'
 import { prepareSquashCandidate, pushSquashedCandidate } from '../squash'
+import { TEST } from '../../../test/factories'
+
+const BRANCH = TEST.externalId
 
 const repoManager = createFixtureRepoManager({
   templatePrefix: 'looptroop-squash-',
@@ -24,7 +27,7 @@ describe('prepareSquashCandidate', () => {
   it('squashes multiple commits into one', () => {
     const repoDir = repoManager.createRepo()
 
-    git(repoDir, ['checkout', '-b', 'TICKET-1'])
+    git(repoDir, ['checkout', '-b', BRANCH])
     writeFileSync(resolve(repoDir, 'a.txt'), 'aaa\n')
     git(repoDir, ['add', 'a.txt'])
     git(repoDir, ['commit', '-m', 'add a'])
@@ -35,30 +38,30 @@ describe('prepareSquashCandidate', () => {
     git(repoDir, ['add', 'c.txt'])
     git(repoDir, ['commit', '-m', 'add c'])
 
-    const result = prepareSquashCandidate(repoDir, 'main', 'Add features', 'TICKET-1')
+    const result = prepareSquashCandidate(repoDir, 'main', 'Add features', BRANCH)
 
     expect(result.success).toBe(true)
     expect(result.commitCount).toBe(3)
     expect(result.commitHash).toMatch(/^[0-9a-f]{40}$/)
-    expect(result.message).toContain('TICKET-1')
+    expect(result.message).toContain(BRANCH)
 
     const commitMsg = git(repoDir, ['log', '-1', '--pretty=%s'])
-    expect(commitMsg).toBe('TICKET-1: Add features')
+    expect(commitMsg).toBe(`${BRANCH}: Add features`)
   })
 
   it('returns failure when no changes exist relative to base', () => {
     const repoDir = repoManager.createRepo()
 
-    git(repoDir, ['checkout', '-b', 'TICKET-2'])
+    git(repoDir, ['checkout', '-b', BRANCH])
 
-    const result = prepareSquashCandidate(repoDir, 'main', 'Empty', 'TICKET-2')
+    const result = prepareSquashCandidate(repoDir, 'main', 'Empty', BRANCH)
 
     expect(result.success).toBe(false)
     expect(result.message).toContain('No candidate changes')
   })
 
   it('returns failure for an invalid worktree path', () => {
-    const result = prepareSquashCandidate('/nonexistent/path', 'main', 'title', 'TICKET-3')
+    const result = prepareSquashCandidate('/nonexistent/path', 'main', 'title', BRANCH)
 
     expect(result.success).toBe(false)
   })
@@ -66,19 +69,19 @@ describe('prepareSquashCandidate', () => {
   it('squashes a single commit', () => {
     const repoDir = repoManager.createRepo()
 
-    git(repoDir, ['checkout', '-b', 'TICKET-4'])
+    git(repoDir, ['checkout', '-b', BRANCH])
     writeFileSync(resolve(repoDir, 'only.txt'), 'only\n')
     git(repoDir, ['add', 'only.txt'])
     git(repoDir, ['commit', '-m', 'only commit'])
 
-    const result = prepareSquashCandidate(repoDir, 'main', 'Single change', 'TICKET-4')
+    const result = prepareSquashCandidate(repoDir, 'main', 'Single change', BRANCH)
 
     expect(result.success).toBe(true)
     expect(result.commitCount).toBe(1)
     expect(result.commitHash).toMatch(/^[0-9a-f]{40}$/)
 
     const commitMsg = git(repoDir, ['log', '-1', '--pretty=%s'])
-    expect(commitMsg).toBe('TICKET-4: Single change')
+    expect(commitMsg).toBe(`${BRANCH}: Single change`)
   })
 
   it('stages committed bead files plus explicit final-test files without sweeping unrelated worktree changes', () => {
@@ -88,7 +91,7 @@ describe('prepareSquashCandidate', () => {
     git(repoDir, ['add', 'generated.asset'])
     git(repoDir, ['commit', '-m', 'add generated asset'])
 
-    git(repoDir, ['checkout', '-b', 'TICKET-5'])
+    git(repoDir, ['checkout', '-b', BRANCH])
     writeFileSync(resolve(repoDir, 'tracked.ts'), 'export const tracked = 1\n')
     git(repoDir, ['add', 'tracked.ts'])
     git(repoDir, ['commit', '-m', 'tracked change'])
@@ -98,7 +101,7 @@ describe('prepareSquashCandidate', () => {
     writeFileSync(resolve(repoDir, 'runtime.db'), 'not for commit\n')
     unlinkSync(resolve(repoDir, 'generated.asset'))
 
-    const result = prepareSquashCandidate(repoDir, 'main', 'Selective stage', 'TICKET-5', ['final.test.ts'])
+    const result = prepareSquashCandidate(repoDir, 'main', 'Selective stage', BRANCH, ['final.test.ts'])
 
     expect(result.success).toBe(true)
     const showFiles = git(repoDir, ['show', '--pretty=', '--name-only', 'HEAD'])
@@ -117,14 +120,14 @@ describe('prepareSquashCandidate', () => {
   it('excludes committed LoopTroop ticket artifacts from the final candidate', () => {
     const repoDir = repoManager.createRepo()
 
-    git(repoDir, ['checkout', '-b', 'TICKET-6'])
+    git(repoDir, ['checkout', '-b', BRANCH])
     mkdirSync(resolve(repoDir, '.ticket'), { recursive: true })
     writeFileSync(resolve(repoDir, '.ticket/prd.yaml'), 'prd: internal\n')
     writeFileSync(resolve(repoDir, 'feature.ts'), 'export const feature = true\n')
     git(repoDir, ['add', '.ticket/prd.yaml', 'feature.ts'])
     git(repoDir, ['commit', '-m', 'feature with ticket metadata'])
 
-    const result = prepareSquashCandidate(repoDir, 'main', 'Exclude metadata', 'TICKET-6')
+    const result = prepareSquashCandidate(repoDir, 'main', 'Exclude metadata', BRANCH)
 
     expect(result.success).toBe(true)
     const showFiles = git(repoDir, ['show', '--pretty=', '--name-only', 'HEAD'])

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BeadDiffViewer } from '../BeadDiffViewer'
 import { computeLineNumbersWithWordDiff, parseDiffStats } from '../diffUtils'
+import { TEST } from '@/test/factories'
 
 function renderBeadDiffViewer() {
   const queryClient = new QueryClient({
@@ -15,7 +16,7 @@ function renderBeadDiffViewer() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <BeadDiffViewer ticketId="ticket-1" beadId="bead-1" />
+      <BeadDiffViewer ticketId={TEST.ticketId} beadId="bead-1" />
     </QueryClientProvider>,
   )
 }

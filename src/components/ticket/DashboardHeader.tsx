@@ -14,7 +14,7 @@ import { ProgressRing } from '@/components/kanban/ProgressRing'
 import { EffortBadge } from '@/components/shared/EffortBadge'
 import { TicketActions } from './TicketActions'
 import { ErrorBanner } from './ErrorBanner'
-import { COPY_SUCCESS_DISPLAY_MS } from '@/lib/constants'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 interface DashboardHeaderProps {
   ticket: Ticket
@@ -50,13 +50,7 @@ function getStatusBadgeClasses(status: string): string {
 const NON_CANCELABLE = ['COMPLETED', 'CANCELED']
 
 function CopyablePathRow({ label, path }: { label: string; path: string }) {
-  const [copied, setCopied] = useState(false)
-  const handleCopy = () => {
-    navigator.clipboard.writeText(path).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
-    })
-  }
+  const [copied, handleCopy] = useCopyToClipboard()
   return (
     <div className="col-span-2">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -65,7 +59,7 @@ function CopyablePathRow({ label, path }: { label: string; path: string }) {
         <code className="text-xs font-mono text-muted-foreground truncate flex-1" title={path}>{path}</code>
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => handleCopy(path)}
           className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
           title="Copy path"
         >
@@ -77,13 +71,7 @@ function CopyablePathRow({ label, path }: { label: string; path: string }) {
 }
 
 function CopyableDescription({ description }: { description: string }) {
-  const [copied, setCopied] = useState(false)
-  const handleCopy = () => {
-    navigator.clipboard.writeText(description).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_SUCCESS_DISPLAY_MS)
-    })
-  }
+  const [copied, handleCopy] = useCopyToClipboard()
 
   return (
     <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
@@ -91,7 +79,7 @@ function CopyableDescription({ description }: { description: string }) {
         <span className="text-xs font-medium text-muted-foreground">Description</span>
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => handleCopy(description)}
           className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
           title="Copy description"
         >

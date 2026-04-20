@@ -13,6 +13,7 @@ import type { Ticket } from '@/hooks/useTickets'
 import { filterEntries, formatLogLine, MULTI_MODEL_PHASES, isSystem, isCommand } from './logFormat'
 import { LogEntryRow } from './LogLine'
 import { LogColorLegend } from './LogColorLegend'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 interface PhaseLogPanelProps {
   phase: string
@@ -222,18 +223,15 @@ export function PhaseLogPanel({
   const filteredLogs = filterEntries(phaseLogs, effectiveTab)
   const showModelNameInLogTags = effectiveTab === 'ALL' || effectiveTab === 'AI'
   const hasLogs = filteredLogs.length > 0
-  const [copied, setCopied] = useState(false)
+  const [copied, copyToClipboard] = useCopyToClipboard()
   const handleCopyLogs = useCallback(() => {
     if (!filteredLogs.length) return
     const textToCopy = filteredLogs.map((entry) => {
       const ts = entry.timestamp ? `[${entry.timestamp}] ` : ''
       return `${ts}${formatLogLine(entry, showModelNameInLogTags).copyText}`
     }).join('\n')
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }).catch(err => console.error('Failed to copy logs:', err))
-  }, [filteredLogs, showModelNameInLogTags])
+    copyToClipboard(textToCopy)
+  }, [filteredLogs, showModelNameInLogTags, copyToClipboard])
 
   const visibleLogTail = useMemo(() => {
     const lastEntry = filteredLogs.at(-1)

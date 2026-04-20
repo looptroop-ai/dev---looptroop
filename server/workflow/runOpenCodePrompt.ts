@@ -17,6 +17,7 @@ import type { OpenCodeToolPolicy } from '../opencode/toolPolicy'
 import { parseModelRef } from '../opencode/types'
 import { SessionManager, type SessionOwnership } from '../opencode/sessionManager'
 import { resolveOpenCodeTools } from '../opencode/toolPolicy'
+import { PROMPT_MIN_TIMEOUT_MS, PROMPT_MAX_TIMEOUT_MS } from '../lib/constants'
 
 export interface OpenCodeRunCallbacks {
   onSessionCreated?: (session: Session) => void
@@ -294,7 +295,7 @@ export async function runOpenCodeSessionPrompt({
   const parsedModel = model ? parseModelRef(model) : undefined
   const tools = resolveOpenCodeTools(toolPolicy)
   const stepFinishSafetyMs = timeoutMs
-    ? Math.min(Math.max(timeoutMs / 10, 10_000), 30_000)
+    ? Math.min(Math.max(timeoutMs / 10, PROMPT_MIN_TIMEOUT_MS), PROMPT_MAX_TIMEOUT_MS)
     : undefined
   const promptOptions: PromptSessionOptions = {
     ...(combinedSignal ? { signal: combinedSignal } : {}),

@@ -278,7 +278,7 @@ function getOutputItems(phase: string): ContextItem[] {
 
 export function ContextTree({ selectedPhase }: ContextTreeProps) {
   const { phaseMap } = useWorkflowMeta()
-  const [collapsed, setCollapsed] = useState(true)
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const phaseMeta = phaseMap[selectedPhase]
   const sections = getAllowedContextSections(
     phaseMeta?.contextSections,
@@ -290,13 +290,13 @@ export function ContextTree({ selectedPhase }: ContextTreeProps) {
   return (
     <div className="p-2">
       <button
-        onClick={() => setCollapsed(c => !c)}
+        onClick={() => setIsCollapsed(c => !c)}
         className="w-full flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1.5 hover:text-foreground transition-colors"
       >
-        <ChevronRight className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-90')} />
+        <ChevronRight className={cn('h-3 w-3 transition-transform', !isCollapsed && 'rotate-90')} />
         Context & Output
       </button>
-      {!collapsed && (
+      {!isCollapsed && (
         <ScrollArea className="max-h-[320px]">
           <div className="space-y-3">
             <div className="space-y-2">

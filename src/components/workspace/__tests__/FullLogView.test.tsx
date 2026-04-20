@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { Ticket } from '@/hooks/useTickets'
+import { TEST } from '@/test/factories'
 
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({
@@ -51,7 +52,7 @@ function makeLog(id: string, line: string, status: string, overrides: Partial<Lo
     line,
     source: 'system',
     status,
-    timestamp: '2026-03-10T10:00:00.000Z',
+    timestamp: TEST.timestamp,
     audience: 'all',
     kind: 'milestone',
     streaming: false,
@@ -74,7 +75,7 @@ function makeTicket(overrides: Omit<Partial<Ticket>, 'runtime'> & { runtime?: Pa
     activeBeadId: null,
     activeBeadIteration: null,
     lastFailedBeadId: null,
-    artifactRoot: '/tmp/LTL-1',
+    artifactRoot: `/tmp/${TEST.externalId}`,
     beads: [],
     candidateCommitSha: null,
     preSquashHead: null,
@@ -82,9 +83,9 @@ function makeTicket(overrides: Omit<Partial<Ticket>, 'runtime'> & { runtime?: Pa
   }
 
   return {
-    id: 'ticket-1',
-    externalId: 'LTL-1',
-    projectId: 1,
+    id: TEST.ticketId,
+    externalId: TEST.externalId,
+    projectId: TEST.projectId,
     title: 'Ticket title',
     description: null,
     priority: 1,
@@ -107,8 +108,8 @@ function makeTicket(overrides: Omit<Partial<Ticket>, 'runtime'> & { runtime?: Pa
     reviewCutoffStatus: null,
     startedAt: null,
     plannedDate: null,
-    createdAt: '2026-03-10T10:00:00.000Z',
-    updatedAt: '2026-03-10T10:00:00.000Z',
+    createdAt: TEST.timestamp,
+    updatedAt: TEST.timestamp,
     ...overrides,
     runtime: {
       ...defaultRuntime,
@@ -591,7 +592,7 @@ describe('FullLogView', () => {
 
   it('includes status name in copy text', async () => {
     getAllLogsMock.mockReturnValue([
-      makeLog('1', '[SYS] Start', 'CODING', { timestamp: '2026-03-10T10:00:00.000Z' }),
+      makeLog('1', '[SYS] Start', 'CODING', { timestamp: TEST.timestamp }),
     ])
     renderWithTooltipProvider(<FullLogView />)
 

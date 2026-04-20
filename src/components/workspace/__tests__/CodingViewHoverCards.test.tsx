@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { makeTicket } from '@/test/factories'
+import { makeBead, makeTicket } from '@/test/factories'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -82,8 +82,7 @@ describe('CodingView hover cards', () => {
     it('renders PRD ref codes with cursor-help styling when bead has prdRefs', () => {
       renderCoding({
         runtime: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, prdRefs: ['E1', 'US1.1'] } as any],
+          beads: [makeBead({ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, prdRefs: ['E1', 'US1.1'] })],
         },
       })
 
@@ -105,8 +104,7 @@ describe('CodingView hover cards', () => {
     it('renders labels as badges with cursor-help styling', () => {
       renderCoding({
         runtime: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, labels: ['frontend', 'auth'] } as any],
+          beads: [makeBead({ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, labels: ['frontend', 'auth'] })],
         },
       })
 
@@ -128,9 +126,8 @@ describe('CodingView hover cards', () => {
       renderCoding({
         runtime: {
           beads: [
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            { id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, dependencies: { blocked_by: ['bead-2'], blocks: [] } } as any,
-            { id: 'bead-2', title: 'Blocker Bead', status: 'done', iteration: 1 },
+            makeBead({ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, dependencies: { blocked_by: ['bead-2'], blocks: [] } }),
+            makeBead({ id: 'bead-2', title: 'Blocker Bead', status: 'done', iteration: 1 }),
           ],
         },
       })
@@ -146,9 +143,8 @@ describe('CodingView hover cards', () => {
       renderCoding({
         runtime: {
           beads: [
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            { id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, dependencies: { blocked_by: [], blocks: ['bead-3'] } } as any,
-            { id: 'bead-3', title: 'Downstream Bead', status: 'pending', iteration: 0 },
+            makeBead({ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, dependencies: { blocked_by: [], blocks: ['bead-3'] } }),
+            makeBead({ id: 'bead-3', title: 'Downstream Bead', status: 'pending', iteration: 0 }),
           ],
         },
       })
@@ -165,8 +161,7 @@ describe('CodingView hover cards', () => {
     it('renders target files as code elements with copy button', () => {
       renderCoding({
         runtime: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, targetFiles: ['src/app.ts', 'src/utils.ts'] } as any],
+          beads: [makeBead({ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, targetFiles: ['src/app.ts', 'src/utils.ts'] })],
         },
       })
 
@@ -190,8 +185,7 @@ describe('CodingView hover cards', () => {
 
       renderCoding({
         runtime: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          beads: [{ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, targetFiles: ['src/main.ts'] } as any],
+          beads: [makeBead({ id: 'bead-1', title: 'Test Bead', status: 'in_progress', iteration: 1, targetFiles: ['src/main.ts'] })],
         },
       })
 

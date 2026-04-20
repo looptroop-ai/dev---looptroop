@@ -1318,10 +1318,6 @@ export function getWorkflowPhaseMeta(status: string): WorkflowPhaseMeta | undefi
 
 export type WorkflowAction = 'start' | 'approve' | 'cancel' | 'retry' | 'merge' | 'close_unmerged'
 
-export const APPROVAL_PHASE_IDS = new Set(
-  WORKFLOW_PHASES.filter((phase) => phase.uiView === 'approval' && phase.reviewArtifactType).map((phase) => phase.id),
-)
-
 export function isBeforeExecution(status: string, previousStatus?: string | null): boolean {
   if (status === 'BLOCKED_ERROR' && previousStatus) {
     return isBeforeExecution(previousStatus)

@@ -27,7 +27,7 @@ type EditTab = 'structured' | 'jsonl'
 type DiscardTarget = { type: 'close' } | { type: 'switch-tab'; tab: EditTab } | null
 
 interface BeadsApprovalUiState {
-  editMode?: boolean
+  isEditMode?: boolean
   editTab?: EditTab
   jsonlDraft?: string
   structuredDraft?: ParsedBead[]
@@ -97,7 +97,7 @@ function parseBeadsForEditor(data: unknown[]): ParsedBead[] {
   return data.map((item) => normalizeBeadForEditor(item as Record<string, unknown>))
 }
 
-/** Build a canonical bead object for saving — merges editor fields back into the original, keeping read-only fields intact. */
+/** Build a canonical bead object for isSaving — merges editor fields back into the original, keeping read-only fields intact. */
 function buildBeadForSave(bead: ParsedBead): Record<string, unknown> {
   const { contextGuidance, dependencies, acceptanceCriteria, testCommands, targetFiles, prdRefs, ...rest } = bead
   return {
@@ -144,12 +144,12 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
   const beadsArray = useMemo(() => fetchedBeads ?? [], [fetchedBeads])
   const rawJsonl = useMemo(() => beadsArray.length > 0 ? beadsArrayToJsonl(beadsArray) : '', [beadsArray])
 
-  const [editMode, setEditMode] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
   const [editTab, setEditTab] = useState<EditTab>('structured')
   const [structuredDraft, setStructuredDraft] = useState<ParsedBead[] | null>(null)
   const [jsonlDraft, setJsonlDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [approving, setApproving] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
   const [discardTarget, setDiscardTarget] = useState<DiscardTarget>(null)
@@ -185,20 +185,20 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
     if (isLoading || restoredDraftRef.current || fetchedBeads === undefined) return
 
     const persisted = persistedUiState?.data
-    const nextEditMode = Boolean(persisted?.editMode)
+    const nextEditMode = Boolean(persisted?.isEditMode)
     const nextEditTab: EditTab = persisted?.editTab === 'jsonl' ? 'jsonl' : 'structured'
     const nextStructuredDraft = Array.isArray(persisted?.structuredDraft) && persisted.structuredDraft.length > 0
       ? persisted.structuredDraft
       : baseStructuredDraft
     const nextJsonlDraft = typeof persisted?.jsonlDraft === 'string' ? persisted.jsonlDraft : rawJsonl
 
-    setEditMode(nextEditMode)
+    setIsEditMode(nextEditMode)
     setEditTab(nextEditTab)
     setStructuredDraft(nextStructuredDraft)
     setJsonlDraft(nextJsonlDraft)
 
     const snapshot = JSON.stringify({
-      editMode: nextEditMode,
+      isEditMode: nextEditMode,
       editTab: nextEditTab,
       jsonlDraft: nextJsonlDraft,
       structuredDraft: nextStructuredDraft,
@@ -225,7 +225,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
     if (isLoading || !restoredDraftRef.current) return
 
     const snapshot = {
-      editMode,
+      isEditMode,
       editTab,
       jsonlDraft,
       structuredDraft,
@@ -243,7 +243,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [editMode, editTab, isLoading, saveUiState, structuredDraft, jsonlDraft, ticket.id, uiStateScope])
+  }, [isEditMode, editTab, isLoading, saveUiState, structuredDraft, jsonlDraft, ticket.id, uiStateScope])
 
   function resetDraftsFromSaved(nextTab: EditTab = 'structured') {
     startTransition(() => {
@@ -257,7 +257,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
 
   function openEditor() {
     resetDraftsFromSaved('structured')
-    setEditMode(true)
+    setIsEditMode(true)
   }
 
   const handleSave = useCallback(async () => {
@@ -269,7 +269,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
       }
     }
 
-    setSaving(true)
+    setIsSaving(true)
     setSaveError(null)
 
     try {
@@ -294,17 +294,17 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
       clearTicketArtifactsCache(ticket.id)
 
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Save failed')
     } finally {
-      setSaving(false)
+      setIsSaving(false)
     }
   }, [editTab, jsonlDraft, structuredDraft, ticket.id, queryClient])
 
   const handleApprove = useCallback(async () => {
-    setApproving(true)
+    setIsApproving(true)
     setApproveError(null)
 
     try {
@@ -320,12 +320,12 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
       queryClient.invalidateQueries({ queryKey: ['artifact', ticket.id, 'beads'] })
       clearTicketArtifactsCache(ticket.id)
-      setEditMode(false)
+      setIsEditMode(false)
       setEditTab('structured')
     } catch (error) {
       setApproveError(error instanceof Error ? error.message : 'Failed to approve beads')
     } finally {
-      setApproving(false)
+      setIsApproving(false)
     }
   }, [ticket.id, queryClient])
 
@@ -339,13 +339,13 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
   }
 
   function handleToggleEdit() {
-    if (editMode) {
+    if (isEditMode) {
       if (hasUnsavedChanges) {
         setDiscardTarget({ type: 'close' })
         return
       }
       resetDraftsFromSaved('structured')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
     openEditor()
@@ -358,7 +358,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
 
     if (target.type === 'close') {
       resetDraftsFromSaved('structured')
-      setEditMode(false)
+      setIsEditMode(false)
       return
     }
 
@@ -396,15 +396,15 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
             onClick={handleToggleEdit}
             className="text-xs shrink-0"
           >
-            {editMode ? 'View' : 'Edit'}
+            {isEditMode ? 'View' : 'Edit'}
           </Button>
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={approving || saving || (editMode && hasUnsavedChanges) || beadsArray.length === 0 || ticket.status !== 'WAITING_BEADS_APPROVAL'}
+            disabled={isApproving || isSaving || (isEditMode && hasUnsavedChanges) || beadsArray.length === 0 || ticket.status !== 'WAITING_BEADS_APPROVAL'}
             className="text-xs shrink-0"
           >
-            {approving ? 'Approving…' : 'Approve'}
+            {isApproving ? 'Approving…' : 'Approve'}
           </Button>
         </div>
 
@@ -416,7 +416,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
           councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined}
         />
 
-        {editMode ? (
+        {isEditMode ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1">
               <button
@@ -444,9 +444,9 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
                 size="sm"
                 variant="secondary"
                 onClick={handleSave}
-                disabled={saving || !hasUnsavedChanges}
+                disabled={isSaving || !hasUnsavedChanges}
               >
-                {saving ? 'Saving…' : 'Save'}
+                {isSaving ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </div>
@@ -462,7 +462,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
           {coverageWarning ? <CoverageApprovalWarning warning={coverageWarning} /> : null}
           {isLoading ? (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading beads…</div>
-          ) : editMode ? (
+          ) : isEditMode ? (
             <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-3">
               {editTab === 'jsonl' ? (
                 <div className="space-y-3">
@@ -483,7 +483,7 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
               ) : structuredDraft && structuredDraft.length > 0 ? (
                 <BeadsApprovalEditor
                   beads={structuredDraft}
-                  disabled={saving}
+                  disabled={isSaving}
                   onChange={setStructuredDraft}
                 />
               ) : (

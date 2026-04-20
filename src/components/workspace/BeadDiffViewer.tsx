@@ -42,23 +42,23 @@ function lineClassName(line: string): string {
 }
 
 function FileDiffBlock({ file }: { file: FileDiff }) {
-  const [expanded, setExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   return (
     <div className="border-b border-border last:border-b-0">
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setIsExpanded((v) => !v)}
         className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-left hover:bg-muted/40 transition-colors"
       >
-        {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         <span className="truncate font-medium text-foreground">{file.filename}</span>
         <span className="ml-auto flex items-center gap-2 shrink-0">
           {file.additions > 0 && <span className="text-green-600 dark:text-green-400">+{file.additions}</span>}
           {file.deletions > 0 && <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>}
         </span>
       </button>
-      {expanded && (() => {
+      {isExpanded && (() => {
         const numbered = computeLineNumbersWithWordDiff(file.lines)
         return (
           <div className="text-xs font-mono leading-relaxed overflow-auto">

@@ -13,6 +13,7 @@ import { LogEntryRow } from './LogLine'
 import { LogColorLegend } from './LogColorLegend'
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 
@@ -432,18 +433,15 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   }, [effectiveTab, hasLogs, visibleLogTail, scheduleScrollToBottom])
 
   // ── Copy all logs ──────────────────────────────────────────────
-  const [copied, setCopied] = useState(false)
+  const [copied, copyToClipboard] = useCopyToClipboard()
   const handleCopyLogs = useCallback(() => {
     if (!renderedEntries.length) return
     const textToCopy = renderedEntries.map((entry) => {
       const ts = entry.timestamp ? `[${entry.timestamp}] ` : ''
       return `${ts}[${entry.status}] ${formatLogLine(entry, true).copyText}`
     }).join('\n')
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }).catch(err => console.error('Failed to copy logs:', err))
-  }, [renderedEntries])
+    copyToClipboard(textToCopy)
+  }, [renderedEntries, copyToClipboard])
 
   // ── Global entry index counter ──────────────────────────────────
   const globalIndexMap = useMemo(() => {

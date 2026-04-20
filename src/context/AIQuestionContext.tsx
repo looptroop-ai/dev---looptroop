@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HelpCircle, Minus, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,7 @@ import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
 import { SSE_RECONNECT_DELAY_MS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import type { Ticket } from '@/hooks/useTickets'
+import { AIQuestionContext, type AIQuestionContextValue } from './aiQuestionContextDef'
 
 interface AIQuestionOption {
   label: string
@@ -57,16 +58,6 @@ interface AIQuestionQueueItem {
   queueIndex: number
   queueTotal: number
 }
-
-interface AIQuestionContextValue {
-  getPendingCount: (ticketId: string) => number
-  openQueue: () => void
-}
-
-const AIQuestionContext = createContext<AIQuestionContextValue>({
-  getPendingCount: () => 0,
-  openQueue: () => undefined,
-})
 
 function isTerminalStatus(status: string) {
   return status === 'COMPLETED' || status === 'CANCELED'
@@ -187,11 +178,6 @@ function QuestionAnswerForm({
   const [custom, setCustom] = useState('')
   const allowsCustom = item.question.custom !== false
   const isMultiple = item.question.multiple === true
-
-  useEffect(() => {
-    setSelected([])
-    setCustom('')
-  }, [questionKey])
 
   const answers = [...selected, custom.trim()].filter(Boolean)
   const canSubmit = answers.length > 0
@@ -322,6 +308,7 @@ function AIQuestionPopup({
         )}
         <div className="mt-4">
           <QuestionAnswerForm
+            key={`${item.request.requestId}:${item.questionIndex}`}
             item={item}
             disabled={item.request.submitting}
             onAnswer={onAnswer}
@@ -541,8 +528,4 @@ export function AIQuestionProvider({ tickets, children }: { tickets: Ticket[]; c
       )}
     </AIQuestionContext.Provider>
   )
-}
-
-export function useAIQuestions() {
-  return useContext(AIQuestionContext)
 }

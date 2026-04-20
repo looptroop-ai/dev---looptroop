@@ -10,12 +10,12 @@ interface CenteredModalProps {
 }
 
 export function CenteredModal({ open, onClose, title, children, maxWidth = 'max-w-2xl' }: CenteredModalProps) {
-  const [dirtySession, setDirtySession] = useState(false)
+  const [isSessionDirty, setIsSessionDirty] = useState(false)
 
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDirtySession(false)
+      setIsSessionDirty(false)
     }
   }, [open])
 
@@ -23,7 +23,7 @@ export function CenteredModal({ open, onClose, title, children, maxWidth = 'max-
     if (!open) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (dirtySession) {
+        if (isSessionDirty) {
           const shouldClose = window.confirm('You have unsaved changes. Close this window anyway?')
           if (!shouldClose) return
         }
@@ -32,7 +32,7 @@ export function CenteredModal({ open, onClose, title, children, maxWidth = 'max-
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [open, onClose, dirtySession])
+  }, [open, onClose, isSessionDirty])
 
   if (!open) return null
 
@@ -41,30 +41,30 @@ export function CenteredModal({ open, onClose, title, children, maxWidth = 'max-
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px]"
       onClick={(e) => {
         if (e.target !== e.currentTarget) return
-        if (dirtySession) return
+        if (isSessionDirty) return
         onClose()
       }}
       onChangeCapture={(e) => {
         const target = e.target as HTMLElement
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
-          setDirtySession(true)
+          setIsSessionDirty(true)
         }
       }}
       onInputCapture={(e) => {
         const target = e.target as HTMLElement
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-          setDirtySession(true)
+          setIsSessionDirty(true)
         }
       }}
       onSubmitCapture={() => {
-        setDirtySession(false)
+        setIsSessionDirty(false)
       }}
     >
       <div className={`${maxWidth} w-full mx-4 bg-background rounded-xl shadow-xl border border-border flex flex-col max-h-[85vh] relative`}>
         <button
           type="button"
           onClick={() => {
-            if (dirtySession) {
+            if (isSessionDirty) {
               const shouldClose = window.confirm('You have unsaved changes. Close this window anyway?')
               if (!shouldClose) return
             }

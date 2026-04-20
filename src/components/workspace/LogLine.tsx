@@ -3,6 +3,7 @@ import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { formatLogLine, getEntryColor, formatTimestamp } from './logFormat'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 type ToolSectionKind = 'input' | 'output' | 'error'
 
@@ -134,16 +135,14 @@ function showsStreamingUi(entry: LogEntry): boolean {
 export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelName }: LogEntryRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, handleCopyEntry] = useCopyToClipboard()
   const contentRef = useRef<HTMLDivElement>(null)
   const isStreamingUiEntry = showsStreamingUi(entry)
-  const handleCopyEntry = useCallback(() => {
+  const copyEntry = useCallback(() => {
     const textToCopy = formatLogLine(entry, showModelName).copyText
     const timestampedText = entry.timestamp ? `[${entry.timestamp}] ${textToCopy}` : textToCopy
-    void navigator.clipboard.writeText(timestampedText)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }, [entry, showModelName])
+    handleCopyEntry(timestampedText)
+  }, [entry, showModelName, handleCopyEntry])
 
   // Fast multiline check to predict if truncation is needed
   const isMultiline = useMemo(() => {
@@ -179,7 +178,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
   const renderCopyButton = (className: string) => (
     <button
       type="button"
-      onClick={handleCopyEntry}
+      onClick={copyEntry}
       className={cn('transition-colors cursor-pointer', className)}
       title="Copy log entry"
     >

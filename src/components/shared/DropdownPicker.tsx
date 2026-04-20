@@ -16,7 +16,7 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   const triggerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
-  const [positioned, setPositioned] = useState(false)
+  const [isPositioned, setIsPositioned] = useState(false)
 
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return
@@ -29,9 +29,9 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
   }, [])
 
   useEffect(() => {
-    if (!open) { setPositioned(false); return } // eslint-disable-line react-hooks/set-state-in-effect
+    if (!open) { setIsPositioned(false); return } // eslint-disable-line react-hooks/set-state-in-effect
     updatePosition()
-    setPositioned(true)
+    setIsPositioned(true)
     const handler = (e: MouseEvent) => {
       if (
         !ref.current?.contains(e.target as Node) &&
@@ -56,7 +56,7 @@ export function DropdownPicker({ trigger, children, open, onOpenChange }: Dropdo
             left: pos.left,
             maxHeight: `calc(100vh - ${pos.top}px - ${DROPDOWN_MARGIN}px)`,
             overflowY: 'auto',
-            visibility: positioned ? 'visible' : 'hidden',
+            visibility: isPositioned ? 'visible' : 'hidden',
           }}
         >
           {children}

@@ -27,7 +27,7 @@ export function ProjectsPanel({ onClose }: ProjectsPanelProps) {
   const { data: projects, isLoading } = useProjects()
   const [view, setView] = useState<View>({ mode: 'list' })
   const [sortBy, setSortBy] = useState<SortOption>('name')
-  const [sortDesc, setSortDesc] = useState(false)
+  const [isSortDescending, setIsSortDescending] = useState(false)
 
   const sortedProjects = useMemo(() => {
     if (!projects) return []
@@ -43,10 +43,10 @@ export function ProjectsPanel({ onClose }: ProjectsPanelProps) {
       } else if (sortBy === 'updated') {
         cmp = a.updatedAt.localeCompare(b.updatedAt)
       }
-      return sortDesc ? -cmp : cmp
+      return isSortDescending ? -cmp : cmp
     })
     return copy
-  }, [projects, sortBy, sortDesc])
+  }, [projects, sortBy, isSortDescending])
 
   if (view.mode === 'create') {
     return (
@@ -104,10 +104,10 @@ export function ProjectsPanel({ onClose }: ProjectsPanelProps) {
                 variant="outline"
                 size="sm"
                 className="h-8 px-2"
-                onClick={() => setSortDesc(d => !d)}
-                title={sortDesc ? 'Descending' : 'Ascending'}
+                onClick={() => setIsSortDescending(d => !d)}
+                title={isSortDescending ? 'Descending' : 'Ascending'}
               >
-                {sortDesc ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                {isSortDescending ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
               </Button>
             </div>
           )}

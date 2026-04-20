@@ -22,11 +22,11 @@ const EMOJI_CATEGORIES = [
 export interface EmojiPickerSectionProps {
   icon: string
   onIconChange: (icon: string) => void
-  iconOpen: boolean
+  isIconPickerOpen: boolean
   onIconOpenChange: (open: boolean) => void
 }
 
-export function EmojiPickerSection({ icon, onIconChange, iconOpen, onIconOpenChange }: EmojiPickerSectionProps) {
+export function EmojiPickerSection({ icon, onIconChange, isIconPickerOpen, onIconOpenChange }: EmojiPickerSectionProps) {
   const [emojiSearch, setEmojiSearch] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -34,7 +34,7 @@ export function EmojiPickerSection({ icon, onIconChange, iconOpen, onIconOpenCha
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">Icon</span>
       <DropdownPicker
-        open={iconOpen}
+        open={isIconPickerOpen}
         onOpenChange={onIconOpenChange}
         trigger={
           <button
@@ -205,18 +205,18 @@ const PROJECT_COLORS = [
 export interface ColorPickerSectionProps {
   color: string
   onColorChange: (color: string) => void
-  colorOpen: boolean
+  isColorPickerOpen: boolean
   onColorOpenChange: (open: boolean) => void
 }
 
-export function ColorPickerSection({ color, onColorChange, colorOpen, onColorOpenChange }: ColorPickerSectionProps) {
+export function ColorPickerSection({ color, onColorChange, isColorPickerOpen, onColorOpenChange }: ColorPickerSectionProps) {
   const selectedColor = PROJECT_COLORS.find(c => c.value === color)
 
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">Color</span>
       <DropdownPicker
-        open={colorOpen}
+        open={isColorPickerOpen}
         onOpenChange={onColorOpenChange}
         trigger={
           <button

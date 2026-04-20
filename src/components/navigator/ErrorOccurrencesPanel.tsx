@@ -98,8 +98,8 @@ export function ErrorOccurrencesPanel({
 
   const shouldShowPanel = visibleOccurrences.length > 0 || Boolean(selectedOccurrence)
   const shouldAutoExpand = currentStatusIsBlocked || Boolean(selectedOccurrence?.resolvedAt)
-  const [userToggled, setUserToggled] = useState(false)
-  const expanded = shouldAutoExpand || userToggled
+  const [isUserToggled, setIsUserToggled] = useState(false)
+  const expanded = shouldAutoExpand || isUserToggled
   const activeFailureSummary = currentStatusIsBlocked && ticket.runtime.lastFailedBeadId
     ? `${ticket.runtime.lastFailedBeadId}${ticket.runtime.activeBeadIteration ? ` · iter ${ticket.runtime.activeBeadIteration}` : ''}`
     : null
@@ -110,7 +110,7 @@ export function ErrorOccurrencesPanel({
     <div className="space-y-1.5">
       <button
         type="button"
-        onClick={() => setUserToggled((v) => !v)}
+        onClick={() => setIsUserToggled((v) => !v)}
         aria-expanded={expanded}
         className="flex w-full items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
       >

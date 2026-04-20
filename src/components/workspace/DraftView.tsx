@@ -82,7 +82,7 @@ export function DraftView({ ticket }: DraftViewProps) {
   const { mutateAsync: updateTicket, isPending: isSavingDescription } = useUpdateTicket()
   const { data: projects = [] } = useProjects()
   const { data: profile, isLoading: isProfileLoading } = useProfile()
-  const [startAttemptActive, setStartAttemptActive] = useState(false)
+  const [isStartAttemptActive, setIsStartAttemptActive] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [descriptionDraft, setDescriptionDraft] = useState(ticket.description ?? '')
   const [isEditingDescription, setIsEditingDescription] = useState(false)
@@ -120,7 +120,7 @@ export function DraftView({ ticket }: DraftViewProps) {
   }
 
   const handleStart = () => {
-    setStartAttemptActive(true)
+    setIsStartAttemptActive(true)
     setStartError(null)
     performAction(
       { id: ticket.id, action: 'start' },
@@ -311,7 +311,7 @@ export function DraftView({ ticket }: DraftViewProps) {
         </div>
       </div>
 
-      {startAttemptActive && (
+      {isStartAttemptActive && (
         <div className="shrink-0 border-t border-border bg-background px-4 pb-3 pt-2">
           <CollapsiblePhaseLogSection
             phase="DRAFT"

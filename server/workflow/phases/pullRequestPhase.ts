@@ -37,6 +37,7 @@ import {
 } from './helpers'
 import { adapter } from './state'
 import { handleMockExecutionUnsupported } from './executionPhase'
+import { MAX_DIFF_PATCH_LENGTH } from '../../lib/constants'
 
 const PULL_REQUEST_REPORT_ARTIFACT = 'pull_request_report'
 const MERGE_REPORT_ARTIFACT = 'merge_report'
@@ -345,7 +346,7 @@ export async function handleCreatePullRequest(
         finalTestReport,
         diffStat: diff.stat,
         diffNameStatus: diff.nameStatus,
-        diffPatch: truncateText(diff.patch, 30_000),
+        diffPatch: truncateText(diff.patch, MAX_DIFF_PATCH_LENGTH),
       })
 
       const mainImplementer = context.lockedMainImplementer

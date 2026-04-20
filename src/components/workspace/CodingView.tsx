@@ -21,6 +21,7 @@ import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { parsePrdDocument, parsePrdDocumentContent, normalizePrdDocumentLike } from '@/lib/prdDocument'
 import type { PrdDocument } from '@/lib/prdDocument'
 import { isStatusAtOrPast } from '@shared/workflowMeta'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 interface CodingViewProps {
   ticket: Ticket
@@ -505,24 +506,14 @@ function BeadRefHoverCard({ beadId, beads, onSelectBead }: {
 }
 
 function TargetFileRow({ file }: { file: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(file)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Fallback: select text if clipboard API not available
-    }
-  }
+  const [copied, handleCopy] = useCopyToClipboard(1500)
 
   return (
     <div className="group flex items-center gap-1">
       <code className="block text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1" title={file}>{file}</code>
       <button
         type="button"
-        onClick={handleCopy}
+        onClick={() => handleCopy(file)}
         className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
         title="Copy path"
       >
@@ -635,10 +626,11 @@ function BeadGrid({
 }
 
 export function CodingView({ ticket, readOnly }: CodingViewProps) {
-  const [viewingBeadId, setViewingBeadId] = useState<string | null>(null)
+  const [rawViewingBeadId, setViewingBeadId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'details' | 'changes' | 'model'>('details')
   const phaseForView = readOnly ? 'CODING' : ticket.status
   const showBeadControls = phaseForView === 'CODING'
+  const viewingBeadId = showBeadControls ? rawViewingBeadId : null
   
   // -- Auto-scroll state for the model log tab --
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -747,12 +739,6 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
   }, [beadLogEntries.length, detailTab, scheduleScrollToBottom])
 
   const isViewingOther = viewedBead !== null
-
-  useEffect(() => {
-    if (!showBeadControls && viewingBeadId) {
-      setViewingBeadId(null)
-    }
-  }, [showBeadControls, viewingBeadId])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">

@@ -50,10 +50,10 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const [folder, setFolder] = useState(project?.folderPath ?? '')
   const [icon, setIcon] = useState(project?.icon ?? '📦')
   const [color, setColor] = useState(project?.color ?? '#3b82f6')
-  const [iconOpen, setIconOpen] = useState(false)
-  const [colorOpen, setColorOpen] = useState(false)
+  const [isIconPickerOpen, setIsIconPickerOpen] = useState(false)
+  const [isColorPickerOpen, setIsColorPickerOpen] = useState(false)
   const [gitInfo, setGitInfo] = useState<GitCheckResponse>({ isGit: false, status: 'none' })
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false)
   const restorePrefillKeyRef = useRef<string | null>(null)
   const closeView = onBack ?? onClose
   const restoreMode = !isEditing && gitInfo.hasLoopTroopState === true && !!gitInfo.existingProject
@@ -108,12 +108,12 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   }, [gitInfo.existingProject, gitInfo.repoRoot, isEditing, restoreMode])
 
   const handleBrowseFolder = () => {
-    setFolderPickerOpen(true)
+    setIsFolderPickerOpen(true)
   }
 
   const handleFolderSelected = (path: string) => {
     setFolder(path)
-    setFolderPickerOpen(false)
+    setIsFolderPickerOpen(false)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -221,15 +221,15 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
             <div className="flex items-center gap-4">
               <EmojiPickerSection
                 icon={icon}
-                iconOpen={iconOpen}
-                onIconOpenChange={setIconOpen}
+                isIconPickerOpen={isIconPickerOpen}
+                onIconOpenChange={setIsIconPickerOpen}
                 onIconChange={setIcon}
               />
 
               <ColorPickerSection
                 color={color}
-                colorOpen={colorOpen}
-                onColorOpenChange={setColorOpen}
+                isColorPickerOpen={isColorPickerOpen}
+                onColorOpenChange={setIsColorPickerOpen}
                 onColorChange={setColor}
               />
 
@@ -371,8 +371,8 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     </form>
 
     <FolderPicker
-      open={folderPickerOpen}
-      onClose={() => setFolderPickerOpen(false)}
+      open={isFolderPickerOpen}
+      onClose={() => setIsFolderPickerOpen(false)}
       onSelect={handleFolderSelected}
       initialPath={folder}
     />

@@ -5,7 +5,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { Loader2, AlertTriangle, ChevronUp, ChevronDown, Minus, HelpCircle } from 'lucide-react'
 import { useUI } from '@/context/useUI'
-import { useAIQuestions } from '@/context/AIQuestionContext'
+import { useAIQuestions } from '@/context/useAIQuestions'
 import { STATUS_DESCRIPTIONS, STATUS_TO_PHASE, getStatusUserLabel } from '@/lib/workflowMeta'
 import {
   clearErrorTicketSeen,

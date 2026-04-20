@@ -4,6 +4,7 @@ import type { PreFlightContext } from '../types'
 import type { DoctorDeps } from '../doctor'
 import { runPreFlightChecks } from '../doctor'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
+import { TEST } from '../../../test/factories'
 
 function makeBead(overrides: Partial<Bead> = {}): Bead {
   return {
@@ -96,7 +97,7 @@ describe('Pre-Flight Doctor', () => {
 
   it('passes all checks in happy path', async () => {
     const beads = [makeBead()]
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     expect(report.passed).toBe(true)
     expect(report.criticalFailures).toHaveLength(0)
@@ -110,7 +111,7 @@ describe('Pre-Flight Doctor', () => {
     const b1 = makeBead({ id: 'b1', dependencies: { blocked_by: ['b2'], blocks: [] } })
     const b2 = makeBead({ id: 'b2', dependencies: { blocked_by: ['b1'], blocks: [] } })
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', [b1, b2], defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, [b1, b2], defaultContext, undefined, deps)
 
     expect(report.passed).toBe(false)
     const circularCheck = report.criticalFailures.find(c => c.message.includes('Circular'))
@@ -121,7 +122,7 @@ describe('Pre-Flight Doctor', () => {
     const b1 = makeBead({ id: 'dup' })
     const b2 = makeBead({ id: 'dup' })
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', [b1, b2], defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, [b1, b2], defaultContext, undefined, deps)
 
     expect(report.passed).toBe(false)
     const dupCheck = report.criticalFailures.find(c => c.message.includes('Duplicate'))
@@ -131,7 +132,7 @@ describe('Pre-Flight Doctor', () => {
   it('detects no runnable bead when all depend on non-existent', async () => {
     const b1 = makeBead({ id: 'b1', dependencies: { blocked_by: ['nonexistent'], blocks: [] } })
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', [b1], defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, [b1], defaultContext, undefined, deps)
 
     expect(report.passed).toBe(false)
     expect(report.criticalFailures.some(c => c.message.includes('dangling'))).toBe(true)
@@ -140,7 +141,7 @@ describe('Pre-Flight Doctor', () => {
   it('accepts maxIterations = 0 as valid (unlimited)', async () => {
     const beads = [makeBead()]
     const ctx = { ...defaultContext, maxIterations: 0 }
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, ctx, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, ctx, undefined, deps)
 
     const budgetCheck = report.checks.find(c => c.name === 'Runtime Budget')
     expect(budgetCheck?.result).toBe('pass')
@@ -150,7 +151,7 @@ describe('Pre-Flight Doctor', () => {
   it('fails for negative maxIterations', async () => {
     const beads = [makeBead()]
     const ctx = { ...defaultContext, maxIterations: -1 }
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, ctx, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, ctx, undefined, deps)
 
     const budgetCheck = report.checks.find(c => c.name === 'Runtime Budget')
     expect(budgetCheck?.result).toBe('fail')
@@ -160,7 +161,7 @@ describe('Pre-Flight Doctor', () => {
     const beads = [makeBead()]
     deps.fetchConnectedModelIds = async () => ['model-b', 'model-c']
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const modelCheck = report.criticalFailures.find(c => c.name === 'Main Implementer Model')
     expect(modelCheck).toBeDefined()
@@ -171,7 +172,7 @@ describe('Pre-Flight Doctor', () => {
     const beads = [makeBead()]
     deps.fetchConnectedModelIds = async () => ['model-a']
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const modelCheck = report.checks.find(c => c.name === 'Main Implementer Model')
     expect(modelCheck?.result).toBe('pass')
@@ -181,7 +182,7 @@ describe('Pre-Flight Doctor', () => {
     const beads = [makeBead()]
     deps.getLatestPhaseArtifact = () => undefined
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const approvalCheck = report.criticalFailures.find(c => c.name === 'Beads Approval')
     expect(approvalCheck).toBeDefined()
@@ -192,7 +193,7 @@ describe('Pre-Flight Doctor', () => {
     const beads = [makeBead()]
     deps.fileExists = (p) => p !== '/tmp/test-worktree'
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const gitCheck = report.criticalFailures.find(c => c.name === 'Git Worktree')
     expect(gitCheck).toBeDefined()
@@ -202,7 +203,7 @@ describe('Pre-Flight Doctor', () => {
   it('fails when no main implementer configured', async () => {
     const beads = [makeBead()]
     const ctx = { ...defaultContext, lockedMainImplementer: null }
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, ctx, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, ctx, undefined, deps)
 
     const modelCheck = report.criticalFailures.find(c => c.name === 'Main Implementer Model')
     expect(modelCheck).toBeDefined()
@@ -213,7 +214,7 @@ describe('Pre-Flight Doctor', () => {
     const beads = [makeBead()]
     deps.getCurrentBranch = () => null
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const gitCheck = report.criticalFailures.find(c => c.name === 'Git Worktree')
     expect(gitCheck).toBeDefined()
@@ -224,7 +225,7 @@ describe('Pre-Flight Doctor', () => {
     const beads = [makeBead()]
     deps.fileExists = (p) => typeof p === 'string' && !p.includes('relevant-files')
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const rfCheck = report.warnings.find(c => c.name === 'Relevant Files')
     expect(rfCheck).toBeDefined()
@@ -235,24 +236,24 @@ describe('Pre-Flight Doctor', () => {
   it('fails when another ticket is already in the execution band', async () => {
     const beads = [makeBead()]
     deps.findExecutionBandConflict = () => ({
-      ticketId: '1:TEST-2',
-      externalId: 'TEST-2',
+      ticketId: `${TEST.projectId}:${TEST.shortname}-2`,
+      externalId: `${TEST.shortname}-2`,
       title: 'Conflicting execution',
       status: 'CODING',
     })
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const lockCheck = report.criticalFailures.find(c => c.name === 'Project Execution Lock')
     expect(lockCheck).toBeDefined()
-    expect(lockCheck?.message).toContain('TEST-2')
+    expect(lockCheck?.message).toContain(`${TEST.shortname}-2`)
   })
 
   it('fails when the execution capability probe does not return the exact OK marker', async () => {
     const beads = [makeBead()]
     adapter.mockResponses.set('mock-session-1', 'NOT OK')
 
-    const report = await runPreFlightChecks(adapter, 'ticket-1', beads, defaultContext, undefined, deps)
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps)
 
     const capabilityCheck = report.criticalFailures.find((check) => check.name === 'OpenCode Execution Capability')
     expect(capabilityCheck).toBeDefined()
