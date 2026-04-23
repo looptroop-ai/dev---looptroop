@@ -7,7 +7,7 @@ import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { TEST, makePrdYaml } from '../../test/factories'
 import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { buildBeadsContextBuilder } from '../../phases/beads/draft'
-import { phaseIntermediate, phaseResults } from '../phases/state'
+import { phaseIntermediate } from '../phases/state'
 
 const { conductVotingMock, selectWinnerMock } = vi.hoisted(() => ({
   conductVotingMock: vi.fn(),
@@ -73,7 +73,6 @@ describe('beads voting workflow', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
-    phaseResults.clear()
     conductVotingMock.mockReset()
     selectWinnerMock.mockReset()
   })

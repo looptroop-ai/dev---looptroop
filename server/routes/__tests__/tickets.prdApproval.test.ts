@@ -9,10 +9,12 @@ import { clearProjectDatabaseCache } from '../../db/project'
 import { safeAtomicWrite } from '../../io/atomicWrite'
 import { attachProject } from '../../storage/projects'
 import {
+  createFreshPhaseAttempts,
   createTicket,
   getLatestPhaseArtifact,
   getTicketPaths,
   patchTicket,
+  PRD_EDIT_RESTART_PHASES,
   upsertLatestPhaseArtifact,
 } from '../../storage/tickets'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
@@ -30,6 +32,10 @@ vi.mock('../../machines/persistence', async () => {
   return {
     createTicketActor: vi.fn(),
     ensureActorForTicket: vi.fn(() => ({ id: 'mock-actor' })),
+    revertTicketToApprovalStatus: vi.fn((ticketRef: string | number, status: string) => {
+      storage.patchTicket(String(ticketRef), { status })
+      return { id: 'mock-actor', status }
+    }),
     sendTicketEvent: vi.fn((ticketRef: string | number, event: { type: string }) => {
       if (event.type === 'APPROVE') {
         storage.patchTicket(String(ticketRef), { status: 'DRAFTING_BEADS' })
@@ -337,6 +343,101 @@ describe('ticketRouter PRD approval routes', () => {
     expect(existsSync(beadsDir)).toBe(false)
     expect(getLatestPhaseArtifact(ticket.id, 'beads', 'DRAFTING_BEADS')).toBeUndefined()
     expect(getLatestPhaseArtifact(ticket.id, 'ui_state:approval_beads', 'UI_STATE')).toBeUndefined()
+  })
+
+  it('archives downstream beads attempts and hides them from default artifact queries when PRD is edited from a later phase', async () => {
+    const { app, ticket, paths } = setupPrdApprovalTicket()
+    patchTicket(ticket.id, { status: 'WAITING_BEADS_APPROVAL' })
+    createFreshPhaseAttempts(ticket.id, PRD_EDIT_RESTART_PHASES)
+
+    const beadsDir = resolve(paths.ticketDir, 'beads')
+    mkdirSync(beadsDir, { recursive: true })
+    writeFileSync(resolve(beadsDir, 'bead-001.yaml'), 'artifact: bead\n')
+    upsertLatestPhaseArtifact(ticket.id, 'beads', 'DRAFTING_BEADS', 'artifact: beads\n')
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'approval_snapshot:beads',
+      'WAITING_BEADS_APPROVAL',
+      JSON.stringify({ raw: '{"id":"bead-1","title":"Archived bead"}\n' }),
+    )
+
+    const response = await app.request(`/api/files/${ticket.id}/prd`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: [
+          'schema_version: 1',
+          `ticket_id: ${ticket.externalId}`,
+          'artifact: prd',
+          'status: draft',
+          'source_interview:',
+          '  content_sha256: 0000000000000000000000000000000000000000000000000000000000000000',
+          'product:',
+          '  problem_statement: Restart beads planning from edited PRD.',
+          '  target_users:',
+          '    - Backend engineers',
+          'scope:',
+          '  in_scope:',
+          '    - Restart beads planning',
+          '  out_of_scope:',
+          '    - Execution changes',
+          'technical_requirements:',
+          '  architecture_constraints:',
+          '    - Preserve archived attempt history',
+          '  data_model: []',
+          '  api_contracts: []',
+          '  security_constraints: []',
+          '  performance_constraints: []',
+          '  reliability_constraints: []',
+          '  error_handling_rules: []',
+          '  tooling_assumptions: []',
+          'epics:',
+          '  - id: E01',
+          '    title: Restart beads history',
+          '    objective: Create a fresh active beads attempt.',
+          '    implementation_steps:',
+          '      - Archive downstream attempts',
+          '    user_stories:',
+          '      - id: E01-S01',
+          '        title: Keep archived beads read-only',
+          '        acceptance_criteria:',
+          '          - Old beads remain inspectable',
+          '        implementation_steps:',
+          '          - Keep attempt history in DB',
+          '        verification:',
+          '          required_commands:',
+          '            - npm test',
+          'risks: []',
+          'approval:',
+          "  approved_by: ''",
+          "  approved_at: ''",
+        ].join('\n'),
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(existsSync(beadsDir)).toBe(false)
+
+    const attemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_BEADS_APPROVAL/attempts`)
+    expect(attemptsResponse.status).toBe(200)
+    const attempts = await attemptsResponse.json() as Array<{ attemptNumber: number; state: string }>
+    expect(attempts[0]).toMatchObject({ attemptNumber: 2, state: 'active' })
+    expect(attempts[1]).toMatchObject({ attemptNumber: 1, state: 'archived' })
+
+    const defaultArtifactsResponse = await app.request(`/api/tickets/${ticket.id}/artifacts?phase=WAITING_BEADS_APPROVAL`)
+    expect(defaultArtifactsResponse.status).toBe(200)
+    const defaultArtifacts = await defaultArtifactsResponse.json() as Array<{ artifactType: string }>
+    expect(defaultArtifacts).toEqual([])
+
+    const archivedArtifactsResponse = await app.request(`/api/tickets/${ticket.id}/artifacts?phase=WAITING_BEADS_APPROVAL&phaseAttempt=1`)
+    expect(archivedArtifactsResponse.status).toBe(200)
+    const archivedArtifacts = await archivedArtifactsResponse.json() as Array<{ artifactType: string; phaseAttempt: number }>
+    expect(archivedArtifacts).toEqual([
+      expect.objectContaining({
+        artifactType: 'approval_snapshot:beads',
+        phaseAttempt: 1,
+      }),
+    ])
   })
 
   it('stamps PRD approval metadata through the generic approve route', async () => {

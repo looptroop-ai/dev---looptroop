@@ -2,6 +2,7 @@ import type { LogEvent, LogEventType, LogSource } from './types'
 import { safeAtomicAppend } from '../io/atomicAppend'
 import { getTicketPaths } from '../storage/tickets'
 import { removeBuffered } from './upsertBuffer'
+import { resolvePhaseAttempt } from '../storage/ticketPhaseAttempts'
 
 type StructuredLogFields = Omit<LogEvent, 'timestamp' | 'type' | 'ticketId' | 'phase' | 'message' | 'source' | 'status' | 'data'>
 
@@ -9,7 +10,7 @@ type StructuredLogFields = Omit<LogEvent, 'timestamp' | 'type' | 'ticketId' | 'p
 // They are stripped from `data` before serialization to avoid redundant storage.
 const STRUCTURED_KEYS: ReadonlySet<string> = new Set([
   'content', 'source', 'status', 'entryId', 'fingerprint', 'op', 'audience',
-  'kind', 'modelId', 'sessionId', 'beadId', 'streaming',
+  'kind', 'modelId', 'sessionId', 'beadId', 'streaming', 'phaseAttempt',
 ])
 
 // Internal-only keys that should never be persisted in the log file.
@@ -32,6 +33,7 @@ function pickStructuredFields(data?: Record<string, unknown>): Partial<LogEvent>
     ...(typeof data.sessionId === 'string' ? { sessionId: data.sessionId } : {}),
     ...(typeof data.beadId === 'string' ? { beadId: data.beadId } : {}),
     ...(typeof data.streaming === 'boolean' ? { streaming: data.streaming } : {}),
+    ...(typeof data.phaseAttempt === 'number' && Number.isFinite(data.phaseAttempt) ? { phaseAttempt: data.phaseAttempt } : {}),
   }
 }
 
@@ -91,11 +93,15 @@ export function appendLogEvent(
 ) {
   const structured = pickStructuredFields(data)
   const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
+  const phaseAttempt = extra?.phaseAttempt
+    ?? structured.phaseAttempt
+    ?? resolvePhaseAttempt(ticketId, phase, typeof data?.phaseAttempt === 'number' ? data.phaseAttempt : undefined)
   const event: LogEvent = {
     timestamp,
     type,
     ticketId,
     phase,
+    phaseAttempt,
     message,
     content: typeof data?.content === 'string' ? data.content : message,
     ...(source != null ? { source } : structured.source ? { source: structured.source } : {}),
@@ -126,29 +132,35 @@ export function appendLogEvent(
     removeBuffered(event.entryId)
   }
 
-  if (fingerprint && hasPersistedFingerprint(ticketId, fingerprint)) {
+  if (fingerprint && hasPersistedFingerprint(ticketId, phase, phaseAttempt, fingerprint)) {
     return
   }
 
   safeAtomicAppend(logPath, JSON.stringify(event))
   if (fingerprint) {
-    rememberPersistedFingerprint(ticketId, fingerprint)
+    rememberPersistedFingerprint(ticketId, phase, phaseAttempt, fingerprint)
   }
 }
 
 const MAX_PERSISTED_FINGERPRINTS_PER_TICKET = 256
 const persistedFingerprintsByTicket = new Map<string, Map<string, number>>()
 
-function hasPersistedFingerprint(ticketId: string, fingerprint: string): boolean {
-  return persistedFingerprintsByTicket.get(ticketId)?.has(fingerprint) ?? false
+function buildFingerprintScopeKey(phase: string, phaseAttempt: number, fingerprint: string): string {
+  return `${phase}:${phaseAttempt}:${fingerprint}`
 }
 
-function rememberPersistedFingerprint(ticketId: string, fingerprint: string): void {
+function hasPersistedFingerprint(ticketId: string, phase: string, phaseAttempt: number, fingerprint: string): boolean {
+  const key = buildFingerprintScopeKey(phase, phaseAttempt, fingerprint)
+  return persistedFingerprintsByTicket.get(ticketId)?.has(key) ?? false
+}
+
+function rememberPersistedFingerprint(ticketId: string, phase: string, phaseAttempt: number, fingerprint: string): void {
   const bucket = persistedFingerprintsByTicket.get(ticketId) ?? new Map<string, number>()
-  if (bucket.has(fingerprint)) {
-    bucket.delete(fingerprint)
+  const scopedKey = buildFingerprintScopeKey(phase, phaseAttempt, fingerprint)
+  if (bucket.has(scopedKey)) {
+    bucket.delete(scopedKey)
   }
-  bucket.set(fingerprint, Date.now())
+  bucket.set(scopedKey, Date.now())
 
   while (bucket.size > MAX_PERSISTED_FINGERPRINTS_PER_TICKET) {
     const oldest = bucket.keys().next().value
@@ -171,11 +183,15 @@ export function createLogEvent(
 ): LogEvent {
   const structured = pickStructuredFields(data)
   const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
+  const phaseAttempt = extra?.phaseAttempt
+    ?? structured.phaseAttempt
+    ?? resolvePhaseAttempt(ticketId, phase, typeof data?.phaseAttempt === 'number' ? data.phaseAttempt : undefined)
   return {
     timestamp,
     type,
     ticketId,
     phase,
+    phaseAttempt,
     message,
     content: typeof data?.content === 'string' ? data.content : message,
     ...(source != null ? { source } : structured.source ? { source: structured.source } : {}),

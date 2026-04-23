@@ -6,6 +6,7 @@ export type {
   TicketErrorOccurrence,
   TicketErrorResolutionStatus,
 } from './ticketQueries'
+export type { PublicTicketPhaseAttemptRow } from './ticketPhaseAttempts'
 export {
   buildTicketRef,
   parseTicketRef,
@@ -36,3 +37,15 @@ export {
   insertPhaseArtifact,
   upsertLatestPhaseArtifact,
 } from './ticketArtifacts'
+
+export {
+  INTERVIEW_EDIT_RESTART_PHASES,
+  PRD_EDIT_RESTART_PHASES,
+  isAttemptTrackedPhase,
+  getActivePhaseAttempt,
+  resolvePhaseAttempt,
+  ensureActivePhaseAttempt,
+  listPhaseAttempts,
+  archiveActivePhaseAttempts,
+  createFreshPhaseAttempts,
+} from './ticketPhaseAttempts'

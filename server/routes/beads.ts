@@ -5,6 +5,7 @@ import { getTicketByRef, getTicketPaths, getLatestPhaseArtifact } from '../stora
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { syncTicketRuntimeProjection } from '../storage/ticketRuntimeProjection'
 import { clearExecutionSetupState } from '../phases/executionSetup/storage'
+import { upsertBeadsApprovalSnapshot } from '../phases/beads/document'
 
 const beadsRouter = new Hono()
 
@@ -53,6 +54,7 @@ beadsRouter.put('/tickets/:id/beads', async (c) => {
   try {
     const jsonl = body.map((item: unknown) => JSON.stringify(item)).join('\n') + '\n'
     safeAtomicWrite(filePath, jsonl)
+    upsertBeadsApprovalSnapshot(ticketId, jsonl)
     clearExecutionSetupState(ticketId)
     syncTicketRuntimeProjection(ticketId)
   } catch {

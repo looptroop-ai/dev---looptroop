@@ -1,10 +1,12 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, ChevronLeft, Copy, Check, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
+import { normalizeLogRecord } from '@/context/logUtils'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelBadge } from '@/components/shared/ModelBadge'
@@ -19,6 +21,7 @@ interface PhaseLogPanelProps {
   phase: string
   logs?: LogEntry[]
   ticket?: Ticket
+  phaseAttempt?: number
   hideHeader?: boolean
   toolbarPrefix?: ReactNode
   onNaturalHeightChange?: (height: number) => void
@@ -42,16 +45,36 @@ export function PhaseLogPanel({
   phase,
   logs: propLogs,
   ticket,
+  phaseAttempt,
   hideHeader = false,
   toolbarPrefix,
   onNaturalHeightChange,
   defaultTab,
 }: PhaseLogPanelProps) {
   const logCtx = useLogs()
-  const isLoadingLogs = logCtx?.isLoadingLogs ?? false
+  const archivedLogsQuery = useQuery({
+    queryKey: ticket?.id && typeof phaseAttempt === 'number'
+      ? ['phase-logs', ticket.id, phase, phaseAttempt]
+      : ['phase-logs', '__missing__'] as const,
+    queryFn: async () => {
+      const params = new URLSearchParams({ phase, phaseAttempt: String(phaseAttempt) })
+      const response = await fetch(`/api/files/${ticket!.id}/logs?${params.toString()}`)
+      if (!response.ok) return [] as LogEntry[]
+      const payload = await response.json()
+      if (!Array.isArray(payload)) return [] as LogEntry[]
+      return payload.map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
+    },
+    enabled: Boolean(ticket?.id) && typeof phaseAttempt === 'number' && phaseAttempt > 0,
+  })
+  const isLoadingLogs = typeof phaseAttempt === 'number'
+    ? archivedLogsQuery.isLoading
+    : (logCtx?.isLoadingLogs ?? false)
   const phaseLogs: LogEntry[] = useMemo(
-    () => propLogs ?? logCtx?.getLogsForPhase(phase) ?? [],
-    [propLogs, logCtx, phase],
+    () => propLogs
+      ?? (typeof phaseAttempt === 'number'
+        ? (archivedLogsQuery.data ?? [])
+        : (logCtx?.getLogsForPhase(phase) ?? [])),
+    [archivedLogsQuery.data, logCtx, phase, phaseAttempt, propLogs],
   )
   const hasToolbarPrefix = toolbarPrefix != null
   const [activeTab, setActiveTab] = useState<string>(defaultTab ?? 'ALL')

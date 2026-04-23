@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { extractLogFingerprint } from '@shared/logIdentity'
 import { getTicketByRef, getTicketPaths } from '../storage/tickets'
+import { resolvePhaseAttempt } from '../storage/ticketPhaseAttempts'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { foldPersistedLogEntries } from '../log/readDedupe'
 import { handlePutInterview, handlePutPrd } from './ticketHandlers'
@@ -30,6 +31,9 @@ function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
   const phase = typeof record.phase === 'string'
     ? record.phase
     : (typeof record.status === 'string' ? record.status : 'unknown')
+  const phaseAttempt = typeof record.phaseAttempt === 'number' && Number.isFinite(record.phaseAttempt)
+    ? record.phaseAttempt
+    : (Number.isFinite(Number(record.phaseAttempt)) ? Number(record.phaseAttempt) : 1)
   const status = typeof record.status === 'string' ? record.status : phase
   const content = typeof record.content === 'string'
     ? record.content
@@ -57,6 +61,7 @@ function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
   return {
     ...record,
     phase,
+    phaseAttempt,
     status,
     message: typeof record.message === 'string' ? record.message : content,
     content,
@@ -106,6 +111,7 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
       timestamp: ticket.updatedAt ?? nowIso,
       type: 'info',
       phase: ticket.status,
+      phaseAttempt: resolvePhaseAttempt(ticketId, ticket.status),
       status: ticket.status,
       source: 'system',
       message: `[SYS] Status ${ticket.status} is active. Older runs may not have generated status-scoped logs yet.`,
@@ -119,9 +125,17 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
 
   const statusFilter = c.req.query('status')
   const phaseFilter = c.req.query('phase')
+  const phaseAttemptFilterRaw = c.req.query('phaseAttempt')
+  const phaseAttemptFilter = phaseAttemptFilterRaw != null ? Number(phaseAttemptFilterRaw) : Number.NaN
   const filtered = foldedEntries.filter((entry) => {
     if (statusFilter && entry.status !== statusFilter) return false
     if (phaseFilter && entry.phase !== phaseFilter) return false
+    if (Number.isFinite(phaseAttemptFilter)) {
+      const entryPhaseAttempt = typeof entry.phaseAttempt === 'number' && Number.isFinite(entry.phaseAttempt)
+        ? entry.phaseAttempt
+        : Number(entry.phaseAttempt)
+      if (!Number.isFinite(entryPhaseAttempt) || entryPhaseAttempt !== phaseAttemptFilter) return false
+    }
     return true
   })
 

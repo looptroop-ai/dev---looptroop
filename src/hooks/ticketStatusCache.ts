@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 interface TicketStatusRecord {
   id: string
   status: string
+  previousStatus?: string | null
 }
 
 interface TicketRecord {
@@ -13,9 +14,15 @@ export function patchTicketStatus<T extends TicketStatusRecord>(
   ticket: T,
   ticketId: string,
   status: string,
+  previousStatus?: string | null,
 ): T {
-  if (ticket.id !== ticketId || ticket.status === status) return ticket
-  return { ...ticket, status }
+  if (ticket.id !== ticketId) return ticket
+  if (ticket.status === status && ticket.previousStatus === previousStatus) return ticket
+  return {
+    ...ticket,
+    status,
+    ...(previousStatus !== undefined ? { previousStatus } : {}),
+  }
 }
 
 export function mergeTicket<T extends TicketRecord>(
@@ -52,9 +59,10 @@ export function patchTicketStatusInCache<T extends TicketStatusRecord>(
   queryClient: QueryClient,
   ticketId: string,
   status: string,
+  previousStatus?: string | null,
 ) {
   queryClient.setQueryData<T | undefined>(['ticket', ticketId], (ticket) =>
-    ticket ? patchTicketStatus(ticket, ticketId, status) : ticket,
+    ticket ? patchTicketStatus(ticket, ticketId, status, previousStatus) : ticket,
   )
 
   queryClient.setQueriesData<T[]>({ queryKey: ['tickets'] }, (tickets) => {
@@ -62,7 +70,7 @@ export function patchTicketStatusInCache<T extends TicketStatusRecord>(
 
     let changed = false
     const nextTickets = tickets.map((ticket) => {
-      const nextTicket = patchTicketStatus(ticket, ticketId, status)
+      const nextTicket = patchTicketStatus(ticket, ticketId, status, previousStatus)
       if (nextTicket !== ticket) changed = true
       return nextTicket
     })

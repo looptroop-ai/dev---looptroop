@@ -9,7 +9,7 @@ import { hydrateExpandedBeads, validateBeadExpansion } from '../../phases/beads/
 import type { Bead, BeadSubset } from '../../phases/beads/types'
 import { buildMinimalContext, clearContextCache, type TicketState } from '../../opencode/contextBuilder'
 import type { Message, PromptPart, StreamEvent } from '../../opencode/types'
-import { getLatestPhaseArtifact, getTicketPaths, insertPhaseArtifact, patchTicket } from '../../storage/tickets'
+import { getLatestPhaseArtifact, getTicketByRef, getTicketPaths, insertPhaseArtifact, patchTicket, resolvePhaseAttempt } from '../../storage/tickets'
 import { readJsonl, writeJsonl } from '../../io/jsonl'
 import { buildStructuredRetryPrompt, normalizeBeadSubsetYamlOutput, normalizeBeadsJsonlOutput } from '../../structuredOutput'
 import {
@@ -61,6 +61,8 @@ import { persistUiRefinementDiffArtifact } from '../refinementDiffArtifacts'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../runOpenCodePrompt'
 import { syncTicketRuntimeProjection } from '../../storage/ticketRuntimeProjection'
+import { upsertBeadsApprovalSnapshot } from '../../phases/beads/document'
+import { isBeforeExecution } from '@shared/workflowMeta'
 
 export async function executeBeadsExpandStep(params: {
   ticketId: string
@@ -89,6 +91,7 @@ export async function executeBeadsExpandStep(params: {
   structuredMeta: ReturnType<typeof buildStructuredMetadata>
 }> {
   clearContextCache(params.externalId)
+  const phaseAttempt = resolvePhaseAttempt(params.ticketId, params.phaseLabel)
   const baseParts: PromptPart[] = [{ type: 'text', content: buildPromptFromTemplate(PROM25, buildMinimalContext('beads_expand', params.ticketState)) }]
   let promptParts: PromptPart[] = baseParts
   let structuredMeta = buildStructuredMetadata({ autoRetryCount: 0, repairApplied: false, repairWarnings: [] })
@@ -107,7 +110,7 @@ export async function executeBeadsExpandStep(params: {
       sessionOwnership: {
         ticketId: params.ticketId,
         phase: params.phaseLabel,
-        phaseAttempt: 1,
+        phaseAttempt,
         memberId: params.winnerId,
         step: 'expand',
       },
@@ -836,6 +839,10 @@ export function readTicketBeads(ticketId: string): Bead[] {
 
 export function writeTicketBeads(ticketId: string, beads: Bead[]) {
   writeJsonl(getBeadsPath(ticketId), beads)
+  const ticket = getTicketByRef(ticketId)
+  if (ticket && isBeforeExecution(ticket.status, ticket.previousStatus)) {
+    upsertBeadsApprovalSnapshot(ticketId)
+  }
   syncTicketRuntimeProjection(ticketId)
 }
 

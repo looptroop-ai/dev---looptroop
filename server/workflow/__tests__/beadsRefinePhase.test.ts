@@ -6,7 +6,7 @@ import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { getLatestPhaseArtifact, getTicketByRef, insertPhaseArtifact } from '../../storage/tickets'
 import { TEST } from '../../test/factories'
 import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
-import { phaseIntermediate, phaseResults } from '../phases/state'
+import { phaseIntermediate } from '../phases/state'
 
 const { refineDraftMock, runOpenCodePromptMock } = vi.hoisted(() => ({
   refineDraftMock: vi.fn(),
@@ -311,7 +311,6 @@ describe('handleBeadsRefine', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
-    phaseResults.clear()
     refineDraftMock.mockReset()
     runOpenCodePromptMock.mockReset()
   })
@@ -417,7 +416,6 @@ describe('handleBeadsRefine', () => {
 
     writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
 
-    phaseResults.delete(`${ticket.id}:beads`)
     insertPhaseArtifact(ticket.id, {
       phase: 'REFINING_BEADS',
       artifactType: 'beads_winner',
@@ -577,7 +575,6 @@ describe('handleBeadsRefine', () => {
 
     writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
 
-    phaseResults.delete(`${ticket.id}:beads`)
     insertPhaseArtifact(ticket.id, {
       phase: 'REFINING_BEADS',
       artifactType: 'beads_winner',
@@ -750,7 +747,6 @@ describe('handleBeadsRefine', () => {
 
     writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
 
-    phaseResults.delete(`${ticket.id}:beads`)
     insertPhaseArtifact(ticket.id, {
       phase: 'REFINING_BEADS',
       artifactType: 'beads_winner',

@@ -210,31 +210,31 @@ export function TicketDashboard() {
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), [])
 
-  // When a React Query refetch returns a status that is further along in the
-  // workflow than the SSE-delivered livePhase, advance livePhase so the UI
-  // doesn't stay pinned to a stale earlier status.  This fixes a race where
-  // fast phase transitions (e.g. SCANNING_RELEVANT_FILES completing quickly)
-  // cause the refetch to leapfrog the SSE event delivery.
-  const dbStatus = ticket?.status
-  if (dbStatus && livePhase.ticketId === ticketId && livePhase.phase && livePhase.phase !== dbStatus) {
+  const dbStatus = ticket?.status ?? null
+  const effectiveLivePhase = useMemo(() => {
+    if (livePhase.ticketId !== ticketId || !livePhase.phase) return null
+    if (!dbStatus || livePhase.phase === dbStatus) return livePhase
+
     const liveIdx = WORKFLOW_PHASE_IDS.indexOf(livePhase.phase)
     const dbIdx = WORKFLOW_PHASE_IDS.indexOf(dbStatus)
     if (liveIdx >= 0 && dbIdx >= 0 && dbIdx > liveIdx) {
-      setLivePhase({
-        ticketId,
+      return {
+        ...livePhase,
         phase: dbStatus,
-        previousStatus: null,
-        reviewCutoffStatus: null,
-      })
+        previousStatus: livePhase.previousStatus ?? snapshotPreviousStatus ?? null,
+        reviewCutoffStatus: livePhase.reviewCutoffStatus ?? snapshotReviewCutoffStatus ?? null,
+      }
     }
-  }
 
-  const liveStatus = livePhase.ticketId === ticketId && livePhase.phase && livePhase.phase !== ticket?.status
-    ? livePhase.phase
+    return livePhase
+  }, [dbStatus, livePhase, snapshotPreviousStatus, snapshotReviewCutoffStatus, ticketId])
+
+  const liveStatus = effectiveLivePhase && effectiveLivePhase.phase !== ticket?.status
+    ? effectiveLivePhase.phase
     : null
-  const currentStatus = liveStatus ?? ticket?.status ?? ''
-  const livePhaseMeta = livePhase.ticketId === ticketId && livePhase.phase === currentStatus
-    ? livePhase
+  const currentStatus = liveStatus ?? dbStatus ?? ''
+  const livePhaseMeta = effectiveLivePhase && effectiveLivePhase.phase === currentStatus
+    ? effectiveLivePhase
     : null
   const previousStatus = livePhaseMeta?.previousStatus ?? snapshotPreviousStatus
   const reviewCutoffStatus = livePhaseMeta?.reviewCutoffStatus ?? snapshotReviewCutoffStatus

@@ -67,7 +67,7 @@ function normalizePersistedAnswerDrafts(
   return baseDrafts
 }
 
-export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
+export function InterviewApprovalPane({ ticket, phase = 'WAITING_INTERVIEW_APPROVAL' }: { ticket: Ticket; phase?: string }) {
   const queryClient = useQueryClient()
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_interview'
@@ -341,7 +341,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={isApproving || isSaving || (isEditMode && hasUnsavedChanges) || !interviewDocument || ticket.status !== 'WAITING_INTERVIEW_APPROVAL'}
+            disabled={isApproving || isSaving || (isEditMode && hasUnsavedChanges) || !interviewDocument || ticket.status !== phase}
             className="text-xs shrink-0"
           >
             {isApproving ? 'Approving…' : 'Approve'}
@@ -458,7 +458,7 @@ export function InterviewApprovalPane({ ticket }: { ticket: Ticket }) {
       </div>
 
       <CollapsiblePhaseLogSection
-        phase={ticket.status}
+        phase={phase}
         ticket={ticket}
         defaultExpanded={false}
         variant="bottom"

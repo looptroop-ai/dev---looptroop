@@ -33,6 +33,7 @@ import {
   handlePutExecutionSetupPlan,
   handleRegenerateExecutionSetupPlan,
   handleGetArtifacts,
+  handleListPhaseAttempts,
 } from './ticketHandlers'
 
 const ticketRouter = new Hono()
@@ -70,5 +71,6 @@ ticketRouter.post('/tickets/:id/opencode/questions/:requestId/reject', (c) => ha
 ticketRouter.post('/tickets/:id/dev-event', async (c) => handleDevEvent(c))
 ticketRouter.get('/tickets/:id/interview', (c) => handleGetInterview(c))
 ticketRouter.get('/tickets/:id/artifacts', (c) => handleGetArtifacts(c))
+ticketRouter.get('/tickets/:id/phases/:phase/attempts', (c) => handleListPhaseAttempts(c))
 
 export { ticketRouter }

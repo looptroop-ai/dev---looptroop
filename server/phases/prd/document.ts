@@ -4,12 +4,14 @@ import { resolve } from 'node:path'
 import type { PrdDocument } from '../../structuredOutput/types'
 import { phaseArtifacts } from '../../db/schema'
 import { safeAtomicWrite } from '../../io/atomicWrite'
+import { clearContextCache } from '../../opencode/contextBuilder'
 import { clearExecutionSetupState } from '../executionSetup/storage'
 import { broadcaster } from '../../sse/broadcaster'
-import { getTicketByRef, getTicketContext, getTicketPaths } from '../../storage/tickets'
+import { getActivePhaseAttempt, getTicketByRef, getTicketContext, getTicketPaths } from '../../storage/tickets'
+import { upsertLatestPhaseArtifact } from '../../storage/ticketArtifacts'
 import { normalizePrdYamlOutput } from '../../structuredOutput'
 import { buildYamlDocument } from '../../structuredOutput/yamlUtils'
-import { phaseIntermediate, phaseResults } from '../../workflow/phases/state'
+import { phaseIntermediate } from '../../workflow/phases/state'
 import { nowIso } from '../../lib/dateUtils'
 
 const BEADS_DOWNSTREAM_PHASES = new Set([
@@ -23,6 +25,8 @@ const BEADS_DOWNSTREAM_PHASES = new Set([
 const BEADS_DOWNSTREAM_ARTIFACT_TYPES = new Set([
   'ui_state:approval_beads',
 ])
+
+const PRD_APPROVAL_SNAPSHOT_ARTIFACT = 'approval_snapshot:prd'
 
 function getPrdPath(ticketId: string): string {
   const paths = getTicketPaths(ticketId)
@@ -75,6 +79,12 @@ export function writePrdDocument(ticketId: string, document: PrdDocument): strin
   const prdPath = getPrdPath(ticketId)
   const nextRaw = buildYamlDocument(document)
   safeAtomicWrite(prdPath, nextRaw)
+  upsertLatestPhaseArtifact(
+    ticketId,
+    PRD_APPROVAL_SNAPSHOT_ARTIFACT,
+    'WAITING_PRD_APPROVAL',
+    JSON.stringify({ raw: nextRaw }),
+  )
   return nextRaw
 }
 
@@ -157,6 +167,12 @@ export function invalidateDownstreamBeadsArtifacts(ticketId: string): {
     if (!BEADS_DOWNSTREAM_PHASES.has(artifact.phase) && !BEADS_DOWNSTREAM_ARTIFACT_TYPES.has(artifactType)) {
       continue
     }
+    if (BEADS_DOWNSTREAM_PHASES.has(artifact.phase)) {
+      const activeAttempt = getActivePhaseAttempt(ticketId, artifact.phase)
+      if (activeAttempt != null && artifact.phaseAttempt !== activeAttempt) {
+        continue
+      }
+    }
     ticketContext.projectDb
       .delete(phaseArtifacts)
       .where(eq(phaseArtifacts.id, artifact.id))
@@ -164,8 +180,8 @@ export function invalidateDownstreamBeadsArtifacts(ticketId: string): {
     removedArtifacts += 1
   }
 
-  phaseResults.delete(`${ticketId}:beads`)
   phaseIntermediate.delete(`${ticketId}:beads`)
+  clearContextCache(ticketId)
 
   removedArtifacts += executionSetupInvalidation.removedArtifacts
 

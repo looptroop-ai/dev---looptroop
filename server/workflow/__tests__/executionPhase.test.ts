@@ -4,7 +4,7 @@ import { makeTicketContextFromTicket } from '../../test/factories'
 import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { readTicketBeads, recoverFailedCodingBead, writeTicketBeads } from '../phases/beadsPhase'
-import { phaseIntermediate, phaseResults } from '../phases/state'
+import { phaseIntermediate } from '../phases/state'
 import { BEAD_RETRY_BUDGET_EXHAUSTED } from '../../../shared/errorCodes'
 
 const {
@@ -105,7 +105,6 @@ describe('handleCoding', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
-    phaseResults.clear()
     executeBeadMock.mockReset()
     recordBeadStartCommitMock.mockReset()
     commitBeadChangesMock.mockReset()

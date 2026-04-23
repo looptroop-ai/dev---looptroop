@@ -30,10 +30,16 @@ import {
   getTicketByRef,
   getTicketContext,
   getTicketPaths,
+  patchTicket,
   deleteTicket as deleteStoredTicket,
   listPhaseArtifacts,
+  listPhaseAttempts,
   listTickets,
   lockTicketStartConfiguration,
+  archiveActivePhaseAttempts,
+  createFreshPhaseAttempts,
+  INTERVIEW_EDIT_RESTART_PHASES,
+  PRD_EDIT_RESTART_PHASES,
   updateTicket,
   upsertLatestPhaseArtifact,
 } from '../storage/tickets'
@@ -376,6 +382,49 @@ function buildExecutionBandConflictMessage(conflict: {
   status: string
 }) {
   return `Project execution is busy with ${conflict.externalId} (${conflict.status}): ${conflict.title}`
+}
+
+async function preparePlanningRestart(
+  ticketId: string,
+  targetApprovalStatus: 'WAITING_INTERVIEW_APPROVAL' | 'WAITING_PRD_APPROVAL',
+): Promise<void> {
+  const restartPhase = targetApprovalStatus === 'WAITING_INTERVIEW_APPROVAL'
+    ? 'WAITING_INTERVIEW_APPROVAL'
+    : 'WAITING_PRD_APPROVAL'
+  const restartReason = targetApprovalStatus === 'WAITING_INTERVIEW_APPROVAL'
+    ? 'interview_edit_restart'
+    : 'prd_edit_restart'
+  const phasesToArchive = targetApprovalStatus === 'WAITING_INTERVIEW_APPROVAL'
+    ? INTERVIEW_EDIT_RESTART_PHASES
+    : PRD_EDIT_RESTART_PHASES
+
+  emitRoutePhaseLog(ticketId, restartPhase, 'info', 'Archiving downstream planning attempts and aborting active downstream work.')
+  cancelTicket(ticketId)
+  await abortTicketSessions(ticketId)
+  clearContextCache(ticketId)
+  archiveActivePhaseAttempts(ticketId, phasesToArchive, restartReason)
+  createFreshPhaseAttempts(ticketId, phasesToArchive)
+
+  ensureActorForTicket(ticketId)
+  revertTicketToApprovalStatus(ticketId, targetApprovalStatus)
+}
+
+function rollbackTicketStartToDraft(ticketId: string): void {
+  patchTicket(ticketId, {
+    status: 'DRAFT',
+    xstateSnapshot: null,
+    errorMessage: null,
+    branchName: null,
+    startedAt: null,
+    lockedMainImplementer: null,
+    lockedMainImplementerVariant: null,
+    lockedCouncilMembers: null,
+    lockedCouncilMemberVariants: null,
+    lockedInterviewQuestions: null,
+    lockedCoverageFollowUpBudgetPercent: null,
+    lockedMaxCoveragePasses: null,
+  })
+  stopActor(ticketId)
 }
 
 function buildInterviewPayload(ticketId: string): {
@@ -813,6 +862,7 @@ export async function handleStartTicket(c: Context) {
       lockedMaxCoveragePasses,
     })
     if (!lockedTicket) {
+      rollbackTicketStartToDraft(ticketId)
       emitRoutePhaseLog(ticketId, startPhase, 'error', '✗ Start Config: Ticket not found.')
       return c.json({ error: 'Ticket not found' }, 404)
     }
@@ -822,8 +872,10 @@ export async function handleStartTicket(c: Context) {
     })
   } catch (err) {
     const details = err instanceof Error ? err.message : String(err)
+    rollbackTicketStartToDraft(ticketId)
     emitRoutePhaseLog(ticketId, startPhase, 'error', `✗ Start Config: ${details}`, {
       error: details,
+      rollback: 'preserved_worktree',
     })
     return c.json({
       error: 'Failed to persist ticket start configuration',
@@ -845,8 +897,10 @@ export async function handleStartTicket(c: Context) {
       lockedMaxCoveragePasses,
     })
   } catch (err) {
+    rollbackTicketStartToDraft(ticketId)
     emitRoutePhaseLog(ticketId, startPhase, 'error', `✗ Workflow Dispatch: ${String(err)}`, {
       error: String(err),
+      rollback: 'preserved_worktree',
     })
     console.error(`[tickets] Failed to send START to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to start ticket', details: String(err) }, 500)
@@ -1093,8 +1147,7 @@ export async function handlePutInterviewAnswers(c: Context) {
 
   try {
     if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
-      ensureActorForTicket(ticketId)
-      revertTicketToApprovalStatus(ticketId, 'WAITING_INTERVIEW_APPROVAL')
+      await preparePlanningRestart(ticketId, 'WAITING_INTERVIEW_APPROVAL')
     }
     saveInterviewAnswerUpdates(ticketId, parsed.data.questions)
     return c.json({
@@ -1125,8 +1178,7 @@ export async function handlePutInterview(c: Context) {
 
   try {
     if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
-      ensureActorForTicket(ticketId)
-      revertTicketToApprovalStatus(ticketId, 'WAITING_INTERVIEW_APPROVAL')
+      await preparePlanningRestart(ticketId, 'WAITING_INTERVIEW_APPROVAL')
     }
     saveInterviewRawContent(ticketId, parsed.data.content)
     return c.json({
@@ -1154,8 +1206,7 @@ export async function handlePutPrd(c: Context) {
   if (rawParsed.success) {
     try {
       if (ticket.status !== 'WAITING_PRD_APPROVAL') {
-        ensureActorForTicket(ticketId)
-        revertTicketToApprovalStatus(ticketId, 'WAITING_PRD_APPROVAL')
+        await preparePlanningRestart(ticketId, 'WAITING_PRD_APPROVAL')
       }
       const { raw } = savePrdRawContent(ticketId, rawParsed.data.content)
       return c.json({
@@ -1177,8 +1228,7 @@ export async function handlePutPrd(c: Context) {
 
   try {
     if (ticket.status !== 'WAITING_PRD_APPROVAL') {
-      ensureActorForTicket(ticketId)
-      revertTicketToApprovalStatus(ticketId, 'WAITING_PRD_APPROVAL')
+      await preparePlanningRestart(ticketId, 'WAITING_PRD_APPROVAL')
     }
     const { raw } = savePrdStructuredContent(ticketId, structuredParsed.data.document)
     return c.json({
@@ -1685,8 +1735,24 @@ export function handleGetInterview(c: Context) {
   return c.json(buildInterviewPayload(ticketId))
 }
 
+export function handleListPhaseAttempts(c: Context) {
+  const ticketId = getTicketParam(c)
+  const phase = c.req.param('phase')
+  if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
+  if (!phase) return c.json({ error: 'Phase is required' }, 400)
+  return c.json(listPhaseAttempts(ticketId, phase))
+}
+
 export function handleGetArtifacts(c: Context) {
   const ticketId = getTicketParam(c)
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
-  return c.json(listPhaseArtifacts(ticketId))
+  const phase = c.req.query('phase')
+  const rawPhaseAttempt = c.req.query('phaseAttempt')
+  const phaseAttempt = rawPhaseAttempt != null ? Number(rawPhaseAttempt) : undefined
+  return c.json(listPhaseArtifacts(ticketId, {
+    ...(phase ? { phase } : {}),
+    ...(typeof phaseAttempt === 'number' && Number.isFinite(phaseAttempt) && phaseAttempt > 0
+      ? { phaseAttempt }
+      : {}),
+  }))
 }

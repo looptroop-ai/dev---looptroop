@@ -86,9 +86,22 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ticket_id INTEGER NOT NULL REFERENCES tickets(id),
       phase TEXT NOT NULL,
+      phase_attempt INTEGER NOT NULL DEFAULT 1,
       artifact_type TEXT,
       content TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ticket_phase_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+      phase TEXT NOT NULL,
+      attempt_number INTEGER NOT NULL,
+      state TEXT NOT NULL DEFAULT 'active',
+      archived_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      archived_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS opencode_sessions (
@@ -133,7 +146,12 @@ function initializeProjectSqlite(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_project_tickets_status ON tickets(status);
     CREATE INDEX IF NOT EXISTS idx_project_tickets_external_id ON tickets(external_id);
     CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket ON phase_artifacts(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket_phase_attempt ON phase_artifacts(ticket_id, phase, phase_attempt);
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase ON opencode_sessions(ticket_id, phase, state);
+    CREATE INDEX IF NOT EXISTS idx_ticket_phase_attempts_ticket_phase
+      ON ticket_phase_attempts(ticket_id, phase, state, attempt_number);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_phase_attempts_unique
+      ON ticket_phase_attempts(ticket_id, phase, attempt_number);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_error_occurrences_ticket_sequence
       ON ticket_error_occurrences(ticket_id, occurrence_number);
     CREATE INDEX IF NOT EXISTS idx_ticket_error_occurrences_open
@@ -147,6 +165,18 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   ensureColumn(sqlite, 'tickets', 'locked_council_member_variants', 'TEXT')
   ensureColumn(sqlite, 'opencode_sessions', 'step', 'TEXT')
   ensureColumn(sqlite, 'projects', 'execution_setup_timeout', 'INTEGER')
+  ensureColumn(sqlite, 'phase_artifacts', 'phase_attempt', 'INTEGER NOT NULL DEFAULT 1')
+  ensureColumn(sqlite, 'phase_artifacts', 'updated_at', 'TEXT DEFAULT (datetime(\'now\'))')
+
+  sqlite.exec(`
+    UPDATE phase_artifacts
+    SET phase_attempt = COALESCE(phase_attempt, 1)
+    WHERE phase_attempt IS NULL;
+
+    UPDATE phase_artifacts
+    SET updated_at = COALESCE(updated_at, created_at)
+    WHERE updated_at IS NULL;
+  `)
 
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase_step

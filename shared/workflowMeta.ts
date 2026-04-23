@@ -430,7 +430,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Coverage Warnings: If the latest PRD candidate reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed prominently. These warnings describe any unresolved gaps so you can decide whether to address them manually before approving.',
       'Editing: You can edit any section of the PRD — add requirements, refine acceptance criteria, adjust edge cases, or rewrite test intent. The UI preserves temporary draft state between view switches. Saving writes the updated PRD artifact back to the ticket workspace.',
       'Approval Decision: Approving confirms the current PRD as the authoritative specification for beads drafting. The beads council will decompose this approved PRD into implementable tasks.',
-      'Post-Approval Cascade: If you navigate back to the PRD after approval and make edits, LoopTroop displays a cascade warning. Editing the PRD at this point will restart the beads phase — all previously generated beads data will be lost and regenerated from the updated PRD.',
+      'Post-Approval Cascade: If you navigate back to the PRD after approval and make edits, LoopTroop displays a cascade warning. Editing the PRD at this point will restart the beads phase. Previous beads data cannot continue, but it will be archived and remain available read-only while a new active attempt is generated from the updated PRD.',
     ],
     outputs: [
       'Approved PRD artifact — the finalized, authoritative specification for the implementation.',

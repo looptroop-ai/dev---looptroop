@@ -12,6 +12,7 @@ export interface StateChangeEvent {
   ticketId: string
   from: string
   to: string
+  previousStatus?: string | null
 }
 
 export interface LogEvent {
@@ -19,6 +20,7 @@ export interface LogEvent {
   type: string
   content: string
   phase?: string
+  phaseAttempt?: number
   status?: string
   source?: string
   entryId?: string
@@ -62,10 +64,12 @@ export interface ArtifactSnapshot {
   id: number
   ticketId: string
   phase: string
+  phaseAttempt: number
   artifactType: string
   filePath: string | null
   content: string | null
   createdAt: string
+  updatedAt: string
 }
 
 export interface ArtifactChangeEvent {

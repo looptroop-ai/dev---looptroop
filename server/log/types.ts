@@ -10,6 +10,7 @@ export interface LogEvent {
   type: LogEventType
   ticketId: string
   phase: string
+  phaseAttempt?: number
   message: string
   content?: string
   source?: LogSource

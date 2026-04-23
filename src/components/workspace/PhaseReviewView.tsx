@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { CalendarDays, Loader2 } from 'lucide-react'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
+import { PhaseAttemptSelector } from './PhaseAttemptSelector'
+import { useTicketPhaseAttempts } from '@/hooks/useTicketPhaseAttempts'
 
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -21,7 +23,34 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
   )
   const councilMemberCount = councilMemberNames.length || 3
   const isDraft = phase === 'DRAFT'
-  const { artifacts: preloadedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticket.id)
+  const { data: attempts = [] } = useTicketPhaseAttempts(ticket.id, phase)
+  const [selectedAttemptNumber, setSelectedAttemptNumber] = useState<number | null>(null)
+  const selectedAttempt = useMemo(
+    () => attempts.find((attempt) => attempt.attemptNumber === selectedAttemptNumber)
+      ?? attempts.find((attempt) => attempt.state === 'active')
+      ?? attempts[0]
+      ?? null,
+    [attempts, selectedAttemptNumber],
+  )
+  const archivedAttemptNumber = selectedAttempt?.state === 'archived' ? selectedAttempt.attemptNumber : undefined
+  const { artifacts: preloadedArtifacts, isLoading: isLoadingArtifacts } = useTicketArtifacts(ticket.id, {
+    phase,
+    ...(archivedAttemptNumber != null ? { phaseAttempt: archivedAttemptNumber } : {}),
+  })
+
+  useEffect(() => {
+    if (attempts.length === 0) {
+      setSelectedAttemptNumber(null)
+      return
+    }
+    const activeAttempt = attempts.find((attempt) => attempt.state === 'active') ?? attempts[0]
+    setSelectedAttemptNumber((current) => {
+      if (current != null && attempts.some((attempt) => attempt.attemptNumber === current)) {
+        return current
+      }
+      return activeAttempt?.attemptNumber ?? null
+    })
+  }, [attempts])
 
   if (isLoadingArtifacts) {
     return (
@@ -37,6 +66,13 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="p-4 space-y-3 shrink-0">
+        {attempts.length > 1 ? (
+          <PhaseAttemptSelector
+            attempts={attempts}
+            value={selectedAttempt?.attemptNumber ?? attempts[0]!.attemptNumber}
+            onChange={setSelectedAttemptNumber}
+          />
+        ) : null}
         {!isDraft && (
           <PhaseArtifactsPanel phase={phase} isCompleted={true} ticketId={ticket.id} councilMemberCount={councilMemberCount} councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined} preloadedArtifacts={preloadedArtifacts} />
         )}
@@ -63,10 +99,20 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
               )}
             </div>
           </div>
-          <CollapsiblePhaseLogSection phase={phase} ticket={ticket} className="px-4 pb-4" />
+          <CollapsiblePhaseLogSection
+            phase={phase}
+            phaseAttempt={archivedAttemptNumber}
+            ticket={ticket}
+            className="px-4 pb-4"
+          />
         </div>
       ) : (
-        <CollapsiblePhaseLogSection phase={phase} ticket={ticket} className="px-4 pb-4" />
+        <CollapsiblePhaseLogSection
+          phase={phase}
+          phaseAttempt={archivedAttemptNumber}
+          ticket={ticket}
+          className="px-4 pb-4"
+        />
       )}
     </div>
   )

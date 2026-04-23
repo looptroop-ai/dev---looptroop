@@ -48,7 +48,6 @@ export type TicketEvent =
   | { type: 'GAPS_FOUND' }
   | { type: 'COVERAGE_LIMIT_REACHED' }
   | { type: 'APPROVE' }
-  | { type: 'REJECT' }
   | { type: 'DRAFTS_READY' }
   | { type: 'REFINED' }
   | { type: 'CHECKS_PASSED' }

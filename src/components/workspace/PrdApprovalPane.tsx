@@ -44,7 +44,7 @@ type DiscardTarget =
   | { type: 'switch-tab'; tab: EditTab }
   | null
 
-export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
+export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ticket: Ticket; phase?: string }) {
   const queryClient = useQueryClient()
   const { mutate: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_prd'
@@ -325,7 +325,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={isApproving || isSaving || (isEditMode && (hasUnsavedChanges || structuredEditorUnavailable)) || !prdDocument || ticket.status !== 'WAITING_PRD_APPROVAL'}
+            disabled={isApproving || isSaving || (isEditMode && (hasUnsavedChanges || structuredEditorUnavailable)) || !prdDocument || ticket.status !== phase}
             className="text-xs shrink-0"
           >
             {isApproving ? 'Approving…' : 'Approve'}
@@ -429,7 +429,7 @@ export function PrdApprovalPane({ ticket }: { ticket: Ticket }) {
       </div>
 
       <CollapsiblePhaseLogSection
-        phase={ticket.status}
+        phase={phase}
         ticket={ticket}
         defaultExpanded={false}
         variant="bottom"

@@ -3,12 +3,24 @@ import { getTicketPaths } from '../../storage/tickets'
 import { upsertLatestPhaseArtifact } from '../../storage/ticketArtifacts'
 import { nowIso } from '../../lib/dateUtils'
 
+const BEADS_APPROVAL_SNAPSHOT_ARTIFACT = 'approval_snapshot:beads'
+
 function resolveBeadsPath(ticketId: string): string {
   const paths = getTicketPaths(ticketId)
   if (!paths) {
     throw new Error('Ticket workspace not initialized')
   }
   return paths.beadsPath
+}
+
+export function upsertBeadsApprovalSnapshot(ticketId: string, rawContent?: string): void {
+  const content = rawContent ?? readFileSync(resolveBeadsPath(ticketId), 'utf-8')
+  upsertLatestPhaseArtifact(
+    ticketId,
+    BEADS_APPROVAL_SNAPSHOT_ARTIFACT,
+    'WAITING_BEADS_APPROVAL',
+    JSON.stringify({ raw: content }),
+  )
 }
 
 export function approveBeadsDocument(ticketId: string): {
@@ -21,6 +33,7 @@ export function approveBeadsDocument(ticketId: string): {
   }
 
   const content = readFileSync(beadsPath, 'utf-8')
+  upsertBeadsApprovalSnapshot(ticketId, content)
   const lines = content.split('\n').filter((line) => line.trim() !== '')
   const beadCount = lines.length
 

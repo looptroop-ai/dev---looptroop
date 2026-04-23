@@ -11,6 +11,7 @@ interface CollapsiblePhaseLogSectionProps {
   phase: string
   logs?: LogEntry[]
   ticket?: Ticket
+  phaseAttempt?: number
   defaultExpanded?: boolean
   variant?: 'fill' | 'bottom'
   className?: string
@@ -22,6 +23,7 @@ export function CollapsiblePhaseLogSection({
   phase,
   logs,
   ticket,
+  phaseAttempt,
   defaultExpanded = true,
   variant = 'fill',
   className,
@@ -144,6 +146,7 @@ export function CollapsiblePhaseLogSection({
               phase={phase}
               logs={logs}
               ticket={ticket}
+              phaseAttempt={phaseAttempt}
               hideHeader
               toolbarPrefix={logToggleButton}
               onNaturalHeightChange={variant === 'fill' ? handleFillNaturalHeightChange : undefined}

@@ -73,13 +73,13 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
       && pastPhaseMeta?.uiView === 'approval'
       && pastPhaseMeta.reviewArtifactType
     ) {
-      content = <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} readOnly />
+      content = <ApprovalView ticket={ticket} phase={selectedPhase} artifactType={pastPhaseMeta.reviewArtifactType} readOnly />
     } else if (
       pastPhaseMeta?.uiView === 'approval'
       && pastPhaseMeta.reviewArtifactType
       && isBeforeExecution(ticket.status, previousStatus)
     ) {
-      content = <ApprovalView ticket={ticket} artifactType={pastPhaseMeta.reviewArtifactType} />
+      content = <ApprovalView ticket={ticket} phase={selectedPhase} artifactType={pastPhaseMeta.reviewArtifactType} />
     } else {
       content = <PhaseReviewView phase={selectedPhase} ticket={ticket} />
     }
@@ -93,7 +93,7 @@ export function ActiveWorkspace({ ticket, selectedPhase, selectedErrorOccurrence
         break
       case 'approval':
         content = phaseMeta.reviewArtifactType
-          ? <ApprovalView ticket={ticket} artifactType={phaseMeta.reviewArtifactType} />
+          ? <ApprovalView ticket={ticket} phase={selectedPhase} artifactType={phaseMeta.reviewArtifactType} />
           : <PhaseReviewView phase={selectedPhase} ticket={ticket} />
         break
       case 'coding':

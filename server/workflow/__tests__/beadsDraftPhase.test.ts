@@ -4,7 +4,7 @@ import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { getLatestPhaseArtifact } from '../../storage/tickets'
 import { TEST } from '../../test/factories'
 import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
-import { phaseIntermediate, phaseResults } from '../phases/state'
+import { phaseIntermediate } from '../phases/state'
 
 const { draftBeadsMock } = vi.hoisted(() => ({
   draftBeadsMock: vi.fn(),
@@ -31,7 +31,6 @@ describe('handleBeadsDraft', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
-    phaseResults.clear()
     draftBeadsMock.mockReset()
   })
 

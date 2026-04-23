@@ -59,7 +59,7 @@ import {
   recordPreparedBatch,
   clearInterviewSessionBatch,
 } from '../../phases/interview/sessionState'
-import { adapter, phaseResults, interviewQASessions } from './state'
+import { adapter, interviewQASessions } from './state'
 import {
   emitPhaseLog,
   emitModelSystemLog,
@@ -2334,43 +2334,35 @@ export async function handleCoverageVerification(
 
   const { coverageRunNumber, isFinalAllowedRun } = coverageRunState
 
-  // Resolve the council result to find the winning model
-  const councilResult = phaseResults.get(`${ticketId}:${phase}`)
-  let winnerId: string
+  const winnerArtifact = phase === 'interview'
+    ? getLatestPhaseArtifact(ticketId, 'interview_winner')
+    : phase === 'prd'
+      ? getLatestPhaseArtifact(ticketId, 'prd_winner') ?? getLatestPhaseArtifact(ticketId, 'prd_votes')
+      : getLatestPhaseArtifact(ticketId, 'beads_winner') ?? getLatestPhaseArtifact(ticketId, 'beads_votes')
 
-  if (councilResult) {
-    winnerId = councilResult.winnerId
-  } else {
-    // Fallback: read winnerId from persisted phaseArtifacts (survives server restarts)
-    const winnerArtifact = phase === 'interview'
-      ? getLatestPhaseArtifact(ticketId, 'interview_winner')
-      : phase === 'prd'
-        ? getLatestPhaseArtifact(ticketId, 'prd_winner') ?? getLatestPhaseArtifact(ticketId, 'prd_votes')
-        : getLatestPhaseArtifact(ticketId, 'beads_winner') ?? getLatestPhaseArtifact(ticketId, 'beads_votes')
+  if (!winnerArtifact) {
+    const msg = `No persisted council winner found for ${phase} phase — cannot determine winning model`
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
 
-    if (!winnerArtifact) {
-      const msg = `No council result found for ${phase} phase — cannot determine winning model`
-      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-      return
-    }
+  let winnerId = ''
+  try {
+    const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+    winnerId = parsed.winnerId ?? ''
+  } catch {
+    const msg = `Failed to parse winning model from persisted artifact for ${phase} phase`
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
 
-    try {
-      const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
-      winnerId = parsed.winnerId ?? ''
-    } catch {
-      const msg = `Failed to parse winning model from persisted artifact for ${phase} phase`
-      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-      return
-    }
-
-    if (!winnerId) {
-      const msg = `No winnerId found in persisted artifact for ${phase} phase`
-      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-      return
-    }
+  if (!winnerId) {
+    const msg = `No winnerId found in persisted artifact for ${phase} phase`
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
   }
   emitModelSystemLog(
     ticketId,
@@ -2382,7 +2374,7 @@ export async function handleCoverageVerification(
   )
 
   // Resolve refinedContent: prefer in-memory, fall back to persisted artifact
-  let refinedContent: string | undefined = councilResult?.refinedContent
+  let refinedContent: string | undefined
   if (!refinedContent) {
     const compiledArtifactType = phase === 'interview'
       ? 'interview_compiled'

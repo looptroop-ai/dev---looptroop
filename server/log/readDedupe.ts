@@ -29,6 +29,17 @@ function mergeFingerprintDuplicate(
   return merged
 }
 
+function fingerprintScopeKey(entry: Record<string, unknown>, fingerprint: string): string {
+  const phase = typeof entry.phase === 'string'
+    ? entry.phase
+    : (typeof entry.status === 'string' ? entry.status : 'unknown')
+  const phaseAttempt = typeof entry.phaseAttempt === 'number' && Number.isFinite(entry.phaseAttempt)
+    ? entry.phaseAttempt
+    : Number(entry.phaseAttempt)
+  const resolvedPhaseAttempt = Number.isFinite(phaseAttempt) && phaseAttempt > 0 ? phaseAttempt : 1
+  return `${phase}:${resolvedPhaseAttempt}:${fingerprint}`
+}
+
 export function foldPersistedLogEntries(entries: Record<string, unknown>[]): Record<string, unknown>[] {
   const passthrough: IndexedLogRecord[] = []
   const foldedStreaming = new Map<string, IndexedLogRecord>()
@@ -54,13 +65,14 @@ export function foldPersistedLogEntries(entries: Record<string, unknown>[]): Rec
     }
 
     if (op === 'append' && fingerprint) {
-      const previous = dedupedFingerprints.get(fingerprint)
+      const scopedFingerprint = fingerprintScopeKey(entry, fingerprint)
+      const previous = dedupedFingerprints.get(scopedFingerprint)
       if (!previous) {
-        dedupedFingerprints.set(fingerprint, { index, entry })
+        dedupedFingerprints.set(scopedFingerprint, { index, entry })
         return
       }
 
-      dedupedFingerprints.set(fingerprint, {
+      dedupedFingerprints.set(scopedFingerprint, {
         index: previous.index,
         entry: mergeFingerprintDuplicate(previous.entry, entry),
       })

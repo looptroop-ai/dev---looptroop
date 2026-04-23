@@ -83,9 +83,22 @@ export const phaseArtifacts = sqliteTable('phase_artifacts', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   ticketId: integer('ticket_id').notNull().references(() => tickets.id),
   phase: text('phase').notNull(),
+  phaseAttempt: integer('phase_attempt').notNull().default(1),
   artifactType: text('artifact_type'),
   content: text('content').notNull(), // JSON stringified artifact
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const ticketPhaseAttempts = sqliteTable('ticket_phase_attempts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ticketId: integer('ticket_id').notNull().references(() => tickets.id),
+  phase: text('phase').notNull(),
+  attemptNumber: integer('attempt_number').notNull(),
+  state: text('state').notNull().default('active'),
+  archivedReason: text('archived_reason'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  archivedAt: text('archived_at'),
 })
 
 export const opencodeSessions = sqliteTable('opencode_sessions', {

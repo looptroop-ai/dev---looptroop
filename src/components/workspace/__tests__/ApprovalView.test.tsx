@@ -309,6 +309,17 @@ describe('Interview approval UI', () => {
       if (url === `/api/tickets/${TEST.ticketId}/artifacts`) {
         return createJsonResponse([])
       }
+      if (url === `/api/tickets/${TEST.ticketId}/phases/WAITING_INTERVIEW_APPROVAL/attempts`) {
+        return createJsonResponse([{
+          ticketId: TEST.ticketId,
+          phase: 'WAITING_INTERVIEW_APPROVAL',
+          attemptNumber: 1,
+          state: 'active',
+          archivedReason: null,
+          createdAt: TEST.timestamp,
+          archivedAt: null,
+        }])
+      }
       if (url === `/api/tickets/${TEST.ticketId}/interview` && init?.method === 'PUT') {
         const body = JSON.parse(String(init.body)) as { content: string }
         interviewPayload = body.content.includes('Updated from YAML.')
@@ -320,6 +331,7 @@ describe('Interview approval UI', () => {
     })
 
     await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    fetchSpy.mockClear()
 
     clickHeaderEditButton()
     fireEvent.click(screen.getByRole('button', { name: 'YAML' }))

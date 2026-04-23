@@ -473,8 +473,10 @@ export function createArtifactFactory() {
       return {
         id: nextArtifactId++,
         ticketId: TEST.ticketId,
+        phaseAttempt: 1,
         filePath: null,
         createdAt: TEST.timestamp,
+        updatedAt: TEST.timestamp,
         ...overrides,
       }
     },

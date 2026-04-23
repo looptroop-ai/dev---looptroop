@@ -1,7 +1,7 @@
 import { startTransition, useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
+import { useInterviewQuestions, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
 import { useTicketArtifacts, clearTicketArtifactsCache } from '@/hooks/useTicketArtifacts'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,12 +10,18 @@ import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import type { Ticket } from '@/hooks/useTickets'
 import { InterviewApprovalPane } from './InterviewApprovalPane'
+import { InterviewDocumentView } from './InterviewDocumentView'
 import { PrdApprovalPane } from './PrdApprovalPane'
+import { PrdDocumentView } from './PrdDocumentView'
 import { BeadsDraftView } from './ArtifactContentViewer'
 import { BeadsApprovalEditor, type ParsedBead } from './BeadsApprovalEditor'
 import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
 import { ExecutionSetupPlanApprovalPane } from './ExecutionSetupPlanApprovalPane'
+import { PhaseAttemptSelector } from './PhaseAttemptSelector'
+import { useTicketPhaseAttempts } from '@/hooks/useTicketPhaseAttempts'
+import { parseInterviewDocument, normalizeInterviewDocumentLike } from '@/lib/interviewDocument'
+import { type PrdDocument, normalizePrdDocumentLike, parsePrdDocument, parsePrdDocumentContent } from '@/lib/prdDocument'
 import {
   useApprovalDraftReset,
   useApprovalFocusAnchor,
@@ -24,6 +30,7 @@ import {
 
 interface ApprovalViewProps {
   ticket: Ticket
+  phase?: string
   artifactType: 'interview' | 'prd' | 'beads' | 'execution_setup_plan'
   readOnly?: boolean
 }
@@ -491,18 +498,235 @@ function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
   )
 }
 
-export function ApprovalView({ ticket, artifactType, readOnly }: ApprovalViewProps) {
-  if (artifactType === 'interview') {
-    return <InterviewApprovalPane ticket={ticket} />
+function parseApprovalSnapshotRaw(content: string | null | undefined): string {
+  if (!content) return ''
+  try {
+    const parsed = JSON.parse(content) as { raw?: unknown }
+    return typeof parsed.raw === 'string' ? parsed.raw : ''
+  } catch {
+    return ''
   }
+}
 
-  if (artifactType === 'prd') {
-    return <PrdApprovalPane ticket={ticket} />
-  }
+function ReadOnlyApprovalAttemptView({
+  ticket,
+  phase,
+  artifactType,
+  phaseAttempt,
+}: {
+  ticket: Ticket
+  phase: string
+  artifactType: 'interview' | 'prd' | 'beads'
+  phaseAttempt?: number
+}) {
+  const councilMemberNames = useMemo(
+    () => ticket.lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0),
+    [ticket.lockedCouncilMembers],
+  )
+  const councilMemberCount = councilMemberNames.length || 3
+  const archivedAttempt = typeof phaseAttempt === 'number'
+  const { artifacts } = useTicketArtifacts(ticket.id, {
+    phase,
+    ...(archivedAttempt ? { phaseAttempt } : {}),
+  })
+  const snapshotArtifactType = `approval_snapshot:${artifactType}`
+  const snapshotRaw = useMemo(() => {
+    const snapshotArtifact = artifacts.find((artifact) => artifact.artifactType === snapshotArtifactType)
+    return parseApprovalSnapshotRaw(snapshotArtifact?.content)
+  }, [artifacts, snapshotArtifactType])
+  const { data: interviewData } = useInterviewQuestions(ticket.id)
+  const { data: prdContent } = useQuery({
+    queryKey: ['artifact', ticket.id, 'prd', archivedAttempt ? phaseAttempt : 'live'],
+    queryFn: async () => {
+      const response = await fetch(`/api/files/${ticket.id}/prd`)
+      if (!response.ok) return ''
+      const payload = await response.json() as { content?: string }
+      return payload.content ?? ''
+    },
+    enabled: artifactType === 'prd' && !archivedAttempt,
+    staleTime: QUERY_STALE_TIME_5M,
+  })
+  const { data: beadsContent } = useQuery({
+    queryKey: ['artifact', ticket.id, 'beads', archivedAttempt ? phaseAttempt : 'live'],
+    queryFn: async () => {
+      const response = await fetch(`/api/tickets/${ticket.id}/beads`)
+      if (!response.ok) return ''
+      const payload = await response.json()
+      return Array.isArray(payload) ? beadsArrayToJsonl(payload) : ''
+    },
+    enabled: artifactType === 'beads' && !archivedAttempt,
+    staleTime: QUERY_STALE_TIME_5M,
+  })
+
+  const content = artifactType === 'interview'
+    ? (archivedAttempt ? snapshotRaw : (interviewData?.raw ?? ''))
+    : artifactType === 'prd'
+      ? (archivedAttempt ? snapshotRaw : (prdContent ?? ''))
+      : (archivedAttempt ? snapshotRaw : (beadsContent ?? ''))
+
+  const interviewDocument = useMemo(
+    () => artifactType === 'interview'
+      ? normalizeInterviewDocumentLike(archivedAttempt ? null : interviewData?.document) ?? parseInterviewDocument(content)
+      : null,
+    [archivedAttempt, artifactType, content, interviewData?.document],
+  )
+  const prdDocument = useMemo(
+    () => artifactType === 'prd'
+      ? normalizePrdDocumentLike(parsePrdDocument(content) ?? parsePrdDocumentContent(content).document)
+      : null,
+    [artifactType, content],
+  )
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden">
+      <div className="p-4 space-y-3 shrink-0">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-semibold">
+            {artifactType === 'interview'
+              ? 'Interview Results'
+              : artifactType === 'prd'
+                ? 'Product Requirements Document'
+                : 'Beads Breakdown'}
+          </span>
+          <span className="flex-1 text-xs text-muted-foreground">
+            {archivedAttempt
+              ? 'This archived attempt is read-only. You can inspect and copy its content, but it can no longer be used by the workflow.'
+              : 'This approval view is read-only.'}
+          </span>
+        </div>
+
+        <PhaseArtifactsPanel
+          phase={phase}
+          isCompleted={ticket.status !== phase}
+          ticketId={ticket.id}
+          councilMemberCount={councilMemberCount}
+          councilMemberNames={councilMemberNames.length > 0 ? councilMemberNames : undefined}
+          preloadedArtifacts={artifacts}
+        />
+      </div>
+
+      <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
+        {artifactType === 'interview' ? (
+          interviewDocument ? (
+            <InterviewDocumentView document={interviewDocument} hideAiAnswerBadge />
+          ) : content ? (
+            <div className="rounded-xl border border-border bg-background p-4">
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{content}</pre>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No interview artifact available.</div>
+          )
+        ) : artifactType === 'prd' ? (
+          prdDocument ? (
+            <PrdDocumentView document={prdDocument as PrdDocument} />
+          ) : content ? (
+            <div className="rounded-xl border border-border bg-background p-4">
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{content}</pre>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No PRD artifact available.</div>
+          )
+        ) : content ? (
+          <BeadsDraftView content={content} />
+        ) : (
+          <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No beads artifact available.</div>
+        )}
+      </div>
+
+      <CollapsiblePhaseLogSection
+        phase={phase}
+        phaseAttempt={archivedAttempt ? phaseAttempt : undefined}
+        ticket={ticket}
+        defaultExpanded={false}
+        variant="bottom"
+        className="px-4 pb-4"
+      />
+    </div>
+  )
+}
+
+function resolveApprovalPhase(artifactType: ApprovalViewProps['artifactType'], phase?: string): string {
+  if (phase) return phase
+  if (artifactType === 'interview') return 'WAITING_INTERVIEW_APPROVAL'
+  if (artifactType === 'prd') return 'WAITING_PRD_APPROVAL'
+  if (artifactType === 'beads') return 'WAITING_BEADS_APPROVAL'
+  return 'WAITING_EXECUTION_SETUP_APPROVAL'
+}
+
+export function ApprovalView({ ticket, phase, artifactType, readOnly }: ApprovalViewProps) {
+  const resolvedPhase = resolveApprovalPhase(artifactType, phase)
+  const { data: attempts = [] } = useTicketPhaseAttempts(ticket.id, resolvedPhase)
+  const [selectedAttemptNumber, setSelectedAttemptNumber] = useState<number | null>(null)
+  const selectedAttempt = useMemo(
+    () => attempts.find((attempt) => attempt.attemptNumber === selectedAttemptNumber)
+      ?? attempts.find((attempt) => attempt.state === 'active')
+      ?? attempts[0]
+      ?? null,
+    [attempts, selectedAttemptNumber],
+  )
+
+  useEffect(() => {
+    if (attempts.length === 0) {
+      setSelectedAttemptNumber(null)
+      return
+    }
+    const activeAttempt = attempts.find((attempt) => attempt.state === 'active') ?? attempts[0]
+    setSelectedAttemptNumber((current) => {
+      if (current != null && attempts.some((attempt) => attempt.attemptNumber === current)) {
+        return current
+      }
+      return activeAttempt?.attemptNumber ?? null
+    })
+  }, [attempts])
+
+  const archivedAttemptNumber = selectedAttempt?.state === 'archived' ? selectedAttempt.attemptNumber : undefined
+  const selector = attempts.length > 1 ? (
+    <div className="px-4 pt-4 shrink-0">
+      <PhaseAttemptSelector
+        attempts={attempts}
+        value={selectedAttempt?.attemptNumber ?? attempts[0]!.attemptNumber}
+        onChange={setSelectedAttemptNumber}
+      />
+    </div>
+  ) : null
 
   if (artifactType === 'execution_setup_plan') {
-    return <ExecutionSetupPlanApprovalPane ticket={ticket} readOnly={readOnly} />
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        {selector}
+      <div className="flex-1 min-h-0">
+          <ExecutionSetupPlanApprovalPane ticket={ticket} readOnly={readOnly} />
+        </div>
+      </div>
+    )
   }
 
-  return <BeadsApprovalPane ticket={ticket} />
+  if (readOnly || archivedAttemptNumber != null) {
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        {selector}
+        <div className="flex-1 min-h-0">
+          <ReadOnlyApprovalAttemptView
+            ticket={ticket}
+            phase={resolvedPhase}
+            artifactType={artifactType}
+            phaseAttempt={archivedAttemptNumber}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      {selector}
+      <div className="flex-1 min-h-0">
+        {artifactType === 'interview'
+          ? <InterviewApprovalPane ticket={ticket} phase={resolvedPhase} />
+          : artifactType === 'prd'
+            ? <PrdApprovalPane ticket={ticket} phase={resolvedPhase} />
+            : <BeadsApprovalPane ticket={ticket} />}
+      </div>
+    </div>
+  )
 }

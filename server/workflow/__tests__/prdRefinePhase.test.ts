@@ -8,7 +8,7 @@ import {
   parsePrdRefinedArtifact,
   validatePrdRefinementOutput,
 } from '../../phases/prd/refined'
-import { phaseIntermediate, phaseResults } from '../phases/state'
+import { phaseIntermediate } from '../phases/state'
 import {
   TEST,
   makeInterviewYaml,
@@ -271,7 +271,6 @@ describe('handlePrdRefine', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
-    phaseResults.clear()
     refineDraftMock.mockReset()
     runOpenCodePromptMock.mockReset()
     runOpenCodeSessionPromptMock.mockReset()

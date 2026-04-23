@@ -6,6 +6,7 @@ import { attachWorkflowRunner } from '../workflow/runner'
 import { broadcaster } from '../sse/broadcaster'
 import { appendLogEvent } from '../log/executionLog'
 import {
+  ensureActivePhaseAttempt,
   findTicketRefByLocalId,
   getTicketContext,
   listNonTerminalTickets,
@@ -178,10 +179,12 @@ function persistSnapshot(
   if (!updated) return
 
   if (previousStatus !== stateValue) {
+    ensureActivePhaseAttempt(resolvedTicketRef, stateValue)
     const payload = {
       ticketId: ticketRef,
       from: previousStatus ?? 'unknown',
       to: stateValue,
+      previousStatus: previousStatus ?? null,
     }
     broadcaster.broadcast(resolvedTicketRef, 'state_change', payload)
     appendLogEvent(

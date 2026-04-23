@@ -177,7 +177,6 @@ export const ticketMachine = setup({
       ],
       on: {
         APPROVE: { target: 'DRAFTING_PRD' },
-        REJECT: { target: 'COUNCIL_DELIBERATING' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -230,7 +229,6 @@ export const ticketMachine = setup({
       ],
       on: {
         APPROVE: { target: 'DRAFTING_BEADS' },
-        REJECT: { target: 'DRAFTING_PRD' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -286,7 +284,6 @@ export const ticketMachine = setup({
       ],
       on: {
         APPROVE: { target: 'PRE_FLIGHT_CHECK' },
-        REJECT: { target: 'DRAFTING_BEADS' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },

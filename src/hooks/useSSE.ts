@@ -86,7 +86,14 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           if (ticketId && typeof data.to === 'string' && data.to.length > 0) {
-            patchTicketStatusInCache(queryClient, ticketId, data.to)
+            patchTicketStatusInCache(
+              queryClient,
+              ticketId,
+              data.to,
+              typeof data.previousStatus === 'string'
+                ? data.previousStatus
+                : (typeof data.from === 'string' ? data.from : undefined),
+            )
           }
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
           if (data.to === 'WAITING_INTERVIEW_ANSWERS' || data.to === 'WAITING_INTERVIEW_APPROVAL') {
@@ -192,8 +199,9 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
                 getTicketArtifactsQueryKey(ticketId),
                 (current) => mergeTicketArtifactSnapshot(current, snapshot),
               )
+              queryClient.invalidateQueries({ queryKey: ['ticket-artifacts', ticketId] })
             } else {
-              queryClient.invalidateQueries({ queryKey: getTicketArtifactsQueryKey(ticketId) })
+              queryClient.invalidateQueries({ queryKey: ['ticket-artifacts', ticketId] })
             }
 
             const beadId = getBeadIdFromArtifactType(

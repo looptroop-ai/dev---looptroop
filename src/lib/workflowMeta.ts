@@ -71,7 +71,7 @@ export function getCascadeEditWarningMessage(
     : `${affectedPhases.join(' and ')} data`
   const artifactLabel = artifactType === 'interview' ? 'Interview Results' : 'the PRD'
 
-  return `Editing ${artifactLabel} will restart the ${phaseLabel}. All previous ${dataLabel} will be lost.`
+  return `Editing ${artifactLabel} will restart the ${phaseLabel}. Previous ${dataLabel} cannot continue, but they will be archived and remain available read-only.`
 }
 
 function formatBlockedErrorLabel(errorMessage?: string | null): string {

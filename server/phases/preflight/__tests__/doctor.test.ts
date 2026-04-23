@@ -58,10 +58,12 @@ describe('Pre-Flight Doctor', () => {
     id: 1,
     ticketId: 1,
     phase: 'WAITING_BEADS_APPROVAL' as const,
+    phaseAttempt: 1,
     artifactType: 'approval_receipt',
     filePath: null,
     content: '{}',
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 
   beforeEach(() => {
