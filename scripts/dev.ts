@@ -12,6 +12,8 @@ const requestedBaseUrl = process.env.LOOPTROOP_OPENCODE_BASE_URL?.trim() || DEFA
 const hasExplicitBaseUrl = Boolean(process.env.LOOPTROOP_OPENCODE_BASE_URL?.trim())
 const childEnv = { ...process.env }
 const preflightReport = readDevPreflightReport()
+let shutdownSignal: NodeJS.Signals | null = null
+let shutdownStartedAtMs: number | null = null
 
 delete childEnv.NO_COLOR
 delete childEnv.FORCE_COLOR
@@ -47,6 +49,33 @@ function printSummaryLine(label: string, value: string) {
 function printDivider(title: string) {
   const bar = '='.repeat(18)
   console.log(`[dev] ${bar} ${title} ${bar}`)
+}
+
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return '0s'
+  }
+
+  if (seconds > 0 && seconds < 1) {
+    return '<1s'
+  }
+
+  const totalSeconds = Math.round(seconds)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const remainingSeconds = totalSeconds % 60
+  const parts: string[] = []
+
+  if (hours > 0) {
+    parts.push(`${hours}h`)
+  }
+
+  if (minutes > 0 || hours > 0) {
+    parts.push(`${minutes}m`)
+  }
+
+  parts.push(`${remainingSeconds}s`)
+  return parts.join(' ')
 }
 
 const services: DevService[] = [
@@ -163,7 +192,7 @@ const { commands, result } = concurrently(
     timestampFormat: 'HH:mm:ss',
     padPrefix: true,
     prefixColors: services.map((service) => service.prefixColor),
-    timings: true,
+    timings: false,
     successCondition: 'all',
     killOthersOn: ['failure'],
   },
@@ -182,19 +211,38 @@ for (const command of commands) {
   })
 
   command.close.subscribe((event) => {
-    const outcome = event.exitCode === 0
-      ? 'stopped cleanly'
-      : event.killed
-        ? `was terminated (${event.exitCode})`
-        : `exited with ${event.exitCode}`
-    console.log(
-      `[dev] Service ${command.name} ${outcome} after ${event.timings.durationSeconds.toFixed(1)}s.`,
-    )
+    const duration = formatDuration(event.timings.durationSeconds)
+
+    if (shutdownSignal) {
+      console.log(`[dev] Service ${command.name} stopped after ${duration} (${shutdownSignal}).`)
+      return
+    }
+
+    if (event.killed) {
+      const exitCode = event.exitCode == null ? 'unknown' : String(event.exitCode)
+      console.log(`[dev] Service ${command.name} was terminated after ${duration} (exit ${exitCode}).`)
+      return
+    }
+
+    if (event.exitCode === 0) {
+      console.log(`[dev] Service ${command.name} stopped cleanly after ${duration}.`)
+      return
+    }
+
+    const exitCode = event.exitCode == null ? 'unknown' : String(event.exitCode)
+    console.log(`[dev] Service ${command.name} exited with ${exitCode} after ${duration}.`)
   })
 }
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    if (shutdownSignal) {
+      return
+    }
+
+    shutdownSignal = signal
+    shutdownStartedAtMs = Date.now()
+    printDivider('Shutdown')
     console.log(`[dev] Received ${signal}; stopping dev services...`)
     for (const command of commands) {
       try {
@@ -208,7 +256,21 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 try {
   await result
+  if (shutdownSignal) {
+    const shutdownDuration = shutdownStartedAtMs == null
+      ? '0s'
+      : formatDuration((Date.now() - shutdownStartedAtMs) / 1000)
+    console.log(`[dev] Shutdown complete in ${shutdownDuration}.`)
+  }
   process.exit(0)
 } catch {
+  if (shutdownSignal) {
+    const shutdownDuration = shutdownStartedAtMs == null
+      ? '0s'
+      : formatDuration((Date.now() - shutdownStartedAtMs) / 1000)
+    console.log(`[dev] Shutdown complete in ${shutdownDuration}.`)
+    process.exit(0)
+  }
+
   process.exit(1)
 }
