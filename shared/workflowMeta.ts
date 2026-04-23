@@ -219,7 +219,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Skipping Questions: If a question is not relevant or you don\'t have the information, you can skip it. Skipped questions are tracked separately — during PRD drafting, the AI will attempt to fill in reasonable answers for skipped questions based on the ticket context. You can also unskip a previously skipped question to answer it after all.',
       'Batch Submission: When you submit the current batch, LoopTroop normalizes your answers and skip decisions into the canonical interview state. This persists your responses into the interview session snapshot and updates the interview YAML artifact.',
       'Follow-Up Rounds: If the coverage check (which runs after submission) determines that more information is needed, the workflow returns here with a new targeted batch of follow-up questions. These follow-ups are generated based on gaps in your previous answers, not by repeating the same questions.',
-      'Skip All: You can skip all remaining unanswered questions at once. This finalizes the current answers, marks everything else as skipped, and lets the coverage check decide whether the interview is sufficient to proceed.',
+      'Skip All: You can skip all remaining unanswered questions at once. This finalizes the current answers, marks all remaining questions as skipped, and advances the workflow directly to interview approval — bypassing the real coverage evaluation. A synthetic clean coverage record is written under the VERIFYING_INTERVIEW_COVERAGE phase label so audit history remains complete.',
     ],
     outputs: [
       'Recorded user answers and skip decisions persisted into the interview session snapshot.',
@@ -229,7 +229,7 @@ const WORKFLOW_PHASE_DETAILS = {
     transitions: [
       'Submit/Skip → Coverage Check (Interview): Submitting or skipping the active batch moves the workflow to the interview coverage check, which evaluates whether enough information has been gathered.',
       'Coverage Follow-Up → Back Here: If coverage identifies gaps, the workflow returns to this phase with additional targeted follow-up questions for you to answer.',
-      'Skip All → Coverage Check (Interview): Finalizes all remaining unanswered questions as skipped, then advances to coverage check.',
+      'Skip All → Approving Interview (Direct): Finalizes all remaining unanswered questions as skipped, then advances directly to interview approval — bypassing the real coverage evaluation. A synthetic clean coverage artifact is written for audit continuity.',
     ],
     notes: [
       'This is a user-input phase — the workflow is intentionally paused. No AI models are running while you answer questions.',
