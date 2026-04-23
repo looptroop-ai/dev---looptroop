@@ -2,6 +2,9 @@
 
 > Slow, deliberate, and durable AI feature delivery for real repositories.
 
+> [!TIP]
+> **New to LoopTroop?** Start with our [Getting Started Guide](docs/getting-started.md) and check out the [FAQ](docs/faq.md) to learn how LoopTroop differs from standard AI coding assistants.
+
 LoopTroop is a local orchestration app for repo-sized coding work. It attaches to a GitHub-backed project, plans through an interview, a PRD, and an execution bead plan, then executes the work inside isolated worktrees with fresh OpenCode sessions, explicit recovery paths, and human approval gates.
 
 `docs/system-architecture.md` is the canonical reference for the current system.
@@ -54,37 +57,13 @@ The current phase list, UI groupings, and review behavior are documented in [Sta
 | [API Reference](docs/api-reference.md) | HTTP routes, SSE events, and example payloads |
 | [Frontend](docs/frontend.md) | Workspace composition, hooks, live updates, review surfaces |
 | [OpenCode Integration](docs/opencode-integration.md) | Adapter, session manager, reconnect behavior, streaming |
-| [Setup Guide](docs/setup-guide.md) | Local setup, ports, env vars, and developer commands |
+| [Getting Started](docs/getting-started.md) | Local setup, free OpenRouter models, and beginner guide |
+| [FAQ](docs/faq.md) | Frequently asked questions about beads, councils, and architecture |
 
-## Quick Start
+## Getting Started
 
-1. Install dependencies.
-
-```bash
-npm install
-```
-
-2. Make sure an OpenCode server is reachable.
-
-```bash
-opencode serve
-```
-
-By default LoopTroop expects OpenCode at `http://127.0.0.1:4096`. Override that with `LOOPTROOP_OPENCODE_BASE_URL` if needed.
-
-3. Start LoopTroop.
-
-```bash
-npm run dev
-```
-
-The default local ports are:
-
-| Service | Default |
-| --- | --- |
-| Frontend | `http://localhost:5173` |
-| Backend API | `http://localhost:3000` |
-| OpenCode | `http://127.0.0.1:4096` |
+Ready to install LoopTroop and build your AI Council? 
+Head over to the **[Getting Started Guide](docs/getting-started.md)** for step-by-step instructions, system requirements, and tips on accessing free models via OpenRouter.
 
 ## Repository Shape
 

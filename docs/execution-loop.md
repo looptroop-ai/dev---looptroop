@@ -44,6 +44,9 @@ These reminders force the model to emit machine-checkable progress state. If the
 
 ## Bounded Ralph-Style Retry
 
+> [!NOTE]
+> **The Ralph Loop Philosophy:** Instead of trying to talk an AI out of a broken coding spiral, LoopTroop acts like a strict manager. It says "stop, write down what failed, throw away your scratchpad, and start over with a clear head."
+
 When a bead attempt fails, LoopTroop does not keep extending the same degraded transcript.
 
 ```mermaid

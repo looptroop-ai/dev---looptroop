@@ -14,6 +14,9 @@ LoopTroop is opinionated about how AI coding systems should behave. The app trad
 
 ## Context Degradation Is A Design Constraint
 
+> [!NOTE]
+> **What is Context Degradation?** Think of it like giving someone a 10,000-page book and asking them to remember a tiny detail from page 3 while they're on page 9,998. AI models suffer from "amnesia" in long chat threads—important details get buried, and the AI starts to hallucinate or drift from the original goal. 
+
 Long-context models are useful, but they are still vulnerable to positional bias and long-run context drift. LoopTroop treats that as a systems problem, not as a prompt wording problem.
 
 That leads to three hard rules:
@@ -25,6 +28,9 @@ That leads to three hard rules:
 See [Context Isolation](context-isolation.md).
 
 ## Council Instead Of Single-Draft Planning
+
+> [!TIP]
+> **Why an LLM Council?** If you ask a single AI to write a plan, it gives you its first guess, carrying all its blind spots. By using a "Council" (multiple AI models), LoopTroop forces them to brainstorm independently, vote on the best ideas, and merge them into a superior master plan. It's the difference between a solo developer and a senior engineering committee.
 
 LoopTroop uses a council because early planning quality dominates downstream execution quality.
 
@@ -40,6 +46,9 @@ This is not a free-form model group chat. It is a constrained orchestration patt
 See [LLM Council](llm-council.md).
 
 ## Bounded Ralph-Style Retry
+
+> [!IMPORTANT]
+> **What is a Ralph Loop?** When an AI fails at coding, continuing the same chat thread often leads to a "death spiral" of apologies and worse code. The Ralph Loop approach stops the thread, takes a note of what went wrong ("Wipe Note"), resets the code, and starts a **brand new chat** with the lessons learned.
 
 Execution work fails in two broad ways:
 
