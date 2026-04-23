@@ -12,7 +12,7 @@
     "opencode:upgrade": "tsx scripts/dev-opencode-upgrade.ts",
     "dev:opencode": "tsx scripts/dev-opencode.ts",
     "dev:frontend": "vite",
-    "dev:backend": "CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts",
+    "dev:backend": "tsx scripts/dev-backend.ts",
     "docs:dev": "tsx scripts/dev-docs.ts",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",

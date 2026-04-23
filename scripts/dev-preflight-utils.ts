@@ -73,10 +73,12 @@ export function isLoopTroopDevProcess(args: string, repoRoot: string): boolean {
   const command = normalizeCommandLine(args)
   const repoMarkers = [
     `${repoRoot}/scripts/dev.ts`,
+    `${repoRoot}/scripts/dev-backend.ts`,
     `${repoRoot}/node_modules/.bin/vite`,
     `${repoRoot}/node_modules/.bin/concurrently`,
     `${repoRoot}/scripts/dev-opencode.ts`,
     'scripts/dev.ts',
+    'scripts/dev-backend.ts',
     `${repoRoot}/server/index.ts`,
     'node_modules/.bin/vite',
     'node_modules/.bin/concurrently',

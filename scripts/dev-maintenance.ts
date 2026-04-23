@@ -10,6 +10,7 @@ const packageJsonPath = resolve(repoRoot, 'package.json')
 const packageLockPath = resolve(repoRoot, 'package-lock.json')
 const binExtension = process.platform === 'win32' ? '.cmd' : ''
 const installStamp = resolve(repoRoot, 'node_modules', '.package-lock.json')
+const npmInstallFlags = ['--no-fund', '--no-audit']
 const requiredDevBins = ['tsx', 'vite', 'vitepress', 'concurrently']
 export const devPreflightReportPath = resolve(repoRoot, 'tmp', 'dev-preflight-report.json')
 
@@ -187,7 +188,7 @@ function trimCommandOutput(raw: string) {
 }
 
 function stripAnsi(raw: string) {
-  return raw.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+  return raw.replace(new RegExp(String.raw`\u001B\[[0-?]*[ -/]*[@-~]`, 'g'), '')
 }
 
 function runCommand(
@@ -387,7 +388,7 @@ export function ensureInstallIfNeeded({ verbose = false }: { verbose?: boolean }
   }
 
   try {
-    const result = runInstallCommand(['install'], 'npm install', {
+    const result = runInstallCommand(['install', ...npmInstallFlags], 'npm install', {
       verbose,
       allowForceFallback: true,
     })
@@ -482,7 +483,7 @@ export function syncDirectDependencies(
         `${updatedDependencies.length === 1 ? 'dependency' : 'dependencies'} to latest stable.`,
       )
       const result = runInstallCommand(
-        ['install', ...updatedDependencies.map((name) => `${name}@latest`)],
+        ['install', ...npmInstallFlags, ...updatedDependencies.map((name) => `${name}@latest`)],
         'npm install <dependencies>@latest',
         { verbose, allowForceFallback: true },
       )
@@ -495,7 +496,7 @@ export function syncDirectDependencies(
         `${updatedDevDependencies.length === 1 ? 'dependency' : 'dependencies'} to latest stable.`,
       )
       const result = runInstallCommand(
-        ['install', '-D', ...updatedDevDependencies.map((name) => `${name}@latest`)],
+        ['install', ...npmInstallFlags, '-D', ...updatedDevDependencies.map((name) => `${name}@latest`)],
         'npm install -D <dependencies>@latest',
         { verbose, allowForceFallback: true },
       )

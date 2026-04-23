@@ -1859,7 +1859,7 @@ async function main() {
   }
 
   const relevantProcessList = runShell(
-    `ps -eo pid,ppid,etime,pcpu,pmem,args --sort=pid | grep -E "vite|server/index.ts|dev-opencode|opencode serve|npm run dev|tsx watch server/index.ts|tsx scripts/dev.ts" | grep -v grep`,
+    `ps -eo pid,ppid,etime,pcpu,pmem,args --sort=pid | grep -E "vite|server/index.ts|dev-opencode|opencode serve|npm run dev|tsx watch server/index.ts|tsx scripts/dev.ts|tsx scripts/dev-backend.ts" | grep -v grep`,
     5000,
   )
   printCommandResult('Relevant Process List', relevantProcessList)

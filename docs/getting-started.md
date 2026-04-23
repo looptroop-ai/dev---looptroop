@@ -25,7 +25,7 @@ OpenRouter provides a unified API with a dynamic router that automatically selec
 
 1. Create a free account at [https://openrouter.ai/](https://openrouter.ai/).
 2. In your project's `.env` file set:
-   ```env
+   ```bash
    PROVIDER=openrouter
    OPENROUTER_API_KEY="your-api-key"
    ```
@@ -43,7 +43,7 @@ NVIDIA provides highly optimized, GPU-accelerated endpoints. Signing up gives yo
 1. Go to [build.nvidia.com](https://build.nvidia.com/) and create a Developer account.
 2. Generate a personal key in the API Keys section.
 3. In your `.env` file:
-   ```env
+   ```bash
    PROVIDER=nvidia-nim
    NVIDIA_API_KEY="your-ngc-api-key"
    ```
@@ -57,7 +57,7 @@ OpenCode curates a validated list of models specifically benchmarked for agentic
 
 1. Obtain your OpenCode API key from [opencode.ai](https://opencode.ai).
 2. In your `.env` file:
-   ```env
+   ```bash
    PROVIDER=opencode
    OPENCODE_API_KEY="your-opencode-key"
    ```
@@ -134,6 +134,8 @@ By default, the services run on these ports:
 | **Backend** (API) | `http://localhost:3000` |
 | **Docs** | `http://localhost:5174` |
 | **OpenCode** | `http://127.0.0.1:4096` |
+
+The backend watcher now prefers native file watching on normal local filesystems and only auto-enables chokidar polling for mounted-drive workspaces such as `/mnt/...` under WSL. You can still override that manually with `CHOKIDAR_USEPOLLING=1` if your environment needs it.
 
 > [!IMPORTANT]
 > If OpenCode is running on a different port, you can tell LoopTroop where to find it using an environment variable:

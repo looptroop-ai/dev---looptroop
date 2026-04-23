@@ -14,6 +14,7 @@ describe('dev preflight helpers', () => {
   it('detects the repo dev process shapes that the preflight must reclaim', () => {
     expect(isLoopTroopDevProcess(`${repoRoot}/node_modules/.bin/concurrently -n oc,fe,be`, repoRoot)).toBe(true)
     expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/vite`, repoRoot)).toBe(true)
+    expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/tsx scripts/dev-backend.ts`, repoRoot)).toBe(true)
     expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/tsx watch server/index.ts`, repoRoot)).toBe(true)
     expect(isLoopTroopDevProcess(`sh -c CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts`, repoRoot)).toBe(true)
     expect(isLoopTroopDevProcess(`node ${repoRoot}/node_modules/.bin/tsx scripts/dev-opencode.ts`, repoRoot)).toBe(true)

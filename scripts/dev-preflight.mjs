@@ -9,6 +9,7 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const binExtension = process.platform === 'win32' ? '.cmd' : ''
 const tsxBin = resolve(repoRoot, 'node_modules', '.bin', `tsx${binExtension}`)
 const installStamp = resolve(repoRoot, 'node_modules', '.package-lock.json')
+const npmInstallFlags = ['--no-fund', '--no-audit']
 const trackedManifests = [
   resolve(repoRoot, 'package.json'),
   resolve(repoRoot, 'package-lock.json'),
@@ -100,7 +101,7 @@ if (installReasons.length > 0) {
     console.log(`[dev-preflight] - ${reason}`)
   }
 
-  runOrExit(npmCommand, ['install'], 'npm install')
+  runOrExit(npmCommand, ['install', ...npmInstallFlags], 'npm install')
 }
 
 const missingBinsAfterInstall = getMissingBins()
