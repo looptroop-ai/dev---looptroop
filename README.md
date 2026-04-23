@@ -79,6 +79,7 @@ That starts the dashboard and the docs site together. Before the watchers launch
 - syncs direct dependencies to the latest stable npm releases
 - runs `npm audit fix` without `--force`
 - prints a concise audit summary, including known stable-upstream leftovers
+- prints a startup plan that lists each dev service command and its purpose before the live logs begin
 
 Use `LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev` if you want to skip npm dependency/audit mutation for a given run, `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev` to skip the CLI upgrade step, and `LOOPTROOP_DEV_VERBOSE=1 npm run dev` to see the raw maintenance output.
 

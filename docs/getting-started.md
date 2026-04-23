@@ -105,6 +105,7 @@ Before the watchers launch, LoopTroop now runs a dev preflight that:
 - updates behind direct dependencies to the latest stable releases
 - runs `npm audit fix` without `--force`
 - prints a concise unresolved audit summary before the stack starts
+- prints a startup plan showing which command is used for each dev service and why it is being launched
 
 That means `npm run dev` is intentionally **mutating** when it finds a stale local OpenCode CLI, stale direct dependencies, or safe audit fixes.
 

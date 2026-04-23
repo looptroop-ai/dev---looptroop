@@ -16,6 +16,14 @@ const preflightReport = readDevPreflightReport()
 delete childEnv.NO_COLOR
 delete childEnv.FORCE_COLOR
 
+type DevService = {
+  name: string
+  prefixColor: string
+  command: string
+  displayCommand: string
+  description: string
+}
+
 const { baseUrl, note, status } = await resolveOpenCodeBaseUrl({
   requestedBaseUrl,
   hasExplicitBaseUrl,
@@ -36,7 +44,43 @@ function printSummaryLine(label: string, value: string) {
   console.log(`[dev] ${label.padEnd(13)} ${value}`)
 }
 
-console.log('[dev] LoopTroop startup summary')
+function printDivider(title: string) {
+  const bar = '='.repeat(18)
+  console.log(`[dev] ${bar} ${title} ${bar}`)
+}
+
+const services: DevService[] = [
+  {
+    name: 'OPEN',
+    prefixColor: 'bgYellow.black',
+    command: 'npm:dev:opencode',
+    displayCommand: 'tsx scripts/dev-opencode.ts',
+    description: 'Ensure the local OpenCode server is reachable, then start it if needed.',
+  },
+  {
+    name: 'WEB',
+    prefixColor: 'bgBlue.black',
+    command: 'npm:dev:frontend',
+    displayCommand: 'vite',
+    description: 'Start the frontend dev server for the LoopTroop dashboard.',
+  },
+  {
+    name: 'API',
+    prefixColor: 'bgGreen.black',
+    command: 'npm:dev:backend',
+    displayCommand: 'tsx scripts/dev-backend.ts',
+    description: 'Watch the backend and restart it when server files change.',
+  },
+  {
+    name: 'DOCS',
+    prefixColor: 'bgMagenta.black',
+    command: 'npm:docs:dev',
+    displayCommand: 'tsx scripts/dev-docs.ts',
+    description: 'Serve the VitePress documentation site alongside the app.',
+  },
+]
+
+printDivider('Startup Summary')
 printSummaryLine('Frontend', `http://localhost:${getFrontendPort()}`)
 printSummaryLine('Backend', `http://localhost:${getBackendPort()}`)
 printSummaryLine('Docs', `${getDocsOrigin()} (port ${getDocsPort()})`)
@@ -90,53 +134,35 @@ if (preflightReport) {
   }
 }
 
+printDivider('Service Plan')
+console.log('[dev] Step 1        Preflight maintenance already completed before this launcher started.')
+console.log('[dev]               Purpose: install missing packages, sync direct deps, run audit fix, and refresh the OpenCode CLI.')
+
+services.forEach((service, index) => {
+  const stepNumber = index + 2
+  console.log(`[dev] Step ${String(stepNumber).padEnd(8)} ${service.name}  ${service.displayCommand}`)
+  console.log(`[dev]               Purpose: ${service.description}`)
+})
+
+printDivider('Live Services')
 console.log('[dev] Launching frontend, backend, docs, and OpenCode watchers...')
 
 const { commands, result } = concurrently(
-  [
-    {
-      command: 'npm:dev:opencode',
-      name: 'OPEN',
-      prefixColor: 'bgYellow.black',
-      env: {
-        ...childEnv,
-        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
-      },
+  services.map((service) => ({
+    command: service.command,
+    name: service.name,
+    prefixColor: service.prefixColor,
+    env: {
+      ...childEnv,
+      LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
     },
-    {
-      command: 'npm:dev:frontend',
-      name: 'WEB',
-      prefixColor: 'bgBlue.black',
-      env: {
-        ...childEnv,
-        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
-      },
-    },
-    {
-      command: 'npm:dev:backend',
-      name: 'API',
-      prefixColor: 'bgGreen.black',
-      env: {
-        ...childEnv,
-        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
-      },
-    },
-    {
-      command: 'npm:docs:dev',
-      name: 'DOCS',
-      prefixColor: 'bgMagenta.black',
-      env: {
-        ...childEnv,
-        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
-      },
-    },
-  ],
+  })),
   {
     cwd: repoRoot,
     prefix: '[{time} {name}]',
     timestampFormat: 'HH:mm:ss',
     padPrefix: true,
-    prefixColors: ['bgYellow.black', 'bgBlue.black', 'bgGreen.black', 'bgMagenta.black'],
+    prefixColors: services.map((service) => service.prefixColor),
     timings: true,
     successCondition: 'all',
     killOthersOn: ['failure'],
