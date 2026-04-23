@@ -1,4 +1,11 @@
-import { ensureInstallIfNeeded, getMissingBins, syncDirectDependencies } from './dev-maintenance'
+import {
+  ensureInstallIfNeeded,
+  getMissingBins,
+  readDailyMaintenanceState,
+  recordDailyMaintenanceSuccess,
+  syncDirectDependencies,
+  writeDailyMaintenanceState,
+} from './dev-maintenance'
 
 const verbose = process.env.LOOPTROOP_DEV_VERBOSE === '1'
 const install = ensureInstallIfNeeded({ verbose })
@@ -36,3 +43,7 @@ if (missingBins.length > 0) {
   console.error(`[deps:sync] Missing local dev binaries after sync: ${missingBins.join(', ')}`)
   process.exit(1)
 }
+
+const maintenanceState = readDailyMaintenanceState()
+recordDailyMaintenanceSuccess(maintenanceState, 'dependencySync')
+writeDailyMaintenanceState(maintenanceState)

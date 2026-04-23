@@ -13,6 +13,8 @@ const installStamp = resolve(repoRoot, 'node_modules', '.package-lock.json')
 const npmInstallFlags = ['--no-fund', '--no-audit']
 const requiredDevBins = ['tsx', 'vite', 'vitepress', 'concurrently']
 export const devPreflightReportPath = resolve(repoRoot, 'tmp', 'dev-preflight-report.json')
+export const devMaintenanceStatePath = resolve(repoRoot, 'tmp', 'dev-maintenance-state.json')
+const DAILY_MAINTENANCE_STATE_VERSION = 1
 
 const KNOWN_AUDIT_LEFTOVERS: Record<string, { note: string; url: string }> = {
   'drizzle-kit': {
@@ -38,12 +40,15 @@ export interface InstallReport {
 
 export interface DependencySyncReport {
   skipped: boolean
+  deferred: boolean
   checked: boolean
   alreadyCurrent: boolean
   forced: boolean
   errors: string[]
   updatedDependencies: string[]
   updatedDevDependencies: string[]
+  lastCompletedAt?: string
+  nextEligibleAt?: string
 }
 
 export interface AuditTotals {
@@ -65,15 +70,19 @@ export interface AuditIssue {
 
 export interface AuditRemediationReport {
   skipped: boolean
+  deferred: boolean
   fixRan: boolean
   fixChanged: boolean
   unresolved: AuditIssue[]
   totals: AuditTotals
   errors: string[]
+  lastCompletedAt?: string
+  nextEligibleAt?: string
 }
 
 export interface OpenCodeUpgradeReport {
   skipped: boolean
+  deferred: boolean
   available: boolean
   checked: boolean
   upgraded: boolean
@@ -82,6 +91,8 @@ export interface OpenCodeUpgradeReport {
   versionBefore?: string
   versionAfter?: string
   errors: string[]
+  lastCompletedAt?: string
+  nextEligibleAt?: string
 }
 
 export interface DevPreflightReport {
@@ -107,6 +118,26 @@ interface NpmCommandResult {
   status: number | null
   stdout: string
   stderr: string
+}
+
+export type DailyMaintenanceTaskName = 'dependencySync' | 'audit' | 'opencode'
+
+export interface DailyMaintenanceTaskState {
+  lastCompletedAt: string
+  lastCompletedDay: string
+}
+
+export interface DailyMaintenanceState {
+  version: number
+  tasks: Partial<Record<DailyMaintenanceTaskName, DailyMaintenanceTaskState>>
+}
+
+export interface DailyMaintenanceDecision {
+  shouldRun: boolean
+  deferred: boolean
+  reason: 'forced' | 'never-ran' | 'new-day' | 'invalidated' | 'already-ran-today'
+  lastCompletedAt?: string
+  nextEligibleAt?: string
 }
 
 function readPackageManifest(): PackageManifest {
@@ -185,6 +216,20 @@ export function getInstallReasons() {
 
 function trimCommandOutput(raw: string) {
   return raw.trim()
+}
+
+function getLocalDayStamp(date: Date) {
+  return new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+function getNextLocalDayStart(date: Date) {
+  const next = new Date(date)
+  next.setHours(24, 0, 0, 0)
+  return next
 }
 
 function stripAnsi(raw: string) {
@@ -267,6 +312,101 @@ function runInstallCommand(
 
   const message = forced.stderr || forced.stdout || `${label} --force failed with code ${forced.status ?? 'unknown'}`
   throw new Error(message)
+}
+
+export function readDailyMaintenanceState(): DailyMaintenanceState {
+  const parsed = parseJson<DailyMaintenanceState>(readFileIfPresent(devMaintenanceStatePath) ?? '')
+  if (!parsed || parsed.version !== DAILY_MAINTENANCE_STATE_VERSION || typeof parsed.tasks !== 'object' || !parsed.tasks) {
+    return {
+      version: DAILY_MAINTENANCE_STATE_VERSION,
+      tasks: {},
+    }
+  }
+
+  return parsed
+}
+
+export function writeDailyMaintenanceState(state: DailyMaintenanceState) {
+  mkdirSync(dirname(devMaintenanceStatePath), { recursive: true })
+  writeFileSync(devMaintenanceStatePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+}
+
+export function recordDailyMaintenanceSuccess(
+  state: DailyMaintenanceState,
+  taskName: DailyMaintenanceTaskName,
+  now = new Date(),
+) {
+  state.tasks[taskName] = {
+    lastCompletedAt: now.toISOString(),
+    lastCompletedDay: getLocalDayStamp(now),
+  }
+}
+
+export function decideDailyMaintenanceTask(options: {
+  taskName: DailyMaintenanceTaskName
+  state: DailyMaintenanceState
+  force?: boolean
+  now?: Date
+  invalidatedByPaths?: string[]
+}) : DailyMaintenanceDecision {
+  const {
+    taskName,
+    state,
+    force = false,
+    now = new Date(),
+    invalidatedByPaths = [],
+  } = options
+
+  const existing = state.tasks[taskName]
+  if (force) {
+    return {
+      shouldRun: true,
+      deferred: false,
+      reason: 'forced',
+      lastCompletedAt: existing?.lastCompletedAt,
+    }
+  }
+
+  if (!existing?.lastCompletedAt) {
+    return {
+      shouldRun: true,
+      deferred: false,
+      reason: 'never-ran',
+    }
+  }
+
+  const currentDay = getLocalDayStamp(now)
+  if (existing.lastCompletedDay !== currentDay) {
+    return {
+      shouldRun: true,
+      deferred: false,
+      reason: 'new-day',
+      lastCompletedAt: existing.lastCompletedAt,
+    }
+  }
+
+  const completedAtMs = Date.parse(existing.lastCompletedAt)
+  if (Number.isFinite(completedAtMs)) {
+    for (const path of invalidatedByPaths) {
+      const mtimeMs = getMtimeMs(path)
+      if (mtimeMs !== null && mtimeMs > completedAtMs) {
+        return {
+          shouldRun: true,
+          deferred: false,
+          reason: 'invalidated',
+          lastCompletedAt: existing.lastCompletedAt,
+        }
+      }
+    }
+  }
+
+  return {
+    shouldRun: false,
+    deferred: true,
+    reason: 'already-ran-today',
+    lastCompletedAt: existing.lastCompletedAt,
+    nextEligibleAt: getNextLocalDayStart(now).toISOString(),
+  }
 }
 
 function emptyTotals(): AuditTotals {
@@ -415,6 +555,7 @@ export function syncDirectDependencies(
   if (skip) {
     return {
       skipped: true,
+      deferred: false,
       checked: false,
       alreadyCurrent: false,
       forced: false,
@@ -428,6 +569,7 @@ export function syncDirectDependencies(
   if (!outdatedResult.stdout) {
     return {
       skipped: false,
+      deferred: false,
       checked: true,
       alreadyCurrent: true,
       forced: false,
@@ -442,6 +584,7 @@ export function syncDirectDependencies(
     const message = outdatedResult.stderr || outdatedResult.stdout
     return {
       skipped: false,
+      deferred: false,
       checked: false,
       alreadyCurrent: false,
       forced: false,
@@ -464,6 +607,7 @@ export function syncDirectDependencies(
   if (updatedDependencies.length === 0 && updatedDevDependencies.length === 0) {
     return {
       skipped: false,
+      deferred: false,
       checked: true,
       alreadyCurrent: true,
       forced: false,
@@ -508,6 +652,7 @@ export function syncDirectDependencies(
 
   return {
     skipped: false,
+    deferred: false,
     checked: true,
     alreadyCurrent: false,
     forced,
@@ -523,6 +668,7 @@ export function remediateAudit(
   if (skip) {
     return {
       skipped: true,
+      deferred: false,
       fixRan: false,
       fixChanged: false,
       unresolved: [],
@@ -566,6 +712,7 @@ export function remediateAudit(
 
   return {
     skipped: false,
+    deferred: false,
     fixRan,
     fixChanged,
     unresolved: summarizeAuditIssues(auditJson?.vulnerabilities),
@@ -599,6 +746,7 @@ export function upgradeOpenCodeCli(
   if (skip) {
     return {
       skipped: true,
+      deferred: false,
       available: false,
       checked: false,
       upgraded: false,
@@ -615,6 +763,7 @@ export function upgradeOpenCodeCli(
     if (!before.available) {
       return {
         skipped: false,
+        deferred: false,
         available: false,
         checked: false,
         upgraded: false,
@@ -632,6 +781,7 @@ export function upgradeOpenCodeCli(
     if (result.missing) {
       return {
         skipped: false,
+        deferred: false,
         available: false,
         checked: false,
         upgraded: false,
@@ -649,6 +799,7 @@ export function upgradeOpenCodeCli(
       const message = result.stderr || result.stdout || `opencode upgrade failed with code ${result.status ?? 'unknown'}`
       return {
         skipped: false,
+        deferred: false,
         available: true,
         checked: true,
         upgraded: false,
@@ -669,6 +820,7 @@ export function upgradeOpenCodeCli(
 
     return {
       skipped: false,
+      deferred: false,
       available: true,
       checked: true,
       upgraded,
@@ -681,6 +833,7 @@ export function upgradeOpenCodeCli(
   } catch (error) {
     return {
       skipped: false,
+      deferred: false,
       available: true,
       checked: false,
       upgraded: false,

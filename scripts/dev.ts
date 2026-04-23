@@ -78,6 +78,22 @@ function formatDuration(seconds: number) {
   return parts.join(' ')
 }
 
+function formatMaintenanceTimestamp(timestamp?: string) {
+  if (!timestamp) {
+    return 'unknown time'
+  }
+
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) {
+    return timestamp
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 const services: DevService[] = [
   {
     name: 'OPEN',
@@ -118,6 +134,11 @@ printSummaryLine('OpenCode', baseUrl)
 if (preflightReport) {
   if (preflightReport.opencode.skipped) {
     printSummaryLine('OpenCode CLI', 'Skipped automatic OpenCode upgrade via LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1')
+  } else if (preflightReport.opencode.deferred) {
+    printSummaryLine(
+      'OpenCode CLI',
+      `Deferred daily upgrade check; last completed today at ${formatMaintenanceTimestamp(preflightReport.opencode.lastCompletedAt)}`,
+    )
   } else if (!preflightReport.opencode.available) {
     printSummaryLine('OpenCode CLI', 'Local opencode binary not found; skipped automatic CLI upgrade')
   } else if (preflightReport.opencode.upgraded) {
@@ -136,6 +157,11 @@ if (preflightReport) {
 
   if (preflightReport.dependencySync.skipped) {
     printSummaryLine('Dependencies', 'Skipped automatic dependency sync via LOOPTROOP_DEV_SKIP_DEPS=1')
+  } else if (preflightReport.dependencySync.deferred) {
+    printSummaryLine(
+      'Dependencies',
+      `Deferred daily npm latest check; last completed today at ${formatMaintenanceTimestamp(preflightReport.dependencySync.lastCompletedAt)}`,
+    )
   } else if (preflightReport.dependencySync.alreadyCurrent) {
     printSummaryLine('Dependencies', 'All direct dependencies already matched npm latest stable')
   } else {
@@ -149,6 +175,11 @@ if (preflightReport) {
 
   if (preflightReport.audit.skipped) {
     printSummaryLine('Audit', 'Skipped automatic audit remediation via LOOPTROOP_DEV_SKIP_DEPS=1')
+  } else if (preflightReport.audit.deferred) {
+    printSummaryLine(
+      'Audit',
+      `Deferred daily remediation; last completed today at ${formatMaintenanceTimestamp(preflightReport.audit.lastCompletedAt)}`,
+    )
   } else if (preflightReport.audit.unresolved.length === 0) {
     printSummaryLine('Audit', 'No remaining npm audit findings after remediation')
   } else {
@@ -165,7 +196,7 @@ if (preflightReport) {
 
 printDivider('Service Plan')
 console.log('[dev] Step 1        Preflight maintenance already completed before this launcher started.')
-console.log('[dev]               Purpose: install missing packages, sync direct deps, run audit fix, and refresh the OpenCode CLI.')
+console.log('[dev]               Purpose: install missing packages, then run daily-gated dependency sync, audit remediation, and OpenCode CLI refresh when due.')
 
 services.forEach((service, index) => {
   const stepNumber = index + 2

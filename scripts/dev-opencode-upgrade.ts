@@ -1,4 +1,9 @@
-import { upgradeOpenCodeCli } from './dev-maintenance'
+import {
+  readDailyMaintenanceState,
+  recordDailyMaintenanceSuccess,
+  upgradeOpenCodeCli,
+  writeDailyMaintenanceState,
+} from './dev-maintenance'
 
 const report = upgradeOpenCodeCli({
   verbose: process.env.LOOPTROOP_DEV_VERBOSE === '1',
@@ -38,3 +43,7 @@ if (report.upgraded) {
     '.',
   )
 }
+
+const maintenanceState = readDailyMaintenanceState()
+recordDailyMaintenanceSuccess(maintenanceState, 'opencode')
+writeDailyMaintenanceState(maintenanceState)

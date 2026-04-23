@@ -109,6 +109,8 @@ Before the watchers launch, LoopTroop now runs a dev preflight that:
 
 That means `npm run dev` is intentionally **mutating** when it finds a stale local OpenCode CLI, stale direct dependencies, or safe audit fixes.
 
+To keep startup fast, the expensive networked maintenance work is daily-gated during normal `npm run dev` usage. The OpenCode CLI upgrade check, direct dependency sync, and npm audit remediation run on the first local dev start of the day. If `package.json` or `package-lock.json` changes later the same day, the affected maintenance step runs again immediately.
+
 If you want a non-mutating startup for a single run, use:
 
 ```bash
@@ -119,6 +121,12 @@ If you only want to skip the local OpenCode CLI upgrade step, use:
 
 ```bash
 LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev
+```
+
+If you want to bypass the once-per-day gate and force all maintenance checks on this run, use:
+
+```bash
+LOOPTROOP_DEV_FORCE_MAINTENANCE=1 npm run dev
 ```
 
 If you want the raw maintenance/install output, use:
@@ -179,6 +187,7 @@ If you need to customize ports or paths, you can use these environment variables
 | `LOOPTROOP_DEV_VERBOSE=1` | Print full dependency/audit/process details during dev preflight |
 | `LOOPTROOP_DEV_SKIP_DEPS=1` | Skip automatic dependency sync and audit remediation during `npm run dev` |
 | `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1` | Skip the automatic local OpenCode CLI upgrade during `npm run dev` |
+| `LOOPTROOP_DEV_FORCE_MAINTENANCE=1` | Bypass the once-per-day maintenance gate and force all startup maintenance checks now |
 
 ### Where is my data saved?
 

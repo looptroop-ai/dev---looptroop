@@ -1,4 +1,9 @@
-import { remediateAudit } from './dev-maintenance'
+import {
+  readDailyMaintenanceState,
+  recordDailyMaintenanceSuccess,
+  remediateAudit,
+  writeDailyMaintenanceState,
+} from './dev-maintenance'
 
 const report = remediateAudit({
   verbose: process.env.LOOPTROOP_DEV_VERBOSE === '1',
@@ -34,3 +39,7 @@ if (report.errors.length > 0) {
   }
   process.exit(1)
 }
+
+const maintenanceState = readDailyMaintenanceState()
+recordDailyMaintenanceSuccess(maintenanceState, 'audit')
+writeDailyMaintenanceState(maintenanceState)

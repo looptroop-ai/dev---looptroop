@@ -81,7 +81,9 @@ That starts the dashboard and the docs site together. Before the watchers launch
 - prints a concise audit summary, including known stable-upstream leftovers
 - prints a startup plan that lists each dev service command and its purpose before the live logs begin
 
-Use `LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev` if you want to skip npm dependency/audit mutation for a given run, `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev` to skip the CLI upgrade step, and `LOOPTROOP_DEV_VERBOSE=1 npm run dev` to see the raw maintenance output.
+The slower maintenance work is daily-gated during normal `npm run dev` usage: the OpenCode CLI upgrade check, npm latest dependency sync, and npm audit remediation now run on the first local dev start of the day. If `package.json` or `package-lock.json` changes later the same day, the affected maintenance step runs again immediately instead of waiting until tomorrow.
+
+Use `LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev` if you want to skip npm dependency/audit mutation for a given run, `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev` to skip the CLI upgrade step, `LOOPTROOP_DEV_FORCE_MAINTENANCE=1 npm run dev` to bypass the once-per-day gate, and `LOOPTROOP_DEV_VERBOSE=1 npm run dev` to see the raw maintenance output.
 
 You can also run the same maintenance steps directly:
 

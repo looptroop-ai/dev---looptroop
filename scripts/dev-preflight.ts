@@ -4,11 +4,15 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getBackendPort, getDocsPort, getFrontendPort } from '../shared/appConfig'
 import {
+  decideDailyMaintenanceTask,
   ensureInstallIfNeeded,
   getMissingBins,
+  readDailyMaintenanceState,
+  recordDailyMaintenanceSuccess,
   remediateAudit,
   syncDirectDependencies,
   upgradeOpenCodeCli,
+  writeDailyMaintenanceState,
   writeDevPreflightReport,
 } from './dev-maintenance'
 import {
@@ -29,9 +33,12 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
+const packageJsonPath = resolve(repoRoot, 'package.json')
+const packageLockPath = resolve(repoRoot, 'package-lock.json')
 const verboseLogging = process.env.LOOPTROOP_DEV_VERBOSE === '1'
 const skipDependencyMaintenance = process.env.LOOPTROOP_DEV_SKIP_DEPS === '1'
 const skipOpenCodeUpgrade = process.env.LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE === '1'
+const forceDailyMaintenance = process.env.LOOPTROOP_DEV_FORCE_MAINTENANCE === '1'
 
 const configuredPorts = [
   { label: 'frontend', port: getFrontendPort() },
@@ -199,7 +206,24 @@ function ensureDistinctConfiguredPorts() {
   }
 }
 
+function formatTimestamp(timestamp?: string) {
+  if (!timestamp) {
+    return 'unknown time'
+  }
+
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) {
+    return timestamp
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 ensureDistinctConfiguredPorts()
+const maintenanceState = readDailyMaintenanceState()
 
 const installReport = ensureInstallIfNeeded({ verbose: verboseLogging })
 for (const error of installReport.errors) {
@@ -209,38 +233,131 @@ if (installReport.errors.length > 0) {
   process.exit(1)
 }
 
-const dependencySyncReport = syncDirectDependencies({
-  verbose: verboseLogging,
-  skip: skipDependencyMaintenance,
+const dependencySyncDecision = decideDailyMaintenanceTask({
+  taskName: 'dependencySync',
+  state: maintenanceState,
+  force: forceDailyMaintenance,
+  invalidatedByPaths: [packageJsonPath],
 })
+
+const dependencySyncReport = skipDependencyMaintenance
+  ? syncDirectDependencies({
+    verbose: verboseLogging,
+    skip: true,
+  })
+  : dependencySyncDecision.shouldRun
+    ? syncDirectDependencies({
+      verbose: verboseLogging,
+      skip: false,
+    })
+    : {
+      skipped: false,
+      deferred: true,
+      checked: false,
+      alreadyCurrent: false,
+      forced: false,
+      errors: [],
+      updatedDependencies: [],
+      updatedDevDependencies: [],
+      lastCompletedAt: dependencySyncDecision.lastCompletedAt,
+      nextEligibleAt: dependencySyncDecision.nextEligibleAt,
+    }
+
 for (const error of dependencySyncReport.errors) {
   console.error(`[dev-preflight] ${error}`)
 }
 if (dependencySyncReport.errors.length > 0) {
   process.exit(1)
 }
+if (!skipDependencyMaintenance && dependencySyncDecision.shouldRun && dependencySyncReport.checked && dependencySyncReport.errors.length === 0) {
+  recordDailyMaintenanceSuccess(maintenanceState, 'dependencySync')
+}
 
-const auditReport = remediateAudit({
-  verbose: verboseLogging,
-  skip: skipDependencyMaintenance,
+const auditDecision = decideDailyMaintenanceTask({
+  taskName: 'audit',
+  state: maintenanceState,
+  force: forceDailyMaintenance,
+  invalidatedByPaths: [packageJsonPath, packageLockPath],
 })
+
+const auditReport = skipDependencyMaintenance
+  ? remediateAudit({
+    verbose: verboseLogging,
+    skip: true,
+  })
+  : auditDecision.shouldRun
+    ? remediateAudit({
+      verbose: verboseLogging,
+      skip: false,
+    })
+    : {
+      skipped: false,
+      deferred: true,
+      fixRan: false,
+      fixChanged: false,
+      unresolved: [],
+      totals: {
+        info: 0,
+        low: 0,
+        moderate: 0,
+        high: 0,
+        critical: 0,
+        total: 0,
+      },
+      errors: [],
+      lastCompletedAt: auditDecision.lastCompletedAt,
+      nextEligibleAt: auditDecision.nextEligibleAt,
+    }
+
 for (const error of auditReport.errors) {
   console.error(`[dev-preflight] ${error}`)
 }
 if (auditReport.errors.length > 0) {
   process.exit(1)
 }
+if (!skipDependencyMaintenance && auditDecision.shouldRun && auditReport.errors.length === 0) {
+  recordDailyMaintenanceSuccess(maintenanceState, 'audit')
+}
 
-const opencodeReport = upgradeOpenCodeCli({
-  verbose: verboseLogging,
-  skip: skipOpenCodeUpgrade,
+const opencodeDecision = decideDailyMaintenanceTask({
+  taskName: 'opencode',
+  state: maintenanceState,
+  force: forceDailyMaintenance,
 })
+
+const opencodeReport = skipOpenCodeUpgrade
+  ? upgradeOpenCodeCli({
+    verbose: verboseLogging,
+    skip: true,
+  })
+  : opencodeDecision.shouldRun
+    ? upgradeOpenCodeCli({
+      verbose: verboseLogging,
+      skip: false,
+    })
+    : {
+      skipped: false,
+      deferred: true,
+      available: true,
+      checked: false,
+      upgraded: false,
+      alreadyCurrent: false,
+      errors: [],
+      lastCompletedAt: opencodeDecision.lastCompletedAt,
+      nextEligibleAt: opencodeDecision.nextEligibleAt,
+    }
+
 for (const error of opencodeReport.errors) {
   console.error(`[dev-preflight] ${error}`)
 }
 if (opencodeReport.errors.length > 0) {
   process.exit(1)
 }
+if (!skipOpenCodeUpgrade && opencodeDecision.shouldRun && opencodeReport.errors.length === 0 && opencodeReport.available) {
+  recordDailyMaintenanceSuccess(maintenanceState, 'opencode')
+}
+
+writeDailyMaintenanceState(maintenanceState)
 
 const missingBinsAfterMaintenance = getMissingBins()
 if (missingBinsAfterMaintenance.length > 0) {
@@ -319,7 +436,11 @@ for (const { label, port } of configuredPorts) {
 if (skipDependencyMaintenance) {
   console.log('[dev-preflight] Skipped dependency sync and audit remediation because LOOPTROOP_DEV_SKIP_DEPS=1.')
 } else {
-  if (dependencySyncReport.alreadyCurrent) {
+  if (dependencySyncReport.deferred) {
+    console.log(
+      `[dev-preflight] Skipped daily dependency sync; it already ran today at ${formatTimestamp(dependencySyncReport.lastCompletedAt)}.`,
+    )
+  } else if (dependencySyncReport.alreadyCurrent) {
     console.log('[dev-preflight] Direct dependencies are already on the latest stable releases.')
   } else {
     console.log(
@@ -329,7 +450,11 @@ if (skipDependencyMaintenance) {
     )
   }
 
-  if (auditReport.unresolved.length === 0) {
+  if (auditReport.deferred) {
+    console.log(
+      `[dev-preflight] Skipped daily npm audit remediation; it already ran today at ${formatTimestamp(auditReport.lastCompletedAt)}.`,
+    )
+  } else if (auditReport.unresolved.length === 0) {
     console.log('[dev-preflight] npm audit summary: no remaining findings.')
   } else {
     console.log(
@@ -344,6 +469,10 @@ if (skipDependencyMaintenance) {
 
 if (opencodeReport.skipped) {
   console.log('[dev-preflight] Skipped OpenCode CLI upgrade because LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1.')
+} else if (opencodeReport.deferred) {
+  console.log(
+    `[dev-preflight] Skipped daily OpenCode CLI upgrade check; it already ran today at ${formatTimestamp(opencodeReport.lastCompletedAt)}.`,
+  )
 } else if (!opencodeReport.available) {
   console.log('[dev-preflight] Local OpenCode CLI was not found; skipping automatic OpenCode upgrade.')
 } else if (opencodeReport.upgraded) {
