@@ -16,7 +16,9 @@ import {
   updateProject,
 } from '../storage/projects'
 import { parseGitHubRemoteUrl, readOriginRemoteUrl } from '../git/github'
+import { buildRuntimeStatus } from '../runtime'
 import { isGitRepo, normalizeFolderPath, resolveGitRepoRoot } from '../storage/paths'
+import { buildWslProjectMountedDriveWarning, isWslWindowsMountPath } from '../../shared/wslPerformance'
 
 const projectRouter = new Hono()
 
@@ -80,13 +82,27 @@ function getGitRepoInfo(folderPath: string): GitRepoInfo {
   }
 }
 
+function getProjectPerformanceWarning(folderPath: string): string | null {
+  const runtime = buildRuntimeStatus()
+  const resolved = normalizeFolderPath(folderPath)
+  if (!runtime.isWsl || !isWslWindowsMountPath(resolved)) return null
+  return buildWslProjectMountedDriveWarning(resolved)
+}
+
 projectRouter.get('/projects/check-git', (c) => {
   const rawPath = c.req.query('path')
   if (!rawPath) return c.json({ isGit: false, status: 'none', message: 'No path provided' })
 
   const folderPath = normalizeFolderPath(rawPath)
+  const performanceWarning = getProjectPerformanceWarning(folderPath)
+  const warningPayload = performanceWarning ? { performanceWarning } : {}
   if (!existsSync(folderPath)) {
-    return c.json({ isGit: false, status: 'invalid', message: `Folder does not exist: ${folderPath}` })
+    return c.json({
+      isGit: false,
+      status: 'invalid',
+      message: `Folder does not exist: ${folderPath}`,
+      ...warningPayload,
+    })
   }
 
   const gitInfo = getGitRepoInfo(folderPath)
@@ -100,6 +116,7 @@ projectRouter.get('/projects/check-git', (c) => {
         hasLoopTroopState: gitInfo.hasLoopTroopState ?? false,
         existingProject: gitInfo.existingProject ?? null,
         message: 'Git repository found, but origin must resolve to github.com.',
+        ...warningPayload,
       })
     }
 
@@ -114,10 +131,16 @@ projectRouter.get('/projects/check-git', (c) => {
       message: gitInfo.isRepoRoot
         ? (gitInfo.hasLoopTroopState ? 'Existing LoopTroop project found at repository root' : 'Git repository root selected')
         : `Subfolder inside Git repository (root: ${gitInfo.repoRoot})`,
+      ...warningPayload,
     })
   }
 
-  return c.json({ isGit: false, status: 'invalid', message: 'Folder is not a git repository' })
+  return c.json({
+    isGit: false,
+    status: 'invalid',
+    message: 'Folder is not a git repository',
+    ...warningPayload,
+  })
 })
 
 projectRouter.get('/projects/ls', (c) => {

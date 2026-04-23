@@ -17,6 +17,11 @@ export interface StartupStatus {
       folderPath: string
     }>
   }
+  runtime: {
+    isWsl: boolean
+    appRoot: string
+    appPathWarning: string | null
+  }
   ui: {
     restoreNotice: {
       shouldShow: boolean

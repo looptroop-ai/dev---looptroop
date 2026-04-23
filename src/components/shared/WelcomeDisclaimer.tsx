@@ -1,11 +1,14 @@
+import { AlertTriangle } from 'lucide-react'
+
 export const WELCOME_DISCLAIMER_STORAGE_KEY = 'looptroop-welcome-seen'
 
 interface WelcomeDisclaimerProps {
   open: boolean
   onDismiss: () => void
+  appPathWarning?: string | null
 }
 
-export function WelcomeDisclaimer({ open, onDismiss }: WelcomeDisclaimerProps) {
+export function WelcomeDisclaimer({ open, onDismiss, appPathWarning }: WelcomeDisclaimerProps) {
   if (!open) return null
 
   return (
@@ -28,6 +31,18 @@ export function WelcomeDisclaimer({ open, onDismiss }: WelcomeDisclaimerProps) {
             <span className="font-bold">10+ hours</span> for large tickets with many beads.
           </p>
         </div>
+
+        {appPathWarning && (
+          <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+              <div>
+                <p className="font-semibold text-amber-50">WSL performance warning</p>
+                <p className="mt-1 text-amber-100/90">{appPathWarning}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <p className="text-sm text-gray-400 mb-5">
           Ensure your machine won't sleep during execution and has at least 4 GB RAM and 15 GB free

@@ -141,7 +141,11 @@ function App() {
   return (
     <ToastProvider>
       <AIQuestionProvider tickets={tickets ?? []}>
-        <WelcomeDisclaimer open={showWelcome} onDismiss={dismissWelcome} />
+        <WelcomeDisclaimer
+          open={showWelcome}
+          onDismiss={dismissWelcome}
+          appPathWarning={startupStatus?.runtime.appPathWarning ?? null}
+        />
         {startupStatus && (
           <StartupRestorePopup
             open={showRestorePopup}

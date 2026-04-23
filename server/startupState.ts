@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { APP_STORAGE_BOOT_FACTS, db as appDb } from './db/index'
+import { buildRuntimeStatus, type RuntimeStatus } from './runtime'
 import { appMeta, profiles } from './db/schema'
 import { listProjects } from './storage/projects'
 
@@ -25,6 +26,7 @@ export interface StartupStorageDebugStatus extends StartupStorageStatus {
 
 export interface StartupStatus {
   storage: StartupStorageStatus
+  runtime: RuntimeStatus
   ui: {
     restoreNotice: {
       shouldShow: boolean
@@ -42,6 +44,7 @@ interface StartupClassificationInput {
 const RESTORE_NOTICE_DISMISSED_AT_KEY = 'startup.restore_notice.dismissed_at'
 
 let storageSnapshot: StartupStorageDebugStatus | null = null
+let runtimeSnapshot: RuntimeStatus | null = null
 let restoreNoticeDismissedAt: string | null = null
 
 export function classifyStartupStorageKind(input: StartupClassificationInput): StartupStorageKind {
@@ -136,10 +139,15 @@ function buildStorageSnapshot(): StartupStorageDebugStatus {
 function ensureInitialized() {
   if (storageSnapshot) return
   storageSnapshot = buildStorageSnapshot()
+  runtimeSnapshot = buildRuntimeStatus()
   restoreNoticeDismissedAt = readRestoreNoticeDismissedAt()
 }
 
-function toPublicStartupStatus(storage: StartupStorageDebugStatus, dismissedAt: string | null): StartupStatus {
+function toPublicStartupStatus(
+  storage: StartupStorageDebugStatus,
+  runtime: RuntimeStatus,
+  dismissedAt: string | null,
+): StartupStatus {
   return {
     storage: {
       kind: storage.kind,
@@ -150,6 +158,7 @@ function toPublicStartupStatus(storage: StartupStorageDebugStatus, dismissedAt: 
       restoredProjectCount: storage.restoredProjectCount,
       restoredProjects: storage.restoredProjects,
     },
+    runtime,
     ui: {
       restoreNotice: {
         shouldShow: storage.kind === 'restored' && !dismissedAt,
@@ -166,7 +175,7 @@ export function initializeStartupState() {
 
 export function getStartupStatus(): StartupStatus {
   ensureInitialized()
-  return toPublicStartupStatus(storageSnapshot!, restoreNoticeDismissedAt)
+  return toPublicStartupStatus(storageSnapshot!, runtimeSnapshot!, restoreNoticeDismissedAt)
 }
 
 export function getStartupStateDebugLine() {
@@ -190,5 +199,6 @@ export function dismissStartupRestoreNotice(timestamp = new Date().toISOString()
 
 export function resetStartupStateForTests() {
   storageSnapshot = null
+  runtimeSnapshot = null
   restoreNoticeDismissedAt = null
 }

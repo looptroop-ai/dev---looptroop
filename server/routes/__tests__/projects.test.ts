@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { Hono } from 'hono'
@@ -46,6 +46,10 @@ describe('projectRouter project cleanup', () => {
   afterAll(() => {
     clearProjectDatabaseCache()
     repoManager.cleanup()
+  })
+
+  afterEach(() => {
+    delete process.env.WSL_DISTRO_NAME
   })
 
   it('installs a repo-local .looptroop exclude and keeps git status clean', () => {
@@ -163,5 +167,24 @@ describe('projectRouter project cleanup', () => {
 
     expect(reattached.name).toBe('Fresh Project')
     expect(reattached.shortname).toBe('NEW')
+  })
+
+  it('returns a WSL mounted-drive performance warning for Windows-backed paths', async () => {
+    process.env.WSL_DISTRO_NAME = 'Ubuntu'
+    const app = new Hono()
+    app.route('/api', projectRouter)
+
+    const response = await app.request('/api/projects/check-git?path=/mnt/c/Users/example/repo')
+    expect(response.status).toBe(200)
+
+    const payload = await response.json() as {
+      performanceWarning?: string
+      message: string
+      status: string
+    }
+
+    expect(payload.status).toBe('invalid')
+    expect(payload.message).toContain('/mnt/c/Users/example/repo')
+    expect(payload.performanceWarning).toContain('/mnt/c/Users/example/repo')
   })
 })

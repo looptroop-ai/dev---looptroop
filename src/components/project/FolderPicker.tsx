@@ -27,6 +27,7 @@ interface GitCheckResponse {
     isGit: boolean
     status: 'none' | 'checking' | 'valid' | 'invalid'
     message?: string
+    performanceWarning?: string | null
     scope?: 'root' | 'subfolder'
     repoRoot?: string
 }
@@ -41,6 +42,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
     const [inputPath, setInputPath] = useState('')
     const [gitStatus, setGitStatus] = useState<GitStatus>('none')
     const [gitMessage, setGitMessage] = useState('')
+    const [performanceWarning, setPerformanceWarning] = useState('')
     const gitCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     useEffect(() => {
@@ -51,7 +53,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
 
     const checkGit = useCallback((path: string) => {
         if (gitCheckRef.current) clearTimeout(gitCheckRef.current)
-        if (!path) { setGitStatus('none'); setGitMessage(''); return }
+        if (!path) { setGitStatus('none'); setGitMessage(''); setPerformanceWarning(''); return }
         setGitStatus('checking')
         setGitMessage('Checking repository...')
         gitCheckRef.current = setTimeout(async () => {
@@ -60,9 +62,11 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
                 const d = await res.json() as GitCheckResponse
                 setGitStatus(d.isGit ? 'valid' : 'invalid')
                 setGitMessage(String(d.message ?? ''))
+                setPerformanceWarning(String(d.performanceWarning ?? ''))
             } catch {
                 setGitStatus('invalid')
                 setGitMessage('Git check failed.')
+                setPerformanceWarning('')
             }
         }, 300)
     }, [])
@@ -91,6 +95,7 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
         if (open) {
             setGitStatus('none')
             setGitMessage('')
+            setPerformanceWarning('')
             fetchLs(initialPath || '')
         }
     }, [open, initialPath, fetchLs])
@@ -175,6 +180,11 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
                                             : 'text-muted-foreground',
                                 )}>
                                     {gitMessage}
+                                </div>
+                            )}
+                            {performanceWarning && (
+                                <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                    {performanceWarning}
                                 </div>
                             )}
                         </div>

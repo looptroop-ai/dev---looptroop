@@ -80,6 +80,11 @@ function makeStartupStatus(overrides: Partial<StartupStatus['storage']> = {}): S
       ],
       ...overrides,
     },
+    runtime: {
+      isWsl: false,
+      appRoot: '/home/liviu/LoopTroop',
+      appPathWarning: null,
+    },
     ui: {
       restoreNotice: {
         shouldShow: true,
@@ -156,6 +161,21 @@ describe('App startup notices', () => {
     fireEvent.click(screen.getByRole('button', { name: /got it, let's go!/i }))
 
     expect(await screen.findByText('Existing Local Data Found')).toBeInTheDocument()
+  })
+
+  it('shows the WSL app-path warning in the welcome disclaimer when applicable', () => {
+    mockState.startupStatus = makeStartupStatus()
+    mockState.startupStatus.runtime = {
+      isWsl: true,
+      appRoot: '/mnt/d/LoopTroop',
+      appPathWarning:
+        'LoopTroop is running from /mnt/d/LoopTroop inside WSL. Keeping the app on a Windows-mounted drive can significantly degrade file watching, Git, and overall app performance. If you want to use WSL, move or install LoopTroop under /home or another Linux filesystem path.',
+    }
+
+    renderApp()
+
+    expect(screen.getByText('WSL performance warning')).toBeInTheDocument()
+    expect(screen.getByText(/running from \/mnt\/d\/LoopTroop inside WSL/i)).toBeInTheDocument()
   })
 
   it('adapts restore popup copy for profile-only, project-only, and combined restores', async () => {
