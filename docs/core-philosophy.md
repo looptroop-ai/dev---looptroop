@@ -1,195 +1,116 @@
 # Core Philosophy
 
-LoopTroop is built around a single thesis: **current AI coding tools fail on serious features because of two compounding, unsolved problems.** This document explains what those problems are and how LoopTroop's architecture solves them.
+LoopTroop is opinionated about how AI coding systems should behave. The app trades speed and conversational convenience for controllability, recovery, and durable correctness.
 
----
+## The Five Core Commitments
 
-## Table of Contents
+| Commitment | What it means in practice |
+| --- | --- |
+| Control context, do not accumulate it blindly | Every phase assembles only the artifacts it is allowed to see |
+| Compete before you converge | Interview, PRD, and bead planning use multi-model draft, vote, and refine |
+| Keep humans at the irreversible boundaries | Interview, PRD, beads, and execution setup all have approval gates |
+| Retry with fresh state, not with stale chat memory | Bead execution uses bounded Ralph-style retry with context wipe notes |
+| Persist important state outside the model | Databases, YAML, JSONL, and worktree artifacts outlive any single session |
 
-1. [The Enemy: Context Rot](#1-the-enemy-context-rot)
-2. [The Enemy: The Infinite Loop Trap](#2-the-enemy-the-infinite-loop-trap)
-3. [The Solution: Beads — Atomic Units of Work](#3-the-solution-beads--atomic-units-of-work)
-4. [The Solution: The LLM Council](#4-the-solution-the-llm-council)
-5. [The Solution: The Multi-Phase Pipeline](#5-the-solution-the-multi-phase-pipeline)
-6. [Scope Sweet-Spot](#6-scope-sweet-spot)
+## Context Degradation Is A Design Constraint
 
----
+Long-context models are useful, but they are still vulnerable to positional bias and long-run context drift. LoopTroop treats that as a systems problem, not as a prompt wording problem.
 
-## 1. The Enemy: Context Rot
+That leads to three hard rules:
 
-### The Problem
+1. Phase prompts are built from durable artifacts, not from inherited chat history.
+2. A phase only sees the context keys it is explicitly allowed to see.
+3. When a retry is needed, LoopTroop prefers a fresh session plus a compact post-mortem over continuing a polluted transcript.
 
-Large Language Models (LLMs) perform surprisingly well when their context window is empty or lightly populated. However, research and practical experience show that performance degrades severely when the context window fills past approximately **40–60% capacity**.
+See [Context Isolation](context-isolation.md).
 
-This manifests in several ways:
+## Council Instead Of Single-Draft Planning
 
-- **"Lost in the Middle" Phenomenon** — information placed in the middle of a long context is effectively ignored. The model pays disproportionate attention to content at the very beginning and very end.
-- **Automatic Compaction** — when a context window fills up, the AI provider automatically summarizes earlier messages. This compaction is lossy: precise technical details, error messages, acceptance criteria, and earlier decisions are silently discarded.
-- **Noise Accumulation** — long-running sessions accumulate irrelevant turn-by-turn chatter, failed experiments, and superseded plans that dilute the signal.
+LoopTroop uses a council because early planning quality dominates downstream execution quality.
 
-### The Result in Competitor Tools
+The council pattern is:
 
-Tools that maintain a single long-running session (like many "vibe coding" platforms) start well and degrade badly. The model "forgets" requirements from the beginning of the session, hallucinates about what was already built, and produces increasingly inconsistent code. This is why such tools produce polished-looking MVPs that fall apart on inspection.
+1. Independent drafts from multiple models.
+2. Structured voting over anonymized drafts.
+3. Refinement by the selected winner.
+4. Coverage verification before moving forward.
 
-### LoopTroop's Solution: Aggressive Session Isolation
+This is not a free-form model group chat. It is a constrained orchestration pattern designed to surface better alternatives before the system commits to one.
 
-LoopTroop **never reuses a chat session across phases or retries**. Every stage starts fresh:
+See [LLM Council](llm-council.md).
 
-- Each council member's draft gets its own fresh OpenCode session.
-- Each council member's vote gets its own fresh OpenCode session.
-- Each bead execution attempt (`bead_id` + `iteration`) gets its own fresh OpenCode session.
-- When a bead fails, the session is **killed** — not resumed. A new session starts with the minimum context for the next attempt.
+## Bounded Ralph-Style Retry
 
-The context for each new session is assembled by [`buildMinimalContext()`](context-isolation.md), which enforces **strict per-phase allowlists** — only the exact data sources that phase needs are included. Everything else is excluded.
+Execution work fails in two broad ways:
 
-Knowledge transfer between phases happens through structured artifacts (YAML documents, JSONL files), not session history.
+- the model produces the wrong code
+- the model gets stuck in a bad loop while carrying broken context forward
 
-→ Deep dive: [Context Isolation](context-isolation.md)
+LoopTroop addresses the second case with a bounded Ralph-style retry discipline:
 
----
+1. Capture what failed in a context wipe note.
+2. Reset the worktree back to the bead start snapshot.
+3. Start a fresh session with the bead spec plus the wipe note.
+4. Stop after the configured retry limit.
 
-## 2. The Enemy: The Infinite Loop Trap
+This keeps the learning signal while discarding the poisoned conversational state.
 
-### The Problem
+See [Execution Loop](execution-loop.md).
 
-Agentic AI models are optimistic. When a task fails, they try again — and again — and again. Without a circuit-breaker, an agent will:
+## Beads Are The Unit Of Execution Memory
 
-1. Attempt the same failing fix repeatedly.
-2. Build up a context full of failed attempts, partial states, and conflicting self-corrections.
-3. Make the problem *worse* over time, not better.
-4. Never stop unless the user manually intervenes.
+LoopTroop does not hand a whole feature to one coding session and hope for the best. It decomposes the approved PRD into beads:
 
-This is the "Infinite Loop" trap: the model is technically active, consuming tokens and time, while making no progress.
+- small enough to execute in focused context
+- rich enough to encode acceptance criteria, tests, files, and dependencies
+- durable enough to survive retries, restarts, and review
 
-### LoopTroop's Solution: Bounded Retry with Context Wipe Notes
+Beads are both the execution plan and the execution memory layer. They define what gets worked on next, what blocks what, and what context is needed for each coding attempt.
 
-LoopTroop implements a **strict, bounded retry loop** for every Bead:
+See [Beads](beads.md).
 
-1. **Bounded iterations** — Each bead has a configurable `maxIterations` limit (default: 5). Once exhausted, the ticket transitions to `BLOCKED_ERROR`. The user receives a clear signal that human intervention is needed.
+## Human Review Is Not An Afterthought
 
-2. **Per-iteration timeout** — Each iteration has a wall-clock deadline (default: 20 minutes). If the coding agent hasn't returned a valid completion marker within the deadline, the iteration is considered failed.
+LoopTroop inserts explicit approval gates before the most expensive and hardest-to-reverse transitions:
 
-3. **Context Wipe Note generation** — Before the failed session is killed, LoopTroop generates a **Context Wipe Note** (Post-Mortem). This is a structured summary of:
-   - What was attempted in this iteration
-   - Recent failing tool calls and their error output
-   - The last model output (truncated)
-   - A directive for the next attempt
-   
-   This note is generated by prompting the model *in the same session* with `PROM51` — a dedicated "context wipe" prompt — before the session is discarded.
+- approve the interview before PRD generation
+- approve the PRD before bead planning
+- approve the beads before execution
+- approve the execution setup plan before environment mutation and coding
 
-4. **Git reset** — The worktree is reset to the clean `beadStartCommit` snapshot, erasing any partial, broken code changes from the failed iteration.
+This keeps the system honest. The model is allowed to move quickly inside a phase, but the human decides when the pipeline is good enough to cross into the next expensive stage.
 
-5. **Fresh session** — The next iteration opens a brand-new OpenCode session containing only: the bead specification + all accumulated Context Wipe Notes from previous iterations.
+## Durable State Beats Conversational Memory
 
-This means **each retry is as clean as the first attempt**, but with the accumulated diagnostic knowledge of every prior failure.
+LoopTroop stores meaningful workflow state in places that can be inspected, queried, and rebuilt:
 
-→ Deep dive: [Execution Loop](execution-loop.md)
+- SQLite for ticket status, artifacts, attempts, sessions, and errors
+- YAML and JSONL artifacts in `.ticket/**`
+- execution logs in `.ticket/runtime/execution-log.jsonl`
+- worktree state tied to git snapshots and PR outcomes
 
----
+If the process restarts, the system should recover from storage, not from a model trying to remember what happened.
 
-## 3. The Solution: Beads — Atomic Units of Work
+## What LoopTroop Optimizes For
 
-A **Bead** is the fundamental unit of implementation in LoopTroop. The term comes from Steve Yegge's beads project methodology.
+LoopTroop is optimized for:
 
-### What is a Bead?
+- mid-size and large feature work
+- overnight or multi-hour runs
+- traceable planning artifacts
+- recoverable execution
+- explicit delivery outcomes
 
-A bead is a **small, independently implementable unit of work** with its own:
-- Precise description
-- Acceptance criteria
-- Targeted tests (not the full suite)
-- Test commands
-- Target files
-- Dependency graph (what it blocks, what blocks it)
-- Context and architectural guidance (patterns, anti-patterns)
+It is not optimized for:
 
-Beads are designed to be the **smallest independently completable units** of a feature. They are not arbitrary task decompositions — they are chosen to be completable within a single bounded execution session with minimal context.
+- one-shot trivial edits
+- chat-first exploratory coding
+- unbounded autonomous runs with no checkpoints
 
-### Why Beads Solve Context Rot
+## Related Docs
 
-Each bead execution session receives a context containing:
-- The single bead's specification
-- Its accumulated Context Wipe Notes (from prior failed iterations)
-- The execution setup profile (environment details)
-
-Nothing else. No other beads. No PRD. No full test suite. No prior conversation history.
-
-This keeps the AI's working context **minimal, sharp, and entirely relevant** to the one specific task at hand.
-
-→ Deep dive: [Beads](beads.md)
-
----
-
-## 4. The Solution: The LLM Council
-
-Instead of relying on a single model for planning decisions, LoopTroop uses a **Council of LLMs** to debate and cross-validate every planning artifact.
-
-### How it Works
-
-For every planning phase (Interview, PRD, Beads), the council runs a three-step pipeline:
-
-```
-1. DRAFT   → All council members produce independent drafts (in parallel)
-2. VOTE    → All council members score all drafts anonymously (in parallel)
-3. REFINE  → The winning member improves their draft by incorporating the best ideas from losing drafts
-```
-
-The voting system uses a **weighted 5-category rubric** tailored to each phase:
-
-| Phase | Rubric Categories (20% each) |
-|-------|------------------------------|
-| Interview | Coverage, Correctness/Feasibility, Testability, Minimal Complexity, Risks/Edge Cases |
-| PRD | Coverage, Correctness/Feasibility, Testability, Minimal Complexity, Risks/Edge Cases |
-| Beads | PRD Coverage, Technical Feasibility, Test Isolation Quality, Minimal Complexity, Risks/Edge Cases |
-
-This approach:
-- **Eliminates single-model blind spots** — different models excel at different rubric dimensions
-- **Produces higher-quality artifacts** than any single model alone
-- **Scales gracefully** — up to 4 council members in MVP
-
-→ Deep dive: [LLM Council](llm-council.md)
-
----
-
-## 5. The Solution: The Multi-Phase Pipeline
-
-LoopTroop structures the entire journey from idea to PR as a **linear pipeline of phases**, each building on validated artifacts from the previous phase. Human approval gates separate planning from execution.
-
-### The Phases
-
-| Phase Group | Statuses | Description |
-|-------------|----------|-------------|
-| **Setup** | `DRAFT` | Ticket created; user fills in title, description, priority |
-| **Interview** | `SCANNING_RELEVANT_FILES` → `COUNCIL_DELIBERATING` → `COUNCIL_VOTING_INTERVIEW` → `COMPILING_INTERVIEW` → `WAITING_INTERVIEW_ANSWERS` → `VERIFYING_INTERVIEW_COVERAGE` → `WAITING_INTERVIEW_APPROVAL` | AI-driven interview uncovers hidden requirements; council generates questions; user answers; coverage verified |
-| **PRD** | `DRAFTING_PRD` → `COUNCIL_VOTING_PRD` → `REFINING_PRD` → `VERIFYING_PRD_COVERAGE` → `WAITING_PRD_APPROVAL` | Council generates, votes on, and refines a Product Requirements Document with Epics and User Stories |
-| **Beads** | `DRAFTING_BEADS` → `COUNCIL_VOTING_BEADS` → `REFINING_BEADS` → `VERIFYING_BEADS_COVERAGE` → `WAITING_BEADS_APPROVAL` | PRD decomposed into atomic Beads; council debates decomposition quality |
-| **Execution** | `PRE_FLIGHT_CHECK` → `WAITING_EXECUTION_SETUP_APPROVAL` → `PREPARING_EXECUTION_ENV` → `CODING` | Environment setup; Beads executed one by one via OpenCode with bounded retry |
-| **Delivery** | `RUNNING_FINAL_TEST` → `INTEGRATING_CHANGES` → `CREATING_PULL_REQUEST` → `WAITING_PR_REVIEW` → `CLEANING_ENV` → `COMPLETED` | Final tests, commit squashing, PR creation |
-
-### Why Phase Isolation Matters
-
-Each phase transition carries **only the essential artifact** forward:
-- Interview → PRD: only the final approved `interview.yaml`
-- PRD → Beads: only the approved `prd.yaml`
-- Beads → Execution: only the approved `issues.jsonl`
-- Bead → next Bead: only the bead spec + context wipe notes
-
-This creates a **clean data lineage** where every downstream phase has a high-quality, human-approved foundation.
-
-→ Full state machine map: [State Machine](state-machine.md)
-
----
-
-## 6. Scope Sweet-Spot
-
-LoopTroop is explicitly **not** for:
-
-- **Trivial changes** — changing a CSS colour, renaming a variable, fixing a one-line bug. Use your IDE's inline AI for these.
-- **Massive monolith generation** — "clone Excel from scratch." Context windows and bead decomposition cannot meaningfully cover a project of that scope in one shot.
-- **Speed-critical delivery** — LoopTroop is designed for unattended overnight runs. A single ticket can take 10+ hours. If you need it now, use Lovable/Bolt/Replit.
-- **Cost-sensitive use cases** — Running multiple models in parallel for council phases and iteration loops is inherently expensive.
-
-LoopTroop is for:
-
-- **Serious, production-ready feature development** — authentication systems, data pipelines, complex UI workflows, API integrations.
-- **Features where quality matters more than speed** — where a buggy MVP is worse than waiting overnight for a clean implementation.
-- **Teams who want an auditable, reproducible AI development process** — every council vote, every iteration note, every phase artifact is logged.
+- [System Architecture](system-architecture.md)
+- [Context Isolation](context-isolation.md)
+- [LLM Council](llm-council.md)
+- [Execution Loop](execution-loop.md)
+- [Beads](beads.md)

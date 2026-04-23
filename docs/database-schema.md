@@ -1,318 +1,221 @@
 # Database Schema
 
-LoopTroop uses **per-project SQLite databases** (not a single global DB). Each project has its own isolated `.looptroop/db.sqlite` file within the project's folder. The schema is managed with [Drizzle ORM](https://orm.drizzle.team/).
+LoopTroop currently uses two SQLite databases plus filesystem artifacts.
 
----
+That split is intentional:
 
-## Table of Contents
+- the app database stores global application configuration
+- each attached project has its own operational database
+- ticket artifacts and runtime logs live in the project worktree filesystem
 
-1. [Database Isolation Model](#database-isolation-model)
-2. [Tables Overview](#tables-overview)
-3. [Table: profiles](#table-profiles)
-4. [Table: app_meta](#table-app_meta)
-5. [Table: attached_projects](#table-attached_projects)
-6. [Table: projects](#table-projects)
-7. [Table: tickets](#table-tickets)
-8. [Table: phase_artifacts](#table-phase_artifacts)
-9. [Table: ticket_phase_attempts](#table-ticket_phase_attempts)
-10. [Table: opencode_sessions](#table-opencode_sessions)
-11. [Table: ticket_status_history](#table-ticket_status_history)
-12. [Table: ticket_error_occurrences](#table-ticket_error_occurrences)
-13. [Entity Relationships](#entity-relationships)
-14. [XState Snapshot Persistence](#xstate-snapshot-persistence)
+## Database Locations
 
----
+| Database | Default location | Configuration |
+| --- | --- | --- |
+| App DB | `~/.config/looptroop/app.sqlite` | `LOOPTROOP_CONFIG_DIR` or `LOOPTROOP_APP_DB_PATH` |
+| Project DB | `<project>/.looptroop/db.sqlite` | derived from the attached project root |
 
-## Database Isolation Model
+Both databases are opened with WAL mode enabled.
 
-There is **no global LoopTroop database**. Each project that is attached to LoopTroop gets its own:
+## App Database
 
-```
-<project-folder>/.looptroop/db.sqlite
-```
+The app database is initialized in `server/db/index.ts`.
 
-This means:
-- Projects are completely independent — you can safely delete one without affecting others.
-- Each DB is small and focused on a single project's tickets.
-- Schema migrations run per-project via `db:push` (Drizzle Kit).
+### Tables
 
-The server loads the correct project DB dynamically based on the `projectId` in each request context.
+| Table | Purpose |
+| --- | --- |
+| `profiles` | Singleton profile with model and workflow defaults |
+| `app_meta` | Small app-level key/value metadata |
+| `attached_projects` | Registry of attached project roots |
 
----
+### `profiles`
 
-## Tables Overview
+Key columns:
 
-| Table | Description |
-|-------|-------------|
-| `profiles` | Global AI model configuration (council members, timeouts, limits) |
-| `app_meta` | Generic key-value store for app-level metadata |
-| `attached_projects` | Registry of projects currently linked to LoopTroop |
-| `projects` | Project definitions (name, path, per-project config overrides) |
-| `tickets` | Core work items; contains XState snapshot for machine persistence |
-| `phase_artifacts` | All intermediate artifacts (interview YAML, PRD, beads, diffs, notes) |
-| `ticket_phase_attempts` | Tracks each attempt at a phase (for retry history) |
-| `opencode_sessions` | Maps OpenCode session IDs to ticket/phase/bead/iteration ownership |
-| `ticket_status_history` | Immutable log of every status transition |
-| `ticket_error_occurrences` | Structured record of every BLOCKED_ERROR occurrence |
+- `main_implementer`
+- `main_implementer_variant`
+- `council_members`
+- `council_member_variants`
+- `min_council_quorum`
+- `per_iteration_timeout`
+- `execution_setup_timeout`
+- `council_response_timeout`
+- `interview_questions`
+- `coverage_follow_up_budget_percent`
+- `max_coverage_passes`
+- `max_iterations`
 
----
+This table provides the baseline configuration that projects and tickets inherit from when they start.
 
-## Table: profiles
+## Project Database
 
-Stores the default AI model configuration. A profile is applied globally, with per-project overrides in `projects`.
+The project database is initialized in `server/db/project.ts` and uses the schema definitions from `server/db/schema.ts`.
 
-**Module:** `server/db/schema.ts`
+### Tables
 
-| Column | Type | Default | Description |
-|--------|------|---------|-------------|
-| `id` | INTEGER PK | auto | Profile ID |
-| `main_implementer` | TEXT | — | Model ID of the main implementer (e.g. `openai/o3`) |
-| `main_implementer_variant` | TEXT | — | Optional variant name for the main implementer |
-| `council_members` | TEXT | — | JSON array of council member model IDs |
-| `council_member_variants` | TEXT | — | JSON map: `{ "provider/model": "variant" }` |
-| `min_council_quorum` | INTEGER | 2 | Minimum members required to form a valid council |
-| `per_iteration_timeout` | INTEGER | 1,200,000 | Per-bead iteration timeout (ms) — 20 min |
-| `execution_setup_timeout` | INTEGER | varies | Timeout for execution setup phase (ms) |
-| `council_response_timeout` | INTEGER | 1,200,000 | Timeout for any single council prompt (ms) |
-| `interview_questions` | INTEGER | 50 | Max interview questions to generate |
-| `coverage_follow_up_budget_percent` | INTEGER | 20 | Budget for coverage follow-up questions (% of main) |
-| `max_coverage_passes` | INTEGER | 2 | Max coverage verification passes |
-| `max_iterations` | INTEGER | 5 | Max retry iterations per bead |
-| `created_at` | TEXT | now() | ISO timestamp |
-| `updated_at` | TEXT | now() | ISO timestamp |
+| Table | Purpose |
+| --- | --- |
+| `projects` | Project metadata and project-level overrides |
+| `tickets` | Ticket records and workflow snapshot fields |
+| `phase_artifacts` | Structured phase artifacts with phase and attempt numbers |
+| `ticket_phase_attempts` | Attempt history per phase |
+| `opencode_sessions` | Owned OpenCode session records |
+| `ticket_status_history` | Status transition history |
+| `ticket_error_occurrences` | Persisted blocked-error occurrences and resolution history |
 
----
+### `projects`
 
-## Table: app_meta
+Important columns:
 
-A generic key-value store for application-level metadata.
+- `name`
+- `shortname`
+- `icon`
+- `color`
+- `folder_path`
+- `profile_id`
+- project-level overrides for council and timeout settings
+- `ticket_counter`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `key` | TEXT PK | Unique metadata key |
-| `value` | TEXT | Value (any string; typically JSON) |
-| `updated_at` | TEXT | ISO timestamp |
+### `tickets`
 
----
+Important columns:
 
-## Table: attached_projects
+- `external_id`
+- `project_id`
+- `title`
+- `description`
+- `priority`
+- `status`
+- `xstate_snapshot`
+- `branch_name`
+- `current_bead`
+- `total_beads`
+- `percent_complete`
+- `error_message`
+- locked model and planning settings
+- `started_at`
+- `planned_date`
 
-Records which project folders are currently attached (visible) in LoopTroop.
+This table is the operational center of a ticket, but it is not the only place ticket truth lives. Review artifacts and runtime logs still live in `.ticket/**`.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INTEGER PK | Auto-increment |
-| `folder_path` | TEXT UNIQUE | Absolute path to project folder |
-| `created_at` | TEXT | ISO timestamp |
-| `updated_at` | TEXT | ISO timestamp |
+### `phase_artifacts`
 
----
+Columns:
 
-## Table: projects
+- `ticket_id`
+- `phase`
+- `phase_attempt`
+- `artifact_type`
+- `content`
+- `created_at`
+- `updated_at`
 
-Full project records. Projects can override profile-level settings.
+Important note:
 
-| Column | Type | Default | Description |
-|--------|------|---------|-------------|
-| `id` | INTEGER PK | auto | Project ID |
-| `name` | TEXT | — | Display name |
-| `shortname` | TEXT | — | Short identifier for branch naming and external IDs |
-| `icon` | TEXT | `📁` | Emoji icon for display |
-| `color` | TEXT | `#3b82f6` | Hex color for project accent |
-| `folder_path` | TEXT | — | Absolute path to project root |
-| `profile_id` | INTEGER | — | FK → `profiles.id` (resolved profile) |
-| `council_members` | TEXT | — | JSON array; overrides profile if set |
-| `max_iterations` | INTEGER | — | Overrides profile `max_iterations` if set |
-| `per_iteration_timeout` | INTEGER | — | Overrides profile timeout if set |
-| `execution_setup_timeout` | INTEGER | — | Overrides profile execution setup timeout if set |
-| `council_response_timeout` | INTEGER | — | Overrides council response timeout if set |
-| `min_council_quorum` | INTEGER | — | Overrides quorum requirement if set |
-| `interview_questions` | INTEGER | — | Overrides max interview questions if set |
-| `ticket_counter` | INTEGER | 0 | Auto-increment counter for ticket external IDs |
-| `created_at` | TEXT | now() | ISO timestamp |
-| `updated_at` | TEXT | now() | ISO timestamp |
+- the current DB schema does not include a `file_path` column
+- the frontend artifact normalizer accepts `filePath` in API payloads, but that field is not a physical column in `phase_artifacts`
 
----
+### `ticket_phase_attempts`
 
-## Table: tickets
+Tracks retry or restart history for individual phases.
 
-The central work item table. One row per ticket. Stores the XState machine snapshot for persistence.
+Columns:
 
-| Column | Type | Default | Description |
-|--------|------|---------|-------------|
-| `id` | INTEGER PK | auto | Internal ticket ID |
-| `external_id` | TEXT UNIQUE | — | Human-readable ID: `<shortname>-<N>` (e.g. `PROJ-12`) |
-| `project_id` | INTEGER | — | FK → `projects.id` |
-| `title` | TEXT | — | Ticket title (1–200 chars) |
-| `description` | TEXT | — | Full ticket description |
-| `priority` | INTEGER | 3 | Priority: 1=urgent, 5=minimal |
-| `status` | TEXT | `DRAFT` | Current XState machine status (mirrors machine state) |
-| `xstate_snapshot` | TEXT | — | **JSON-serialized XState v5 snapshot** — see [XState Snapshot Persistence](#xstate-snapshot-persistence) |
-| `branch_name` | TEXT | — | Git branch for this ticket's worktree |
-| `current_bead` | INTEGER | — | Index of the current bead being executed |
-| `total_beads` | INTEGER | — | Total bead count (populated after beads approval) |
-| `percent_complete` | REAL | — | Execution progress 0–100 |
-| `error_message` | TEXT | — | Last error message (populated when `BLOCKED_ERROR`) |
-| `locked_main_implementer` | TEXT | — | Frozen main implementer model ID (set at ticket start) |
-| `locked_main_implementer_variant` | TEXT | — | Frozen variant (set at ticket start) |
-| `locked_council_members` | TEXT | — | JSON array — council frozen at start |
-| `locked_council_member_variants` | TEXT | — | JSON map — variants frozen at start |
-| `locked_interview_questions` | INTEGER | — | Frozen interview question limit |
-| `locked_coverage_follow_up_budget_percent` | INTEGER | — | Frozen follow-up budget |
-| `locked_max_coverage_passes` | INTEGER | — | Frozen max coverage passes |
-| `started_at` | TEXT | — | ISO timestamp when ticket started |
-| `planned_date` | TEXT | — | Optional planned date for kanban display |
-| `created_at` | TEXT | now() | ISO timestamp |
-| `updated_at` | TEXT | now() | ISO timestamp |
+- `ticket_id`
+- `phase`
+- `attempt_number`
+- `state`
+- `archived_reason`
+- `created_at`
+- `archived_at`
 
-> **Note on locked_ columns:** All model configuration is **frozen at ticket start** via `lockTicketStartConfiguration()`. Changing the active profile mid-ticket does not affect in-flight tickets.
+### `opencode_sessions`
 
----
+This table is what makes restart-safe session ownership possible.
 
-## Table: phase_artifacts
+Columns:
 
-Stores all intermediate and final artifacts produced during ticket processing. Every generated document (interview YAML, PRD, beads plan, bead diffs, context wipe notes, etc.) is stored here.
+- `session_id`
+- `ticket_id`
+- `phase`
+- `phase_attempt`
+- `member_id`
+- `bead_id`
+- `iteration`
+- `step`
+- `state`
+- `last_event_id`
+- `last_event_at`
 
-| Column | Type | Default | Description |
-|--------|------|---------|-------------|
-| `id` | INTEGER PK | auto | Auto-increment |
-| `ticket_id` | INTEGER | — | FK → `tickets.id` |
-| `phase` | TEXT | — | Phase name (e.g. `COUNCIL_DELIBERATING`, `CODING`) |
-| `phase_attempt` | INTEGER | 1 | Attempt number for this phase (increments on retry) |
-| `artifact_type` | TEXT | — | Specific artifact type (e.g. `interview_draft`, `bead_diff:epic-1--story-2--bead-3`) |
-| `content` | TEXT | — | **JSON-stringified artifact content** |
-| `created_at` | TEXT | now() | ISO timestamp |
-| `updated_at` | TEXT | now() | ISO timestamp |
+### `ticket_status_history`
 
-Common `artifact_type` values:
+A simple transition log:
 
-| Artifact Type | Content Format | Phase |
-|--------------|----------------|-------|
-| `interview_compiled` | YAML string | Interview phases |
-| `prd_structured` | JSON (PrdDocument) | PRD phases |
-| `beads_structured` | JSON (Bead[]) | Beads phases |
-| `bead_diff:<beadId>` | Git diff string | `CODING` |
-| `execution_setup_plan` | YAML string | Execution setup phases |
-| `codebase_map` | YAML string | `SCANNING_RELEVANT_FILES` |
+- `ticket_id`
+- `previous_status`
+- `new_status`
+- `reason`
+- `changed_at`
 
----
+### `ticket_error_occurrences`
 
-## Table: ticket_phase_attempts
+Stores repeated blocked states as explicit occurrences rather than one mutable error blob.
 
-Tracks each attempt at a phase. When a user retries from `BLOCKED_ERROR`, the old phase attempt is archived and a fresh attempt is created.
+Columns:
 
-| Column | Type | Default | Description |
-|--------|------|---------|-------------|
-| `id` | INTEGER PK | auto | Auto-increment |
-| `ticket_id` | INTEGER | — | FK → `tickets.id` |
-| `phase` | TEXT | — | Phase name |
-| `attempt_number` | INTEGER | — | Sequential attempt number (1-based) |
-| `state` | TEXT | `active` | `active` or `archived` |
-| `archived_reason` | TEXT | — | Why this attempt was archived (e.g. `retry`, `user_edit`) |
-| `created_at` | TEXT | now() | ISO timestamp |
-| `archived_at` | TEXT | — | ISO timestamp when archived |
+- `ticket_id`
+- `occurrence_number`
+- `blocked_from_status`
+- `error_message`
+- `error_codes`
+- `occurred_at`
+- `resolved_at`
+- `resolution_status`
+- `resumed_to_status`
 
----
+## Relationship Overview
 
-## Table: opencode_sessions
-
-Maps OpenCode session IDs to their ticket/phase/bead/iteration ownership. This enables the reconnect mechanism (when the server restarts, active sessions can be re-attached).
-
-| Column | Type | Default | Description |
-|--------|------|---------|-------------|
-| `id` | INTEGER PK | auto | Auto-increment |
-| `session_id` | TEXT | — | OpenCode SDK session ID |
-| `ticket_id` | INTEGER | — | FK → `tickets.id` |
-| `phase` | TEXT | — | Phase that owns this session (e.g. `CODING`, `COUNCIL_DELIBERATING`) |
-| `phase_attempt` | INTEGER | 1 | Which attempt number of this phase |
-| `member_id` | TEXT | — | Council member model ID (nullable if not council) |
-| `bead_id` | TEXT | — | Bead ID (nullable if not execution phase) |
-| `iteration` | INTEGER | — | Bead iteration number (nullable if not execution phase) |
-| `step` | TEXT | — | Optional sub-step when a phase owns multiple sessions |
-| `state` | TEXT | `active` | `active` \| `completed` \| `abandoned` |
-| `last_event_id` | TEXT | — | ID of the last SSE event received (for reconnect) |
-| `last_event_at` | TEXT | — | Timestamp of last event |
-| `created_at` | TEXT | now() | ISO timestamp |
-| `updated_at` | TEXT | now() | ISO timestamp |
-
----
-
-## Table: ticket_status_history
-
-An **immutable audit log** of every status transition. Never updated — only inserted.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INTEGER PK | Auto-increment |
-| `ticket_id` | INTEGER | FK → `tickets.id` |
-| `previous_status` | TEXT | State before transition (null if first transition) |
-| `new_status` | TEXT | State after transition |
-| `reason` | TEXT | Human-readable reason (e.g. `"User approved interview"`) |
-| `changed_at` | TEXT | ISO timestamp |
-
----
-
-## Table: ticket_error_occurrences
-
-Records every time a ticket enters `BLOCKED_ERROR`, capturing the error details and tracking the resolution outcome.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INTEGER PK | Auto-increment |
-| `ticket_id` | INTEGER | FK → `tickets.id` |
-| `occurrence_number` | INTEGER | Sequential error occurrence counter (1-based, per ticket) |
-| `blocked_from_status` | TEXT | Which state the ticket was in when it errored |
-| `error_message` | TEXT | Human-readable error message |
-| `error_codes` | TEXT | JSON array of error codes (e.g. `["BEAD_RETRY_BUDGET_EXHAUSTED"]`) |
-| `occurred_at` | TEXT | ISO timestamp when error occurred |
-| `resolved_at` | TEXT | ISO timestamp when resolved (null if still blocked) |
-| `resolution_status` | TEXT | `retried` \| `cancelled` \| `skipped` |
-| `resumed_to_status` | TEXT | Status the ticket resumed from after resolution |
-
----
-
-## Entity Relationships
-
-```
-profiles (1) ─────────────────────────── (many) projects
-projects (1) ─────────────────────────── (many) tickets
-tickets (1) ──────────────────────────── (many) phase_artifacts
-tickets (1) ──────────────────────────── (many) ticket_phase_attempts
-tickets (1) ──────────────────────────── (many) opencode_sessions
-tickets (1) ──────────────────────────── (many) ticket_status_history
-tickets (1) ──────────────────────────── (many) ticket_error_occurrences
+```mermaid
+erDiagram
+    projects ||--o{ tickets : has
+    tickets ||--o{ phase_artifacts : produces
+    tickets ||--o{ ticket_phase_attempts : retries
+    tickets ||--o{ opencode_sessions : owns
+    tickets ||--o{ ticket_status_history : transitions
+    tickets ||--o{ ticket_error_occurrences : records
 ```
 
----
+## What Is Not In SQLite
 
-## XState Snapshot Persistence
+SQLite is not the whole system.
 
-The `tickets.xstate_snapshot` column is the key to machine durability. After every state transition, the XState v5 machine's full snapshot is serialized and stored:
+Important non-DB state includes:
 
-```typescript
-// server/machines/persistence.ts
-const snapshot = actor.getSnapshot()
-const serialized = JSON.stringify(snapshot)
-await patchTicket(ticketId, { xstateSnapshot: serialized })
-```
+- `.ticket/relevant-files.yaml`
+- `.ticket/interview.yaml`
+- `.ticket/prd.yaml`
+- `.ticket/beads/<flow>/.beads/issues.jsonl`
+- `.ticket/runtime/execution-log.jsonl`
+- `.ticket/runtime/state.yaml`
+- `.ticket/runtime/execution-setup-profile.json`
 
-On server restart, the machine is **restored from the snapshot** rather than starting fresh:
+The database tracks and indexes workflow state. The filesystem stores the user-facing and execution-facing artifacts.
 
-```typescript
-// Restore from snapshot
-const savedSnapshot = ticket.xstateSnapshot
-if (savedSnapshot) {
-  const restoredSnapshot = JSON.parse(savedSnapshot)
-  const actor = createActor(ticketMachine, {
-    snapshot: restoredSnapshot,
-  })
-  actor.start()
-}
-```
+## Indexes And Runtime Behavior
 
-This means a ticket that was mid-way through `COUNCIL_DELIBERATING` when the server crashed will resume exactly from that state when the server restarts — it won't re-run work that was already completed.
+The project DB also creates indexes for:
 
-The `tickets.status` column is a **denormalized convenience field** that mirrors the machine's current state name. It's used for list views and filtering without needing to deserialize the full XState snapshot.
+- ticket status
+- ticket external id
+- artifact lookup by ticket and phase attempt
+- session lookup by ticket, phase, and ownership fields
+- error occurrence lookup
 
-→ See [State Machine](state-machine.md) for the full state diagram and all 30 states  
-→ See [Setup Guide](setup-guide.md) for database migration commands
+Combined with WAL mode, this keeps the workflow responsive while the UI polls and the backend streams updates.
+
+## Related Docs
+
+- [System Architecture](system-architecture.md)
+- [API Reference](api-reference.md)
+- [OpenCode Integration](opencode-integration.md)

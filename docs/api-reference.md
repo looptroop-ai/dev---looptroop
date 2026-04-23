@@ -1,299 +1,372 @@
 # API Reference
 
-LoopTroop's backend is a [Hono.js](https://hono.dev/) server. All endpoints are prefixed with `/api` (when served behind the Vite dev proxy) or served directly on the configured port.
+All backend routes are mounted under `/api`.
 
----
+This page documents the current HTTP surface exposed by `server/index.ts` and the route handlers in `server/routes/*`.
 
-## Table of Contents
+## Conventions
 
-1. [Base URL & Authentication](#base-url--authentication)
-2. [SSE Streaming](#sse-streaming)
-3. [Health](#health)
-4. [Profiles](#profiles)
-5. [Projects](#projects)
-6. [Tickets — CRUD](#tickets--crud)
-7. [Tickets — Workflow Actions](#tickets--workflow-actions)
-8. [Tickets — Interview](#tickets--interview)
-9. [Tickets — PRD & Beads](#tickets--prd--beads)
-10. [Tickets — Execution Setup Plan](#tickets--execution-setup-plan)
-11. [Tickets — Pull Request](#tickets--pull-request)
-12. [Tickets — Artifacts & Phases](#tickets--artifacts--phases)
-13. [Tickets — OpenCode Questions](#tickets--opencode-questions)
-14. [Beads](#beads)
-15. [Models](#models)
-16. [Files](#files)
-17. [Workflow Meta](#workflow-meta)
+| Convention | Meaning |
+| --- | --- |
+| Ticket identifiers | Most ticket endpoints use the external ticket reference, not the local numeric DB id |
+| JSON validation | Most write routes validate request bodies with Zod or route-specific parsers |
+| Streaming | Live ticket updates use Server-Sent Events from `/api/stream` |
+| Error shape | Error responses usually include `error` and sometimes `details` or `message` |
 
----
+## Health, Models, Workflow Meta, And Streaming
 
-## Base URL & Authentication
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/health` | Basic process health |
+| `GET` | `/api/health/opencode` | OpenCode reachability and version |
+| `GET` | `/api/health/startup` | Startup recovery and restore status |
+| `POST` | `/api/health/startup/restore-notice/dismiss` | Dismiss startup restore notice |
+| `GET` | `/api/models` | Connected and full model catalog |
+| `GET` | `/api/workflow/meta` | Current workflow groups and phases |
+| `GET` | `/api/stream?ticketId=<id>` | Ticket-scoped SSE stream |
 
-In development the React dev server (Vite) proxies `/api/*` → `http://localhost:<BACKEND_PORT>`. In production, the Hono server serves everything directly.
+Example health payload:
 
-LoopTroop is designed as a **local-only tool** — there is no authentication layer by default. All endpoints are open.
-
----
-
-## SSE Streaming
-
-Real-time events are delivered to the frontend via Server-Sent Events (SSE):
-
-### `GET /stream`
-
-Subscribes to live events for a ticket.
-
-**Query parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `ticketId` | ✅ | The ticket's `externalId` (e.g. `PROJ-12`) |
-| `lastEventId` | — | Optional; also read from `Last-Event-ID` header for reconnect |
-
-**Initial events:**
-- `connected` — Emitted immediately; contains `{ ticketId, clientId, timestamp }`
-- Missed events since `lastEventId` are replayed in order
-
-**Ongoing events:**
-- `heartbeat` — Every 30 seconds; contains `{ timestamp }`
-- `ticket_update` — State machine status change
-- `opencode_event` — Raw streaming event from an OpenCode session
-- `log_event` — Execution log entries (commands, output lines)
-- `bead_update` — Bead status change
-- `progress_update` — Progress percentage update
-
-To reconnect reliably, store the last received event ID and pass it via the `Last-Event-ID` header or `lastEventId` query parameter on reconnect. The broadcaster replays all missed events from its in-memory buffer.
-
----
-
-## Health
-
-### `GET /health`
-
-Returns server health status.
-
-**Response:** `200 OK`
 ```json
-{ "status": "ok", "timestamp": "2025-01-15T14:00:00.000Z" }
+{
+  "status": "ok",
+  "timestamp": "2026-04-23T09:00:00.000Z",
+  "uptime": 1234.56
+}
 ```
 
----
+Example models payload:
 
-## Profiles
+```json
+{
+  "models": [],
+  "allModels": [],
+  "connectedProviders": [],
+  "defaultModels": {},
+  "message": "OpenCode server is not reachable. Start it with `opencode serve`."
+}
+```
 
-Profiles store global AI model configuration. See [Database Schema — profiles](database-schema.md#table-profiles) for all fields.
+## Profile Routes
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/profiles` | List all profiles |
-| `GET` | `/profiles/:id` | Get a specific profile |
-| `POST` | `/profiles` | Create a new profile |
-| `PATCH` | `/profiles/:id` | Update profile fields |
-| `DELETE` | `/profiles/:id` | Delete a profile |
+LoopTroop uses a singleton profile, not a collection.
 
----
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/profile` | Returns the singleton profile or `null` |
+| `POST` | `/api/profile` | Creates the singleton profile |
+| `PATCH` | `/api/profile` | Updates the singleton profile |
 
-## Projects
+Example profile update payload:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/projects` | List all projects |
-| `GET` | `/projects/:id` | Get project details |
-| `POST` | `/projects` | Create a project |
-| `PATCH` | `/projects/:id` | Update project fields |
-| `DELETE` | `/projects/:id` | Delete a project |
+```json
+{
+  "mainImplementer": "openai/gpt-5.4",
+  "mainImplementerVariant": "high",
+  "councilMembers": "[\"openai/gpt-5.4\",\"anthropic/claude-sonnet-4\"]",
+  "minCouncilQuorum": 2,
+  "perIterationTimeout": 1800,
+  "executionSetupTimeout": 900,
+  "councilResponseTimeout": 240,
+  "interviewQuestions": 12,
+  "coverageFollowUpBudgetPercent": 35,
+  "maxCoveragePasses": 3,
+  "maxIterations": 5
+}
+```
 
----
+## Project Routes
 
-## Tickets — CRUD
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/projects/check-git?path=...` | Validates git and GitHub origin status for a folder |
+| `GET` | `/api/projects/ls?path=...` | Directory browser used by the attach-project flow |
+| `GET` | `/api/projects` | List attached projects |
+| `GET` | `/api/projects/:id` | Get one project |
+| `POST` | `/api/projects` | Attach a project |
+| `PATCH` | `/api/projects/:id` | Update project settings |
+| `DELETE` | `/api/projects/:id` | Delete a project if no active tickets remain |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/tickets` | List all tickets (optionally filtered by `projectId`) |
-| `GET` | `/tickets/:id` | Get a specific ticket (by ID or `externalId`) |
-| `POST` | `/tickets` | Create a new ticket |
-| `PATCH` | `/tickets/:id` | Update ticket fields (title, description, priority, etc.) |
-| `DELETE` | `/tickets/:id` | Delete a ticket and its worktree |
-| `GET` | `/tickets/:id/ui-state` | Get persisted UI state (tab open, scroll pos, etc.) |
-| `PUT` | `/tickets/:id/ui-state` | Save UI state |
+Example project attachment payload:
 
-**Create ticket body:**
+```json
+{
+  "name": "LoopTroop",
+  "shortname": "LOOP",
+  "folderPath": "/home/liviu/LoopTroop",
+  "icon": "📁",
+  "color": "#3b82f6",
+  "profileId": 1
+}
+```
+
+## Ticket Routes
+
+### CRUD And UI State
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/tickets` | Optionally filtered with `?projectId=` |
+| `GET` | `/api/tickets/:id` | Get one ticket |
+| `POST` | `/api/tickets` | Create a ticket |
+| `PATCH` | `/api/tickets/:id` | Update title, description, or priority |
+| `DELETE` | `/api/tickets/:id` | Only allowed for `COMPLETED` or `CANCELED` |
+| `GET` | `/api/tickets/:id/ui-state?scope=...` | Read persisted UI state |
+| `PUT` | `/api/tickets/:id/ui-state` | Save persisted UI state |
+
+Example ticket creation payload:
+
 ```json
 {
   "projectId": 1,
-  "title": "Add user authentication",
-  "description": "Implement JWT-based login and refresh token flow",
+  "title": "Implement refresh-token rotation",
+  "description": "Rotate refresh tokens and invalidate the family on reuse.",
   "priority": 2
 }
 ```
 
----
+Example UI-state payload:
 
-## Tickets — Workflow Actions
-
-These endpoints drive state machine transitions. Each call sends an event to the ticket's XState actor.
-
-| Method | Path | When to call |
-|--------|------|-------------|
-| `POST` | `/tickets/:id/start` | Start a ticket (DRAFT → SCANNING_RELEVANT_FILES) |
-| `POST` | `/tickets/:id/approve` | Approve current step (for states with user approval gates) |
-| `POST` | `/tickets/:id/cancel` | Cancel the ticket |
-| `POST` | `/tickets/:id/retry` | Retry from BLOCKED_ERROR (sends RETRY event) |
-| `POST` | `/tickets/:id/verify` | Trigger re-verification of current phase |
-| `POST` | `/tickets/:id/dev-event` | _(Dev only)_ Inject a manual XState event |
-
-**`/start` body:**
 ```json
 {
-  "mainImplementer": "openai/o3",
-  "councilMembers": ["anthropic/claude-opus-4-5", "google/gemini-2.5-pro"],
-  "mainImplementerVariant": "high",
-  "councilMemberVariants": { "anthropic/claude-opus-4-5": "latest" }
-}
-```
-This locks the model configuration for the lifetime of the ticket.
-
----
-
-## Tickets — Interview
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tickets/:id/answer` | Submit a single answer to an interview question |
-| `POST` | `/tickets/:id/answer-batch` | Submit up to 3 answers at once (`BATCH_ANSWERED` event) |
-| `PATCH` | `/tickets/:id/edit-answer` | Edit a previously submitted answer |
-| `POST` | `/tickets/:id/skip` | Skip an interview question |
-| `POST` | `/tickets/:id/approve-interview` | Approve the final interview and advance to PRD generation |
-| `GET` | `/tickets/:id/interview` | Get the current interview document |
-| `PUT` | `/tickets/:id/interview` | Update the interview document directly |
-| `PUT` | `/tickets/:id/interview-answers` | Bulk update all interview answers |
-| `GET` | `/tickets/:id/opencode/questions` | List pending OpenCode clarification questions |
-| `POST` | `/tickets/:id/opencode/questions/:requestId/reply` | Reply to an OpenCode question |
-| `POST` | `/tickets/:id/opencode/questions/:requestId/reject` | Reject an OpenCode question |
-
-**`/answer` body:**
-```json
-{
-  "questionId": "q-3",
-  "answer": "The user should be redirected to the dashboard after login."
-}
-```
-
-**`/answer-batch` body:**
-```json
-{
-  "answers": [
-    { "questionId": "q-1", "answer": "..." },
-    { "questionId": "q-2", "answer": "..." }
-  ]
-}
-```
-
----
-
-## Tickets — PRD & Beads
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tickets/:id/approve-prd` | Approve the PRD and advance to Beads phase |
-| `POST` | `/tickets/:id/approve-beads` | Approve the Beads plan and advance to Pre-flight check |
-
----
-
-## Tickets — Execution Setup Plan
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/tickets/:id/execution-setup-plan` | Get the current execution setup plan |
-| `PUT` | `/tickets/:id/execution-setup-plan` | Update the execution setup plan directly |
-| `POST` | `/tickets/:id/regenerate-execution-setup-plan` | Trigger AI regeneration of the setup plan |
-| `POST` | `/tickets/:id/approve-execution-setup-plan` | Approve and begin execution setup phase |
-
----
-
-## Tickets — Pull Request
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tickets/:id/merge` | Complete the PR review as merged |
-| `POST` | `/tickets/:id/close-unmerged` | Close the ticket without merging |
-
----
-
-## Tickets — Artifacts & Phases
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/tickets/:id/artifacts` | List all phase artifacts for the ticket |
-| `GET` | `/tickets/:id/phases/:phase/attempts` | List all attempts for a specific phase |
-
----
-
-## Beads
-
-The beads API operates directly on the `issues.jsonl` file.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/tickets/:id/beads` | Read all beads (parses JSONL, returns array) |
-| `PUT` | `/tickets/:id/beads` | Replace the entire bead list (writes JSONL atomically) |
-| `GET` | `/tickets/:id/beads/:beadId/diff` | Get the git diff artifact for a completed bead |
-
-**Query parameters for `/beads`:**
-| Parameter | Description |
-|-----------|-------------|
-| `flow` | Branch flow name (defaults to the ticket's base branch) |
-
-**`PUT /beads` body:** JSON array of `Bead` objects. This completely replaces the JSONL file, then calls `upsertBeadsApprovalSnapshot()` and `syncTicketRuntimeProjection()`.
-
-**`GET /beads/:beadId/diff` response:**
-```json
-{
-  "diff": "diff --git a/src/auth.ts b/src/auth.ts\n...",
-  "captured": true
-}
-```
-If no diff is available (bead not yet completed), returns `{ "diff": "", "captured": false }`.
-
----
-
-## Models
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/models` | List available AI models from the OpenCode SDK |
-
-Returns available models for the model selector UI.
-
----
-
-## Files
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/files` | Browse files for a project |
-| `GET` | `/files/content` | Read file content (for the `relevant_files` editor) |
-
----
-
-## Workflow Meta
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/workflow/meta` | Get static workflow metadata (groups and phases) |
-
-Returns `WORKFLOW_GROUPS` and `WORKFLOW_PHASES` from `shared/workflowMeta.ts` — used by the frontend to render the Kanban board phase structure.
-
-**Response shape:**
-```json
-{
-  "groups": ["planning", "execution", "review"],
-  "phases": {
-    "DRAFT": { "group": "planning", "label": "Draft", "order": 0 },
-    "CODING": { "group": "execution", "label": "Coding", "order": 14 },
-    ...
+  "scope": "interview-drafts",
+  "data": {
+    "draftAnswers": {},
+    "skippedQuestions": {},
+    "selectedOptions": {}
   }
 }
 ```
 
-→ See [State Machine](state-machine.md) for the full list of phases and their groups  
-→ See [Frontend](frontend.md) for how the frontend consumes these endpoints  
-→ See [OpenCode Integration](opencode-integration.md) for the SSE streaming architecture
+Example UI-state response:
+
+```json
+{
+  "scope": "interview-drafts",
+  "exists": true,
+  "data": {
+    "draftAnswers": {},
+    "skippedQuestions": {},
+    "selectedOptions": {}
+  },
+  "updatedAt": "2026-04-23T09:00:00.000Z"
+}
+```
+
+### Workflow Actions
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `POST` | `/api/tickets/:id/start` | Starts a `DRAFT` ticket using locked profile and project settings |
+| `POST` | `/api/tickets/:id/approve` | Generic workflow approval endpoint |
+| `POST` | `/api/tickets/:id/cancel` | Cancel active work |
+| `POST` | `/api/tickets/:id/approve-interview` | Approve interview artifact |
+| `POST` | `/api/tickets/:id/approve-prd` | Approve PRD artifact |
+| `POST` | `/api/tickets/:id/approve-beads` | Approve bead plan artifact |
+| `POST` | `/api/tickets/:id/approve-execution-setup-plan` | Approve execution setup plan |
+| `POST` | `/api/tickets/:id/merge` | Merge delivered PR |
+| `POST` | `/api/tickets/:id/close-unmerged` | Close without merge |
+| `POST` | `/api/tickets/:id/verify` | Currently handled by the merge handler alias |
+| `POST` | `/api/tickets/:id/retry` | Retry a blocked ticket or failed phase |
+| `POST` | `/api/tickets/:id/dev-event` | Development event injection endpoint |
+
+### Interview And Planning Editing
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/tickets/:id/interview` | Returns interview payload with `winnerId`, `raw`, `document`, `session`, and `questions` |
+| `PUT` | `/api/tickets/:id/interview` | Save raw interview YAML |
+| `PUT` | `/api/tickets/:id/interview-answers` | Save structured interview answers during approval or planning restart |
+| `POST` | `/api/tickets/:id/answer` | Deprecated, returns `410`; use `answer-batch` |
+| `POST` | `/api/tickets/:id/answer-batch` | Submit interview answers |
+| `POST` | `/api/tickets/:id/skip` | Skip remaining interview questions |
+| `PATCH` | `/api/tickets/:id/edit-answer` | Edit a previously recorded answer while waiting for interview answers |
+
+Current batch-answer payload:
+
+```json
+{
+  "answers": {
+    "q-auth-1": "Support both password login and SSO."
+  },
+  "selectedOptions": {
+    "q-auth-2": ["option-password", "option-sso"]
+  }
+}
+```
+
+Possible `answer-batch` response shapes:
+
+```json
+{
+  "accepted": true
+}
+```
+
+```json
+{
+  "questions": [],
+  "progress": {
+    "answered": 4,
+    "total": 8
+  },
+  "isComplete": false,
+  "isFinalFreeForm": false,
+  "aiCommentary": "Need one more clarification about session lifetime.",
+  "batchNumber": 2,
+  "source": "coverage",
+  "roundNumber": 1
+}
+```
+
+Structured interview-answer approval payload:
+
+```json
+{
+  "questions": [
+    {
+      "id": "q-auth-1",
+      "answer": {
+        "skipped": false,
+        "selected_option_ids": [],
+        "free_text": "Support password login and SSO."
+      }
+    }
+  ]
+}
+```
+
+### Execution Setup Plan Routes
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/tickets/:id/execution-setup-plan` | Read the current setup plan |
+| `PUT` | `/api/tickets/:id/execution-setup-plan` | Save setup plan as raw content or structured plan |
+| `POST` | `/api/tickets/:id/regenerate-execution-setup-plan` | Regenerate the plan with commentary |
+
+Execution setup plan read response:
+
+```json
+{
+  "exists": true,
+  "artifactId": 42,
+  "updatedAt": "2026-04-23T09:00:00.000Z",
+  "raw": "{\n  \"schema_version\": \"1\",\n  \"ticket_id\": \"AUTH-12\"\n}",
+  "plan": {
+    "schemaVersion": "1",
+    "ticketId": "AUTH-12"
+  }
+}
+```
+
+Regeneration payload:
+
+```json
+{
+  "commentary": "Tighten the temp-root cleanup steps and add the full lint command.",
+  "rawContent": "{\n  \"schema_version\": \"1\",\n  \"ticket_id\": \"AUTH-12\"\n}"
+}
+```
+
+### OpenCode Question Routes
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/tickets/:id/opencode/questions` | List pending OpenCode question requests |
+| `POST` | `/api/tickets/:id/opencode/questions/:requestId/reply` | Submit question answers |
+| `POST` | `/api/tickets/:id/opencode/questions/:requestId/reject` | Reject a question request |
+
+Reply payload:
+
+```json
+{
+  "answers": [
+    ["yes"],
+    ["postgres", "redis"]
+  ]
+}
+```
+
+### Artifact And History Routes
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/tickets/:id/artifacts` | List ticket artifacts, optionally filtered |
+| `GET` | `/api/tickets/:id/phases/:phase/attempts` | List phase attempt history |
+
+## File Routes
+
+These routes are intentionally narrow.
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/files/:ticketId/logs` | Read folded execution logs |
+| `GET` | `/api/files/:ticketId/:file` | Only `interview` or `prd` |
+| `PUT` | `/api/files/:ticketId/:file` | Only `interview` or `prd` |
+
+There is no generic filesystem browser or arbitrary file read route under `/api/files`.
+
+## Bead Routes
+
+| Method | Route | Notes |
+| --- | --- | --- |
+| `GET` | `/api/tickets/:id/beads` | Read bead plan; accepts optional `?flow=` |
+| `PUT` | `/api/tickets/:id/beads` | Replace bead plan; accepts optional `?flow=` |
+| `GET` | `/api/tickets/:id/beads/:beadId/diff` | Read diff artifact for a bead |
+
+## SSE Events
+
+The stream endpoint emits:
+
+- `connected`
+- `heartbeat`
+- `state_change`
+- `log`
+- `progress`
+- `error`
+- `bead_complete`
+- `needs_input`
+- `artifact_change`
+
+Current custom event types are defined in `server/sse/eventTypes.ts`.
+
+Example `state_change` event payload:
+
+```json
+{
+  "ticketId": "AUTH-12",
+  "from": "DRAFTING_PRD",
+  "to": "WAITING_PRD_APPROVAL",
+  "previousStatus": "VERIFYING_PRD_COVERAGE",
+  "timestamp": "2026-04-23T09:00:00.000Z"
+}
+```
+
+Example `artifact_change` event payload:
+
+```json
+{
+  "ticketId": "AUTH-12",
+  "phase": "CODING",
+  "artifactType": "bead_diff:api-refresh-endpoint",
+  "artifact": {
+    "id": 84,
+    "ticketId": "AUTH-12",
+    "phase": "CODING",
+    "phaseAttempt": 1,
+    "artifactType": "bead_diff:api-refresh-endpoint",
+    "filePath": null,
+    "content": "diff --git a/server/routes/auth.ts b/server/routes/auth.ts\n...",
+    "createdAt": "2026-04-23T09:00:00.000Z",
+    "updatedAt": "2026-04-23T09:00:00.000Z"
+  },
+  "timestamp": "2026-04-23T09:00:00.000Z"
+}
+```
+
+## Related Docs
+
+- [Frontend](frontend.md)
+- [OpenCode Integration](opencode-integration.md)
+- [State Machine](state-machine.md)
+- [System Architecture](system-architecture.md)

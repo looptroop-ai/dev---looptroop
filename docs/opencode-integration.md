@@ -1,282 +1,162 @@
 # OpenCode Integration
 
-LoopTroop uses [OpenCode](https://opencode.ai) as its AI execution engine. This document explains the adapter pattern, session lifecycle management, SSE streaming, and the mock mode available for development.
+LoopTroop uses OpenCode as its model execution layer, but wraps it with its own session ownership, context assembly, event streaming, and workflow recovery logic.
 
----
+## Core Modules
 
-## Table of Contents
+| Module | Responsibility |
+| --- | --- |
+| `server/opencode/adapter.ts` | Concrete OpenCode SDK adapter and interface |
+| `server/opencode/factory.ts` | Singleton adapter creation and mock-mode switching |
+| `server/opencode/sessionManager.ts` | Session ownership, reconnect, completion, abandonment |
+| `server/opencode/contextBuilder.ts` | Phase-specific context assembly |
+| `server/workflow/runOpenCodePrompt.ts` | Prompt orchestration and stream handling |
 
-1. [What is OpenCode?](#what-is-opencode)
-2. [The Adapter Pattern](#the-adapter-pattern)
-3. [Factory: Real vs Mock](#factory-real-vs-mock)
-4. [Session Lifecycle](#session-lifecycle)
-5. [Session Ownership Tracking](#session-ownership-tracking)
-6. [Running Prompts](#running-prompts)
-7. [SSE Streaming](#sse-streaming)
-8. [Session Reconnect Policy](#session-reconnect-policy)
-9. [Mock Mode](#mock-mode)
-10. [Health Check](#health-check)
+## Adapter Surface
 
----
+The current `OpenCodeAdapter` interface exposes:
 
-## What is OpenCode?
+| Method | Purpose |
+| --- | --- |
+| `createSession()` | Create a new OpenCode session for a project path |
+| `promptSession()` | Send prompt parts into an existing session |
+| `listSessions()` | Enumerate remote sessions |
+| `getSessionMessages()` | Read session message history |
+| `subscribeToEvents()` | Stream OpenCode events |
+| `listPendingQuestions()` | Read pending human-input requests |
+| `replyQuestion()` | Answer a pending request |
+| `rejectQuestion()` | Reject a pending request |
+| `abortSession()` | Abort a remote session |
+| `assembleBeadContext()` | Build bead-context prompt parts |
+| `assembleCouncilContext()` | Build council prompt parts |
+| `checkHealth()` | Health and availability check |
 
-OpenCode is a local AI coding agent that:
-- Runs as a separate process on the developer's machine
-- Receives prompts and has access to the project's file system
-- Can run terminal commands, read/write files, and execute tests
-- Streams output as Server-Sent Events
-- Manages sessions (conversation + tool call history) persistently
+## Base URL And Modes
 
-LoopTroop orchestrates OpenCode sessions — it doesn't interact with AI models directly. LoopTroop is the conductor; OpenCode is the AI worker.
+| Setting | Meaning |
+| --- | --- |
+| `LOOPTROOP_OPENCODE_BASE_URL` | Base URL for the OpenCode server |
+| `LOOPTROOP_OPENCODE_MODE=mock` | Use the mock adapter instead of the SDK adapter |
 
----
+If no base URL is set, LoopTroop defaults to `http://127.0.0.1:4096`.
 
-## The Adapter Pattern
+## Session Ownership
 
-All OpenCode interactions go through a single `OpenCodeAdapter` interface:
+LoopTroop does not treat OpenCode sessions as anonymous chat handles. It tracks who owns a session in the project database.
 
-```typescript
-// server/opencode/adapter.ts
-interface OpenCodeAdapter {
-  createSession(projectPath, signal?, options?): Promise<Session>
-  promptSession(sessionId, parts, signal?, options?): Promise<string>
-  listSessions(): Promise<Session[]>
-  getSessionMessages(sessionId): Promise<Message[]>
-  subscribeToEvents(sessionId, signal?, stepFinishSafetyMs?): AsyncGenerator<StreamEvent>
-  listPendingQuestions(projectPath?, signal?): Promise<OpenCodeQuestionRequest[]>
-  replyQuestion(requestId, answers, projectPath?, signal?): Promise<void>
-  rejectQuestion(requestId, projectPath?, signal?): Promise<void>
-  abortSession(sessionId): Promise<boolean>
-  assembleBeadContext(ticketId, beadId): Promise<PromptPart[]>
-  assembleCouncilContext(ticketId, phase): Promise<PromptPart[]>
-  checkHealth(): Promise<HealthStatus>
+Current ownership dimensions can include:
+
+```json
+{
+  "ticketId": "AUTH-12",
+  "phase": "CODING",
+  "phaseAttempt": 1,
+  "memberId": null,
+  "beadId": "api-refresh-endpoint",
+  "iteration": 2,
+  "step": null
 }
 ```
 
-**Key design benefits:**
-- **Testability** — swap `OpenCodeSDKAdapter` with `MockOpenCodeAdapter` without changing any orchestration code
-- **Single dependency point** — all OpenCode-specific SDK code is isolated in `adapter.ts`
-- **Type safety** — all types re-exported from `server/opencode/types.ts` (wrappers over the SDK types)
+This is what lets the backend distinguish:
 
-The concrete production implementation is `OpenCodeSDKAdapter`, which wraps `@opencode-ai/sdk`'s v2 client.
+- one council member's vote session from another
+- the first execution attempt for a bead from the second
+- a planning session from a coding session on the same ticket
 
----
+## Prompt Runner
 
-## Factory: Real vs Mock
+`runOpenCodePrompt()` is the main orchestration helper.
 
-**Module:** `server/opencode/factory.ts`
+It currently does the following:
 
-```typescript
-export function getOpenCodeAdapter(): OpenCodeAdapter {
-  if (singleton) return singleton
-  singleton = isMockOpenCodeMode()
-    ? new MockOpenCodeAdapter()
-    : new OpenCodeSDKAdapter(getOpenCodeBaseUrl())
-  return singleton
-}
+1. Resolve or create the session.
+2. If `sessionOwnership` is present, call `SessionManager.validateAndReconnect()` first.
+3. Dispatch the prompt with tool policy and model settings.
+4. Subscribe to stream events while the prompt is running.
+5. Reconcile the final response with assistant messages and stream status.
+6. Mark the session completed or abandoned depending on the outcome.
 
-export function isMockOpenCodeMode(): boolean {
-  return process.env.LOOPTROOP_OPENCODE_MODE === 'mock'
-}
-```
+`runOpenCodeSessionPrompt()` is the lower-level helper for prompting a known session.
 
-The adapter is a **singleton** — created once on first access and reused for the server's lifetime. This prevents multiple adapters from opening competing SSE streams.
+## Reconnect Behavior
 
-The base URL for the real adapter is resolved via `getOpenCodeBaseUrl()` from `server/opencode/runtimeConfig.ts`, which reads the OpenCode process's socket or HTTP port.
+Reconnect is intentionally conservative.
 
----
+`SessionManager.validateAndReconnect()` only succeeds when:
 
-## Session Lifecycle
+- the ticket still exists
+- the ticket is still in the same phase
+- the owned active session record still exists in the project DB
+- the same session still exists remotely in OpenCode
 
-Every distinct AI task maps to exactly **one OpenCode session**. Sessions are never reused across tasks.
+If any of those checks fail, LoopTroop falls back to creating a fresh session.
 
-```
-Task Type              → Session scope
-──────────────────────────────────────
-Council member draft   → 1 session per member per phase
-Council vote           → 1 session per member per phase
-Coverage verification  → 1 session (winner only)
-Bead execution (iter)  → 1 session per iteration
-Context wipe note      → Same session as the dying bead iteration
-Execution setup run    → 1 session
-Final test             → 1 session
-```
+That means LoopTroop can survive restart and resume safely, but it does not try to magically continue any random broken stream from the past.
 
-The `SessionManager` class in `server/opencode/sessionManager.ts` handles session creation with ownership registration:
+## Streaming
 
-```typescript
-class SessionManager {
-  async createSessionForPhase(
-    ticketId, phase, phaseAttempt, memberId?, beadId?, iteration?, step?, projectPath?
-  ): Promise<Session>
+OpenCode stream events are consumed server-side and then translated into LoopTroop's own ticket event model.
 
-  async completeSession(sessionId): Promise<void>
-  async abandonSession(sessionId): Promise<void>
-}
-```
+The prompt runner tracks:
 
-On creation, a record is inserted into `opencode_sessions` with:
-- `state: 'active'`
-- Full ownership metadata (ticketId, phase, phaseAttempt, memberId, beadId, iteration)
+- text events
+- reasoning events
+- tool events
+- step start and finish events
+- session status events
+- session error events
 
-On completion or abandonment, the state is updated accordingly.
+The frontend never talks directly to OpenCode. It receives normalized ticket events over `/api/stream`.
 
----
+## Questions And Human Input
 
-## Session Ownership Tracking
+OpenCode may request user input during execution. LoopTroop exposes that queue through:
 
-The `opencode_sessions` table maps every session ID to its owner. This enables:
+- `GET /api/tickets/:id/opencode/questions`
+- `POST /api/tickets/:id/opencode/questions/:requestId/reply`
+- `POST /api/tickets/:id/opencode/questions/:requestId/reject`
 
-1. **Crash recovery** — On server restart, all sessions with `state: 'active'` can be inspected and cleaned up or reconnected.
-2. **Abort propagation** — When a ticket is cancelled, `abortTicketSessions(ticketId)` calls `adapter.abortSession()` for all active sessions belonging to that ticket.
-3. **Audit** — Full history of which model handled which bead at which iteration.
+This lets the workflow remain durable even when the model pauses for an explicit decision.
 
-```typescript
-// server/opencode/sessionManager.ts
-export function listOpenCodeSessionsForTicket(
-  ticketId: string,
-  states: string[] = ['active']
-): OpenCodeSessionRecord[]
+## Health And Model Discovery
 
-export async function abortTicketSessions(ticketId: string): Promise<void>
-```
+LoopTroop uses two related but different checks:
 
----
+| Check | Purpose |
+| --- | --- |
+| `adapter.checkHealth()` | Basic OpenCode availability and version |
+| `/api/models` | Provider catalog flattening and connected-model discovery |
 
-## Running Prompts
+If model discovery fails but health still passes, the API returns an empty model list plus a message instead of crashing the UI.
 
-LoopTroop has two helper functions in `server/workflow/runOpenCodePrompt.ts`:
+## Startup Recovery
 
-### `runOpenCodePrompt()`
+On startup, LoopTroop:
 
-Creates a **new session** and runs a prompt. Used for all first-iteration bead execution, council drafts, council votes, etc.
+- checks OpenCode health
+- hydrates ticket actors from storage
+- scans active session records in attached project databases
+- attempts reconnect for owned sessions
+- abandons stale session records that no longer exist remotely
 
-```typescript
-interface RunOpenCodePromptOptions {
-  adapter: OpenCodeAdapter
-  projectPath: string
-  parts: PromptPart[]
-  signal?: AbortSignal
-  timeoutMs?: number
-  model?: string
-  variant?: string
-  erroredSessionPolicy: 'discard_errored_session_output' | 'use_errored_session_output'
-  toolPolicy?: ToolPolicy
-  sessionOwnership?: SessionOwnership
-  onSessionCreated?: (session: Session) => void
-  onStreamEvent?: (event: StreamEvent) => void
-  onPromptDispatched?: (event: OpenCodePromptDispatchEvent) => void
-  onPromptCompleted?: (event: OpenCodePromptCompletedEvent) => void
-}
-```
+This is why the OpenCode integration is part of the runtime architecture, not just a transport detail.
 
-The `sessionOwnership` parameter is optional — when provided, the session is registered in `opencode_sessions`.
+## Why LoopTroop Wraps OpenCode This Heavily
 
-### `runOpenCodeSessionPrompt()`
+OpenCode is the model execution engine. LoopTroop adds:
 
-Sends a prompt to an **existing session** (continuation prompts, structured retries, context wipe notes). Does not create a new session — it reuses the one provided.
+- phase-aware context assembly
+- ticket-aware session ownership
+- durable restart behavior
+- workflow-aware retries
+- frontend-ready event projection
 
-```typescript
-interface RunOpenCodeSessionPromptOptions {
-  adapter: OpenCodeAdapter
-  session: Session
-  parts: PromptPart[]
-  // ... same callbacks
-}
-```
+Without that wrapper, the rest of the system would have no safe way to restart, audit, or recover a long-running ticket lifecycle.
 
-Both functions:
-- Apply the per-prompt timeout via `AbortSignal.timeout()`
-- Stream all events through `adapter.subscribeToEvents()`
-- Collect the full text response
-- Handle `erroredSessionPolicy`: if `'discard_errored_session_output'`, a session that errors out returns an empty response rather than a partial one
+## Related Docs
 
----
-
-## SSE Streaming
-
-OpenCode streams execution events via SSE. LoopTroop subscribes to these events, processes them, and re-broadcasts them to the frontend via its own SSE broadcaster.
-
-```mermaid
-sequenceDiagram
-    participant OC as OpenCode Process
-    participant Adapter as OpenCodeSDKAdapter
-    participant Phase as Phase Orchestrator
-    participant Broadcaster as SSE Broadcaster
-    participant FE as Frontend
-
-    Phase->>Adapter: runOpenCodePrompt(parts)
-    Adapter->>OC: POST /session/:id/prompt
-    OC-->>Adapter: SSE: step_start { tool: "readFile" }
-    Adapter-->>Phase: StreamEvent callback
-    Phase->>Broadcaster: broadcast(ticketId, 'opencode_event', event)
-    Broadcaster-->>FE: event: opencode_event { ... }
-    OC-->>Adapter: SSE: step_finish { tool: "readFile", output: "..." }
-    OC-->>Adapter: SSE: message { role: "assistant", text: "..." }
-    Adapter-->>Phase: response text
-```
-
-### StreamEvent Types
-
-| Type | Description |
-|------|-------------|
-| `step_start` | A tool call has started (e.g. "Reading file") |
-| `step_finish` | A tool call has completed (with output/error) |
-| `message` | Text from the model |
-| `message_part` | Streaming text token |
-| `reasoning` | Model reasoning/thinking content |
-| `error` | Session error |
-
-The frontend `CodingView` and `CouncilView` display these events live as they stream in.
-
----
-
-## Session Reconnect Policy
-
-If the SSE stream from OpenCode drops mid-session (e.g., a transient network issue), LoopTroop does **not** automatically reconnect during the current prompt. Instead:
-
-1. The prompt times out and is treated as a failed iteration.
-2. A Context Wipe Note is generated from whatever messages were captured.
-3. A fresh session starts for the next iteration.
-
-This is intentional. A dropped stream is treated the same as a timeout — it triggers the bounded retry mechanism rather than attempting transparent reconnection that could cause duplicate tool calls.
-
-The `lastEventId` and `lastEventAt` fields in `opencode_sessions` are tracked for potential future use in more sophisticated reconnect scenarios.
-
----
-
-## Mock Mode
-
-Set `LOOPTROOP_OPENCODE_MODE=mock` to use the `MockOpenCodeAdapter` instead of the real SDK.
-
-```bash
-LOOPTROOP_OPENCODE_MODE=mock npm run dev:backend
-```
-
-The `MockOpenCodeAdapter` (`server/opencode/mockAdapter.ts`):
-- Returns deterministic fake responses for each prompt type
-- Simulates streaming with artificial delays
-- Does **not** require an OpenCode process to be running
-- Generates syntactically valid YAML/JSON artifacts that pass format validation
-
-This is used extensively in integration tests and for UI development without needing the full AI stack running.
-
----
-
-## Health Check
-
-The backend exposes `GET /health` which internally calls `adapter.checkHealth()`:
-
-```typescript
-async checkHealth(): Promise<HealthStatus> {
-  // Pings OpenCode's /health endpoint
-  // Returns { status: 'ok' | 'degraded' | 'unavailable', latencyMs }
-}
-```
-
-The frontend's `useStartupStatus` hook polls this on load and shows a warning banner if OpenCode is not reachable.
-
-→ See [Execution Loop](execution-loop.md) for how sessions are used during bead execution  
-→ See [LLM Council](llm-council.md) for how council sessions are orchestrated  
-→ See [Setup Guide](setup-guide.md) for how to start OpenCode alongside LoopTroop
+- [Context Isolation](context-isolation.md)
+- [Execution Loop](execution-loop.md)
+- [API Reference](api-reference.md)
+- [System Architecture](system-architecture.md)

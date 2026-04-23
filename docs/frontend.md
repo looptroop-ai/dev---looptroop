@@ -1,306 +1,171 @@
 # Frontend
 
-LoopTroop's frontend is a **React 19 + TypeScript** single-page application built with Vite. It communicates with the backend via REST (TanStack Query) and SSE for real-time ticket updates.
+The frontend is a React 19 SPA that renders the ticket dashboard, the live workspace, review panes, and the navigator surfaces around them.
 
----
+The UI is data-driven from:
 
-## Table of Contents
+- `/api/*` REST endpoints
+- `/api/stream` SSE updates
+- workflow metadata in `shared/workflowMeta.ts`
+- ticket artifacts and runtime state from the backend
 
-1. [Technology Stack](#technology-stack)
-2. [Application Entry Point](#application-entry-point)
-3. [Layout & Navigation](#layout--navigation)
-4. [The Workspace: Per-Status Views](#the-workspace-per-status-views)
-5. [Key Hooks](#key-hooks)
-6. [React Contexts](#react-contexts)
-7. [SSE Consumer (useSSE)](#sse-consumer-usesse)
-8. [Artifact Viewers](#artifact-viewers)
-9. [CodeMirror Integration](#codemirror-integration)
-10. [Component Directory Map](#component-directory-map)
+## Top-Level Composition
 
----
+| Area | Purpose | Primary files |
+| --- | --- | --- |
+| App shell | App startup, configuration preload, global layout | `src/App.tsx` |
+| Ticket dashboard | Ticket list, status cards, workspace selection | `src/components/ticket/*` |
+| Active workspace | Chooses the live view for the selected phase | `src/components/ticket/ActiveWorkspace.tsx` |
+| Navigator | Timeline, approval navigation, context tree, errors, full log entry point | `src/components/ticket/NavigatorPanel.tsx` |
+| Workspace views | Draft, council, interview, approval, coding, error, canceled, review, full log | `src/components/workspace/*` |
 
-## Technology Stack
+## Active Workspace Routing
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | React 19 |
-| Build tool | Vite 7 |
-| Styling | Tailwind CSS v4 |
-| Data fetching | TanStack Query v5 |
-| UI primitives | Radix UI (Dialog, Dropdown, HoverCard, ScrollArea, Tooltip) |
-| Icons | lucide-react |
-| Code / diff editing | CodeMirror 6 |
-| Real-time updates | Server-Sent Events (SSE) |
-| Routing | No router — single-page layout (Kanban board drives navigation) |
+`ActiveWorkspace.tsx` maps workflow metadata to concrete views.
 
----
+| `uiView` | Current component |
+| --- | --- |
+| `draft` | `DraftView` |
+| `council` | `CouncilView` |
+| `interview_qa` | `InterviewQAView` |
+| `approval` | `ApprovalView` |
+| `coding` | `CodingView` |
+| `error` | `ErrorView` |
+| `done` | `CodingView` |
+| `canceled` | `CanceledView` |
 
-## Application Entry Point
+Additional routing rules:
 
-```
-src/main.tsx           ← Mounts React app
-src/App.tsx            ← TanStack QueryClientProvider + top-level layout
-```
+- historical phases usually render through `PhaseReviewView`
+- `fullLogOpen` forces `FullLogView`
+- reviewable past coding still uses `CodingView` in read-only mode
+- active or selected error occurrences render `ErrorView`
 
-The app renders a **Kanban-style board** as the primary interface. There is no URL-based routing. The selected ticket and active view are driven by local UI state managed via `UIContext`.
+## Navigator Surfaces
 
----
+`NavigatorPanel.tsx` is more than a left rail. It combines several different navigation modes:
 
-## Layout & Navigation
+- `PhaseTimeline` for the workflow spine
+- `ErrorOccurrencesPanel` for active and past failures
+- `ApprovalNavigator` for interview, PRD, and beads approval context
+- `ContextTree` for context visibility
+- a full-log toggle that opens `FullLogView`
 
-```
-src/components/layout/        ← App shell, sidebar, top bar
-src/components/kanban/        ← Kanban board: column-per-phase layout
-src/components/navigator/     ← Bead navigator tree sidebar
-src/components/project/       ← Project selector / switcher
-```
+That split matters because the workspace is designed for both live work and historical review.
 
-The Kanban board consumes `WORKFLOW_GROUPS` and `WORKFLOW_PHASES` from `/api/workflow/meta` (via `useWorkflowMeta`) to render the column structure. Each ticket card shows its current status, which maps to a Kanban column.
+## Key Workspace Views
 
-Clicking a ticket card opens the **Workspace** — a panel showing the appropriate view for the ticket's current status.
+| View | Primary purpose |
+| --- | --- |
+| `DraftView` | Ticket editing and start controls |
+| `CouncilView` | Multi-model draft and vote phases with artifacts |
+| `InterviewQAView` | Interactive interview batches, draft persistence, skip flow |
+| `ApprovalView` | Review and edit interview, PRD, beads, and execution setup artifacts |
+| `CodingView` | Active bead execution, bead list, logs, diffs, verification actions |
+| `ErrorView` | Live blocked state or historical error occurrence review |
+| `PhaseReviewView` | Historical artifact review for completed phases |
+| `FullLogView` | Full folded execution log stream |
 
----
+## Coding Workspace Surfaces
 
-## The Workspace: Per-Status Views
+The coding workspace is broader than a simple log pane.
 
-The Workspace renders a different view component depending on the ticket's current `status`. All views live in `src/components/workspace/`.
+Current `CodingView` composes:
 
-| Status Group | View Component | Description |
-|-------------|----------------|-------------|
-| `DRAFT` | `DraftView.tsx` | Title/description editor + Start button |
-| `SCANNING_RELEVANT_FILES`, `COUNCIL_DELIBERATING` | `CouncilView.tsx` | Live streaming output of council debate |
-| `COUNCIL_VOTING_*`, `COMPILING_*`, `VERIFYING_*`, `DRAFTING_*` | `CouncilView.tsx` | Still showing council deliberation |
-| `WAITING_INTERVIEW_ANSWERS` | `InterviewQAView.tsx` | Q&A interface — question list with answer inputs |
-| `WAITING_INTERVIEW_APPROVAL` | `ApprovalView.tsx` + `InterviewApprovalPane.tsx` | Approve/edit interview document |
-| `WAITING_PRD_APPROVAL` | `ApprovalView.tsx` + `PrdApprovalPane.tsx` | Approve/edit PRD document |
-| `WAITING_BEADS_APPROVAL` | `ApprovalView.tsx` + `BeadsApprovalEditor.tsx` | Approve/edit beads list |
-| `PRE_FLIGHT_CHECK`, `WAITING_EXECUTION_SETUP_APPROVAL` | `ApprovalView.tsx` + `ExecutionSetupPlanApprovalPane.tsx` | Review AI-generated setup plan |
-| `PREPARING_EXECUTION_ENV` | `CouncilView.tsx` | Streaming execution setup progress |
-| `CODING` | `CodingView.tsx` | Live execution with bead progress + log panel |
-| `RUNNING_FINAL_TEST`, `INTEGRATING_CHANGES`, `CREATING_PULL_REQUEST` | `CodingView.tsx` | Final phase progress |
-| `WAITING_PR_REVIEW` | `PhaseReviewView.tsx` | PR review with diff viewer and merge/close buttons |
-| `CLEANING_ENV` | `CodingView.tsx` | Cleanup progress |
-| `COMPLETED` | `DoneView.tsx` | Completion summary |
-| `CANCELED` | `CanceledView.tsx` | Cancellation summary |
-| `BLOCKED_ERROR` | `ErrorView.tsx` | Error display with Retry button |
+- bead list and progress UI
+- `BeadDiffViewer`
+- `CollapsiblePhaseLogSection`
+- `LogEntryRow`
+- `PhaseArtifactsPanel`
+- `VerificationSummaryPanel`
 
----
+It also merges persisted bead artifacts with runtime bead overlays from the live ticket payload so the UI can show in-progress status and notes without waiting for a full artifact refresh.
 
-## Key Hooks
+## Data Hooks
 
-**Module:** `src/hooks/`
+### Workflow And Artifacts
 
-### `useTickets`
+| Hook | Current role | Current return shape |
+| --- | --- | --- |
+| `useWorkflowMeta()` | Loads phase and group metadata | `{ groups, phases, phaseMap, isLoading }` |
+| `useTicketArtifacts(ticketId, opts?)` | Fetches and caches ticket artifacts | `{ artifacts, isLoading }` |
+| `useTicketPhaseAttempts(ticketId?, phase?)` | Reads phase-attempt history | React Query result |
 
-```typescript
-function useTickets(projectId?: number): UseQueryResult<Ticket[]>
-```
+### Ticket And Profile Data
 
-Fetches and caches the full ticket list for a project. Used by the Kanban board to populate columns. Invalidated whenever an SSE `ticket_update` event arrives.
+| Hook | Current role |
+| --- | --- |
+| `useTickets(projectId?)` | Ticket list with auto-refresh for active tickets |
+| `useTicket(id)` | Individual ticket with active-state refresh |
+| `useProfile()` | Singleton profile query against `/api/profile` |
+| `useOpenCodeModels()` | Connected models only |
+| `useAllOpenCodeModels()` | Full catalog including disconnected providers |
 
-### `useSSE` (real-time core)
+### Live Updates
 
-```typescript
-function useSSE(ticketId: string): {
-  events: SSEEvent[]
-  connected: boolean
-  lastEventId: string | null
-}
-```
+`useSSE({ ticketId, onEvent })` is the ticket stream hook.
 
-Subscribes to `GET /stream?ticketId=<id>` and maintains an event buffer. Automatically reconnects with the `Last-Event-ID` header to avoid missed events. On reconnect, the server replays all buffered events since the last known ID.
+Current behavior:
 
-All other hooks and components that need real-time data listen to `useSSE` events.
+- connects to `/api/stream`
+- sends `ticketId` and `lastEventId` on reconnect
+- listens for `state_change`, `progress`, `log`, `error`, `bead_complete`, `needs_input`, and `artifact_change`
+- invalidates or patches React Query caches in response
+- returns `{ lastEventIdRef, connectionState }`
 
-### `useTicketPhaseAttempts`
+Current `connectionState` values are:
 
-```typescript
-function useTicketPhaseAttempts(ticketId: string, phase: string): UseQueryResult<PhaseAttempt[]>
-```
+- `connecting`
+- `connected`
+- `reconnecting`
 
-Returns all phase attempt records for a phase. Used by `PhaseAttemptSelector` to allow browsing artifact history across retries.
+## Interview Draft Persistence
 
-### `useTicketArtifacts`
+`useBatchSubmit(ticketId)` is one of the higher-value stateful hooks in the app.
 
-```typescript
-function useTicketArtifacts(ticketId: string): UseQueryResult<PhaseArtifact[]>
-```
+It does more than submit answers:
 
-Fetches all artifacts for a ticket. Used by `PhaseArtifactsPanel` to display the artifact browser.
+- stores draft answers per interview batch
+- tracks skipped questions
+- tracks selected options
+- restores drafts from persisted UI state
+- auto-saves drafts with debounce through ticket UI-state artifacts
+- coordinates submit and skip mutations
+- listens for interview batch updates coming back from the runtime
 
-### `useWorkflowMeta`
+That makes `InterviewQAView` resilient across reloads, view changes, and follow-up question rounds.
 
-```typescript
-function useWorkflowMeta(): UseQueryResult<WorkflowMeta>
-```
+## Artifact And Review Surfaces
 
-Fetches `GET /workflow/meta` once and caches it for the session lifetime. Provides `WORKFLOW_GROUPS` and `WORKFLOW_PHASES` to the Kanban board.
+Several UI components exist specifically to inspect durable workflow state:
 
-### `useProfile`
+| Component | Purpose |
+| --- | --- |
+| `PhaseArtifactsPanel` | Phase-specific artifact viewer |
+| `WorkspacePhaseSummary` | Compact summary for the selected phase |
+| `VerificationSummaryPanel` | Delivery actions during PR review |
+| `PhaseReviewView` | Historical artifact review with phase-attempt support |
+| `FullLogView` | Rawer, fuller log inspection |
 
-```typescript
-function useProfile(): UseQueryResult<Profile>
-```
+The frontend is built around the assumption that users must be able to inspect prior attempts and artifacts without replaying the run mentally from logs.
 
-Fetches the active profile (AI model configuration). Used by the Start dialog to populate model selectors.
+## Frontend-State Relationship To Workflow Metadata
 
-### `useOpenCodeModels`
+The frontend does not hardcode the full workflow. Instead, it derives major behavior from `shared/workflowMeta.ts`:
 
-```typescript
-function useOpenCodeModels(): UseQueryResult<Model[]>
-```
+- group ordering for the timeline
+- phase labels
+- `uiView` mapping
+- whether a phase exposes a review artifact type
+- whether a phase is editable
+- whether multi-model logs are expected
+- whether a phase has question or bead progress semantics
 
-Fetches available AI models from `GET /models`. Powers the model selector dropdowns in the ticket Start dialog.
+This is why keeping the docs aligned with `workflowMeta` matters: the UI is built around that shared metadata contract.
 
-### `useBatchSubmit`
+## Related Docs
 
-Manages the batching of interview answers. Accumulates answers until 3 are ready (or the user explicitly submits), then sends them via `POST /tickets/:id/answer-batch`.
-
----
-
-## React Contexts
-
-All contexts are defined in `src/context/` and provided at the app root level.
-
-### `UIContext` (`UIContext.tsx`)
-
-Manages global UI state:
-- Active ticket selection
-- Active workspace tab / drawer state
-- Log drawer sizing
-- Mobile sidebar visibility
-
-Consumed via `useUI()` hook from `useUI.ts`.
-
-### `LogContext` (`LogContext.tsx`)
-
-Manages the execution log display:
-- Stores raw log lines per ticket (keyed by `ticketId`)
-- Controls log filtering (filter by log type, phase, session)
-- Manages whether the full log view is open
-
-Consumed via `useLogContext()` hook from `useLogContext.ts`.
-
-### `AIQuestionContext` (`AIQuestionContext.tsx`)
-
-Manages pending OpenCode clarification questions:
-- Polls `GET /tickets/:id/opencode/questions` when a ticket is in an active state
-- Provides callbacks for `reply` and `reject`
-- Shows a question banner in the UI when questions are pending
-
-Consumed via `useAIQuestions()` hook from `useAIQuestions.ts`.
-
----
-
-## SSE Consumer (useSSE)
-
-The `useSSE` hook is the backbone of real-time updates. Here's how it flows:
-
-```mermaid
-sequenceDiagram
-    participant UI as React Component
-    participant Hook as useSSE
-    participant BE as GET /stream
-    participant Q as TanStack Query Cache
-
-    UI->>Hook: useSSE(ticketId)
-    Hook->>BE: EventSource connection
-    BE-->>Hook: event: connected
-    
-    loop Active session
-        BE-->>Hook: event: ticket_update { status: "CODING" }
-        Hook->>Q: invalidateQueries(['tickets', ticketId])
-        Hook->>Q: invalidateQueries(['tickets'])
-        BE-->>Hook: event: opencode_event { ... }
-        Hook->>Hook: Append to event buffer
-        BE-->>Hook: event: heartbeat
-    end
-
-    Note over Hook,BE: Connection drops
-    Hook->>BE: Reconnect with Last-Event-ID header
-    BE-->>Hook: Replay missed events
-```
-
-The broadcaster on the server side maintains a per-ticket event ring buffer. Events are retained long enough for typical reconnects (a few minutes of inactivity).
-
----
-
-## Artifact Viewers
-
-The `PhaseArtifactsPanel` and individual viewers render artifacts from `phase_artifacts`:
-
-| Viewer Component | Renders |
-|-----------------|---------|
-| `ArtifactContentViewer.tsx` | Generic raw content viewer (YAML, JSON) |
-| `BeadDiffViewer.tsx` | CodeMirror-based side-by-side diff viewer for bead diffs |
-| `InterviewDocumentView.tsx` | Formatted interview Q&A document |
-| `PrdDocumentView.tsx` | Structured PRD with epics/stories |
-| `VerificationSummaryPanel.tsx` | Coverage check results |
-| `CollapsiblePhaseLogSection.tsx` | Collapsible log section per phase |
-
-The `phaseArtifactTypes.ts` utility maps `artifact_type` strings to viewer components and display labels.
-
----
-
-## CodeMirror Integration
-
-LoopTroop uses CodeMirror 6 for two purposes:
-
-### 1. Bead Diff Viewer (`BeadDiffViewer.tsx`)
-
-Displays the git diff for a completed bead using CodeMirror's merge view extension. Supports:
-- Side-by-side or unified mode
-- Syntax highlighting
-- Read-only mode
-
-### 2. YAML / Document Editors
-
-`ExecutionSetupPlanEditor.tsx`, `InterviewApprovalAnswerEditor.tsx`, `PrdApprovalEditor.tsx`, and `BeadsApprovalEditor.tsx` use CodeMirror with `@codemirror/lang-yaml` for syntax-highlighted editing of AI-generated documents before approval.
-
----
-
-## Component Directory Map
-
-```
-src/
-├── App.tsx                      ← Root; QueryClientProvider
-├── components/
-│   ├── config/                  ← Profile and project settings UI
-│   ├── editor/                  ← CodeMirror wrapper components
-│   ├── kanban/                  ← Kanban board + ticket cards
-│   ├── layout/                  ← App shell: sidebar, top bar, panels
-│   ├── navigator/               ← Bead navigator tree
-│   ├── project/                 ← Project selector
-│   ├── shared/                  ← Reusable: Button, Badge, Dialog, etc.
-│   ├── ticket/                  ← Ticket-level wrappers
-│   ├── ui/                      ← Low-level UI primitives (from Radix)
-│   └── workspace/               ← All per-status views (main panel)
-│       ├── DraftView.tsx
-│       ├── CouncilView.tsx
-│       ├── InterviewQAView.tsx
-│       ├── ApprovalView.tsx
-│       ├── CodingView.tsx
-│       ├── PhaseReviewView.tsx
-│       ├── ErrorView.tsx
-│       ├── DoneView.tsx
-│       ├── CanceledView.tsx
-│       ├── BeadDiffViewer.tsx
-│       ├── PhaseArtifactsPanel.tsx
-│       └── ...
-├── context/
-│   ├── UIContext.tsx
-│   ├── LogContext.tsx
-│   └── AIQuestionContext.tsx
-└── hooks/
-    ├── useSSE.ts
-    ├── useTickets.ts
-    ├── useTicketArtifacts.ts
-    ├── useTicketPhaseAttempts.ts
-    ├── useWorkflowMeta.ts
-    ├── useProfile.ts
-    ├── useOpenCodeModels.ts
-    └── useBatchSubmit.ts
-```
-
-→ See [API Reference](api-reference.md) for the backend endpoints the frontend calls  
-→ See [State Machine](state-machine.md) for all ticket statuses and their meanings
+- [API Reference](api-reference.md)
+- [State Machine](state-machine.md)
+- [OpenCode Integration](opencode-integration.md)
+- [System Architecture](system-architecture.md)
