@@ -14,8 +14,8 @@ export interface KanbanColumnConfig {
 
 const columns: KanbanColumnConfig[] = [
   { id: 'todo', title: 'To Do', description: 'Backlog' },
-  { id: 'in_progress', title: 'In Progress', description: 'Active workflow' },
   { id: 'needs_input', title: 'Needs Input', description: 'Waiting for user' },
+  { id: 'in_progress', title: 'In Progress', description: 'Active workflow' },
   { id: 'done', title: 'Done', description: 'Completed tickets' },
 ]
 

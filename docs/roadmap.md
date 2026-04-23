@@ -817,7 +817,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
         *   Worker engines run in `worker_mode` with one pre-assigned bead (`forced_bead_id`) and must not run tracker discovery/sync/select-next-task inside worktree folders.
         *   Worker output is merged first; only after merge + verification succeeds may dispatcher mark bead `done` and advance dependency graph state.
 *   **Kanban Filtering (Operator-grade):** Add sorting and filtering (labels, priority, project, status), keep filter controls visible in empty-result states, show explicit "No results" state, and provide one-click "Clear Filters" recovery.
-    *   Default Priority Sorting: The dashboard columns (To Do, In Progress, Needs Input, Done) sort tickets by Priority (Very High → Very Low) by default.
+    *   Default Priority Sorting: The dashboard columns (To Do, Needs Input, In Progress, Done) sort tickets by Priority (Very High → Very Low) by default.
     *   Add real-time ticket search by `ticket_id`, title, and description keywords.
     *   Add relative-date chips in list cards (`Today HH:MM`, `Yesterday`, weekday) with absolute timestamp tooltip.
     *   Add run-health chip on active tickets with: `phase`, `bead x/y`, `last_model_response_age`, `retry n/max`, and `last_error_hash`.

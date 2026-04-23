@@ -11,10 +11,18 @@ function renderWithProviders(ui: React.ReactElement) {
 describe('KanbanBoard', () => {
   it('renders 4 columns', () => {
     renderWithProviders(<KanbanBoard />)
-    expect(screen.getByText('To Do')).toBeInTheDocument()
-    expect(screen.getByText('In Progress')).toBeInTheDocument()
-    expect(screen.getByText('Needs Input')).toBeInTheDocument()
-    expect(screen.getByText('Done')).toBeInTheDocument()
+    const todo = screen.getByText('To Do')
+    const needsInput = screen.getByText('Needs Input')
+    const inProgress = screen.getByText('In Progress')
+    const done = screen.getByText('Done')
+
+    expect(todo).toBeInTheDocument()
+    expect(needsInput).toBeInTheDocument()
+    expect(inProgress).toBeInTheDocument()
+    expect(done).toBeInTheDocument()
+    expect(todo.compareDocumentPosition(needsInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(needsInput.compareDocumentPosition(inProgress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(inProgress.compareDocumentPosition(done) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('shows "No tickets" in empty columns', () => {
