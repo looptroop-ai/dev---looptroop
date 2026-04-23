@@ -71,11 +71,24 @@ export interface AuditRemediationReport {
   errors: string[]
 }
 
+export interface OpenCodeUpgradeReport {
+  skipped: boolean
+  available: boolean
+  checked: boolean
+  upgraded: boolean
+  alreadyCurrent: boolean
+  method?: string
+  versionBefore?: string
+  versionAfter?: string
+  errors: string[]
+}
+
 export interface DevPreflightReport {
   generatedAt: string
   install: InstallReport
   dependencySync: DependencySyncReport
   audit: AuditRemediationReport
+  opencode: OpenCodeUpgradeReport
 }
 
 interface PackageManifest {
@@ -173,6 +186,10 @@ function trimCommandOutput(raw: string) {
   return raw.trim()
 }
 
+function stripAnsi(raw: string) {
+  return raw.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+}
+
 function runCommand(
   args: string[],
   label: string,
@@ -192,6 +209,37 @@ function runCommand(
     status: result.status,
     stdout: trimCommandOutput(result.stdout ?? ''),
     stderr: trimCommandOutput(result.stderr ?? ''),
+  }
+}
+
+function runExternalCommand(
+  command: string,
+  args: string[],
+  label: string,
+  { verbose = false }: { verbose?: boolean } = {},
+) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: verbose ? 'inherit' : 'pipe',
+  })
+
+  if (result.error) {
+    return {
+      missing: 'code' in result.error && result.error.code === 'ENOENT',
+      status: result.status,
+      stdout: '',
+      stderr: '',
+      error: result.error,
+    }
+  }
+
+  return {
+    missing: false,
+    status: result.status,
+    stdout: stripAnsi(trimCommandOutput(result.stdout ?? '')),
+    stderr: stripAnsi(trimCommandOutput(result.stderr ?? '')),
+    error: null,
   }
 }
 
@@ -522,6 +570,124 @@ export function remediateAudit(
     unresolved: summarizeAuditIssues(auditJson?.vulnerabilities),
     totals: auditJson?.metadata?.vulnerabilities ?? emptyTotals(),
     errors,
+  }
+}
+
+function getOpenCodeVersion() {
+  const result = runExternalCommand('opencode', ['--version'], 'opencode --version')
+  if (result.missing) {
+    return { available: false as const, version: null }
+  }
+
+  if (result.error) {
+    throw new Error(`Failed to start opencode --version: ${result.error.message}`)
+  }
+
+  if (result.status !== 0) {
+    const message = result.stderr || result.stdout || `opencode --version failed with code ${result.status ?? 'unknown'}`
+    throw new Error(message)
+  }
+
+  const version = (result.stdout || result.stderr).trim() || null
+  return { available: true as const, version }
+}
+
+export function upgradeOpenCodeCli(
+  { verbose = false, skip = false, logPrefix = 'dev-preflight' }: { verbose?: boolean; skip?: boolean; logPrefix?: string } = {},
+): OpenCodeUpgradeReport {
+  if (skip) {
+    return {
+      skipped: true,
+      available: false,
+      checked: false,
+      upgraded: false,
+      alreadyCurrent: false,
+      errors: [],
+    }
+  }
+
+  let versionBefore: string | undefined
+  let versionAfter: string | undefined
+
+  try {
+    const before = getOpenCodeVersion()
+    if (!before.available) {
+      return {
+        skipped: false,
+        available: false,
+        checked: false,
+        upgraded: false,
+        alreadyCurrent: false,
+        errors: [],
+      }
+    }
+
+    versionBefore = before.version ?? undefined
+    if (logPrefix) {
+      console.log(`[${logPrefix}] Checking OpenCode CLI for updates.`)
+    }
+
+    const result = runExternalCommand('opencode', ['upgrade'], 'opencode upgrade', { verbose })
+    if (result.missing) {
+      return {
+        skipped: false,
+        available: false,
+        checked: false,
+        upgraded: false,
+        alreadyCurrent: false,
+        versionBefore,
+        errors: [],
+      }
+    }
+
+    if (result.error) {
+      throw new Error(`Failed to start opencode upgrade: ${result.error.message}`)
+    }
+
+    if (result.status !== 0) {
+      const message = result.stderr || result.stdout || `opencode upgrade failed with code ${result.status ?? 'unknown'}`
+      return {
+        skipped: false,
+        available: true,
+        checked: true,
+        upgraded: false,
+        alreadyCurrent: false,
+        versionBefore,
+        errors: [message],
+      }
+    }
+
+    const after = getOpenCodeVersion()
+    versionAfter = after.version ?? undefined
+
+    const output = [result.stdout, result.stderr].filter(Boolean).join('\n')
+    const method = output.match(/Using method:\s*(.+)/i)?.[1]?.trim()
+    const alreadyCurrent = /upgrade skipped:/i.test(output) ||
+      (Boolean(versionBefore) && Boolean(versionAfter) && versionBefore === versionAfter)
+    const upgraded = Boolean(versionBefore && versionAfter && versionBefore !== versionAfter)
+
+    return {
+      skipped: false,
+      available: true,
+      checked: true,
+      upgraded,
+      alreadyCurrent,
+      method,
+      versionBefore,
+      versionAfter,
+      errors: [],
+    }
+  } catch (error) {
+    return {
+      skipped: false,
+      available: true,
+      checked: false,
+      upgraded: false,
+      alreadyCurrent: false,
+      versionBefore,
+      versionAfter,
+      errors: [error instanceof Error ? error.message : String(error)],
+    }
   }
 }
 

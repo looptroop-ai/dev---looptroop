@@ -8,6 +8,7 @@ import {
   getMissingBins,
   remediateAudit,
   syncDirectDependencies,
+  upgradeOpenCodeCli,
   writeDevPreflightReport,
 } from './dev-maintenance'
 import {
@@ -30,6 +31,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
 const verboseLogging = process.env.LOOPTROOP_DEV_VERBOSE === '1'
 const skipDependencyMaintenance = process.env.LOOPTROOP_DEV_SKIP_DEPS === '1'
+const skipOpenCodeUpgrade = process.env.LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE === '1'
 
 const configuredPorts = [
   { label: 'frontend', port: getFrontendPort() },
@@ -229,6 +231,17 @@ if (auditReport.errors.length > 0) {
   process.exit(1)
 }
 
+const opencodeReport = upgradeOpenCodeCli({
+  verbose: verboseLogging,
+  skip: skipOpenCodeUpgrade,
+})
+for (const error of opencodeReport.errors) {
+  console.error(`[dev-preflight] ${error}`)
+}
+if (opencodeReport.errors.length > 0) {
+  process.exit(1)
+}
+
 const missingBinsAfterMaintenance = getMissingBins()
 if (missingBinsAfterMaintenance.length > 0) {
   console.error(
@@ -329,9 +342,26 @@ if (skipDependencyMaintenance) {
   }
 }
 
+if (opencodeReport.skipped) {
+  console.log('[dev-preflight] Skipped OpenCode CLI upgrade because LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1.')
+} else if (!opencodeReport.available) {
+  console.log('[dev-preflight] Local OpenCode CLI was not found; skipping automatic OpenCode upgrade.')
+} else if (opencodeReport.upgraded) {
+  const methodSuffix = opencodeReport.method ? ` via ${opencodeReport.method}` : ''
+  console.log(
+    `[dev-preflight] OpenCode CLI upgraded${methodSuffix}: ` +
+    `${opencodeReport.versionBefore ?? 'unknown'} -> ${opencodeReport.versionAfter ?? 'unknown'}.`,
+  )
+} else {
+  const version = opencodeReport.versionAfter ?? opencodeReport.versionBefore ?? 'unknown'
+  const methodSuffix = opencodeReport.method ? ` via ${opencodeReport.method}` : ''
+  console.log(`[dev-preflight] OpenCode CLI is already current at ${version}${methodSuffix}.`)
+}
+
 writeDevPreflightReport({
   generatedAt: new Date().toISOString(),
   install: installReport,
   dependencySync: dependencySyncReport,
   audit: auditReport,
+  opencode: opencodeReport,
 })

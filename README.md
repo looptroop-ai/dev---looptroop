@@ -75,17 +75,19 @@ npm run dev
 
 That starts the dashboard and the docs site together. Before the watchers launch, the dev preflight now:
 
+- upgrades the local `opencode` CLI to the latest available version when it is installed
 - syncs direct dependencies to the latest stable npm releases
 - runs `npm audit fix` without `--force`
 - prints a concise audit summary, including known stable-upstream leftovers
 
-Use `LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev` if you want to skip that mutation path for a given run, and `LOOPTROOP_DEV_VERBOSE=1 npm run dev` to see the raw maintenance output.
+Use `LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev` if you want to skip npm dependency/audit mutation for a given run, `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev` to skip the CLI upgrade step, and `LOOPTROOP_DEV_VERBOSE=1 npm run dev` to see the raw maintenance output.
 
 You can also run the same maintenance steps directly:
 
 ```bash
 npm run deps:sync
 npm run audit:remediate
+npm run opencode:upgrade
 ```
 
 Use the top-right `Docs` button in the dashboard, or open [Docs Home](docs/index.md) directly from the repo.

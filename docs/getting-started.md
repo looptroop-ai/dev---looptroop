@@ -16,18 +16,68 @@ You need a few basic developer tools:
 
 ## 2. Setting Up Your AI Council (For Free!)
 
-LoopTroop relies on an OpenCode server to connect to AI models. You can configure OpenCode to use **OpenRouter**, which provides access to many highly capable models for free. 
+## 💸 Configuring Free AI Models
 
-This means you can have a full "AI Council" brainstorming and reviewing your code without spending a dime.
+You no longer need to burn expensive tokens to run autonomous agents. LoopTroop supports all major API Gateways that provide state-of-the-art **Mixture-of-Experts (MoE)** models for free. 
 
-> [!NOTE]
-> **Recommended Free Models via OpenRouter:**
-> - `meta-llama/llama-3.3-70b-instruct:free`
-> - `google/gemma-2-27b-it:free` (or `gemma-4-31b-it:free`)
-> - `deepseek/deepseek-r1:free`
-> - `nvidia/nemotron-4-340b-instruct:free`
->
-> *(Note: Free model availability on OpenRouter changes dynamically, so check their site for the latest list.)*
+### Option A: OpenRouter Free Models (Recommended)
+OpenRouter provides a unified API with a dynamic router that automatically selects available zero-cost models.
+
+1. Create a free account at [https://openrouter.ai/](https://openrouter.ai/).
+2. In your project's `.env` file set:
+   ```env
+   PROVIDER=openrouter
+   OPENROUTER_API_KEY="your-api-key"
+   ```
+3. **Select the Model:** 
+   * **The Auto-Router:** Set your model to `openrouter/free`. LoopTroop will automatically route tasks to available free models capable of tool-calling.
+   * **Specific High-Capacity Free Models:** 
+     * `nvidia/nemotron-3-super-120b-a12b:free` (120B parameters, 1M context window)
+     * `qwen/qwen3-coder:free` (480B parameters, best for heavy repository logic)
+     * `inclusionai/ling-2.6-flash:free` (Extremely fast, highly token-efficient)
+     * `google/gemma-4-31b-it:free` (Excellent for multimodal tasks)
+
+### Option B: NVIDIA NIM API Catalog
+NVIDIA provides highly optimized, GPU-accelerated endpoints. Signing up gives you 1,000 base credits (up to 5,000 total trial credits).
+
+1. Go to [build.nvidia.com](https://build.nvidia.com/) and create a Developer account.
+2. Generate a personal key in the API Keys section.
+3. In your `.env` file:
+   ```env
+   PROVIDER=nvidia-nim
+   NVIDIA_API_KEY="your-ngc-api-key"
+   ```
+4. **Recommended Free/Trial Models:**
+   * `nemotron-3-super-120b-a12b`
+   * `nemotron-3-nano-30b-a3b`
+   * `mistral-small-4-119b-2603`
+
+### Option C: OpenCode Free Network
+OpenCode curates a validated list of models specifically benchmarked for agentic coding. 
+
+1. Obtain your OpenCode API key from [opencode.ai](https://opencode.ai).
+2. In your `.env` file:
+   ```env
+   PROVIDER=opencode
+   OPENCODE_API_KEY="your-opencode-key"
+   ```
+3. **Recommended Free Models:**
+   * `big-pickle`
+   * `nemotron-3-super-free`
+   * `minimax-m2.5-free`
+   * `mimo-v2-pro-free`
+
+---
+
+## 📊 Latency & Model Tracking Tools
+
+Because free APIs can occasionally experience rate-limiting or latency spikes, the community maintains active trackers to help you route your agents efficiently:
+
+*   **(https://github.com/ShaikhWarsi/free-ai-tools):** The master directory of over 550 free APIs, IDEs, and local RAG stacks. Check this repository frequently for newly added free models and quota details.
+*   **(https://github.com/BlockRunAI/ClawRouter):** An open-source routing layer that tracks the real-time latency of top-tier free models and handles load balancing.
+*   **[https://github.com/jyoung105/frouter](https://github.com/jyoung105/frouter):** A fast CLI tool to ping free models and test Time To First Token (TTFT) before starting your loop. 
+
+---
 
 ### How to connect OpenCode to OpenRouter:
 When running `opencode serve`, ensure your environment variables are set to use OpenRouter as your provider and supply your OpenRouter API key. See the OpenCode documentation for exact provider configuration.
@@ -50,17 +100,24 @@ npm run dev
 
 Before the watchers launch, LoopTroop now runs a dev preflight that:
 
+- upgrades the local `opencode` CLI to the latest available version when the binary is installed
 - checks your direct dependencies against npm `latest`
 - updates behind direct dependencies to the latest stable releases
 - runs `npm audit fix` without `--force`
 - prints a concise unresolved audit summary before the stack starts
 
-That means `npm run dev` is intentionally **mutating** when it finds stale direct dependencies or safe audit fixes.
+That means `npm run dev` is intentionally **mutating** when it finds a stale local OpenCode CLI, stale direct dependencies, or safe audit fixes.
 
 If you want a non-mutating startup for a single run, use:
 
 ```bash
 LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev
+```
+
+If you only want to skip the local OpenCode CLI upgrade step, use:
+
+```bash
+LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev
 ```
 
 If you want the raw maintenance/install output, use:
@@ -101,6 +158,7 @@ If you want to run the maintenance steps outside `npm run dev`, these scripts us
 ```bash
 npm run deps:sync
 npm run audit:remediate
+npm run opencode:upgrade
 ```
 
 ### Environment Variables
@@ -117,6 +175,7 @@ If you need to customize ports or paths, you can use these environment variables
 | `LOOPTROOP_APP_DB_PATH` | Override the app database path directly |
 | `LOOPTROOP_DEV_VERBOSE=1` | Print full dependency/audit/process details during dev preflight |
 | `LOOPTROOP_DEV_SKIP_DEPS=1` | Skip automatic dependency sync and audit remediation during `npm run dev` |
+| `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1` | Skip the automatic local OpenCode CLI upgrade during `npm run dev` |
 
 ### Where is my data saved?
 

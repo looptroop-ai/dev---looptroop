@@ -43,6 +43,24 @@ printSummaryLine('Docs', `${getDocsOrigin()} (port ${getDocsPort()})`)
 printSummaryLine('OpenCode', baseUrl)
 
 if (preflightReport) {
+  if (preflightReport.opencode.skipped) {
+    printSummaryLine('OpenCode CLI', 'Skipped automatic OpenCode upgrade via LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1')
+  } else if (!preflightReport.opencode.available) {
+    printSummaryLine('OpenCode CLI', 'Local opencode binary not found; skipped automatic CLI upgrade')
+  } else if (preflightReport.opencode.upgraded) {
+    printSummaryLine(
+      'OpenCode CLI',
+      `Upgraded ${preflightReport.opencode.versionBefore ?? 'unknown'} -> ${preflightReport.opencode.versionAfter ?? 'unknown'}` +
+      (preflightReport.opencode.method ? ` via ${preflightReport.opencode.method}` : ''),
+    )
+  } else {
+    printSummaryLine(
+      'OpenCode CLI',
+      `Already current at ${preflightReport.opencode.versionAfter ?? preflightReport.opencode.versionBefore ?? 'unknown'}` +
+      (preflightReport.opencode.method ? ` via ${preflightReport.opencode.method}` : ''),
+    )
+  }
+
   if (preflightReport.dependencySync.skipped) {
     printSummaryLine('Dependencies', 'Skipped automatic dependency sync via LOOPTROOP_DEV_SKIP_DEPS=1')
   } else if (preflightReport.dependencySync.alreadyCurrent) {

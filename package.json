@@ -9,6 +9,7 @@
     "dev:app": "concurrently -n fe,be -c blue,green \"npm:dev:frontend\" \"npm:dev:backend\"",
     "deps:sync": "tsx scripts/dev-deps.ts",
     "audit:remediate": "tsx scripts/dev-audit.ts",
+    "opencode:upgrade": "tsx scripts/dev-opencode-upgrade.ts",
     "dev:opencode": "tsx scripts/dev-opencode.ts",
     "dev:frontend": "vite",
     "dev:backend": "CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts",
