@@ -28,7 +28,7 @@ export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket,
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen">
       <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <button
           className="flex items-center gap-2 cursor-pointer"
