@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitepress'
 
+const githubRepo = 'https://github.com/looptroop-ai/dev---looptroop'
+
 const sidebar = [
   {
     text: 'Start Here',
@@ -82,7 +84,7 @@ export default defineConfig({
       { text: 'Workflow', link: '/ticket-flow' },
       { text: 'Architecture', link: '/system-architecture' },
       { text: 'Roadmap', link: '/roadmap' },
-      { text: 'GitHub', link: 'https://github.com/liviux/test-sonnet' },
+      { text: 'GitHub', link: githubRepo },
     ],
     sidebar,
     search: {
@@ -93,11 +95,11 @@ export default defineConfig({
       label: 'On this page',
     },
     editLink: {
-      pattern: 'https://github.com/liviux/test-sonnet/edit/main/docs/:path',
+      pattern: `${githubRepo}/edit/main/docs/:path`,
       text: 'Edit this page on GitHub',
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/liviux/test-sonnet' },
+      { icon: 'github', link: githubRepo },
     ],
     docFooter: {
       prev: 'Previous',

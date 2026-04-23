@@ -1,7 +1,7 @@
 import { resolveComponent, useSSRContext } from "vue";
 import { ssrRenderAttrs, ssrRenderComponent } from "vue/server-renderer";
 import { _ as _export_sfc } from "./plugin-vue_export-helper.1tPrXgE0.js";
-const __pageData = JSON.parse('{"title":"Ticket Flow","description":"","frontmatter":{},"headers":[],"relativePath":"ticket-flow.md","filePath":"ticket-flow.md","lastUpdated":null}');
+const __pageData = JSON.parse('{"title":"Ticket Flow","description":"","frontmatter":{},"headers":[],"relativePath":"ticket-flow.md","filePath":"ticket-flow.md","lastUpdated":1776952772000}');
 const _sfc_main = { name: "ticket-flow.md" };
 function _sfc_ssrRender(_ctx, _push, _parent, _attrs, $props, $setup, $data, $options) {
   const _component_MermaidBlock = resolveComponent("MermaidBlock");

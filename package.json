@@ -30,16 +30,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/liviux/test-sonnet.git"
+    "url": "git+https://github.com/looptroop-ai/dev---looptroop.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/liviux/test-sonnet/issues"
+    "url": "https://github.com/looptroop-ai/dev---looptroop/issues"
   },
-  "homepage": "https://github.com/liviux/test-sonnet#readme",
+  "homepage": "https://github.com/looptroop-ai/dev---looptroop#readme",
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/lang-yaml": "^6.1.3",
