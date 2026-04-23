@@ -1,18 +1,20 @@
 import { randomBytes } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import concurrently from 'concurrently'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_OPENCODE_BASE_URL, getBackendPort, getDocsOrigin, getDocsPort, getFrontendPort } from '../shared/appConfig'
+import { readDevPreflightReport } from './dev-maintenance'
 import { resolveOpenCodeBaseUrl } from './opencode-dev-base-url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
-const concurrentlyBin = resolve(repoRoot, 'node_modules/.bin/concurrently')
 const requestedBaseUrl = process.env.LOOPTROOP_OPENCODE_BASE_URL?.trim() || DEFAULT_OPENCODE_BASE_URL
 const hasExplicitBaseUrl = Boolean(process.env.LOOPTROOP_OPENCODE_BASE_URL?.trim())
 const childEnv = { ...process.env }
+const preflightReport = readDevPreflightReport()
 
 delete childEnv.NO_COLOR
+delete childEnv.FORCE_COLOR
 
 const { baseUrl, note, status } = await resolveOpenCodeBaseUrl({
   requestedBaseUrl,
@@ -30,50 +32,139 @@ if (status === 'ready-to-start' && !childEnv.OPENCODE_SERVER_PASSWORD?.trim()) {
   console.log('[dev] Securing the local OpenCode dev server with ephemeral basic auth.')
 }
 
-console.log(
-  `[dev] Starting LoopTroop services:` +
-  ` frontend=http://localhost:${getFrontendPort()}` +
-  ` backend=http://localhost:${getBackendPort()}` +
-  ` docs=${getDocsOrigin()} (port ${getDocsPort()})` +
-  ` opencode=${baseUrl}`,
-)
+function printSummaryLine(label: string, value: string) {
+  console.log(`[dev] ${label.padEnd(13)} ${value}`)
+}
+
+console.log('[dev] LoopTroop startup summary')
+printSummaryLine('Frontend', `http://localhost:${getFrontendPort()}`)
+printSummaryLine('Backend', `http://localhost:${getBackendPort()}`)
+printSummaryLine('Docs', `${getDocsOrigin()} (port ${getDocsPort()})`)
+printSummaryLine('OpenCode', baseUrl)
+
+if (preflightReport) {
+  if (preflightReport.dependencySync.skipped) {
+    printSummaryLine('Dependencies', 'Skipped automatic dependency sync via LOOPTROOP_DEV_SKIP_DEPS=1')
+  } else if (preflightReport.dependencySync.alreadyCurrent) {
+    printSummaryLine('Dependencies', 'All direct dependencies already matched npm latest stable')
+  } else {
+    printSummaryLine(
+      'Dependencies',
+      `Updated ${preflightReport.dependencySync.updatedDependencies.length} runtime and ` +
+      `${preflightReport.dependencySync.updatedDevDependencies.length} dev packages to latest stable` +
+      (preflightReport.dependencySync.forced ? ' (with npm --force fallback)' : ''),
+    )
+  }
+
+  if (preflightReport.audit.skipped) {
+    printSummaryLine('Audit', 'Skipped automatic audit remediation via LOOPTROOP_DEV_SKIP_DEPS=1')
+  } else if (preflightReport.audit.unresolved.length === 0) {
+    printSummaryLine('Audit', 'No remaining npm audit findings after remediation')
+  } else {
+    printSummaryLine(
+      'Audit',
+      `${preflightReport.audit.totals.total} remaining finding(s): ` +
+      `high=${preflightReport.audit.totals.high}, moderate=${preflightReport.audit.totals.moderate}`,
+    )
+    for (const issue of preflightReport.audit.unresolved.slice(0, 3)) {
+      console.log(`[dev]   - ${issue.name} (${issue.severity})${issue.note ? `: ${issue.note}` : ''}`)
+    }
+  }
+}
+
 console.log('[dev] Launching frontend, backend, docs, and OpenCode watchers...')
 
-const child = spawn(
-  concurrentlyBin,
+const { commands, result } = concurrently(
   [
-    '-n',
-    'oc,fe,be,docs',
-    '-c',
-    'yellow,blue,green,magenta',
-    'npm:dev:opencode',
-    'npm:dev:frontend',
-    'npm:dev:backend',
-    'npm:docs:dev',
+    {
+      command: 'npm:dev:opencode',
+      name: 'OPEN',
+      prefixColor: 'bgYellow.black',
+      env: {
+        ...childEnv,
+        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
+      },
+    },
+    {
+      command: 'npm:dev:frontend',
+      name: 'WEB',
+      prefixColor: 'bgBlue.black',
+      env: {
+        ...childEnv,
+        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
+      },
+    },
+    {
+      command: 'npm:dev:backend',
+      name: 'API',
+      prefixColor: 'bgGreen.black',
+      env: {
+        ...childEnv,
+        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
+      },
+    },
+    {
+      command: 'npm:docs:dev',
+      name: 'DOCS',
+      prefixColor: 'bgMagenta.black',
+      env: {
+        ...childEnv,
+        LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
+      },
+    },
   ],
   {
     cwd: repoRoot,
-    env: {
-      ...childEnv,
-      LOOPTROOP_OPENCODE_BASE_URL: baseUrl,
-    },
-    stdio: 'inherit',
+    prefix: '[{time} {name}]',
+    timestampFormat: 'HH:mm:ss',
+    padPrefix: true,
+    prefixColors: ['bgYellow.black', 'bgBlue.black', 'bgGreen.black', 'bgMagenta.black'],
+    timings: true,
+    successCondition: 'all',
+    killOthersOn: ['failure'],
   },
 )
 
-child.once('error', (error) => {
-  console.error(`[dev] Failed to start dev stack: ${error.message}`)
-  process.exit(1)
-})
+for (const command of commands) {
+  command.stateChange.subscribe((state) => {
+    if (state === 'started') {
+      console.log(`[dev] Service ${command.name} started.`)
+    }
+  })
+
+  command.error.subscribe((error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[dev] Service ${command.name} failed to spawn: ${message}`)
+  })
+
+  command.close.subscribe((event) => {
+    const outcome = event.exitCode === 0
+      ? 'stopped cleanly'
+      : event.killed
+        ? `was terminated (${event.exitCode})`
+        : `exited with ${event.exitCode}`
+    console.log(
+      `[dev] Service ${command.name} ${outcome} after ${event.timings.durationSeconds.toFixed(1)}s.`,
+    )
+  })
+}
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    if (!child.killed) {
-      child.kill(signal)
+    console.log(`[dev] Received ${signal}; stopping dev services...`)
+    for (const command of commands) {
+      try {
+        command.kill(signal)
+      } catch {
+        // Ignore shutdown races.
+      }
     }
   })
 }
 
-child.once('exit', (code) => {
-  process.exit(code ?? 0)
-})
+try {
+  await result
+  process.exit(0)
+} catch {
+  process.exit(1)
+}

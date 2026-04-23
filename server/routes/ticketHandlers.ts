@@ -364,7 +364,19 @@ async function findPendingOpenCodeQuestionForTicket(ticketId: string, requestId:
 }
 
 function getTicketParam(c: Context): string {
-  return c.req.param('id') || c.req.param('ticketId')
+  const ticketId = c.req.param('id') ?? c.req.param('ticketId')
+  if (!ticketId) {
+    throw new Error('Ticket route is missing the required id parameter')
+  }
+  return ticketId
+}
+
+function getRequiredRouteParam(c: Context, name: string): string {
+  const value = c.req.param(name)
+  if (!value) {
+    throw new Error(`Route is missing required parameter "${name}"`)
+  }
+  return value
 }
 
 function getMachineContext(ticketId: string): MachineTicketContext {
@@ -597,7 +609,8 @@ function syncWaitingPullRequestTicket(ticketId: string) {
 }
 
 export function handleGetTicket(c: Context) {
-  const ticket = syncWaitingPullRequestTicket(c.req.param('id')) ?? getTicketByRef(c.req.param('id'))
+  const ticketId = getRequiredRouteParam(c, 'id')
+  const ticket = syncWaitingPullRequestTicket(ticketId) ?? getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   return c.json(ticket)
 }
@@ -1628,7 +1641,7 @@ export async function handleListOpenCodeQuestions(c: Context) {
 
 export async function handleReplyOpenCodeQuestion(c: Context) {
   const ticketId = getTicketParam(c)
-  const requestId = c.req.param('requestId')
+  const requestId = getRequiredRouteParam(c, 'requestId')
   const ticketContext = getTicketContext(ticketId)
   if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
 
@@ -1674,7 +1687,7 @@ export async function handleReplyOpenCodeQuestion(c: Context) {
 
 export async function handleRejectOpenCodeQuestion(c: Context) {
   const ticketId = getTicketParam(c)
-  const requestId = c.req.param('requestId')
+  const requestId = getRequiredRouteParam(c, 'requestId')
   const ticketContext = getTicketContext(ticketId)
   if (!ticketContext) return c.json({ error: 'Ticket not found' }, 404)
 

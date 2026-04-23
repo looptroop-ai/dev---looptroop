@@ -69,7 +69,6 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
   // Sync form state when profile data loads
   useEffect(() => {
     if (!profile) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormData({
       mainImplementer: profile.mainImplementer ?? '',
       minCouncilQuorum: profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,

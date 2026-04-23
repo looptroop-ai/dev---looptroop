@@ -62,7 +62,6 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
 
   useEffect(() => {
     if (!folder.trim()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGitInfo({ isGit: false, status: 'none' })
       restorePrefillKeyRef.current = null
       return
@@ -99,7 +98,6 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
     if (isEditing || !restoreMode || !gitInfo.existingProject || !gitInfo.repoRoot) return
     if (restorePrefillKeyRef.current === gitInfo.repoRoot) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(gitInfo.existingProject.name)
     setShortname(gitInfo.existingProject.shortname)
     setIcon(gitInfo.existingProject.icon ?? '📁')

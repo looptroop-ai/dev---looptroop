@@ -39,6 +39,8 @@ For the full status lifecycle, approval gates, and recovery rules, see [Ticket F
 
 ## Documentation
 
+The comprehensive documentation lives in [Docs Home](docs/index.md). When the app is running, you can also open the same docs from the top-right `Docs` button in the main dashboard.
+
 | Document | What it covers |
 | --- | --- |
 | [Docs Home](docs/index.md) | Cross-doc navigation hub and recommended reading paths |
@@ -71,6 +73,23 @@ Then start the app:
 npm run dev
 ```
 
-For the full setup flow, environment variables, and OpenCode expectations, read the [Getting Started Guide](docs/getting-started.md).
+That starts the dashboard and the docs site together. Before the watchers launch, the dev preflight now:
+
+- syncs direct dependencies to the latest stable npm releases
+- runs `npm audit fix` without `--force`
+- prints a concise audit summary, including known stable-upstream leftovers
+
+Use `LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev` if you want to skip that mutation path for a given run, and `LOOPTROOP_DEV_VERBOSE=1 npm run dev` to see the raw maintenance output.
+
+You can also run the same maintenance steps directly:
+
+```bash
+npm run deps:sync
+npm run audit:remediate
+```
+
+Use the top-right `Docs` button in the dashboard, or open [Docs Home](docs/index.md) directly from the repo.
+
+For the full setup flow, environment variables, and the current stable-upstream warning caveats (`drizzle-kit`, `better-sqlite3`, `vitepress`, `mermaid`), read the [Getting Started Guide](docs/getting-started.md).
 
 For the runtime module layout after the removed repository-shape snapshot, see [Docs Home](docs/index.md) and the [System Architecture module map](docs/system-architecture.md#module-map).

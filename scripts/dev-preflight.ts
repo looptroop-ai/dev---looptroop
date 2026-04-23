@@ -4,6 +4,13 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getBackendPort, getDocsPort, getFrontendPort } from '../shared/appConfig'
 import {
+  ensureInstallIfNeeded,
+  getMissingBins,
+  remediateAudit,
+  syncDirectDependencies,
+  writeDevPreflightReport,
+} from './dev-maintenance'
+import {
   buildProcessGraph,
   collectProcessTree,
   formatProcessSummary,
@@ -22,6 +29,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
 const verboseLogging = process.env.LOOPTROOP_DEV_VERBOSE === '1'
+const skipDependencyMaintenance = process.env.LOOPTROOP_DEV_SKIP_DEPS === '1'
 
 const configuredPorts = [
   { label: 'frontend', port: getFrontendPort() },
@@ -191,6 +199,45 @@ function ensureDistinctConfiguredPorts() {
 
 ensureDistinctConfiguredPorts()
 
+const installReport = ensureInstallIfNeeded({ verbose: verboseLogging })
+for (const error of installReport.errors) {
+  console.error(`[dev-preflight] ${error}`)
+}
+if (installReport.errors.length > 0) {
+  process.exit(1)
+}
+
+const dependencySyncReport = syncDirectDependencies({
+  verbose: verboseLogging,
+  skip: skipDependencyMaintenance,
+})
+for (const error of dependencySyncReport.errors) {
+  console.error(`[dev-preflight] ${error}`)
+}
+if (dependencySyncReport.errors.length > 0) {
+  process.exit(1)
+}
+
+const auditReport = remediateAudit({
+  verbose: verboseLogging,
+  skip: skipDependencyMaintenance,
+})
+for (const error of auditReport.errors) {
+  console.error(`[dev-preflight] ${error}`)
+}
+if (auditReport.errors.length > 0) {
+  process.exit(1)
+}
+
+const missingBinsAfterMaintenance = getMissingBins()
+if (missingBinsAfterMaintenance.length > 0) {
+  console.error(
+    '[dev-preflight] Required dev tools are missing after dependency maintenance: ' +
+    missingBinsAfterMaintenance.join(', '),
+  )
+  process.exit(1)
+}
+
 const processes = listProcesses()
 const graph = buildProcessGraph(processes)
 const protectedPids = collectProtectedPids(process.pid, graph)
@@ -255,3 +302,36 @@ for (const { label, port } of configuredPorts) {
     }
   }
 }
+
+if (skipDependencyMaintenance) {
+  console.log('[dev-preflight] Skipped dependency sync and audit remediation because LOOPTROOP_DEV_SKIP_DEPS=1.')
+} else {
+  if (dependencySyncReport.alreadyCurrent) {
+    console.log('[dev-preflight] Direct dependencies are already on the latest stable releases.')
+  } else {
+    console.log(
+      `[dev-preflight] Direct dependency sync complete: ` +
+      `${dependencySyncReport.updatedDependencies.length} runtime and ` +
+      `${dependencySyncReport.updatedDevDependencies.length} dev packages updated.`,
+    )
+  }
+
+  if (auditReport.unresolved.length === 0) {
+    console.log('[dev-preflight] npm audit summary: no remaining findings.')
+  } else {
+    console.log(
+      `[dev-preflight] npm audit summary: ${auditReport.totals.total} remaining ` +
+      `(high=${auditReport.totals.high}, moderate=${auditReport.totals.moderate}).`,
+    )
+    for (const issue of auditReport.unresolved.slice(0, 5)) {
+      console.log(`[dev-preflight] - ${issue.name} (${issue.severity})${issue.note ? `: ${issue.note}` : ''}`)
+    }
+  }
+}
+
+writeDevPreflightReport({
+  generatedAt: new Date().toISOString(),
+  install: installReport,
+  dependencySync: dependencySyncReport,
+  audit: auditReport,
+})

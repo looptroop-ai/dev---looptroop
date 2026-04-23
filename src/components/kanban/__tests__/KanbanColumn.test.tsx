@@ -13,12 +13,6 @@ vi.mock('@/components/ui/scroll-area', () => ({
   ),
 }))
 
-vi.mock('../TicketCard', () => ({
-  TicketCard: ({ ticket }: { ticket: { externalId: string; title: string } }) => (
-    <div>{ticket.externalId} {ticket.title}</div>
-  ),
-}))
-
 function makeCompletedTickets(count: number) {
   return Array.from({ length: count }, (_, index) => makeTicket({
     id: `1:TEST-${index + 1}`,
@@ -46,7 +40,7 @@ describe('KanbanColumn', () => {
     const pageInput = screen.getByRole('textbox', { name: /done current page/i })
 
     expect(pageInput).toHaveValue('1')
-    expect(screen.getByText('TEST-31 Ticket 31')).toBeInTheDocument()
+    expect(screen.getByLabelText('Open ticket TEST-31')).toBeInTheDocument()
 
     fireEvent.change(pageInput, { target: { value: '3abc' } })
 
@@ -55,8 +49,8 @@ describe('KanbanColumn', () => {
     fireEvent.blur(pageInput)
 
     expect(pageInput).toHaveValue('3')
-    expect(screen.getByText('TEST-1 Ticket 1')).toBeInTheDocument()
-    expect(screen.queryByText('TEST-31 Ticket 31')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Open ticket TEST-1')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Open ticket TEST-31')).not.toBeInTheDocument()
     expect(screen.getByText('of 3')).toBeInTheDocument()
   })
 })
