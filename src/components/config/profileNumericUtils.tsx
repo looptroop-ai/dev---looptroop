@@ -2,6 +2,7 @@ import { CircleHelp } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { numericFields, getFieldError, type NumericFieldKey } from './numericFieldConfig'
+import { ConfigurationDocsLink } from './ConfigurationDocsLink'
 
 export interface NumericFieldProps {
   fieldKey: NumericFieldKey
@@ -51,7 +52,10 @@ export function NumericField({ fieldKey, rawNumeric, onChange, hint, tooltip }: 
       {error ? (
         <p className="text-xs text-red-500 mt-1">{error}</p>
       ) : (
-        <p className="text-xs text-muted-foreground mt-1">{hint}</p>
+        <div className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
+          <p className="min-w-0 flex-1">{hint}</p>
+          <ConfigurationDocsLink docsPath={cfg.docsPath} label={cfg.label} />
+        </div>
       )}
     </div>
   )

@@ -93,6 +93,22 @@ Important controls include:
 - per-project or profile quorum settings
 - council response timeout
 
+### Main Implementer
+
+The main implementer is the primary model LoopTroop locks onto the ticket once work starts. It handles the early single-model groundwork, stays auto-included in the council, and remains the primary execution model during coding and final verification.
+
+### Council Members
+
+Council members are the additional models that participate in independent drafting and structured voting during interview, PRD, and beads planning. They increase planning diversity, but they do not replace the main implementer as the ticket's primary execution owner.
+
+### Min Council Quorum
+
+Minimum council quorum is the smallest number of valid council outputs LoopTroop requires before it trusts a draft or vote phase. If the configured quorum is not met, the workflow blocks or retries instead of silently accepting a weak result.
+
+### Council Response Timeout
+
+Council response timeout is the per-model wait budget for council drafting and voting calls. Longer values tolerate slower providers, while shorter values fail faster when a provider is stalled or unavailable.
+
 If too few valid drafts or votes arrive to satisfy quorum, the pipeline does not pretend the result is trustworthy. It fails into `BLOCKED_ERROR` or a phase-specific retry path instead of silently advancing.
 
 ## Why LoopTroop Uses Council Instead Of Debate Chat

@@ -52,6 +52,28 @@ vi.mock('@/components/shared/DropdownPicker', () => ({
   DropdownPicker: ({ trigger }: { trigger: ReactNode }) => <>{trigger}</>,
 }))
 
+async function renderProfileSetup(queryClient: QueryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: false, gcTime: Infinity },
+    mutations: { retry: false, gcTime: Infinity },
+  },
+})) {
+  await act(async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ToastProvider>
+            <ProfileSetup onClose={() => undefined} />
+          </ToastProvider>
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+    await Promise.resolve()
+  })
+
+  return queryClient
+}
+
 describe('ProfileSetup', () => {
   beforeEach(() => {
     updateProfileMutate.mockReset()
@@ -94,19 +116,7 @@ describe('ProfileSetup', () => {
       },
     })
     const refetchQueriesSpy = vi.spyOn(queryClient, 'refetchQueries').mockResolvedValue()
-
-    await act(async () => {
-      render(
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <ToastProvider>
-              <ProfileSetup onClose={() => undefined} />
-            </ToastProvider>
-          </TooltipProvider>
-        </QueryClientProvider>,
-      )
-      await Promise.resolve()
-    })
+    await renderProfileSetup(queryClient)
 
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
     expect(screen.getByText('Coverage')).toBeInTheDocument()
@@ -130,26 +140,44 @@ describe('ProfileSetup', () => {
     })
   })
 
-  it('validates PRD and beads coverage pass inputs', async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, gcTime: Infinity },
-        mutations: { retry: false, gcTime: Infinity },
-      },
-    })
+  it('renders documentation links for configuration descriptions', async () => {
+    await renderProfileSetup()
 
-    await act(async () => {
-      render(
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <ToastProvider>
-              <ProfileSetup onClose={() => undefined} />
-            </ToastProvider>
-          </TooltipProvider>
-        </QueryClientProvider>,
-      )
-      await Promise.resolve()
-    })
+    const docsLinks = screen.getAllByRole('link', { name: /Open documentation for / })
+    expect(docsLinks).toHaveLength(12)
+
+    const mainImplementerLink = screen.getByRole('link', { name: 'Open documentation for Main Implementer Model' })
+    expect(mainImplementerLink).toHaveAttribute('href', `${__LOOPTROOP_DOCS_ORIGIN__}/llm-council#main-implementer`)
+    expect(mainImplementerLink).toHaveAttribute('target', '_blank')
+    expect(mainImplementerLink).toHaveAttribute('rel', 'noreferrer noopener')
+
+    expect(screen.getByRole('link', { name: 'Open documentation for AI Response Timeout' })).toHaveAttribute(
+      'href',
+      `${__LOOPTROOP_DOCS_ORIGIN__}/llm-council#council-response-timeout`,
+    )
+    expect(screen.getByRole('link', { name: 'Open documentation for Interview Coverage Passes' })).toHaveAttribute(
+      'href',
+      `${__LOOPTROOP_DOCS_ORIGIN__}/ticket-flow#interview-coverage-passes`,
+    )
+    expect(screen.getByRole('link', { name: 'Open documentation for PRD Coverage Passes' })).toHaveAttribute(
+      'href',
+      `${__LOOPTROOP_DOCS_ORIGIN__}/ticket-flow#prd-coverage-passes`,
+    )
+    expect(screen.getByRole('link', { name: 'Open documentation for Beads Coverage Passes' })).toHaveAttribute(
+      'href',
+      `${__LOOPTROOP_DOCS_ORIGIN__}/ticket-flow#beads-coverage-passes`,
+    )
+    expect(screen.getByRole('link', { name: 'Open documentation for Max Bead Retries' })).toHaveAttribute(
+      'href',
+      `${__LOOPTROOP_DOCS_ORIGIN__}/execution-loop#max-bead-retries`,
+    )
+
+    fireEvent.focus(mainImplementerLink)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Open detailed documentation')
+  })
+
+  it('validates PRD and beads coverage pass inputs', async () => {
+    await renderProfileSetup()
 
     const prdInput = screen.getByLabelText('PRD Coverage Passes') as HTMLInputElement
     const beadsInput = screen.getByLabelText('Beads Coverage Passes') as HTMLInputElement

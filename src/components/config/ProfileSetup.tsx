@@ -14,10 +14,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useOpenCodeModels, refetchOpenCodeModelsQuery } from '@/hooks/useOpenCodeModels'
 import { numericFields, hasNumericErrors, buildInitialRawNumeric } from './numericFieldConfig'
 import { NumericField } from './profileNumericUtils'
+import { ConfigurationDocsLink } from './ConfigurationDocsLink'
 
 interface ProfileSetupProps {
   onClose: () => void
 }
+
+const descriptionDocs = {
+  mainImplementer: '/llm-council#main-implementer',
+  councilMembers: '/llm-council#council-members',
+} as const
 
 export function ProfileSetup({ onClose }: ProfileSetupProps) {
   const { data: profile } = useProfile()
@@ -233,7 +239,10 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
                 />
               </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">Primary model used for code generation and implementation</p>
+            <div className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
+              <p className="min-w-0 flex-1">Primary model used for code generation and implementation</p>
+              <ConfigurationDocsLink docsPath={descriptionDocs.mainImplementer} label="Main Implementer Model" />
+            </div>
             {openCodeConnected === false && (
               <div className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
                 LoopTroop could not reach the configured OpenCode server. Start it with <code className="font-mono bg-muted-foreground/10 px-1 rounded">opencode serve</code> or check the backend OpenCode URL.
@@ -242,9 +251,12 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Council Members</label>
-            <p className="text-xs text-muted-foreground mb-2">
-              Choose up to 4 models to form the review council. The main implementer is automatically included.
-            </p>
+            <div className="mb-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+              <p className="min-w-0 flex-1">
+                Choose up to 4 models to form the review council. The main implementer is automatically included.
+              </p>
+              <ConfigurationDocsLink docsPath={descriptionDocs.councilMembers} label="Council Members" />
+            </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <div className="flex-1 rounded-lg border border-input bg-muted/40 px-3 py-2.5 text-sm">

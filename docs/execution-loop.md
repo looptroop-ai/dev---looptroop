@@ -137,6 +137,20 @@ LoopTroop distinguishes between recoverable iteration failure and terminal block
 
 Error occurrences are persisted so the UI can show both the live failure and past failures for the ticket.
 
+## Execution Configuration Controls
+
+### Execution Setup Timeout
+
+Execution setup timeout is the maximum allowed runtime for the one-time `PREPARING_EXECUTION_ENV` step after the setup plan is approved. It bounds setup work such as installing toolchains, warming caches, and preparing repository-local runtime artifacts.
+
+### Per-Iteration Timeout
+
+Per-iteration timeout is the maximum allowed runtime for one bead attempt in `CODING`. If an attempt exceeds this budget, LoopTroop treats it as a failed iteration and routes it through the normal retry path.
+
+### Max Bead Retries
+
+Max bead retries defines how many fresh-session re-attempts LoopTroop allows for a bead before it enters `BLOCKED_ERROR`. The same limit also bounds final-test retries so execution remains deterministic.
+
 ## Why This Loop Exists
 
 The execution loop exists because coding models are good at focused work but unreliable at long self-healing conversations. LoopTroop narrows the task, constrains the runtime state, and bounds retries so the system can recover without pretending the model has infinite patience or perfect memory.

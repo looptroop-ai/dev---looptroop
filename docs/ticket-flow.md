@@ -243,6 +243,18 @@ The UI and API both group workflow states:
 | `VERIFYING_INTERVIEW_COVERAGE` | The interview winner checks whether the current answers are sufficient. If not, it creates targeted follow-up questions until the configured budget is exhausted. | Coverage artifact, gap descriptions, follow-up batch when needed. | `cancel` | Gaps loop back to answers; clean or budget exhaustion advances to approval. |
 | `WAITING_INTERVIEW_APPROVAL` | You review the finalized interview in structured or raw form, edit it if needed, and explicitly approve the interview as the source material for PRD generation. | Approved interview artifact and approval receipt. | `approve`, `cancel` | Approval advances to PRD drafting. |
 
+#### Max Interview Questions
+
+This setting caps how many initial clarifying questions the compiled interview can contain before the UI pauses for human answers. Lower values keep intake shorter; higher values let the planning flow gather more context up front.
+
+#### Coverage Follow-Up Budget
+
+This setting limits how much of the interview budget can be spent on follow-up coverage questions after the first answer round. It exists to keep interview coverage from turning into an open-ended clarification loop.
+
+#### Interview Coverage Passes
+
+This setting caps how many times `VERIFYING_INTERVIEW_COVERAGE` may generate follow-up work before LoopTroop stops extending the loop and advances with the current coverage state.
+
 ### PRD
 
 | Status | What happens here | Main outputs | User action | Normal exits |
@@ -253,6 +265,10 @@ The UI and API both group workflow states:
 | `VERIFYING_PRD_COVERAGE` | The current PRD candidate is checked against the approved interview and revised in-place when gaps are found. This is a versioned loop capped by configuration. | PRD coverage history, latest PRD candidate, unresolved-gap diagnostics. | `cancel` | Clean or cap-reached advances to PRD approval. |
 | `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, edit the document if needed, and explicitly lock the spec that beads planning will decompose. | Approved PRD artifact and approval receipt. | `approve`, `cancel` | Approval advances to beads drafting. |
 
+#### PRD Coverage Passes
+
+This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run while reconciling the PRD against the approved interview. The goal is to improve completeness without letting PRD coverage revise forever.
+
 ### Beads
 
 | Status | What happens here | Main outputs | User action | Normal exits |
@@ -262,6 +278,10 @@ The UI and API both group workflow states:
 | `REFINING_BEADS` | The winning blueprint is strengthened with better tasks, constraints, and test ideas from losing blueprints, while preserving the dependency graph shape. | Refined semantic blueprint plus diff metadata. | `cancel` | Success advances to beads coverage. |
 | `VERIFYING_BEADS_COVERAGE` | The semantic blueprint is checked against the PRD, revised until acceptable, then expanded into execution-ready beads with file targets, commands, and runtime fields. | Coverage history, expanded `issues.jsonl`, approval candidate. | `cancel` | Expanded plan advances to beads approval. |
 | `WAITING_BEADS_APPROVAL` | You review the execution-ready bead plan before any coding begins. This is the last planning approval gate and the last easy point to reshape execution ordering. | Approved beads artifact and approval receipt. | `approve`, `cancel` | Approval advances to pre-flight checks. |
+
+#### Beads Coverage Passes
+
+This setting caps how many coverage and expansion revisions LoopTroop may run while turning the semantic blueprint into execution-ready beads. It keeps decomposition quality work bounded before execution starts.
 
 ### Execution And Delivery
 
