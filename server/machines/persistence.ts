@@ -32,25 +32,6 @@ function getStateValue(actor: ReturnType<typeof createActor<typeof ticketMachine
   return typeof snapshot.value === 'string' ? snapshot.value : JSON.stringify(snapshot.value)
 }
 
-function emitAppSystemLog(
-  ticketRef: string,
-  phase: string,
-  content: string,
-  data?: Record<string, unknown>,
-) {
-  const timestamp = new Date().toISOString()
-  broadcaster.broadcast(ticketRef, 'log', {
-    ticketId: ticketRef,
-    phase,
-    type: 'info',
-    content,
-    timestamp,
-    source: 'system',
-    ...(data ? { data } : {}),
-  })
-  appendLogEvent(ticketRef, 'info', phase, content, data ? { ...data, timestamp } : { timestamp }, 'system', phase)
-}
-
 function emitAppErrorLog(
   ticketRef: string,
   phase: string,
@@ -78,33 +59,13 @@ function attachPersistenceSubscription(
   let isFirstEmission = true
 
   actor.subscribe(() => {
-    if (isFirstEmission && options?.skipFirstPersist) {
-      // During hydration the first emission is just restoring existing state –
-      // persisting here would overwrite updatedAt with the current time even
-      // though no real action happened on the ticket.
-      isFirstEmission = false
-
-      const currentState = getStateValue(actor)
-      emitAppSystemLog(
-        ticketRef,
-        currentState,
-        `[SYS] Actor active in ${currentState}.`,
-        { state: currentState },
-      )
-      return
-    }
-
-    persistSnapshot(ticketRef, actor)
-
-    const currentState = getStateValue(actor)
+    const skipPersist = isFirstEmission && options?.skipFirstPersist
     if (isFirstEmission) {
       isFirstEmission = false
-      emitAppSystemLog(
-        ticketRef,
-        currentState,
-        `[SYS] Actor active in ${currentState}.`,
-        { state: currentState },
-      )
+    }
+
+    if (!skipPersist) {
+      persistSnapshot(ticketRef, actor)
     }
 
     if (actor.getSnapshot().status === 'done') {
