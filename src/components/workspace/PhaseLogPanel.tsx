@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Fragment, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, ChevronLeft, Copy, Check, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -52,29 +51,59 @@ export function PhaseLogPanel({
   defaultTab,
 }: PhaseLogPanelProps) {
   const logCtx = useLogs()
-  const archivedLogsQuery = useQuery({
-    queryKey: ticket?.id && typeof phaseAttempt === 'number'
-      ? ['phase-logs', ticket.id, phase, phaseAttempt]
-      : ['phase-logs', '__missing__'] as const,
-    queryFn: async () => {
-      const params = new URLSearchParams({ phase, phaseAttempt: String(phaseAttempt) })
-      const response = await fetch(`/api/files/${ticket!.id}/logs?${params.toString()}`)
-      if (!response.ok) return [] as LogEntry[]
-      const payload = await response.json()
-      if (!Array.isArray(payload)) return [] as LogEntry[]
-      return payload.map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
-    },
-    enabled: Boolean(ticket?.id) && typeof phaseAttempt === 'number' && phaseAttempt > 0,
+  const [archivedLogsState, setArchivedLogsState] = useState<{ key: string | null, entries: LogEntry[] }>({
+    key: null,
+    entries: [],
   })
-  const isLoadingLogs = typeof phaseAttempt === 'number'
-    ? archivedLogsQuery.isLoading
+  const shouldLoadArchivedLogs = Boolean(ticket?.id) && typeof phaseAttempt === 'number' && phaseAttempt > 0
+  const archivedLogsKey = useMemo(() => {
+    if (!shouldLoadArchivedLogs || !ticket?.id || typeof phaseAttempt !== 'number') {
+      return null
+    }
+
+    return `${ticket.id}:${phase}:${phaseAttempt}`
+  }, [phase, phaseAttempt, shouldLoadArchivedLogs, ticket?.id])
+
+  useEffect(() => {
+    if (!archivedLogsKey || !ticket?.id || typeof phaseAttempt !== 'number') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    void fetch(`/api/files/${ticket.id}/logs?${new URLSearchParams({
+      phase,
+      phaseAttempt: String(phaseAttempt),
+    }).toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return [] as LogEntry[]
+        const payload = await response.json()
+        if (!Array.isArray(payload)) return [] as LogEntry[]
+        return payload.map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
+      })
+      .then((entries) => {
+        if (!controller.signal.aborted) {
+          setArchivedLogsState({ key: archivedLogsKey, entries })
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setArchivedLogsState({ key: archivedLogsKey, entries: [] })
+        }
+      })
+
+    return () => controller.abort()
+  }, [archivedLogsKey, phase, phaseAttempt, ticket?.id])
+
+  const isLoadingLogs = shouldLoadArchivedLogs
+    ? archivedLogsState.key !== archivedLogsKey
     : (logCtx?.isLoadingLogs ?? false)
   const phaseLogs: LogEntry[] = useMemo(
     () => propLogs
-      ?? (typeof phaseAttempt === 'number'
-        ? (archivedLogsQuery.data ?? [])
+      ?? (shouldLoadArchivedLogs
+        ? (archivedLogsState.key === archivedLogsKey ? archivedLogsState.entries : [])
         : (logCtx?.getLogsForPhase(phase) ?? [])),
-    [archivedLogsQuery.data, logCtx, phase, phaseAttempt, propLogs],
+    [archivedLogsKey, archivedLogsState.entries, archivedLogsState.key, logCtx, phase, propLogs, shouldLoadArchivedLogs],
   )
   const hasToolbarPrefix = toolbarPrefix != null
   const [activeTab, setActiveTab] = useState<string>(defaultTab ?? 'ALL')

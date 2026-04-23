@@ -54,6 +54,21 @@ function cleanDataForPersistence(data?: Record<string, unknown>): Record<string,
   return hasKeys ? cleaned : undefined
 }
 
+function resolvePhaseAttemptSafely(
+  ticketId: string,
+  phase: string,
+  phaseAttempt?: number,
+): number {
+  if (typeof phaseAttempt === 'number' && Number.isFinite(phaseAttempt) && phaseAttempt > 0) {
+    return phaseAttempt
+  }
+  try {
+    return resolvePhaseAttempt(ticketId, phase, phaseAttempt)
+  } catch {
+    return 1
+  }
+}
+
 /*
  * ── LOG SIZE BUDGET ──────────────────────────────────────────────────────
  *
@@ -95,7 +110,7 @@ export function appendLogEvent(
   const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
   const phaseAttempt = extra?.phaseAttempt
     ?? structured.phaseAttempt
-    ?? resolvePhaseAttempt(ticketId, phase, typeof data?.phaseAttempt === 'number' ? data.phaseAttempt : undefined)
+    ?? resolvePhaseAttemptSafely(ticketId, phase, typeof data?.phaseAttempt === 'number' ? data.phaseAttempt : undefined)
   const event: LogEvent = {
     timestamp,
     type,
@@ -185,7 +200,7 @@ export function createLogEvent(
   const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
   const phaseAttempt = extra?.phaseAttempt
     ?? structured.phaseAttempt
-    ?? resolvePhaseAttempt(ticketId, phase, typeof data?.phaseAttempt === 'number' ? data.phaseAttempt : undefined)
+    ?? resolvePhaseAttemptSafely(ticketId, phase, typeof data?.phaseAttempt === 'number' ? data.phaseAttempt : undefined)
   return {
     timestamp,
     type,

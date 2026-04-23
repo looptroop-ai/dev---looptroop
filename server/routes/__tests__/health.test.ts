@@ -2,9 +2,10 @@ import Database from 'better-sqlite3'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Hono } from 'hono'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
+import { getProjectDbPath } from '../../storage/paths'
 
 const repoManager = createFixtureRepoManager({
   templatePrefix: 'looptroop-health-route-',
@@ -239,5 +240,140 @@ describe('health startup routes', () => {
 
     expect(afterDismissPayload.ui.restoreNotice.shouldShow).toBe(false)
     expect(afterDismissPayload.ui.restoreNotice.dismissedAt).toBe(dismissPayload.dismissedAt)
+  })
+
+  it('migrates attached legacy project databases before startup reads them', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'looptroop-health-legacy-project-'))
+    tempRoots.add(tempRoot)
+    const configDir = join(tempRoot, 'config')
+    const repoDir = repoManager.createRepo()
+    const projectDbPath = getProjectDbPath(repoDir)
+
+    mkdirSync(dirname(projectDbPath), { recursive: true })
+    const legacyProjectDb = new Database(projectDbPath)
+    legacyProjectDb.exec(`
+      CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        shortname TEXT NOT NULL,
+        icon TEXT DEFAULT '📁',
+        color TEXT DEFAULT '#3b82f6',
+        folder_path TEXT NOT NULL,
+        profile_id INTEGER,
+        council_members TEXT,
+        max_iterations INTEGER,
+        per_iteration_timeout INTEGER,
+        council_response_timeout INTEGER,
+        min_council_quorum INTEGER,
+        interview_questions INTEGER,
+        ticket_counter INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        external_id TEXT NOT NULL UNIQUE,
+        project_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        priority INTEGER DEFAULT 3,
+        status TEXT NOT NULL DEFAULT 'DRAFT',
+        xstate_snapshot TEXT,
+        branch_name TEXT,
+        current_bead INTEGER,
+        total_beads INTEGER,
+        percent_complete REAL,
+        error_message TEXT,
+        locked_main_implementer TEXT,
+        locked_council_members TEXT,
+        started_at TEXT,
+        planned_date TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE phase_artifacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        phase TEXT NOT NULL,
+        artifact_type TEXT,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE opencode_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        ticket_id INTEGER,
+        phase TEXT NOT NULL,
+        member_id TEXT,
+        bead_id TEXT,
+        iteration INTEGER,
+        state TEXT NOT NULL DEFAULT 'active',
+        last_event_id TEXT,
+        last_event_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `)
+    legacyProjectDb.prepare(`
+      INSERT INTO projects (name, shortname, folder_path)
+      VALUES (?, ?, ?)
+    `).run('Legacy Project', 'LEG', repoDir)
+    legacyProjectDb.close()
+
+    const seedApp = await loadHealthApp(configDir)
+    seedApp.initializeDatabase()
+    seedApp.sqlite.prepare(`
+      INSERT INTO attached_projects (folder_path)
+      VALUES (?)
+    `).run(repoDir)
+    await closeLoadedHealthApp(seedApp)
+
+    activeApp = await loadHealthApp(configDir)
+    activeApp.initializeDatabase()
+    activeApp.initializeStartupState()
+
+    const response = await activeApp.app.request('/api/health/startup')
+    expect(response.status).toBe(200)
+
+    const payload = await response.json() as {
+      storage: {
+        kind: string
+        restoredProjectCount: number
+        restoredProjects: Array<{ name: string; shortname: string; folderPath: string }>
+      }
+    }
+
+    expect(payload.storage.kind).toBe('restored')
+    expect(payload.storage.restoredProjectCount).toBe(1)
+    expect(payload.storage.restoredProjects).toEqual([
+      {
+        name: 'Legacy Project',
+        shortname: 'LEG',
+        folderPath: repoDir,
+      },
+    ])
+
+    const migratedProjectDb = new Database(projectDbPath, { readonly: true })
+    const phaseArtifactColumns = migratedProjectDb.prepare('PRAGMA table_info(phase_artifacts)').all() as Array<{ name: string }>
+    const sessionColumns = migratedProjectDb.prepare('PRAGMA table_info(opencode_sessions)').all() as Array<{ name: string }>
+    const tables = migratedProjectDb.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'ticket_phase_attempts'
+    `).all() as Array<{ name: string }>
+    const artifactIndexes = migratedProjectDb.prepare('PRAGMA index_list(phase_artifacts)').all() as Array<{ name: string }>
+    const sessionIndexes = migratedProjectDb.prepare('PRAGMA index_list(opencode_sessions)').all() as Array<{ name: string }>
+    migratedProjectDb.close()
+
+    expect(phaseArtifactColumns.map((column) => column.name)).toContain('phase_attempt')
+    expect(phaseArtifactColumns.map((column) => column.name)).toContain('updated_at')
+    expect(sessionColumns.map((column) => column.name)).toContain('phase_attempt')
+    expect(sessionColumns.map((column) => column.name)).toContain('step')
+    expect(tables).toEqual([{ name: 'ticket_phase_attempts' }])
+    expect(artifactIndexes.map((index) => index.name)).toContain('idx_phase_artifacts_ticket_phase_attempt')
+    expect(sessionIndexes.map((index) => index.name)).toContain('idx_sessions_ticket_phase_step')
   })
 })

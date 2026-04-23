@@ -656,7 +656,13 @@ function resolveApprovalPhase(artifactType: ApprovalViewProps['artifactType'], p
 export function ApprovalView({ ticket, phase, artifactType, readOnly }: ApprovalViewProps) {
   const resolvedPhase = resolveApprovalPhase(artifactType, phase)
   const { data: attempts = [] } = useTicketPhaseAttempts(ticket.id, resolvedPhase)
-  const [selectedAttemptNumber, setSelectedAttemptNumber] = useState<number | null>(null)
+  const [manualSelectedAttemptNumber, setManualSelectedAttemptNumber] = useState<number | null>(null)
+  const selectedAttemptNumber = useMemo(() => {
+    if (manualSelectedAttemptNumber != null && attempts.some((attempt) => attempt.attemptNumber === manualSelectedAttemptNumber)) {
+      return manualSelectedAttemptNumber
+    }
+    return (attempts.find((attempt) => attempt.state === 'active') ?? attempts[0])?.attemptNumber ?? null
+  }, [attempts, manualSelectedAttemptNumber])
   const selectedAttempt = useMemo(
     () => attempts.find((attempt) => attempt.attemptNumber === selectedAttemptNumber)
       ?? attempts.find((attempt) => attempt.state === 'active')
@@ -665,27 +671,13 @@ export function ApprovalView({ ticket, phase, artifactType, readOnly }: Approval
     [attempts, selectedAttemptNumber],
   )
 
-  useEffect(() => {
-    if (attempts.length === 0) {
-      setSelectedAttemptNumber(null)
-      return
-    }
-    const activeAttempt = attempts.find((attempt) => attempt.state === 'active') ?? attempts[0]
-    setSelectedAttemptNumber((current) => {
-      if (current != null && attempts.some((attempt) => attempt.attemptNumber === current)) {
-        return current
-      }
-      return activeAttempt?.attemptNumber ?? null
-    })
-  }, [attempts])
-
   const archivedAttemptNumber = selectedAttempt?.state === 'archived' ? selectedAttempt.attemptNumber : undefined
   const selector = attempts.length > 1 ? (
     <div className="px-4 pt-4 shrink-0">
       <PhaseAttemptSelector
         attempts={attempts}
         value={selectedAttempt?.attemptNumber ?? attempts[0]!.attemptNumber}
-        onChange={setSelectedAttemptNumber}
+        onChange={setManualSelectedAttemptNumber}
       />
     </div>
   ) : null

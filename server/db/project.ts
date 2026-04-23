@@ -146,12 +146,7 @@ function initializeProjectSqlite(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_project_tickets_status ON tickets(status);
     CREATE INDEX IF NOT EXISTS idx_project_tickets_external_id ON tickets(external_id);
     CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket ON phase_artifacts(ticket_id);
-    CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket_phase_attempt ON phase_artifacts(ticket_id, phase, phase_attempt);
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase ON opencode_sessions(ticket_id, phase, state);
-    CREATE INDEX IF NOT EXISTS idx_ticket_phase_attempts_ticket_phase
-      ON ticket_phase_attempts(ticket_id, phase, state, attempt_number);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_phase_attempts_unique
-      ON ticket_phase_attempts(ticket_id, phase, attempt_number);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_error_occurrences_ticket_sequence
       ON ticket_error_occurrences(ticket_id, occurrence_number);
     CREATE INDEX IF NOT EXISTS idx_ticket_error_occurrences_open
@@ -163,10 +158,11 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   ensureColumn(sqlite, 'tickets', 'locked_max_coverage_passes', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_main_implementer_variant', 'TEXT')
   ensureColumn(sqlite, 'tickets', 'locked_council_member_variants', 'TEXT')
+  ensureColumn(sqlite, 'opencode_sessions', 'phase_attempt', 'INTEGER DEFAULT 1')
   ensureColumn(sqlite, 'opencode_sessions', 'step', 'TEXT')
   ensureColumn(sqlite, 'projects', 'execution_setup_timeout', 'INTEGER')
   ensureColumn(sqlite, 'phase_artifacts', 'phase_attempt', 'INTEGER NOT NULL DEFAULT 1')
-  ensureColumn(sqlite, 'phase_artifacts', 'updated_at', 'TEXT DEFAULT (datetime(\'now\'))')
+  ensureColumn(sqlite, 'phase_artifacts', 'updated_at', 'TEXT')
 
   sqlite.exec(`
     UPDATE phase_artifacts
@@ -179,6 +175,12 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   `)
 
   sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_phase_artifacts_ticket_phase_attempt
+      ON phase_artifacts(ticket_id, phase, phase_attempt);
+    CREATE INDEX IF NOT EXISTS idx_ticket_phase_attempts_ticket_phase
+      ON ticket_phase_attempts(ticket_id, phase, state, attempt_number);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_phase_attempts_unique
+      ON ticket_phase_attempts(ticket_id, phase, attempt_number);
     CREATE INDEX IF NOT EXISTS idx_sessions_ticket_phase_step
       ON opencode_sessions(ticket_id, phase, phase_attempt, member_id, bead_id, iteration, step, state);
   `)

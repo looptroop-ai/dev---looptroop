@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { CalendarDays, Loader2 } from 'lucide-react'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
@@ -24,7 +24,13 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
   const councilMemberCount = councilMemberNames.length || 3
   const isDraft = phase === 'DRAFT'
   const { data: attempts = [] } = useTicketPhaseAttempts(ticket.id, phase)
-  const [selectedAttemptNumber, setSelectedAttemptNumber] = useState<number | null>(null)
+  const [manualSelectedAttemptNumber, setManualSelectedAttemptNumber] = useState<number | null>(null)
+  const selectedAttemptNumber = useMemo(() => {
+    if (manualSelectedAttemptNumber != null && attempts.some((attempt) => attempt.attemptNumber === manualSelectedAttemptNumber)) {
+      return manualSelectedAttemptNumber
+    }
+    return (attempts.find((attempt) => attempt.state === 'active') ?? attempts[0])?.attemptNumber ?? null
+  }, [attempts, manualSelectedAttemptNumber])
   const selectedAttempt = useMemo(
     () => attempts.find((attempt) => attempt.attemptNumber === selectedAttemptNumber)
       ?? attempts.find((attempt) => attempt.state === 'active')
@@ -37,20 +43,6 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
     phase,
     ...(archivedAttemptNumber != null ? { phaseAttempt: archivedAttemptNumber } : {}),
   })
-
-  useEffect(() => {
-    if (attempts.length === 0) {
-      setSelectedAttemptNumber(null)
-      return
-    }
-    const activeAttempt = attempts.find((attempt) => attempt.state === 'active') ?? attempts[0]
-    setSelectedAttemptNumber((current) => {
-      if (current != null && attempts.some((attempt) => attempt.attemptNumber === current)) {
-        return current
-      }
-      return activeAttempt?.attemptNumber ?? null
-    })
-  }, [attempts])
 
   if (isLoadingArtifacts) {
     return (
@@ -70,7 +62,7 @@ export function PhaseReviewView({ phase, ticket }: PhaseReviewViewProps) {
           <PhaseAttemptSelector
             attempts={attempts}
             value={selectedAttempt?.attemptNumber ?? attempts[0]!.attemptNumber}
-            onChange={setSelectedAttemptNumber}
+            onChange={setManualSelectedAttemptNumber}
           />
         ) : null}
         {!isDraft && (

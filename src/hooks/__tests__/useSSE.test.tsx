@@ -131,10 +131,11 @@ describe('useSSE', () => {
     expect(firstOnEvent).not.toHaveBeenCalled()
     expect(queryClient.getQueryData(['ticket', ticketId])).toEqual({
       id: ticketId,
+      previousStatus: 'DRAFTING_PRD',
       status: 'REFINING_PRD',
     })
     expect(queryClient.getQueryData(['tickets'])).toEqual([
-      { id: ticketId, status: 'REFINING_PRD' },
+      { id: ticketId, previousStatus: 'DRAFTING_PRD', status: 'REFINING_PRD' },
       { id: '1:T-43', status: 'CODING' },
     ])
 
@@ -150,10 +151,11 @@ describe('useSSE', () => {
       expect(secondOnEvent).toHaveBeenCalledTimes(2)
       expect(queryClient.getQueryData(['ticket', ticketId])).toEqual({
         id: ticketId,
+        previousStatus: 'REFINING_PRD',
         status: 'CODING',
       })
       expect(queryClient.getQueryData(['tickets'])).toEqual([
-        { id: ticketId, status: 'CODING' },
+        { id: ticketId, previousStatus: 'REFINING_PRD', status: 'CODING' },
         { id: '1:T-43', status: 'CODING' },
       ])
     })

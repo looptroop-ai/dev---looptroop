@@ -13,7 +13,7 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
 
   it('warns about PRD and Beads when editing interview at Beads approval', () => {
     expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'interview')).toBe(
-      'Editing Interview Results will restart the PRD and Beads phases. All previous PRD and Beads data will be lost.',
+      'Editing Interview Results will restart the PRD and Beads phases. Previous PRD and Beads data cannot continue, but they will be archived and remain available read-only.',
     )
   })
 
@@ -23,13 +23,13 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
 
   it('warns when editing PRD once Beads drafting has started', () => {
     expect(getCascadeEditWarningMessage('DRAFTING_BEADS', 'prd')).toBe(
-      'Editing the PRD will restart the Beads phase. All previous Beads data will be lost.',
+      'Editing the PRD will restart the Beads phase. Previous Beads data cannot continue, but they will be archived and remain available read-only.',
     )
   })
 
   it('keeps warning when editing PRD during later execution phases', () => {
     expect(getCascadeEditWarningMessage('PRE_FLIGHT_CHECK', 'prd')).toBe(
-      'Editing the PRD will restart the Beads phase. All previous Beads data will be lost.',
+      'Editing the PRD will restart the Beads phase. Previous Beads data cannot continue, but they will be archived and remain available read-only.',
     )
   })
 

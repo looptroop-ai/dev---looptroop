@@ -201,7 +201,7 @@ describe('PrdApprovalPane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 
     expect(screen.getByText('Cascading Edit Warning')).toBeInTheDocument()
-    expect(screen.getByText('Editing the PRD will restart the Beads phase. All previous Beads data will be lost.')).toBeInTheDocument()
+    expect(screen.getByText('Editing the PRD will restart the Beads phase. Previous Beads data cannot continue, but they will be archived and remain available read-only.')).toBeInTheDocument()
     expect(screen.queryByLabelText('structured-prd-editor')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Proceed with Edit' }))

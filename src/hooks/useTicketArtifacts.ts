@@ -23,7 +23,10 @@ export function normalizeTicketArtifact(input: unknown, fallbackTicketId?: strin
   const phase = typeof raw.phase === 'string' ? raw.phase : null
   const phaseAttempt = typeof raw.phaseAttempt === 'number' && Number.isFinite(raw.phaseAttempt)
     ? raw.phaseAttempt
-    : Number(raw.phaseAttempt)
+    : (() => {
+        const parsed = Number(raw.phaseAttempt)
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+      })()
   const artifactType = typeof raw.artifactType === 'string'
     ? raw.artifactType
     : raw.artifactType == null
