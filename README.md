@@ -1,13 +1,13 @@
 # LoopTroop
 
-> Slow, deliberate, and durable AI feature delivery for real repositories.
+> Durable repo-scale AI delivery through council planning, isolated worktrees, and explicit approvals.
 
 > [!TIP]
-> **New to LoopTroop?** Start with our [Getting Started Guide](docs/getting-started.md) and check out the [FAQ](docs/faq.md) to learn how LoopTroop differs from standard AI coding assistants.
+> **New to LoopTroop?** Start with the [Docs Home](docs/index.md), then read the [Getting Started Guide](docs/getting-started.md) and [FAQ](docs/faq.md).
 
-LoopTroop is a local orchestration app for repo-sized coding work. It attaches to a GitHub-backed project, plans through an interview, a PRD, and an execution bead plan, then executes the work inside isolated worktrees with fresh OpenCode sessions, explicit recovery paths, and human approval gates.
+LoopTroop is a local orchestration app for repository-sized coding work. It attaches to a GitHub-backed project, drives the ticket through interview, PRD, and beads planning, then executes the approved plan inside isolated worktrees with fresh OpenCode sessions, explicit recovery paths, and human approval gates.
 
-`docs/system-architecture.md` is the canonical reference for the current system.
+`docs/system-architecture.md` is the canonical reference for the current runtime.
 
 ## Why LoopTroop Exists
 
@@ -26,52 +26,51 @@ See [Core Philosophy](docs/core-philosophy.md), [Context Isolation](docs/context
 
 ```mermaid
 flowchart LR
-    A[Draft Ticket] --> B[Scan Relevant Files]
+    A[Draft Ticket] --> B[Relevant File Scan]
     B --> C[Interview Council]
-    C --> D[Interview Approval]
-    D --> E[PRD Council]
-    E --> F[PRD Approval]
-    F --> G[Beads Council]
-    G --> H[Beads Approval]
-    H --> I[Execution Setup]
-    I --> J[Bead-by-Bead Coding]
-    J --> K[Final Test]
-    K --> L[PR Delivery]
-    L --> M[Completed or Review Follow-up]
+    C --> D[PRD Council]
+    D --> E[Beads Council]
+    E --> F[Workspace Setup Approval]
+    F --> G[Bead-by-Bead Coding]
+    G --> H[PR Review and Finish]
 ```
 
-The current phase list, UI groupings, and review behavior are documented in [State Machine](docs/state-machine.md).
+For the full status lifecycle, approval gates, and recovery rules, see [Ticket Flow](docs/ticket-flow.md) and [State Machine](docs/state-machine.md).
 
-## Canonical Docs
+## Documentation
 
 | Document | What it covers |
 | --- | --- |
+| [Docs Home](docs/index.md) | Cross-doc navigation hub and recommended reading paths |
 | [System Architecture](docs/system-architecture.md) | Current runtime architecture, storage ownership, lifecycle, diagrams |
+| [Ticket Flow](docs/ticket-flow.md) | End-to-end status lifecycle, approval gates, retries, delivery outcomes |
+| [State Machine](docs/state-machine.md) | Canonical phase inventory and transition model |
 | [Core Philosophy](docs/core-philosophy.md) | Design principles behind context control, council flow, retries, approvals |
 | [Context Isolation](docs/context-isolation.md) | Per-phase context allowlists, token budget, trimming, cache behavior |
 | [LLM Council](docs/llm-council.md) | Draft, vote, refine orchestration across interview, PRD, and beads |
 | [Execution Loop](docs/execution-loop.md) | Bead execution, retry discipline, context wipe notes, recovery |
 | [Beads](docs/beads.md) | Bead model, storage, scheduler behavior, execution semantics |
-| [State Machine](docs/state-machine.md) | The current workflow phases and transition model |
 | [Database Schema](docs/database-schema.md) | App DB, project DB, tables, and ownership boundaries |
 | [API Reference](docs/api-reference.md) | HTTP routes, SSE events, and example payloads |
 | [Frontend](docs/frontend.md) | Workspace composition, hooks, live updates, review surfaces |
 | [OpenCode Integration](docs/opencode-integration.md) | Adapter, session manager, reconnect behavior, streaming |
-| [Getting Started](docs/getting-started.md) | Local setup, free OpenRouter models, and beginner guide |
-| [FAQ](docs/faq.md) | Frequently asked questions about beads, councils, and architecture |
+| [Roadmap](docs/roadmap.md) | Current priorities and future directions |
+| [FAQ](docs/faq.md) | Frequently asked questions about terms, workflow, safety, and artifacts |
 
 ## Getting Started
 
-Ready to install LoopTroop and build your AI Council? 
-Head over to the **[Getting Started Guide](docs/getting-started.md)** for step-by-step instructions, system requirements, and tips on accessing free models via OpenRouter.
+Install dependencies:
 
-## Repository Shape
-
-```text
-src/        React application, workspace UI, hooks
-server/     Hono API, workflow phases, persistence, OpenCode adapter
-shared/     Phase metadata, shared types, app config
-docs/       Canonical documentation for the current system
+```bash
+npm install
 ```
 
-For the detailed runtime breakdown, start with [System Architecture](docs/system-architecture.md).
+Then start the app:
+
+```bash
+npm run dev
+```
+
+For the full setup flow, environment variables, and OpenCode expectations, read the [Getting Started Guide](docs/getting-started.md).
+
+For the runtime module layout after the removed repository-shape snapshot, see [Docs Home](docs/index.md) and the [System Architecture module map](docs/system-architecture.md#module-map).

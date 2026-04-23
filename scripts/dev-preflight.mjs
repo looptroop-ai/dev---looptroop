@@ -13,7 +13,7 @@ const trackedManifests = [
   resolve(repoRoot, 'package.json'),
   resolve(repoRoot, 'package-lock.json'),
 ]
-const requiredDevBins = ['tsx', 'vite', 'concurrently']
+const requiredDevBins = ['tsx', 'vite', 'vitepress', 'concurrently']
 
 function pathExists(path) {
   try {

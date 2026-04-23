@@ -1,0 +1,52 @@
+:root {
+  --vp-c-brand-1: #0c6d7c;
+  --vp-c-brand-2: #1594a6;
+  --vp-c-brand-3: #1aaec2;
+  --vp-c-brand-soft: rgba(21, 148, 166, 0.14);
+  --vp-home-hero-name-color: #0b3942;
+  --vp-home-hero-image-background-image: radial-gradient(circle at top, rgba(26, 174, 194, 0.22), transparent 65%);
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+.mermaid-block {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(244, 249, 250, 0.95));
+  overflow-x: auto;
+}
+
+.dark .mermaid-block {
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.9), rgba(10, 14, 22, 0.96));
+}
+
+.mermaid-diagram {
+  min-width: 520px;
+}
+
+.mermaid-diagram.is-hidden {
+  display: none;
+}
+
+.mermaid-diagram svg {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-fallback {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.mermaid-error {
+  margin: 0;
+  color: #b42318;
+  font-weight: 600;
+}
+
+.dark .mermaid-error {
+  color: #ff9f9f;
+}

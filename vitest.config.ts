@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { getBackendOrigin } from './shared/appConfig'
+import { getBackendOrigin, getDocsOrigin } from './shared/appConfig'
 
 // Never add tests that hard-code ticket/project-specific fixture ids, refs, shortnames, or worktree names.
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -68,6 +68,7 @@ export default defineConfig({
   resolve: sharedResolve,
   define: {
     __LOOPTROOP_DEV_BACKEND_ORIGIN__: JSON.stringify(getBackendOrigin()),
+    __LOOPTROOP_DOCS_ORIGIN__: JSON.stringify(getDocsOrigin()),
   },
   test: {
     globals: true,

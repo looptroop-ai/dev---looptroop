@@ -1,35 +1,113 @@
 # Frequently Asked Questions
 
-If you're new to LoopTroop, some of the terminology and processes might seem unfamiliar. Here are answers to common questions about how LoopTroop works.
+If you are new to LoopTroop, some of the terminology and workflow choices can look unfamiliar. This page answers the common operational questions and links to the deeper docs that own the details.
 
-## What is a "Bead"?
-A **Bead** is the smallest unit of executable work. Instead of telling the AI to "build this entire feature," LoopTroop breaks the feature down into a string of small, manageable tasks (Beads). 
-Each bead has specific files to edit, acceptance criteria, and its own isolated testing phase. This prevents the AI from getting overwhelmed.
+## What is a bead?
 
-## Why use LoopTroop instead of just asking ChatGPT or Claude?
-When you ask a chat interface to build a complex feature, it works well at first. But as the conversation grows, the AI suffers from **Context Degradation** (it starts forgetting earlier constraints or hallucinating). Furthermore, if it makes a mistake, it tries to fix it *within the same broken conversation*, often spiraling out of control.
+A bead is LoopTroop's smallest execution unit. Instead of asking one model to build an entire feature in one long session, LoopTroop breaks the approved plan into smaller tasks with acceptance criteria, dependencies, target files, and tests.
 
-LoopTroop solves this by:
-1. Orchestrating a **Council** of AIs to plan the feature properly before writing any code.
-2. Breaking the work into **Beads**.
-3. Starting a **fresh, clean session** for every single coding attempt, giving the AI only the exact files and context it needs.
+Read more: [Beads](beads.md)
 
-## What is the "Ralph Loop"?
-If an AI model fails to write the correct code for a Bead, LoopTroop uses a bounded "Ralph-Style Retry." 
-Instead of letting the AI apologize and try again in the same chat thread, LoopTroop:
-1. Writes a "Wipe Note" (a short summary of what went wrong).
-2. Hard resets the code back to the starting point.
-3. Starts a completely new chat session with the fresh code and the Wipe Note.
+## What is the full ticket lifecycle?
 
-This acts like taking a breather and starting over with a clear head, preventing the "death spiral" of bad code.
+A ticket starts in `DRAFT`, moves through relevant-file scanning, interview, PRD, and beads planning, pauses at multiple approval gates, then enters execution setup, bead-by-bead coding, final verification, PR delivery, and cleanup. It can also route into `BLOCKED_ERROR` for manual retry or into `CANCELED` as a terminal outcome.
 
-## Why does LoopTroop use multiple models (an LLM Council)?
-Single-draft planning is risky because every AI model has blind spots. By forcing multiple models to draft plans independently, and then having them vote and refine the best ideas, you end up with a much more robust architecture and edge-case coverage. It's exactly like how human engineering teams review each other's work before merging a PR.
+Read more: [Ticket Flow](ticket-flow.md), [State Machine](state-machine.md)
 
-## Does LoopTroop edit my main codebase directly?
-**No.** LoopTroop does all of its execution inside isolated `git worktrees`. This means your main branch and your current working directory remain completely untouched while the AI experiments and builds. Only when all tests pass and you approve the changes does it generate a Pull Request.
+## Why use LoopTroop instead of just asking ChatGPT or Claude for code?
 
-## How do I customize which AI models LoopTroop uses?
-You configure your available models through your **OpenCode** server. We highly recommend using services like **OpenRouter** which aggregate many models (including high-quality free ones like `Llama-3.3-70B-Instruct`) so your AI Council has a diverse set of "brains" to draw from.
+Plain chat loops tend to degrade as context grows. Planning quality is fragile, retries often happen in the same polluted session, and important workflow state lives only in the conversation unless you externalize it yourself.
 
-For more details, see the [Getting Started Guide](getting-started.md).
+LoopTroop responds by:
+
+1. forcing structured planning before coding
+2. using a council instead of a single first draft
+3. rebuilding context from durable artifacts at each phase
+4. isolating execution in ticket worktrees
+5. requiring human approval at the expensive boundaries
+
+Read more: [Core Philosophy](core-philosophy.md), [Context Isolation](context-isolation.md)
+
+## What is an LLM council?
+
+In LoopTroop, an `LLM council` means a structured multi-model workflow:
+
+1. independent draft generation
+2. anonymized voting
+3. winner refinement
+4. coverage verification
+
+It is not a free-form multi-agent chat room. The term is useful, but it is not a universal standard term. LoopTroop uses it for a very specific planning contract.
+
+Read more: [LLM Council](llm-council.md), [Core Philosophy](core-philosophy.md)
+
+## What is a Ralph-style retry?
+
+It is LoopTroop's fresh-session recovery pattern for failed coding attempts. Instead of arguing with a model inside the same broken transcript, LoopTroop records what failed, resets back to the bead start snapshot, and retries in fresh context with a compact wipe note.
+
+The term is a community pattern, not an official standard. LoopTroop uses it in a bounded way with retry limits and explicit blockage when trust is gone.
+
+Read more: [Execution Loop](execution-loop.md), [Core Philosophy](core-philosophy.md)
+
+## Does LoopTroop edit my main checkout directly?
+
+No. LoopTroop executes in a ticket-owned `git worktree`, not in the attached project checkout you normally work from. That keeps the main checkout out of the execution blast radius while still letting LoopTroop produce a reviewable branch and PR.
+
+Read more: [System Architecture](system-architecture.md), [Execution Loop](execution-loop.md)
+
+## Why are worktrees so important here?
+
+Worktrees are what make LoopTroop's retry and recovery model practical. They let the system keep ticket artifacts and code changes together, reset a bead to a known commit boundary, and clean up ticket-local runtime state without confusing that with your normal development workspace.
+
+LoopTroop uses an official Git feature for this, not a custom repository format.
+
+Read more: [Ticket Flow](ticket-flow.md), [System Architecture](system-architecture.md), Git’s official [`git worktree`](https://git-scm.com/docs/git-worktree.html) docs
+
+## Why mention VMs or stronger isolation if worktrees already exist?
+
+Because worktrees solve repository isolation, not host isolation. If an agent can execute commands for hours, a disposable VM, cloud desktop, or similarly sandboxed host gives you an extra safety boundary around the whole machine, not just around the repo checkout.
+
+The short version:
+
+- worktrees protect the repo boundary
+- VMs or sandboxes protect the host boundary
+
+Read more: [Core Philosophy](core-philosophy.md), [System Architecture](system-architecture.md)
+
+## What does `BLOCKED_ERROR` mean?
+
+It means the workflow hit a failure that LoopTroop decided not to continue through automatically. The system stores the exact `previousStatus`, captures error details and history, and waits for you to either retry that phase or cancel the ticket.
+
+It is a recovery state, not a silent dead end.
+
+Read more: [Ticket Flow](ticket-flow.md), [State Machine](state-machine.md)
+
+## What happens during PR review?
+
+After coding, final test, integration, and PR creation, the ticket pauses in `WAITING_PR_REVIEW`. From there you can:
+
+- merge the PR and finish
+- finish without merge
+- cancel the ticket
+
+LoopTroop treats both successful merge and deliberate close-unmerged as valid delivery outcomes, then cleans up transient runtime state and marks the ticket complete.
+
+Read more: [Ticket Flow](ticket-flow.md)
+
+## Where do the important artifacts live?
+
+The short map is:
+
+- app-level metadata: app SQLite
+- project-level workflow state: project SQLite
+- human-readable ticket artifacts: `.ticket/**` in the ticket worktree
+- bead plan: `.ticket/beads/<flow>/.beads/issues.jsonl`
+- runtime logs: `.ticket/runtime/execution-log.jsonl`
+
+Read more: [System Architecture](system-architecture.md), [Database Schema](database-schema.md)
+
+## How do I customize which models LoopTroop uses?
+
+LoopTroop reads available models through OpenCode. Your profile and project settings decide the main implementer and council members, and the final model configuration is locked when the ticket starts.
+
+Read more: [Getting Started](getting-started.md), [OpenCode Integration](opencode-integration.md)

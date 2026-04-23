@@ -10,6 +10,9 @@
     "dev:opencode": "tsx scripts/dev-opencode.ts",
     "dev:frontend": "env -u NO_COLOR vite",
     "dev:backend": "env -u NO_COLOR CHOKIDAR_USEPOLLING=1 tsx watch server/index.ts",
+    "docs:dev": "tsx scripts/dev-docs.ts",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "diagnose:stall": "tsx scripts/diagnose-runtime-stall.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -82,10 +85,12 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.3.0",
     "jsdom": "^28.1.0",
+    "mermaid": "^11.14.0",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
     "typescript": "5.9",
     "typescript-eslint": "^8.56.1",
+    "vitepress": "^1.6.4",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
   }

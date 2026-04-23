@@ -51,7 +51,7 @@ Thumbs.db
 # Temp analysis/debug/scratch files at root
 /*.md
 !README.md
-!architecture.md
+architecture.md
 /*.txt
 /*.log
 /fix-*.ts
@@ -76,3 +76,5 @@ playwright-report/
 test-results/
 .playwright/
 .cache/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

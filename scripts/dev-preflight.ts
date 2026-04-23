@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import net from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { getBackendPort, getFrontendPort } from '../shared/appConfig'
+import { getBackendPort, getDocsPort, getFrontendPort } from '../shared/appConfig'
 import {
   buildProcessGraph,
   collectProcessTree,
@@ -22,6 +22,12 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
 const verboseLogging = process.env.LOOPTROOP_DEV_VERBOSE === '1'
+
+const configuredPorts = [
+  { label: 'frontend', port: getFrontendPort() },
+  { label: 'backend', port: getBackendPort() },
+  { label: 'docs', port: getDocsPort() },
+]
 
 function listProcesses() {
   const output = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], { encoding: 'utf8' })
@@ -159,6 +165,32 @@ async function reclaimOccupiedPorts(ports: number[]) {
   return true
 }
 
+function ensureDistinctConfiguredPorts() {
+  const labelsByPort = new Map<number, string[]>()
+
+  for (const { label, port } of configuredPorts) {
+    const labels = labelsByPort.get(port) ?? []
+    labels.push(label)
+    labelsByPort.set(port, labels)
+  }
+
+  let hasConflict = false
+  for (const [port, labels] of labelsByPort) {
+    if (labels.length < 2) continue
+    hasConflict = true
+    console.error(
+      `[dev-preflight] Port configuration conflict: ${labels.join(', ')} all use ${port}. ` +
+      'Set LOOPTROOP_FRONTEND_PORT, LOOPTROOP_BACKEND_PORT, and LOOPTROOP_DOCS_PORT to distinct values.',
+    )
+  }
+
+  if (hasConflict) {
+    process.exit(1)
+  }
+}
+
+ensureDistinctConfiguredPorts()
+
 const processes = listProcesses()
 const graph = buildProcessGraph(processes)
 const protectedPids = collectProtectedPids(process.pid, graph)
@@ -180,12 +212,12 @@ if (staleRoots.size > 0) {
   await sleep(500)
 }
 
-const reclaimed = await reclaimOccupiedPorts([getFrontendPort(), getBackendPort()])
+const reclaimed = await reclaimOccupiedPorts(configuredPorts.map(({ port }) => port))
 if (!reclaimed) {
   process.exit(1)
 }
 
-for (const port of [getFrontendPort(), getBackendPort()]) {
+for (const { label, port } of configuredPorts) {
   try {
     await ensurePortFree(port)
   } catch (error) {
@@ -210,7 +242,7 @@ for (const port of [getFrontendPort(), getBackendPort()]) {
     } catch (retryError) {
       const updatedInspection = inspectPortOccupants(port)
       const message = retryError instanceof Error ? retryError.message : String(retryError)
-      console.error(`[dev-preflight] Cannot start LoopTroop on port ${port}: ${message}`)
+      console.error(`[dev-preflight] Cannot start LoopTroop ${label} service on port ${port}: ${message}`)
       console.error(`[dev-preflight] ${describePortOccupants(port, updatedInspection)}`)
       if (verboseLogging && updatedInspection.rawSocketSnapshot) {
         console.error('[dev-preflight] Listener snapshot:')

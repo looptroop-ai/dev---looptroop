@@ -1,8 +1,8 @@
 # State Machine
 
-The current workflow source of truth is `shared/workflowMeta.ts`.
+The canonical workflow metadata lives in `shared/workflowMeta.ts`, and the executable transition rules live in `server/machines/ticketMachine.ts`.
 
-LoopTroop does not have a tiny status list. It has a staged workflow that separates backlog, interview, PRD, beads, execution, approval, delivery, cancellation, and blocked recovery states.
+Use this page for the phase inventory and transition model. Use [Ticket Flow](ticket-flow.md) for the end-to-end lifecycle narrative and artifact story.
 
 ## Workflow Groups
 
@@ -50,96 +50,129 @@ LoopTroop does not have a tiny status list. It has a staged workflow that separa
 | `CANCELED` | Canceled | `done` | `canceled` | — | no | no | — |
 | `BLOCKED_ERROR` | Error (reason) | `execution` | `error` | — | no | no | — |
 
-## High-Level Flow
+## Transition Model
 
 ```mermaid
-flowchart TD
-    A[DRAFT]
-    A --> B[Interview group]
-    B --> C[WAITING_INTERVIEW_APPROVAL]
-    C --> D[PRD group]
-    D --> E[WAITING_PRD_APPROVAL]
-    E --> F[Beads group]
-    F --> G[WAITING_BEADS_APPROVAL]
-    G --> H[PRE_FLIGHT_CHECK]
-    H --> I[WAITING_EXECUTION_SETUP_APPROVAL]
-    I --> J[PREPARING_EXECUTION_ENV]
-    J --> K[CODING]
-    K --> L[RUNNING_FINAL_TEST]
-    L --> M[INTEGRATING_CHANGES]
-    M --> N[CREATING_PULL_REQUEST]
-    N --> O[WAITING_PR_REVIEW]
-    O --> P[CLEANING_ENV]
-    P --> Q[COMPLETED]
+stateDiagram-v2
+    direction LR
 
-    B --> B
-    D --> D
-    F --> F
-    K --> K
+    [*] --> DRAFT
 
-    A --> R[CANCELED]
-    B --> S[BLOCKED_ERROR]
-    D --> S
-    F --> S
-    H --> S
-    I --> S
-    J --> S
-    K --> S
-    L --> S
-    M --> S
-    N --> S
-    O --> S
+    DRAFT --> SCANNING_RELEVANT_FILES: START
+    DRAFT --> CANCELED: CANCEL
+
+    SCANNING_RELEVANT_FILES --> COUNCIL_DELIBERATING: RELEVANT_FILES_READY
+
+    COUNCIL_DELIBERATING --> COUNCIL_VOTING_INTERVIEW: DRAFTS_READY
+    COUNCIL_VOTING_INTERVIEW --> COMPILING_INTERVIEW: WINNER_SELECTED
+    COMPILING_INTERVIEW --> WAITING_INTERVIEW_ANSWERS: READY
+    WAITING_INTERVIEW_ANSWERS --> VERIFYING_INTERVIEW_COVERAGE: BATCH_ANSWERED
+    WAITING_INTERVIEW_ANSWERS --> WAITING_INTERVIEW_APPROVAL: SKIP_ALL_TO_APPROVAL
+    VERIFYING_INTERVIEW_COVERAGE --> WAITING_INTERVIEW_ANSWERS: GAPS_FOUND
+    VERIFYING_INTERVIEW_COVERAGE --> WAITING_INTERVIEW_APPROVAL: COVERAGE_CLEAN
+    VERIFYING_INTERVIEW_COVERAGE --> WAITING_INTERVIEW_APPROVAL: COVERAGE_LIMIT_REACHED
+    WAITING_INTERVIEW_APPROVAL --> DRAFTING_PRD: APPROVE
+
+    DRAFTING_PRD --> COUNCIL_VOTING_PRD: DRAFTS_READY
+    COUNCIL_VOTING_PRD --> REFINING_PRD: WINNER_SELECTED
+    REFINING_PRD --> VERIFYING_PRD_COVERAGE: REFINED
+    VERIFYING_PRD_COVERAGE --> REFINING_PRD: GAPS_FOUND
+    VERIFYING_PRD_COVERAGE --> WAITING_PRD_APPROVAL: COVERAGE_CLEAN
+    VERIFYING_PRD_COVERAGE --> WAITING_PRD_APPROVAL: COVERAGE_LIMIT_REACHED
+    WAITING_PRD_APPROVAL --> DRAFTING_BEADS: APPROVE
+
+    DRAFTING_BEADS --> COUNCIL_VOTING_BEADS: DRAFTS_READY
+    COUNCIL_VOTING_BEADS --> REFINING_BEADS: WINNER_SELECTED
+    REFINING_BEADS --> VERIFYING_BEADS_COVERAGE: REFINED
+    VERIFYING_BEADS_COVERAGE --> REFINING_BEADS: GAPS_FOUND
+    VERIFYING_BEADS_COVERAGE --> WAITING_BEADS_APPROVAL: COVERAGE_CLEAN
+    VERIFYING_BEADS_COVERAGE --> WAITING_BEADS_APPROVAL: COVERAGE_LIMIT_REACHED
+    WAITING_BEADS_APPROVAL --> PRE_FLIGHT_CHECK: APPROVE
+
+    PRE_FLIGHT_CHECK --> WAITING_EXECUTION_SETUP_APPROVAL: CHECKS_PASSED
+    WAITING_EXECUTION_SETUP_APPROVAL --> PREPARING_EXECUTION_ENV: APPROVE_EXECUTION_SETUP_PLAN
+    PREPARING_EXECUTION_ENV --> CODING: EXECUTION_SETUP_READY
+    CODING --> CODING: BEAD_COMPLETE / next bead
+    CODING --> RUNNING_FINAL_TEST: ALL_BEADS_DONE
+    RUNNING_FINAL_TEST --> INTEGRATING_CHANGES: TESTS_PASSED
+    INTEGRATING_CHANGES --> CREATING_PULL_REQUEST: INTEGRATION_DONE
+    CREATING_PULL_REQUEST --> WAITING_PR_REVIEW: PULL_REQUEST_READY
+    WAITING_PR_REVIEW --> CLEANING_ENV: MERGE_COMPLETE
+    WAITING_PR_REVIEW --> CLEANING_ENV: CLOSE_UNMERGED_COMPLETE
+    CLEANING_ENV --> COMPLETED: CLEANUP_DONE
+
+    state "previousStatus" as PREVIOUS_PHASE
+    BLOCKED_ERROR --> PREVIOUS_PHASE: RETRY
+    BLOCKED_ERROR --> CANCELED: CANCEL
+
+    SCANNING_RELEVANT_FILES --> BLOCKED_ERROR: ERROR / INIT_FAILED
+    COUNCIL_DELIBERATING --> BLOCKED_ERROR: ERROR
+    COUNCIL_VOTING_INTERVIEW --> BLOCKED_ERROR: ERROR
+    COMPILING_INTERVIEW --> BLOCKED_ERROR: ERROR
+    WAITING_INTERVIEW_ANSWERS --> BLOCKED_ERROR: ERROR
+    VERIFYING_INTERVIEW_COVERAGE --> BLOCKED_ERROR: ERROR
+    WAITING_INTERVIEW_APPROVAL --> BLOCKED_ERROR: ERROR
+    DRAFTING_PRD --> BLOCKED_ERROR: ERROR
+    COUNCIL_VOTING_PRD --> BLOCKED_ERROR: ERROR
+    REFINING_PRD --> BLOCKED_ERROR: ERROR
+    VERIFYING_PRD_COVERAGE --> BLOCKED_ERROR: ERROR
+    WAITING_PRD_APPROVAL --> BLOCKED_ERROR: ERROR
+    DRAFTING_BEADS --> BLOCKED_ERROR: ERROR
+    COUNCIL_VOTING_BEADS --> BLOCKED_ERROR: ERROR
+    REFINING_BEADS --> BLOCKED_ERROR: ERROR
+    VERIFYING_BEADS_COVERAGE --> BLOCKED_ERROR: ERROR
+    WAITING_BEADS_APPROVAL --> BLOCKED_ERROR: ERROR
+    PRE_FLIGHT_CHECK --> BLOCKED_ERROR: ERROR / CHECKS_FAILED
+    WAITING_EXECUTION_SETUP_APPROVAL --> BLOCKED_ERROR: ERROR / PLAN_FAILED
+    PREPARING_EXECUTION_ENV --> BLOCKED_ERROR: ERROR / SETUP_FAILED
+    CODING --> BLOCKED_ERROR: ERROR / BEAD_ERROR
+    RUNNING_FINAL_TEST --> BLOCKED_ERROR: ERROR / TESTS_FAILED
+    INTEGRATING_CHANGES --> BLOCKED_ERROR: ERROR
+    CREATING_PULL_REQUEST --> BLOCKED_ERROR: ERROR
+    WAITING_PR_REVIEW --> BLOCKED_ERROR: ERROR
+    CLEANING_ENV --> BLOCKED_ERROR: ERROR
+
+    WAITING_INTERVIEW_APPROVAL --> CANCELED: CANCEL
+    WAITING_PRD_APPROVAL --> CANCELED: CANCEL
+    WAITING_BEADS_APPROVAL --> CANCELED: CANCEL
+    WAITING_EXECUTION_SETUP_APPROVAL --> CANCELED: CANCEL
+    WAITING_PR_REVIEW --> CANCELED: CANCEL
 ```
 
-## Planning Loops
+## What The Diagram Emphasizes
 
-Three parts of the machine intentionally loop:
+- Approval gates are explicit workflow states, not transient UI overlays.
+- The interview loop returns to user input when coverage finds gaps.
+- PRD and beads coverage stay inside their own phase groups and revise automatically until clean or capped.
+- `CODING` is intentionally self-looping because bead completion may just advance to the next runnable bead.
+- Delivery is part of the machine: final test, integration, PR creation, PR review, and cleanup are all first-class states.
 
-| Loop | Why it loops |
-| --- | --- |
-| Interview | Coverage may generate follow-up questions |
-| PRD | Coverage may require another refinement pass |
-| Beads | Coverage may require revision before execution |
+## Retry Semantics
 
-These are bounded loops, not open-ended conversational cycles.
+`BLOCKED_ERROR` is special:
 
-## Execution And Delivery States
+- it stores the failed state as `previousStatus`
+- `RETRY` returns to that exact state, not to a generic restart point
+- the retry target can be a planning phase, an approval phase, or any execution-band phase
+- `CODING` retry may first restore the failed bead so the execution loop can safely re-enter
 
-The execution group is broader than coding:
-
-- environment approval and preparation
-- bead execution
-- final verification
-- integration
-- PR creation
-- PR review waiting state
-- cleanup
-
-That separation matters because delivery is part of the workflow contract, not an afterthought.
-
-## Error And Terminal States
-
-| Phase | Meaning |
-| --- | --- |
-| `BLOCKED_ERROR` | A recoverable workflow could not continue automatically |
-| `CANCELED` | User terminated the ticket lifecycle |
-| `COMPLETED` | Ticket reached a completed delivery outcome |
-
-`BLOCKED_ERROR` is not terminal in the same way as `COMPLETED` or `CANCELED`, because the ticket can still be retried.
+This is why `BLOCKED_ERROR` is grouped under `execution` even though it can be reached from planning. It is the system-wide manual recovery gate.
 
 ## UI Consequences
 
 The workflow metadata directly drives frontend behavior:
 
 - `uiView` decides which workspace component renders
-- `reviewArtifactType` determines which artifact approval panes use
+- `reviewArtifactType` decides which approval editor loads
 - `progressKind` controls question or bead progress displays
-- past phases can be reviewed through `PhaseReviewView`
+- `editable` controls whether a phase can still be modified
+- `multiModelLogs` determines whether the UI expects multi-member council logs
 
-This is why docs that drift away from `workflowMeta.ts` quickly become misleading.
+That is why docs that drift away from `workflowMeta.ts` quickly become misleading.
 
 ## Related Docs
 
+- [Ticket Flow](ticket-flow.md)
 - [Frontend](frontend.md)
 - [Context Isolation](context-isolation.md)
 - [System Architecture](system-architecture.md)

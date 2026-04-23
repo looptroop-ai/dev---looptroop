@@ -1,4 +1,4 @@
-import { SunMoon, Moon, Sun, Settings, FolderOpen, Plus, RefreshCw } from 'lucide-react'
+import { SunMoon, Moon, Sun, Settings, FolderOpen, Plus, RefreshCw, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -19,6 +19,7 @@ export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket,
   const theme = state.theme
   const queryClient = useQueryClient()
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const docsOrigin = __LOOPTROOP_DOCS_ORIGIN__
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -72,6 +73,17 @@ export function AppShell({ children, onOpenProfile, onOpenProject, onOpenTicket,
               </Button>
             </TooltipTrigger>
             <TooltipContent>Configuration</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" asChild>
+                <a href={docsOrigin} target="_blank" rel="noreferrer noopener">
+                  <BookOpen className="h-4 w-4 mr-1" />
+                  Docs
+                </a>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Open docs in a new tab</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

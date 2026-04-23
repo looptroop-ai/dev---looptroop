@@ -14,9 +14,6 @@ LoopTroop is opinionated about how AI coding systems should behave. The app trad
 
 ## Context Degradation Is A Design Constraint
 
-> [!NOTE]
-> **What is Context Degradation?** Think of it like giving someone a 10,000-page book and asking them to remember a tiny detail from page 3 while they're on page 9,998. AI models suffer from "amnesia" in long chat threads—important details get buried, and the AI starts to hallucinate or drift from the original goal. 
-
 Long-context models are useful, but they are still vulnerable to positional bias and long-run context drift. LoopTroop treats that as a systems problem, not as a prompt wording problem.
 
 That leads to three hard rules:
@@ -29,9 +26,6 @@ See [Context Isolation](context-isolation.md).
 
 ## Council Instead Of Single-Draft Planning
 
-> [!TIP]
-> **Why an LLM Council?** If you ask a single AI to write a plan, it gives you its first guess, carrying all its blind spots. By using a "Council" (multiple AI models), LoopTroop forces them to brainstorm independently, vote on the best ideas, and merge them into a superior master plan. It's the difference between a solo developer and a senior engineering committee.
-
 LoopTroop uses a council because early planning quality dominates downstream execution quality.
 
 The council pattern is:
@@ -43,12 +37,11 @@ The council pattern is:
 
 This is not a free-form model group chat. It is a constrained orchestration pattern designed to surface better alternatives before the system commits to one.
 
+`LLM council` is a useful current label, but it is not a universal standard term. In LoopTroop it specifically means this draft-vote-refine pipeline, not any arbitrary multi-agent conversation. That overlaps with newer multi-model consensus work, but the workflow contract here is defined by the repo, not by a generic paper or product label.
+
 See [LLM Council](llm-council.md).
 
 ## Bounded Ralph-Style Retry
-
-> [!IMPORTANT]
-> **What is a Ralph Loop?** When an AI fails at coding, continuing the same chat thread often leads to a "death spiral" of apologies and worse code. The Ralph Loop approach stops the thread, takes a note of what went wrong ("Wipe Note"), resets the code, and starts a **brand new chat** with the lessons learned.
 
 Execution work fails in two broad ways:
 
@@ -63,6 +56,8 @@ LoopTroop addresses the second case with a bounded Ralph-style retry discipline:
 4. Stop after the configured retry limit.
 
 This keeps the learning signal while discarding the poisoned conversational state.
+
+`Ralph-style retry` is also a current community term rather than a formal standard. LoopTroop uses the term narrowly: it means fresh-session retry with preserved failure context, not unlimited unattended looping.
 
 See [Execution Loop](execution-loop.md).
 
@@ -88,6 +83,21 @@ LoopTroop inserts explicit approval gates before the most expensive and hardest-
 - approve the execution setup plan before environment mutation and coding
 
 This keeps the system honest. The model is allowed to move quickly inside a phase, but the human decides when the pipeline is good enough to cross into the next expensive stage.
+
+## Isolation Is Part Of Correctness
+
+LoopTroop treats isolation as a correctness boundary, not just a convenience feature.
+
+At the repository layer, it uses `git worktree` as the main execution primitive. That matters because the coding agent should work inside a ticket-owned workspace, not in your main checkout. Fresh worktrees make it possible to:
+
+- keep the attached project checkout out of the execution blast radius
+- reset a bead back to a known snapshot during retry
+- preserve inspectable ticket artifacts beside the isolated code changes
+- clean up temporary runtime state without confusing it with your normal working directory
+
+At the host layer, unattended AI execution is safer in a disposable VM, cloud desktop, or similarly sandboxed environment. Worktrees protect the repo boundary, but they do not replace process isolation, filesystem policy, or host-level blast-radius reduction. If an agent can run commands for hours, the safer default is to give it a safe host to operate in.
+
+See [System Architecture](system-architecture.md), [Execution Loop](execution-loop.md), and Git’s official [`git worktree`](https://git-scm.com/docs/git-worktree.html) documentation.
 
 ## Durable State Beats Conversational Memory
 
@@ -118,6 +128,7 @@ It is not optimized for:
 
 ## Related Docs
 
+- [Ticket Flow](ticket-flow.md)
 - [System Architecture](system-architecture.md)
 - [Context Isolation](context-isolation.md)
 - [LLM Council](llm-council.md)
