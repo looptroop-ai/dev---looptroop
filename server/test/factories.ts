@@ -55,6 +55,8 @@ export function makeTicketContext(
     lockedInterviewQuestions: null,
     lockedCoverageFollowUpBudgetPercent: null,
     lockedMaxCoveragePasses: null,
+    lockedMaxPrdCoveragePasses: null,
+    lockedMaxBeadsCoveragePasses: null,
     previousStatus: null,
     error: null,
     errorCodes: [],

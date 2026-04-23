@@ -9,6 +9,8 @@ export const numericFields = {
   interviewQuestions: { min: 0, max: 50, label: 'Max Interview Questions', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   coverageFollowUpBudgetPercent: { min: 0, max: 100, label: 'Coverage Follow-Up Budget', fromStore: (v: number) => String(v), toStore: (v: number) => v },
   maxCoveragePasses: { min: 1, max: 10, label: 'Interview Coverage Passes', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+  maxPrdCoveragePasses: { min: 2, max: 20, label: 'PRD Coverage Passes', fromStore: (v: number) => String(v), toStore: (v: number) => v },
+  maxBeadsCoveragePasses: { min: 2, max: 20, label: 'Beads Coverage Passes', fromStore: (v: number) => String(v), toStore: (v: number) => v },
 } as const
 
 export type NumericFieldKey = keyof typeof numericFields
@@ -38,5 +40,7 @@ export function buildInitialRawNumeric(data: Record<string, unknown>): Record<st
     interviewQuestions: String(data.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions),
     coverageFollowUpBudgetPercent: String(data.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
     maxCoveragePasses: String(data.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses),
+    maxPrdCoveragePasses: String(data.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses),
+    maxBeadsCoveragePasses: String(data.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses),
   }
 }

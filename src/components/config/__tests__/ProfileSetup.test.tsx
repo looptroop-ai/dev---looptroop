@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ToastProvider } from '@/components/shared/Toast'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ProfileSetup } from '../ProfileSetup'
@@ -21,6 +21,8 @@ const existingProfile = {
   interviewQuestions: 50,
   coverageFollowUpBudgetPercent: 20,
   maxCoveragePasses: 2,
+  maxPrdCoveragePasses: 5,
+  maxBeadsCoveragePasses: 5,
   maxIterations: 5,
   createdAt: '2026-03-08T14:28:53.309Z',
   updatedAt: '2026-03-11T10:49:38.623Z',
@@ -107,8 +109,11 @@ describe('ProfileSetup', () => {
     })
 
     expect(screen.getByText('Minimum council votes required (1–4)')).toBeInTheDocument()
+    expect(screen.getByText('Coverage')).toBeInTheDocument()
     expect(screen.getByText('Coverage Follow-Up Budget (%)')).toBeInTheDocument()
     expect(screen.getByText('Interview Coverage Passes')).toBeInTheDocument()
+    expect(screen.getByText('PRD Coverage Passes')).toBeInTheDocument()
+    expect(screen.getByText('Beads Coverage Passes')).toBeInTheDocument()
     expect(screen.getByText('Execution Setup Timeout (s)')).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
@@ -123,5 +128,37 @@ describe('ProfileSetup', () => {
       exact: true,
       type: 'active',
     })
+  })
+
+  it('validates PRD and beads coverage pass inputs', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false, gcTime: Infinity },
+      },
+    })
+
+    await act(async () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ToastProvider>
+              <ProfileSetup onClose={() => undefined} />
+            </ToastProvider>
+          </TooltipProvider>
+        </QueryClientProvider>,
+      )
+      await Promise.resolve()
+    })
+
+    const prdInput = screen.getByLabelText('PRD Coverage Passes') as HTMLInputElement
+    const beadsInput = screen.getByLabelText('Beads Coverage Passes') as HTMLInputElement
+
+    fireEvent.change(prdInput, { target: { value: '1' } })
+    fireEvent.change(beadsInput, { target: { value: '21' } })
+
+    expect(screen.getByText('Minimum is 2')).toBeInTheDocument()
+    expect(screen.getByText('Maximum is 20')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 })

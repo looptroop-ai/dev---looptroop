@@ -435,6 +435,8 @@ function rollbackTicketStartToDraft(ticketId: string): void {
     lockedInterviewQuestions: null,
     lockedCoverageFollowUpBudgetPercent: null,
     lockedMaxCoveragePasses: null,
+    lockedMaxPrdCoveragePasses: null,
+    lockedMaxBeadsCoveragePasses: null,
   })
   stopActor(ticketId)
 }
@@ -852,6 +854,10 @@ export async function handleStartTicket(c: Context) {
     ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent
   const lockedMaxCoveragePasses = profile?.maxCoveragePasses
     ?? PROFILE_DEFAULTS.maxCoveragePasses
+  const lockedMaxPrdCoveragePasses = profile?.maxPrdCoveragePasses
+    ?? PROFILE_DEFAULTS.maxPrdCoveragePasses
+  const lockedMaxBeadsCoveragePasses = profile?.maxBeadsCoveragePasses
+    ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses
   const lockedMainImplementerVariant = profile?.mainImplementerVariant ?? null
   const lockedCouncilMemberVariants: Record<string, string> | null = profile?.councilMemberVariants
     ? (typeof profile.councilMemberVariants === 'string'
@@ -873,6 +879,8 @@ export async function handleStartTicket(c: Context) {
       lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,
+      lockedMaxPrdCoveragePasses,
+      lockedMaxBeadsCoveragePasses,
     })
     if (!lockedTicket) {
       rollbackTicketStartToDraft(ticketId)
@@ -908,6 +916,8 @@ export async function handleStartTicket(c: Context) {
       lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses,
+      lockedMaxPrdCoveragePasses,
+      lockedMaxBeadsCoveragePasses,
     })
   } catch (err) {
     rollbackTicketStartToDraft(ticketId)

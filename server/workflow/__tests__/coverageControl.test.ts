@@ -3,18 +3,18 @@ import { resolveCoverageGapDisposition, resolveCoverageRunState } from '../cover
 
 describe.concurrent('coverage control', () => {
   it('treats maxCoveragePasses as a total execution cap', () => {
-    expect(resolveCoverageRunState(0, 2)).toEqual({
+    expect(resolveCoverageRunState(0, 5)).toEqual({
       coverageRunNumber: 1,
       isFinalAllowedRun: false,
       limitAlreadyReached: false,
     })
-    expect(resolveCoverageRunState(1, 2)).toEqual({
-      coverageRunNumber: 2,
+    expect(resolveCoverageRunState(4, 5)).toEqual({
+      coverageRunNumber: 5,
       isFinalAllowedRun: true,
       limitAlreadyReached: false,
     })
-    expect(resolveCoverageRunState(2, 2)).toEqual({
-      coverageRunNumber: 3,
+    expect(resolveCoverageRunState(5, 5)).toEqual({
+      coverageRunNumber: 6,
       isFinalAllowedRun: true,
       limitAlreadyReached: true,
     })

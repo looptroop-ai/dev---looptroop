@@ -71,6 +71,8 @@ Example profile update payload:
   "interviewQuestions": 12,
   "coverageFollowUpBudgetPercent": 35,
   "maxCoveragePasses": 3,
+  "maxPrdCoveragePasses": 5,
+  "maxBeadsCoveragePasses": 5,
   "maxIterations": 5
 }
 ```

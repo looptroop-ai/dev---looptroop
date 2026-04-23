@@ -136,6 +136,8 @@ export function ensureActorForTicket(ticketRef: string | number) {
     lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
     lockedCoverageFollowUpBudgetPercent: ticket.localTicket.lockedCoverageFollowUpBudgetPercent ?? null,
     lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
+    lockedMaxPrdCoveragePasses: ticket.localTicket.lockedMaxPrdCoveragePasses ?? null,
+    lockedMaxBeadsCoveragePasses: ticket.localTicket.lockedMaxBeadsCoveragePasses ?? null,
   }
 
   if (ticket.localTicket.xstateSnapshot) {
@@ -242,6 +244,8 @@ export function createTicketActor(
     lockedInterviewQuestions?: number | null
     lockedCoverageFollowUpBudgetPercent?: number | null
     lockedMaxCoveragePasses?: number | null
+    lockedMaxPrdCoveragePasses?: number | null
+    lockedMaxBeadsCoveragePasses?: number | null
   },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
@@ -259,6 +263,8 @@ export function createTicketActor(
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
+      lockedMaxPrdCoveragePasses: input.lockedMaxPrdCoveragePasses ?? null,
+      lockedMaxBeadsCoveragePasses: input.lockedMaxBeadsCoveragePasses ?? null,
     },
   })
 
@@ -286,6 +292,8 @@ function hydrateTicketActor(
     lockedInterviewQuestions?: number | null
     lockedCoverageFollowUpBudgetPercent?: number | null
     lockedMaxCoveragePasses?: number | null
+    lockedMaxPrdCoveragePasses?: number | null
+    lockedMaxBeadsCoveragePasses?: number | null
   },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
@@ -304,6 +312,8 @@ function hydrateTicketActor(
       lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
+      lockedMaxPrdCoveragePasses: input.lockedMaxPrdCoveragePasses ?? null,
+      lockedMaxBeadsCoveragePasses: input.lockedMaxBeadsCoveragePasses ?? null,
     },
   })
 
@@ -335,6 +345,8 @@ export function hydrateAllTickets() {
         lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
         lockedCoverageFollowUpBudgetPercent: ticket.lockedCoverageFollowUpBudgetPercent ?? null,
         lockedMaxCoveragePasses: ticket.lockedMaxCoveragePasses ?? null,
+        lockedMaxPrdCoveragePasses: ticket.lockedMaxPrdCoveragePasses ?? null,
+        lockedMaxBeadsCoveragePasses: ticket.lockedMaxBeadsCoveragePasses ?? null,
       })
       hydrated++
     } catch (err) {
@@ -410,6 +422,8 @@ export function revertTicketToApprovalStatus(
     lockedInterviewQuestions: ticket.localTicket.lockedInterviewQuestions ?? null,
     lockedCoverageFollowUpBudgetPercent: ticket.localTicket.lockedCoverageFollowUpBudgetPercent ?? null,
     lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
+    lockedMaxPrdCoveragePasses: ticket.localTicket.lockedMaxPrdCoveragePasses ?? null,
+    lockedMaxBeadsCoveragePasses: ticket.localTicket.lockedMaxBeadsCoveragePasses ?? null,
   })
 }
 

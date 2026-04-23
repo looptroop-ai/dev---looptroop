@@ -866,7 +866,7 @@ describe('handlePrdRefine', () => {
     ]))
   })
 
-  it('supports a second PRD coverage revision before a final clean v3 pass', async () => {
+  it('supports fourth PRD coverage revision before a final clean v5 pass', async () => {
     const { ticket, context, paths } = setupCoverageTest()
     const sendEvent = vi.fn()
     const coverageGap = 'Missing final approval coverage guidance.'
@@ -909,6 +909,44 @@ describe('handlePrdRefine', () => {
       .mockResolvedValueOnce({
         session: { id: 'coverage-session-5', projectPath: paths.worktreePath },
         response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-6', projectPath: paths.worktreePath },
+        response: buildValidCoverageRevisionOutput(ticket.externalId, coverageGap, {
+          epicTitle: 'Prompt hardening, approval, audit, and rollback safety',
+          beforeEpicTitle: 'Prompt hardening, approval, and audit safety',
+          affectedItemLabel: 'Prompt hardening, approval, audit, and rollback safety',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-7', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-8', projectPath: paths.worktreePath },
+        response: buildValidCoverageRevisionOutput(ticket.externalId, coverageGap, {
+          epicTitle: 'Prompt hardening, approval, audit, rollback, and review safety',
+          beforeEpicTitle: 'Prompt hardening, approval, audit, and rollback safety',
+          affectedItemLabel: 'Prompt hardening, approval, audit, rollback, and review safety',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-9', projectPath: paths.worktreePath },
+        response: [
           'status: clean',
           'gaps: []',
           'follow_up_questions: []',
@@ -918,16 +956,16 @@ describe('handlePrdRefine', () => {
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
 
-    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(5)
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(9)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
 
     const coverageArtifact = getLatestPhaseArtifact(ticket.id, 'prd_coverage', 'VERIFYING_PRD_COVERAGE')
     expect(coverageArtifact).toBeDefined()
     expect(JSON.parse(coverageArtifact!.content)).toMatchObject({
       status: 'clean',
-      coverageRunNumber: 3,
-      maxCoveragePasses: 3,
-      finalCandidateVersion: 3,
+      coverageRunNumber: 5,
+      maxCoveragePasses: 5,
+      finalCandidateVersion: 5,
       hasRemainingGaps: false,
       remainingGaps: [],
       terminationReason: 'clean',
@@ -942,7 +980,7 @@ describe('handlePrdRefine', () => {
       remainingGaps?: string[]
     } | undefined
     expect(parsedCoverageCompanion).toMatchObject({
-      finalCandidateVersion: 3,
+      finalCandidateVersion: 5,
       hasRemainingGaps: false,
       remainingGaps: [],
       attempts: [
@@ -958,6 +996,16 @@ describe('handlePrdRefine', () => {
         }),
         expect.objectContaining({
           candidateVersion: 3,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 4,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 5,
           status: 'clean',
           gaps: [],
         }),
@@ -973,6 +1021,16 @@ describe('handlePrdRefine', () => {
           toVersion: 3,
           gaps: [coverageGap],
         }),
+        expect.objectContaining({
+          fromVersion: 3,
+          toVersion: 4,
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          fromVersion: 4,
+          toVersion: 5,
+          gaps: [coverageGap],
+        }),
       ],
     })
 
@@ -980,21 +1038,21 @@ describe('handlePrdRefine', () => {
     expect(coverageRevision).toBeDefined()
     expect(JSON.parse(coverageRevision!.content)).toMatchObject({
       winnerId: TEST.councilMembers[0],
-      candidateVersion: 3,
-      refinedContent: expect.stringContaining('Prompt hardening, approval, and audit safety'),
+      candidateVersion: 5,
+      refinedContent: expect.stringContaining('Prompt hardening, approval, audit, rollback, and review safety'),
     })
 
-    expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')).toContain('Prompt hardening, approval, and audit safety')
+    expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')).toContain('Prompt hardening, approval, audit, rollback, and review safety')
     expect(readExecutionLogEntries(paths.executionLogPath)).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        message: `Coverage verification passed (winning model: ${TEST.councilMembers[0]}) for PRD Candidate v3.`,
+        message: `Coverage verification passed (winning model: ${TEST.councilMembers[0]}) for PRD Candidate v5.`,
         source: 'system',
         modelId: TEST.councilMembers[0],
       }),
     ]))
   })
 
-  it('routes unresolved PRD v3 coverage gaps to approval when the retry cap is reached', async () => {
+  it('routes unresolved PRD v5 coverage gaps to approval when the configured retry cap is reached', async () => {
     const { ticket, context, paths } = setupCoverageTest()
     const sendEvent = vi.fn()
     const coverageGap = 'Missing out-of-scope guidance.'
@@ -1044,10 +1102,48 @@ describe('handlePrdRefine', () => {
         ].join('\n'),
         messages: [],
       })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-6', projectPath: paths.worktreePath },
+        response: buildValidCoverageRevisionOutput(ticket.externalId, coverageGap, {
+          epicTitle: 'Prompt hardening, approval, audit, and rollback safety',
+          beforeEpicTitle: 'Prompt hardening, approval, and audit safety',
+          affectedItemLabel: 'Prompt hardening, approval, audit, and rollback safety',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-7', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-8', projectPath: paths.worktreePath },
+        response: buildValidCoverageRevisionOutput(ticket.externalId, coverageGap, {
+          epicTitle: 'Prompt hardening, approval, audit, rollback, and review safety',
+          beforeEpicTitle: 'Prompt hardening, approval, audit, and rollback safety',
+          affectedItemLabel: 'Prompt hardening, approval, audit, rollback, and review safety',
+        }),
+        messages: [],
+      })
+      .mockResolvedValueOnce({
+        session: { id: 'coverage-session-9', projectPath: paths.worktreePath },
+        response: [
+          'status: gaps',
+          'gaps:',
+          `  - "${coverageGap}"`,
+          'follow_up_questions: []',
+        ].join('\n'),
+        messages: [],
+      })
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
 
-    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(5)
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(9)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_LIMIT_REACHED' })
     expect(sendEvent).not.toHaveBeenCalledWith({ type: 'GAPS_FOUND' })
     expect(sendEvent).not.toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
@@ -1056,9 +1152,9 @@ describe('handlePrdRefine', () => {
     expect(coverageArtifact).toBeDefined()
     expect(JSON.parse(coverageArtifact!.content)).toMatchObject({
       status: 'gaps',
-      coverageRunNumber: 3,
-      maxCoveragePasses: 3,
-      finalCandidateVersion: 3,
+      coverageRunNumber: 5,
+      maxCoveragePasses: 5,
+      finalCandidateVersion: 5,
       limitReached: true,
       hasRemainingGaps: true,
       remainingGaps: [coverageGap],
@@ -1074,7 +1170,7 @@ describe('handlePrdRefine', () => {
       remainingGaps?: string[]
     } | undefined
     expect(parsedCoverageCompanion).toMatchObject({
-      finalCandidateVersion: 3,
+      finalCandidateVersion: 5,
       hasRemainingGaps: true,
       remainingGaps: [coverageGap],
       attempts: [
@@ -1093,6 +1189,16 @@ describe('handlePrdRefine', () => {
           status: 'gaps',
           gaps: [coverageGap],
         }),
+        expect.objectContaining({
+          candidateVersion: 4,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          candidateVersion: 5,
+          status: 'gaps',
+          gaps: [coverageGap],
+        }),
       ],
       transitions: [
         expect.objectContaining({
@@ -1105,14 +1211,24 @@ describe('handlePrdRefine', () => {
           toVersion: 3,
           gaps: [coverageGap],
         }),
+        expect.objectContaining({
+          fromVersion: 3,
+          toVersion: 4,
+          gaps: [coverageGap],
+        }),
+        expect.objectContaining({
+          fromVersion: 4,
+          toVersion: 5,
+          gaps: [coverageGap],
+        }),
       ],
     })
 
     const coverageRevision = getLatestPhaseArtifact(ticket.id, 'prd_coverage_revision', 'VERIFYING_PRD_COVERAGE')
     expect(coverageRevision).toBeDefined()
     expect(JSON.parse(coverageRevision!.content)).toMatchObject({
-      candidateVersion: 3,
-      refinedContent: expect.stringContaining('Prompt hardening, approval, and audit safety'),
+      candidateVersion: 5,
+      refinedContent: expect.stringContaining('Prompt hardening, approval, audit, rollback, and review safety'),
     })
 
     expect(readExecutionLogEntries(paths.executionLogPath)).toEqual(expect.arrayContaining([

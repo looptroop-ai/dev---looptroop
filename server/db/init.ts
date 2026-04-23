@@ -48,6 +48,8 @@ function migrateLegacyProfilesTable() {
         interview_questions INTEGER DEFAULT ${PROFILE_DEFAULTS.interviewQuestions},
         coverage_follow_up_budget_percent INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent},
         max_coverage_passes INTEGER DEFAULT ${PROFILE_DEFAULTS.maxCoveragePasses},
+        max_prd_coverage_passes INTEGER DEFAULT ${PROFILE_DEFAULTS.maxPrdCoveragePasses},
+        max_beads_coverage_passes INTEGER DEFAULT ${PROFILE_DEFAULTS.maxBeadsCoveragePasses},
         max_iterations INTEGER DEFAULT ${PROFILE_DEFAULTS.maxIterations},
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -64,6 +66,8 @@ function migrateLegacyProfilesTable() {
         interview_questions,
         coverage_follow_up_budget_percent,
         max_coverage_passes,
+        max_prd_coverage_passes,
+        max_beads_coverage_passes,
         max_iterations,
         created_at,
         updated_at
@@ -79,6 +83,8 @@ function migrateLegacyProfilesTable() {
         ${selectLegacyProfileValue(columnSet, 'interview_questions', PROFILE_DEFAULTS.interviewQuestions)},
         ${selectLegacyProfileValue(columnSet, 'coverage_follow_up_budget_percent', PROFILE_DEFAULTS.coverageFollowUpBudgetPercent)},
         ${selectLegacyProfileValue(columnSet, 'max_coverage_passes', PROFILE_DEFAULTS.maxCoveragePasses)},
+        ${selectLegacyProfileValue(columnSet, 'max_prd_coverage_passes', PROFILE_DEFAULTS.maxPrdCoveragePasses)},
+        ${selectLegacyProfileValue(columnSet, 'max_beads_coverage_passes', PROFILE_DEFAULTS.maxBeadsCoveragePasses)},
         ${selectLegacyProfileValue(columnSet, 'max_iterations', PROFILE_DEFAULTS.maxIterations)},
         ${selectLegacyProfileExpression(columnSet, 'created_at', "datetime('now')")},
         ${selectLegacyProfileExpression(columnSet, 'updated_at', "datetime('now')")}
@@ -105,6 +111,8 @@ export function initializeDatabase() {
       interview_questions INTEGER DEFAULT ${PROFILE_DEFAULTS.interviewQuestions},
       coverage_follow_up_budget_percent INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent},
       max_coverage_passes INTEGER DEFAULT ${PROFILE_DEFAULTS.maxCoveragePasses},
+      max_prd_coverage_passes INTEGER DEFAULT ${PROFILE_DEFAULTS.maxPrdCoveragePasses},
+      max_beads_coverage_passes INTEGER DEFAULT ${PROFILE_DEFAULTS.maxBeadsCoveragePasses},
       max_iterations INTEGER DEFAULT ${PROFILE_DEFAULTS.maxIterations},
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -127,6 +135,8 @@ export function initializeDatabase() {
   migrateLegacyProfilesTable()
   ensureColumn('profiles', 'coverage_follow_up_budget_percent', `INTEGER DEFAULT ${PROFILE_DEFAULTS.coverageFollowUpBudgetPercent}`)
   ensureColumn('profiles', 'max_coverage_passes', `INTEGER DEFAULT ${PROFILE_DEFAULTS.maxCoveragePasses}`)
+  ensureColumn('profiles', 'max_prd_coverage_passes', `INTEGER DEFAULT ${PROFILE_DEFAULTS.maxPrdCoveragePasses}`)
+  ensureColumn('profiles', 'max_beads_coverage_passes', `INTEGER DEFAULT ${PROFILE_DEFAULTS.maxBeadsCoveragePasses}`)
   ensureColumn('profiles', 'execution_setup_timeout', `INTEGER DEFAULT ${PROFILE_DEFAULTS.executionSetupTimeout}`)
   ensureColumn('profiles', 'main_implementer_variant', 'TEXT')
   ensureColumn('profiles', 'council_member_variants', 'TEXT')

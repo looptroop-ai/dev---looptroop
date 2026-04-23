@@ -20,6 +20,8 @@ const profileSchema = z.object({
   interviewQuestions: z.number().int().nonnegative().optional(), // 0 = infinite questions
   coverageFollowUpBudgetPercent: z.number().int().min(0).max(100).optional(),
   maxCoveragePasses: z.number().int().min(1).max(10).optional(),
+  maxPrdCoveragePasses: z.number().int().min(2).max(20).optional(),
+  maxBeadsCoveragePasses: z.number().int().min(2).max(20).optional(),
   maxIterations: z.number().int().nonnegative().optional(), // 0 = infinite retries
 })
 

@@ -43,6 +43,7 @@ export function NumericField({ fieldKey, rawNumeric, onChange, hint, tooltip }: 
       </div>
       <input
         type="number"
+        aria-label={cfg.label}
         value={rawNumeric[fieldKey]}
         onChange={e => onChange(fieldKey, e.target.value)}
         className={cn("w-full rounded-md border bg-background px-3 py-2 text-sm", error ? 'border-red-500' : 'border-input')}

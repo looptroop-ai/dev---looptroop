@@ -1055,6 +1055,8 @@ export function resolveInterviewDraftSettings(context: TicketContext): {
 export function resolveCoverageRuntimeSettings(context: TicketContext): {
   coverageFollowUpBudgetPercent: number
   maxCoveragePasses: number
+  maxPrdCoveragePasses: number
+  maxBeadsCoveragePasses: number
 } {
   const profile = appDb.select().from(profiles).get()
 
@@ -1065,6 +1067,12 @@ export function resolveCoverageRuntimeSettings(context: TicketContext): {
     maxCoveragePasses: context.lockedMaxCoveragePasses
       ?? profile?.maxCoveragePasses
       ?? PROFILE_DEFAULTS.maxCoveragePasses,
+    maxPrdCoveragePasses: context.lockedMaxPrdCoveragePasses
+      ?? profile?.maxPrdCoveragePasses
+      ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
+    maxBeadsCoveragePasses: context.lockedMaxBeadsCoveragePasses
+      ?? profile?.maxBeadsCoveragePasses
+      ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
   }
 }
 

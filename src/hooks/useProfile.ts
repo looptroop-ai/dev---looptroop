@@ -13,6 +13,8 @@ interface Profile {
   interviewQuestions: number
   coverageFollowUpBudgetPercent: number
   maxCoveragePasses: number
+  maxPrdCoveragePasses: number
+  maxBeadsCoveragePasses: number
   maxIterations: number
   createdAt: string
   updatedAt: string
@@ -30,6 +32,8 @@ interface CreateProfileInput {
   interviewQuestions?: number
   coverageFollowUpBudgetPercent?: number
   maxCoveragePasses?: number
+  maxPrdCoveragePasses?: number
+  maxBeadsCoveragePasses?: number
   maxIterations?: number
 }
 

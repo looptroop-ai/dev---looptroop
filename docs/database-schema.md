@@ -44,6 +44,8 @@ Key columns:
 - `interview_questions`
 - `coverage_follow_up_budget_percent`
 - `max_coverage_passes`
+- `max_prd_coverage_passes`
+- `max_beads_coverage_passes`
 - `max_iterations`
 
 This table provides the baseline configuration that projects and tickets inherit from when they start.
@@ -93,7 +95,7 @@ Important columns:
 - `total_beads`
 - `percent_complete`
 - `error_message`
-- locked model and planning settings
+- locked model and planning settings, including interview coverage passes plus PRD/beads coverage pass caps frozen at ticket start
 - `started_at`
 - `planned_date`
 

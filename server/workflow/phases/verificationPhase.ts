@@ -275,9 +275,8 @@ function persistVersionedCoverageArtifact(params: {
   })
 }
 
-function getVersionedCoveragePassLimit(phase: 'interview' | 'prd' | 'beads', configuredMax: number): number {
-  if (phase === 'interview') return configuredMax
-  return 3
+function getVersionedCoveragePassLimit(_phase: 'interview' | 'prd' | 'beads', configuredMax: number): number {
+  return configuredMax
 }
 
 function buildCoverageAttemptSummary(params: {
@@ -1312,7 +1311,7 @@ async function handlePrdCoverageVerificationLoop(params: {
   const prdPath = resolve(params.ticketDir, 'prd.yaml')
   let currentCandidateContent = params.effectivePrdContent.trim()
   const historySnapshot = loadCoverageHistorySnapshot(params.ticketId, 'prd', params.stateLabel)
-  const maxCoveragePasses = getVersionedCoveragePassLimit('prd', params.coverageSettings.maxCoveragePasses)
+  const maxCoveragePasses = getVersionedCoveragePassLimit('prd', params.coverageSettings.maxPrdCoveragePasses)
   let attempts = [...historySnapshot.attempts]
   let transitions = [...historySnapshot.transitions]
   let currentCandidateVersion = historySnapshot.finalCandidateVersion
@@ -1646,7 +1645,7 @@ async function handleBeadsCoverageVerificationLoop(params: {
 }) {
   let currentCandidateContent = params.effectiveBeadsContent.trim()
   const historySnapshot = loadCoverageHistorySnapshot(params.ticketId, 'beads', params.stateLabel)
-  const maxCoveragePasses = getVersionedCoveragePassLimit('beads', params.coverageSettings.maxCoveragePasses)
+  const maxCoveragePasses = getVersionedCoveragePassLimit('beads', params.coverageSettings.maxBeadsCoveragePasses)
   let attempts = [...historySnapshot.attempts]
   let transitions = [...historySnapshot.transitions]
   let currentCandidateVersion = historySnapshot.finalCandidateVersion
@@ -2316,7 +2315,12 @@ export async function handleCoverageVerification(
   const promptTemplate = getCoveragePromptTemplate(phase)
   const councilSettings = resolveCouncilRuntimeSettings(context)
   const coverageSettings = resolveCoverageRuntimeSettings(context)
-  const effectiveMaxCoveragePasses = getVersionedCoveragePassLimit(phase, coverageSettings.maxCoveragePasses)
+  const configuredMaxCoveragePasses = phase === 'interview'
+    ? coverageSettings.maxCoveragePasses
+    : phase === 'prd'
+      ? coverageSettings.maxPrdCoveragePasses
+      : coverageSettings.maxBeadsCoveragePasses
+  const effectiveMaxCoveragePasses = getVersionedCoveragePassLimit(phase, configuredMaxCoveragePasses)
   const completedCoveragePasses = countPhaseArtifacts(ticketId, `${phase}_coverage`, stateLabel)
   const coverageRunState = resolveCoverageRunState(completedCoveragePasses, effectiveMaxCoveragePasses)
 
@@ -3568,7 +3572,12 @@ export async function handleMockCoverage(
   const winnerId = readMockInterviewWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
   const stateLabel = getCoverageStateLabel(phase)
   const coverageSettings = resolveCoverageRuntimeSettings(context)
-  const effectiveMaxCoveragePasses = getVersionedCoveragePassLimit(phase, coverageSettings.maxCoveragePasses)
+  const configuredMaxCoveragePasses = phase === 'interview'
+    ? coverageSettings.maxCoveragePasses
+    : phase === 'prd'
+      ? coverageSettings.maxPrdCoveragePasses
+      : coverageSettings.maxBeadsCoveragePasses
+  const effectiveMaxCoveragePasses = getVersionedCoveragePassLimit(phase, configuredMaxCoveragePasses)
   const coverageRunNumber = countPhaseArtifacts(ticketId, `${phase}_coverage`, stateLabel) + 1
   const interviewSnapshot = phase === 'interview'
     ? readInterviewSessionSnapshotArtifact(ticketId)

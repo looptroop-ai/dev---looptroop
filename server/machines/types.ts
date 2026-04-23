@@ -11,6 +11,8 @@ export interface TicketContext {
   lockedInterviewQuestions: number | null
   lockedCoverageFollowUpBudgetPercent: number | null
   lockedMaxCoveragePasses: number | null
+  lockedMaxPrdCoveragePasses: number | null
+  lockedMaxBeadsCoveragePasses: number | null
   previousStatus: string | null
   error: string | null
   errorCodes: string[]
@@ -36,6 +38,8 @@ export type TicketEvent =
       lockedInterviewQuestions?: number | null
       lockedCoverageFollowUpBudgetPercent?: number | null
       lockedMaxCoveragePasses?: number | null
+      lockedMaxPrdCoveragePasses?: number | null
+      lockedMaxBeadsCoveragePasses?: number | null
     }
   | { type: 'INIT_FAILED'; message: string; codes?: string[] }
   | { type: 'QUESTIONS_READY'; result: Record<string, unknown> }

@@ -76,6 +76,8 @@ function initializeProjectSqlite(sqlite: Database.Database) {
       locked_interview_questions INTEGER,
       locked_coverage_follow_up_budget_percent INTEGER,
       locked_max_coverage_passes INTEGER,
+      locked_max_prd_coverage_passes INTEGER,
+      locked_max_beads_coverage_passes INTEGER,
       started_at TEXT,
       planned_date TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -156,6 +158,8 @@ function initializeProjectSqlite(sqlite: Database.Database) {
   ensureColumn(sqlite, 'tickets', 'locked_interview_questions', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_coverage_follow_up_budget_percent', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_max_coverage_passes', 'INTEGER')
+  ensureColumn(sqlite, 'tickets', 'locked_max_prd_coverage_passes', 'INTEGER')
+  ensureColumn(sqlite, 'tickets', 'locked_max_beads_coverage_passes', 'INTEGER')
   ensureColumn(sqlite, 'tickets', 'locked_main_implementer_variant', 'TEXT')
   ensureColumn(sqlite, 'tickets', 'locked_council_member_variants', 'TEXT')
   ensureColumn(sqlite, 'opencode_sessions', 'phase_attempt', 'INTEGER DEFAULT 1')

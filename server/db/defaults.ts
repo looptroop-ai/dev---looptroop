@@ -8,5 +8,7 @@ export const PROFILE_DEFAULTS = {
   interviewQuestions: 50,
   coverageFollowUpBudgetPercent: 20,
   maxCoveragePasses: 2,
+  maxPrdCoveragePasses: 5,
+  maxBeadsCoveragePasses: 5,
   maxIterations: 5,
 } as const

@@ -270,8 +270,8 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     equivalents: [
       'This is the "coverage check" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Coverage Check (PRD)" (where the PRD is checked against the approved interview) and in the Blueprint (Beads) phase as "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
-      'All three coverage checks share the goal of verifying completeness, but they differ in how gaps are resolved: Interview coverage sends you back to answer follow-up questions (user-facing loop). PRD coverage revises the document automatically within the same phase (AI-internal loop, up to 3 versions). Beads coverage also revises automatically, then performs a final expansion step to produce execution-ready bead records.',
-      'Each coverage check has a budget or cap to ensure convergence — interview has a follow-up round budget, PRD has a 3-version cap, and beads has its own coverage cap plus the expansion step.',
+      'All three coverage checks share the goal of verifying completeness, but they differ in how gaps are resolved: Interview coverage sends you back to answer follow-up questions (user-facing loop). PRD coverage revises the document automatically within the same phase (AI-internal loop, up to the configured pass cap). Beads coverage also revises automatically, then performs a final expansion step to produce execution-ready bead records.',
+      'Each coverage check has a budget or cap to ensure convergence — interview has a follow-up round budget, PRD has a configured pass cap, and beads has its own configured pass cap plus the expansion step.',
     ],
   },
   WAITING_INTERVIEW_APPROVAL: {
@@ -369,7 +369,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Selective Merging: The model reviews each losing draft for requirements, acceptance criteria, edge cases, or test scenarios that are present in the losing draft but absent from the winner. It incorporates these improvements without duplicating existing content or breaking the winning draft\'s organizational structure.',
       'Output Validation: The refinement output is normalized and validated as a proper PRD document — checking for consistent structure, non-empty requirement sections, valid acceptance criteria format, and overall document integrity.',
       'Diff Metadata: LoopTroop optionally generates refinement diff metadata that describes what changed between the original winning draft and the refined candidate. This helps you understand what was added during refinement when you review the PRD later.',
-      'Candidate Promotion: The resulting document becomes PRD Candidate v1 — the first versioned candidate that enters the coverage verification loop. This is not yet the final PRD; coverage may produce additional versions (up to v3) before approval.',
+      'Candidate Promotion: The resulting document becomes PRD Candidate v1 — the first versioned candidate that enters the coverage verification loop. This is not yet the final PRD; coverage may produce additional versions before approval until the configured cap is reached.',
     ],
     outputs: [
       'Refined PRD candidate artifact (PRD Candidate v1) — the winning draft enhanced with the best elements from losing drafts.',
@@ -383,7 +383,7 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'The refinement is done by the winning model (from the vote), ensuring the refiner understands the winning approach and can merge additions coherently.',
       'Context available: Relevant Files + Ticket Details + Full Answers + Competing Drafts (the winner is labeled, losers are provided for mining improvements).',
-      'PRD Candidate v1 is a versioned identifier — coverage may produce v2 or v3 if gaps are found and revisions are needed.',
+      'PRD Candidate v1 is a versioned identifier — coverage may produce later versions if gaps are found and revisions are needed.',
       'Why refine? The winning draft scored highest overall, but losing drafts often contain individual insights that the winner lacks. Refinement captures those insights without losing the winning structure.',
     ],
     equivalents: [
@@ -392,14 +392,14 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   VERIFYING_PRD_COVERAGE: {
-    overview: 'LoopTroop runs a versioned PRD coverage loop, comparing the current PRD candidate against the approved interview answers to find any missing requirements or gaps. Unlike the interview coverage loop (which sends you back to answer more questions), PRD coverage stays inside this same phase — the model revises the PRD directly when gaps are found. The loop can produce up to PRD Candidate v3, and if gaps remain after the cap, the latest version still advances to approval with warnings.',
+    overview: 'LoopTroop runs a versioned PRD coverage loop, comparing the current PRD candidate against the approved interview answers to find any missing requirements or gaps. Unlike the interview coverage loop (which sends you back to answer more questions), PRD coverage stays inside this same phase — the model revises the PRD directly when gaps are found. The loop can produce later PRD candidate versions until the configured cap is reached, and if gaps remain after that, the latest version still advances to approval with warnings.',
     steps: [
       'Coverage Evaluation: The winning PRD model compares the current PRD candidate against the approved interview and full answers. It returns a structured coverage result: either "clean" (the PRD fully covers the interview) or "gaps found" (specific requirements or acceptance criteria are missing or incomplete).',
       'Gap Details: When gaps are found, the coverage result includes specific descriptions of what is missing, which interview answers are not reflected in the PRD, and why the gap matters for implementation correctness.',
-      'In-Phase Revision: If gaps are found and the coverage cap has not been reached, LoopTroop asks the model to produce a revised PRD that addresses the identified gaps. The revised candidate is validated and promoted to the next version number (e.g., v1 → v2 → v3) within the same phase.',
+      'In-Phase Revision: If gaps are found and the coverage cap has not been reached, LoopTroop asks the model to produce a revised PRD that addresses the identified gaps. The revised candidate is validated and promoted to the next version number (for example v1 → v2) within the same phase.',
       'Version History: Coverage attempts and version transitions are persisted, so you can see what changed between PRD versions and why. Each attempt records the coverage result, identified gaps, revision actions, and the resulting candidate version.',
       'Clean Finalization: If the PRD becomes clean (all gaps resolved), the clean result is recorded and the current candidate becomes the approval candidate with a clean status.',
-      'Cap Enforcement: If the fixed PRD coverage cap is reached (maximum 3 versions), LoopTroop advances using the latest candidate even if minor gaps remain. The unresolved-gap history is preserved and visible during approval so you can address any remaining issues manually.',
+      'Cap Enforcement: If the configured PRD coverage cap is reached, LoopTroop advances using the latest candidate even if minor gaps remain. The unresolved-gap history is preserved and visible during approval so you can address any remaining issues manually.',
     ],
     outputs: [
       'Versioned PRD coverage attempts and transition history — showing the journey from Candidate v1 through any revisions.',
@@ -413,9 +413,9 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'Unlike the interview loop (which bounces back to the user for more answers), PRD gap resolution stays inside this same phase — the model revises the PRD directly.',
-      'The maximum number of coverage versions is fixed at 3 (v1, v2, v3) to ensure convergence.',
+      'The maximum number of coverage versions is configuration-driven to ensure convergence without hard-coding a single limit for every project.',
       'Context available: Interview Results + Full Answers + PRD (current candidate version).',
-      'Why cap at 3 versions? Diminishing returns: most meaningful gaps are caught in the first revision. The cap prevents the loop from endlessly polishing minor details while delaying your approval review.',
+      'Why cap the loop? Diminishing returns: most meaningful gaps are caught in early revisions. The cap prevents the loop from endlessly polishing minor details while delaying your approval review.',
     ],
     equivalents: [
       'This is the "coverage check" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Blueprint (Beads) phase is "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
@@ -540,7 +540,7 @@ const WORKFLOW_PHASE_DETAILS = {
     overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revises it until acceptable, and then expands the final blueprint into execution-ready bead records. This is a 2-part phase: Part 1 is the coverage review loop (checking and revising the semantic blueprint against the PRD), and Part 2 is the final expansion step that transforms the validated semantic blueprint into execution-ready bead data with commands, file targets, and dependency graphs.',
     steps: [
       'Part 1 — Coverage Review: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result. "Clean" means every PRD requirement is covered by at least one bead. "Gaps" means specific requirements lack corresponding beads or have insufficient acceptance criteria.',
-      'Part 1 — Gap Resolution: If gaps are found, LoopTroop records the coverage attempt, requests a targeted revision that adds the missing beads or strengthens existing acceptance criteria, validates the revision, and promotes the next blueprint version. This loop can repeat until clean or until the fixed beads coverage cap is reached.',
+      'Part 1 — Gap Resolution: If gaps are found, LoopTroop records the coverage attempt, requests a targeted revision that adds the missing beads or strengthens existing acceptance criteria, validates the revision, and promotes the next blueprint version. This loop can repeat until clean or until the configured beads coverage cap is reached.',
       'Part 1 — Version Tracking: Each coverage attempt and revision is persisted as coverage history, so you can see the evolution from the initial blueprint through each revision and understand what changed at each step.',
       'Part 2 — Final Expansion: Once the blueprint is clean (or the cap is reached), LoopTroop runs the expansion step. This transforms the semantic blueprint (task descriptions, acceptance criteria) into execution-ready bead records. Expansion adds fields like shell commands to run, file paths to create or modify, expected test commands, dependency graph with topological ordering, and runtime metadata.',
       'Part 2 — Expansion Output: The expanded bead data becomes the actual execution plan that the coding agent will consume bead-by-bead. Each bead record includes everything the coding agent needs to implement that task without additional context about the overall plan.',

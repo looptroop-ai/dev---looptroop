@@ -65,12 +65,16 @@ describe('ticket start configuration locking', () => {
       lockedInterviewQuestions: 50,
       lockedCoverageFollowUpBudgetPercent: 20,
       lockedMaxCoveragePasses: 2,
+      lockedMaxPrdCoveragePasses: 5,
+      lockedMaxBeadsCoveragePasses: 5,
     })
 
     expect(lockedTicket?.lockedMainImplementer).toBe(lockedMainImplementer)
     expect(lockedTicket?.lockedCouncilMembers).toEqual(lockedCouncilMembers)
     expect(lockedTicket?.lockedCoverageFollowUpBudgetPercent).toBe(20)
     expect(lockedTicket?.lockedMaxCoveragePasses).toBe(2)
+    expect(lockedTicket?.lockedMaxPrdCoveragePasses).toBe(5)
+    expect(lockedTicket?.lockedMaxBeadsCoveragePasses).toBe(5)
     expect(lockedTicket?.startedAt).toBe(startedAt)
 
     const meta = readTicketMeta(repoDir, ticket.externalId)
@@ -86,6 +90,8 @@ describe('ticket start configuration locking', () => {
       lockedInterviewQuestions: 50,
       lockedCoverageFollowUpBudgetPercent: 20,
       lockedMaxCoveragePasses: 2,
+      lockedMaxPrdCoveragePasses: 5,
+      lockedMaxBeadsCoveragePasses: 5,
     })
 
     expect(repeatedLock?.startedAt).toBe(startedAt)

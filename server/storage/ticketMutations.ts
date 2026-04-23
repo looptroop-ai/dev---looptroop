@@ -341,6 +341,8 @@ export function lockTicketStartConfiguration(
     lockedInterviewQuestions: number
     lockedCoverageFollowUpBudgetPercent: number
     lockedMaxCoveragePasses: number
+    lockedMaxPrdCoveragePasses: number
+    lockedMaxBeadsCoveragePasses: number
   },
 ): PublicTicket | undefined {
   const context = getTicketContext(ticketRef)
@@ -378,6 +380,8 @@ export function lockTicketStartConfiguration(
       lockedInterviewQuestions: input.lockedInterviewQuestions,
       lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent,
       lockedMaxCoveragePasses: input.lockedMaxCoveragePasses,
+      lockedMaxPrdCoveragePasses: input.lockedMaxPrdCoveragePasses,
+      lockedMaxBeadsCoveragePasses: input.lockedMaxBeadsCoveragePasses,
       startedAt: meta.startedAt ?? input.startedAt,
       updatedAt: new Date().toISOString(),
     })

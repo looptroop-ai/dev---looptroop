@@ -35,6 +35,8 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     interviewQuestions: profile?.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
     coverageFollowUpBudgetPercent: profile?.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
     maxCoveragePasses: profile?.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses,
+    maxPrdCoveragePasses: profile?.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
+    maxBeadsCoveragePasses: profile?.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
     maxIterations: profile?.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
   })
 
@@ -78,18 +80,22 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       interviewQuestions: profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
       coverageFollowUpBudgetPercent: profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
       maxCoveragePasses: profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses,
+      maxPrdCoveragePasses: profile.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
+      maxBeadsCoveragePasses: profile.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
       maxIterations: profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
     })
-    setRawNumeric({
-      perIterationTimeout: numericFields.perIterationTimeout.fromStore(profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout),
-      executionSetupTimeout: numericFields.executionSetupTimeout.fromStore(profile.executionSetupTimeout ?? PROFILE_DEFAULTS.executionSetupTimeout),
-      councilResponseTimeout: numericFields.councilResponseTimeout.fromStore(profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout),
-      maxIterations: String(profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations),
-      minCouncilQuorum: String(profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum),
-      interviewQuestions: String(profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions),
-      coverageFollowUpBudgetPercent: String(profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent),
-      maxCoveragePasses: String(profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses),
-    })
+    setRawNumeric(buildInitialRawNumeric({
+      perIterationTimeout: profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
+      executionSetupTimeout: profile.executionSetupTimeout ?? PROFILE_DEFAULTS.executionSetupTimeout,
+      councilResponseTimeout: profile.councilResponseTimeout ?? PROFILE_DEFAULTS.councilResponseTimeout,
+      maxIterations: profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
+      minCouncilQuorum: profile.minCouncilQuorum ?? PROFILE_DEFAULTS.minCouncilQuorum,
+      interviewQuestions: profile.interviewQuestions ?? PROFILE_DEFAULTS.interviewQuestions,
+      coverageFollowUpBudgetPercent: profile.coverageFollowUpBudgetPercent ?? PROFILE_DEFAULTS.coverageFollowUpBudgetPercent,
+      maxCoveragePasses: profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses,
+      maxPrdCoveragePasses: profile.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
+      maxBeadsCoveragePasses: profile.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
+    }))
     // Restore variant state
     setMainVariant(profile.mainImplementerVariant ?? undefined)
     try {
@@ -334,9 +340,18 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
           <div className="mt-3">
             <NumericField fieldKey="interviewQuestions" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum clarifying questions (5–50)" />
           </div>
+
+          <Separator />
+
+          {/* ── Coverage ── */}
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Coverage</div>
+          <div className="grid grid-cols-2 gap-3">
+            <NumericField fieldKey="coverageFollowUpBudgetPercent" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum interview follow-up budget for interview coverage passes (0–100%)." />
+            <NumericField fieldKey="maxCoveragePasses" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Interview coverage executions allowed before approval fallback (1–10)." />
+          </div>
           <div className="grid grid-cols-2 gap-3 mt-3">
-            <NumericField fieldKey="coverageFollowUpBudgetPercent" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum interview follow-up budget for coverage passes (0–100%)" />
-            <NumericField fieldKey="maxCoveragePasses" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Interview coverage executions allowed before approval fallback (1–10). PRD and Beads use a fixed 3-pass loop." />
+            <NumericField fieldKey="maxPrdCoveragePasses" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum PRD coverage executions before approval fallback (2–20)." />
+            <NumericField fieldKey="maxBeadsCoveragePasses" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Maximum beads coverage executions before approval fallback (2–20)." />
           </div>
 
           <Separator />
