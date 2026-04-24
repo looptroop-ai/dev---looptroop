@@ -18,6 +18,8 @@ import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadg
 import { ModelBadge } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { useLogs } from '@/context/useLogContext'
+import type { LogEntry } from '@/context/logUtils'
 import { parseExecutionSetupPlanContent } from '@/lib/executionSetupPlan'
 import type {
   ArtifactStructuredOutputData,
@@ -30,6 +32,7 @@ import type {
   InterviewDiffArtifactData,
   InterviewDiffEntry,
   CoverageInputData,
+  CouncilDraftData,
   CouncilResultData,
   CouncilVoterDetailData,
   CouncilOutcome,
@@ -84,6 +87,7 @@ import type {
   ArtifactProcessingNoticeContext,
   ArtifactProcessingStatus,
 } from './artifactProcessingNotice'
+import { buildReadableRawDisplayContent } from './rawDisplayContent'
 
 const COVERAGE_ATTRIBUTION_HIDDEN_PHASES = new Set([
   'VERIFYING_INTERVIEW_COVERAGE',
@@ -195,23 +199,130 @@ export function TextCopyButton({ content, title, className = '' }: { content: st
   )
 }
 
+interface RawContentSource {
+  id: string
+  label: string
+  content?: string
+  displayContent?: string
+  modelId?: string
+  disabled?: boolean
+  title?: string
+  variants?: RawContentVariant[]
+}
+
+interface RawContentVariant {
+  id: string
+  label: string
+  content?: string
+  displayContent?: string
+  disabled?: boolean
+  title?: string
+  ariaLabel?: string
+}
+
+interface ActiveRawContentSource {
+  id: string
+  label: string
+  content?: string
+  displayContent?: string
+  modelId?: string
+  disabled?: boolean
+  title?: string
+  parentId: string
+}
+
+function normalizeRawContentSource(source: RawContentSource): ActiveRawContentSource {
+  return {
+    ...source,
+    parentId: source.id,
+  }
+}
+
+function normalizeRawContentVariant(source: RawContentSource, variant: RawContentVariant): ActiveRawContentSource {
+  return {
+    ...variant,
+    modelId: source.modelId,
+    parentId: source.id,
+  }
+}
+
+function getRawSourceDefaultSelection(source: RawContentSource): ActiveRawContentSource | null {
+  if (source.variants?.length) {
+    const variant = source.variants.find((entry) => !entry.disabled)
+    return variant ? normalizeRawContentVariant(source, variant) : null
+  }
+  return source.disabled ? null : normalizeRawContentSource(source)
+}
+
+function findRawSourceSelection(sources: RawContentSource[], selectionId: string): ActiveRawContentSource | null {
+  for (const source of sources) {
+    if (source.variants?.length) {
+      const variant = source.variants.find((entry) => entry.id === selectionId && !entry.disabled)
+      if (variant) return normalizeRawContentVariant(source, variant)
+      if (source.id === selectionId) return getRawSourceDefaultSelection(source)
+      continue
+    }
+    if (source.id === selectionId && !source.disabled) return normalizeRawContentSource(source)
+  }
+  return null
+}
+
+function RawDisplayStats({ content }: { content: string }) {
+  const tokenCount = useMemo(() => encode(content).length, [content])
+  const lineCount = content.split('\n').length
+  const charCount = content.length
+
+  return (
+    <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+      <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
+      <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
+      <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
+    </div>
+  )
+}
+
+function RawDisplayPre({ content }: { content: string }) {
+  return (
+    <div className="min-w-0 w-full overflow-hidden">
+      <pre className="max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-background p-2 font-mono text-[11px]">
+        {content}
+      </pre>
+    </div>
+  )
+}
+
 export function WithRawTab({
   content,
   structuredLabel,
   children,
   header,
   notice,
+  rawSources,
 }: {
   content: string
   structuredLabel: string
   children: React.ReactNode
   header?: React.ReactNode
   notice?: React.ReactNode
+  rawSources?: RawContentSource[]
 }) {
   const [activeTab, setActiveTab] = useState<'structured' | 'raw'>('structured')
-  const tokenCount = useMemo(() => encode(content).length, [content])
-  const lineCount = content.split('\n').length
-  const charCount = content.length
+  const [activeRawSourceId, setActiveRawSourceId] = useState('all')
+  const rawSourceOptions = useMemo<RawContentSource[]>(() => [
+    { id: 'all', label: 'All Models', content, title: 'Show raw vote artifact for all models' },
+    ...(rawSources ?? []),
+  ], [content, rawSources])
+  const activeRawSource = findRawSourceSelection(rawSourceOptions, activeRawSourceId)
+    ?? getRawSourceDefaultSelection(rawSourceOptions[0]!)
+    ?? normalizeRawContentSource(rawSourceOptions[0]!)
+  const activeRawContent = activeRawSource.content ?? ''
+  const activeRawDisplayContent = activeRawSource.displayContent ?? buildReadableRawDisplayContent(activeRawContent)
+
+  useEffect(() => {
+    if (!findRawSourceSelection(rawSourceOptions, activeRawSourceId)) {
+      setActiveRawSourceId('all')
+    }
+  }, [activeRawSourceId, rawSourceOptions])
 
   return (
     <div className="space-y-3">
@@ -234,16 +345,88 @@ export function WithRawTab({
           >
             Raw
           </button>
-          {activeTab === 'raw' && <CopyButton content={content} />}
+          {activeTab === 'raw' && <CopyButton content={activeRawContent} />}
         </div>
       </div>
 
       {activeTab === 'raw' && (
-        <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
-        </div>
+        <>
+          {rawSourceOptions.length > 1 && (
+            <div className="flex min-w-0 max-w-full flex-wrap gap-1.5 overflow-hidden" aria-label="Raw vote source">
+              {rawSourceOptions.map((source) => {
+                const label = source.label || (source.modelId ? getModelDisplayName(source.modelId) : source.id)
+                if (source.variants?.length) {
+                  const sourceActive = activeRawSource.parentId === source.id
+                  const enabledVariants = source.variants.filter((variant) => !variant.disabled)
+                  const disabled = enabledVariants.length === 0
+                  return (
+                    <div
+                      key={source.id}
+                      role="group"
+                      aria-label={`${label} raw output`}
+                      className={cn(
+                        'inline-flex min-w-0 max-w-full overflow-hidden rounded-md border bg-background',
+                        sourceActive ? 'border-primary' : 'border-border',
+                        disabled && 'opacity-45',
+                      )}
+                    >
+                      {source.variants.map((variant, index) => {
+                        const active = activeRawSource.id === variant.id
+                        const variantDisabled = Boolean(variant.disabled)
+                        const variantLabel = index === 0 ? label : variant.label
+                        return (
+                          <button
+                            key={variant.id}
+                            type="button"
+                            disabled={variantDisabled}
+                            aria-pressed={active}
+                            aria-label={variant.ariaLabel ?? (index === 0 ? label : `${label} ${variant.label}`)}
+                            title={variant.title}
+                            onClick={() => setActiveRawSourceId(variant.id)}
+                            className={cn(
+                              'inline-flex min-w-0 max-w-full items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium transition-colors',
+                              index > 0 && 'border-l border-border',
+                              active
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground',
+                              variantDisabled && 'cursor-not-allowed hover:bg-background hover:text-muted-foreground',
+                            )}
+                          >
+                            {index === 0 && source.modelId ? <span aria-hidden="true">{getModelIcon(source.modelId)}</span> : null}
+                            <span className="min-w-0 truncate">{variantLabel}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                }
+                const active = activeRawSource.id === source.id
+                const disabled = Boolean(source.disabled)
+                return (
+                  <button
+                    key={source.id}
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={active}
+                    title={source.title}
+                    onClick={() => setActiveRawSourceId(source.id)}
+                    className={cn(
+                      'inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-medium transition-colors',
+                      active
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-background text-muted-foreground hover:bg-accent/70 hover:text-foreground',
+                      disabled && 'cursor-not-allowed opacity-45 hover:bg-background hover:text-muted-foreground',
+                    )}
+                  >
+                    {source.modelId ? <span aria-hidden="true">{getModelIcon(source.modelId)}</span> : null}
+                    <span className="min-w-0 truncate">{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <RawDisplayStats content={activeRawDisplayContent} />
+        </>
       )}
 
       {activeTab === 'structured' ? (
@@ -252,11 +435,7 @@ export function WithRawTab({
           {children}
         </>
       ) : (
-        <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
-            {content}
-          </pre>
-        </div>
+        <RawDisplayPre content={activeRawDisplayContent} />
       )}
     </div>
   )
@@ -275,9 +454,7 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
   const hasDiffTab = showDiffTab && hasChanges && Boolean(diffContent)
   const [activeTab, setActiveTab] = useState<'sections' | 'diff' | 'raw'>(defaultTab ?? (hasDiffTab ? 'diff' : 'sections'))
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'sections')
-  const tokenCount = useMemo(() => encode(content).length, [content])
-  const lineCount = content.split('\n').length
-  const charCount = content.length
+  const rawDisplayContent = useMemo(() => buildReadableRawDisplayContent(content), [content])
 
   return (
     <div className="space-y-3">
@@ -314,11 +491,7 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
       </div>
 
       {currentTab === 'raw' && (
-        <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
-        </div>
+        <RawDisplayStats content={rawDisplayContent} />
       )}
 
       {currentTab === 'sections' ? (
@@ -332,11 +505,7 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
           {diffContent}
         </>
       ) : currentTab === 'raw' ? (
-        <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
-            {content}
-          </pre>
-        </div>
+        <RawDisplayPre content={rawDisplayContent} />
       ) : null}
     </div>
   )
@@ -365,21 +534,15 @@ export function RawContentView({ content }: { content: string }) {
 }
 
 function RawContentWithCopy({ content }: { content: string }) {
-  const tokenCount = useMemo(() => encode(content).length, [content])
-  const lineCount = content.split('\n').length
-  const charCount = content.length
+  const displayContent = useMemo(() => buildReadableRawDisplayContent(content), [content])
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <CopyButton content={content} />
-        <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
-        </div>
+        <RawDisplayStats content={displayContent} />
       </div>
-      <RawContentView content={content} />
+      <RawDisplayPre content={displayContent} />
     </div>
   )
 }
@@ -657,6 +820,42 @@ function mergeStructuredOutputMetadata(
     repairWarnings: [],
     autoRetryCount: 0,
   })
+}
+
+const RAW_NORMALIZATION_WARNING = 'Normalized saved artifact details from raw model output before saving the validated artifact.'
+
+function didPersistedOutputChange(
+  rawResponse?: string,
+  normalizedResponse?: string,
+  content?: string,
+): boolean {
+  if (typeof rawResponse !== 'string') return false
+  const validated = typeof normalizedResponse === 'string'
+    ? normalizedResponse
+    : typeof content === 'string'
+      ? content
+      : undefined
+  return typeof validated === 'string' && rawResponse !== validated
+}
+
+function withRawNormalizationNotice(
+  structuredOutput?: ArtifactStructuredOutputData,
+  rawResponse?: string,
+  normalizedResponse?: string,
+  content?: string,
+): ArtifactStructuredOutputData | undefined {
+  if (!didPersistedOutputChange(rawResponse, normalizedResponse, content)) return structuredOutput
+  if (hasArtifactProcessingNotice(structuredOutput)) return structuredOutput
+
+  const repairWarnings = getStructuredOutputWarnings(structuredOutput)
+  return {
+    ...(structuredOutput ?? {}),
+    repairApplied: true,
+    repairWarnings: repairWarnings.includes(RAW_NORMALIZATION_WARNING)
+      ? repairWarnings
+      : [...repairWarnings, RAW_NORMALIZATION_WARNING],
+    autoRetryCount: structuredOutput?.autoRetryCount ?? 0,
+  }
 }
 
 function CollapsibleWarningNotice({
@@ -1220,6 +1419,7 @@ function FinalInterviewArtifactView({
   const diffEntries = buildInterviewDiffEntries(content)
   const hasDiffTab = showDiffTab && Boolean(parsed?.originalContent)
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
+  const rawDisplayContent = buildReadableRawDisplayContent(content)
   const notice = <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" />
 
   const tabButtonClass = (tab: string) =>
@@ -1247,10 +1447,9 @@ function FinalInterviewArtifactView({
         </div>
       </div>
       {currentTab === 'raw' ? (
-        <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
-            {content}
-          </pre>
+        <div className="space-y-3">
+          <RawDisplayStats content={rawDisplayContent} />
+          <RawDisplayPre content={rawDisplayContent} />
         </div>
       ) : currentTab === 'final'
         ? (
@@ -1302,6 +1501,7 @@ function FinalPrdDraftView({
   const shouldShowDiffTab = showDiffTab ?? !hideDiffInApproval
   const hasDiffTab = shouldShowDiffTab && (diffEntries.length > 0 || Boolean(parsed?.winnerDraftContent) || Boolean(parsed?.coverageBaselineContent))
   const currentTab = activeTab === 'raw' ? 'raw' : (hasDiffTab ? activeTab : 'final')
+  const rawDisplayContent = buildReadableRawDisplayContent(content)
   const notice = hasDiffTab ? <ArtifactProcessingNotice structuredOutput={parsed?.structuredOutput} kind="diff" /> : null
 
   const tabButtonClass = (tab: string) =>
@@ -1329,10 +1529,9 @@ function FinalPrdDraftView({
         </div>
       </div>
       {currentTab === 'raw' ? (
-        <div className="min-w-0 w-full overflow-hidden">
-          <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
-            {content}
-          </pre>
+        <div className="space-y-3">
+          <RawDisplayStats content={rawDisplayContent} />
+          <RawDisplayPre content={rawDisplayContent} />
         </div>
       ) : currentTab === 'final'
         ? (
@@ -2535,15 +2734,26 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
     }
     return votes.some(v => v.voterId === voterId) ? 'completed' : 'pending'
   }
+  const voterProcessingNoticeById = new Map<string, ArtifactStructuredOutputData | undefined>(
+    voterIds.map((voterId) => {
+      const detail = voterDetailById.get(voterId)
+      return [voterId, withRawNormalizationNotice(
+        detail?.structuredOutput,
+        detail?.rawResponse,
+        detail?.normalizedResponse,
+        getValidatedVoteResponse(voterId, data, detail),
+      )] as const
+    }),
+  )
   const completedCount = voterIds.filter(voterId => getVoterOutcome(voterId) === 'completed').length
   const hasLiveOutcomes = voterIds.length > 0
-  const votersWithProcessingNotice = voterIds.filter((voterId) => hasArtifactProcessingNotice(voterDetailById.get(voterId)?.structuredOutput))
+  const votersWithProcessingNotice = voterIds.filter((voterId) => hasArtifactProcessingNotice(voterProcessingNoticeById.get(voterId)))
   const aggregateProcessingNotice = mergeStructuredOutputMetadata(
-    votersWithProcessingNotice.map((voterId) => voterDetailById.get(voterId)?.structuredOutput),
+    votersWithProcessingNotice.map((voterId) => voterProcessingNoticeById.get(voterId)),
   )
   const aggregateOwnerInterventions = votersWithProcessingNotice.map((voterId) => ({
     label: getModelDisplayName(voterId),
-    interventions: getStructuredOutputInterventions(voterDetailById.get(voterId)?.structuredOutput),
+    interventions: getStructuredOutputInterventions(voterProcessingNoticeById.get(voterId)),
   }))
 
   if (votes.length === 0 && !hasLiveOutcomes) {
@@ -2667,7 +2877,7 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
                   {getCouncilStatusEmoji(getVoterOutcome(voterId), 'scoring')} {getCouncilStatusLabel(getVoterOutcome(voterId), 'scoring')}
                 </span>
               </div>
-              <ArtifactProcessingNotice structuredOutput={voterDetailById.get(voterId)?.structuredOutput} kind="vote" />
+              <ArtifactProcessingNotice structuredOutput={voterProcessingNoticeById.get(voterId)} kind="vote" />
               {votes.filter(v => v.voterId === voterId).length === 0 ? (
                 <div className="ml-4 text-muted-foreground italic">
                   {getVoterOutcome(voterId) === 'pending'
@@ -2711,6 +2921,203 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
       </CollapsibleSection>
     </div>
   )
+}
+
+function buildValidatedVoteResponseFromVotes(voterId: string, data: CouncilResultData): string | undefined {
+  const presentationOrder = data.presentationOrders?.[voterId]?.order
+  const votes = Array.isArray(data.votes) ? data.votes : []
+  if (!Array.isArray(presentationOrder) || presentationOrder.length === 0) return undefined
+
+  const votesByDraftId = new Map(
+    votes
+      .filter((vote) => vote.voterId === voterId)
+      .map((vote) => [vote.draftId, vote] as const),
+  )
+  if (votesByDraftId.size < presentationOrder.length) return undefined
+
+  const draftScores: Record<string, Record<string, number>> = {}
+  for (const [index, draftId] of presentationOrder.entries()) {
+    const vote = votesByDraftId.get(draftId)
+    if (!vote || !Array.isArray(vote.scores) || !Number.isFinite(vote.totalScore)) return undefined
+
+    const scoreRecord: Record<string, number> = {}
+    for (const score of vote.scores) {
+      if (typeof score.category !== 'string' || !Number.isFinite(score.score)) return undefined
+      scoreRecord[score.category] = score.score
+    }
+    scoreRecord.total_score = vote.totalScore
+    draftScores[`Draft ${index + 1}`] = scoreRecord
+  }
+
+  return jsYaml.dump({ draft_scores: draftScores }, { lineWidth: -1, noRefs: true, sortKeys: false }).trimEnd()
+}
+
+function getValidatedVoteResponse(
+  voterId: string,
+  data: CouncilResultData,
+  detail?: CouncilVoterDetailData,
+): string | undefined {
+  if (typeof detail?.normalizedResponse === 'string') return detail.normalizedResponse
+  if (detail?.structuredOutput?.repairApplied !== true) return undefined
+
+  const outcome = data.voterOutcomes?.[voterId]
+  if (outcome && outcome !== 'completed') return undefined
+  return buildValidatedVoteResponseFromVotes(voterId, data)
+}
+
+function buildDraftRawSources(draft: CouncilDraftData): RawContentSource[] | undefined {
+  const rawResponse = draft.rawResponse
+  const normalizedResponse = draft.normalizedResponse ?? (
+    draft.structuredOutput?.repairApplied && draft.content ? draft.content : undefined
+  )
+  if (typeof rawResponse !== 'string' && typeof normalizedResponse !== 'string') return undefined
+  const label = getModelDisplayName(draft.memberId)
+  const variants: RawContentVariant[] = [{
+    id: `draft:${draft.memberId}:raw`,
+    label: 'Raw Output',
+    content: rawResponse,
+    displayContent: rawResponse,
+    disabled: typeof rawResponse !== 'string',
+    ariaLabel: `${label} Raw Output`,
+    title: typeof rawResponse === 'string'
+      ? `Show raw model output from ${label}`
+      : `No exact raw output stored for ${label}`,
+  }]
+  if (typeof normalizedResponse === 'string') {
+    variants.push({
+      id: `draft:${draft.memberId}:validated`,
+      label: 'Validated',
+      content: normalizedResponse,
+      displayContent: normalizedResponse,
+      ariaLabel: `${label} Validated`,
+      title: `Show validated output from ${label}`,
+    })
+  }
+  return [{
+    id: `draft:${draft.memberId}`,
+    label,
+    modelId: draft.memberId,
+    variants,
+    disabled: !variants.some((v) => !v.disabled),
+    title: typeof rawResponse === 'string'
+      ? `Show raw model output from ${label}`
+      : `No exact raw output stored for ${label}`,
+  }]
+}
+
+type DraftRawLogStage = 'draft' | 'full_answers' | 'prd_draft'
+
+type DraftRawLogFallbacks = Record<DraftRawLogStage, Map<string, string>>
+
+function createEmptyDraftRawLogFallbacks(): DraftRawLogFallbacks {
+  return {
+    draft: new Map<string, string>(),
+    full_answers: new Map<string, string>(),
+    prd_draft: new Map<string, string>(),
+  }
+}
+
+function stripLogTag(line: string): string {
+  return line.replace(/^\[[A-Z_]+\]\s*/, '')
+}
+
+function getModelOutputFromLog(log: LogEntry): string | undefined {
+  if (!log.line.startsWith('[MODEL] ')) return undefined
+  const output = log.line.slice('[MODEL] '.length)
+  if (!output.trim()) return undefined
+  if (output.startsWith('[PROMPT]')) return undefined
+  return output
+}
+
+function updateDraftRawLogStage(
+  stagesByMember: Map<string, DraftRawLogStage>,
+  phase: string | undefined,
+  log: LogEntry,
+) {
+  if (!log.modelId) return
+  const line = stripLogTag(log.line)
+
+  if (phase === 'DRAFTING_PRD') {
+    if (line.includes(`${log.modelId} Full Answers started.`)) {
+      stagesByMember.set(log.modelId, 'full_answers')
+      return
+    }
+    if (line.includes(`${log.modelId} PRD draft started.`)) {
+      stagesByMember.set(log.modelId, 'prd_draft')
+      return
+    }
+    if (
+      line.includes(`${log.modelId} Full Answers completed.`)
+      || line.includes(`${log.modelId} Full Answers failed:`)
+      || line.includes(`${log.modelId} PRD draft completed.`)
+      || line.includes(`${log.modelId} PRD draft failed:`)
+    ) {
+      stagesByMember.delete(log.modelId)
+    }
+    return
+  }
+
+  if (phase === 'DRAFTING_BEADS') {
+    if (line.includes(`${log.modelId} Beads draft`) || line.includes(`${log.modelId} draft`)) {
+      stagesByMember.set(log.modelId, 'draft')
+    }
+    return
+  }
+
+  if (phase === 'COUNCIL_DELIBERATING' || phase === 'COUNCIL_DRAFTING_INTERVIEW') {
+    stagesByMember.set(log.modelId, 'draft')
+  }
+}
+
+function buildDraftRawLogFallbacks(logs: LogEntry[], phase?: string): DraftRawLogFallbacks {
+  const fallbacks = createEmptyDraftRawLogFallbacks()
+  const stagesByMember = new Map<string, DraftRawLogStage>()
+
+  for (const log of logs) {
+    updateDraftRawLogStage(stagesByMember, phase, log)
+    if (!log.modelId) continue
+
+    const output = getModelOutputFromLog(log)
+    if (!output) continue
+
+    const stage = stagesByMember.get(log.modelId)
+      ?? (phase === 'DRAFTING_PRD' ? 'prd_draft' : 'draft')
+    fallbacks[stage].set(log.modelId, output)
+  }
+
+  return fallbacks
+}
+
+function getDraftRawLogStage(phase?: string, artifactId?: string): DraftRawLogStage {
+  if (phase === 'DRAFTING_PRD') {
+    return artifactId?.startsWith('prd-fullanswers-member-') ? 'full_answers' : 'prd_draft'
+  }
+  return 'draft'
+}
+
+function withDraftRawLogFallback(
+  draft: CouncilDraftData,
+  phase: string | undefined,
+  artifactId: string | undefined,
+  fallbacks: DraftRawLogFallbacks,
+): CouncilDraftData {
+  if (typeof draft.rawResponse === 'string') return draft
+
+  const stage = getDraftRawLogStage(phase, artifactId)
+  const rawResponse = fallbacks[stage].get(draft.memberId)
+  if (typeof rawResponse !== 'string') return draft
+
+  const normalizedResponse = typeof draft.normalizedResponse === 'string'
+    ? draft.normalizedResponse
+    : typeof draft.content === 'string' && draft.content !== rawResponse
+      ? draft.content
+      : undefined
+
+  return {
+    ...draft,
+    rawResponse,
+    ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
+  }
 }
 
 function getCoverageCandidateLabel(phase?: string, candidateVersion?: number): string {
@@ -2887,9 +3294,9 @@ function CoverageResultView({ content, header, phase }: { content: string; heade
 
 function RelevantFilesScanView({ content }: { content: string }) {
   const [activeTab, setActiveTab] = useState<'files' | 'raw'>('files')
-  const tokenCount = useMemo(() => encode(content).length, [content])
+  const rawDisplayContent = useMemo(() => buildReadableRawDisplayContent(content), [content])
   const raw = tryParseStructuredContent(content) as (RelevantFilesScanData & { files: Array<RelevantFileScanEntry & { content_preview?: string }> }) | null
-  if (!raw?.files) return <RawContentView content={content} />
+  if (!raw?.files) return <RawContentWithCopy content={content} />
 
   // Normalize: accept both camelCase (new) and snake_case (legacy DB rows)
   const parsed: RelevantFilesScanData = {
@@ -2905,16 +3312,6 @@ function RelevantFilesScanView({ content }: { content: string }) {
     r === 'high' ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
     : r === 'medium' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'
     : 'text-muted-foreground bg-muted border-border'
-
-  let formattedContent = content
-  try {
-    formattedContent = JSON.stringify(parsed, null, 2)
-  } catch {
-    // Ignore JSON formatting errors
-  }
-
-  const lineCount = formattedContent.split('\n').length
-  const charCount = content.length
 
   return (
     <div className="space-y-3">
@@ -2951,26 +3348,14 @@ function RelevantFilesScanView({ content }: { content: string }) {
 
       {activeTab === 'raw' ? (
         <>
-          <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-            <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
-            <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
-            <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
-          </div>
-          <div className="min-w-0 w-full overflow-hidden">
-            <pre className="text-[11px] font-mono bg-background rounded border border-border p-2 overflow-x-auto overflow-y-hidden whitespace-pre-wrap break-all">
-              {content}
-            </pre>
-          </div>
+          <RawDisplayStats content={rawDisplayContent} />
+          <RawDisplayPre content={rawDisplayContent} />
         </>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <div className="text-xs text-muted-foreground font-medium">{parsed.fileCount} files identified</div>
-            <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
-              <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{lineCount.toLocaleString()} Lines</span>
-              <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{charCount.toLocaleString()} Characters</span>
-              <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">{tokenCount.toLocaleString()} Tokens (GPT-5 tokenizer)</span>
-            </div>
+            <RawDisplayStats content={rawDisplayContent} />
           </div>
           {parsed.files.map((file) => (
             <CollapsibleSection
@@ -4630,6 +5015,16 @@ export function ArtifactContent({
   phase?: string
   reportContent?: string | null
 }) {
+  const logCtx = useLogs()
+  const phaseLogs = useMemo(
+    () => (phase && logCtx ? logCtx.getLogsForPhase(phase) : []),
+    [logCtx, phase],
+  )
+  const draftRawLogFallbacks = useMemo(
+    () => buildDraftRawLogFallbacks(phaseLogs, phase),
+    [phaseLogs, phase],
+  )
+
   if (artifactId === 'execution-setup-plan') {
     return (
       <ExecutionSetupPlanView
@@ -4807,9 +5202,15 @@ export function ArtifactContent({
     if (isVotes) {
       const votes = Array.isArray(councilResult.votes) ? councilResult.votes : []
       const voterOutcomes = (councilResult.voterOutcomes ?? {}) as Record<string, CouncilOutcome>
-      const voterIds = Object.keys(voterOutcomes).length > 0
-        ? Object.keys(voterOutcomes)
-        : [...new Set(votes.map(v => v.voterId))]
+      const voterDetails = Array.isArray(councilResult.voterDetails)
+        ? councilResult.voterDetails
+        : []
+      const voterIds = [
+        ...(Object.keys(voterOutcomes).length > 0 ? Object.keys(voterOutcomes) : []),
+        ...votes.map(v => v.voterId),
+        ...voterDetails.map((detail) => detail.voterId),
+      ].filter((voterId, index, values) => voterId && values.indexOf(voterId) === index)
+      const voterDetailById = new Map(voterDetails.map((detail) => [detail.voterId, detail] as const))
       const completedCount = voterIds.filter(voterId => {
         const outcome = voterOutcomes[voterId]
         if (outcome === 'completed' || outcome === 'failed' || outcome === 'timed_out' || outcome === 'invalid_output' || outcome === 'pending') {
@@ -4823,9 +5224,48 @@ export function ArtifactContent({
           Voter Status <span className="text-muted-foreground font-normal">({completedCount}/{voterIds.length} complete)</span>
         </div>
       )
+      const rawSources = voterIds.map((voterId) => {
+        const detail = voterDetailById.get(voterId)
+        const rawResponse = detail?.rawResponse
+        const validatedResponse = getValidatedVoteResponse(voterId, councilResult, detail)
+        const hasRawResponse = typeof rawResponse === 'string'
+        const hasValidatedResponse = typeof validatedResponse === 'string'
+        const label = getModelDisplayName(voterId)
+        const variants: RawContentVariant[] = [{
+          id: `voter:${voterId}:raw`,
+          label,
+          content: rawResponse,
+          displayContent: rawResponse,
+          disabled: !hasRawResponse,
+          ariaLabel: label,
+          title: hasRawResponse
+            ? `Show raw vote response from ${label}`
+            : `No exact raw vote response stored for ${label}`,
+        }]
+        if (hasValidatedResponse) {
+          variants.push({
+            id: `voter:${voterId}:validated`,
+            label: 'Validated',
+            content: validatedResponse,
+            displayContent: validatedResponse,
+            ariaLabel: `${label} Validated`,
+            title: `Show validated vote scorecard from ${label}`,
+          })
+        }
+        return {
+          id: `voter:${voterId}`,
+          label,
+          modelId: voterId,
+          variants,
+          disabled: !variants.some((variant) => !variant.disabled),
+          title: hasRawResponse
+            ? `Show raw vote response from ${label}`
+            : `No exact raw vote response stored for ${label}`,
+        }
+      })
 
       return (
-        <WithRawTab content={content} structuredLabel="Votes" header={header}>
+        <WithRawTab content={content} structuredLabel="Votes" header={header} rawSources={rawSources}>
           <VotingResultsView data={councilResult} showHeader={false} />
         </WithRawTab>
       )
@@ -4833,7 +5273,10 @@ export function ArtifactContent({
 
     const isWinnerArtifact = artifactId?.startsWith('winner')
     if (isWinnerArtifact) {
-      const winnerDraft = councilResult.drafts?.find((d) => d.memberId === councilResult.winnerId)
+      const winnerDraftSource = councilResult.drafts?.find((d) => d.memberId === councilResult.winnerId)
+      const winnerDraft = winnerDraftSource
+        ? withDraftRawLogFallback(winnerDraftSource, phase, artifactId, draftRawLogFallbacks)
+        : undefined
       const winnerContent = winnerDraft?.content ?? councilResult.winnerContent ?? ''
       if (!winnerContent) return <div className="text-xs text-muted-foreground italic">Voting still in progress — winner not yet determined.</div>
       const header = winnerDraft ? (
@@ -4856,6 +5299,9 @@ export function ArtifactContent({
         isPrd,
         isBeads,
       })
+      const noticeOutput = winnerDraft
+        ? withRawNormalizationNotice(winnerDraft.structuredOutput, winnerDraft.rawResponse, winnerDraft.normalizedResponse, winnerContent)
+        : undefined
       const structured = isPrd ? <PrdDraftView content={winnerContent} />
         : isBeads ? <BeadsDraftView content={winnerContent} />
           : <InterviewDraftView content={winnerContent} />
@@ -4864,7 +5310,8 @@ export function ArtifactContent({
           content={winnerContent}
           structuredLabel="Winner"
           header={header}
-          notice={<ArtifactProcessingNotice structuredOutput={winnerDraft?.structuredOutput} kind={noticeKind} status={winnerDraft?.outcome ?? 'completed'} />}
+          notice={<ArtifactProcessingNotice structuredOutput={noticeOutput} kind={noticeKind} status={winnerDraft?.outcome ?? 'completed'} />}
+          rawSources={winnerDraft ? buildDraftRawSources(winnerDraft) : undefined}
         >
           {structured || <RawContentView content={winnerContent} />}
         </WithRawTab>
@@ -4877,9 +5324,12 @@ export function ArtifactContent({
     const draftIndex = !memberId ? artifactId?.match(/(\d+)$/)?.[1] : null
     const draftIdx = draftIndex ? parseInt(draftIndex, 10) - 1 : -1
 
-    const draft = memberId
+    const draftSource = memberId
       ? (councilResult.drafts?.find(d => d.memberId === memberId) ?? null)
       : (draftIdx >= 0 ? (councilResult.drafts?.[draftIdx] ?? null) : null)
+    const draft = draftSource
+      ? withDraftRawLogFallback(draftSource, phase, artifactId, draftRawLogFallbacks)
+      : null
     const draftContent = draft?.content ?? councilResult.refinedContent ?? councilResult.winnerContent ?? ''
 
     const header = draft ? (
@@ -4917,6 +5367,7 @@ export function ArtifactContent({
       const isPrd = isStructuredPrdArtifactId(artifactId) && !isFullAnswers
       const isBeads = Boolean(artifactId?.includes('beads'))
       const noticeContext = isFullAnswers ? getFullAnswersNoticeContext(draft.content) : undefined
+      const noticeOutput = withRawNormalizationNotice(draft.structuredOutput, draft.rawResponse, draft.normalizedResponse, draft.content)
       const structured = isFullAnswers ? <InterviewAnswersView content={draft.content} />
         : isInterview ? <InterviewDraftView content={draft.content} />
           : isPrd ? <PrdDraftView content={draft.content} />
@@ -4936,7 +5387,8 @@ export function ArtifactContent({
               <WithRawTab
                 content={draft.content}
                 structuredLabel="Draft"
-                notice={<ArtifactProcessingNotice structuredOutput={draft.structuredOutput} kind={getCouncilDraftNoticeKind({ isFullAnswers, isInterview, isPrd, isBeads })} context={noticeContext} status={draft.outcome} />}
+                notice={<ArtifactProcessingNotice structuredOutput={noticeOutput} kind={getCouncilDraftNoticeKind({ isFullAnswers, isInterview, isPrd, isBeads })} context={noticeContext} status={draft.outcome} />}
+                rawSources={buildDraftRawSources(draft)}
               >
                 {structured}
               </WithRawTab>
@@ -4953,6 +5405,9 @@ export function ArtifactContent({
       const isBeads = Boolean(artifactId?.includes('beads'))
       const noticeKind = getCouncilDraftNoticeKind({ isFullAnswers, isInterview, isPrd, isBeads })
       const noticeContext = isFullAnswers ? getFullAnswersNoticeContext(draftContent) : undefined
+      const noticeOutput = draft
+        ? withRawNormalizationNotice(draft.structuredOutput, draft.rawResponse, draft.normalizedResponse, draftContent)
+        : undefined
 
       const structured = isFullAnswers ? <InterviewAnswersView content={draftContent} />
         : isInterview ? <InterviewDraftView content={draftContent} />
@@ -4966,7 +5421,8 @@ export function ArtifactContent({
             content={draftContent}
             structuredLabel="Draft"
             header={header}
-            notice={<ArtifactProcessingNotice structuredOutput={draft?.structuredOutput} kind={noticeKind} context={noticeContext} status={draft?.outcome ?? 'completed'} />}
+            notice={<ArtifactProcessingNotice structuredOutput={noticeOutput} kind={noticeKind} context={noticeContext} status={draft?.outcome ?? 'completed'} />}
+            rawSources={draft ? buildDraftRawSources(draft) : undefined}
           >
             {structured}
           </WithRawTab>
@@ -4985,12 +5441,13 @@ export function ArtifactContent({
             : draft.outcome === 'invalid_output'
               ? (draft.error || 'This member returned malformed output.')
               : 'No content available yet.'
+      const noticeOutput = withRawNormalizationNotice(draft.structuredOutput, draft.rawResponse, draft.normalizedResponse, draft.content)
       return (
         <div className="space-y-3">
           {header}
           <div className="text-xs text-muted-foreground italic">{waitingMessage}</div>
           <ArtifactProcessingNotice
-            structuredOutput={draft.structuredOutput}
+            structuredOutput={noticeOutput}
             kind={getCouncilDraftNoticeKind({
               isFullAnswers: isPrdFullAnswersArtifactId(artifactId),
               isInterview: Boolean(artifactId?.startsWith('draft') || artifactId?.includes('interview')),

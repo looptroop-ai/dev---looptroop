@@ -71,6 +71,8 @@ interface CouncilResultLike {
   voterDetails?: Array<{
     voterId: string
     error?: string
+    rawResponse?: string
+    normalizedResponse?: string
     structuredOutput?: {
       repairApplied?: boolean
       repairWarnings?: string[]
@@ -147,6 +149,32 @@ export function buildCouncilMemberArtifacts(
   return []
 }
 
+function mergeCouncilDraftLists(primaryDrafts: DraftLike[], fallbackDrafts: DraftLike[]): DraftLike[] {
+  const orderedMemberIds = [
+    ...primaryDrafts.map((draft) => draft.memberId),
+    ...fallbackDrafts.map((draft) => draft.memberId),
+  ].filter((memberId, index, values) => memberId && values.indexOf(memberId) === index)
+
+  return orderedMemberIds.map((memberId) => {
+    const primary = primaryDrafts.find((draft) => draft.memberId === memberId)
+    const fallback = fallbackDrafts.find((draft) => draft.memberId === memberId)
+    if (!primary) return fallback!
+    if (!fallback) return primary
+
+    return {
+      ...primary,
+      content: primary.content?.trim() ? primary.content : fallback.content,
+      outcome: primary.outcome === 'pending' && fallback.outcome && fallback.outcome !== 'pending'
+        ? fallback.outcome
+        : primary.outcome ?? fallback.outcome,
+      error: primary.error ?? fallback.error,
+      structuredOutput: primary.structuredOutput ?? fallback.structuredOutput,
+      questionCount: primary.questionCount ?? fallback.questionCount,
+      draftMetrics: primary.draftMetrics ?? fallback.draftMetrics,
+    }
+  })
+}
+
 function buildDraftMemberArtifacts(
   phase: string,
   artifacts: DBartifact[],
@@ -163,6 +191,7 @@ function buildDraftMemberArtifacts(
   const drafts = Array.isArray(draftResult?.drafts) ? draftResult.drafts : []
   const draftByMember = new Map(drafts.map((draft) => [draft.memberId, draft]))
   const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
+  const winnerId = parseWinnerIdFromArtifacts(domain, phase, artifacts)
 
   return orderedMembers.map((memberId) => {
     const draft = draftByMember.get(memberId)
@@ -173,6 +202,7 @@ function buildDraftMemberArtifacts(
       action: 'drafting',
       outcome: draft?.outcome ?? 'pending',
       detail: getDraftDetail(domain, draft),
+      isWinner: memberId === winnerId,
       viewer,
     }
   })
@@ -245,12 +275,19 @@ function buildRefiningMemberArtifacts(
   const draftArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === `${domain}_drafts`)
   const draftCompanionArtifact = findLatestCompanionArtifact(artifacts, `${domain}_drafts`)
   const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanionArtifact?.content)
+  const draftResult = parseCouncilResult(mergedDraftContent)
   const mergedVoteContent = mergeVoteArtifactContent(voteArtifact?.content, voteCompanionArtifact?.content, mergedDraftContent)
   const voteResult = parseCouncilResult(mergedVoteContent)
-  const drafts = Array.isArray(voteResult?.drafts) ? voteResult.drafts : []
-  const winnerId = voteResult?.winnerId ?? ''
+  const voteDrafts = Array.isArray(voteResult?.drafts) ? voteResult.drafts : []
+  const directDrafts = Array.isArray(draftResult?.drafts) ? draftResult.drafts : []
+  const drafts = mergeCouncilDraftLists(voteDrafts, directDrafts)
   const orderedMembers = getOrderedMembers(configuredMembers, drafts.map((draft) => draft.memberId), fallbackCount)
   const refinedArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === phase && artifact.artifactType === getRefinedArtifactType(domain))
+  const refinedResult = parseCouncilResult(refinedArtifact?.content)
+  const winnerId = voteResult?.winnerId
+    ?? refinedResult?.winnerId
+    ?? parseWinnerIdFromArtifacts(domain, phase, artifacts)
+    ?? ''
   const shouldShowProposedDraft = phase === 'COMPILING_INTERVIEW' || phase === 'REFINING_PRD' || phase === 'REFINING_BEADS'
 
   return orderedMembers.map((memberId) => {

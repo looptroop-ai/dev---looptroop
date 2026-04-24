@@ -1380,6 +1380,8 @@ export function upsertCouncilDraftArtifact(
       ...(typeof draft.questionCount === 'number' ? { questionCount: draft.questionCount } : {}),
       ...(draft.draftMetrics ? { draftMetrics: draft.draftMetrics } : {}),
       ...(draft.structuredOutput ? { structuredOutput: buildStructuredMetadata(draft.structuredOutput) } : {}),
+      ...(typeof draft.rawResponse === 'string' ? { rawResponse: draft.rawResponse } : {}),
+      ...(typeof draft.normalizedResponse === 'string' ? { normalizedResponse: draft.normalizedResponse } : {}),
       ...(
         draft.outcome !== 'completed'
         && draft.content
@@ -1400,6 +1402,8 @@ export function upsertCouncilVoteArtifact(
   voterDetails?: Array<{
     voterId: string
     error?: string
+    rawResponse?: string
+    normalizedResponse?: string
     structuredOutput?: DraftStructuredOutputMeta
   }>,
   presentationOrders?: Record<string, VotePresentationOrder>,
@@ -1419,6 +1423,8 @@ export function upsertCouncilVoteArtifact(
       ? {
           voterDetails: voterDetails.map((detail) => ({
             ...detail,
+            ...(typeof detail.rawResponse === 'string' ? { rawResponse: detail.rawResponse } : {}),
+            ...(typeof detail.normalizedResponse === 'string' ? { normalizedResponse: detail.normalizedResponse } : {}),
             ...(detail.structuredOutput ? { structuredOutput: buildStructuredMetadata(detail.structuredOutput) } : {}),
           })),
         }

@@ -119,6 +119,8 @@ export async function generateDrafts(
       questionCount: draft.questionCount,
       draftMetrics: draft.draftMetrics,
       structuredOutput: draft.structuredOutput,
+      ...(typeof draft.rawResponse === 'string' ? { rawResponse: draft.rawResponse } : {}),
+      ...(typeof draft.normalizedResponse === 'string' ? { normalizedResponse: draft.normalizedResponse } : {}),
     })
     return true
   }
@@ -133,6 +135,8 @@ export async function generateDrafts(
     let closed = false
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
     let lastFailureClass: DraftStructuredOutputMeta['failureClass']
+    let rawResponse: string | undefined
+    let normalizedResponse: string | undefined
     const retryDiagnostics: NonNullable<DraftStructuredOutputMeta['retryDiagnostics']> = []
 
     const buildStructuredOutput = (): DraftStructuredOutputMeta | undefined => {
@@ -224,6 +228,7 @@ export async function generateDrafts(
         }
 
         content = result.response
+        rawResponse = content
 
         onOpenCodeSessionLog?.({
           stage: 'draft',
@@ -239,7 +244,11 @@ export async function generateDrafts(
 
         try {
           validation = validateDraft(content)
-          content = validation.normalizedContent ?? content
+          const normalizedContent = validation.normalizedContent ?? content
+          if (normalizedContent !== content) {
+            normalizedResponse = normalizedContent
+          }
+          content = normalizedContent
           break
         } catch (error) {
           const validationError = error instanceof Error ? error.message : String(error)
@@ -276,6 +285,8 @@ export async function generateDrafts(
         questionCount: validation?.questionCount,
         draftMetrics: validation?.draftMetrics,
         structuredOutput: buildStructuredOutput(),
+        ...(typeof rawResponse === 'string' ? { rawResponse } : {}),
+        ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
       }
 
       if (!recordResult(draft, sessionId)) {
@@ -315,6 +326,8 @@ export async function generateDrafts(
           questionCount: validation?.questionCount,
           draftMetrics: validation?.draftMetrics,
           structuredOutput: buildStructuredOutput(),
+          ...(typeof rawResponse === 'string' ? { rawResponse } : {}),
+          ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
         }
         recordResult(draft, sessionId)
         return draft
@@ -343,6 +356,8 @@ export async function generateDrafts(
               }
             : undefined
         ),
+        ...(typeof rawResponse === 'string' ? { rawResponse } : {}),
+        ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
       }
       recordResult(draft, sessionId)
       return draft

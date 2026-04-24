@@ -110,6 +110,8 @@ export async function conductVoting(
     outcome: MemberOutcome
     votes: Vote[]
     error?: string
+    rawResponse?: string
+    normalizedResponse?: string
     structuredOutput?: DraftStructuredOutputMeta
   }) => void,
   buildPromptForVoter?: (entry: {
@@ -159,6 +161,8 @@ export async function conductVoting(
     voterVotes: Vote[],
     error?: string,
     structuredOutput?: DraftStructuredOutputMeta,
+    rawResponse?: string,
+    normalizedResponse?: string,
   ): boolean {
     if (finalizedMembers.has(memberId)) return false
 
@@ -167,6 +171,8 @@ export async function conductVoting(
     voterDetailMap.set(memberId, {
       voterId: memberId,
       ...(error ? { error } : {}),
+      ...(typeof rawResponse === 'string' ? { rawResponse } : {}),
+      ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
       ...(structuredOutput ? { structuredOutput } : {}),
     })
     if (outcome === 'completed' && voterVotes.length > 0) {
@@ -177,6 +183,8 @@ export async function conductVoting(
       outcome,
       votes: voterVotes,
       error,
+      rawResponse,
+      normalizedResponse,
       structuredOutput,
     })
     return true
@@ -299,6 +307,9 @@ export async function conductVoting(
         )
 
         if (scorecardResult.ok) {
+          const normalizedResponse = scorecardResult.repairApplied || scorecardResult.normalizedContent.trim() !== response.trim()
+            ? scorecardResult.normalizedContent
+            : undefined
           const structuredOutput = buildStructuredOutputMeta(
             scorecardResult.repairApplied,
             scorecardResult.repairWarnings,
@@ -321,7 +332,7 @@ export async function conductVoting(
               totalScore: normalizedScores.total_score ?? scores.reduce((sum, score) => sum + score.score, 0),
             })
           }
-          if (!recordOutcome(voter.modelId, 'completed', voterVotes, undefined, structuredOutput)) {
+          if (!recordOutcome(voter.modelId, 'completed', voterVotes, undefined, structuredOutput, response, normalizedResponse)) {
             return voterVotes
           }
           break
@@ -350,6 +361,7 @@ export async function conductVoting(
             [],
             scorecardResult.error,
             structuredOutput,
+            response,
           )
           return voterVotes
         }

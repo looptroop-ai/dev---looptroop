@@ -72,6 +72,10 @@ describe('handlePrdDraft', () => {
 
     writeFileSync(`${paths.ticketDir}/interview.yaml`, makeInterviewYaml({ ticket_id: ticket.externalId }), 'utf-8')
     writeFileSync(`${paths.ticketDir}/relevant-files.yaml`, 'files:\n  - path: src/main.ts\n', 'utf-8')
+    let expectedFullAnswersContent = ''
+    let expectedFullAnswersRawResponse = ''
+    let expectedPrdContent = ''
+    let expectedPrdRawResponse = ''
     draftPRDMock.mockImplementationOnce(async (
       _adapter: unknown,
       _members: unknown,
@@ -90,6 +94,8 @@ describe('handlePrdDraft', () => {
         duration?: number
         content?: string
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
+        rawResponse?: string
+        normalizedResponse?: string
         structuredOutput?: {
           repairApplied?: boolean
           repairWarnings?: string[]
@@ -110,6 +116,8 @@ describe('handlePrdDraft', () => {
         duration?: number
         content?: string
         questionCount?: number
+        rawResponse?: string
+        normalizedResponse?: string
         structuredOutput?: {
           repairApplied?: boolean
           repairWarnings?: string[]
@@ -136,6 +144,12 @@ describe('handlePrdDraft', () => {
       })
 
       const content = makePrdYaml({ ticketId: ticket.externalId, storyCount: 2 })
+      const fullAnswersRawResponse = fullAnswersContent.replace(TEST.councilMembers[0], 'wrong-model')
+      const prdRawResponse = `${content}\n# stale source hash from model`
+      expectedFullAnswersContent = fullAnswersContent
+      expectedFullAnswersRawResponse = fullAnswersRawResponse
+      expectedPrdContent = content
+      expectedPrdRawResponse = prdRawResponse
 
       onFullAnswersProgress?.({
         memberId: TEST.councilMembers[0],
@@ -150,6 +164,8 @@ describe('handlePrdDraft', () => {
         duration: 95,
         content: fullAnswersContent,
         questionCount: 1,
+        rawResponse: fullAnswersRawResponse,
+        normalizedResponse: fullAnswersContent,
         structuredOutput: {
           repairApplied: true,
           repairWarnings: ['Canonicalized generated_by.winner_model.'],
@@ -181,6 +197,8 @@ describe('handlePrdDraft', () => {
         outcome: 'completed',
         duration: 125,
         content,
+        rawResponse: prdRawResponse,
+        normalizedResponse: content,
         draftMetrics: {
           epicCount: 1,
           userStoryCount: 2,
@@ -225,6 +243,8 @@ describe('handlePrdDraft', () => {
             content: fullAnswersContent,
             duration: 95,
             questionCount: 1,
+            rawResponse: fullAnswersRawResponse,
+            normalizedResponse: fullAnswersContent,
             structuredOutput: {
               repairApplied: true,
               repairWarnings: [`Canonicalized generated_by.winner_model from "wrong-model" to "${TEST.councilMembers[0]}".`],
@@ -250,6 +270,8 @@ describe('handlePrdDraft', () => {
             outcome: 'completed',
             content,
             duration: 125,
+            rawResponse: prdRawResponse,
+            normalizedResponse: content,
             draftMetrics: {
               epicCount: 1,
               userStoryCount: 2,
@@ -315,11 +337,15 @@ describe('handlePrdDraft', () => {
     const fullAnswersCompanion = parseUiArtifactCompanionArtifact(fullAnswersCompanionRow!.content)?.payload as {
       draftDetails?: Array<{
         questionCount?: number
+        rawResponse?: string
+        normalizedResponse?: string
       }>
     } | undefined
     const artifactCompanion = parseUiArtifactCompanionArtifact(artifactCompanionRow!.content)?.payload as {
       draftDetails?: Array<{
         draftMetrics?: { epicCount?: number; userStoryCount?: number }
+        rawResponse?: string
+        normalizedResponse?: string
         structuredOutput?: {
           repairApplied?: boolean
           repairWarnings?: string[]
@@ -337,10 +363,14 @@ describe('handlePrdDraft', () => {
 
     expect(fullAnswersArtifact.drafts?.[0]?.content).toContain('answered_by: ai_skip')
     expect(fullAnswersCompanion?.draftDetails?.[0]?.questionCount).toBe(1)
+    expect(fullAnswersCompanion?.draftDetails?.[0]?.rawResponse).toBe(expectedFullAnswersRawResponse)
+    expect(fullAnswersCompanion?.draftDetails?.[0]?.normalizedResponse).toBe(expectedFullAnswersContent)
     expect(artifactCompanion?.draftDetails?.[0]?.draftMetrics).toEqual({
       epicCount: 1,
       userStoryCount: 2,
     })
+    expect(artifactCompanion?.draftDetails?.[0]?.rawResponse).toBe(expectedPrdRawResponse)
+    expect(artifactCompanion?.draftDetails?.[0]?.normalizedResponse).toBe(expectedPrdContent)
     expect(artifactCompanion?.draftDetails?.[0]?.structuredOutput).toMatchObject({
       repairApplied: true,
       repairWarnings: ['Canonicalized source_interview.content_sha256 from the approved Interview Results artifact.'],
@@ -438,7 +468,7 @@ describe('handlePrdDraft', () => {
       _onOpenCodeSessionLog: unknown,
       _onOpenCodeStreamEvent: unknown,
       _onOpenCodePromptDispatched: unknown,
-      onVoteProgress?: (entry: { memberId: string; outcome: string; votes: Vote[] }) => void,
+      onVoteProgress?: (entry: { memberId: string; outcome: string; votes: Vote[]; rawResponse?: string; normalizedResponse?: string }) => void,
       buildPromptForVoter?: (entry: {
         voter: { modelId: string }
         anonymizedDrafts: Array<{ draftId: string; content: string }>
@@ -490,16 +520,22 @@ describe('handlePrdDraft', () => {
         scores: buildVoteScores([18, 18, 18, 18, 18]),
         totalScore: 90,
       }
+      const firstRawResponse = 'draft_scores:\n  Draft 1:\n    total_score: 92'
+      const firstNormalizedResponse = 'draft_scores:\n  Draft 1:\n    total_score: 92\n'
+      const secondRawResponse = 'draft_scores:\n  Draft 1:\n    total_score: 90'
 
       onVoteProgress?.({
         memberId: TEST.councilMembers[0],
         outcome: 'completed',
         votes: [firstVote],
+        rawResponse: firstRawResponse,
+        normalizedResponse: firstNormalizedResponse,
       })
       onVoteProgress?.({
         memberId: TEST.councilMembers[1],
         outcome: 'completed',
         votes: [secondVote],
+        rawResponse: secondRawResponse,
       })
 
       return {
@@ -519,6 +555,10 @@ describe('handlePrdDraft', () => {
             order: [TEST.councilMembers[1], TEST.councilMembers[0]],
           },
         },
+        voterDetails: [
+          { voterId: TEST.councilMembers[0], rawResponse: firstRawResponse, normalizedResponse: firstNormalizedResponse },
+          { voterId: TEST.councilMembers[1], rawResponse: secondRawResponse },
+        ],
       }
     })
     selectWinnerMock.mockReturnValueOnce({ winnerId: TEST.councilMembers[0], totalScore: 92 })
@@ -538,6 +578,7 @@ describe('handlePrdDraft', () => {
       votes?: Vote[]
       voterOutcomes?: Record<string, string>
       presentationOrders?: Record<string, { seed: string; order: string[] }>
+      voterDetails?: Array<{ voterId?: string; rawResponse?: string; normalizedResponse?: string }>
       winnerId?: string
       totalScore?: number
     } | undefined
@@ -553,6 +594,9 @@ describe('handlePrdDraft', () => {
       seed: 'seed-alpha',
       order: [TEST.councilMembers[0], TEST.councilMembers[1]],
     })
+    expect(voteCompanion?.voterDetails?.[0]?.rawResponse).toBe('draft_scores:\n  Draft 1:\n    total_score: 92')
+    expect(voteCompanion?.voterDetails?.[0]?.normalizedResponse).toBe('draft_scores:\n  Draft 1:\n    total_score: 92\n')
+    expect(voteCompanion?.voterDetails?.[1]?.rawResponse).toBe('draft_scores:\n  Draft 1:\n    total_score: 90')
     expect(voteCompanion?.winnerId).toBe(TEST.councilMembers[0])
     expect(voteCompanion?.totalScore).toBe(92)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'WINNER_SELECTED', winner: TEST.councilMembers[0] })

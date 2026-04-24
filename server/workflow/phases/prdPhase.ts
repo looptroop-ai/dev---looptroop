@@ -382,6 +382,8 @@ export async function handlePrdDraft(
         questionCount: entry.questionCount,
         draftMetrics: entry.draftMetrics,
         structuredOutput: entry.structuredOutput,
+        ...(typeof entry.rawResponse === 'string' ? { rawResponse: entry.rawResponse } : {}),
+        ...(typeof entry.normalizedResponse === 'string' ? { normalizedResponse: entry.normalizedResponse } : {}),
       }
       if (entry.structuredOutput?.repairWarnings.length) {
         emitPhaseLog(
@@ -416,6 +418,8 @@ export async function handlePrdDraft(
         error: entry.error,
         questionCount: entry.questionCount,
         structuredOutput: entry.structuredOutput,
+        ...(typeof entry.rawResponse === 'string' ? { rawResponse: entry.rawResponse } : {}),
+        ...(typeof entry.normalizedResponse === 'string' ? { normalizedResponse: entry.normalizedResponse } : {}),
       }
       if (entry.structuredOutput?.repairWarnings.length) {
         emitPhaseLog(
@@ -598,7 +602,7 @@ export async function handlePrdVote(
     acc[member.modelId] = 'pending'
     return acc
   }, {})
-  const liveVoterDetails = new Map<string, { voterId: string; error?: string; structuredOutput?: NonNullable<typeof intermediate.drafts[number]['structuredOutput']> }>()
+  const liveVoterDetails = new Map<string, { voterId: string; error?: string; rawResponse?: string; normalizedResponse?: string; structuredOutput?: NonNullable<typeof intermediate.drafts[number]['structuredOutput']> }>()
 
   emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'info',
     `PRD voting started with ${members.length} council members on ${intermediate.drafts.filter(d => d.outcome === 'completed').length} drafts.`)
@@ -657,6 +661,8 @@ export async function handlePrdVote(
       liveVoterDetails.set(entry.memberId, {
         voterId: entry.memberId,
         ...(entry.error ? { error: entry.error } : {}),
+        ...(typeof entry.rawResponse === 'string' ? { rawResponse: entry.rawResponse } : {}),
+        ...(typeof entry.normalizedResponse === 'string' ? { normalizedResponse: entry.normalizedResponse } : {}),
         ...(entry.structuredOutput ? { structuredOutput: entry.structuredOutput } : {}),
       })
       upsertCouncilVoteArtifact(ticketId, 'COUNCIL_VOTING_PRD', 'prd_votes', intermediate.drafts, liveVotes, liveVoterOutcomes, [...liveVoterDetails.values()])

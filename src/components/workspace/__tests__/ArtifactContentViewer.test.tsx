@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { encode } from 'gpt-tokenizer'
 import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
 import { buildArtifactProcessingNoticeCopy } from '../artifactProcessingNotice'
+import { LogContext } from '@/context/logContextDef'
+import type { LogContextValue, LogEntry } from '@/context/logUtils'
 import { TEST } from '@/test/factories'
 import {
   buildBeadsDraftContent,
@@ -28,6 +32,38 @@ function hasTextContent(text: string) {
 
 function openNotice(title: string) {
   fireEvent.click(screen.getByText(title).closest('button')!)
+}
+
+function makeLogEntry(line: string, options: Partial<LogEntry> = {}): LogEntry {
+  return {
+    id: options.id ?? line,
+    entryId: options.entryId ?? options.id ?? line,
+    line,
+    source: options.source ?? 'system',
+    status: options.status ?? 'DRAFTING_PRD',
+    audience: options.audience ?? 'all',
+    kind: options.kind ?? 'milestone',
+    streaming: options.streaming ?? false,
+    op: options.op ?? 'append',
+    ...(options.timestamp ? { timestamp: options.timestamp } : {}),
+    ...(options.modelId ? { modelId: options.modelId } : {}),
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+  }
+}
+
+function renderWithLogContext(ui: ReactElement, logsByPhase: Record<string, LogEntry[]>) {
+  const value: LogContextValue = {
+    logsByPhase,
+    activePhase: null,
+    isLoadingLogs: false,
+    addLog: vi.fn(),
+    addLogRecord: vi.fn(),
+    getLogsForPhase: (phase) => logsByPhase[phase] ?? [],
+    getAllLogs: () => Object.values(logsByPhase).flat(),
+    setActivePhase: vi.fn(),
+    clearLogs: vi.fn(),
+  }
+  return render(<LogContext.Provider value={value}>{ui}</LogContext.Provider>)
 }
 
 describe('ArtifactContentViewer', () => {
@@ -1079,6 +1115,367 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Draft 2: draft-a')).toBeInTheDocument()
   })
 
+  it('switches vote raw tabs between all models, exact voter raw, and validated voter output', () => {
+    const writeTextMock = vi.fn(() => Promise.resolve())
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: writeTextMock },
+    })
+
+    const firstRawResponse = '<think>Scoring each draft.</think>\n\ndraft_scores:\n  Draft 1:\n    total_score: 91'
+    const firstNormalizedResponse = 'draft_scores:\n  Draft 1:\n    total_score: 91\n'
+    const secondRawResponse = 'draft_scores:\n  Draft 1:\n    total_score: 89\n  Draft 2:\n    total_score: 86'
+    const content = JSON.stringify({
+      drafts: [
+        { memberId: 'vendor/draft-a', outcome: 'completed', content: 'draft-a' },
+        { memberId: 'vendor/draft-b', outcome: 'completed', content: 'draft-b' },
+      ],
+      votes: [
+        {
+          voterId: 'vendor/voter-a',
+          draftId: 'vendor/draft-a',
+          totalScore: 91,
+          scores: [
+            { category: 'Coverage of requirements', score: 19 },
+            { category: 'Correctness / feasibility', score: 18 },
+          ],
+        },
+      ],
+      voterOutcomes: {
+        'vendor/voter-a': 'completed',
+        'vendor/voter-b': 'completed',
+      },
+      voterDetails: [
+        {
+          voterId: 'vendor/voter-a',
+          rawResponse: firstRawResponse,
+          normalizedResponse: firstNormalizedResponse,
+          structuredOutput: { repairApplied: true, repairWarnings: ['Recovered structured scorecard.'], autoRetryCount: 0 },
+        },
+        { voterId: 'vendor/voter-b', rawResponse: secondRawResponse },
+      ],
+      winnerId: 'vendor/draft-a',
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="prd-votes" phase="COUNCIL_VOTING_PRD" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const allModelsButton = screen.getByRole('button', { name: 'All Models' })
+    expect(allModelsButton).toHaveAttribute('aria-pressed', 'true')
+    const voterAGroup = screen.getByRole('group', { name: /voter-a raw output/i })
+    expect(within(voterAGroup).getByRole('button', { name: /voter-a$/ })).toBeInTheDocument()
+    expect(within(voterAGroup).getByRole('button', { name: /voter-a Validated/ })).toBeInTheDocument()
+    const allModelsPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes('<think>Scoring each draft.</think>')
+      && !element.textContent.includes('\\n  Draft 1'),
+    )
+    expect(allModelsPre).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+    expect(writeTextMock).toHaveBeenLastCalledWith(content)
+
+    fireEvent.click(within(voterAGroup).getByRole('button', { name: /voter-a$/ }))
+
+    expect(within(voterAGroup).getByRole('button', { name: /voter-a$/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(`${firstRawResponse.split('\n').length.toLocaleString()} Lines`)).toBeInTheDocument()
+    expect(screen.getByText(`${firstRawResponse.length.toLocaleString()} Characters`)).toBeInTheDocument()
+    expect(screen.getByText(`${encode(firstRawResponse).length.toLocaleString()} Tokens (GPT-5 tokenizer)`)).toBeInTheDocument()
+    expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === firstRawResponse)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+
+    expect(writeTextMock).toHaveBeenLastCalledWith(firstRawResponse)
+
+    fireEvent.click(within(voterAGroup).getByRole('button', { name: /voter-a Validated/ }))
+
+    expect(within(voterAGroup).getByRole('button', { name: /voter-a Validated/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === firstNormalizedResponse)).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+    expect(writeTextMock).toHaveBeenLastCalledWith(firstNormalizedResponse)
+  })
+
+  it('reconstructs a validated vote raw source for legacy repaired vote artifacts', () => {
+    const messyRawResponse = '<think>I compared the drafts.</think>\n\ndraft_scores:\nDraft 1:\n  total_score: 91'
+    const content = JSON.stringify({
+      drafts: [
+        { memberId: 'vendor/draft-a', outcome: 'completed', content: 'draft-a' },
+        { memberId: 'vendor/draft-b', outcome: 'completed', content: 'draft-b' },
+      ],
+      votes: [
+        {
+          voterId: 'vendor/voter-a',
+          draftId: 'vendor/draft-a',
+          totalScore: 91,
+          scores: [
+            { category: 'Coverage of requirements', score: 19 },
+            { category: 'Correctness / feasibility', score: 18 },
+          ],
+        },
+        {
+          voterId: 'vendor/voter-a',
+          draftId: 'vendor/draft-b',
+          totalScore: 86,
+          scores: [
+            { category: 'Coverage of requirements', score: 17 },
+            { category: 'Correctness / feasibility', score: 16 },
+          ],
+        },
+      ],
+      voterOutcomes: {
+        'vendor/voter-a': 'completed',
+      },
+      presentationOrders: {
+        'vendor/voter-a': {
+          seed: 'seed-alpha',
+          order: ['vendor/draft-a', 'vendor/draft-b'],
+        },
+      },
+      voterDetails: [
+        {
+          voterId: 'vendor/voter-a',
+          rawResponse: messyRawResponse,
+          structuredOutput: { repairApplied: true, repairWarnings: ['Recovered structured scorecard.'], autoRetryCount: 0 },
+        },
+      ],
+      winnerId: 'vendor/draft-a',
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="prd-votes" phase="COUNCIL_VOTING_PRD" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    fireEvent.click(screen.getByRole('button', { name: /voter-a Validated/ }))
+
+    expect(screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes('draft_scores:')
+      && element.textContent.includes('Draft 2:')
+      && element.textContent.includes('total_score: 86')
+      && !element.textContent.includes('<think>'),
+    )).toBeInTheDocument()
+  })
+
+  it('does not fabricate a validated vote raw source for invalid prompt-echo output without votes', () => {
+    const content = JSON.stringify({
+      votes: [],
+      voterOutcomes: {
+        'vendor/voter-a': 'invalid_output',
+      },
+      voterDetails: [
+        {
+          voterId: 'vendor/voter-a',
+          rawResponse: 'CRITICAL OUTPUT RULE:\nReturn only YAML.',
+          error: 'Vote scorecard output echoed the prompt instead of returning a structured scorecard',
+          structuredOutput: { repairApplied: false, repairWarnings: [], autoRetryCount: 1 },
+        },
+      ],
+      isFinal: false,
+    })
+
+    render(<ArtifactContent artifactId="prd-votes" phase="COUNCIL_VOTING_PRD" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    expect(screen.getByRole('button', { name: /voter-a$/ })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /voter-a Validated/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps legacy vote raw details on all models when exact voter raw responses are missing', () => {
+    const content = JSON.stringify({
+      drafts: [
+        { memberId: 'vendor/draft-a', outcome: 'completed', content: 'draft-a' },
+        { memberId: 'vendor/draft-b', outcome: 'completed', content: 'draft-b' },
+      ],
+      votes: [
+        {
+          voterId: 'vendor/voter-a',
+          draftId: 'vendor/draft-a',
+          totalScore: 91,
+          scores: [{ category: 'Coverage of requirements', score: 19 }],
+        },
+      ],
+      voterOutcomes: {
+        'vendor/voter-a': 'completed',
+        'vendor/voter-b': 'pending',
+      },
+      winnerId: 'vendor/draft-a',
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="prd-votes" phase="COUNCIL_VOTING_PRD" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    expect(screen.getByRole('button', { name: 'All Models' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /voter-a/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /voter-b/ })).toBeDisabled()
+    expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === content)).toBeInTheDocument()
+  })
+
+  it('switches draft raw tabs between raw output and validated version when both exist', () => {
+    const writeTextMock = vi.fn(() => Promise.resolve())
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: writeTextMock },
+    })
+
+    const rawDraftResponse = '<think>Building interview questions.</think>\n\nquestions:\n  - text: What is the scope?'
+    const validatedDraftResponse = 'questions:\n  - text: What is the scope?\n'
+    const content = JSON.stringify({
+      drafts: [
+        {
+          memberId: 'vendor/draft-a',
+          outcome: 'completed',
+          content: validatedDraftResponse,
+          rawResponse: rawDraftResponse,
+          normalizedResponse: validatedDraftResponse,
+          structuredOutput: { repairApplied: true, repairWarnings: ['Stripped thinking block.'], autoRetryCount: 0 },
+        },
+      ],
+      memberOutcomes: { 'vendor/draft-a': 'completed' },
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="draft-member-vendor%2Fdraft-a" phase="COUNCIL_DRAFTING_INTERVIEW" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const draftGroup = screen.getByRole('group', { name: /draft-a raw output/i })
+    expect(within(draftGroup).getByRole('button', { name: /draft-a Raw Output/ })).toBeInTheDocument()
+    expect(within(draftGroup).getByRole('button', { name: /draft-a Validated/ })).toBeInTheDocument()
+
+    fireEvent.click(within(draftGroup).getByRole('button', { name: /draft-a Raw Output/ }))
+    expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === rawDraftResponse)).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+    expect(writeTextMock).toHaveBeenLastCalledWith(rawDraftResponse)
+
+    fireEvent.click(within(draftGroup).getByRole('button', { name: /draft-a Validated/ }))
+    expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === validatedDraftResponse)).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+    expect(writeTextMock).toHaveBeenLastCalledWith(validatedDraftResponse)
+  })
+
+  it('shows a draft adjustment notice when raw and validated output differ without parser warnings', () => {
+    const rawDraftResponse = 'questions:\n  - id: Q1\n    question: What is the scope?'
+    const validatedDraftResponse = 'questions:\n  - id: Q01\n    question: What is the scope?\n'
+    const content = JSON.stringify({
+      drafts: [
+        {
+          memberId: 'vendor/draft-a',
+          outcome: 'completed',
+          content: validatedDraftResponse,
+          rawResponse: rawDraftResponse,
+          normalizedResponse: validatedDraftResponse,
+          structuredOutput: { repairApplied: false, repairWarnings: [], autoRetryCount: 0 },
+        },
+      ],
+      memberOutcomes: { 'vendor/draft-a': 'completed' },
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="draft-member-vendor%2Fdraft-a" phase="COUNCIL_DELIBERATING" content={content} />)
+
+    expect(screen.getByText('LoopTroop adjusted this interview draft.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
+  })
+
+  it('shows a vote adjustment notice when raw and validated scorecards differ without parser warnings', () => {
+    const rawVoteResponse = 'draft_scores:\n  Draft 1:\n    total_score: 91'
+    const validatedVoteResponse = 'draft_scores:\n  Draft 1:\n    total_score: 91\n'
+    const content = JSON.stringify({
+      drafts: [
+        { memberId: 'vendor/draft-a', outcome: 'completed', content: 'draft-a' },
+      ],
+      votes: [
+        {
+          voterId: 'vendor/voter-a',
+          draftId: 'vendor/draft-a',
+          totalScore: 91,
+          scores: [{ category: 'Coverage of requirements', score: 19 }],
+        },
+      ],
+      voterOutcomes: { 'vendor/voter-a': 'completed' },
+      voterDetails: [
+        {
+          voterId: 'vendor/voter-a',
+          rawResponse: rawVoteResponse,
+          normalizedResponse: validatedVoteResponse,
+          structuredOutput: { repairApplied: false, repairWarnings: [], autoRetryCount: 0 },
+        },
+      ],
+      winnerId: 'vendor/draft-a',
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="prd-votes" phase="COUNCIL_VOTING_PRD" content={content} />)
+
+    expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
+  })
+
+  it('recovers missing PRD Full Answers raw output from phase logs', () => {
+    const modelId = 'opencode/hy3-preview-free'
+    const rawFullAnswers = 'schema_version: 1\nticket_id: TEST\nartifact: interview\ngenerated_by:\n  winner_model: wrong-model'
+    const validatedFullAnswers = 'schema_version: 1\nticket_id: TEST\nartifact: interview\ngenerated_by:\n  winner_model: opencode/hy3-preview-free\n'
+    const rawPrdDraft = 'schema_version: 1\nartifact: prd\nstatus: draft'
+    const content = JSON.stringify({
+      drafts: [
+        {
+          memberId: modelId,
+          outcome: 'completed',
+          content: validatedFullAnswers,
+          structuredOutput: { repairApplied: true, repairWarnings: ['Canonicalized generated_by.winner_model.'], autoRetryCount: 0 },
+        },
+      ],
+      memberOutcomes: { [modelId]: 'completed' },
+      isFinal: true,
+    })
+    const logs = [
+      makeLogEntry(`[SYS] ${modelId} Full Answers started.`, { modelId, source: 'system' }),
+      makeLogEntry(`[MODEL] ${rawFullAnswers}`, { modelId, source: `model:${modelId}`, audience: 'ai', kind: 'text' }),
+      makeLogEntry(`[SYS] ${modelId} Full Answers completed.`, { modelId, source: 'system' }),
+      makeLogEntry(`[SYS] ${modelId} PRD draft started.`, { modelId, source: 'system' }),
+      makeLogEntry(`[MODEL] ${rawPrdDraft}`, { modelId, source: `model:${modelId}`, audience: 'ai', kind: 'text' }),
+    ]
+
+    renderWithLogContext(
+      <ArtifactContent artifactId={`prd-fullanswers-member-${encodeURIComponent(modelId)}`} phase="DRAFTING_PRD" content={content} />,
+      { DRAFTING_PRD: logs },
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const draftGroup = screen.getByRole('group', { name: /hy3-preview-free raw output/i })
+    const rawButton = within(draftGroup).getByRole('button', { name: /hy3-preview-free Raw Output/ })
+    expect(rawButton).toBeEnabled()
+    fireEvent.click(rawButton)
+    expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === rawFullAnswers)).toBeInTheDocument()
+    expect(screen.queryByText((_text, element) => element?.tagName === 'PRE' && element.textContent === rawPrdDraft)).not.toBeInTheDocument()
+    expect(within(draftGroup).getByRole('button', { name: /hy3-preview-free Validated/ })).toBeInTheDocument()
+  })
+
+  it('does not show raw/validated variant buttons for drafts without rawResponse', () => {
+    const content = JSON.stringify({
+      drafts: [
+        {
+          memberId: 'vendor/draft-a',
+          outcome: 'completed',
+          content: 'questions:\n  - text: What is the scope?\n',
+        },
+      ],
+      memberOutcomes: { 'vendor/draft-a': 'completed' },
+      isFinal: true,
+    })
+
+    render(<ArtifactContent artifactId="draft-member-vendor%2Fdraft-a" phase="COUNCIL_DRAFTING_INTERVIEW" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    expect(screen.queryByRole('group', { name: /draft-a raw output/i })).not.toBeInTheDocument()
+  })
+
   it('classifies no-op diff cleanup in the parser notice copy', () => {
     const copy = buildArtifactProcessingNoticeCopy({
       repairApplied: true,
@@ -1555,6 +1952,174 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.queryByText('LoopTroop adjusted this relevant files scan.')).not.toBeInTheDocument()
+  })
+
+  it('renders relevant files raw JSON strings with real line breaks and wrapped display text', () => {
+    const longQuestion = 'For this test ticket, is the goal simply to replace the current default global theme with a pink-based one for all users, with no runtime theme switching?'
+    render(
+      <ArtifactContent
+        artifactId="relevant-files-scan"
+        phase="SCANNING_RELEVANT_FILES"
+        content={JSON.stringify({
+          fileCount: 1,
+          question: longQuestion,
+          files: [
+            {
+              path: 'src/theme.ts',
+              rationale: 'Defines the default global theme.',
+              relevance: 'high',
+              likely_action: 'modify',
+              contentPreview: 'export const primary = "blue"\nexport const accent = "slate"',
+              contentLength: 58,
+            },
+          ],
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const rawPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes('contentPreview: |-')
+      && element.textContent.includes('export const primary = "blue"'),
+    )
+    expect(rawPre.textContent).toMatch(/export const primary = "blue"\n\s+export const accent = "slate"/)
+    expect(rawPre.textContent).toContain(`question: "${longQuestion}"`)
+    expect(rawPre.textContent).toContain('  - path: "src/theme.ts"')
+    expect(rawPre.textContent).not.toContain('\\n')
+    expect(rawPre.textContent).not.toContain('  -\n    path')
+    expect(rawPre.textContent).not.toContain('all\n      users')
+    expect(rawPre).toHaveClass('whitespace-pre-wrap', 'overflow-x-hidden')
+  })
+
+  it('renders simple folded YAML scalars in raw tabs as quoted single-line values', () => {
+    const writeTextMock = vi.fn(() => Promise.resolve())
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: writeTextMock },
+    })
+
+    const prompt = 'For this test ticket, is the goal simply to replace the current default app palette with a single pink palette (no theme switcher), and is that the full definition of done?'
+    const content = [
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: >-',
+      '      For this test ticket, is the goal simply to replace the current default app palette with a single pink palette (no',
+      '      theme switcher), and is that the full definition of done?',
+      '    source: compiled',
+      '    answer_type: single_choice',
+    ].join('\n')
+
+    render(
+      <ArtifactContent
+        artifactId="interview-answers"
+        content={content}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const rawPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes(`prompt: "${prompt}"`),
+    )
+    expect(rawPre.textContent).not.toContain('prompt: >-')
+    expect(rawPre.textContent).not.toContain('no\n      theme switcher')
+    expect(rawPre.textContent).toContain('    source: compiled')
+
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+    expect(writeTextMock).toHaveBeenLastCalledWith(content)
+  })
+
+  it('renders folded YAML scalars inside JSON artifact content fields without altering copy content', () => {
+    const writeTextMock = vi.fn(() => Promise.resolve())
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: writeTextMock },
+    })
+
+    const prompt = 'Should every PRD draft keep long interview prompts readable when viewing aggregate raw artifacts?'
+    const draftContent = [
+      'schema_version: 1',
+      'artifact: interview',
+      'questions:',
+      '  - id: Q01',
+      '    prompt: >-',
+      '      Should every PRD draft keep long interview prompts readable',
+      '      when viewing aggregate raw artifacts?',
+    ].join('\n')
+    const content = JSON.stringify({
+      drafts: [
+        { memberId: 'vendor/draft-a', outcome: 'completed', content: draftContent },
+      ],
+      votes: [],
+      voterOutcomes: {},
+      winnerId: 'vendor/draft-a',
+      isFinal: false,
+    })
+
+    render(<ArtifactContent artifactId="prd-votes" phase="COUNCIL_VOTING_PRD" content={content} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const rawPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes('content: |-')
+      && element.textContent.includes(`prompt: "${prompt}"`),
+    )
+    expect(rawPre.textContent).not.toContain('prompt: >-')
+    expect(rawPre.textContent).not.toContain('readable\n        when viewing')
+
+    fireEvent.click(screen.getByTitle('Copy raw output'))
+    expect(writeTextMock).toHaveBeenLastCalledWith(content)
+  })
+
+  it('renders final interview raw JSON wrappers with real line breaks', () => {
+    const longPrompt = 'For this test ticket, is the goal simply to replace the current default global theme with a pink-based one for all users, with no runtime theme switching?'
+    const refinedContent = [
+      'artifact: interview',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: >-',
+      '      For this test ticket, is the goal simply to replace the current default global theme with a pink-based one',
+      '      for all users, with no runtime theme switching?',
+      '    source: compiled',
+      '    answer_type: free_text',
+      '    options: []',
+    ].join('\n')
+    const content = JSON.stringify({
+      originalContent: 'questions:\n  - id: Q01\n    prompt: Old prompt',
+      refinedContent,
+      structuredOutput: {
+        repairApplied: true,
+        repairWarnings: ['Recovered the structured interview from wrapper JSON.'],
+      },
+    })
+
+    render(
+      <ArtifactContent
+        artifactId="final-interview"
+        phase="REFINING_INTERVIEW"
+        content={content}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const rawPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes('refinedContent: |-')
+      && element.textContent.includes('questions:'),
+    )
+    expect(rawPre.textContent).toMatch(/originalContent: \|-\n\s+questions:/)
+    expect(rawPre.textContent).toContain(`prompt: "${longPrompt}"`)
+    expect(rawPre.textContent).not.toContain('prompt: >-')
+    expect(rawPre.textContent).not.toContain('\\n')
+    expect(rawPre.textContent).not.toContain('all\n      users')
+    expect(rawPre).toHaveClass('whitespace-pre-wrap', 'overflow-x-hidden')
   })
 
   it('shows aggregate and per-voter parser notices for voting results', () => {

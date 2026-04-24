@@ -14,6 +14,7 @@ import { InterviewDocumentView } from './InterviewDocumentView'
 import { PrdApprovalPane } from './PrdApprovalPane'
 import { PrdDocumentView } from './PrdDocumentView'
 import { BeadsDraftView } from './ArtifactContentViewer'
+import { buildReadableRawDisplayContent } from './rawDisplayContent'
 import { BeadsApprovalEditor, type ParsedBead } from './BeadsApprovalEditor'
 import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
@@ -576,6 +577,7 @@ function ReadOnlyApprovalAttemptView({
       : null,
     [artifactType, content],
   )
+  const rawDisplayContent = useMemo(() => buildReadableRawDisplayContent(content), [content])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -611,7 +613,7 @@ function ReadOnlyApprovalAttemptView({
             <InterviewDocumentView document={interviewDocument} hideAiAnswerBadge />
           ) : content ? (
             <div className="rounded-xl border border-border bg-background p-4">
-              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{content}</pre>
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawDisplayContent}</pre>
             </div>
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No interview artifact available.</div>
@@ -621,7 +623,7 @@ function ReadOnlyApprovalAttemptView({
             <PrdDocumentView document={prdDocument as PrdDocument} />
           ) : content ? (
             <div className="rounded-xl border border-border bg-background p-4">
-              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{content}</pre>
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawDisplayContent}</pre>
             </div>
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No PRD artifact available.</div>

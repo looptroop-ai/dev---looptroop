@@ -29,6 +29,7 @@ import {
   useApprovalFocusAnchor,
   useDebouncedApprovalUiState,
 } from './approvalHooks'
+import { buildReadableRawDisplayContent } from './rawDisplayContent'
 
 type EditTab = 'structured' | 'yaml'
 
@@ -72,6 +73,7 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
     [fetchedContent],
   )
   const rawContent = fetchedContent ?? ''
+  const rawDisplayContent = useMemo(() => buildReadableRawDisplayContent(rawContent), [rawContent])
   const isPreparingStructuredPrd = !prdDocument && Boolean(rawContent) && isFetching
 
   const [isEditMode, setIsEditMode] = useState(false)
@@ -420,7 +422,7 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
             <PrdDocumentView document={prdDocument as PrdDocument} />
           ) : rawContent ? (
             <div className="rounded-xl border border-border bg-background p-4">
-              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawContent}</pre>
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawDisplayContent}</pre>
             </div>
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No PRD artifact available yet.</div>

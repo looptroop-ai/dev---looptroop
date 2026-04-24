@@ -26,6 +26,7 @@ import {
   useApprovalFocusAnchor,
   useDebouncedApprovalUiState,
 } from './approvalHooks'
+import { buildReadableRawDisplayContent } from './rawDisplayContent'
 
 const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK — they will still be handled during PRD drafting. Each PRD council model will use the ticket context, codebase analysis, and best practices to make a best-effort decision for those gaps, and you can still edit the interview now before isApproving if you want to replace any skipped item with your own answer.'
 
@@ -83,6 +84,7 @@ export function InterviewApprovalPane({ ticket, phase = 'WAITING_INTERVIEW_APPRO
     [interviewData?.document, interviewData?.raw],
   )
   const rawContent = interviewData?.raw ?? ''
+  const rawDisplayContent = useMemo(() => buildReadableRawDisplayContent(rawContent), [rawContent])
   const showSkippedQuestionsNotice = hasSkippedInterviewAnswers(interviewDocument)
   const isPreparingStructuredInterview = !interviewDocument && Boolean(rawContent) && isFetching
 
@@ -450,7 +452,7 @@ export function InterviewApprovalPane({ ticket, phase = 'WAITING_INTERVIEW_APPRO
           <InterviewDocumentView document={interviewDocument} hideAiAnswerBadge />
         ) : rawContent ? (
           <div className="rounded-xl border border-border bg-background p-4">
-            <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawContent}</pre>
+            <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawDisplayContent}</pre>
           </div>
         ) : (
           <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No interview artifact available yet.</div>

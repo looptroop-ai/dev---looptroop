@@ -34,6 +34,8 @@ interface StepValidationResult {
 interface StructuredStepSuccess {
   session: Session
   content: string
+  rawResponse: string
+  normalizedResponse?: string
   questionCount?: number
   draftMetrics?: DraftResult['draftMetrics']
   structuredOutput: DraftStructuredOutputMeta
@@ -227,6 +229,8 @@ function buildFailedDraft(
   questionCount?: number,
   draftMetrics?: DraftResult['draftMetrics'],
   structuredOutput?: DraftStructuredOutputMeta,
+  rawResponse?: string,
+  normalizedResponse?: string,
 ): DraftResult {
   return {
     memberId,
@@ -237,6 +241,8 @@ function buildFailedDraft(
     questionCount,
     draftMetrics,
     structuredOutput,
+    ...(typeof rawResponse === 'string' ? { rawResponse } : {}),
+    ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
   }
 }
 
@@ -247,6 +253,8 @@ function buildCompletedDraft(
   questionCount?: number,
   draftMetrics?: DraftResult['draftMetrics'],
   structuredOutput?: DraftStructuredOutputMeta,
+  rawResponse?: string,
+  normalizedResponse?: string,
 ): DraftResult {
   return {
     memberId,
@@ -256,6 +264,8 @@ function buildCompletedDraft(
     questionCount,
     draftMetrics,
     structuredOutput,
+    ...(typeof rawResponse === 'string' ? { rawResponse } : {}),
+    ...(typeof normalizedResponse === 'string' ? { normalizedResponse } : {}),
   }
 }
 
@@ -415,9 +425,12 @@ async function executeStructuredStep(
 
     try {
       validation = options.validateStep(rawResponse)
+      const content = validation.normalizedContent ?? rawResponse
       return {
         session: result.session,
-        content: validation.normalizedContent ?? rawResponse,
+        content,
+        rawResponse,
+        ...(content !== rawResponse ? { normalizedResponse: content } : {}),
         questionCount: validation.questionCount,
         draftMetrics: validation.draftMetrics,
         structuredOutput: buildStructuredOutput(validation, lastValidationError, attemptCount, undefined, retryDiagnostics),
@@ -564,6 +577,7 @@ export async function draftPRD(
             structuredError?.questionCount,
             structuredError?.draftMetrics,
             structuredError?.structuredOutput,
+            errorContent || undefined,
           )
         : (() => {
             const {
@@ -588,6 +602,7 @@ export async function draftPRD(
               structuredError?.questionCount,
               structuredError?.draftMetrics,
               structuredOutput,
+              errorContent || undefined,
             )
           })()
 
@@ -612,6 +627,8 @@ export async function draftPRD(
           content: fullAnswersResult.content,
           questionCount: fullAnswersResult.questionCount,
           structuredOutput: fullAnswersResult.structuredOutput,
+          ...(typeof fullAnswersResult.rawResponse === 'string' ? { rawResponse: fullAnswersResult.rawResponse } : {}),
+          ...(typeof fullAnswersResult.normalizedResponse === 'string' ? { normalizedResponse: fullAnswersResult.normalizedResponse } : {}),
         })
       }
 
@@ -628,6 +645,8 @@ export async function draftPRD(
           questionCount: prdResult.questionCount,
           draftMetrics: prdResult.draftMetrics,
           structuredOutput: prdResult.structuredOutput,
+          ...(typeof prdResult.rawResponse === 'string' ? { rawResponse: prdResult.rawResponse } : {}),
+          ...(typeof prdResult.normalizedResponse === 'string' ? { normalizedResponse: prdResult.normalizedResponse } : {}),
         })
       }
     }
@@ -700,6 +719,8 @@ export async function draftPRD(
           fullAnswersStep.questionCount,
           undefined,
           fullAnswersStep.structuredOutput,
+          fullAnswersStep.rawResponse,
+          fullAnswersStep.normalizedResponse,
         )
         onFullAnswersProgress?.({
           memberId: member.modelId,
@@ -710,6 +731,8 @@ export async function draftPRD(
           content: fullAnswersResult.content,
           questionCount: fullAnswersResult.questionCount,
           structuredOutput: fullAnswersResult.structuredOutput,
+          ...(typeof fullAnswersResult.rawResponse === 'string' ? { rawResponse: fullAnswersResult.rawResponse } : {}),
+          ...(typeof fullAnswersResult.normalizedResponse === 'string' ? { normalizedResponse: fullAnswersResult.normalizedResponse } : {}),
         })
         onStepEvent?.({
           memberId: member.modelId,
@@ -811,6 +834,8 @@ export async function draftPRD(
         undefined,
         prdStep.draftMetrics,
         prdStep.structuredOutput,
+        prdStep.rawResponse,
+        prdStep.normalizedResponse,
       )
       onDraftProgress?.({
         memberId: member.modelId,
@@ -821,6 +846,8 @@ export async function draftPRD(
         content: prdResult.content,
         draftMetrics: prdResult.draftMetrics,
         structuredOutput: prdResult.structuredOutput,
+        ...(typeof prdResult.rawResponse === 'string' ? { rawResponse: prdResult.rawResponse } : {}),
+        ...(typeof prdResult.normalizedResponse === 'string' ? { normalizedResponse: prdResult.normalizedResponse } : {}),
       })
       onStepEvent?.({
         memberId: member.modelId,

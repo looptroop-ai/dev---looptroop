@@ -1,27 +1,36 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { parseUiArtifactCompanionArtifact } from '@shared/artifactCompanions'
 import { parseUiRefinementDiffArtifact } from '@shared/refinementDiffArtifacts'
+import type { DraftPhaseResult, DraftProgressEvent } from '../../council/types'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getLatestPhaseArtifact, getTicketPaths } from '../../storage/tickets'
 import { TEST, makeTicketContextFromTicket as makeTicketContext } from '../../test/factories'
-import { createTestRepoManager, resetTestDb } from '../../test/integration'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
 import { initializeTicket } from '../../ticket/initialize'
 import { phaseIntermediate } from '../phases/state'
 
-const { refineDraftMock } = vi.hoisted(() => ({
+const { deliberateInterviewMock, refineDraftMock } = vi.hoisted(() => ({
+  deliberateInterviewMock: vi.fn(),
   refineDraftMock: vi.fn(),
 }))
 
 vi.mock('../../opencode/factory', () => ({
-  getOpenCodeAdapter: () => ({}),
+  getOpenCodeAdapter: () => ({
+    checkHealth: async () => ({ available: true, version: 'test' }),
+  }),
   isMockOpenCodeMode: () => false,
+}))
+
+vi.mock('../../phases/interview/deliberate', () => ({
+  deliberateInterview: deliberateInterviewMock,
 }))
 
 vi.mock('../../council/refiner', () => ({
   refineDraft: refineDraftMock,
 }))
 
-import { handleInterviewCompile } from '../phases/interviewPhase'
+import { handleInterviewCompile, handleInterviewDeliberate } from '../phases/interviewPhase'
 
 const repoManager = createTestRepoManager('interview-compile')
 
@@ -35,16 +44,165 @@ function readExecutionLogEntries(ticketId: string) {
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
-describe('handleInterviewCompile', () => {
+function buildInterviewDraftContent(question: string) {
+  return [
+    'questions:',
+    '  - id: Q01',
+    '    phase: Foundation',
+    `    question: "${question}"`,
+  ].join('\n')
+}
+
+describe('interview workflow phases', () => {
   beforeEach(() => {
     resetTestDb()
     phaseIntermediate.clear()
+    deliberateInterviewMock.mockReset()
     refineDraftMock.mockReset()
   })
 
   afterAll(() => {
     resetTestDb()
     repoManager.cleanup()
+  })
+
+  it('persists live interview draft parser metadata for the AI Council Thinking status', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Show live interview parser notices',
+    })
+    const sendEvent = vi.fn()
+    const repairedContent = buildInterviewDraftContent('Which constraints are fixed?')
+    const repairedRawResponse = `\`\`\`yaml\n${repairedContent}\n\`\`\``
+    const cleanContent = buildInterviewDraftContent('Which edge cases matter?')
+    const repairedStructuredOutput = {
+      repairApplied: true,
+      repairWarnings: ['Removed surrounding markdown code fence before parsing interview questions.'],
+      autoRetryCount: 1,
+      validationError: 'Interview draft output was wrapped in markdown.',
+      retryDiagnostics: [
+        {
+          attempt: 1,
+          validationError: 'Interview draft output was wrapped in markdown.',
+          excerpt: '```yaml\nquestions:',
+        },
+      ],
+    }
+
+    deliberateInterviewMock.mockImplementationOnce(async (
+      _adapter: unknown,
+      _members: unknown,
+      _ticketContext: unknown,
+      _worktreePath: unknown,
+      _options: unknown,
+      _signal: unknown,
+      _onOpenCodeSessionLog: unknown,
+      _onOpenCodeStreamEvent: unknown,
+      _onOpenCodePromptDispatched: unknown,
+      onDraftProgress?: (entry: DraftProgressEvent) => void,
+    ): Promise<DraftPhaseResult> => {
+      onDraftProgress?.({
+        memberId: TEST.councilMembers[0],
+        status: 'finished',
+        outcome: 'completed',
+        duration: 42,
+        content: repairedContent,
+        questionCount: 1,
+        rawResponse: repairedRawResponse,
+        normalizedResponse: repairedContent,
+        structuredOutput: repairedStructuredOutput,
+      })
+
+      const liveCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:interview_drafts', 'COUNCIL_DELIBERATING')
+      const liveCompanion = parseUiArtifactCompanionArtifact(liveCompanionRow!.content)?.payload as {
+        draftDetails?: Array<{
+          memberId?: string
+          structuredOutput?: {
+            repairApplied?: boolean
+            repairWarnings?: string[]
+            autoRetryCount?: number
+            validationError?: string
+          }
+          rawResponse?: string
+          normalizedResponse?: string
+        }>
+      } | undefined
+      expect(liveCompanion?.draftDetails?.[0]?.memberId).toBe(TEST.councilMembers[0])
+      expect(liveCompanion?.draftDetails?.[0]?.rawResponse).toBe(repairedRawResponse)
+      expect(liveCompanion?.draftDetails?.[0]?.normalizedResponse).toBe(repairedContent)
+      expect(liveCompanion?.draftDetails?.[0]?.structuredOutput).toMatchObject({
+        repairApplied: true,
+        repairWarnings: ['Removed surrounding markdown code fence before parsing interview questions.'],
+        autoRetryCount: 1,
+        validationError: 'Interview draft output was wrapped in markdown.',
+      })
+
+      onDraftProgress?.({
+        memberId: TEST.councilMembers[1],
+        status: 'finished',
+        outcome: 'completed',
+        duration: 31,
+        content: cleanContent,
+        questionCount: 1,
+        structuredOutput: {
+          repairApplied: false,
+          repairWarnings: [],
+          autoRetryCount: 0,
+        },
+      })
+
+      return {
+        phase: 'interview_draft',
+        drafts: [
+          {
+            memberId: TEST.councilMembers[0],
+            outcome: 'completed',
+            duration: 42,
+            content: repairedContent,
+            questionCount: 1,
+            rawResponse: repairedRawResponse,
+            normalizedResponse: repairedContent,
+            structuredOutput: repairedStructuredOutput,
+          },
+          {
+            memberId: TEST.councilMembers[1],
+            outcome: 'completed',
+            duration: 31,
+            content: cleanContent,
+            questionCount: 1,
+            structuredOutput: {
+              repairApplied: false,
+              repairWarnings: [],
+              autoRetryCount: 0,
+            },
+          },
+        ],
+        memberOutcomes: {
+          [TEST.councilMembers[0]]: 'completed',
+          [TEST.councilMembers[1]]: 'completed',
+        },
+        deadlineReached: false,
+      }
+    })
+
+    await handleInterviewDeliberate(ticket.id, context, sendEvent, new AbortController().signal)
+
+    const finalCompanionRow = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:interview_drafts', 'COUNCIL_DELIBERATING')
+    const finalCompanion = parseUiArtifactCompanionArtifact(finalCompanionRow!.content)?.payload as {
+      draftDetails?: Array<{
+        structuredOutput?: {
+          interventions?: Array<{ category?: string; code?: string }>
+        }
+      }>
+    } | undefined
+    expect(finalCompanion?.draftDetails?.[0]?.structuredOutput?.interventions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'parser_fix' }),
+      expect.objectContaining({ category: 'retry' }),
+    ]))
+
+    const executionLog = readFileSync(paths.executionLogPath, 'utf-8')
+    expect(executionLog).toContain('Interview draft normalization applied repairs')
+    expect(executionLog).toContain('Interview draft required 1 structured retry attempt(s)')
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'QUESTIONS_READY', result: expect.any(Object) })
   })
 
   it('persists interview ui refinement diffs from parsed inline changes so inspiration tooltips survive slimming', async () => {

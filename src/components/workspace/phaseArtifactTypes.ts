@@ -177,6 +177,8 @@ export interface CouncilDraftData {
   duration?: number
   error?: string
   structuredOutput?: ArtifactStructuredOutputData
+  rawResponse?: string
+  normalizedResponse?: string
 }
 
 export interface CouncilVoteData {
@@ -195,6 +197,8 @@ export interface CouncilVoterDetailData {
   voterId: string
   structuredOutput?: ArtifactStructuredOutputData
   error?: string
+  rawResponse?: string
+  normalizedResponse?: string
 }
 
 export interface CouncilResultData {

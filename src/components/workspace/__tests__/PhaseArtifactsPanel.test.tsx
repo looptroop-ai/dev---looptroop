@@ -261,6 +261,155 @@ describe('PhaseArtifactsPanel', () => {
 
   it.each([
     {
+      phase: 'COMPILING_INTERVIEW' as const,
+      votePhase: 'COUNCIL_VOTING_INTERVIEW',
+      draftPhase: 'COUNCIL_DELIBERATING',
+      voteType: 'interview_votes',
+      draftType: 'interview_drafts',
+      winnerId: 'openai/gpt-5.2',
+      loserId: 'openai/gpt-5.1-codex',
+      winnerContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Winning interview question?"',
+      loserContent: 'questions:\n  - id: Q01\n    phase: foundation\n    question: "Alternative interview question?"',
+      winnerExtra: { questionCount: 1 },
+      loserExtra: { questionCount: 1 },
+      expectedDetail: 'proposed 1 questions',
+    },
+    {
+      phase: 'REFINING_PRD' as const,
+      votePhase: 'COUNCIL_VOTING_PRD',
+      draftPhase: 'DRAFTING_PRD',
+      voteType: 'prd_votes',
+      draftType: 'prd_drafts',
+      winnerId: 'openai/gpt-5.2',
+      loserId: 'openai/gpt-5.1-codex',
+      winnerContent: buildPrdDocumentContent({ epicTitle: 'Winning PRD draft' }),
+      loserContent: buildPrdDocumentContent({ epicTitle: 'Alternative PRD draft' }),
+      winnerExtra: { draftMetrics: { epicCount: 1, userStoryCount: 1 } },
+      loserExtra: { draftMetrics: { epicCount: 1, userStoryCount: 1 } },
+      expectedDetail: '1 epics · 1 user stories',
+    },
+    {
+      phase: 'REFINING_BEADS' as const,
+      votePhase: 'COUNCIL_VOTING_BEADS',
+      draftPhase: 'DRAFTING_BEADS',
+      voteType: 'beads_votes',
+      draftType: 'beads_drafts',
+      winnerId: 'openai/gpt-5.2',
+      loserId: 'openai/gpt-5.1-codex',
+      winnerContent: buildBeadsDocumentContent([{ id: 'bead-1', title: 'Winning beads draft' }]),
+      loserContent: buildBeadsDocumentContent([{ id: 'bead-2', title: 'Alternative beads draft' }]),
+      winnerExtra: { draftMetrics: { beadCount: 1, totalTestCount: 2, totalAcceptanceCriteriaCount: 3 } },
+      loserExtra: { draftMetrics: { beadCount: 1, totalTestCount: 2, totalAcceptanceCriteriaCount: 3 } },
+      expectedDetail: '1 beads · 2 tests · 3 criteria',
+    },
+  ])('keeps $phase model draft details when the vote artifact stores only the winner', ({
+    phase,
+    votePhase,
+    draftPhase,
+    voteType,
+    draftType,
+    winnerId,
+    loserId,
+    winnerContent,
+    loserContent,
+    winnerExtra,
+    loserExtra,
+    expectedDetail,
+  }) => {
+    const draftArtifact = makeArtifact({
+      phase: draftPhase,
+      artifactType: draftType,
+      content: JSON.stringify({
+        drafts: [
+          { memberId: loserId, outcome: 'completed', content: loserContent, ...loserExtra },
+          { memberId: winnerId, outcome: 'completed', content: winnerContent, ...winnerExtra },
+        ],
+        memberOutcomes: {
+          [loserId]: 'completed',
+          [winnerId]: 'completed',
+        },
+        isFinal: true,
+      }),
+    })
+    const voteArtifact = makeArtifact({
+      phase: votePhase,
+      artifactType: voteType,
+      content: JSON.stringify({
+        winnerId,
+        drafts: [
+          { memberId: loserId, outcome: 'pending' },
+          { memberId: winnerId, outcome: 'pending' },
+        ],
+        isFinal: true,
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase={phase}
+        isCompleted={false}
+        councilMemberCount={2}
+        councilMemberNames={[loserId, winnerId]}
+        preloadedArtifacts={[draftArtifact, voteArtifact]}
+      />,
+    )
+
+    expect(screen.getAllByText(expectedDetail).length).toBeGreaterThan(0)
+    expect(screen.queryAllByText('waiting for response')).toHaveLength(0)
+  })
+
+  it('marks the winning interview draft when revisiting the completed drafting phase', () => {
+    const draftArtifact = makeArtifact({
+      phase: 'COUNCIL_DELIBERATING',
+      artifactType: 'interview_drafts',
+      content: JSON.stringify({
+        drafts: [
+          {
+            memberId: 'openai/gpt-5.1-codex',
+            outcome: 'completed',
+            content: 'questions:\n  - id: Q01\n    question: "Alternative question?"',
+            questionCount: 1,
+          },
+          {
+            memberId: 'openai/gpt-5.2',
+            outcome: 'completed',
+            content: 'questions:\n  - id: Q01\n    question: "Winning question?"',
+            questionCount: 1,
+          },
+        ],
+        memberOutcomes: {
+          'openai/gpt-5.1-codex': 'completed',
+          'openai/gpt-5.2': 'completed',
+        },
+        isFinal: true,
+      }),
+    })
+    const voteArtifact = makeArtifact({
+      phase: 'COUNCIL_VOTING_INTERVIEW',
+      artifactType: 'interview_votes',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        isFinal: true,
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="COUNCIL_DELIBERATING"
+        isCompleted
+        councilMemberCount={2}
+        councilMemberNames={['openai/gpt-5.1-codex', 'openai/gpt-5.2']}
+        preloadedArtifacts={[draftArtifact, voteArtifact]}
+      />,
+    )
+
+    expect(screen.getAllByText('proposed 1 questions')).toHaveLength(2)
+    expect(screen.queryAllByText('waiting for response')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: /gpt-5\.2/i })).toHaveClass('bg-primary')
+  })
+
+  it.each([
+    {
       scenario: 'shows chips with pending and completed members',
       drafts: [
         {

@@ -163,6 +163,8 @@ describe('beads voting workflow', () => {
             excerpt?: string
           }>
         }
+        rawResponse?: string
+        normalizedResponse?: string
       }) => void,
       buildPromptForVoter?: (entry: {
         voter: { modelId: string }
@@ -220,11 +222,16 @@ describe('beads voting workflow', () => {
         scores: buildVoteScores([15, 16, 15, 15, 16]),
         totalScore: 77,
       }
+      const firstRawResponse = 'draft_scores:\n  Draft 1:\n    total_score: 92'
+      const firstNormalizedResponse = 'draft_scores:\n  Draft 1:\n    total_score: 92\n'
+      const secondRawResponse = 'draft_scores:\n  Draft 1:\n    total_score: 92\n  Draft 2:\n    total_score: 77'
 
       onVoteProgress?.({
         memberId: TEST.councilMembers[0],
         outcome: 'completed',
         votes: [firstVote, secondVote],
+        rawResponse: firstRawResponse,
+        normalizedResponse: firstNormalizedResponse,
         structuredOutput: {
           repairApplied: true,
           repairWarnings: ['Normalized beads vote scorecard indentation.'],
@@ -259,6 +266,8 @@ describe('beads voting workflow', () => {
               excerpt?: string
             }>
           }
+          rawResponse?: string
+          normalizedResponse?: string
         }>
       } | undefined
       expect(liveVoteCompanion?.votes).toHaveLength(2)
@@ -271,6 +280,8 @@ describe('beads voting workflow', () => {
         autoRetryCount: 1,
         validationError: 'Vote scorecard output required a structured retry',
       })
+      expect(liveVoteCompanion?.voterDetails?.[0]?.rawResponse).toBe(firstRawResponse)
+      expect(liveVoteCompanion?.voterDetails?.[0]?.normalizedResponse).toBe(firstNormalizedResponse)
       expect(liveVoteCompanion?.voterDetails?.[0]?.structuredOutput?.retryDiagnostics).toEqual([
         expect.objectContaining({
           attempt: 1,
@@ -284,6 +295,7 @@ describe('beads voting workflow', () => {
         memberId: TEST.councilMembers[1],
         outcome: 'completed',
         votes: [thirdVote, fourthVote],
+        rawResponse: secondRawResponse,
         structuredOutput: {
           repairApplied: false,
           repairWarnings: [],
@@ -325,9 +337,12 @@ describe('beads voting workflow', () => {
                 },
               ],
             },
+            rawResponse: firstRawResponse,
+            normalizedResponse: firstNormalizedResponse,
           },
           {
             voterId: TEST.councilMembers[1],
+            rawResponse: secondRawResponse,
             structuredOutput: {
               repairApplied: false,
               repairWarnings: [],
@@ -365,6 +380,8 @@ describe('beads voting workflow', () => {
             excerpt?: string
           }>
         }
+        rawResponse?: string
+        normalizedResponse?: string
       }>
       drafts?: Array<{ memberId?: string; outcome?: string; content?: string }>
       winnerId?: string
@@ -391,6 +408,9 @@ describe('beads voting workflow', () => {
       autoRetryCount: 1,
       validationError: 'Vote scorecard output required a structured retry',
     })
+    expect(voteCompanion?.voterDetails?.[0]?.rawResponse).toBe('draft_scores:\n  Draft 1:\n    total_score: 92')
+    expect(voteCompanion?.voterDetails?.[0]?.normalizedResponse).toBe('draft_scores:\n  Draft 1:\n    total_score: 92\n')
+    expect(voteCompanion?.voterDetails?.[1]?.rawResponse).toBe('draft_scores:\n  Draft 1:\n    total_score: 92\n  Draft 2:\n    total_score: 77')
     expect(voteCompanion?.voterDetails?.[0]?.structuredOutput?.retryDiagnostics).toEqual([
       expect.objectContaining({
         attempt: 1,

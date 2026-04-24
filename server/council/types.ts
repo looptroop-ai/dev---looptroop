@@ -51,6 +51,8 @@ export interface DraftResult {
   questionCount?: number
   draftMetrics?: DraftMetrics
   structuredOutput?: DraftStructuredOutputMeta
+  rawResponse?: string
+  normalizedResponse?: string
 }
 
 export interface DraftProgressEvent {
@@ -64,6 +66,8 @@ export interface DraftProgressEvent {
   questionCount?: number
   draftMetrics?: DraftMetrics
   structuredOutput?: DraftStructuredOutputMeta
+  rawResponse?: string
+  normalizedResponse?: string
 }
 
 export interface DraftGenerationResult {
@@ -93,6 +97,8 @@ export interface VotePresentationOrder {
 export interface VoterDetail {
   voterId: string
   error?: string
+  rawResponse?: string
+  normalizedResponse?: string
   structuredOutput?: DraftStructuredOutputMeta
 }
 
