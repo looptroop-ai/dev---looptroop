@@ -149,6 +149,12 @@ Several UI components exist specifically to inspect durable workflow state:
 
 The frontend is built around the assumption that users must be able to inspect prior attempts and artifacts without replaying the run mentally from logs.
 
+### Artifact Processing Notices
+
+Future artifact companion payloads should persist parser and normalizer intervention details in `structuredOutput.interventions`. The collapsed notice stays compact and may include cheap category or rule labels, while the expanded notice treats `interventions` as the display source of truth for exact corrections, before/after examples, rule, category, stage, target, raw validator/parser messages, validation errors, and retry diagnostics.
+
+`structuredOutput.repairWarnings` remains a raw audit string list and can be shown as source messages, but it is not the source for rich notice behavior. Legacy `.ticket/**` artifacts that only contain warning strings are not upgraded, backfilled, or migrated by the frontend.
+
 ## Frontend-State Relationship To Workflow Metadata
 
 The frontend does not hardcode the full workflow. Instead, it derives major behavior from `shared/workflowMeta.ts`:

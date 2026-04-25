@@ -14,8 +14,8 @@ import {
 } from '@shared/structuredRetryDiagnostics'
 import { encode } from 'gpt-tokenizer'
 import { ChevronDown, ChevronRight, Trophy, Copy, Check, Lightbulb, CheckCircle2, XCircle, AlertTriangle, FileCode2, ExternalLink, GitPullRequest } from 'lucide-react'
-import { getModelIcon, getModelDisplayName } from '@/components/shared/modelBadgeUtils'
-import { ModelBadge } from '@/components/shared/ModelBadge'
+import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
+import { ModelBadge, ModelIcon } from '@/components/shared/ModelBadge'
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useLogs } from '@/context/useLogContext'
@@ -77,6 +77,7 @@ import {
 import {
   buildArtifactProcessingNoticeCopy,
   getStructuredOutputInterventions,
+  getStructuredOutputSourceMessages,
   getStructuredOutputWarnings,
   hasArtifactProcessingNotice,
   INTERVENTION_CATEGORY_COPY,
@@ -392,7 +393,7 @@ export function WithRawTab({
                               variantDisabled && 'cursor-not-allowed hover:bg-background hover:text-muted-foreground',
                             )}
                           >
-                            {index === 0 && source.modelId ? <span aria-hidden="true">{getModelIcon(source.modelId)}</span> : null}
+                            {index === 0 && source.modelId ? <ModelIcon modelId={source.modelId} className="h-3 w-3" /> : null}
                             <span className="min-w-0 truncate">{variantLabel}</span>
                           </button>
                         )
@@ -418,7 +419,7 @@ export function WithRawTab({
                       disabled && 'cursor-not-allowed opacity-45 hover:bg-background hover:text-muted-foreground',
                     )}
                   >
-                    {source.modelId ? <span aria-hidden="true">{getModelIcon(source.modelId)}</span> : null}
+                    {source.modelId ? <ModelIcon modelId={source.modelId} className="h-3 w-3" /> : null}
                     <span className="min-w-0 truncate">{label}</span>
                   </button>
                 )
@@ -824,6 +825,25 @@ function mergeStructuredOutputMetadata(
 
 const RAW_NORMALIZATION_WARNING = 'Normalized saved artifact details from raw model output before saving the validated artifact.'
 
+function buildRawNormalizationIntervention(): StructuredIntervention {
+  return {
+    code: 'cleanup_raw_normalization',
+    stage: 'normalize',
+    category: 'cleanup',
+    title: 'Saved validated output instead of raw model text',
+    summary: 'The raw model response and the persisted validated artifact differed.',
+    why: 'The raw response included formatting or wrapper detail that was not part of the validated artifact shape.',
+    how: 'LoopTroop persisted the normalized validated artifact while keeping the raw response available in the Raw view.',
+    rule: {
+      id: 'cleanup_raw_normalization',
+      label: 'Raw Output Normalization',
+    },
+    exactCorrection: 'Persisted the validated structured output instead of the raw model text.',
+    technicalDetail: RAW_NORMALIZATION_WARNING,
+    rawMessages: [RAW_NORMALIZATION_WARNING],
+  }
+}
+
 function didPersistedOutputChange(
   rawResponse?: string,
   normalizedResponse?: string,
@@ -848,6 +868,10 @@ function withRawNormalizationNotice(
   if (hasArtifactProcessingNotice(structuredOutput)) return structuredOutput
 
   const repairWarnings = getStructuredOutputWarnings(structuredOutput)
+  const interventions = mergeStructuredInterventions(
+    normalizeStructuredInterventions(structuredOutput?.interventions),
+    [buildRawNormalizationIntervention()],
+  )
   return {
     ...(structuredOutput ?? {}),
     repairApplied: true,
@@ -855,6 +879,7 @@ function withRawNormalizationNotice(
       ? repairWarnings
       : [...repairWarnings, RAW_NORMALIZATION_WARNING],
     autoRetryCount: structuredOutput?.autoRetryCount ?? 0,
+    interventions,
   }
 }
 
@@ -992,6 +1017,21 @@ function ArtifactInterventionBreakdown({ interventions }: { interventions: Struc
                         {intervention.technicalDetail}
                       </div>
                     ) : null}
+                    {intervention.rawMessages && intervention.rawMessages.length > 0 ? (
+                      <div className="space-y-1">
+                        <div className="font-medium">Raw message{intervention.rawMessages.length === 1 ? '' : 's'}:</div>
+                        <div className="space-y-1">
+                          {intervention.rawMessages.map((message, messageIndex) => (
+                            <pre
+                              key={`${group.category}:${intervention.code}:${index}:raw:${messageIndex}`}
+                              className="overflow-x-auto rounded border border-border bg-background px-2 py-1 font-mono text-[10px] leading-4 text-muted-foreground whitespace-pre-wrap"
+                            >
+                              {message}
+                            </pre>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -999,6 +1039,28 @@ function ArtifactInterventionBreakdown({ interventions }: { interventions: Struc
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function ArtifactSourceMessages({ messages }: { messages: string[] }) {
+  if (messages.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
+        Raw Source Messages <span className="normal-case tracking-normal opacity-70">({messages.length})</span>
+      </div>
+      <div className="space-y-1">
+        {messages.map((message, index) => (
+          <pre
+            key={`${index}:${message}`}
+            className="overflow-x-auto rounded border border-amber-300/60 bg-background/70 px-2 py-2 font-mono text-[10px] leading-4 text-muted-foreground whitespace-pre-wrap dark:border-amber-900/50"
+          >
+            {message}
+          </pre>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1066,7 +1128,7 @@ function ArtifactRetryDiagnostics({ diagnostics }: { diagnostics: StructuredRetr
 function ArtifactInterventionOwnerBreakdown({
   owners,
 }: {
-  owners: Array<{ label: string; interventions: StructuredIntervention[] }>
+  owners: Array<{ label: string; structuredOutput?: ArtifactStructuredOutputData }>
 }) {
   if (owners.length === 0) return null
 
@@ -1077,7 +1139,11 @@ function ArtifactInterventionOwnerBreakdown({
         {owners.map((owner) => (
           <div key={owner.label} className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50">
             <div className="mb-2 text-xs font-semibold">{owner.label}</div>
-            <ArtifactInterventionBreakdown interventions={owner.interventions} />
+            <div className="space-y-3">
+              <ArtifactInterventionBreakdown interventions={getStructuredOutputInterventions(owner.structuredOutput)} />
+              <ArtifactSourceMessages messages={getStructuredOutputSourceMessages(owner.structuredOutput)} />
+              <ArtifactRetryDiagnostics diagnostics={owner.structuredOutput?.retryDiagnostics ?? []} />
+            </div>
           </div>
         ))}
       </div>
@@ -1103,6 +1169,7 @@ function ArtifactProcessingNotice({
   const retryDiagnostics = kind === 'vote-aggregate'
     ? []
     : structuredOutput?.retryDiagnostics ?? []
+  const sourceMessages = getStructuredOutputSourceMessages(structuredOutput)
 
   return (
     <CollapsibleWarningNotice
@@ -1112,6 +1179,7 @@ function ArtifactProcessingNotice({
         <div className="space-y-3">
           <div className="leading-5">{copy.body}</div>
           <ArtifactInterventionBreakdown interventions={copy.interventions} />
+          <ArtifactSourceMessages messages={sourceMessages} />
           <ArtifactRetryDiagnostics diagnostics={retryDiagnostics} />
           {context?.ownerInterventions?.length ? (
             <ArtifactInterventionOwnerBreakdown owners={context.ownerInterventions} />
@@ -2753,7 +2821,7 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
   )
   const aggregateOwnerInterventions = votersWithProcessingNotice.map((voterId) => ({
     label: getModelDisplayName(voterId),
-    interventions: getStructuredOutputInterventions(voterProcessingNoticeById.get(voterId)),
+    structuredOutput: voterProcessingNoticeById.get(voterId),
   }))
 
   if (votes.length === 0 && !hasLiveOutcomes) {
@@ -2852,7 +2920,7 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
               {draftScores.map(d => (
                 <tr key={d.draftId} className={`border-b border-border/50 ${d.isWinner ? 'bg-primary/10' : ''}`}>
                   <td className="py-1 pr-2 whitespace-nowrap">
-                    <span className="mr-1">{getModelIcon(d.draftId)}</span>
+                    <ModelIcon modelId={d.draftId} className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
                     <span className={d.isWinner ? 'font-semibold text-primary' : ''}>{getModelDisplayName(d.draftId)}</span>
                   </td>
                   {d.categoryAvgs.map(ca => (
@@ -2872,7 +2940,8 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
           {voterIds.map(voterId => (
             <div key={voterId} className="space-y-1">
               <div className="font-medium flex items-center gap-1">
-                {getModelIcon(voterId)} {getModelDisplayName(voterId)}
+                <ModelIcon modelId={voterId} className="h-3.5 w-3.5" />
+                {getModelDisplayName(voterId)}
                 <span className="text-[10px] text-muted-foreground ml-1">
                   {getCouncilStatusEmoji(getVoterOutcome(voterId), 'scoring')} {getCouncilStatusLabel(getVoterOutcome(voterId), 'scoring')}
                 </span>

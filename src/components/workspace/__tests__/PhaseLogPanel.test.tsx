@@ -797,6 +797,25 @@ describe('PhaseLogPanel', () => {
     expect(scrollToMock).toHaveBeenLastCalledWith({ top: 600, behavior: 'smooth' })
   })
 
+  it('explains that the ALL tab does not include every detailed log', async () => {
+    renderWithTooltipProvider(
+      <PhaseLogPanel
+        phase="CODING"
+        logs={[
+          makeLog('log-1', '[SYS] System line'),
+        ]}
+      />,
+    )
+
+    const allTab = screen.getByRole('button', { name: 'ALL' })
+    fireEvent.focus(allTab)
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/does not include absolutely all logs/i).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/check the other tabs for more details/i).length).toBeGreaterThan(0)
+    })
+  })
+
   it('shows the log color legend when hovering the entry count', async () => {
     renderWithTooltipProvider(
       <PhaseLogPanel

@@ -1,5 +1,4 @@
 import {
-  deriveStructuredInterventions,
   normalizeStructuredInterventions,
   STRUCTURED_INTERVENTION_CATEGORY_ORDER,
 } from '@shared/structuredInterventions'
@@ -32,7 +31,7 @@ export type ArtifactProcessingStatus = 'completed' | CouncilOutcome
 export interface ArtifactProcessingNoticeContext {
   affectedCount?: number
   fullAnswersOrigin?: 'reused-approved-interview'
-  ownerInterventions?: Array<{ label: string; interventions: StructuredIntervention[] }>
+  ownerInterventions?: Array<{ label: string; structuredOutput?: ArtifactStructuredOutputData }>
   status?: ArtifactProcessingStatus
 }
 
@@ -85,16 +84,7 @@ export function getStructuredOutputWarnings(structuredOutput?: ArtifactStructure
 }
 
 export function getStructuredOutputInterventions(structuredOutput?: ArtifactStructuredOutputData): StructuredIntervention[] {
-  const explicit = normalizeStructuredInterventions(structuredOutput?.interventions)
-  if (explicit.length > 0) {
-    return explicit
-  }
-
-  return deriveStructuredInterventions({
-    repairWarnings: getStructuredOutputWarnings(structuredOutput),
-    autoRetryCount: structuredOutput?.autoRetryCount ?? 0,
-    validationError: structuredOutput?.validationError,
-  })
+  return normalizeStructuredInterventions(structuredOutput?.interventions)
 }
 
 export function hasArtifactProcessingNotice(structuredOutput?: ArtifactStructuredOutputData): boolean {
@@ -126,16 +116,50 @@ function buildInterventionBadges(interventions: StructuredIntervention[]): Array
 function buildInterventionSummary(interventions: StructuredIntervention[]): string {
   const interventionCount = interventions.length
   const categoryCount = new Set(interventions.map((intervention) => intervention.category)).size
+  const labels = interventions
+    .map((intervention) => intervention.rule?.label ?? INTERVENTION_CATEGORY_COPY[intervention.category].label)
+    .filter((label, index, values) => values.indexOf(label) === index)
+  const labelSummary = labels.length > 0
+    ? `: ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? `, +${labels.length - 3} more` : ''}.`
+    : '.'
 
   if (interventionCount === 1) {
-    return '1 intervention recorded.'
+    return `1 intervention${labelSummary}`
   }
 
   if (categoryCount <= 1) {
-    return `${interventionCount} interventions recorded.`
+    return `${interventionCount} interventions${labelSummary}`
   }
 
-  return `${interventionCount} interventions across ${categoryCount} categories.`
+  return `${interventionCount} interventions across ${categoryCount} categories${labelSummary}`
+}
+
+export function getStructuredOutputSourceMessages(structuredOutput?: ArtifactStructuredOutputData): string[] {
+  if (!structuredOutput) return []
+
+  const messages: string[] = []
+  messages.push(...getStructuredOutputWarnings(structuredOutput))
+  if (typeof structuredOutput.validationError === 'string' && structuredOutput.validationError.trim()) {
+    messages.push(structuredOutput.validationError.trim())
+  }
+  for (const diagnostic of structuredOutput.retryDiagnostics ?? []) {
+    if (typeof diagnostic.validationError === 'string' && diagnostic.validationError.trim()) {
+      messages.push(diagnostic.validationError.trim())
+    }
+    if (typeof diagnostic.excerpt === 'string' && diagnostic.excerpt.trim()) {
+      messages.push(`Retry attempt ${diagnostic.attempt} excerpt:\n${diagnostic.excerpt.trim()}`)
+    }
+  }
+
+  const unique: string[] = []
+  const seen = new Set<string>()
+  for (const message of messages) {
+    if (seen.has(message)) continue
+    seen.add(message)
+    unique.push(message)
+  }
+
+  return unique
 }
 
 function isReusedApprovedInterviewFullAnswersContext(context?: ArtifactProcessingNoticeContext): boolean {

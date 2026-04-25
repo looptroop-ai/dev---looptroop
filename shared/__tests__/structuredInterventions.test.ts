@@ -418,6 +418,12 @@ describe('technicalDetail', () => {
     const i = deriveOne(raw)
     expect(i.technicalDetail).toBe(raw)
   })
+
+  it('keeps raw audit messages on derived interventions', () => {
+    const raw = 'Removed surrounding markdown code fence before parsing the final test commands.'
+    const i = deriveOne(raw)
+    expect(i.rawMessages).toEqual([raw])
+  })
 })
 
 // ── exact details ──────────────────────────────────────────────────

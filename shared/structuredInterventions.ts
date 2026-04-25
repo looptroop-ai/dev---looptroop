@@ -25,6 +25,7 @@ export interface StructuredIntervention {
   exactCorrection?: string
   examples?: StructuredInterventionExample[]
   technicalDetail?: string
+  rawMessages?: string[]
   target?: string
 }
 
@@ -42,6 +43,23 @@ const CATEGORIES = new Set<StructuredInterventionCategory>(STRUCTURED_INTERVENTI
 
 function normalizeString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+
+  const normalized = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+  const unique: string[] = []
+  const seen = new Set<string>()
+
+  for (const entry of normalized) {
+    const trimmed = entry.trim()
+    if (seen.has(trimmed)) continue
+    seen.add(trimmed)
+    unique.push(trimmed)
+  }
+
+  return unique
 }
 
 function normalizeExample(value: unknown): StructuredInterventionExample | null {
@@ -552,21 +570,53 @@ function buildExactInterventionDetails(
   return {}
 }
 
+function buildFallbackExactCorrection(intervention: StructuredIntervention): string {
+  const ruleLabel = intervention.rule?.label ?? buildDefaultRule(intervention.code).label
+
+  if (intervention.category === 'parser_fix') {
+    return `Applied ${ruleLabel} to make the generated structured payload parseable before validation.`
+  }
+
+  if (intervention.category === 'cleanup') {
+    return `Applied ${ruleLabel} to normalize the generated artifact before saving it.`
+  }
+
+  if (intervention.category === 'synthesized') {
+    return `Applied ${ruleLabel} to create missing structured detail from validated context.`
+  }
+
+  if (intervention.category === 'dropped') {
+    return `Applied ${ruleLabel} to remove generated detail that could not be safely persisted.`
+  }
+
+  if (intervention.category === 'attribution') {
+    return `Applied ${ruleLabel} to correct or clear invalid source attribution.`
+  }
+
+  return `Applied ${ruleLabel} and recorded the validation context.`
+}
+
 function enrichIntervention(intervention: StructuredIntervention): StructuredIntervention {
   const derivedDetails = buildExactInterventionDetails(intervention.code, intervention.technicalDetail)
   const normalizedExamples = intervention.examples && intervention.examples.length > 0
     ? intervention.examples
     : derivedDetails.examples
+  const rule = intervention.rule ?? buildDefaultRule(intervention.code)
+  const exactCorrection = intervention.exactCorrection
+    ?? derivedDetails.exactCorrection
+    ?? buildFallbackExactCorrection({ ...intervention, rule })
+  const rawMessages = intervention.rawMessages && intervention.rawMessages.length > 0
+    ? normalizeStringArray(intervention.rawMessages)
+    : intervention.technicalDetail
+      ? [intervention.technicalDetail]
+      : []
 
   return {
     ...intervention,
-    ...(intervention.rule ? { rule: intervention.rule } : { rule: buildDefaultRule(intervention.code) }),
-    ...(intervention.exactCorrection
-      ? { exactCorrection: intervention.exactCorrection }
-      : derivedDetails.exactCorrection
-        ? { exactCorrection: derivedDetails.exactCorrection }
-        : {}),
+    rule,
+    exactCorrection,
     ...(normalizedExamples && normalizedExamples.length > 0 ? { examples: normalizedExamples } : {}),
+    ...(rawMessages.length > 0 ? { rawMessages } : {}),
   }
 }
 
@@ -585,6 +635,7 @@ function normalizeIntervention(value: unknown): StructuredIntervention | null {
   const exactCorrection = normalizeString(record.exactCorrection)
   const examples = normalizeExamples(record.examples)
   const technicalDetail = normalizeString(record.technicalDetail)
+  const rawMessages = normalizeStringArray(record.rawMessages)
   const target = normalizeString(record.target)
 
   if (!code || !stage || !category || !title || !summary || !why || !how) {
@@ -606,6 +657,7 @@ function normalizeIntervention(value: unknown): StructuredIntervention | null {
     ...(exactCorrection ? { exactCorrection } : {}),
     ...(examples.length > 0 ? { examples } : {}),
     ...(technicalDetail ? { technicalDetail } : {}),
+    ...(rawMessages.length > 0 ? { rawMessages } : {}),
     ...(target ? { target } : {}),
   })
 }
@@ -651,6 +703,7 @@ export function dedupeStructuredInterventions(interventions: StructuredIntervent
         note: example.note ?? null,
       })) ?? [],
       technicalDetail: intervention.technicalDetail ?? null,
+      rawMessages: intervention.rawMessages ?? [],
       target: intervention.target ?? null,
     })
     if (seen.has(fingerprint)) continue
@@ -684,6 +737,7 @@ function buildIntervention(
   return enrichIntervention({
     ...intervention,
     technicalDetail: warning,
+    rawMessages: [warning],
     ...(target ? { target } : {}),
   })
 }
@@ -1331,6 +1385,7 @@ export function deriveStructuredInterventions(options: {
         ? 'LoopTroop issued a structured retry attempt after the earlier validation failure and recorded the resulting artifact state.'
         : 'LoopTroop kept the validator message for debugging and surfaced the saved result with that context.',
       ...(validationError ? { technicalDetail: validationError } : {}),
+      ...(validationError ? { rawMessages: [validationError] } : {}),
     }))
   }
 

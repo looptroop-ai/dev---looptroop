@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { encode } from 'gpt-tokenizer'
+import { deriveStructuredInterventions } from '@shared/structuredInterventions'
 import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
 import { buildArtifactProcessingNoticeCopy } from '../artifactProcessingNotice'
+import type { ArtifactStructuredOutputData } from '../phaseArtifactTypes'
 import { LogContext } from '@/context/logContextDef'
 import type { LogContextValue, LogEntry } from '@/context/logUtils'
 import { TEST } from '@/test/factories'
@@ -32,6 +34,25 @@ function hasTextContent(text: string) {
 
 function openNotice(title: string) {
   fireEvent.click(screen.getByText(title).closest('button')!)
+}
+
+function futureStructuredOutput(output: ArtifactStructuredOutputData): ArtifactStructuredOutputData {
+  const repairWarnings = output.repairWarnings ?? []
+  const autoRetryCount = output.autoRetryCount ?? 0
+  const validationError = output.validationError
+  const interventions = output.interventions ?? deriveStructuredInterventions({
+    repairWarnings,
+    autoRetryCount,
+    validationError,
+  })
+
+  return {
+    ...output,
+    repairApplied: output.repairApplied ?? (repairWarnings.length > 0 || autoRetryCount > 0 || Boolean(validationError)),
+    repairWarnings,
+    autoRetryCount,
+    interventions,
+  }
 }
 
 function makeLogEntry(line: string, options: Partial<LogEntry> = {}): LogEntry {
@@ -410,14 +431,14 @@ describe('ArtifactContentViewer', () => {
                   },
                 ],
               }),
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: true,
                 repairWarnings: [
                   'Canonicalized resolved interview status from "approved" to "draft".',
                   'Cleared approval fields for the AI-generated Full Answers artifact.',
                   'Canonicalized generated_by.winner_model from "openai/gpt-5.4" to "openai/gpt-5.2".',
                 ],
-              },
+              }),
             },
           ],
           memberOutcomes: {
@@ -464,13 +485,13 @@ describe('ArtifactContentViewer', () => {
                   },
                 ],
               }),
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: true,
                 repairWarnings: [
                   'Canonicalized resolved interview status from "approved" to "draft".',
                   'Cleared approval fields for the AI-generated Full Answers artifact.',
                 ],
-              },
+              }),
             },
           ],
           memberOutcomes: {
@@ -481,7 +502,7 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop reused the approved interview for these answers.')).toBeInTheDocument()
-    expect(screen.getByText('2 interventions recorded.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions: Interview Status, Approval Fields.')).toBeInTheDocument()
     expect(screen.getByText('Cleanup 2')).toBeInTheDocument()
 
     openNotice('LoopTroop reused the approved interview for these answers.')
@@ -642,19 +663,19 @@ describe('ArtifactContentViewer', () => {
           voterDetails: [
             {
               voterId: 'openai/gpt-5.1-codex',
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: true,
                 repairWarnings: ['Normalized vote scorecard indentation under the wrapper key.'],
-              },
+              }),
             },
             {
               voterId: 'openai/gpt-5.2',
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: false,
                 repairWarnings: [],
                 autoRetryCount: 1,
                 validationError: 'Malformed scorecard',
-              },
+              }),
             },
           ],
           presentationOrders: {
@@ -677,7 +698,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Rankings')).toBeInTheDocument()
     expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
     expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
-    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories: Wrapper Key, Validation Retry.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
     expect(screen.getAllByText('Presentation Order')).toHaveLength(2)
@@ -1477,17 +1498,17 @@ describe('ArtifactContentViewer', () => {
   })
 
   it('classifies no-op diff cleanup in the parser notice copy', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: [
         'Dropped no-op interview refinement modified at index 0 because the question is unchanged across the winning and final drafts.',
       ],
       autoRetryCount: 0,
-    }, 'diff')
+    }), 'diff')
 
     expect(copy).toMatchObject({
       title: 'LoopTroop adjusted this diff.',
-      summary: '1 intervention recorded.',
+      summary: '1 intervention: No Op Change.',
     })
     expect(copy?.interventions).toEqual([
       expect.objectContaining({ category: 'dropped', code: 'dropped_no_op_change' }),
@@ -1495,41 +1516,41 @@ describe('ArtifactContentViewer', () => {
   })
 
   it('classifies normalization repairs in the parser notice copy', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: ['Inferred missing PRD refinement item_type at index 0 as epic.'],
       autoRetryCount: 0,
-    }, 'diff')
+    }), 'diff')
 
     expect(copy?.title).toBe('LoopTroop adjusted this diff.')
-    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.summary).toBe('1 intervention: Missing Field Inference.')
     expect(copy?.interventions).toEqual([
       expect.objectContaining({ category: 'synthesized', code: 'synthesized_inferred_detail' }),
     ])
   })
 
   it('classifies formatting cleanup in the parser notice copy', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: ['Removed surrounding markdown code fence before parsing the final test commands.'],
       autoRetryCount: 0,
-    }, 'final-test')
+    }), 'final-test')
 
     expect(copy?.title).toBe('LoopTroop adjusted this final test plan.')
-    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.summary).toBe('1 intervention: Markdown Fence Unwrap.')
     expect(copy?.interventions).toEqual([
       expect.objectContaining({ category: 'parser_fix', code: 'parser_markdown_fence' }),
     ])
   })
 
   it('derives exact correction details for canonicalized metadata warnings', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: [
         'Canonicalized generated_by.winner_model from "openai/gpt-5.4" to "github-copilot/gpt-4.1".',
       ],
       autoRetryCount: 0,
-    }, 'full-answers')
+    }), 'full-answers')
 
     expect(copy?.interventions).toEqual([
       expect.objectContaining({
@@ -1551,27 +1572,27 @@ describe('ArtifactContentViewer', () => {
   })
 
   it('classifies synthesized change repairs in the parser notice copy', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: ['Synthesized missing PRD refinement change at index 0 from the validated records.'],
       autoRetryCount: 0,
-    }, 'diff')
+    }), 'diff')
 
-    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.summary).toBe('1 intervention: Missing Detail.')
     expect(copy?.interventions).toEqual([
       expect.objectContaining({ category: 'synthesized', code: 'synthesized_missing_detail' }),
     ])
   })
 
   it('describes retry-only parser interventions in the parser notice copy', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: false,
       repairWarnings: [],
       autoRetryCount: 1,
       validationError: 'Coverage parser rejected the first pass.',
-    }, 'coverage')
+    }), 'coverage')
 
-    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.summary).toBe('1 intervention: Validation Retry.')
     expect(copy?.body).toMatch(/validated this coverage review/i)
     expect(copy?.interventions).toEqual([
       expect.objectContaining({ category: 'retry', code: 'retry_after_validation_failure' }),
@@ -1579,14 +1600,14 @@ describe('ArtifactContentViewer', () => {
   })
 
   it('keeps reserved-scalar parser fixes separate from retry interventions in parser notices', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: ['Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.'],
       autoRetryCount: 1,
       validationError: 'PRD parser rejected the first pass.',
-    }, 'prd-draft')
+    }), 'prd-draft')
 
-    expect(copy?.summary).toBe('2 interventions across 2 categories.')
+    expect(copy?.summary).toBe('2 interventions across 2 categories: Reserved Scalar Repair, Validation Retry.')
     expect(copy?.badges).toEqual([
       expect.objectContaining({ label: 'Parser Fix', count: 1 }),
       expect.objectContaining({ label: 'Retried', count: 1 }),
@@ -1617,7 +1638,7 @@ describe('ArtifactContentViewer', () => {
               contentLength: 24,
             },
           ],
-          structuredOutput: {
+          structuredOutput: futureStructuredOutput({
             repairApplied: false,
             repairWarnings: [],
             autoRetryCount: 1,
@@ -1632,7 +1653,7 @@ describe('ArtifactContentViewer', () => {
                 excerpt: '  4 | files:\n  5 |   - path: src/app.ts',
               },
             ],
-          },
+          }),
         })}
       />,
     )
@@ -1643,29 +1664,31 @@ describe('ArtifactContentViewer', () => {
 
     fireEvent.click(noticeButton!)
 
+    expect(screen.getByText(/Raw Source Messages/i)).toBeInTheDocument()
+    expect(screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent?.includes('Retry attempt 1 excerpt:')
+      && element.textContent.includes('4 | files:'),
+    )).toBeInTheDocument()
     expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
     expect(screen.getByText('Attempt 1')).toBeInTheDocument()
     expect(screen.getAllByText('Relevant files output was empty.').length).toBeGreaterThan(0)
     expect(screen.getByText(/files · line 4, column 3/i)).toBeInTheDocument()
-    expect(screen.getByText(/4 \| files:/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/4 \| files:/i).length).toBeGreaterThan(0)
   })
 
-  it('falls back to generic parser wording for unknown warnings', () => {
+  it('does not derive parser notices from bare legacy repair warnings', () => {
     const copy = buildArtifactProcessingNoticeCopy({
       repairApplied: true,
       repairWarnings: ['Validator repair step completed.'],
       autoRetryCount: 0,
     }, 'artifact')
 
-    expect(copy?.title).toBe('LoopTroop adjusted this artifact.')
-    expect(copy?.summary).toBe('1 intervention recorded.')
-    expect(copy?.interventions).toEqual([
-      expect.objectContaining({ category: 'cleanup', code: 'cleanup_generic' }),
-    ])
+    expect(copy).toBeNull()
   })
 
   it('uses output-specific wording for Full Answers metadata cleanup', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: [
         'Canonicalized resolved interview status from "approved" to "draft".',
@@ -1673,26 +1696,26 @@ describe('ArtifactContentViewer', () => {
         'Canonicalized generated_by.winner_model from "openai/gpt-5.4" to "github-copilot/gpt-4.1".',
       ],
       autoRetryCount: 0,
-    }, 'full-answers')
+    }), 'full-answers')
 
     expect(copy?.title).toBe('LoopTroop adjusted these Full Answers.')
-    expect(copy?.summary).toBe('3 interventions recorded.')
+    expect(copy?.summary).toBe('3 interventions: Interview Status, Approval Fields, Winner Model.')
     expect(copy?.badges).toEqual([
       expect.objectContaining({ label: 'Cleanup', count: 3 }),
     ])
   })
 
   it('shows specific cleanup copy for selected option id repairs in Full Answers notices', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: [
         'Mapped selected option ids to canonical option ids for AI-filled question Q01.',
       ],
       autoRetryCount: 0,
-    }, 'full-answers')
+    }), 'full-answers')
 
     expect(copy?.title).toBe('LoopTroop adjusted these Full Answers.')
-    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.summary).toBe('1 intervention: Mapped Free Text.')
     expect(copy?.interventions).toEqual([
       expect.objectContaining({
         category: 'cleanup',
@@ -1703,7 +1726,7 @@ describe('ArtifactContentViewer', () => {
   })
 
   it('uses reused-approved-interview wording for synthetic Full Answers artifacts', () => {
-    const copy = buildArtifactProcessingNoticeCopy({
+    const copy = buildArtifactProcessingNoticeCopy(futureStructuredOutput({
       repairApplied: true,
       repairWarnings: [
         'Canonicalized resolved interview status from "approved" to "draft".',
@@ -1711,10 +1734,10 @@ describe('ArtifactContentViewer', () => {
         'Canonicalized generated_by.winner_model from "openai/gpt-5.4" to "github-copilot/gpt-4.1".',
       ],
       autoRetryCount: 0,
-    }, 'full-answers', { fullAnswersOrigin: 'reused-approved-interview' })
+    }), 'full-answers', { fullAnswersOrigin: 'reused-approved-interview' })
 
     expect(copy?.title).toBe('LoopTroop reused the approved interview for these answers.')
-    expect(copy?.summary).toBe('3 interventions recorded.')
+    expect(copy?.summary).toBe('3 interventions: Interview Status, Approval Fields, Winner Model.')
     expect(copy?.body).toMatch(/copied the approved interview/i)
   })
 
@@ -1757,7 +1780,7 @@ describe('ArtifactContentViewer', () => {
       ],
     }, 'relevant-files')
 
-    expect(copy?.summary).toBe('1 intervention recorded.')
+    expect(copy?.summary).toBe('1 intervention: Transcript Recovery.')
     expect(copy?.badges).toEqual([
       expect.objectContaining({ label: 'Parser Fix', count: 1 }),
     ])
@@ -1775,10 +1798,10 @@ describe('ArtifactContentViewer', () => {
               memberId: 'openai/gpt-5.2',
               outcome: 'completed',
               content: buildPrdDocumentContent(),
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: true,
                 repairWarnings: ['Inferred missing PRD refinement item_type at index 0 as epic.'],
-              },
+              }),
             },
           ],
         })}
@@ -1799,7 +1822,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText(/After:/i)).toBeInTheDocument()
     expect(screen.getByText(/^epic$/i)).toBeInTheDocument()
     expect(screen.getByText(/What:/i)).toBeInTheDocument()
-    expect(screen.getByText(/Inferred missing PRD refinement item_type at index 0 as epic/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Inferred missing PRD refinement item_type at index 0 as epic/i).length).toBeGreaterThan(0)
   })
 
   it('renders exact correction, rule, and before/after blocks for explicit interventions', () => {
@@ -1872,10 +1895,10 @@ describe('ArtifactContentViewer', () => {
             gaps: ['Missing approval sequencing.'],
             followUpQuestions: [],
           },
-          structuredOutput: {
+          structuredOutput: futureStructuredOutput({
             repairApplied: true,
             repairWarnings: ['Trimmed empty PRD coverage gap strings before persisting the normalized result.'],
-          },
+          }),
         })}
       />,
     )
@@ -1887,7 +1910,7 @@ describe('ArtifactContentViewer', () => {
     openNotice('LoopTroop adjusted this coverage review.')
 
     expect(screen.getByText(/LoopTroop validated this coverage review and recorded the intervention details below/i)).toBeInTheDocument()
-    expect(screen.getByText(/Trimmed empty PRD coverage gap strings before persisting the normalized result/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Trimmed empty PRD coverage gap strings before persisting the normalized result/i).length).toBeGreaterThan(0)
   })
 
   it('shows a collapsed parser notice for relevant files scans', () => {
@@ -1907,10 +1930,10 @@ describe('ArtifactContentViewer', () => {
               contentLength: 25,
             },
           ],
-          structuredOutput: {
+          structuredOutput: futureStructuredOutput({
             repairApplied: true,
             repairWarnings: ['Removed surrounding markdown code fence before parsing the relevant files result.'],
-          },
+          }),
         })}
       />,
     )
@@ -1922,7 +1945,7 @@ describe('ArtifactContentViewer', () => {
     openNotice('LoopTroop adjusted this relevant files scan.')
 
     expect(screen.getByText(/LoopTroop validated this relevant files scan and recorded the intervention details below/i)).toBeInTheDocument()
-    expect(screen.getByText(/Removed surrounding markdown code fence before parsing the relevant files result/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Removed surrounding markdown code fence before parsing the relevant files result/i).length).toBeGreaterThan(0)
   })
 
   it('hides the relevant-files parser notice when there are no warnings or retries to explain', () => {
@@ -2093,10 +2116,10 @@ describe('ArtifactContentViewer', () => {
     const content = JSON.stringify({
       originalContent: 'questions:\n  - id: Q01\n    prompt: Old prompt',
       refinedContent,
-      structuredOutput: {
+      structuredOutput: futureStructuredOutput({
         repairApplied: true,
         repairWarnings: ['Recovered the structured interview from wrapper JSON.'],
-      },
+      }),
     })
 
     render(
@@ -2147,14 +2170,14 @@ describe('ArtifactContentViewer', () => {
           voterDetails: [
             {
               voterId: 'vendor/voter-a',
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: true,
-                repairWarnings: ['Normalized vote scorecard ordering before persistence.'],
-              },
+                repairWarnings: ['Reordered vote scorecards before persistence.'],
+              }),
             },
             {
               voterId: 'vendor/voter-b',
-              structuredOutput: {
+              structuredOutput: futureStructuredOutput({
                 repairApplied: false,
                 repairWarnings: [],
                 autoRetryCount: 1,
@@ -2167,7 +2190,7 @@ describe('ArtifactContentViewer', () => {
                     excerpt: 'Draft 2: score: pending',
                   },
                 ],
-              },
+              }),
             },
           ],
         })}
@@ -2175,19 +2198,23 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
-    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText('2 interventions across 2 categories: Reordering, Validation Retry.')).toBeInTheDocument()
     expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
     expect(screen.getByText('Retried 1')).toBeInTheDocument()
 
     openNotice('LoopTroop adjusted some vote scorecards.')
-    expect(screen.queryByText(/Retry Attempts/i)).not.toBeInTheDocument()
-    expect(screen.queryByText('Draft 2: score: pending')).not.toBeInTheDocument()
+    expect(screen.getByText('Affected Voters')).toBeInTheDocument()
+    expect(screen.getAllByText('voter-a').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('voter-b').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Raw Source Messages/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
+    expect(screen.getAllByText('Draft 2: score: pending').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
     expect(screen.getAllByText('LoopTroop adjusted this vote scorecard.')).toHaveLength(2)
     fireEvent.click(screen.getAllByText('LoopTroop adjusted this vote scorecard.')[1]!.closest('button')!)
-    expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
-    expect(screen.getByText('Draft 2: score: pending')).toBeInTheDocument()
+    expect(screen.getAllByText(/Retry Attempts/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Draft 2: score: pending').length).toBeGreaterThan(0)
   })
 
   it('shows a collapsed parser notice for final test results', () => {
@@ -2217,12 +2244,12 @@ describe('ArtifactContentViewer', () => {
               noteAppended: 'Retry note: keep the contrast assertion limited to destructive tokens.',
             },
           ],
-          planStructuredOutput: {
+          planStructuredOutput: futureStructuredOutput({
             repairApplied: false,
             repairWarnings: [],
             autoRetryCount: 1,
             validationError: 'Missing final test marker on first pass.',
-          },
+          }),
         })}
       />,
     )
@@ -2234,7 +2261,7 @@ describe('ArtifactContentViewer', () => {
     openNotice('LoopTroop adjusted this final test plan.')
 
     expect(screen.getByText(/LoopTroop validated this final test plan and recorded the intervention details below/i)).toBeInTheDocument()
-    expect(screen.getByText(/Missing final test marker on first pass/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Missing final test marker on first pass/i).length).toBeGreaterThan(0)
     expect(screen.getByText('Retried after validation failed and recorded the resulting artifact state.')).toBeInTheDocument()
     expect(screen.getByText('LoopTroop issued a structured retry attempt after the earlier validation failure and recorded the resulting artifact state.')).toBeInTheDocument()
     expect(screen.queryByText(/successful validated result/i)).not.toBeInTheDocument()

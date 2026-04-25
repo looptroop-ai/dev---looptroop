@@ -1,3 +1,4 @@
+import type { LucideProps } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getModelDisplayName, getModelIcon } from './modelBadgeUtils'
 
@@ -10,9 +11,24 @@ interface ModelBadgeProps {
     children?: React.ReactNode
 }
 
+interface ModelIconProps extends Omit<LucideProps, 'ref'> {
+    modelId: string
+}
+
+export function ModelIcon({ modelId, className, ...props }: ModelIconProps) {
+    const Icon = getModelIcon(modelId)
+    return (
+        <Icon
+            aria-hidden="true"
+            className={cn('h-3.5 w-3.5 shrink-0', className)}
+            strokeWidth={2}
+            {...props}
+        />
+    )
+}
+
 export function ModelBadge({ modelId, active, onClick, className, showIcon = true, children }: ModelBadgeProps) {
     const name = getModelDisplayName(modelId)
-    const icon = showIcon ? getModelIcon(name) : null
 
     const Component = onClick ? 'button' : 'div'
 
@@ -28,7 +44,7 @@ export function ModelBadge({ modelId, active, onClick, className, showIcon = tru
             )}
             title={modelId}
         >
-            {icon && <span className="text-[1.1em] leading-none opacity-90">{icon}</span>}
+            {showIcon ? <ModelIcon modelId={modelId} /> : null}
             {children || <span className="truncate">{name}</span>}
         </Component>
     )
