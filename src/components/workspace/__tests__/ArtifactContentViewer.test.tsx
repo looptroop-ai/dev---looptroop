@@ -1400,6 +1400,13 @@ describe('ArtifactContentViewer', () => {
 
     expect(screen.getByText('LoopTroop adjusted this interview draft.')).toBeInTheDocument()
     expect(screen.getByText('Cleanup 1')).toBeInTheDocument()
+
+    openNotice('LoopTroop adjusted this interview draft.')
+    expect(screen.getAllByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && element.textContent === 'Normalized saved artifact details from raw model output before saving the validated artifact.',
+    )).toHaveLength(1)
+    expect(screen.queryByText(/Raw Source Messages/i)).not.toBeInTheDocument()
   })
 
   it('shows a vote adjustment notice when raw and validated scorecards differ without parser warnings', () => {
@@ -1664,12 +1671,7 @@ describe('ArtifactContentViewer', () => {
 
     fireEvent.click(noticeButton!)
 
-    expect(screen.getByText(/Raw Source Messages/i)).toBeInTheDocument()
-    expect(screen.getByText((_text, element) =>
-      element?.tagName === 'PRE'
-      && element.textContent?.includes('Retry attempt 1 excerpt:')
-      && element.textContent.includes('4 | files:'),
-    )).toBeInTheDocument()
+    expect(screen.queryByText(/Raw Source Messages/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
     expect(screen.getByText('Attempt 1')).toBeInTheDocument()
     expect(screen.getAllByText('Relevant files output was empty.').length).toBeGreaterThan(0)
@@ -2206,7 +2208,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Affected Voters')).toBeInTheDocument()
     expect(screen.getAllByText('voter-a').length).toBeGreaterThan(0)
     expect(screen.getAllByText('voter-b').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Raw Source Messages/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Raw Source Messages/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Retry Attempts/i)).toBeInTheDocument()
     expect(screen.getAllByText('Draft 2: score: pending').length).toBeGreaterThan(0)
 

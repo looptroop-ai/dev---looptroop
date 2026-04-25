@@ -953,88 +953,96 @@ function ArtifactInterventionBreakdown({ interventions }: { interventions: Struc
               <span className="opacity-80">{group.interventions.length}</span>
             </div>
             <div className="space-y-2">
-              {group.interventions.map((intervention, index) => (
-                <div key={`${group.category}:${intervention.code}:${index}`} className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-xs font-semibold">{intervention.title}</div>
-                    <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {INTERVENTION_STAGE_LABELS[intervention.stage]}
-                    </span>
-                    {intervention.target ? (
-                      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-mono text-foreground">
-                        {intervention.target}
+              {group.interventions.map((intervention, index) => {
+                const rawMessages = intervention.rawMessages ?? []
+                const hasTechnicalDetailInRawMessages = Boolean(
+                  intervention.technicalDetail
+                  && rawMessages.some((message) => message.trim() === intervention.technicalDetail?.trim()),
+                )
+
+                return (
+                  <div key={`${group.category}:${intervention.code}:${index}`} className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-xs font-semibold">{intervention.title}</div>
+                      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {INTERVENTION_STAGE_LABELS[intervention.stage]}
                       </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-1 space-y-1 text-[11px] leading-5">
-                    {intervention.exactCorrection ? (
-                      <div><span className="font-medium">Exact correction:</span> {intervention.exactCorrection}</div>
-                    ) : null}
-                    {intervention.rule ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">Rule:</span>
-                        <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
-                          {intervention.rule.label}
+                      {intervention.target ? (
+                        <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-mono text-foreground">
+                          {intervention.target}
                         </span>
-                        <span className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
-                          {intervention.rule.id}
-                        </span>
-                      </div>
-                    ) : null}
-                    {intervention.examples && intervention.examples.length > 0 ? (
-                      <div className="space-y-2 rounded border border-border bg-background/80 px-2 py-2">
-                        {intervention.examples.map((example, exampleIndex) => (
-                          <div key={`${group.category}:${intervention.code}:${index}:example:${exampleIndex}`} className="space-y-1">
-                            {example.scope ? (
-                              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                {example.scope}
-                              </div>
-                            ) : null}
-                            {example.before ? (
-                              <div>
-                                <span className="font-medium">Before:</span>{' '}
-                                <span className="font-mono text-[10px] text-muted-foreground">{example.before}</span>
-                              </div>
-                            ) : null}
-                            {example.after ? (
-                              <div>
-                                <span className="font-medium">After:</span>{' '}
-                                <span className="font-mono text-[10px] text-muted-foreground">{example.after}</span>
-                              </div>
-                            ) : null}
-                            {example.note ? (
-                              <div><span className="font-medium">Note:</span> {example.note}</div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div><span className="font-medium">What:</span> {intervention.summary}</div>
-                    <div><span className="font-medium">Why:</span> {intervention.why}</div>
-                    <div><span className="font-medium">How:</span> {intervention.how}</div>
-                    {intervention.technicalDetail ? (
-                      <div className="rounded border border-border bg-background px-2 py-1 font-mono text-[10px] leading-4 text-muted-foreground">
-                        {intervention.technicalDetail}
-                      </div>
-                    ) : null}
-                    {intervention.rawMessages && intervention.rawMessages.length > 0 ? (
-                      <div className="space-y-1">
-                        <div className="font-medium">Raw message{intervention.rawMessages.length === 1 ? '' : 's'}:</div>
-                        <div className="space-y-1">
-                          {intervention.rawMessages.map((message, messageIndex) => (
-                            <pre
-                              key={`${group.category}:${intervention.code}:${index}:raw:${messageIndex}`}
-                              className="overflow-x-auto rounded border border-border bg-background px-2 py-1 font-mono text-[10px] leading-4 text-muted-foreground whitespace-pre-wrap"
-                            >
-                              {message}
-                            </pre>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 space-y-1 text-[11px] leading-5">
+                      {intervention.exactCorrection ? (
+                        <div><span className="font-medium">Exact correction:</span> {intervention.exactCorrection}</div>
+                      ) : null}
+                      {intervention.rule ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">Rule:</span>
+                          <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
+                            {intervention.rule.label}
+                          </span>
+                          <span className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                            {intervention.rule.id}
+                          </span>
+                        </div>
+                      ) : null}
+                      {intervention.examples && intervention.examples.length > 0 ? (
+                        <div className="space-y-2 rounded border border-border bg-background/80 px-2 py-2">
+                          {intervention.examples.map((example, exampleIndex) => (
+                            <div key={`${group.category}:${intervention.code}:${index}:example:${exampleIndex}`} className="space-y-1">
+                              {example.scope ? (
+                                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                  {example.scope}
+                                </div>
+                              ) : null}
+                              {example.before ? (
+                                <div>
+                                  <span className="font-medium">Before:</span>{' '}
+                                  <span className="font-mono text-[10px] text-muted-foreground">{example.before}</span>
+                                </div>
+                              ) : null}
+                              {example.after ? (
+                                <div>
+                                  <span className="font-medium">After:</span>{' '}
+                                  <span className="font-mono text-[10px] text-muted-foreground">{example.after}</span>
+                                </div>
+                              ) : null}
+                              {example.note ? (
+                                <div><span className="font-medium">Note:</span> {example.note}</div>
+                              ) : null}
+                            </div>
                           ))}
                         </div>
-                      </div>
-                    ) : null}
+                      ) : null}
+                      <div><span className="font-medium">What:</span> {intervention.summary}</div>
+                      <div><span className="font-medium">Why:</span> {intervention.why}</div>
+                      <div><span className="font-medium">How:</span> {intervention.how}</div>
+                      {intervention.technicalDetail && !hasTechnicalDetailInRawMessages ? (
+                        <div className="rounded border border-border bg-background px-2 py-1 font-mono text-[10px] leading-4 text-muted-foreground">
+                          {intervention.technicalDetail}
+                        </div>
+                      ) : null}
+                      {rawMessages.length > 0 ? (
+                        <div className="space-y-1">
+                          <div className="font-medium">Raw message{rawMessages.length === 1 ? '' : 's'}:</div>
+                          <div className="space-y-1">
+                            {rawMessages.map((message, messageIndex) => (
+                              <pre
+                                key={`${group.category}:${intervention.code}:${index}:raw:${messageIndex}`}
+                                className="overflow-x-auto rounded border border-border bg-background px-2 py-1 font-mono text-[10px] leading-4 text-muted-foreground whitespace-pre-wrap"
+                              >
+                                {message}
+                              </pre>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )
@@ -1063,6 +1071,35 @@ function ArtifactSourceMessages({ messages }: { messages: string[] }) {
       </div>
     </div>
   )
+}
+
+function normalizeNoticeRawMessage(message: string): string {
+  return message.trim()
+}
+
+function getUndisplayedSourceMessages(
+  structuredOutput: ArtifactStructuredOutputData | undefined,
+  interventions: StructuredIntervention[],
+  retryDiagnostics: StructuredRetryDiagnostic[],
+): string[] {
+  const displayed = new Set<string>()
+
+  for (const intervention of interventions) {
+    if (intervention.technicalDetail) {
+      displayed.add(normalizeNoticeRawMessage(intervention.technicalDetail))
+    }
+    for (const message of intervention.rawMessages ?? []) {
+      displayed.add(normalizeNoticeRawMessage(message))
+    }
+  }
+
+  for (const diagnostic of retryDiagnostics) {
+    displayed.add(normalizeNoticeRawMessage(diagnostic.validationError))
+    displayed.add(normalizeNoticeRawMessage(`Retry attempt ${diagnostic.attempt} excerpt:\n${diagnostic.excerpt.trim()}`))
+  }
+
+  return getStructuredOutputSourceMessages(structuredOutput)
+    .filter((message) => !displayed.has(normalizeNoticeRawMessage(message)))
 }
 
 function formatRetryDiagnosticLocation(diagnostic: StructuredRetryDiagnostic): string | null {
@@ -1140,9 +1177,17 @@ function ArtifactInterventionOwnerBreakdown({
           <div key={owner.label} className="rounded-md border border-amber-300/60 bg-background/70 px-3 py-2 dark:border-amber-900/50">
             <div className="mb-2 text-xs font-semibold">{owner.label}</div>
             <div className="space-y-3">
-              <ArtifactInterventionBreakdown interventions={getStructuredOutputInterventions(owner.structuredOutput)} />
-              <ArtifactSourceMessages messages={getStructuredOutputSourceMessages(owner.structuredOutput)} />
-              <ArtifactRetryDiagnostics diagnostics={owner.structuredOutput?.retryDiagnostics ?? []} />
+              {(() => {
+                const interventions = getStructuredOutputInterventions(owner.structuredOutput)
+                const retryDiagnostics = owner.structuredOutput?.retryDiagnostics ?? []
+                return (
+                  <>
+                    <ArtifactInterventionBreakdown interventions={interventions} />
+                    <ArtifactSourceMessages messages={getUndisplayedSourceMessages(owner.structuredOutput, interventions, retryDiagnostics)} />
+                    <ArtifactRetryDiagnostics diagnostics={retryDiagnostics} />
+                  </>
+                )
+              })()}
             </div>
           </div>
         ))}
@@ -1169,7 +1214,11 @@ function ArtifactProcessingNotice({
   const retryDiagnostics = kind === 'vote-aggregate'
     ? []
     : structuredOutput?.retryDiagnostics ?? []
-  const sourceMessages = getStructuredOutputSourceMessages(structuredOutput)
+  const sourceMessages = getUndisplayedSourceMessages(
+    structuredOutput,
+    copy.interventions,
+    structuredOutput?.retryDiagnostics ?? [],
+  )
 
   return (
     <CollapsibleWarningNotice
