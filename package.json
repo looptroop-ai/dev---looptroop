@@ -27,7 +27,7 @@
     "sqlite"
   ],
   "author": "LoopTroop AI",
-  "license": "ISC",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/looptroop-ai/LoopTroop.git"
