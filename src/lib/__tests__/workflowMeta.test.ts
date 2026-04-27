@@ -57,6 +57,13 @@ describe.concurrent('workflow metadata', () => {
     }
   })
 
+  it('documents safe resume behavior in every phase summary and details', () => {
+    for (const phase of WORKFLOW_PHASES) {
+      expect(phase.description).toContain('Safe resume:')
+      expect(phase.details.notes?.some((note) => note.includes('Safe resume:'))).toBe(true)
+    }
+  })
+
   it('shows only ticket details as allowed context while scanning relevant files', () => {
     const scanningPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'SCANNING_RELEVANT_FILES')
 
@@ -66,7 +73,7 @@ describe.concurrent('workflow metadata', () => {
   it('uses the simplified description for PRD coverage verification', () => {
     const prdCoveragePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'VERIFYING_PRD_COVERAGE')
 
-    expect(prdCoveragePhase?.description).toBe(
+    expect(prdCoveragePhase?.description).toContain(
       'LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again.',
     )
   })
@@ -74,7 +81,7 @@ describe.concurrent('workflow metadata', () => {
   it('describes the two-step beads finalization flow', () => {
     const beadsRefinePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'REFINING_BEADS')
 
-    expect(beadsRefinePhase?.description).toBe(
+    expect(beadsRefinePhase?.description).toContain(
       'Winning draft is consolidated into the final semantic beads blueprint using the strongest ideas from the losing drafts.',
     )
   })
@@ -82,7 +89,7 @@ describe.concurrent('workflow metadata', () => {
   it('describes beads coverage as semantic review followed by final expansion', () => {
     const beadsCoveragePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'VERIFYING_BEADS_COVERAGE')
 
-    expect(beadsCoveragePhase?.description).toBe(
+    expect(beadsCoveragePhase?.description).toContain(
       'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint, checks again, then expands the final version into execution-ready beads before approval.',
     )
     expect(beadsCoveragePhase?.contextSummary).toEqual(['prd', 'beads', 'relevant_files', 'ticket_details', 'beads_draft'])
@@ -129,7 +136,7 @@ describe.concurrent('workflow metadata', () => {
     expect(setupApprovalPhase?.label).toBe('Approve Workspace Setup')
     expect(setupApprovalPhase?.reviewArtifactType).toBe('execution_setup_plan')
     expect(setupPhase?.label).toBe('Preparing Workspace Runtime')
-    expect(setupPhase?.description).toBe('Verifying readiness and performing only the missing temporary execution setup before coding begins.')
+    expect(setupPhase?.description).toContain('Verifying readiness and performing only the missing temporary execution setup before coding begins.')
     expect(setupPhase?.contextSummary).toEqual(['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
     expect(codingPhase?.contextSummary).toEqual(['bead_data', 'bead_notes', 'execution_setup_profile'])
   })

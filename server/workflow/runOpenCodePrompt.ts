@@ -184,6 +184,37 @@ function resolveSessionCreateOptions(): OpenCodeSessionCreateOptions {
   }
 }
 
+function createTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number | undefined) {
+  if (!timeoutMs) {
+    return {
+      signal,
+      timedOut: () => false,
+      cleanup: () => undefined,
+    }
+  }
+
+  const controller = new AbortController()
+  let didTimeOut = false
+  const timer = setTimeout(() => {
+    didTimeOut = true
+    controller.abort()
+  }, timeoutMs)
+
+  return {
+    signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+    timedOut: () => didTimeOut,
+    cleanup: () => clearTimeout(timer),
+  }
+}
+
+function isPromptTransportFailure(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true
+  if (!(error instanceof Error)) return true
+  return error.name === 'AbortError' ||
+    error.message === 'Timeout' ||
+    error.message.startsWith('Failed to prompt OpenCode session')
+}
+
 export async function runOpenCodePrompt({
   adapter,
   projectPath,
@@ -203,25 +234,36 @@ export async function runOpenCodePrompt({
 }: OpenCodeRunOptions & { projectPath: string }): Promise<OpenCodeRunResult> {
   const sessionManager = sessionOwnership ? new SessionManager(adapter) : null
   const sessionCreateOptions = resolveSessionCreateOptions()
-  const session = sessionOwnership
-    ? await sessionManager!.validateAndReconnect(sessionOwnership.ticketId, sessionOwnership.phase, {
-      phaseAttempt: sessionOwnership.phaseAttempt,
-      ...(sessionOwnership.memberId !== undefined ? { memberId: sessionOwnership.memberId } : {}),
-      ...(sessionOwnership.beadId !== undefined ? { beadId: sessionOwnership.beadId } : {}),
-      ...(sessionOwnership.iteration !== undefined ? { iteration: sessionOwnership.iteration } : {}),
-      ...(sessionOwnership.step !== undefined ? { step: sessionOwnership.step } : {}),
-    }) ?? await sessionManager!.createSessionForPhase(
-      sessionOwnership.ticketId,
-      sessionOwnership.phase,
-      sessionOwnership.phaseAttempt ?? 1,
-      sessionOwnership.memberId ?? undefined,
-      sessionOwnership.beadId ?? undefined,
-      sessionOwnership.iteration ?? undefined,
-      sessionOwnership.step ?? undefined,
-      projectPath,
-      sessionCreateOptions,
-    )
-    : await adapter.createSession(projectPath, signal, sessionCreateOptions)
+  const acquisitionDeadline = createTimeoutSignal(signal, timeoutMs)
+  let session: Session
+  try {
+    session = sessionOwnership
+      ? await sessionManager!.validateAndReconnect(
+        sessionOwnership.ticketId,
+        sessionOwnership.phase,
+        sessionOwnership,
+        acquisitionDeadline.signal,
+      ) ?? await sessionManager!.createSessionForPhase(
+        sessionOwnership.ticketId,
+        sessionOwnership.phase,
+        sessionOwnership.phaseAttempt ?? 1,
+        sessionOwnership.memberId ?? undefined,
+        sessionOwnership.beadId ?? undefined,
+        sessionOwnership.iteration ?? undefined,
+        sessionOwnership.step ?? undefined,
+        projectPath,
+        sessionCreateOptions,
+        acquisitionDeadline.signal,
+      )
+      : await adapter.createSession(projectPath, acquisitionDeadline.signal, sessionCreateOptions)
+  } catch (error) {
+    if (acquisitionDeadline.timedOut()) {
+      throw new Error('Timeout')
+    }
+    throw error
+  } finally {
+    acquisitionDeadline.cleanup()
+  }
   onSessionCreated?.(session)
   try {
     const result = await runOpenCodeSessionPrompt({
@@ -234,6 +276,7 @@ export async function runOpenCodePrompt({
       agent,
       variant,
       toolPolicy,
+      ...(sessionOwnership ? { sessionOwnership } : {}),
       erroredSessionPolicy,
       onPromptDispatched,
       onStreamEvent,
@@ -269,15 +312,26 @@ export async function runOpenCodeSessionPrompt({
   onPromptCompleted,
 }: OpenCodeRunOptions & { session: Session }): Promise<OpenCodeRunResult> {
   let resolvedSession = session
+  const sessionManager = sessionOwnership ? new SessionManager(adapter) : null
   if (sessionOwnership) {
-    const sessionManager = new SessionManager(adapter)
-    const reconnected = await sessionManager.validateAndReconnect(sessionOwnership.ticketId, sessionOwnership.phase, {
-      phaseAttempt: sessionOwnership.phaseAttempt,
-      ...(sessionOwnership.memberId !== undefined ? { memberId: sessionOwnership.memberId } : {}),
-      ...(sessionOwnership.beadId !== undefined ? { beadId: sessionOwnership.beadId } : {}),
-      ...(sessionOwnership.iteration !== undefined ? { iteration: sessionOwnership.iteration } : {}),
-      ...(sessionOwnership.step !== undefined ? { step: sessionOwnership.step } : {}),
-    })
+    const validationDeadline = createTimeoutSignal(signal, timeoutMs)
+    let reconnected: Session | null
+    try {
+      reconnected = await sessionManager!.validateAndReconnect(sessionOwnership.ticketId, sessionOwnership.phase, {
+        phaseAttempt: sessionOwnership.phaseAttempt,
+        ...(sessionOwnership.memberId !== undefined ? { memberId: sessionOwnership.memberId } : {}),
+        ...(sessionOwnership.beadId !== undefined ? { beadId: sessionOwnership.beadId } : {}),
+        ...(sessionOwnership.iteration !== undefined ? { iteration: sessionOwnership.iteration } : {}),
+        ...(sessionOwnership.step !== undefined ? { step: sessionOwnership.step } : {}),
+      }, validationDeadline.signal)
+    } catch (error) {
+      if (validationDeadline.timedOut()) {
+        throw new Error('Timeout')
+      }
+      throw error
+    } finally {
+      validationDeadline.cleanup()
+    }
     if (!reconnected || reconnected.id !== session.id) {
       throw new Error(`OpenCode session ${session.id} is no longer active for ${sessionOwnership.ticketId}:${sessionOwnership.phase}`)
     }
@@ -329,7 +383,7 @@ export async function runOpenCodeSessionPrompt({
     if (deadlineController) {
       deadlineTimer = setTimeout(() => deadlineController.abort(), timeoutMs)
     }
-    response = await adapter.promptSession(resolvedSession.id, parts, signal, promptOptions)
+    response = await adapter.promptSession(resolvedSession.id, parts, combinedSignal, promptOptions)
     // Adapter completed but deadline may have fired during execution;
     // enforce the timeout even if the adapter didn't respect the signal.
     if (deadlineController?.signal.aborted) {
@@ -339,8 +393,14 @@ export async function runOpenCodeSessionPrompt({
     if (deadlineController?.signal.aborted) {
       await adapter.abortSession(resolvedSession.id)
       const timeoutError = error instanceof Error && error.message === 'Timeout' ? error : new Error('Timeout')
+      if (sessionManager && !sessionOwnership?.keepActive) {
+        await sessionManager.abandonSession(resolvedSession.id)
+      }
       onStreamError?.(timeoutError)
       throw timeoutError
+    }
+    if (sessionManager && !sessionOwnership?.keepActive && isPromptTransportFailure(error)) {
+      await sessionManager.abandonSession(resolvedSession.id)
     }
     onStreamError?.(error)
     throw error
@@ -360,7 +420,7 @@ export async function runOpenCodeSessionPrompt({
     sessionErrored: false,
   }
   try {
-    messages = await adapter.getSessionMessages(resolvedSession.id)
+    messages = await adapter.getSessionMessages(resolvedSession.id, signal)
     const latestAssistant = analyzeAssistantMessages(messages)
     latestAssistantResponse = latestAssistant.responseText
     responseMeta = latestAssistant.responseMeta

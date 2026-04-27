@@ -55,11 +55,12 @@ export class SessionManager {
     step?: string,
     projectPath?: string,
     createOptions?: OpenCodeSessionCreateOptions,
+    signal?: AbortSignal,
   ): Promise<Session> {
     const context = getTicketContext(ticketId)
     if (!context) throw new Error(`Ticket not found: ${ticketId}`)
 
-    const session = await this.adapter.createSession(projectPath ?? context.projectRoot, undefined, createOptions)
+    const session = await this.adapter.createSession(projectPath ?? context.projectRoot, signal, createOptions)
 
     context.projectDb.insert(opencodeSessions)
       .values({
@@ -84,6 +85,7 @@ export class SessionManager {
     ownership: SessionOwnership,
     projectPath?: string,
     createOptions?: OpenCodeSessionCreateOptions,
+    signal?: AbortSignal,
   ): Promise<Session> {
     return this.createSessionForPhase(
       ticketId,
@@ -95,6 +97,7 @@ export class SessionManager {
       ownership.step ?? undefined,
       projectPath,
       createOptions,
+      signal,
     )
   }
 
@@ -170,7 +173,12 @@ export class SessionManager {
       .get()
   }
 
-  async validateAndReconnect(ticketId: string, phase: string, ownership?: SessionOwnership): Promise<Session | null> {
+  async validateAndReconnect(
+    ticketId: string,
+    phase: string,
+    ownership?: SessionOwnership,
+    signal?: AbortSignal,
+  ): Promise<Session | null> {
     const ticket = getTicketByRef(ticketId)
     if (!ticket || ticket.status !== phase) {
       return null
@@ -183,8 +191,9 @@ export class SessionManager {
 
     let sessions: Session[]
     try {
-      sessions = await this.adapter.listSessions()
-    } catch {
+      sessions = await this.adapter.listSessions(signal)
+    } catch (error) {
+      if (signal?.aborted) throw error
       // Transient failure listing sessions — return null so the caller
       // creates a fresh session, but do NOT abandon the DB record.
       return null

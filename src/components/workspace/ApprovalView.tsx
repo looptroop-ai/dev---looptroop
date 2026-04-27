@@ -132,7 +132,7 @@ function buildBeadForSave(bead: ParsedBead): Record<string, unknown> {
 
 function BeadsApprovalPane({ ticket }: { ticket: Ticket }) {
   const queryClient = useQueryClient()
-  const { mutate: saveUiState } = useSaveTicketUIState()
+  const { mutateAsync: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_beads'
   const { data: persistedUiState } = useTicketUIState<BeadsApprovalUiState>(ticket.id, uiStateScope, true)
   const councilMemberNames = useMemo(

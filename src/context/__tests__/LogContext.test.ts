@@ -1,7 +1,7 @@
 import { createElement, useEffect } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatLogLine, mergeEntry, type LogEntry } from '@/context/logUtils'
+import { formatLogLine, mergeEntry, SERVER_LOG_REFRESH_EVENT, type LogEntry } from '@/context/logUtils'
 import { LogProvider } from '@/context/LogContext'
 import { useLogs } from '@/context/useLogContext'
 import { createJsonResponse } from '@/test/renderHelpers'
@@ -105,6 +105,57 @@ describe('LogProvider', () => {
       vi.clearAllTimers()
       vi.useRealTimers()
     }
+  })
+
+  it('remerges server logs when a stream recovery refresh event arrives', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => createJsonResponse([{
+        type: 'info',
+        phase: 'CODING',
+        status: 'CODING',
+        source: 'system',
+        content: 'Initial log.',
+        entryId: 'log:initial',
+        timestamp: '2026-03-13T10:00:01.000Z',
+      }]))
+      .mockImplementationOnce(() => createJsonResponse([{
+        type: 'info',
+        phase: 'CODING',
+        status: 'CODING',
+        source: 'system',
+        content: 'Initial log.',
+        entryId: 'log:initial',
+        timestamp: '2026-03-13T10:00:01.000Z',
+      }, {
+        type: 'info',
+        phase: 'CODING',
+        status: 'CODING',
+        source: 'system',
+        content: 'Recovered log.',
+        entryId: 'log:recovered',
+        timestamp: '2026-03-13T10:00:02.000Z',
+      }]))
+
+    render(createElement(
+      LogProvider,
+      {
+        ticketId: '1:T-99',
+        currentStatus: 'CODING',
+        children: createElement(LogHarness),
+      },
+    ))
+
+    await flushMicrotasks()
+    expect(screen.getByTestId('log-count')).toHaveTextContent('1')
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(SERVER_LOG_REFRESH_EVENT, { detail: { ticketId: '1:T-99' } }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('log-count')).toHaveTextContent('2')
   })
 })
 

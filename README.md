@@ -19,6 +19,7 @@ LoopTroop is built around four constraints:
 | Weak single-shot planning | A single draft misses tradeoffs and edge cases | Multi-model council: draft, vote, refine |
 | Infinite repair loops | The same broken attempt keeps retrying in polluted context | Bounded Ralph-style retry with context wipe notes |
 | Hidden runtime state | Work becomes hard to inspect, recover, or review | Durable artifacts in SQLite, JSONL logs, and `.ticket/**` |
+| Fragile long-running work | Browser, backend, OpenCode, or model interruptions strand the ticket | Safe resume from durable phase state, or explicit `BLOCKED_ERROR` when recovery is unsafe |
 
 See [Core Philosophy](docs/core-philosophy.md), [Context Isolation](docs/context-isolation.md), and [Execution Loop](docs/execution-loop.md).
 

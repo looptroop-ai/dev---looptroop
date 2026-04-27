@@ -45,6 +45,7 @@ export interface LogContextValue {
 
 export const LOG_STORAGE_PREFIX = 'logs-v2-'
 export const LEGACY_LOG_STORAGE_PREFIX = 'logs-'
+export const SERVER_LOG_REFRESH_EVENT = 'looptroop:server-log-refresh'
 
 const LOG_TYPE_TAGS: Record<string, string> = {
   state_change: '[SYS]',

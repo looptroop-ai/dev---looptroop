@@ -21,13 +21,16 @@ import { createFixtureRepoManager } from '../../test/fixtureRepo'
 
 class TestOpenCodeAdapter implements OpenCodeAdapter {
   public sessions: Session[] = []
+  public createSignals: Array<AbortSignal | undefined> = []
+  public listSignals: Array<AbortSignal | undefined> = []
   private sessionCounter = 0
 
   async createSession(
     projectPath: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
     _options?: OpenCodeSessionCreateOptions,
   ): Promise<Session> {
+    this.createSignals.push(signal)
     const session: Session = {
       id: `session-${++this.sessionCounter}`,
       projectPath,
@@ -46,7 +49,8 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     return 'assistant response'
   }
 
-  async listSessions(): Promise<Session[]> {
+  async listSessions(signal?: AbortSignal): Promise<Session[]> {
+    this.listSignals.push(signal)
     return this.sessions
   }
 
@@ -144,5 +148,41 @@ describe('SessionManager', () => {
       memberId: 'model-a',
       step: 'prd_draft',
     })).resolves.toBeNull()
+  })
+
+  it('passes caller signals through create and reconnect operations', async () => {
+    const repoDir = repoManager.createRepo()
+    const project = attachProject({
+      folderPath: repoDir,
+      name: 'LoopTroop',
+      shortname: 'LOOP',
+    })
+    const ticket = createTicket({
+      projectId: project.id,
+      title: 'Reconnect cancellation',
+      description: 'Ensure SessionManager forwards caller cancellation.',
+    })
+    patchTicket(ticket.id, { status: 'CODING' })
+
+    const adapter = new TestOpenCodeAdapter()
+    const sessionManager = new SessionManager(adapter)
+    const controller = new AbortController()
+
+    await sessionManager.createSessionForPhase(
+      ticket.id,
+      'CODING',
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      repoDir,
+      undefined,
+      controller.signal,
+    )
+    await sessionManager.validateAndReconnect(ticket.id, 'CODING', undefined, controller.signal)
+
+    expect(adapter.createSignals).toEqual([controller.signal])
+    expect(adapter.listSignals).toEqual([controller.signal])
   })
 })

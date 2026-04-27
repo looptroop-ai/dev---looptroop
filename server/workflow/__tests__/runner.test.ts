@@ -52,6 +52,64 @@ describe('attachWorkflowRunner', () => {
     isMockOpenCodeModeMock.mockReset()
   })
 
+  it('starts work for a restored active snapshot immediately after attachment', async () => {
+    isMockOpenCodeModeMock.mockReturnValue(false)
+    handleCodingMock.mockImplementation(async (_ticketId, _context, sendEvent) => {
+      sendEvent({ type: 'ALL_BEADS_DONE' })
+    })
+    handleFinalTestMock.mockResolvedValue(undefined)
+
+    const actor = createActor(ticketMachine, {
+      snapshot: {
+        status: 'active',
+        value: 'CODING',
+        historyValue: {},
+        context: {
+          ticketId: TEST.ticketId,
+          projectId: TEST.projectId,
+          externalId: TEST.externalId,
+          title: 'Runner restored coding test',
+          status: 'CODING',
+          lockedMainImplementer: TEST.implementer,
+          lockedMainImplementerVariant: null,
+          lockedCouncilMembers: [...TEST.councilMembers],
+          lockedCouncilMemberVariants: null,
+          lockedInterviewQuestions: null,
+          lockedCoverageFollowUpBudgetPercent: null,
+          lockedMaxCoveragePasses: null,
+          lockedMaxPrdCoveragePasses: null,
+          lockedMaxBeadsCoveragePasses: null,
+          previousStatus: 'PREPARING_EXECUTION_ENV',
+          error: null,
+          errorCodes: [],
+          beadProgress: { total: 2, completed: 0, current: 'bead-1' },
+          iterationCount: 0,
+          maxIterations: 5,
+          councilResults: null,
+          createdAt: TEST.timestamp,
+          updatedAt: TEST.timestamp,
+        },
+        children: {},
+      } as unknown as never,
+      input: {
+        ticketId: TEST.ticketId,
+        projectId: TEST.projectId,
+        externalId: TEST.externalId,
+        title: 'Runner restored coding test',
+        maxIterations: 5,
+        lockedMainImplementer: TEST.implementer,
+        lockedCouncilMembers: [...TEST.councilMembers],
+      },
+    })
+
+    actor.start()
+    attachWorkflowRunner(TEST.ticketId, actor, (event) => actor.send(event))
+
+    await vi.waitFor(() => {
+      expect(handleCodingMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('continues CODING after a bead-complete self-transition', async () => {
     isMockOpenCodeModeMock.mockReturnValue(false)
 

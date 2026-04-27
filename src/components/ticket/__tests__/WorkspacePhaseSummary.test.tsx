@@ -53,7 +53,7 @@ describe('WorkspacePhaseSummary', () => {
       <WorkspacePhaseSummary phase="DRAFTING_PRD" ticket={ticket} />,
     )
 
-    expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+    expect(screen.getByText(/Models produce competing PRD drafts\./)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /show detailed explanation for drafting specs/i }))
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -70,13 +70,13 @@ describe('WorkspacePhaseSummary', () => {
     )
 
     const toggle = screen.getByRole('button', { name: 'Drafting Specs' })
-    expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+    expect(screen.getByText(/Models produce competing PRD drafts\./)).toBeInTheDocument()
 
     fireEvent.click(toggle)
-    expect(screen.queryByText('Models produce competing PRD drafts.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Models produce competing PRD drafts\./)).not.toBeInTheDocument()
 
     fireEvent.click(toggle)
-    expect(screen.getByText('Models produce competing PRD drafts.')).toBeInTheDocument()
+    expect(screen.getByText(/Models produce competing PRD drafts\./)).toBeInTheDocument()
   })
 
   it('uses the error reason when rendering the blocked-error label', () => {
@@ -91,7 +91,7 @@ describe('WorkspacePhaseSummary', () => {
     )
 
     expect(screen.getByText(/Error \(The runner crashed while executing bead B-12\.\)/)).toBeInTheDocument()
-    expect(screen.getByText('A blocking error requires retry or cancel.')).toBeInTheDocument()
+    expect(screen.getByText(/A blocking error requires retry or cancel\./)).toBeInTheDocument()
   })
 
   it('shows the next live PRD coverage version in the main title when revision work starts', async () => {

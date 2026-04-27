@@ -20,6 +20,7 @@ If you are new to LoopTroop, use this order:
 - A worktree-based execution system that keeps the attached project checkout out of the blast radius.
 - A durable runtime built around SQLite, `.ticket/**` artifacts, execution logs, and resumable ownership-aware sessions.
 - A human-in-the-loop system with approval gates before specs, blueprint, workspace setup, and final PR completion.
+- A safe-resume workflow that returns users to durable ticket state after browser, frontend, backend, OpenCode, or model interruptions, or blocks explicitly when a safe resume point cannot be proven.
 
 ## Documentation Map
 

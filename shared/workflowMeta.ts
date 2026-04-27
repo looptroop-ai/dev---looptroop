@@ -942,7 +942,41 @@ const VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS = [
   },
 ] as const satisfies readonly WorkflowContextSection[]
 
-export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
+function getSafeResumeDescription(phase: Pick<WorkflowPhaseMeta, 'id' | 'kanbanPhase'>): string {
+  if (phase.id === 'DRAFT') {
+    return 'No automation is running; browser or server restarts reload the saved ticket fields.'
+  }
+  if (phase.id === 'CODING') {
+    return 'After backend or OpenCode restart, LoopTroop resets any interrupted in-progress bead to its bead start commit, preserves retry notes, and continues from the next runnable bead; if no reset anchor exists, it blocks instead of reusing dirty work.'
+  }
+  if (phase.id === 'BLOCKED_ERROR') {
+    return 'Retry is allowed only when the failed previous status is known from durable state; otherwise the ticket stays blocked for manual review.'
+  }
+  if (phase.id === 'COMPLETED') {
+    return 'This terminal result is read-only and reloads from stored artifacts after any restart.'
+  }
+  if (phase.id === 'CANCELED') {
+    return 'This terminal cancellation is read-only; partial artifacts remain available after restart, but automation does not resume.'
+  }
+  if (phase.kanbanPhase === 'needs_input') {
+    return 'No background model work should be active; browser/frontend restarts reload the saved artifact or UI draft, and backend restarts keep waiting for the same user action.'
+  }
+  return 'Backend or OpenCode restarts rehydrate the ticket actor and rerun or reconnect this phase from durable artifacts; unrecoverable state moves to Blocked Error instead of falling back to Draft.'
+}
+
+function withSafeResumeMetadata(phase: WorkflowPhaseMeta): WorkflowPhaseMeta {
+  const safeResume = getSafeResumeDescription(phase)
+  return {
+    ...phase,
+    description: `${phase.description} Safe resume: ${safeResume}`,
+    details: {
+      ...phase.details,
+      notes: [...(phase.details.notes ?? []), `Safe resume: ${safeResume}`],
+    },
+  }
+}
+
+const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'DRAFT',
     label: 'Backlog',
@@ -1312,6 +1346,8 @@ export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     contextSummary: ['bead_data', 'error_context'],
   },
 ]
+
+export const WORKFLOW_PHASES: WorkflowPhaseMeta[] = BASE_WORKFLOW_PHASES.map(withSafeResumeMetadata)
 
 export const WORKFLOW_PHASE_IDS = WORKFLOW_PHASES.map((phase) => phase.id)
 

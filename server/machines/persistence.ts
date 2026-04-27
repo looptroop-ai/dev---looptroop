@@ -1,6 +1,6 @@
 import { createActor } from 'xstate'
 import { ticketMachine } from './ticketMachine'
-import { TERMINAL_STATES } from './types'
+import { STATUS_TO_PHASE, TERMINAL_STATES, type TicketContext } from './types'
 import { PROFILE_DEFAULTS } from '../db/defaults'
 import { attachWorkflowRunner } from '../workflow/runner'
 import { broadcaster } from '../sse/broadcaster'
@@ -8,6 +8,7 @@ import { appendLogEvent } from '../log/executionLog'
 import {
   ensureActivePhaseAttempt,
   findTicketRefByLocalId,
+  getTicketByRef,
   getTicketContext,
   listNonTerminalTickets,
   patchTicket,
@@ -16,6 +17,226 @@ import {
 } from '../storage/tickets'
 
 const activeActors = new Map<string, ReturnType<typeof createActor<typeof ticketMachine>>>()
+
+type TicketActorInput = {
+  ticketId: string
+  projectId: number
+  externalId: string
+  title: string
+  maxIterations?: number
+  lockedMainImplementer?: string | null
+  lockedMainImplementerVariant?: string | null
+  lockedCouncilMembers?: string[] | null
+  lockedCouncilMemberVariants?: Record<string, string> | null
+  lockedInterviewQuestions?: number | null
+  lockedCoverageFollowUpBudgetPercent?: number | null
+  lockedMaxCoveragePasses?: number | null
+  lockedMaxPrdCoveragePasses?: number | null
+  lockedMaxBeadsCoveragePasses?: number | null
+}
+
+function isKnownWorkflowState(status: string): boolean {
+  return Object.prototype.hasOwnProperty.call(STATUS_TO_PHASE, status)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getSnapshotStateValue(snapshot: unknown): string | null {
+  if (!isRecord(snapshot)) return null
+  return typeof snapshot.value === 'string' ? snapshot.value : null
+}
+
+function getSnapshotContext(snapshot: unknown): Record<string, unknown> | null {
+  return isRecord(snapshot) && isRecord(snapshot.context) ? snapshot.context : null
+}
+
+function buildMachineContext(
+  input: TicketActorInput,
+  options: {
+    status: string
+    previousStatus?: string | null
+    error?: string | null
+    errorCodes?: string[]
+    createdAt?: string | null
+    updatedAt?: string | null
+  },
+): TicketContext {
+  return {
+    ticketId: input.ticketId,
+    projectId: input.projectId,
+    externalId: input.externalId,
+    title: input.title,
+    status: options.status,
+    lockedMainImplementer: input.lockedMainImplementer ?? null,
+    lockedMainImplementerVariant: input.lockedMainImplementerVariant ?? null,
+    lockedCouncilMembers: input.lockedCouncilMembers ?? null,
+    lockedCouncilMemberVariants: input.lockedCouncilMemberVariants ?? null,
+    lockedInterviewQuestions: input.lockedInterviewQuestions ?? null,
+    lockedCoverageFollowUpBudgetPercent: input.lockedCoverageFollowUpBudgetPercent ?? null,
+    lockedMaxCoveragePasses: input.lockedMaxCoveragePasses ?? null,
+    lockedMaxPrdCoveragePasses: input.lockedMaxPrdCoveragePasses ?? null,
+    lockedMaxBeadsCoveragePasses: input.lockedMaxBeadsCoveragePasses ?? null,
+    previousStatus: options.previousStatus ?? null,
+    error: options.error ?? null,
+    errorCodes: options.errorCodes ?? [],
+    beadProgress: { total: 0, completed: 0, current: null },
+    iterationCount: 0,
+    maxIterations: input.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
+    councilResults: null,
+    createdAt: options.createdAt ?? new Date().toISOString(),
+    updatedAt: options.updatedAt ?? new Date().toISOString(),
+  }
+}
+
+function buildPersistedSnapshot(
+  input: TicketActorInput,
+  options: {
+    status: string
+    previousStatus?: string | null
+    error?: string | null
+    errorCodes?: string[]
+    createdAt?: string | null
+    updatedAt?: string | null
+  },
+) {
+  return {
+    status: TERMINAL_STATES.includes(options.status as (typeof TERMINAL_STATES)[number]) ? 'done' : 'active',
+    value: options.status,
+    historyValue: {},
+    context: buildMachineContext(input, options),
+    children: {},
+  }
+}
+
+function reconcileSnapshotForTicket(
+  ticketRef: string,
+  rawSnapshot: unknown,
+  input: TicketActorInput,
+  dbStatus: string,
+): unknown | null {
+  if (!isKnownWorkflowState(dbStatus)) return null
+
+  const snapshotStatus = getSnapshotStateValue(rawSnapshot)
+  if (!snapshotStatus || !isKnownWorkflowState(snapshotStatus)) return null
+
+  const context = getSnapshotContext(rawSnapshot)
+  if (!context) return null
+
+  if (snapshotStatus !== dbStatus) {
+    context.previousStatus = snapshotStatus
+    context.status = dbStatus
+    const mutableSnapshot = rawSnapshot as Record<string, unknown>
+    mutableSnapshot.value = dbStatus
+  }
+
+  context.ticketId = input.ticketId
+  context.projectId = input.projectId
+  context.externalId = input.externalId
+  context.title = input.title
+  context.lockedMainImplementer = input.lockedMainImplementer ?? null
+  context.lockedMainImplementerVariant = input.lockedMainImplementerVariant ?? null
+  context.lockedCouncilMembers = input.lockedCouncilMembers ?? null
+  context.lockedCouncilMemberVariants = input.lockedCouncilMemberVariants ?? null
+  context.lockedInterviewQuestions = input.lockedInterviewQuestions ?? null
+  context.lockedCoverageFollowUpBudgetPercent = input.lockedCoverageFollowUpBudgetPercent ?? null
+  context.lockedMaxCoveragePasses = input.lockedMaxCoveragePasses ?? null
+  context.lockedMaxPrdCoveragePasses = input.lockedMaxPrdCoveragePasses ?? null
+  context.lockedMaxBeadsCoveragePasses = input.lockedMaxBeadsCoveragePasses ?? null
+
+  if (
+    dbStatus === 'BLOCKED_ERROR'
+    && (typeof context.previousStatus !== 'string' || !isKnownWorkflowState(context.previousStatus))
+  ) {
+    const durablePreviousStatus = getTicketByRef(ticketRef)?.previousStatus
+    if (durablePreviousStatus) {
+      context.previousStatus = durablePreviousStatus
+    }
+  }
+
+  context.status = dbStatus
+  if (typeof context.maxIterations !== 'number') {
+    context.maxIterations = input.maxIterations ?? PROFILE_DEFAULTS.maxIterations
+  }
+  if (!isRecord(context.beadProgress)) {
+    context.beadProgress = { total: 0, completed: 0, current: null }
+  }
+  if (!Array.isArray(context.errorCodes)) {
+    context.errorCodes = []
+  }
+
+  return rawSnapshot
+}
+
+function recoverSnapshotForTicket(
+  ticketRef: string,
+  input: TicketActorInput,
+  dbStatus: string,
+  errorMessage?: string | null,
+): unknown | null {
+  if (!isKnownWorkflowState(dbStatus)) return null
+  const ticket = getTicketByRef(ticketRef)
+  const previousStatus = dbStatus === 'BLOCKED_ERROR'
+    ? ticket?.previousStatus ?? null
+    : null
+
+  const snapshot = buildPersistedSnapshot(input, {
+    status: dbStatus,
+    previousStatus,
+    error: dbStatus === 'BLOCKED_ERROR' ? errorMessage ?? ticket?.errorMessage ?? null : null,
+    createdAt: ticket?.createdAt,
+    updatedAt: ticket?.updatedAt,
+  })
+
+  patchTicket(ticketRef, {
+    status: dbStatus,
+    xstateSnapshot: JSON.stringify(snapshot),
+    errorMessage: dbStatus === 'BLOCKED_ERROR' ? errorMessage ?? ticket?.errorMessage ?? null : null,
+  })
+
+  return snapshot
+}
+
+function blockTicketForSnapshotRecovery(
+  ticketRef: string,
+  input: TicketActorInput,
+  failedStatus: string,
+  cause: unknown,
+): unknown {
+  const blockedFromStatus = isKnownWorkflowState(failedStatus) && failedStatus !== 'BLOCKED_ERROR'
+    ? failedStatus
+    : getTicketByRef(ticketRef)?.previousStatus ?? 'DRAFT'
+  const message = `Ticket workflow snapshot could not be restored safely. Retry will resume from ${blockedFromStatus}. Details: ${cause instanceof Error ? cause.message : String(cause)}`
+  const snapshot = buildPersistedSnapshot(input, {
+    status: 'BLOCKED_ERROR',
+    previousStatus: blockedFromStatus,
+    error: message,
+    errorCodes: ['SNAPSHOT_RECOVERY_FAILED'],
+  })
+
+  const existing = getTicketByRef(ticketRef)
+  patchTicket(ticketRef, {
+    status: 'BLOCKED_ERROR',
+    xstateSnapshot: JSON.stringify(snapshot),
+    errorMessage: message,
+  })
+  if (existing?.status !== 'BLOCKED_ERROR') {
+    recordTicketErrorOccurrence(ticketRef, {
+      blockedFromStatus,
+      errorMessage: message,
+      errorCodes: ['SNAPSHOT_RECOVERY_FAILED'],
+    })
+  }
+  emitAppErrorLog(ticketRef, 'BLOCKED_ERROR', `[SYS] ${message}`, {
+    message,
+    blockedFrom: blockedFromStatus,
+    blockedTo: 'BLOCKED_ERROR',
+    errorCodes: ['SNAPSHOT_RECOVERY_FAILED'],
+  })
+
+  return snapshot
+}
 
 function resolveTicketRef(ticketRef: string | number): string {
   if (typeof ticketRef === 'string' && ticketRef.includes(':')) return ticketRef
@@ -90,6 +311,7 @@ export function ensureActorForTicket(ticketRef: string | number) {
     projectId: ticket.projectId,
     externalId: ticket.externalId,
     title: ticket.localTicket.title,
+    maxIterations: ticket.localProject.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
     lockedMainImplementer: ticket.localTicket.lockedMainImplementer ?? null,
     lockedMainImplementerVariant: ticket.localTicket.lockedMainImplementerVariant ?? null,
     lockedCouncilMembers: ticket.localTicket.lockedCouncilMembers ? JSON.parse(ticket.localTicket.lockedCouncilMembers) as string[] : null,
@@ -103,11 +325,37 @@ export function ensureActorForTicket(ticketRef: string | number) {
 
   if (ticket.localTicket.xstateSnapshot) {
     try {
-      const snapshot = JSON.parse(ticket.localTicket.xstateSnapshot)
-      return hydrateTicketActor(resolvedTicketRef, snapshot, input)
-    } catch {
-      // Fall back to fresh actor creation if snapshot is invalid.
+      const rawSnapshot = JSON.parse(ticket.localTicket.xstateSnapshot)
+      const snapshot = reconcileSnapshotForTicket(resolvedTicketRef, rawSnapshot, input, ticket.localTicket.status)
+      if (snapshot) {
+        return hydrateTicketActor(resolvedTicketRef, snapshot, input)
+      }
+      if (ticket.localTicket.status !== 'DRAFT') {
+        return hydrateTicketActor(
+          resolvedTicketRef,
+          blockTicketForSnapshotRecovery(resolvedTicketRef, input, ticket.localTicket.status, new Error('Invalid workflow snapshot shape')),
+          input,
+        )
+      }
+    } catch (err) {
+      if (ticket.localTicket.status !== 'DRAFT') {
+        return hydrateTicketActor(
+          resolvedTicketRef,
+          blockTicketForSnapshotRecovery(resolvedTicketRef, input, ticket.localTicket.status, err),
+          input,
+        )
+      }
     }
+  }
+
+  if (ticket.localTicket.status !== 'DRAFT') {
+    const snapshot = recoverSnapshotForTicket(
+      resolvedTicketRef,
+      input,
+      ticket.localTicket.status,
+      ticket.localTicket.errorMessage,
+    )
+    if (snapshot) return hydrateTicketActor(resolvedTicketRef, snapshot, input)
   }
 
   return createTicketActor(resolvedTicketRef, input)
@@ -192,22 +440,7 @@ function persistSnapshot(
 
 export function createTicketActor(
   ticketRef: string | number,
-  input: {
-    ticketId: string
-    projectId: number
-    externalId: string
-    title: string
-    maxIterations?: number
-    lockedMainImplementer?: string | null
-    lockedMainImplementerVariant?: string | null
-    lockedCouncilMembers?: string[] | null
-    lockedCouncilMemberVariants?: Record<string, string> | null
-    lockedInterviewQuestions?: number | null
-    lockedCoverageFollowUpBudgetPercent?: number | null
-    lockedMaxCoveragePasses?: number | null
-    lockedMaxPrdCoveragePasses?: number | null
-    lockedMaxBeadsCoveragePasses?: number | null
-  },
+  input: TicketActorInput,
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
   const actor = createActor(ticketMachine, {
@@ -240,22 +473,7 @@ export function createTicketActor(
 function hydrateTicketActor(
   ticketRef: string | number,
   snapshot: unknown,
-  input: {
-    ticketId: string
-    projectId: number
-    externalId: string
-    title: string
-    maxIterations?: number
-    lockedMainImplementer?: string | null
-    lockedMainImplementerVariant?: string | null
-    lockedCouncilMembers?: string[] | null
-    lockedCouncilMemberVariants?: Record<string, string> | null
-    lockedInterviewQuestions?: number | null
-    lockedCoverageFollowUpBudgetPercent?: number | null
-    lockedMaxCoveragePasses?: number | null
-    lockedMaxPrdCoveragePasses?: number | null
-    lockedMaxBeadsCoveragePasses?: number | null
-  },
+  input: TicketActorInput,
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
   const actor = createActor(ticketMachine, {
@@ -291,26 +509,49 @@ export function hydrateAllTickets() {
 
   let hydrated = 0
   for (const ticket of nonTerminalTickets) {
-    if (!ticket.xstateSnapshot) continue
+    const input: TicketActorInput = {
+      ticketId: ticket.id,
+      projectId: ticket.projectId,
+      externalId: ticket.externalId,
+      title: ticket.title,
+      maxIterations: ticket.runtime.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
+      lockedMainImplementer: ticket.lockedMainImplementer ?? null,
+      lockedMainImplementerVariant: ticket.lockedMainImplementerVariant ?? null,
+      lockedCouncilMembers: ticket.lockedCouncilMembers.length > 0 ? ticket.lockedCouncilMembers : null,
+      lockedCouncilMemberVariants: ticket.lockedCouncilMemberVariants ?? null,
+      lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
+      lockedCoverageFollowUpBudgetPercent: ticket.lockedCoverageFollowUpBudgetPercent ?? null,
+      lockedMaxCoveragePasses: ticket.lockedMaxCoveragePasses ?? null,
+      lockedMaxPrdCoveragePasses: ticket.lockedMaxPrdCoveragePasses ?? null,
+      lockedMaxBeadsCoveragePasses: ticket.lockedMaxBeadsCoveragePasses ?? null,
+    }
+
     try {
-      const snapshot = JSON.parse(ticket.xstateSnapshot)
-      hydrateTicketActor(ticket.id, snapshot, {
-        ticketId: ticket.id,
-        projectId: ticket.projectId,
-        externalId: ticket.externalId,
-        title: ticket.title,
-        lockedMainImplementer: ticket.lockedMainImplementer ?? null,
-        lockedMainImplementerVariant: ticket.lockedMainImplementerVariant ?? null,
-        lockedCouncilMembers: ticket.lockedCouncilMembers.length > 0 ? ticket.lockedCouncilMembers : null,
-        lockedCouncilMemberVariants: ticket.lockedCouncilMemberVariants ?? null,
-        lockedInterviewQuestions: ticket.lockedInterviewQuestions ?? null,
-        lockedCoverageFollowUpBudgetPercent: ticket.lockedCoverageFollowUpBudgetPercent ?? null,
-        lockedMaxCoveragePasses: ticket.lockedMaxCoveragePasses ?? null,
-        lockedMaxPrdCoveragePasses: ticket.lockedMaxPrdCoveragePasses ?? null,
-        lockedMaxBeadsCoveragePasses: ticket.lockedMaxBeadsCoveragePasses ?? null,
-      })
+      let snapshot: unknown | null = null
+      if (ticket.xstateSnapshot) {
+        const rawSnapshot = JSON.parse(ticket.xstateSnapshot)
+        snapshot = reconcileSnapshotForTicket(ticket.id, rawSnapshot, input, ticket.status)
+      } else if (ticket.status !== 'DRAFT') {
+        snapshot = recoverSnapshotForTicket(ticket.id, input, ticket.status, ticket.errorMessage)
+      }
+
+      if (!snapshot && ticket.status !== 'DRAFT') {
+        snapshot = blockTicketForSnapshotRecovery(ticket.id, input, ticket.status, new Error('Missing or invalid workflow snapshot'))
+      }
+
+      if (!snapshot) continue
+      hydrateTicketActor(ticket.id, snapshot, input)
       hydrated++
     } catch (err) {
+      try {
+        if (ticket.status !== 'DRAFT') {
+          hydrateTicketActor(ticket.id, blockTicketForSnapshotRecovery(ticket.id, input, ticket.status, err), input)
+          hydrated++
+          continue
+        }
+      } catch (blockErr) {
+        console.error(`[persistence] Failed to block ticket ${ticket.externalId} after snapshot recovery failure:`, blockErr)
+      }
       console.error(`[persistence] Failed to hydrate ticket ${ticket.externalId}:`, err)
     }
   }

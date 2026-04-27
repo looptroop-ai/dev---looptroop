@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
   getLatestPhaseArtifact,
+  getActivePhaseAttempt,
   getTicketContext as getStoredTicketContext,
   getTicketByRef,
   getTicketPaths,
@@ -1448,6 +1449,18 @@ function getRecoveredDraftPhase(pipeline: 'interview' | 'prd' | 'beads'): string
   return 'beads_draft'
 }
 
+function getPipelineDraftStatus(pipeline: 'interview' | 'prd' | 'beads'): string {
+  if (pipeline === 'interview') return 'COUNCIL_DELIBERATING'
+  if (pipeline === 'prd') return 'DRAFTING_PRD'
+  return 'DRAFTING_BEADS'
+}
+
+function getPipelineVoteStatus(pipeline: 'interview' | 'prd' | 'beads'): string {
+  if (pipeline === 'interview') return 'COUNCIL_VOTING_INTERVIEW'
+  if (pipeline === 'prd') return 'COUNCIL_VOTING_PRD'
+  return 'COUNCIL_VOTING_BEADS'
+}
+
 function recoverPersistedDrafts(
   drafts: unknown,
   memberOutcomes?: Record<string, MemberOutcome>,
@@ -1609,7 +1622,9 @@ export function tryRecoverPhaseIntermediate(
   if (phaseIntermediate.has(key)) return true
 
   try {
-    const artifact = getLatestPhaseArtifact(ticketId, `${pipeline}_drafts`)
+    const draftStatus = getPipelineDraftStatus(pipeline)
+    const draftAttempt = getActivePhaseAttempt(ticketId, draftStatus)
+    const artifact = getLatestPhaseArtifact(ticketId, `${pipeline}_drafts`, draftStatus, draftAttempt ?? undefined)
     if (!artifact) return false
 
     const result = JSON.parse(artifact.content) as {
@@ -1634,7 +1649,7 @@ export function tryRecoverPhaseIntermediate(
       baseTicketState = ticketState
     } else if (pipeline === 'prd') {
       const interviewPath = resolve(ticketDir, 'interview.yaml')
-      const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers')
+      const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers', draftStatus, draftAttempt ?? undefined)
       let interview: string | undefined
       let fullAnswers: string[] | undefined
       if (existsSync(interviewPath)) {
@@ -1687,7 +1702,7 @@ export function tryRecoverPhaseIntermediate(
       ticketState: baseTicketState,
     }
     if (pipeline === 'prd' && baseTicketState?.fullAnswers) {
-      const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers')
+      const fullAnswersArtifact = getLatestPhaseArtifact(ticketId, 'prd_full_answers', draftStatus, draftAttempt ?? undefined)
       if (fullAnswersArtifact) {
         try {
           const parsed = JSON.parse(fullAnswersArtifact.content) as {
@@ -1705,7 +1720,9 @@ export function tryRecoverPhaseIntermediate(
     }
 
     if (needsVotes) {
-      const voteArtifact = getLatestPhaseArtifact(ticketId, `${pipeline}_votes`)
+      const voteStatus = getPipelineVoteStatus(pipeline)
+      const voteAttempt = getActivePhaseAttempt(ticketId, voteStatus)
+      const voteArtifact = getLatestPhaseArtifact(ticketId, `${pipeline}_votes`, voteStatus, voteAttempt ?? undefined)
       if (!voteArtifact) return false
       const voteResult = JSON.parse(voteArtifact.content) as {
         winnerId: string

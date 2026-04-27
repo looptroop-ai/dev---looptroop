@@ -941,7 +941,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Rankings')).toBeInTheDocument()
     expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
     expect(screen.getByText('LoopTroop adjusted some vote scorecards.')).toBeInTheDocument()
-    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText(/2 interventions across 2 categories/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByText(/Voter Details/i).closest('button')!)
     expect(screen.getAllByText('Presentation Order')).toHaveLength(2)
@@ -2098,13 +2098,13 @@ describe('PhaseArtifactsPanel', () => {
 
     const noticeButton = screen.getByText('LoopTroop adjusted this diff.').closest('button')!
     expect(noticeButton).toBeInTheDocument()
-    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText(/2 interventions across 2 categories/)).toBeInTheDocument()
     expect(screen.getByText('Synthesized 1')).toBeInTheDocument()
     expect(screen.getByText('Dropped 1')).toBeInTheDocument()
 
     fireEvent.click(noticeButton)
 
-    expect(screen.getByText('2 interventions across 2 categories.')).toBeInTheDocument()
+    expect(screen.getByText(/2 interventions across 2 categories/)).toBeInTheDocument()
     expect(screen.getByText('Synthesized 1')).toBeInTheDocument()
     expect(screen.getByText('Dropped 1')).toBeInTheDocument()
     expect(screen.getByText(/Dropped no-op interview refinement modified at index 0/i)).toBeInTheDocument()

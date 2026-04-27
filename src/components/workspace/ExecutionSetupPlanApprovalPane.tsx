@@ -134,7 +134,7 @@ function ApprovedSetupPlanBanner({
 
 export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { ticket: Ticket; readOnly?: boolean }) {
   const queryClient = useQueryClient()
-  const { mutate: saveUiState } = useSaveTicketUIState()
+  const { mutateAsync: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_execution_setup'
   const { data: persistedUiState } = useTicketUIState<ExecutionSetupPlanApprovalUiState>(ticket.id, uiStateScope, true)
   const { artifacts } = useTicketArtifacts(ticket.id)

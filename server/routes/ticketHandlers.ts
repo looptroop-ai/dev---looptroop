@@ -84,7 +84,7 @@ import type { PrdDocument } from '../structuredOutput/types'
 import { isBeforeExecution, isStatusAtOrPast } from '@shared/workflowMeta'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { recoverFailedCodingBead } from '../workflow/phases/beadsPhase'
+import { recoverCodingBeadWithReset } from '../workflow/phases/beadsPhase'
 import { regenerateExecutionSetupPlanDraft } from '../workflow/phases/executionSetupPlanPhase'
 import { isExecutionBandStatus } from '../workflow/executionBand'
 import { normalizeExecutionSetupPlanOutput } from '../structuredOutput'
@@ -1608,6 +1608,9 @@ export function handleRetryTicket(c: Context) {
   if (ticket.status !== 'BLOCKED_ERROR') {
     return c.json({ error: 'Retry only works from BLOCKED_ERROR state' }, 409)
   }
+  if (!ticket.previousStatus) {
+    return c.json({ error: 'Retry is not available because the failed status could not be recovered' }, 409)
+  }
 
   if (isExecutionBandStatus(ticket.previousStatus)) {
     const executionConflict = findProjectExecutionBandConflict(ticket.projectId, ticket.id)
@@ -1617,9 +1620,23 @@ export function handleRetryTicket(c: Context) {
   }
 
   if (ticket.previousStatus === 'CODING') {
-    const recoveredBead = recoverFailedCodingBead(ticketId)
-    if (!recoveredBead) {
-      return c.json({ error: 'Retry is not available because no failed bead could be restored' }, 409)
+    const paths = getTicketPaths(ticketId)
+    if (!paths) {
+      return c.json({ error: 'Retry is not available because the ticket workspace could not be resolved' }, 409)
+    }
+    try {
+      const recoveredBead = recoverCodingBeadWithReset(ticketId, {
+        worktreePath: paths.worktreePath,
+        requireReset: true,
+      })
+      if (!recoveredBead) {
+        return c.json({ error: 'Retry is not available because no failed bead could be restored' }, 409)
+      }
+    } catch (err) {
+      return c.json({
+        error: 'Retry is not available because the failed bead could not be safely reset',
+        details: err instanceof Error ? err.message : String(err),
+      }, 409)
     }
   }
 

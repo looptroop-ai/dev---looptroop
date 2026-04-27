@@ -12,7 +12,7 @@ import { withCommandLoggingAsync, withCommandLoggingFieldsAsync } from '../../lo
 import { adapter } from './state'
 import { emitPhaseLog, emitAiMilestone, emitOpenCodeSessionLogs, emitOpenCodeStreamEvent, emitOpenCodePromptLog, createOpenCodeStreamState, resolveExecutionRuntimeSettings } from './helpers'
 import type { OpenCodeStreamState } from './types'
-import { readTicketBeads, writeTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
+import { readTicketBeads, recoverCodingBeadWithReset, writeTicketBeads, updateTicketProgressFromBeads } from './beadsPhase'
 
 function mergeBeadRetryMetadata(
   beads: Bead[],
@@ -60,7 +60,7 @@ export async function handleCoding(
   const paths = getTicketPaths(ticketId)
   if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
 
-  const beads = readTicketBeads(ticketId)
+  let beads = readTicketBeads(ticketId)
   if (beads.length === 0) {
     throw new Error('No beads available for execution')
   }
@@ -76,6 +76,29 @@ export async function handleCoding(
     return
   }
 
+  const codingModelId = context.lockedMainImplementer
+  if (!codingModelId) {
+    throw new Error('No locked main implementer is configured for coding')
+  }
+
+  const interruptedBead = recoverCodingBeadWithReset(ticketId, {
+    worktreePath: paths.worktreePath,
+    onlyInProgress: true,
+    requireReset: true,
+    preservePaths: [...EXECUTION_RUNTIME_PRESERVE_PATHS],
+  })
+  if (interruptedBead) {
+    emitPhaseLog(
+      ticketId,
+      context.externalId,
+      'CODING',
+      'info',
+      `Recovered interrupted bead ${interruptedBead.id} from its start snapshot and returned it to pending before resuming.`,
+      { source: 'system', modelId: codingModelId, beadId: interruptedBead.id },
+    )
+    beads = readTicketBeads(ticketId)
+  }
+
   const nextBead = getNextBead(beads)
   if (!nextBead) {
     throw new Error('No runnable bead found; unresolved dependencies remain')
@@ -87,11 +110,6 @@ export async function handleCoding(
     : bead)
   writeTicketBeads(ticketId, inProgressBeads)
   updateTicketProgressFromBeads(ticketId, inProgressBeads)
-
-  const codingModelId = context.lockedMainImplementer
-  if (!codingModelId) {
-    throw new Error('No locked main implementer is configured for coding')
-  }
 
   emitPhaseLog(ticketId, context.externalId, 'CODING', 'info', `Executing bead ${nextBead.id}: ${nextBead.title}`, { source: 'system', modelId: codingModelId, beadId: nextBead.id })
 

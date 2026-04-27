@@ -33,6 +33,8 @@ Any cancellable phase -> CANCELED
 WAITING_PR_REVIEW -> merge or close-unmerged -> CLEANING_ENV
 ```
 
+Browser, frontend, backend, OpenCode, and model interruptions do not create new workflow states. They are recovered through persisted ticket state, SSE replay/refetch, OpenCode ownership checks, and phase-specific retry rules. If the app cannot prove a safe resume point, it blocks the ticket instead of guessing.
+
 ## Detailed Flow Diagram
 
 ```mermaid
@@ -196,18 +198,22 @@ Two extra guards matter at the user-action layer:
 
 - `WAITING_BEADS_APPROVAL`, `WAITING_EXECUTION_SETUP_APPROVAL`, and execution-band retries check for project-level execution-band conflicts before they advance.
 - `BLOCKED_ERROR` retry from `CODING` first tries to restore the failed bead into a retryable state before it re-enters `CODING`.
+- `BLOCKED_ERROR` retry is rejected when no preserved `previousStatus` exists. The app no longer falls back to `DRAFT`, because that can hide an unsafe partial run.
+- `CODING` retry is rejected when the failed bead cannot be reset to a recorded bead-start commit.
 
 ## Artifact Checkpoints
 
 | Point in the flow | Main durable artifacts |
 | --- | --- |
 | Start of planning | ticket row, locked model configuration, ticket worktree |
+| Workflow state | durable ticket status plus serialized XState snapshot |
 | Relevant file scan | `.ticket/relevant-files.yaml` plus scan companion artifacts |
 | Interview compile and answers | `.ticket/interview.yaml`, interview session snapshot, answer state |
 | PRD drafting and approval | `.ticket/prd.yaml`, full answers artifact, PRD coverage history |
 | Beads coverage and approval | `.ticket/beads/<flow>/.beads/issues.jsonl`, beads coverage history, approval receipt |
 | Setup-plan approval | `execution_setup_plan` artifact and approval receipt |
 | Execution runtime | `.ticket/runtime/execution-log.jsonl`, `.ticket/runtime/state.yaml`, execution setup profile, bead notes and diffs |
+| Frontend resume | ticket UI-state artifacts for approval drafts and interview drafts, plus SSE last-event id in browser storage |
 | Final delivery | final test report, integration report, pull request report, merge report, cleanup report |
 
 ## Status Groups
@@ -316,6 +322,22 @@ This setting caps how many coverage and expansion revisions LoopTroop may run wh
 - coding failures retry `CODING`, after the failed bead is restored into a retryable state if possible
 
 This matters because LoopTroop does not treat recovery as “restart the whole ticket.” Recovery is phase-scoped.
+
+The retry route adds two safety checks before it dispatches `RETRY`:
+
+- if `previousStatus` is absent, retry returns a conflict response and the user must cancel or inspect the stored failure
+- if the preserved status is `CODING`, LoopTroop resets the failed or interrupted bead to its `beadStartCommit`; if that reset cannot be performed, retry returns a conflict response instead of resuming against a dirty worktree
+
+## Safe Resume By Interruption Type
+
+| Interruption | Expected resume behavior |
+| --- | --- |
+| Browser closes, reloads, or loses the SSE connection | The next workspace load uses REST state as truth. SSE reconnect sends the last event id when available, then refetches the ticket, artifacts, interview state, bead state, and server logs to cover replay gaps. |
+| Frontend crashes or restarts | Draft interview answers and approval editor state are saved to ticket UI-state artifacts. Page unload uses a best-effort keepalive write for the latest unsaved snapshot. |
+| Backend process restarts | Startup validates or reconstructs non-terminal actor snapshots, starts actors from their stored state, and immediately processes the restored snapshot so active work continues. |
+| OpenCode server restarts or loses a session | Owned sessions are validated against the remote OpenCode session list. Missing remote sessions are abandoned and a fresh owned session is created when the phase can safely continue. |
+| Model prompt fails, times out, or returns invalid output | Planning phases use structured retries and attempt-scoped artifacts. Execution phases use bead-scoped retry, context wipe notes, and worktree reset before trying again. |
+| Resume point cannot be proven | The ticket enters or remains in `BLOCKED_ERROR` with an explicit retry/cancel choice. |
 
 ## PR Review Outcomes
 

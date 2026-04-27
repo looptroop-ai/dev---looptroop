@@ -3,6 +3,7 @@ import { queryClient } from '@/lib/queryClient'
 import { getApiUrl, waitForDevBackend } from '@/lib/devApi'
 import { SSE_RECONNECT_DELAY_MS } from '@/lib/constants'
 import { getBeadDiffQueryKey } from '@/lib/beadDiffQuery'
+import { SERVER_LOG_REFRESH_EVENT } from '@/context/logUtils'
 import { patchTicketStatusInCache } from './ticketStatusCache'
 import {
   getTicketArtifactsQueryKey,
@@ -18,6 +19,31 @@ interface SSEOptions {
 
 export type SSEConnectionState = 'connecting' | 'connected' | 'reconnecting'
 
+const LAST_EVENT_ID_STORAGE_PREFIX = 'looptroop-sse-last-event-id:'
+
+function getLastEventIdStorageKey(ticketId: string) {
+  return `${LAST_EVENT_ID_STORAGE_PREFIX}${ticketId}`
+}
+
+function readPersistedLastEventId(ticketId: string): string {
+  if (typeof window === 'undefined') return '0'
+  try {
+    const stored = localStorage.getItem(getLastEventIdStorageKey(ticketId))
+    return stored && stored !== '0' ? stored : '0'
+  } catch {
+    return '0'
+  }
+}
+
+function persistLastEventId(ticketId: string, lastEventId: string) {
+  if (!lastEventId || lastEventId === '0' || typeof window === 'undefined') return
+  try {
+    localStorage.setItem(getLastEventIdStorageKey(ticketId), lastEventId)
+  } catch {
+    // Best-effort only.
+  }
+}
+
 function invalidateBeadDiffQuery(ticketId: string, beadId: unknown) {
   if (typeof beadId !== 'string' || beadId.length === 0) return
   queryClient.invalidateQueries({ queryKey: getBeadDiffQueryKey(ticketId, beadId), exact: true })
@@ -29,9 +55,27 @@ function getBeadIdFromArtifactType(artifactType: unknown): string | null {
   return beadId.length > 0 ? beadId : null
 }
 
+function dispatchServerLogRefresh(ticketId: string) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(SERVER_LOG_REFRESH_EVENT, { detail: { ticketId } }))
+}
+
+function recoverTicketAfterStreamGap(ticketId: string) {
+  queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
+  queryClient.invalidateQueries({ queryKey: ['tickets'] })
+  queryClient.invalidateQueries({ queryKey: ['ticket-artifacts', ticketId] })
+  queryClient.invalidateQueries({ queryKey: ['interview', ticketId] })
+  queryClient.invalidateQueries({ queryKey: ['artifact', ticketId, 'interview'] })
+  queryClient.invalidateQueries({ queryKey: ['artifact', ticketId, 'execution-setup-plan'] })
+  queryClient.invalidateQueries({ queryKey: ['ticket-beads', ticketId] })
+  queryClient.invalidateQueries({ queryKey: ['artifact', ticketId, 'beads'] })
+  dispatchServerLogRefresh(ticketId)
+}
+
 export function useSSE({ ticketId, onEvent }: SSEOptions) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const lastEventIdRef = useRef<string>('0')
+  const recoverOnOpenRef = useRef(false)
   const reconnectRef = useRef<(() => void) | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const connectTokenRef = useRef(0)
@@ -45,6 +89,18 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
   useEffect(() => {
     queueMicrotask(() => setConnectionState(ticketId ? 'connecting' : 'connected'))
+  }, [ticketId])
+
+  useEffect(() => {
+    if (!ticketId) {
+      lastEventIdRef.current = '0'
+      recoverOnOpenRef.current = false
+      return
+    }
+
+    const persistedLastEventId = readPersistedLastEventId(ticketId)
+    lastEventIdRef.current = persistedLastEventId
+    recoverOnOpenRef.current = persistedLastEventId !== '0'
   }, [ticketId])
 
   const scheduleReconnect = useCallback(() => {
@@ -79,10 +135,15 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       es.addEventListener('open', () => {
         setConnectionState('connected')
+        if (recoverOnOpenRef.current) {
+          recoverOnOpenRef.current = false
+          recoverTicketAfterStreamGap(ticketId)
+        }
       })
 
       es.addEventListener('state_change', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           if (ticketId && typeof data.to === 'string' && data.to.length > 0) {
@@ -107,6 +168,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       es.addEventListener('progress', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           onEventRef.current?.({ type: 'progress', data })
@@ -117,6 +179,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       es.addEventListener('log', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           const phase = typeof data.phase === 'string' ? data.phase : ''
@@ -145,6 +208,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
       es.addEventListener('error', (e) => {
         const me = e as MessageEvent
         lastEventIdRef.current = me.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         if (typeof me.data !== 'string') return
         try {
           const data = JSON.parse(me.data) as Record<string, unknown>
@@ -156,6 +220,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       es.addEventListener('bead_complete', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
@@ -169,6 +234,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       es.addEventListener('needs_input', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
@@ -183,6 +249,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       es.addEventListener('artifact_change', (e) => {
         lastEventIdRef.current = e.lastEventId || lastEventIdRef.current
+        persistLastEventId(ticketId, lastEventIdRef.current)
         try {
           const data = JSON.parse(e.data) as Record<string, unknown>
           const snapshot = normalizeTicketArtifact(
@@ -220,6 +287,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
       es.onerror = () => {
         es.close()
         eventSourceRef.current = null
+        recoverOnOpenRef.current = true
         setConnectionState('reconnecting')
         queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] })
         queryClient.invalidateQueries({ queryKey: ['tickets'] })

@@ -47,7 +47,7 @@ type DiscardTarget =
 
 export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ticket: Ticket; phase?: string }) {
   const queryClient = useQueryClient()
-  const { mutate: saveUiState } = useSaveTicketUIState()
+  const { mutateAsync: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_prd'
   const cascadeWarningMessage = useMemo(
     () => getCascadeEditWarningMessage(ticket.status, 'prd', ticket.previousStatus),

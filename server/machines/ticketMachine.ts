@@ -433,7 +433,6 @@ export const ticketMachine = setup({
           { guard: ({ context }) => context.previousStatus === 'CREATING_PULL_REQUEST', target: 'CREATING_PULL_REQUEST' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'WAITING_PR_REVIEW', target: 'WAITING_PR_REVIEW' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'CLEANING_ENV', target: 'CLEANING_ENV' as const, actions: ['clearError'] },
-          { target: 'DRAFT' as const, actions: ['clearError'] },
         ],
         CANCEL: { target: 'CANCELED' },
       },

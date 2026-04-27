@@ -412,6 +412,62 @@ describe('handleCoding', () => {
     expect(executeBeadMock).not.toHaveBeenCalled()
   })
 
+  it('recovers an interrupted in-progress bead before selecting runnable work', async () => {
+    const { ticket, context } = createInitializedTestTicket(repoManager, {
+      title: 'Recover interrupted in-progress bead',
+    })
+    writeTicketBeads(ticket.id, [
+      makePendingBead('bead-1', 1, {
+        status: 'in_progress',
+        iteration: 2,
+        notes: 'prior interrupted attempt',
+        beadStartCommit: 'start-sha',
+      }),
+    ])
+    const sendEvent = vi.fn()
+
+    executeBeadMock.mockResolvedValueOnce({
+      success: true,
+      beadId: 'bead-1',
+      iteration: 2,
+      output: 'done',
+      errors: [],
+    })
+
+    await handleCoding(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(resetToBeadStartMock).toHaveBeenCalledWith(
+      expect.any(String),
+      'start-sha',
+      expect.objectContaining({
+        preservePaths: expect.arrayContaining(['.ticket/runtime/execution-log.jsonl']),
+      }),
+    )
+    const executedBead = executeBeadMock.mock.calls[0]![1] as Bead
+    expect(executedBead.status).toBe('pending')
+    expect(executedBead.notes).toBe('prior interrupted attempt')
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'ALL_BEADS_DONE' })
+  })
+
+  it('blocks interrupted coding recovery when no bead start commit exists', async () => {
+    const { ticket, context } = createInitializedTestTicket(repoManager, {
+      title: 'Interrupted bead without reset anchor',
+    })
+    writeTicketBeads(ticket.id, [
+      makePendingBead('bead-1', 1, {
+        status: 'in_progress',
+        beadStartCommit: null,
+      }),
+    ])
+    const sendEvent = vi.fn()
+
+    await expect(
+      handleCoding(ticket.id, context, sendEvent, new AbortController().signal),
+    ).rejects.toThrow('missing bead start commit')
+
+    expect(executeBeadMock).not.toHaveBeenCalled()
+  })
+
   it('throws when lockedMainImplementer is missing', async () => {
     const { ticket } = createInitializedTestTicket(repoManager, {
       title: 'Missing implementer throw',

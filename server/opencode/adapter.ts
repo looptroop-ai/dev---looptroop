@@ -57,8 +57,8 @@ export interface OpenCodeAdapter {
     signal?: AbortSignal,
     options?: PromptSessionOptions,
   ): Promise<string>
-  listSessions(): Promise<Session[]>
-  getSessionMessages(sessionId: string): Promise<Message[]>
+  listSessions(signal?: AbortSignal): Promise<Session[]>
+  getSessionMessages(sessionId: string, signal?: AbortSignal): Promise<Message[]>
   subscribeToEvents(sessionId: string, signal?: AbortSignal, stepFinishSafetyMs?: number): AsyncGenerator<StreamEvent>
   listPendingQuestions(projectPath?: string, signal?: AbortSignal): Promise<OpenCodeQuestionRequest[]>
   replyQuestion(requestId: string, answers: OpenCodeQuestionAnswer[], projectPath?: string, signal?: AbortSignal): Promise<void>
@@ -139,7 +139,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
           directory: projectPath,
           ...(options?.permission ? { permission: options.permission.map((rule) => ({ ...rule })) } : {}),
         },
-        this.requestOptions(signal),
+        this.requestOptions(this.withSdkOperationTimeout(signal)),
       )
       if (!res.data) throw new Error('OpenCode returned no session payload')
       const session = this.mapSession(res.data as Record<string, unknown>)
@@ -178,7 +178,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       : sdkPromptAbortController.signal
     const model = promptOptions.model ?? parseModelRef(promptOptions.modelRef)
 
-    const directory = await this.resolveSessionDirectory(sessionId)
+    const directory = await this.resolveSessionDirectory(sessionId, promptSignal)
     const { systemText, promptParts } = this.partitionPromptParts(parts, promptOptions.system)
     const streamAbortController = new AbortController()
     const streamSignal = promptSignal
@@ -333,21 +333,27 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
-  async listSessions(): Promise<Session[]> {
-    const res = await this.client.session.list({ limit: SESSION_LIST_LIMIT })
+  async listSessions(signal?: AbortSignal): Promise<Session[]> {
+    const res = await this.client.session.list(
+      { limit: SESSION_LIST_LIMIT },
+      this.requestOptions(this.withSdkOperationTimeout(signal)),
+    )
     return Array.isArray(res.data)
       ? res.data.map(session => this.mapSession(session as Record<string, unknown>))
       : []
   }
 
-  async getSessionMessages(sessionId: string): Promise<Message[]> {
+  async getSessionMessages(sessionId: string, signal?: AbortSignal): Promise<Message[]> {
     try {
-      const directory = await this.resolveSessionDirectory(sessionId)
-      const res = await this.client.session.messages({
-        sessionID: sessionId,
-        ...(directory ? { directory } : {}),
-        limit: MESSAGE_LIST_LIMIT,
-      })
+      const directory = await this.resolveSessionDirectory(sessionId, signal)
+      const res = await this.client.session.messages(
+        {
+          sessionID: sessionId,
+          ...(directory ? { directory } : {}),
+          limit: MESSAGE_LIST_LIMIT,
+        },
+        this.requestOptions(this.withSdkOperationTimeout(signal)),
+      )
       return Array.isArray(res.data)
         ? res.data.map((entry) => this.mapMessageRecord(entry))
         : []
@@ -400,7 +406,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
   }
 
   async *subscribeToEvents(sessionId: string, signal?: AbortSignal, stepFinishSafetyMs?: number): AsyncGenerator<StreamEvent> {
-    const directory = await this.resolveSessionDirectory(sessionId)
+    const directory = await this.resolveSessionDirectory(sessionId, signal)
     const eventStream = await this.client.event.subscribe(
       directory ? { directory } : undefined,
       this.requestOptions(signal),
@@ -598,6 +604,11 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     return signal ? { signal } : undefined
   }
 
+  private withSdkOperationTimeout(signal?: AbortSignal): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(SDK_OPERATION_TIMEOUT_MS)
+    return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+  }
+
   private mapSession(session: Record<string, unknown>): Session {
     const time = this.getRecord(session.time)
     return {
@@ -676,12 +687,15 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     }
   }
 
-  private async resolveSessionDirectory(sessionId: string): Promise<string | undefined> {
+  private async resolveSessionDirectory(sessionId: string, signal?: AbortSignal): Promise<string | undefined> {
     const cached = this.sessionDirectories.get(sessionId)
     if (cached) return cached
 
     try {
-      const res = await this.client.session.get({ sessionID: sessionId })
+      const res = await this.client.session.get(
+        { sessionID: sessionId },
+        this.requestOptions(this.withSdkOperationTimeout(signal)),
+      )
       const directory = typeof res.data?.directory === 'string' ? res.data.directory : undefined
       if (directory) this.sessionDirectories.set(sessionId, directory)
       return directory

@@ -1,4 +1,5 @@
 import {
+  deriveStructuredInterventions,
   normalizeStructuredInterventions,
   STRUCTURED_INTERVENTION_CATEGORY_ORDER,
 } from '@shared/structuredInterventions'
@@ -84,7 +85,14 @@ export function getStructuredOutputWarnings(structuredOutput?: ArtifactStructure
 }
 
 export function getStructuredOutputInterventions(structuredOutput?: ArtifactStructuredOutputData): StructuredIntervention[] {
-  return normalizeStructuredInterventions(structuredOutput?.interventions)
+  const explicit = normalizeStructuredInterventions(structuredOutput?.interventions)
+  if (explicit.length > 0) return explicit
+
+  return deriveStructuredInterventions({
+    repairWarnings: structuredOutput?.repairWarnings,
+    autoRetryCount: structuredOutput?.autoRetryCount,
+    validationError: structuredOutput?.validationError,
+  }).filter((intervention) => intervention.code !== 'cleanup_generic')
 }
 
 export function hasArtifactProcessingNotice(structuredOutput?: ArtifactStructuredOutputData): boolean {

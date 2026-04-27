@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryClient } from '@/lib/queryClient'
+import { SERVER_LOG_REFRESH_EVENT } from '@/context/logUtils'
 
 vi.mock('@/lib/devApi', () => ({
   getApiUrl: (path: string) => `http://localhost:3000${path}`,
@@ -279,6 +280,69 @@ describe('useSSE', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-beads', ticketId] })
     })
+  })
+
+  it('persists the last SSE event id per ticket and resumes from it', async () => {
+    const ticketId = '1:T-42'
+    const storageKey = `looptroop-sse-last-event-id:${ticketId}`
+
+    const firstRender = renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+
+    await act(async () => {
+      MockEventSource.instances[0]!.emit('progress', { ticketId, content: 'Working' }, '7')
+    })
+
+    expect(localStorage.getItem(storageKey)).toBe('7')
+
+    firstRender.unmount()
+    MockEventSource.instances = []
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+      expect(MockEventSource.instances[0]!.url).toContain('lastEventId=7')
+    })
+  })
+
+  it('recovers ticket, artifact, interview, setup, bead, and log data when opening after a persisted stream gap', async () => {
+    const ticketId = '1:T-42'
+    localStorage.setItem(`looptroop-sse-last-event-id:${ticketId}`, '99')
+
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const logRefreshSpy = vi.fn()
+    window.addEventListener(SERVER_LOG_REFRESH_EVENT, logRefreshSpy)
+
+    try {
+      renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+      await waitFor(() => {
+        expect(MockEventSource.instances).toHaveLength(1)
+      })
+
+      await act(async () => {
+        MockEventSource.instances[0]!.emitOpen()
+      })
+
+      await waitFor(() => {
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket', ticketId] })
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tickets'] })
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-artifacts', ticketId] })
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['interview', ticketId] })
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['artifact', ticketId, 'execution-setup-plan'] })
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ticket-beads', ticketId] })
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['artifact', ticketId, 'beads'] })
+        expect(logRefreshSpy).toHaveBeenCalledWith(expect.objectContaining({
+          detail: { ticketId },
+        }))
+      })
+    } finally {
+      window.removeEventListener(SERVER_LOG_REFRESH_EVENT, logRefreshSpy)
+    }
   })
 
   it('tracks reconnecting state when the live stream drops', async () => {

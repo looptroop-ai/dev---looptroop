@@ -147,6 +147,17 @@ stateDiagram-v2
 - `CODING` is intentionally self-looping because bead completion may just advance to the next runnable bead.
 - Delivery is part of the machine: final test, integration, PR creation, PR review, and cleanup are all first-class states.
 
+## Safe Resume Model
+
+Each non-terminal ticket stores both the durable ticket status and the serialized XState snapshot. On backend startup, LoopTroop validates the stored snapshot before starting an actor:
+
+- valid snapshots are rehydrated and immediately processed, so active phases continue without waiting for a new state-change event
+- missing snapshots for active tickets are reconstructed from the durable ticket status and persisted back to storage
+- corrupt or impossible snapshots for active tickets move the ticket to `BLOCKED_ERROR` instead of silently restarting from `DRAFT`
+- terminal tickets remain terminal and do not restart work
+
+This keeps browser reloads, frontend reconnects, backend restarts, and OpenCode reconnect gaps from changing the workflow phase behind the user's back. The user should return to the same ticket status, or to an explicit blocked state with a retry/cancel decision.
+
 ## Retry Semantics
 
 `BLOCKED_ERROR` is special:
@@ -154,7 +165,8 @@ stateDiagram-v2
 - it stores the failed state as `previousStatus`
 - `RETRY` returns to that exact state, not to a generic restart point
 - the retry target can be a planning phase, an approval phase, or any execution-band phase
-- `CODING` retry may first restore the failed bead so the execution loop can safely re-enter
+- `RETRY` is rejected when `previousStatus` is missing, because there is no safe phase to re-enter
+- `CODING` retry must first restore the failed bead and reset the worktree to its bead-start commit before execution can safely re-enter
 
 This is why `BLOCKED_ERROR` is grouped under `execution` even though it can be reached from planning. It is the system-wide manual recovery gate.
 

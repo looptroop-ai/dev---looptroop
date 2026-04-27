@@ -4,6 +4,8 @@ LoopTroop executes approved work through a bounded bead loop, not through one gi
 
 The core implementation lives in `server/phases/execution/executor.ts`.
 
+The workflow-side orchestration that resumes interrupted coding work lives in `server/workflow/phases/executionPhase.ts` and `server/workflow/phases/beadsPhase.ts`.
+
 ## Execution Phases Around The Loop
 
 | Phase | Purpose |
@@ -25,11 +27,12 @@ The core implementation lives in `server/phases/execution/executor.ts`.
 For each bead:
 
 1. Load the active bead specification and the current execution profile.
-2. Start or reattach to the owned OpenCode session for that bead iteration.
-3. Prompt the model with the coding template and the narrow execution context.
-4. Require structured completion markers so the system can tell whether the attempt really finished.
-5. Capture logs, diff artifacts, and status updates.
-6. Mark the bead done, or generate a retry path if the attempt failed.
+2. Recover any interrupted in-progress bead from its recorded start snapshot.
+3. Start or reattach to the owned OpenCode session for that bead iteration.
+4. Prompt the model with the coding template and the narrow execution context.
+5. Require structured completion markers so the system can tell whether the attempt really finished.
+6. Capture logs, diff artifacts, and status updates.
+7. Mark the bead done, or generate a retry path if the attempt failed.
 
 ## Structured Completion Matters
 
@@ -101,6 +104,8 @@ Important `gitOps.ts` behavior:
 
 This is what makes retries safe: the next attempt starts from a known repository state.
 
+On startup or manual retry, `CODING` recovery uses the same reset path. A bead left `in_progress` by a backend crash is reset to `beadStartCommit` and written back as `pending` before the scheduler selects work. If the bead has no recorded start commit, LoopTroop blocks instead of continuing in a worktree it cannot prove clean.
+
 ## Scheduler Interaction
 
 Execution does not pick arbitrary work. It asks the scheduler for the next runnable bead.
@@ -136,6 +141,13 @@ LoopTroop distinguishes between recoverable iteration failure and terminal block
 | Ticket cancel | User aborts the run and active sessions are abandoned |
 
 Error occurrences are persisted so the UI can show both the live failure and past failures for the ticket.
+
+Execution recovery is intentionally stricter after process or OpenCode interruptions:
+
+- an interrupted bead is not treated as successful just because the model session might have continued somewhere else
+- model sessions are owned by ticket, phase, phase attempt, bead, and iteration before they are reused
+- the worktree must reset to the bead-start commit before a failed or interrupted coding retry can run
+- missing reset metadata keeps the ticket blocked so the user can inspect the partial state manually
 
 ## Execution Configuration Controls
 

@@ -198,7 +198,7 @@ export function attachWorkflowRunner(
   actor: ReturnType<typeof createActor<typeof ticketMachine>>,
   sendEvent: (event: TicketEvent) => void,
 ) {
-  actor.subscribe((snapshot) => {
+  const processSnapshot = (snapshot: ReturnType<typeof actor.getSnapshot>) => {
     const state = resolveSnapshotState(snapshot)
     const context = snapshot.context
     const key = `${ticketId}:${state}`
@@ -545,5 +545,13 @@ export function attachWorkflowRunner(
           runningPhases.delete(key)
         })
     }
-  })
+  }
+
+  actor.subscribe(processSnapshot)
+
+  // XState subscriptions added after actor.start() do not replay the current
+  // restored snapshot. Hydrated tickets need the active state to be processed
+  // immediately after the runner is attached, otherwise work can sit idle until
+  // some unrelated event arrives.
+  queueMicrotask(() => processSnapshot(actor.getSnapshot()))
 }

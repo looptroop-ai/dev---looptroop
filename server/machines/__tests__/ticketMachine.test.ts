@@ -148,4 +148,55 @@ describe('ticketMachine execution setup flow', () => {
     expect(actor.getSnapshot().value).toBe('WAITING_EXECUTION_SETUP_APPROVAL')
     expect(actor.getSnapshot().context.error).toBeNull()
   })
+
+  it('does not retry blocked errors to draft when previousStatus is missing', () => {
+    const actor = createActor(ticketMachine, {
+      snapshot: {
+        status: 'active',
+        value: 'BLOCKED_ERROR',
+        historyValue: {},
+        context: {
+          ticketId: '1:T-1',
+          projectId: 1,
+          externalId: 'T-1',
+          title: 'Missing retry target',
+          status: 'BLOCKED_ERROR',
+          lockedMainImplementer: 'model-a',
+          lockedMainImplementerVariant: null,
+          lockedCouncilMembers: ['model-a', 'model-b'],
+          lockedCouncilMemberVariants: null,
+          lockedInterviewQuestions: null,
+          lockedCoverageFollowUpBudgetPercent: null,
+          lockedMaxCoveragePasses: null,
+          lockedMaxPrdCoveragePasses: null,
+          lockedMaxBeadsCoveragePasses: null,
+          previousStatus: null,
+          error: 'Unknown failure',
+          errorCodes: ['UNKNOWN'],
+          beadProgress: { total: 0, completed: 0, current: null },
+          iterationCount: 0,
+          maxIterations: 5,
+          councilResults: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        children: {},
+      } as unknown as never,
+      input: {
+        ticketId: '1:T-1',
+        projectId: 1,
+        externalId: 'T-1',
+        title: 'Missing retry target',
+        maxIterations: 5,
+        lockedMainImplementer: 'model-a',
+        lockedCouncilMembers: ['model-a', 'model-b'],
+      },
+    })
+
+    actor.start()
+    actor.send({ type: 'RETRY' })
+
+    expect(actor.getSnapshot().value).toBe('BLOCKED_ERROR')
+    expect(actor.getSnapshot().context.error).toBe('Unknown failure')
+  })
 })

@@ -25,6 +25,8 @@ This page documents the current HTTP surface exposed by `server/index.ts` and th
 | `GET` | `/api/workflow/meta` | Current workflow groups and phases |
 | `GET` | `/api/stream?ticketId=<id>` | Ticket-scoped SSE stream |
 
+`/api/stream` also accepts `lastEventId` as a query parameter. Browsers normally send `Last-Event-ID` automatically only for native reconnects; the frontend persists the last event id per ticket and sends the query value after reloads so the backend can replay buffered events when possible.
+
 Example health payload:
 
 ```json
@@ -331,6 +333,8 @@ The stream endpoint emits:
 - `artifact_change`
 
 Current custom event types are defined in `server/sse/eventTypes.ts`.
+
+SSE replay is an optimization, not the only recovery path. After a reconnect with a remembered event id, the frontend also invalidates the ticket, list, artifacts, interview, setup-plan, bead, and server-log queries so missed events outside the replay buffer are reconciled from durable storage.
 
 Example `state_change` event payload:
 

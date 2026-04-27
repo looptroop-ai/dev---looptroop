@@ -102,14 +102,18 @@ Recovery is a first-class architectural concern.
 
 | Failure type | Recovery strategy |
 | --- | --- |
+| Browser reload, close, or reconnect gap | REST state remains canonical; SSE reconnect includes the last event id and then refetches tickets, artifacts, bead state, interview state, and server logs |
+| Frontend crash or tab close | Interview and approval drafts are persisted as ticket UI-state artifacts, with unload-time keepalive flushing for the latest unsaved snapshot |
 | Invalid model output | Retry with repair or explicit re-prompt, depending on phase |
 | Bead execution stall | Generate context wipe note, reset worktree, retry in fresh session |
 | OpenCode reconnect gap | Validate owned session against remote sessions and recreate if needed |
-| Process restart | Rehydrate actors from storage and resume from durable ticket state |
+| Backend process restart | Validate or reconstruct serialized actor snapshots, start actors from durable ticket state, and immediately process restored active snapshots |
 | User edits approved planning artifact | Prepare a planning restart from the affected approval boundary |
 | Terminal blockage | Enter `BLOCKED_ERROR` with persisted error occurrence history |
 
 LoopTroop tries hard to preserve the work product while discarding the bad conversational state that produced the failure.
+
+If a resume point cannot be proven, recovery stops at `BLOCKED_ERROR` rather than falling back to `DRAFT` or continuing execution against unknown state. `BLOCKED_ERROR` retry requires a preserved `previousStatus`; `CODING` retry also requires a successful reset to the failed bead's `beadStartCommit`.
 
 ## Restart And Session Ownership
 
@@ -133,6 +137,8 @@ This lets LoopTroop safely reconnect in cases like:
 - bead execution where iteration and bead identity both matter
 
 It deliberately does not mean "resume any random prior stream." Reconnect only succeeds if the ticket is still in the same phase and the owned active session still exists remotely.
+
+Prompt acquisition is bounded by timeout and abort signals. OpenCode `create`, `list`, and message-read calls are guarded so an OpenCode restart cannot indefinitely block the workflow runner.
 
 ## Module Map
 

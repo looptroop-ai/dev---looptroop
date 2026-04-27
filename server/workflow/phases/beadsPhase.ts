@@ -62,6 +62,8 @@ import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 import { runOpenCodePrompt, type OpenCodePromptDispatchEvent } from '../runOpenCodePrompt'
 import { syncTicketRuntimeProjection } from '../../storage/ticketRuntimeProjection'
 import { upsertBeadsApprovalSnapshot } from '../../phases/beads/document'
+import { resetToBeadStart } from '../../phases/execution/gitOps'
+import { EXECUTION_RUNTIME_PRESERVE_PATHS } from '../../phases/executionSetup/storage'
 import { isBeforeExecution } from '@shared/workflowMeta'
 
 export async function executeBeadsExpandStep(params: {
@@ -874,6 +876,42 @@ export function recoverFailedCodingBead(ticketId: string): Bead | null {
 
   if (!failedBead) return null
 
+  return recoverCodingBead(ticketId, beads, failedBead)
+}
+
+export function recoverCodingBeadWithReset(
+  ticketId: string,
+  options: {
+    worktreePath: string
+    onlyInProgress?: boolean
+    requireReset?: boolean
+    preservePaths?: string[]
+  },
+): Bead | null {
+  const beads = readTicketBeads(ticketId)
+  const candidates = options.onlyInProgress
+    ? beads.filter((bead) => bead.status === 'in_progress')
+    : [
+        ...beads.filter((bead) => bead.status === 'error'),
+        ...beads.filter((bead) => bead.status === 'in_progress'),
+      ]
+  const failedBead = [...candidates].sort(compareErroredBeads)[0]
+  if (!failedBead) return null
+
+  if (!failedBead.beadStartCommit) {
+    if (options.requireReset) {
+      throw new Error(`Cannot safely recover bead ${failedBead.id}: missing bead start commit`)
+    }
+  } else {
+    resetToBeadStart(options.worktreePath, failedBead.beadStartCommit, {
+      preservePaths: options.preservePaths ?? [...EXECUTION_RUNTIME_PRESERVE_PATHS],
+    })
+  }
+
+  return recoverCodingBead(ticketId, beads, failedBead)
+}
+
+function recoverCodingBead(ticketId: string, beads: Bead[], failedBead: Bead): Bead | null {
   const now = new Date().toISOString()
   const recoveredBeads = beads.map((bead) => bead.id === failedBead.id
     ? {

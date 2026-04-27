@@ -1,5 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from 'react'
 import { useSubmitBatch, useSkipInterview, useTicketUIState, useSaveTicketUIState } from '@/hooks/useTickets'
+import { flushTicketUiStateSnapshot } from '@/components/workspace/approvalHooks'
 import type { PersistedInterviewBatch } from '@shared/interviewSession'
 
 const INTERVIEW_DRAFTS_SCOPE = 'interview-drafts'
@@ -36,7 +37,7 @@ export function useBatchSubmit(ticketId: string) {
   const { mutateAsync: submitBatchMutation, isPending: isSubmitting } = useSubmitBatch()
   const { mutateAsync: skipInterviewMutation, isPending: isSkipping } = useSkipInterview()
   const { data: persistedDrafts } = useTicketUIState<PersistedInterviewDrafts>(ticketId, INTERVIEW_DRAFTS_SCOPE)
-  const { mutate: saveUiState } = useSaveTicketUIState()
+  const { mutateAsync: saveUiState } = useSaveTicketUIState()
 
   const [draftAnswers, setDraftAnswers] = useState<Record<string, Record<string, string>>>({})
   const [skippedQuestions, setSkippedQuestions] = useState<Record<string, Set<string>>>({})
@@ -48,10 +49,15 @@ export function useBatchSubmit(ticketId: string) {
 
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
+  const latestDraftSnapshotRef = useRef<{
+    serialized: string
+    snapshot: PersistedInterviewDrafts
+  } | null>(null)
 
   useEffect(() => {
     restoredDraftRef.current = false
     lastSavedSnapshotRef.current = ''
+    latestDraftSnapshotRef.current = null
   }, [ticketId])
 
   // Restore persisted drafts once on mount / ticket change
@@ -78,6 +84,10 @@ export function useBatchSubmit(ticketId: string) {
         selectedOptions: persisted?.selectedOptions ?? {},
       }
       lastSavedSnapshotRef.current = JSON.stringify(snapshot)
+      latestDraftSnapshotRef.current = {
+        serialized: lastSavedSnapshotRef.current,
+        snapshot,
+      }
       restoredDraftRef.current = true
       setDraftsRestoreTick((current) => current + 1)
     })
@@ -117,19 +127,42 @@ export function useBatchSubmit(ticketId: string) {
       selectedOptions: batchSelectedOptions,
     }
     const serialized = JSON.stringify(snapshot)
+    latestDraftSnapshotRef.current = { serialized, snapshot }
     if (serialized === lastSavedSnapshotRef.current) return
 
+    let canceled = false
     const timer = window.setTimeout(() => {
-      lastSavedSnapshotRef.current = serialized
-      saveUiState({
+      void saveUiState({
         ticketId,
         scope: INTERVIEW_DRAFTS_SCOPE,
         data: snapshot,
-      })
+      }).then(() => {
+        if (!canceled && latestDraftSnapshotRef.current?.serialized === serialized) {
+          lastSavedSnapshotRef.current = serialized
+        }
+      }).catch(() => undefined)
     }, DRAFT_SAVE_DEBOUNCE_MS)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      canceled = true
+      window.clearTimeout(timer)
+    }
   }, [draftAnswers, skippedQuestions, batchSelectedOptions, draftsRestoreTick, saveUiState, ticketId])
+
+  useEffect(() => {
+    const flushLatest = () => {
+      const latest = latestDraftSnapshotRef.current
+      if (!restoredDraftRef.current || !latest || latest.serialized === lastSavedSnapshotRef.current) return
+      flushTicketUiStateSnapshot(ticketId, INTERVIEW_DRAFTS_SCOPE, latest.snapshot)
+    }
+
+    window.addEventListener('pagehide', flushLatest)
+    window.addEventListener('beforeunload', flushLatest)
+    return () => {
+      window.removeEventListener('pagehide', flushLatest)
+      window.removeEventListener('beforeunload', flushLatest)
+    }
+  }, [ticketId])
 
   const handleBatchAnswer = useCallback((currentBatchKey: string | null, questionId: string, value: string) => {
     if (!currentBatchKey) return
@@ -263,8 +296,15 @@ export function useBatchSubmit(ticketId: string) {
       setSkippedQuestions({})
       setBatchSelectedOptions({})
       const emptySnapshot: PersistedInterviewDrafts = { draftAnswers: {}, skippedQuestions: {}, selectedOptions: {} }
-      lastSavedSnapshotRef.current = JSON.stringify(emptySnapshot)
-      saveUiState({ ticketId, scope: INTERVIEW_DRAFTS_SCOPE, data: emptySnapshot })
+      const serializedEmptySnapshot = JSON.stringify(emptySnapshot)
+      latestDraftSnapshotRef.current = { serialized: serializedEmptySnapshot, snapshot: emptySnapshot }
+      void saveUiState({ ticketId, scope: INTERVIEW_DRAFTS_SCOPE, data: emptySnapshot })
+        .then(() => {
+          if (latestDraftSnapshotRef.current?.serialized === serializedEmptySnapshot) {
+            lastSavedSnapshotRef.current = serializedEmptySnapshot
+          }
+        })
+        .catch(() => undefined)
       setSseBatch(null)
     } catch (err) {
       console.error('Failed to skip remaining interview questions:', err)

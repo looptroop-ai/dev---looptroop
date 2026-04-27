@@ -70,7 +70,7 @@ function normalizePersistedAnswerDrafts(
 
 export function InterviewApprovalPane({ ticket, phase = 'WAITING_INTERVIEW_APPROVAL' }: { ticket: Ticket; phase?: string }) {
   const queryClient = useQueryClient()
-  const { mutate: saveUiState } = useSaveTicketUIState()
+  const { mutateAsync: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_interview'
   const cascadeWarningMessage = useMemo(
     () => getCascadeEditWarningMessage(ticket.status, 'interview', ticket.previousStatus),

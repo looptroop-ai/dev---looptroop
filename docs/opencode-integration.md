@@ -31,6 +31,8 @@ The current `OpenCodeAdapter` interface exposes:
 | `assembleCouncilContext()` | Build council prompt parts |
 | `checkHealth()` | Health and availability check |
 
+Session creation, session listing, and message reads accept `AbortSignal`s and are wrapped with bounded SDK-operation timeouts. This prevents OpenCode startup, shutdown, or stalled HTTP calls from hanging the workflow indefinitely.
+
 ## Base URL And Modes
 
 | Setting | Meaning |
@@ -94,6 +96,8 @@ If any of those checks fail, LoopTroop falls back to creating a fresh session.
 
 That means LoopTroop can survive restart and resume safely, but it does not try to magically continue any random broken stream from the past.
 
+If OpenCode cannot list sessions because the server is down or restarting, validation fails closed without abandoning the database record. The prompt runner then either creates a new owned session when OpenCode is reachable or lets the phase fail into the normal retry/block path. Owned same-session reuse is also revalidated immediately before prompting, so a stale session cannot be prompted after the ticket has moved phases.
+
 ## Streaming
 
 OpenCode stream events are consumed server-side and then translated into LoopTroop's own ticket event model.
@@ -141,6 +145,8 @@ On startup, LoopTroop:
 - abandons stale session records that no longer exist remotely
 
 This is why the OpenCode integration is part of the runtime architecture, not just a transport detail.
+
+Startup session recovery is best effort. If OpenCode itself is unavailable, ticket actors are still hydrated from durable workflow state, and later phase work will either reconnect, create a fresh owned session, or block with a persisted error according to the phase's recovery rules.
 
 ## Why LoopTroop Wraps OpenCode This Heavily
 

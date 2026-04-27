@@ -6,6 +6,7 @@ import {
   LOG_STORAGE_PREFIX,
   LEGACY_LOG_STORAGE_PREFIX,
   serverLogCache,
+  SERVER_LOG_REFRESH_EVENT,
   normalizeLogRecord,
   normalizeStoredEntry,
   compareTimestamps,
@@ -151,13 +152,13 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
       })
     }
 
-    const cached = serverLogCache.get(ticketId)
-    if (cached) {
-      applyServerLogs(cached)
+    const initialCached = serverLogCache.get(ticketId)
+    if (initialCached) {
+      applyServerLogs(initialCached)
     }
 
-    const mergeServerLogs = () => {
-      if (!cached) setIsLoadingLogs(true)
+    const mergeServerLogs = (showLoading: boolean = true) => {
+      if (showLoading && !serverLogCache.has(ticketId)) setIsLoadingLogs(true)
       fetch(`/api/files/${ticketId}/logs`)
         .then(res => res.ok ? res.json() : [])
         .then((raw: unknown) => {
@@ -174,6 +175,17 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     }
 
     mergeServerLogs()
+
+    const handleServerLogRefresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ ticketId?: string | null }>).detail
+      if (String(detail?.ticketId ?? '') !== String(ticketId)) return
+      mergeServerLogs(false)
+    }
+
+    window.addEventListener(SERVER_LOG_REFRESH_EVENT, handleServerLogRefresh)
+    return () => {
+      window.removeEventListener(SERVER_LOG_REFRESH_EVENT, handleServerLogRefresh)
+    }
   }, [ticketId])
 
   const addLog = useCallback((phase: string, line: string, options?: PlainLogOptions) => {
