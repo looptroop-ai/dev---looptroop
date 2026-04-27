@@ -35,7 +35,7 @@
   "bugs": {
     "url": "https://github.com/looptroop-ai/LoopTroop/issues"
   },
-  "homepage": "https://github.com/looptroop-ai/LoopTroop#readme",
+  "homepage": "https://www.looptroop.ovh/",
   "scripts": {
     "predev": "node scripts/dev-preflight.mjs",
     "dev": "tsx scripts/dev.ts",
