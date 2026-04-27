@@ -94,7 +94,7 @@ npm install
 
 ## 4. Starting the Application
 
-The main development command starts the frontend, backend, docs, and the OpenCode watcher stack all at once.
+The main development command starts the frontend, backend, docs, and the OpenCode watcher stack all at once. (you can even skip npm install as this command will do that too)
 
 ```bash
 npm run dev
