@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitepress'
 
-const githubRepo = 'https://github.com/looptroop-ai/dev---looptroop'
+const githubRepo = 'https://github.com/looptroop-ai/LoopTroop'
 
 const sidebar = [
   {
