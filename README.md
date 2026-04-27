@@ -155,7 +155,6 @@ Use a VM or disposable development environment first.
 ```bash
 git clone https://github.com/looptroop-ai/LoopTroop.git
 cd LoopTroop
-npm install
 npm run dev
 ```
 
