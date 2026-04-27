@@ -257,5 +257,3 @@ Roadmap: [Roadmap](https://www.looptroop.ovh/roadmap)
 ## Contributing
 
 Contributions, ideas, bug reports, and workflow feedback are welcome.
-
-Before opening a PR, read [CONTRIBUTING.md](CONTRIBUTING.md).

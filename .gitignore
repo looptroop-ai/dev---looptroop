@@ -41,19 +41,26 @@ Thumbs.db
 .vscode/
 .idea/
 .kilo/
+.codex
 
 
-# Skills
+# Agent/tool local state
 .agent/
 .agents/
 .claude/
+
+# Removed repo metadata/assets
+/CITATION.cff
+/public/vite.svg
+/public/logo.jpg
+/public/logo-sm.jpg
+/public/fonts/TheGodfather-v2.ttf
+/public/fonts/*.zip
 
 # Temp analysis/debug/scratch files at root
 /*.md
 !README.md
 !CHANGELOG.md
-!CODE_OF_CONDUCT.md
-!CONTRIBUTING.md
 !SECURITY.md
 architecture.md
 /*.txt
