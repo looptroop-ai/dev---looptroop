@@ -1,6 +1,6 @@
 # LoopTroop Docs
 
-LoopTroop is a local orchestration system for repository-scale AI delivery. It separates planning from execution, keeps critical workflow state outside the model, executes code inside isolated worktrees, and forces explicit human review at the expensive boundaries.
+LoopTroop is local AI coding orchestration for repo-scale work. It separates planning from execution, keeps critical workflow state outside the model, executes code inside isolated git worktrees, and forces explicit human review at the expensive boundaries.
 
 This docs site is the navigation hub for the current system. The README stays GitHub-first; this site is where the grouped, cross-linked runtime documentation lives.
 
@@ -16,8 +16,8 @@ If you are new to LoopTroop, use this order:
 ## What LoopTroop Is
 
 - A workflow engine, not a thin coding-chat wrapper.
-- A planning pipeline that uses interview, PRD, and beads stages before code execution.
-- A worktree-based execution system that keeps the attached project checkout out of the blast radius.
+- A planning pipeline for agentic coding that uses interview, PRD, and beads stages before code execution.
+- An OpenCode worktrees execution system that keeps the attached project checkout out of the blast radius.
 - A durable runtime built around SQLite, `.ticket/**` artifacts, execution logs, and resumable ownership-aware sessions.
 - A human-in-the-loop system with approval gates before specs, blueprint, workspace setup, and final PR completion.
 - A safe-resume workflow that returns users to durable ticket state after browser, frontend, backend, OpenCode, or model interruptions, or blocks explicitly when a safe resume point cannot be proven.

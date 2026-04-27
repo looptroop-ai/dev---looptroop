@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">LoopTroop social preview</title>
+  <desc id="desc">LoopTroop. LLM councils plan it. Ralph loops recover it. OpenCode worktrees ship it.</desc>
+  <rect width="1280" height="640" fill="#0f172a"/>
+  <g opacity="0.22" fill="none" stroke="#e5e7eb" stroke-width="2">
+    <path d="M120 126h250c52 0 82 30 82 82v236c0 52 30 82 82 82h142"/>
+    <path d="M604 126h142c52 0 82 30 82 82v236c0 52 30 82 82 82h250"/>
+    <circle cx="120" cy="126" r="10" fill="#38bdf8" stroke="none"/>
+    <circle cx="604" cy="126" r="10" fill="#facc15" stroke="none"/>
+    <circle cx="1160" cy="526" r="10" fill="#34d399" stroke="none"/>
+  </g>
+  <g>
+    <rect x="96" y="92" width="1088" height="456" rx="28" fill="#f8fafc"/>
+    <rect x="136" y="132" width="336" height="8" rx="4" fill="#38bdf8"/>
+    <rect x="472" y="132" width="336" height="8" rx="4" fill="#facc15"/>
+    <rect x="808" y="132" width="336" height="8" rx="4" fill="#34d399"/>
+    <text x="136" y="292" fill="#0f172a" font-family="Inter, Arial, sans-serif" font-size="108" font-weight="800" letter-spacing="0">LoopTroop</text>
+    <text x="140" y="380" fill="#1f2937" font-family="Inter, Arial, sans-serif" font-size="40" font-weight="650" letter-spacing="0">LLM councils plan it.</text>
+    <text x="140" y="438" fill="#1f2937" font-family="Inter, Arial, sans-serif" font-size="40" font-weight="650" letter-spacing="0">Ralph loops recover it.</text>
+    <text x="140" y="496" fill="#1f2937" font-family="Inter, Arial, sans-serif" font-size="40" font-weight="650" letter-spacing="0">OpenCode worktrees ship it.</text>
+  </g>
+</svg>

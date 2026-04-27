@@ -51,6 +51,10 @@ Thumbs.db
 # Temp analysis/debug/scratch files at root
 /*.md
 !README.md
+!CHANGELOG.md
+!CODE_OF_CONDUCT.md
+!CONTRIBUTING.md
+!SECURITY.md
 architecture.md
 /*.txt
 /*.log

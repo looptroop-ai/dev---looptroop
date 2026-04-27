@@ -1,25 +1,35 @@
 # LoopTroop
 
-> Durable repo-scale AI delivery through council planning, isolated worktrees, and explicit approvals.
+> **LLM councils plan it. Ralph loops recover it. OpenCode worktrees ship it.**
 
 > [!TIP]
 > **New to LoopTroop?** Start with the [Docs Home](docs/index.md), then read the [Getting Started Guide](docs/getting-started.md) and [FAQ](docs/faq.md).
 
-LoopTroop is a local orchestration app for repository-sized coding work. It attaches to a GitHub-backed project, drives the ticket through interview, PRD, and beads planning, then executes the approved plan inside isolated worktrees with fresh OpenCode sessions, explicit recovery paths, and human approval gates.
+LoopTroop is a local AI coding orchestration control plane for repo-scale work.
+It turns a GitHub-backed task into an interview, PRD, bead plan, isolated worktree execution, and human-approved PR.
+
+Its coding agent workflow combines LLM orchestration, agent orchestration, multi-agent orchestration, OpenCode orchestration, durable agent artifacts, and human-in-the-loop PR automation without moving work out of your local checkout.
+
+Instead of one long, fragile agent loop, LoopTroop uses:
+
+- **LLM Council planning** - multiple models draft, vote, refine, and verify plans.
+- **Ralph-loop recovery** - bounded fresh-context retries with preserved failure notes.
+- **OpenCode execution** - implementation runs in fresh OpenCode sessions.
+- **Worktree isolation** - each execution happens away from your main checkout in isolated git worktrees.
+- **Human approval gates** - you approve interview, PRD, bead plan, workspace setup, draft PR review, and delivery.
 
 `docs/system-architecture.md` is the canonical reference for the current runtime.
 
-## Why LoopTroop Exists
+## Why Not Just Run a Coding Agent?
 
-LoopTroop is built around four constraints:
+Single-agent coding loops usually fail in four ways:
 
-| Constraint | What breaks in naive agent loops | LoopTroop response |
+| Failure mode | What happens | LoopTroop response |
 | --- | --- | --- |
-| Long-context degradation | Important details get buried or compacted away | Strict phase-specific context assembly and fresh sessions |
-| Weak single-shot planning | A single draft misses tradeoffs and edge cases | Multi-model council: draft, vote, refine |
-| Infinite repair loops | The same broken attempt keeps retrying in polluted context | Bounded Ralph-style retry with context wipe notes |
-| Hidden runtime state | Work becomes hard to inspect, recover, or review | Durable artifacts in SQLite, JSONL logs, and `.ticket/**` |
-| Fragile long-running work | Browser, backend, OpenCode, or model interruptions strand the ticket | Safe resume from durable phase state, or explicit `BLOCKED_ERROR` when recovery is unsafe |
+| Context rot | The model loses important details in a long thread | Phase-specific context assembly and fresh sessions |
+| Weak planning | One draft misses edge cases | LLM Council and multi-model council flow: draft, vote, refine, verify |
+| Infinite repair | The agent retries inside polluted context | Ralph-loop recovery with bounded attempts and fresh-context retry |
+| Hidden state | Nobody can inspect what happened | SQLite state, JSONL logs, and `.ticket/**` artifacts |
 
 See [Core Philosophy](docs/core-philosophy.md), [Context Isolation](docs/context-isolation.md), and [Execution Loop](docs/execution-loop.md).
 

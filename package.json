@@ -1,8 +1,41 @@
 {
   "name": "looptroop",
   "version": "1.0.0",
-  "description": "",
-  "main": "eslint.config.js",
+  "private": true,
+  "description": "Local AI coding orchestration for repo-scale work: LLM-council planning, Ralph-loop recovery, isolated OpenCode worktrees, and human-gated PR delivery.",
+  "type": "module",
+  "keywords": [
+    "ai-orchestration",
+    "llm-orchestration",
+    "agent-orchestration",
+    "multi-agent-orchestration",
+    "multi-agent-systems",
+    "ai-agents",
+    "agentic-ai",
+    "agentic-coding",
+    "agentic-workflow",
+    "coding-agent",
+    "ai-coding",
+    "ai-code-generation",
+    "llm-council",
+    "ralph-loop",
+    "opencode",
+    "git-worktree",
+    "human-in-the-loop",
+    "developer-tools",
+    "typescript",
+    "sqlite"
+  ],
+  "author": "LoopTroop AI",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/looptroop-ai/LoopTroop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/looptroop-ai/LoopTroop/issues"
+  },
+  "homepage": "https://github.com/looptroop-ai/LoopTroop#readme",
   "scripts": {
     "predev": "node scripts/dev-preflight.mjs",
     "dev": "tsx scripts/dev.ts",
@@ -28,18 +61,6 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/looptroop-ai/LoopTroop.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "bugs": {
-    "url": "https://github.com/looptroop-ai/LoopTroop/issues"
-  },
-  "homepage": "https://github.com/looptroop-ai/LoopTroop#readme",
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/lang-yaml": "^6.1.3",
