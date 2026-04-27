@@ -87,6 +87,8 @@ When running `opencode serve`, ensure your environment variables are set to use 
 Clone the LoopTroop repository and install the dependencies:
 
 ```bash
+git clone https://github.com/looptroop-ai/LoopTroop.git
+cd LoopTroop
 npm install
 ```
 

@@ -30,16 +30,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/looptroop-ai/dev---looptroop.git"
+    "url": "git+https://github.com/looptroop-ai/LoopTroop.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/looptroop-ai/dev---looptroop/issues"
+    "url": "https://github.com/looptroop-ai/LoopTroop/issues"
   },
-  "homepage": "https://github.com/looptroop-ai/dev---looptroop#readme",
+  "homepage": "https://github.com/looptroop-ai/LoopTroop#readme",
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/lang-yaml": "^6.1.3",
