@@ -54,6 +54,11 @@ const sidebar = [
 export default defineConfig({
   title: 'LoopTroop',
   description: 'Durable repo-scale AI delivery through council planning, isolated worktrees, and explicit approvals.',
+  head: [
+    ['link', { rel: 'icon', href: '/favicon.ico?v=20260429', sizes: 'any' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '256x256', href: '/favicon.png?v=20260429' }],
+    ['link', { rel: 'apple-touch-icon', href: '/trans-logo.png?v=20260429' }],
+  ],
   cleanUrls: true,
   lastUpdated: true,
   markdown: {
