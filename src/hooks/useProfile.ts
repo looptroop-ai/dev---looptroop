@@ -16,6 +16,9 @@ interface Profile {
   maxPrdCoveragePasses: number
   maxBeadsCoveragePasses: number
   maxIterations: number
+  toolInputMaxChars: number
+  toolOutputMaxChars: number
+  toolErrorMaxChars: number
   createdAt: string
   updatedAt: string
 }
@@ -35,6 +38,9 @@ interface CreateProfileInput {
   maxPrdCoveragePasses?: number
   maxBeadsCoveragePasses?: number
   maxIterations?: number
+  toolInputMaxChars?: number
+  toolOutputMaxChars?: number
+  toolErrorMaxChars?: number
 }
 
 async function fetchProfile(): Promise<Profile | null> {

@@ -75,7 +75,10 @@ Example profile update payload:
   "maxCoveragePasses": 3,
   "maxPrdCoveragePasses": 5,
   "maxBeadsCoveragePasses": 5,
-  "maxIterations": 5
+  "maxIterations": 5,
+  "toolInputMaxChars": 4000,
+  "toolOutputMaxChars": 12000,
+  "toolErrorMaxChars": 6000
 }
 ```
 

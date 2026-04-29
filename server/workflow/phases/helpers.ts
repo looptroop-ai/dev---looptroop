@@ -44,6 +44,47 @@ import { phaseIntermediate } from './state'
 import { formatStructuredFailureForLog, type StructuredFailureClass } from '../../lib/structuredOutputRetry'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
 
+// ── Cached tool log limits from profile ──────────────────────────────────────
+
+export interface ToolLogLimits {
+  inputMaxChars: number
+  outputMaxChars: number
+  errorMaxChars: number
+}
+
+const DEFAULT_TOOL_LOG_LIMITS: ToolLogLimits = {
+  inputMaxChars: PROFILE_DEFAULTS.toolInputMaxChars,
+  outputMaxChars: PROFILE_DEFAULTS.toolOutputMaxChars,
+  errorMaxChars: PROFILE_DEFAULTS.toolErrorMaxChars,
+}
+
+let _cachedToolLogLimits: ToolLogLimits = { ...DEFAULT_TOOL_LOG_LIMITS }
+let _toolLogLimitsCachedAt = 0
+const TOOL_LOG_LIMITS_CACHE_TTL_MS = 30_000
+
+/**
+ * Returns the tool log truncation limits from the profile, cached for 30 seconds
+ * to avoid a DB read on every stream event.
+ */
+export function getToolLogLimits(): ToolLogLimits {
+  const now = Date.now()
+  if (now - _toolLogLimitsCachedAt < TOOL_LOG_LIMITS_CACHE_TTL_MS) {
+    return _cachedToolLogLimits
+  }
+  try {
+    const profile = appDb.select().from(profiles).get()
+    _cachedToolLogLimits = {
+      inputMaxChars: profile?.toolInputMaxChars ?? DEFAULT_TOOL_LOG_LIMITS.inputMaxChars,
+      outputMaxChars: profile?.toolOutputMaxChars ?? DEFAULT_TOOL_LOG_LIMITS.outputMaxChars,
+      errorMaxChars: profile?.toolErrorMaxChars ?? DEFAULT_TOOL_LOG_LIMITS.errorMaxChars,
+    }
+  } catch {
+    // DB read failed — keep using previous cached values.
+  }
+  _toolLogLimitsCachedAt = now
+  return _cachedToolLogLimits
+}
+
 export function emitPhaseLog(
   ticketId: string,
   _ticketExternalId: string,
@@ -266,7 +307,13 @@ function removeLiveTextPart(
   }
 }
 
-export function formatToolState(event: Extract<StreamEvent, { type: 'tool' }>): string {
+export function formatToolState(
+  event: Extract<StreamEvent, { type: 'tool' }>,
+  limits?: Partial<ToolLogLimits>,
+): string {
+  const resolved = limits
+    ? { ...getToolLogLimits(), ...limits }
+    : getToolLogLimits()
   const tool = event.tool ?? 'tool'
   const status = event.status ?? 'unknown'
   const title = event.title
@@ -275,15 +322,15 @@ export function formatToolState(event: Extract<StreamEvent, { type: 'tool' }>): 
   const lines = [`[TOOL] ${tool} ${status}${title ? `: ${title}` : ''}`]
 
   if (event.input && Object.keys(event.input).length > 0) {
-    lines.push('Input:', stringifyToolDetail(event.input, 4000))
+    lines.push('Input:', stringifyToolDetail(event.input, resolved.inputMaxChars))
   }
 
   if (output) {
-    lines.push('Output:', stringifyToolDetail(output, 12000))
+    lines.push('Output:', stringifyToolDetail(output, resolved.outputMaxChars))
   }
 
   if (error) {
-    lines.push('Error:', stringifyToolDetail(error, 6000))
+    lines.push('Error:', stringifyToolDetail(error, resolved.errorMaxChars))
   }
 
   if (lines.length === 1) {

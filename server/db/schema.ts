@@ -17,6 +17,9 @@ export const profiles = sqliteTable('profiles', {
   maxPrdCoveragePasses: integer('max_prd_coverage_passes').default(PROFILE_DEFAULTS.maxPrdCoveragePasses),
   maxBeadsCoveragePasses: integer('max_beads_coverage_passes').default(PROFILE_DEFAULTS.maxBeadsCoveragePasses),
   maxIterations: integer('max_iterations').default(PROFILE_DEFAULTS.maxIterations),
+  toolInputMaxChars: integer('tool_input_max_chars').default(PROFILE_DEFAULTS.toolInputMaxChars),
+  toolOutputMaxChars: integer('tool_output_max_chars').default(PROFILE_DEFAULTS.toolOutputMaxChars),
+  toolErrorMaxChars: integer('tool_error_max_chars').default(PROFILE_DEFAULTS.toolErrorMaxChars),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 })

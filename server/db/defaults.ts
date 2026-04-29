@@ -11,4 +11,7 @@ export const PROFILE_DEFAULTS = {
   maxPrdCoveragePasses: 5,
   maxBeadsCoveragePasses: 5,
   maxIterations: 5,
+  toolInputMaxChars: 4000,
+  toolOutputMaxChars: 12_000,
+  toolErrorMaxChars: 6_000,
 } as const

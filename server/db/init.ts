@@ -140,6 +140,9 @@ export function initializeDatabase() {
   ensureColumn('profiles', 'execution_setup_timeout', `INTEGER DEFAULT ${PROFILE_DEFAULTS.executionSetupTimeout}`)
   ensureColumn('profiles', 'main_implementer_variant', 'TEXT')
   ensureColumn('profiles', 'council_member_variants', 'TEXT')
+  ensureColumn('profiles', 'tool_input_max_chars', `INTEGER DEFAULT ${PROFILE_DEFAULTS.toolInputMaxChars}`)
+  ensureColumn('profiles', 'tool_output_max_chars', `INTEGER DEFAULT ${PROFILE_DEFAULTS.toolOutputMaxChars}`)
+  ensureColumn('profiles', 'tool_error_max_chars', `INTEGER DEFAULT ${PROFILE_DEFAULTS.toolErrorMaxChars}`)
 
   logIfVerbose('[db] App database initialized')
 }

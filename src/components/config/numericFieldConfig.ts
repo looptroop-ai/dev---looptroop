@@ -90,6 +90,30 @@ export const numericFields = {
     fromStore: (v: number) => String(v),
     toStore: (v: number) => v,
   },
+  toolInputMaxChars: {
+    min: 500,
+    max: 50_000,
+    label: 'Tool Input Max Chars',
+    docsPath: '/execution-loop#tool-log-truncation',
+    fromStore: (v: number) => String(v),
+    toStore: (v: number) => v,
+  },
+  toolOutputMaxChars: {
+    min: 1000,
+    max: 100_000,
+    label: 'Tool Output Max Chars',
+    docsPath: '/execution-loop#tool-log-truncation',
+    fromStore: (v: number) => String(v),
+    toStore: (v: number) => v,
+  },
+  toolErrorMaxChars: {
+    min: 500,
+    max: 50_000,
+    label: 'Tool Error Max Chars',
+    docsPath: '/execution-loop#tool-log-truncation',
+    fromStore: (v: number) => String(v),
+    toStore: (v: number) => v,
+  },
 } as const satisfies Record<string, NumericFieldConfig>
 
 export type NumericFieldKey = keyof typeof numericFields
@@ -121,5 +145,8 @@ export function buildInitialRawNumeric(data: Record<string, unknown>): Record<st
     maxCoveragePasses: String(data.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses),
     maxPrdCoveragePasses: String(data.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses),
     maxBeadsCoveragePasses: String(data.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses),
+    toolInputMaxChars: String(data.toolInputMaxChars ?? PROFILE_DEFAULTS.toolInputMaxChars),
+    toolOutputMaxChars: String(data.toolOutputMaxChars ?? PROFILE_DEFAULTS.toolOutputMaxChars),
+    toolErrorMaxChars: String(data.toolErrorMaxChars ?? PROFILE_DEFAULTS.toolErrorMaxChars),
   }
 }

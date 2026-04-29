@@ -44,6 +44,9 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
     maxPrdCoveragePasses: profile?.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
     maxBeadsCoveragePasses: profile?.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
     maxIterations: profile?.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
+    toolInputMaxChars: profile?.toolInputMaxChars ?? PROFILE_DEFAULTS.toolInputMaxChars,
+    toolOutputMaxChars: profile?.toolOutputMaxChars ?? PROFILE_DEFAULTS.toolOutputMaxChars,
+    toolErrorMaxChars: profile?.toolErrorMaxChars ?? PROFILE_DEFAULTS.toolErrorMaxChars,
   })
 
   const [rawNumeric, setRawNumeric] = useState<Record<string, string>>(() => buildInitialRawNumeric({ ...formData }))
@@ -89,6 +92,9 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       maxPrdCoveragePasses: profile.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
       maxBeadsCoveragePasses: profile.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
       maxIterations: profile.maxIterations ?? PROFILE_DEFAULTS.maxIterations,
+      toolInputMaxChars: profile.toolInputMaxChars ?? PROFILE_DEFAULTS.toolInputMaxChars,
+      toolOutputMaxChars: profile.toolOutputMaxChars ?? PROFILE_DEFAULTS.toolOutputMaxChars,
+      toolErrorMaxChars: profile.toolErrorMaxChars ?? PROFILE_DEFAULTS.toolErrorMaxChars,
     })
     setRawNumeric(buildInitialRawNumeric({
       perIterationTimeout: profile.perIterationTimeout ?? PROFILE_DEFAULTS.perIterationTimeout,
@@ -101,6 +107,9 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
       maxCoveragePasses: profile.maxCoveragePasses ?? PROFILE_DEFAULTS.maxCoveragePasses,
       maxPrdCoveragePasses: profile.maxPrdCoveragePasses ?? PROFILE_DEFAULTS.maxPrdCoveragePasses,
       maxBeadsCoveragePasses: profile.maxBeadsCoveragePasses ?? PROFILE_DEFAULTS.maxBeadsCoveragePasses,
+      toolInputMaxChars: profile.toolInputMaxChars ?? PROFILE_DEFAULTS.toolInputMaxChars,
+      toolOutputMaxChars: profile.toolOutputMaxChars ?? PROFILE_DEFAULTS.toolOutputMaxChars,
+      toolErrorMaxChars: profile.toolErrorMaxChars ?? PROFILE_DEFAULTS.toolErrorMaxChars,
     }))
     // Restore variant state
     setMainVariant(profile.mainImplementerVariant ?? undefined)
@@ -383,6 +392,17 @@ export function ProfileSetup({ onClose }: ProfileSetupProps) {
               tooltip="Runs a one-time setup step after pre-flight and before coding. It can install toolchains, warm caches, and prepare repository-local runtime artifacts when the approved setup plan requires them."
             />
           </div>
+
+          <Separator />
+
+          {/* ── Logging ── */}
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Logging</div>
+          <div className="grid grid-cols-2 gap-3">
+            <NumericField fieldKey="toolInputMaxChars" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Max characters for tool input in logs (500–50K)." />
+            <NumericField fieldKey="toolOutputMaxChars" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Max characters for tool output in logs (1K–100K)." />
+            <NumericField fieldKey="toolErrorMaxChars" rawNumeric={rawNumeric} onChange={(k, v) => setRawNumeric(prev => ({ ...prev, [k]: v }))} hint="Max characters for tool error in logs (500–50K)." />
+          </div>
+
 
           {openCodeStatus && (
             <>

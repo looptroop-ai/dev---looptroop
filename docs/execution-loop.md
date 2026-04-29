@@ -163,6 +163,10 @@ Per-iteration timeout is the maximum allowed runtime for one bead attempt in `CO
 
 Max bead retries defines how many fresh-session re-attempts LoopTroop allows for a bead before it enters `BLOCKED_ERROR`. The same limit also bounds final-test retries so execution remains deterministic.
 
+### Tool Log Truncation
+
+The system restricts the maximum character length for tool inputs, outputs, and errors within logs to prevent infinite runaway logs. `Tool Input Max Chars`, `Tool Output Max Chars` and `Tool Error Max Chars` configure these hard caps.
+
 ## Why This Loop Exists
 
 The execution loop exists because coding models are good at focused work but unreliable at long self-healing conversations. LoopTroop narrows the task, constrains the runtime state, and bounds retries so the system can recover without pretending the model has infinite patience or perfect memory.

@@ -144,7 +144,7 @@ describe('ProfileSetup', () => {
     await renderProfileSetup()
 
     const docsLinks = screen.getAllByRole('link', { name: /Open documentation for / })
-    expect(docsLinks).toHaveLength(12)
+    expect(docsLinks).toHaveLength(15)
 
     const mainImplementerLink = screen.getByRole('link', { name: 'Open documentation for Main Implementer Model' })
     expect(mainImplementerLink).toHaveAttribute('href', `${__LOOPTROOP_DOCS_ORIGIN__}/llm-council#main-implementer`)

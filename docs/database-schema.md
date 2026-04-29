@@ -47,6 +47,9 @@ Key columns:
 - `max_prd_coverage_passes`
 - `max_beads_coverage_passes`
 - `max_iterations`
+- `tool_input_max_chars`
+- `tool_output_max_chars`
+- `tool_error_max_chars`
 
 This table provides the baseline configuration that projects and tickets inherit from when they start.
 
