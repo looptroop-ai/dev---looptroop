@@ -23,7 +23,7 @@ function logCmd(
 }
 import { getProjectContextById } from './projects'
 import { opencodeSessions, phaseArtifacts, projects, ticketErrorOccurrences, ticketStatusHistory, tickets } from '../db/schema'
-import { getTicketDir, getTicketWorktreePath } from './paths'
+import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { lockTicketModelSelection, resolveTicketBaseBranch } from '../ticket/metadata'
 import type {
@@ -409,5 +409,31 @@ export function deleteTicket(ticketRef: string): boolean {
     tx.delete(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, localTicketId)).run()
     tx.delete(tickets).where(eq(tickets.id, localTicketId)).run()
   })
+  return true
+}
+
+export function cleanupCanceledTicketData(
+  ticketRef: string,
+  opts: { deleteContent?: boolean; deleteLog?: boolean },
+): boolean {
+  const context = getTicketContext(ticketRef)
+  if (!context) return false
+
+  const { localTicketId, projectDb, projectRoot, externalId } = context
+  const branchName = context.localTicket.branchName
+
+  if (opts.deleteContent) {
+    removeTicketFilesystem(projectRoot, externalId, branchName)
+    projectDb.transaction((tx) => {
+      tx.delete(phaseArtifacts).where(eq(phaseArtifacts.ticketId, localTicketId)).run()
+      tx.delete(opencodeSessions).where(eq(opencodeSessions.ticketId, localTicketId)).run()
+    })
+  } else if (opts.deleteLog) {
+    const logPath = getTicketExecutionLogPath(projectRoot, externalId)
+    if (existsSync(logPath)) {
+      rmSync(logPath, { force: true })
+    }
+  }
+
   return true
 }

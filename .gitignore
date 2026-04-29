@@ -48,6 +48,11 @@ Thumbs.db
 .agent/
 .agents/
 .claude/
+.cursor/
+.windsurfer/
+.roomodes
+*.aider*
+*.bak
 
 # Removed repo metadata/assets
 /CITATION.cff

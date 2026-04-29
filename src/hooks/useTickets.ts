@@ -171,6 +171,24 @@ async function ticketAction(id: string, action: WorkflowAction): Promise<TicketA
   return res.json()
 }
 
+interface CancelTicketOptions {
+  deleteContent?: boolean
+  deleteLog?: boolean
+}
+
+async function cancelTicket(id: string, options: CancelTicketOptions = {}): Promise<TicketActionResponse> {
+  const res = await fetch(`/api/tickets/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deleteContent: options.deleteContent ?? false, deleteLog: options.deleteLog ?? false }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to cancel ticket')
+  }
+  return res.json()
+}
+
 async function deleteTicket(id: string): Promise<{ success: boolean; ticketId: string }> {
   const res = await fetch(`/api/tickets/${id}`, { method: 'DELETE' })
   if (!res.ok) {
@@ -281,6 +299,28 @@ export function useTicketAction() {
   return useMutation({
     mutationFn: ({ id, action }: { id: string; action: WorkflowAction }) =>
       ticketAction(id, action),
+    onSuccess: (result, variables) => {
+      if (result.ticket) {
+        mergeTicketInCache<Ticket>(queryClient, result.ticket)
+      }
+
+      const nextStatus = result.state ?? result.status
+      if (nextStatus) {
+        const ticketId = result.ticketId || variables.id
+        patchTicketStatusInCache<Ticket>(queryClient, ticketId, nextStatus)
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({ queryKey: ['ticket', variables.id] })
+    },
+  })
+}
+
+export function useCancelTicket() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, options }: { id: string; options?: CancelTicketOptions }) =>
+      cancelTicket(id, options),
     onSuccess: (result, variables) => {
       if (result.ticket) {
         mergeTicketInCache<Ticket>(queryClient, result.ticket)

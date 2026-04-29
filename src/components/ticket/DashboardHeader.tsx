@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useUI } from '@/context/useUI'
-import { useTicketAction, useUpdateTicket } from '@/hooks/useTickets'
+import { useTicketAction, useCancelTicket, useUpdateTicket } from '@/hooks/useTickets'
 import type { Ticket } from '@/hooks/useTickets'
 import { useProfile } from '@/hooks/useProfile'
 import { useProjects } from '@/hooks/useProjects'
@@ -95,11 +95,14 @@ function CopyableDescription({ description }: { description: string }) {
 
 export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const { dispatch } = useUI()
-  const { mutate: performAction, isPending } = useTicketAction()
+  const { isPending } = useTicketAction()
+  const { mutate: cancelTicket, isPending: isCancelPending } = useCancelTicket()
   const { mutateAsync: updateTicket } = useUpdateTicket()
   const { data: profile } = useProfile()
   const [showDetails, setShowDetails] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [deleteContent, setDeleteContent] = useState(false)
+  const [deleteLog, setDeleteLog] = useState(false)
   const [showBottomFade, setShowBottomFade] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(ticket.title)
@@ -150,6 +153,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   }, [handleScroll])
   const canCancel = ticket.availableActions.includes('cancel')
   const canDelete = NON_CANCELABLE.includes(ticket.status)
+  const isActionPending = isPending || isCancelPending
   const { data: projects = [] } = useProjects()
   const project = projects.find(p => p.id === ticket.projectId)
   const statusLabel = getStatusUserLabel(ticket.status, {
@@ -200,7 +204,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
           ticket={ticket}
           canCancel={canCancel}
           canDelete={canDelete}
-          isPending={isPending}
+          isPending={isActionPending}
           onShowDetails={() => setShowDetails(true)}
           onCancelConfirm={() => setShowCancelConfirm(true)}
           onClose={() => dispatch({ type: 'CLOSE_TICKET' })}
@@ -401,22 +405,80 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
-        <DialogContent className="max-w-sm">
+      <Dialog
+        open={showCancelConfirm}
+        onOpenChange={(open) => {
+          setShowCancelConfirm(open)
+          if (!open) {
+            setDeleteContent(false)
+            setDeleteLog(false)
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Cancel Ticket</DialogTitle>
+            <DialogDescription className="sr-only">
+              Confirm cancellation and choose optional cleanup actions.
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Are you sure you want to cancel this ticket? This action cannot be undone. The ticket will be moved to the Done column with Canceled status.
+            The ticket will be stopped and moved to Canceled. No further AI execution will occur.
+            Artifacts generated up to this point are preserved by default.
           </p>
+          <div className="mt-3 space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border border-border bg-background accent-destructive cursor-pointer"
+                checked={deleteContent}
+                onChange={(e) => setDeleteContent(e.target.checked)}
+                data-testid="delete-content-checkbox"
+              />
+              <span className="text-sm leading-snug text-muted-foreground group-hover:text-foreground transition-colors">
+                <span className="font-medium text-foreground">Delete AI-generated artifacts and worktree</span>
+                <br />
+                Permanently removes all AI-generated content stored for this ticket — interview questions and answers, PRD drafts, beads plan entries — and deletes the isolated git worktree including its branch and any code written to it. This cannot be undone.
+              </span>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border border-border bg-background accent-destructive cursor-pointer"
+                checked={deleteLog}
+                onChange={(e) => setDeleteLog(e.target.checked)}
+                data-testid="delete-log-checkbox"
+              />
+              <span className="text-sm leading-snug text-muted-foreground group-hover:text-foreground transition-colors">
+                <span className="font-medium text-foreground">Delete execution log</span>
+                <br />
+                Permanently removes the execution log file containing all AI session output, tool call history, and phase-by-phase reasoning transcripts. The log viewer will show no history for this ticket after deletion.
+              </span>
+            </label>
+          </div>
           <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" size="sm" onClick={() => setShowCancelConfirm(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowCancelConfirm(false)
+                setDeleteContent(false)
+                setDeleteLog(false)
+              }}
+            >
               Keep Ticket
             </Button>
-            <Button variant="destructive" size="sm" onClick={() => {
-              performAction({ id: ticket.id, action: 'cancel' })
-              setShowCancelConfirm(false)
-            }}>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isCancelPending}
+              onClick={() => {
+                cancelTicket({ id: ticket.id, options: { deleteContent, deleteLog } })
+                setShowCancelConfirm(false)
+                setDeleteContent(false)
+                setDeleteLog(false)
+              }}
+            >
               Yes, Cancel Ticket
             </Button>
           </div>

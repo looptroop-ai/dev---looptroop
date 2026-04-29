@@ -32,6 +32,7 @@ import {
   getTicketPaths,
   patchTicket,
   deleteTicket as deleteStoredTicket,
+  cleanupCanceledTicketData,
   listPhaseArtifacts,
   listPhaseAttempts,
   listTickets,
@@ -100,6 +101,11 @@ export const updateTicketSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().optional(),
   priority: z.number().int().min(1).max(5).optional(),
+})
+
+export const cancelTicketSchema = z.object({
+  deleteContent: z.boolean().default(false),
+  deleteLog: z.boolean().default(false),
 })
 
 const uiStateScopeSchema = z.object({
@@ -966,12 +972,21 @@ export function handleApproveTicket(c: Context) {
   return respondWithState(c, ticketId, 'Approve action accepted')
 }
 
-export function handleCancelTicket(c: Context) {
+export async function handleCancelTicket(c: Context) {
   const ticketId = getTicketParam(c)
   const ticket = getTicketByRef(ticketId)
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
   if (['COMPLETED', 'CANCELED'].includes(ticket.status)) {
     return c.json({ error: 'Cannot cancel a terminal ticket' }, 409)
+  }
+
+  let deleteContent = false
+  let deleteLog = false
+  const body = await c.req.json().catch(() => ({}))
+  const cancelOptions = cancelTicketSchema.safeParse(body)
+  if (cancelOptions.success) {
+    deleteContent = cancelOptions.data.deleteContent
+    deleteLog = cancelOptions.data.deleteLog
   }
 
   try {
@@ -984,6 +999,14 @@ export function handleCancelTicket(c: Context) {
   } catch (err) {
     console.error(`[tickets] Failed to send CANCEL to ticket ${ticketId}:`, err)
     return c.json({ error: 'Failed to cancel ticket', details: String(err) }, 500)
+  }
+
+  if (deleteContent || deleteLog) {
+    try {
+      cleanupCanceledTicketData(ticketId, { deleteContent, deleteLog })
+    } catch (err) {
+      console.error(`[tickets] Failed to cleanup canceled ticket ${ticketId}:`, err)
+    }
   }
 
   return respondWithState(c, ticketId, 'Cancel action accepted')

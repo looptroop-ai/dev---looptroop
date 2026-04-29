@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { safeAtomicWrite } from '../io/atomicWrite'
-import { detectGitBaseBranch, getTicketDir } from '../storage/paths'
+import { detectGitBaseBranch, getTicketDir, getTicketWorktreePath } from '../storage/paths'
 
 export interface TicketMetaRecord {
   externalId?: string
@@ -118,7 +118,10 @@ export function resolveTicketBaseBranch(projectRoot: string, externalId: string)
   }
 
   const detected = detectGitBaseBranch(projectRoot)
-  updateTicketMeta(projectRoot, externalId, { baseBranch: detected })
+  // Only persist when the worktree still exists; otherwise we'd recreate deleted directories.
+  if (existsSync(getTicketWorktreePath(projectRoot, externalId))) {
+    updateTicketMeta(projectRoot, externalId, { baseBranch: detected })
+  }
   return detected
 }
 

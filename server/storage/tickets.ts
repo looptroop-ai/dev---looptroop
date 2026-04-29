@@ -28,6 +28,7 @@ export {
   resolveLatestTicketErrorOccurrence,
   lockTicketStartConfiguration,
   deleteTicket,
+  cleanupCanceledTicketData,
 } from './ticketMutations'
 
 export {

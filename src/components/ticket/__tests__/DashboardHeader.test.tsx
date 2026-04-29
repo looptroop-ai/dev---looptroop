@@ -8,6 +8,7 @@ import { DashboardHeader } from '../DashboardHeader'
 const mockUseProjects = vi.hoisted(() => vi.fn())
 const mockUseProfile = vi.hoisted(() => vi.fn())
 const mockUseTicketAction = vi.hoisted(() => vi.fn())
+const mockUseCancelTicket = vi.hoisted(() => vi.fn())
 const mockUseUpdateTicket = vi.hoisted(() => vi.fn())
 
 vi.mock('@/hooks/useProjects', () => ({
@@ -23,9 +24,25 @@ vi.mock('@/hooks/useTickets', async () => {
   return {
     ...actual,
     useTicketAction: () => mockUseTicketAction(),
+    useCancelTicket: () => mockUseCancelTicket(),
     useUpdateTicket: () => mockUseUpdateTicket(),
   }
 })
+
+function makeUIValue(ticketId: string, externalId: string): UIContextValue {
+  return {
+    state: {
+      selectedTicketId: ticketId,
+      selectedTicketExternalId: externalId,
+      sidebarOpen: true,
+      activeView: 'ticket',
+      logPanelHeight: 320,
+      filters: { projectId: null, status: null, search: '' },
+      theme: 'system',
+    },
+    dispatch: vi.fn(),
+  }
+}
 
 describe('DashboardHeader', () => {
   beforeAll(() => {
@@ -61,6 +78,7 @@ describe('DashboardHeader', () => {
     })
     mockUseProfile.mockReturnValue({ data: null })
     mockUseTicketAction.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    mockUseCancelTicket.mockReturnValue({ mutate: vi.fn(), isPending: false })
     mockUseUpdateTicket.mockReturnValue({ mutateAsync: vi.fn() })
   })
 
@@ -69,25 +87,9 @@ describe('DashboardHeader', () => {
       status: 'DRAFTING_PRD',
       availableActions: ['cancel'],
     })
-    const uiValue: UIContextValue = {
-      state: {
-        selectedTicketId: ticket.id,
-        selectedTicketExternalId: ticket.externalId,
-        sidebarOpen: true,
-        activeView: 'ticket',
-        logPanelHeight: 320,
-        filters: {
-          projectId: null,
-          status: null,
-          search: '',
-        },
-        theme: 'system',
-      },
-      dispatch: vi.fn(),
-    }
 
     renderWithProviders(
-      <UIContext.Provider value={uiValue}>
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
         <DashboardHeader ticket={ticket} />
       </UIContext.Provider>,
     )
@@ -101,5 +103,120 @@ describe('DashboardHeader', () => {
     expect(within(titleSection as HTMLElement).getByText(ticket.title)).toBeInTheDocument()
     expect(within(projectSection as HTMLElement).getByText('Acme Console')).toBeInTheDocument()
     expect(within(projectSection as HTMLElement).getByText('🧭')).toBeInTheDocument()
+  })
+
+  it('shows the cancel button labeled "Cancel…" when cancel action is available', () => {
+    const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    expect(screen.getByRole('button', { name: /cancel…/i })).toBeInTheDocument()
+  })
+
+  it('opens cancel confirmation dialog with both checkboxes unchecked', () => {
+    const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel…/i }))
+
+    expect(screen.getByText('Cancel Ticket')).toBeInTheDocument()
+    const deleteContentCheckbox = screen.getByTestId('delete-content-checkbox') as HTMLInputElement
+    const deleteLogCheckbox = screen.getByTestId('delete-log-checkbox') as HTMLInputElement
+    expect(deleteContentCheckbox.checked).toBe(false)
+    expect(deleteLogCheckbox.checked).toBe(false)
+  })
+
+  it('calls cancelTicket with deleteContent=false and deleteLog=false by default', () => {
+    const cancelMutate = vi.fn()
+    mockUseCancelTicket.mockReturnValue({ mutate: cancelMutate, isPending: false })
+
+    const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel…/i }))
+    fireEvent.click(screen.getByRole('button', { name: /yes, cancel ticket/i }))
+
+    expect(cancelMutate).toHaveBeenCalledWith({
+      id: ticket.id,
+      options: { deleteContent: false, deleteLog: false },
+    })
+  })
+
+  it('passes deleteContent=true when the checkbox is checked before confirming', () => {
+    const cancelMutate = vi.fn()
+    mockUseCancelTicket.mockReturnValue({ mutate: cancelMutate, isPending: false })
+
+    const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel…/i }))
+    fireEvent.click(screen.getByTestId('delete-content-checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /yes, cancel ticket/i }))
+
+    expect(cancelMutate).toHaveBeenCalledWith({
+      id: ticket.id,
+      options: { deleteContent: true, deleteLog: false },
+    })
+  })
+
+  it('passes deleteLog=true when only the log checkbox is checked', () => {
+    const cancelMutate = vi.fn()
+    mockUseCancelTicket.mockReturnValue({ mutate: cancelMutate, isPending: false })
+
+    const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel…/i }))
+    fireEvent.click(screen.getByTestId('delete-log-checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /yes, cancel ticket/i }))
+
+    expect(cancelMutate).toHaveBeenCalledWith({
+      id: ticket.id,
+      options: { deleteContent: false, deleteLog: true },
+    })
+  })
+
+  it('resets checkboxes to unchecked when dialog is closed via Keep Ticket', () => {
+    const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    // Open and check a box, then close
+    fireEvent.click(screen.getByRole('button', { name: /cancel…/i }))
+    fireEvent.click(screen.getByTestId('delete-content-checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /keep ticket/i }))
+
+    // Re-open and verify the box is reset
+    fireEvent.click(screen.getByRole('button', { name: /cancel…/i }))
+    const deleteContentCheckbox = screen.getByTestId('delete-content-checkbox') as HTMLInputElement
+    expect(deleteContentCheckbox.checked).toBe(false)
   })
 })

@@ -166,7 +166,7 @@ Example UI-state response:
 | --- | --- | --- |
 | `POST` | `/api/tickets/:id/start` | Starts a `DRAFT` ticket using locked profile and project settings |
 | `POST` | `/api/tickets/:id/approve` | Generic workflow approval endpoint |
-| `POST` | `/api/tickets/:id/cancel` | Cancel active work |
+| `POST` | `/api/tickets/:id/cancel` | Cancel active work — accepts an optional JSON body (see below) |
 | `POST` | `/api/tickets/:id/approve-interview` | Approve interview artifact |
 | `POST` | `/api/tickets/:id/approve-prd` | Approve PRD artifact |
 | `POST` | `/api/tickets/:id/approve-beads` | Approve bead plan artifact |
@@ -176,6 +176,20 @@ Example UI-state response:
 | `POST` | `/api/tickets/:id/verify` | Currently handled by the merge handler alias |
 | `POST` | `/api/tickets/:id/retry` | Retry a blocked ticket or failed phase |
 | `POST` | `/api/tickets/:id/dev-event` | Development event injection endpoint |
+
+The cancel endpoint accepts an optional JSON request body to trigger cleanup at cancellation time. Both fields default to `false`; the ticket record itself is never deleted.
+
+```json
+{
+  "deleteContent": false,
+  "deleteLog": false
+}
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `deleteContent` | `boolean` | `false` | Permanently removes all AI-generated artifacts (interview Q&A, PRD drafts, beads plan) from the database and deletes the isolated git worktree and its branch |
+| `deleteLog` | `boolean` | `false` | Permanently removes the execution log file (`execution-log.jsonl`) for this ticket. This is only effective when the worktree still exists; if `deleteContent` is also `true` the worktree removal already covers the log |
 
 ### Interview And Planning Editing
 

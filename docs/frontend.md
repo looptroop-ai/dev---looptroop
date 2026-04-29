@@ -178,6 +178,21 @@ The current timeline group order is To Do, Discovery, Interview, Specs (PRD), Bl
 
 This is why keeping the docs aligned with `workflowMeta` matters: the UI is built around that shared metadata contract.
 
+## Ticket Cancel Confirmation Dialog
+
+The cancel button in `DashboardHeader` is labeled **"Cancel…"** (the ellipsis signals that a dialog will open before any action is taken).
+
+Clicking the button opens a confirmation dialog with two optional, unchecked-by-default cleanup checkboxes:
+
+| Checkbox | Effect when checked |
+| --- | --- |
+| **Delete AI-generated artifacts and worktree** | Permanently removes interview Q&A, PRD drafts, and beads plan entries from the database, and deletes the isolated git worktree (including its branch and any code written to it) |
+| **Delete execution log** | Permanently removes the `execution-log.jsonl` file for this ticket; effective only when the worktree still exists (worktree removal via the first checkbox already covers the log) |
+
+Both options default to unchecked — canceling without checking anything preserves all artifacts exactly as the basic cancel behavior did before.
+
+The dialog calls `useCancelTicket` which POSTs `{ deleteContent, deleteLog }` to `POST /api/tickets/:id/cancel`. The hook invalidates the ticket and ticket-list queries on success.
+
 ## Related Docs
 
 - [API Reference](api-reference.md)

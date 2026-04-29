@@ -869,23 +869,24 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   CANCELED: {
-    overview: 'The ticket was stopped by user action before normal completion and now sits in a terminal canceled state. All progress and artifacts created up to the cancellation point are preserved — nothing is deleted. You can still review the partial lifecycle to understand what was accomplished before cancellation.',
+    overview: 'The ticket was stopped by user action before normal completion and now sits in a terminal canceled state. By default, all progress and artifacts created up to the cancellation point are preserved. At cancellation time the user may optionally choose to delete AI-generated artifacts (interview results, PRD drafts, beads plan, worktree code) and/or the execution log.',
     steps: [
       'Cancellation Recording: LoopTroop records the cancellation event, including the phase from which cancellation was triggered, the timestamp, and any active sessions that were terminated.',
       'Active Session Cleanup: If AI sessions were running when cancellation was triggered (e.g., during a council phase or coding), those sessions are terminated gracefully.',
-      'History Preservation: The UI preserves the completed portion of the lifecycle for review. All artifacts generated before cancellation (interview results, PRD drafts, beads plans, partial execution logs) remain accessible through the navigator.',
+      'Optional Cleanup: If requested at cancellation time, AI-generated artifacts (interview Q&A, PRD drafts, beads plan, worktree code and its git branch) and/or the execution log file may be permanently deleted. Both options are opt-in and unchecked by default.',
+      'History Preservation: Unless the user explicitly chose to delete them, all artifacts generated before cancellation (interview results, PRD drafts, beads plans, execution logs) remain accessible through the navigator.',
       'Terminal State: No more planning or execution actions are allowed once cancellation is finalized. The ticket cannot be restarted from the canceled state.',
     ],
     outputs: [
       'Terminal "canceled" status — the workflow has been permanently stopped by user action.',
-      'Preserved history up to the cancellation point — all artifacts generated before cancellation remain accessible.',
+      'Preserved history up to the cancellation point — all artifacts generated before cancellation remain accessible unless the user chose to delete them at cancellation time.',
       'No additional workflow progress or artifact generation.',
     ],
     transitions: [
       'None — this is a terminal state. There are no forward workflow transitions from Canceled.',
     ],
     notes: [
-      'Context available for reference: Ticket Details only (though all artifacts generated before cancellation are preserved in the workspace).',
+      'Context available for reference: Ticket Details only (though all artifacts generated before cancellation are preserved in the workspace by default).',
       'Cancellation is available from most phases — you can cancel during planning, approval, execution, or error recovery.',
       'Canceled tickets cannot be restarted. If you want to retry the work, create a new ticket.',
     ],
@@ -906,7 +907,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     transitions: [
       'Retry → Previous Status: Retry returns the workflow to the previously blocked status. The failed phase is re-entered and re-attempted from the beginning of that phase\'s logic.',
-      'Cancel → Canceled: Cancel moves the ticket to the terminal Canceled state, preserving all artifacts and error history.',
+      'Cancel → Canceled: Cancel moves the ticket to the terminal Canceled state. Artifacts and error history are preserved by default; the cancellation dialog offers optional cleanup of AI-generated artifacts and/or the execution log.',
     ],
     notes: [
       'Past error occurrences remain reviewable even after the ticket moves on (via retry) or is canceled — the error history is never deleted.',
@@ -1338,7 +1339,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'CANCELED',
     label: 'Canceled',
-    description: 'Ticket canceled by user action.',
+    description: 'Ticket canceled by user action. Artifacts are preserved by default; optional cleanup is available at cancellation time.',
     details: WORKFLOW_PHASE_DETAILS.CANCELED,
     kanbanPhase: 'done',
     groupId: 'done',

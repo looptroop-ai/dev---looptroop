@@ -49,7 +49,7 @@ export function TicketActions({ ticket, canCancel, canDelete, isPending, onShowD
           title="Cancel this ticket"
         >
           <Ban className="h-3.5 w-3.5" />
-          <span className="text-xs">Cancel</span>
+          <span className="text-xs">Cancel…</span>
         </Button>
       )}
       <button
