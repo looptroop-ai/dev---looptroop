@@ -432,21 +432,48 @@ export function TicketDashboard() {
         <div className="h-5 w-20 bg-muted animate-pulse rounded-full ml-auto" />
         <div className="h-8 w-8 bg-muted animate-pulse rounded" />
       </div>
-      <div className="flex flex-1 overflow-hidden">
-        {/* Skeleton sidebar */}
-        <div className="w-[280px] border-r border-border p-4 space-y-4 hidden md:block">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className="h-6 w-6 bg-muted animate-pulse rounded-full" />
-              <div className="h-3 bg-muted animate-pulse rounded flex-1" />
-            </div>
-          ))}
+
+      <div
+        className="border-b border-amber-200 bg-amber-50/90 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/40"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex flex-col gap-1">
+          <Badge
+            variant="outline"
+            className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+            title="Waiting for ticket data from the server."
+          >
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Loading ticket...
+          </Badge>
+          <p className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/80">
+            LoopTroop is fetching the ticket state. This might take a few seconds on initial load.
+          </p>
         </div>
-        {/* Skeleton workspace */}
-        <div className="flex-1 p-6 space-y-4">
-          <div className="h-5 w-40 bg-muted animate-pulse rounded" />
-          <div className="h-3 w-72 bg-muted animate-pulse rounded" />
-          <div className="h-32 bg-muted animate-pulse rounded-md mt-4" />
+      </div>
+
+      <div className="relative flex flex-1 flex-col overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 bg-slate-400/12 backdrop-blur-[0.5px] transition-all duration-200 dark:bg-slate-950/16"
+        />
+        <div className="flex flex-1 overflow-hidden">
+          {/* Skeleton sidebar */}
+          <div className="w-[280px] border-r border-border p-4 space-y-4 hidden md:block">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="h-6 w-6 bg-muted animate-pulse rounded-full" />
+                <div className="h-3 bg-muted animate-pulse rounded flex-1" />
+              </div>
+            ))}
+          </div>
+          {/* Skeleton workspace */}
+          <div className="flex-1 p-6 space-y-4">
+            <div className="h-5 w-40 bg-muted animate-pulse rounded" />
+            <div className="h-3 w-72 bg-muted animate-pulse rounded" />
+            <div className="h-32 bg-muted animate-pulse rounded-md mt-4" />
+          </div>
         </div>
       </div>
     </div>
