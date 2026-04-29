@@ -127,16 +127,22 @@ function ProviderGroup({
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const hasQuery = query.trim().length > 0
-  const isCollapsed = hasQuery ? false : collapsed
+  const wasSearchingRef = useRef(false)
+
+  useEffect(() => {
+    if (hasQuery && !wasSearchingRef.current) {
+      setCollapsed(false)
+    }
+    wasSearchingRef.current = hasQuery
+  }, [hasQuery])
+
+  const isCollapsed = collapsed
 
   return (
     <div>
       <div 
         className="sticky top-0 z-10 bg-popover/95 backdrop-blur-sm px-3 py-1.5 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors select-none border-b border-border/40"
-        onClick={() => {
-          if (hasQuery) return
-          setCollapsed(c => !c)
-        }}
+        onClick={() => setCollapsed(c => !c)}
       >
         <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {providerName}
