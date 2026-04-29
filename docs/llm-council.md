@@ -37,6 +37,8 @@ Each council member receives the same allowed context for the stage and produces
 
 This is where LoopTroop deliberately seeks diversity. A single draft tends to encode one model's blind spots. Multiple independent drafts surface alternative framing, edge cases, and decomposition strategies.
 
+PRD drafting has an extra first part: each member first produces its own Full Answers artifact from the approved interview, filling skipped answers when needed. The member then drafts its PRD from that completed answer set. After voting and refinement, the winning model's Full Answers artifact is available read-only from the PRD approval screen as supporting context.
+
 ## Step 2: Structured Voting
 
 Voting is not "pick the one you like." It is a structured evaluation pass over anonymized drafts.
@@ -77,7 +79,7 @@ This is why the council is better understood as a planning discipline than as a 
 | Domain | Main council inputs | Main output |
 | --- | --- | --- |
 | Interview | Ticket details, relevant files | Canonical interview document and question session |
-| PRD | Ticket details, relevant files, approved interview, full answers | Approved PRD |
+| PRD | Ticket details, relevant files, approved interview, member-specific Full Answers | Approved PRD |
 | Beads | Ticket details, relevant files, approved PRD | Expanded bead plan |
 
 Each domain inherits only the artifacts it needs. See [Context Isolation](context-isolation.md) for the exact allowlists.

@@ -134,6 +134,111 @@ describe('PrdApprovalPane', () => {
     expect(screen.queryByRole('button', { name: /Interview Summary/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Foundation Answers/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Structure Answers/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Full Answers/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the winning model full answers artifact as a compact read-only chip', async () => {
+    mockUseTicketArtifacts.mockReturnValue({
+      artifacts: [
+        {
+          id: 910,
+          ticketId: TEST.ticketId,
+          phase: 'DRAFTING_PRD',
+          phaseAttempt: 1,
+          artifactType: 'prd_full_answers',
+          filePath: null,
+          createdAt: '2026-04-03T14:21:00.000Z',
+          updatedAt: '2026-04-03T14:21:00.000Z',
+          content: JSON.stringify({
+            drafts: [
+              {
+                memberId: 'openai/gpt-5.2',
+                outcome: 'completed',
+                content: [
+                  'schema_version: 1',
+                  `ticket_id: "${TEST.externalId}"`,
+                  'artifact: "interview"',
+                  'status: "draft"',
+                  'generated_by:',
+                  '  winner_model: "openai/gpt-5.2"',
+                  '  generated_at: "2026-04-03T14:20:00.000Z"',
+                  'questions:',
+                  '  - id: "Q01"',
+                  '    phase: "Foundation"',
+                  '    prompt: "Which user-owned constraint matters?"',
+                  '    source: "compiled"',
+                  '    follow_up_round: null',
+                  '    answer_type: "free_text"',
+                  '    options: []',
+                  '    answer:',
+                  '      skipped: false',
+                  '      selected_option_ids: []',
+                  '      free_text: "User selected strict validation."',
+                  '      answered_by: "user"',
+                  '      answered_at: "2026-04-03T14:19:00.000Z"',
+                  '  - id: "Q02"',
+                  '    phase: "Foundation"',
+                  '    prompt: "Which fallback path should the PRD assume?"',
+                  '    source: "compiled"',
+                  '    follow_up_round: null',
+                  '    answer_type: "free_text"',
+                  '    options: []',
+                  '    answer:',
+                  '      skipped: false',
+                  '      selected_option_ids: []',
+                  '      free_text: "Use the archive fallback path."',
+                  '      answered_by: "ai_skip"',
+                  '      answered_at: "2026-04-03T14:20:00.000Z"',
+                  'follow_up_rounds: []',
+                  'summary:',
+                  '  goals: []',
+                  '  constraints: []',
+                  '  non_goals: []',
+                  '  final_free_form_answer: ""',
+                  'approval:',
+                  '  approved_by: ""',
+                  '  approved_at: ""',
+                ].join('\n'),
+                questionCount: 2,
+              },
+            ],
+            memberOutcomes: {
+              'openai/gpt-5.2': 'completed',
+            },
+          }),
+        },
+        {
+          id: 911,
+          ticketId: TEST.ticketId,
+          phase: 'REFINING_PRD',
+          phaseAttempt: 1,
+          artifactType: 'prd_winner',
+          filePath: null,
+          createdAt: '2026-04-03T14:22:00.000Z',
+          updatedAt: '2026-04-03T14:22:00.000Z',
+          content: JSON.stringify({ winnerId: 'openai/gpt-5.2' }),
+        },
+      ],
+      isLoading: false,
+    })
+
+    renderWithProviders(<PrdApprovalPane ticket={makeTicket({ status: 'WAITING_PRD_APPROVAL' })} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Test problem statement.')).toBeInTheDocument()
+    })
+
+    const chip = screen.getByRole('button', { name: /Full Answers/i })
+    expect(chip).toHaveTextContent('2')
+
+    fireEvent.click(chip)
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Which user-owned constraint matters?')).toBeInTheDocument()
+    expect(screen.getByText('User selected strict validation.')).toBeInTheDocument()
+    expect(screen.getByText('Which fallback path should the PRD assume?')).toBeInTheDocument()
+    expect(screen.getByText('Use the archive fallback path.')).toBeInTheDocument()
+    expect(screen.getByText(/Answered automatically by AI in Drafting specs status/i)).toBeInTheDocument()
   })
 
   it('lets approval summary sections collapse and re-open', async () => {

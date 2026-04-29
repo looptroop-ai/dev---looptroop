@@ -54,11 +54,11 @@ flowchart TB
     end
 
     subgraph PRD["PRD Group"]
-        PD[DRAFTING_PRD<br/>Fill skipped answers + draft specs]
+        PD[DRAFTING_PRD<br/>Full answers + draft specs]
         PV[COUNCIL_VOTING_PRD<br/>Select best spec]
         PR[REFINING_PRD<br/>Upgrade winner to candidate]
         PC[VERIFYING_PRD_COVERAGE<br/>Versioned revision loop]
-        PA[WAITING_PRD_APPROVAL<br/>Editable PRD approval]
+        PA[WAITING_PRD_APPROVAL<br/>PRD approval + Full Answers context]
     end
 
     subgraph Beads["Beads Group"]
@@ -209,7 +209,7 @@ Two extra guards matter at the user-action layer:
 | Workflow state | durable ticket status plus serialized XState snapshot |
 | Relevant file scan | `.ticket/relevant-files.yaml` plus scan companion artifacts |
 | Interview refinement and answers | `.ticket/interview.yaml`, interview session snapshot, answer state |
-| PRD drafting and approval | `.ticket/prd.yaml`, full answers artifact, PRD coverage history |
+| PRD drafting and approval | `.ticket/prd.yaml`, per-model full answers artifacts, winning Full Answers approval context, PRD coverage history |
 | Beads coverage and approval | `.ticket/beads/<flow>/.beads/issues.jsonl`, beads coverage history, approval receipt |
 | Setup-plan approval | `execution_setup_plan` artifact and approval receipt |
 | Execution runtime | `.ticket/runtime/execution-log.jsonl`, `.ticket/runtime/state.yaml`, execution setup profile, bead notes and diffs |
@@ -284,11 +284,11 @@ This setting caps how many times `VERIFYING_INTERVIEW_COVERAGE` may generate fol
 
 | Status | What happens here | Main outputs | User action | Normal exits |
 | --- | --- | --- | --- | --- |
-| `DRAFTING_PRD` | The system first fills skipped interview answers into a shared full-answers artifact, then each council member independently drafts a PRD candidate from the approved interview. | Full answers artifact, PRD drafts, draft diagnostics. | `cancel` | Valid quorum advances to PRD voting. |
+| `DRAFTING_PRD` | Each council member first creates its own Full Answers artifact by filling skipped interview answers where needed, then drafts a PRD candidate from that member-specific completed interview. | Per-model Full Answers artifacts, PRD drafts, draft diagnostics. | `cancel` | Valid quorum advances to PRD voting. |
 | `COUNCIL_VOTING_PRD` | The council scores anonymized PRD drafts against a weighted requirements rubric and selects the best baseline. | PRD vote artifacts, ranking breakdowns, winner selection. | `cancel` | Winner advances to PRD refinement. |
 | `REFINING_PRD` | The winning PRD model upgrades its own draft by selectively merging stronger requirements, acceptance criteria, tests, and edge cases from the losing drafts. | Refined PRD Candidate v1 and optional diff metadata. | `cancel` | Success advances to PRD coverage. |
 | `VERIFYING_PRD_COVERAGE` | The current PRD candidate is checked against the approved interview and revised in-place when gaps are found. This is a versioned loop capped by configuration. | PRD coverage history, latest PRD candidate, unresolved-gap diagnostics. | `cancel` | Clean or cap-reached advances to PRD approval. |
-| `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, edit the document if needed, and explicitly lock the spec that beads planning will decompose. Post-approval edits remain allowed only before `PRE_FLIGHT_CHECK`; saving from downstream beads planning archives the current approved PRD version and downstream beads attempts, saves and approves the edit, and starts `DRAFTING_BEADS`. | Approved PRD artifact, approval receipt, and read-only archived versions when post-approval edits occur. | `approve`, `cancel` | Approval advances to beads drafting. |
+| `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, optionally open the compact read-only Full Answers chip for the winning model's Part 1 artifact, edit the PRD document if needed, and explicitly lock the spec that beads planning will decompose. Post-approval edits remain allowed only before `PRE_FLIGHT_CHECK`; saving from downstream beads planning archives the current approved PRD version and downstream beads attempts, saves and approves the edit, and starts `DRAFTING_BEADS`. | Approved PRD artifact, approval receipt, winning Full Answers context, and read-only archived versions when post-approval edits occur. | `approve`, `cancel` | Approval advances to beads drafting. |
 
 #### PRD Coverage Passes
 

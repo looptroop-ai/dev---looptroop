@@ -1,5 +1,6 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { QUERY_STALE_TIME_5M } from '@/lib/constants'
@@ -8,11 +9,15 @@ import { CascadeWarning } from '@/components/editor/CascadeWarning'
 import { YamlEditor } from '@/components/editor/YamlEditor'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { CoverageApprovalWarning, resolveCoverageApprovalWarning } from './CoverageApprovalWarning'
+import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
 import { PrdApprovalEditor } from './PrdApprovalEditor'
 import { PrdDocumentView } from './PrdDocumentView'
-import { clearTicketArtifactsCache, useTicketArtifacts } from '@/hooks/useTicketArtifacts'
+import { InterviewDocumentView } from './InterviewDocumentView'
+import { clearTicketArtifactsCache, useTicketArtifacts, type DBartifact } from '@/hooks/useTicketArtifacts'
 import { useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
 import { getCascadeEditWarningMessage } from '@/lib/workflowMeta'
+import type { InterviewDocument } from '@shared/interviewArtifact'
+import { parseInterviewDocument } from '@/lib/interviewDocument'
 import {
   type PrdApprovalDraft,
   type PrdDocument,
@@ -30,6 +35,12 @@ import {
   useDebouncedApprovalUiState,
 } from './approvalHooks'
 import { buildReadableRawDisplayContent } from './rawDisplayContent'
+import {
+  findLatestArtifact,
+  findLatestCompanionArtifact,
+  mergeDraftArtifactContent,
+  mergeVoteArtifactContent,
+} from './artifactCompanionUtils'
 
 type EditTab = 'structured' | 'yaml'
 
@@ -44,6 +55,70 @@ type DiscardTarget =
   | { type: 'close' }
   | { type: 'switch-tab'; tab: EditTab }
   | null
+
+interface FullAnswersArtifact {
+  winnerLabel: string
+  questionCount: number
+  document: InterviewDocument
+}
+
+function parseRecord(content: string | null | undefined): Record<string, unknown> | null {
+  if (!content?.trim()) return null
+  try {
+    const parsed = JSON.parse(content) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function parseWinnerId(content: string | null | undefined): string | null {
+  const parsed = parseRecord(content)
+  const winnerId = typeof parsed?.winnerId === 'string' ? parsed.winnerId.trim() : ''
+  return winnerId || null
+}
+
+function resolvePrdWinnerId(artifacts: DBartifact[]): string | null {
+  const winnerArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === 'prd_winner')
+  const winnerId = parseWinnerId(winnerArtifact?.content)
+  if (winnerId) return winnerId
+
+  const voteArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === 'prd_votes')
+  const voteCompanion = findLatestCompanionArtifact(artifacts, 'prd_votes')
+  const draftArtifact = findLatestArtifact(artifacts, artifact => artifact.artifactType === 'prd_drafts')
+  const draftCompanion = findLatestCompanionArtifact(artifacts, 'prd_drafts')
+  const mergedDraftContent = mergeDraftArtifactContent(draftArtifact?.content, draftCompanion?.content)
+  const mergedVoteContent = mergeVoteArtifactContent(voteArtifact?.content, voteCompanion?.content, mergedDraftContent)
+  return parseWinnerId(mergedVoteContent ?? voteArtifact?.content)
+}
+
+function resolveWinnerFullAnswers(artifacts: DBartifact[]): FullAnswersArtifact | null {
+  const winnerId = resolvePrdWinnerId(artifacts)
+  if (!winnerId) return null
+
+  const fullAnswersArtifact = findLatestArtifact(artifacts, artifact => artifact.phase === 'DRAFTING_PRD' && artifact.artifactType === 'prd_full_answers')
+    ?? findLatestArtifact(artifacts, artifact => artifact.artifactType === 'prd_full_answers')
+  const fullAnswersCompanion = findLatestCompanionArtifact(artifacts, 'prd_full_answers', ['DRAFTING_PRD'])
+    ?? findLatestCompanionArtifact(artifacts, 'prd_full_answers')
+  const mergedFullAnswersContent = mergeDraftArtifactContent(fullAnswersArtifact?.content, fullAnswersCompanion?.content)
+  const parsedFullAnswers = parseRecord(mergedFullAnswersContent ?? fullAnswersArtifact?.content)
+  const drafts = Array.isArray(parsedFullAnswers?.drafts)
+    ? parsedFullAnswers.drafts.filter((draft): draft is Record<string, unknown> => Boolean(draft) && typeof draft === 'object' && !Array.isArray(draft))
+    : []
+  const winnerDraft = drafts.find(draft => draft.memberId === winnerId)
+  const content = typeof winnerDraft?.content === 'string' ? winnerDraft.content : ''
+  const document = parseInterviewDocument(content)
+  if (!document) return null
+  if (document.questions.length === 0) return null
+
+  return {
+    winnerLabel: getModelDisplayName(winnerId),
+    questionCount: document.questions.length,
+    document,
+  }
+}
 
 export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ticket: Ticket; phase?: string }) {
   const queryClient = useQueryClient()
@@ -85,6 +160,7 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
   const [saveError, setSaveError] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
   const [showCascadeWarning, setShowCascadeWarning] = useState(false)
+  const [showFullAnswers, setShowFullAnswers] = useState(false)
   const [discardTarget, setDiscardTarget] = useState<DiscardTarget>(null)
   const restoredDraftRef = useRef(false)
   const lastSavedSnapshotRef = useRef('')
@@ -105,6 +181,10 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
   const yamlValidation = editTab === 'yaml' ? parsePrdDocumentContent(yamlDraft) : null
   const coverageWarning = useMemo(
     () => resolveCoverageApprovalWarning(artifacts, 'prd'),
+    [artifacts],
+  )
+  const fullAnswersArtifact = useMemo(
+    () => resolveWinnerFullAnswers(artifacts),
     [artifacts],
   )
 
@@ -311,10 +391,50 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showFullAnswers} onOpenChange={setShowFullAnswers}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Full Answers
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Read-only Part 1 artifact from {fullAnswersArtifact?.winnerLabel ?? 'the winning PRD model'}, including all interview questions and answers used for PRD drafting.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-md bg-muted p-4">
+            {fullAnswersArtifact ? (
+              <InterviewDocumentView
+                document={fullAnswersArtifact.document}
+                defaultGroupsOpen
+              />
+            ) : (
+              <div className="text-xs text-muted-foreground">No Full Answers artifact is available.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-semibold">Product Requirements Document</span>
           <span className="flex-1 text-xs text-muted-foreground">Review the final PRD, edit it if needed, then approve it before Beads drafting begins.</span>
+          {fullAnswersArtifact ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFullAnswers(true)}
+              className="h-7 shrink-0 gap-1.5 px-2 text-[11px]"
+              title={`View ${fullAnswersArtifact.questionCount} Full Answers question${fullAnswersArtifact.questionCount === 1 ? '' : 's'} from ${fullAnswersArtifact.winnerLabel}`}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span>Full Answers</span>
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {fullAnswersArtifact.questionCount}
+              </span>
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"

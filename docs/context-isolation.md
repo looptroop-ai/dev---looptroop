@@ -162,6 +162,8 @@ preflight:
   - ticket_details
 ```
 
+`prd_draft` is a two-part phase: Part 1 uses `interview` to produce member-specific `full_answers`, and Part 2 drafts each PRD from that member's completed answer set.
+
 ## What Each Context Slice Means
 
 | Key | Meaning |
@@ -171,7 +173,7 @@ preflight:
 | `drafts` | Competing council outputs for the current stage |
 | `votes` | Structured council vote artifacts |
 | `interview` | The current interview document |
-| `full_answers` | Interview answers with skipped items filled for PRD generation |
+| `full_answers` | Member-specific interview answers with skipped items filled for PRD generation |
 | `user_answers` | Interview answer summary collected so far |
 | `prd` | The current PRD document |
 | `beads` | The current expanded bead plan |

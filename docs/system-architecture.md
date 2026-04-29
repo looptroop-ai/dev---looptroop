@@ -75,7 +75,7 @@ Planning is intentionally artifact-driven.
 | --- | --- | --- | --- |
 | Discovery scan | Ticket details | `relevant-files.yaml` | Grounds planning in the actual codebase |
 | Interview council | Ticket details, relevant files | Interview document and answer session | Forces ambiguity out before specs |
-| PRD council | Ticket details, interview, relevant files, full answers | PRD document | Produces the feature contract |
+| PRD council | Ticket details, interview, relevant files, member-specific Full Answers | PRD document | Produces the feature contract |
 | Beads council | Ticket details, PRD, relevant files | Execution bead plan | Converts the spec into execution units |
 | Execution setup planning | Ticket details, PRD, beads, execution profile | Reviewable setup plan | Makes the coding environment explicit before code changes begin |
 

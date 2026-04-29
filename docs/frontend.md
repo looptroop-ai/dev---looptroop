@@ -60,7 +60,7 @@ That split matters because the workspace is designed for both live work and hist
 | `DraftView` | Ticket editing and start controls |
 | `CouncilView` | Multi-model draft and vote phases with artifacts |
 | `InterviewQAView` | Interactive interview batches, draft persistence, skip flow |
-| `ApprovalView` | Review and edit interview, PRD, beads, and execution setup artifacts |
+| `ApprovalView` | Review and edit interview, PRD, beads, and execution setup artifacts; PRD approval also exposes the winning model's Full Answers as compact read-only context |
 | `CodingView` | Active bead execution, bead list, logs, diffs, verification actions |
 | `ErrorView` | Live blocked state or historical error occurrence review |
 | `PhaseReviewView` | Historical artifact review for completed phases |
@@ -140,6 +140,8 @@ That makes `InterviewQAView` resilient across reloads, view changes, and follow-
 
 Approval panes use the same success-aware debounced UI-state pattern for editor drafts. This protects large manual edits if the browser tab closes before the debounce timer finishes.
 
+`PrdApprovalPane` keeps the PRD editor as the primary surface. When the winning PRD draft has a Part 1 Full Answers artifact, the header shows a compact `Full Answers` chip that opens the read-only complete interview answer set used by that winning draft.
+
 ## Artifact And Review Surfaces
 
 Several UI components exist specifically to inspect durable workflow state:
@@ -147,6 +149,7 @@ Several UI components exist specifically to inspect durable workflow state:
 | Component | Purpose |
 | --- | --- |
 | `PhaseArtifactsPanel` | Phase-specific artifact viewer |
+| `PrdApprovalPane` | PRD approval editor plus compact read-only Full Answers context for the winning draft |
 | `WorkspacePhaseSummary` | Compact summary for the selected phase |
 | `VerificationSummaryPanel` | Delivery actions during PR review |
 | `PhaseReviewView` | Historical artifact review with phase-attempt support |

@@ -317,16 +317,16 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   DRAFTING_PRD: {
-    overview: 'The PRD council produces competing specification drafts from the approved interview, relevant files, and ticket context. This is a 2-part phase: Part 1 fills in any skipped interview answers with AI-generated responses so the council has a complete working basis, and Part 2 uses the complete answer set to generate full PRD drafts. Each council member independently produces their own PRD — they do not collaborate or see each other\'s work.',
+    overview: 'The PRD council produces competing specification drafts from the approved interview, relevant files, and ticket context. This is a 2-part phase: Part 1 lets each council member create its own Full Answers artifact by filling any skipped interview answers, and Part 2 uses that member-specific complete answer set to generate a full PRD draft. Each council member independently produces both its assumptions and its PRD — they do not collaborate or see each other\'s work.',
     steps: [
-      'Part 1 — Answering Skipped Questions: LoopTroop loads the relevant files, ticket details, and interview results (including which questions were answered vs. skipped). For each skipped question, the model generates a reasonable full answer based on the available context. The result is a "Full Answers" artifact where every question has a response — either the user\'s original answer or an AI-generated fill-in.',
-      'Why Fill Skipped Answers? The PRD council needs a complete picture to write thorough specifications. Rather than forcing each council member to independently guess answers to skipped questions (leading to inconsistency), LoopTroop produces a single consistent set of full answers that all council members share.',
-      'Part 2 — Generating PRD Drafts: LoopTroop loads the relevant files, ticket details, and the full answers artifact (including AI-filled responses). Each council model independently produces a complete PRD candidate rather than editing a shared draft. This independence ensures diverse specification approaches.',
+      'Part 1 — Answering Skipped Questions: LoopTroop loads the relevant files, ticket details, and interview results (including which questions were answered vs. skipped). For each skipped question, each council member generates a reasonable full answer based on the available context. The result is a per-model "Full Answers" artifact where every question has a response — either the user\'s original answer or that model\'s AI-generated fill-in.',
+      'Why Keep Per-Model Full Answers? The PRD council benefits from diverse assumptions when the user skipped uncertain areas. Keeping Full Answers per model lets voting evaluate each PRD draft together with the assumptions that produced it, instead of forcing all members through one canonical guess before drafting.',
+      'Part 2 — Generating PRD Drafts: LoopTroop loads the relevant files, ticket details, and that member\'s Full Answers artifact (including AI-filled responses). Each council model independently produces a complete PRD candidate rather than editing a shared draft. This independence ensures diverse specification approaches.',
       'PRD Content Structure: Each draft follows a consistent structure containing requirements (what the system should do), acceptance criteria (how to verify it works), edge cases (unusual situations to handle), test intent (what should be tested and how), and implementation guidance (suggested approach and constraints).',
       'Output Normalization: LoopTroop normalizes draft output to ensure consistent structure, records draft metrics (requirement count, acceptance criteria count, edge case count), logs structured-output diagnostics, and persists the draft artifacts for the upcoming voting phase.',
     ],
     outputs: [
-      'Full Answers artifact — the complete interview with AI-generated responses filling in skipped questions (produced in Part 1).',
+      'Per-model Full Answers artifacts — complete interview documents with AI-generated responses filling in skipped questions where needed (produced in Part 1). The winning model\'s Full Answers artifact is later available read-only from Approving Specs.',
       'Competing PRD drafts — one from each council member — each containing requirements, acceptance criteria, edge cases, test intent, and implementation guidance.',
       'Draft metrics and structured-output diagnostics for each council member\'s output.',
     ],
@@ -337,11 +337,11 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'This phase has 2 internal parts with different context inputs: Part 1 receives Relevant Files + Ticket Details + Interview Results; Part 2 receives Relevant Files + Ticket Details + Full Answers.',
       'The PRD phase is the first stage that converts interview intent into a formal implementation specification — it bridges the gap between "what do you want" (interview) and "what should be built" (specification).',
-      'The Full Answers artifact from Part 1 is reused by all council members in Part 2, ensuring consistency in how skipped questions are handled.',
+      'Each council member drafts from its own Full Answers artifact, so the PRD vote selects both a specification approach and the assumptions behind it.',
     ],
     equivalents: [
       'This is the "multi-model drafting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Council Drafting Questions" (where council members independently draft competing interview questions) and in the Blueprint (Beads) phase is "Council Drafting Blueprint" (where council members independently propose competing task decompositions).',
-      'Unlike the Interview drafting phase, PRD drafting has a 2-part structure: Part 1 fills in skipped interview answers first, then Part 2 generates actual PRD drafts. This extra step ensures all council members work from the same complete answer set. The Interview and Beads drafting phases are single-part.',
+      'Unlike the Interview drafting phase, PRD drafting has a 2-part structure: Part 1 fills in skipped interview answers first, then Part 2 generates actual PRD drafts from those completed answers. The Interview and Beads drafting phases are single-part.',
     ],
   },
   COUNCIL_VOTING_PRD: {
@@ -435,9 +435,10 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   WAITING_PRD_APPROVAL: {
-    overview: 'The latest PRD candidate is ready for human review and approval before architecture planning starts. This is a user-input gate — no AI work proceeds until you explicitly approve. You can review the specification in structured or raw form, edit any section, and check whether coverage warnings exist from the coverage loop. The approved PRD becomes the authoritative input that drives beads (implementation task) planning.',
+    overview: 'The latest PRD candidate is ready for human review and approval before architecture planning starts. This is a user-input gate — no AI work proceeds until you explicitly approve. You can review the specification in structured or raw form, edit any section, inspect the winning model\'s read-only Full Answers artifact from Part 1 of PRD drafting, and check whether coverage warnings exist from the coverage loop. The approved PRD becomes the authoritative input that drives beads (implementation task) planning.',
     steps: [
       'Review Interface: LoopTroop renders the PRD in two modes — a structured view showing requirements, acceptance criteria, edge cases, and test intent in a readable format, and a raw YAML editing view for direct manipulation. You can switch freely between views.',
+      'Full Answers Context: If the winning PRD model produced a Full Answers artifact during Part 1 of PRD drafting, the approval header shows a compact Full Answers chip. Opening it displays the complete read-only interview answer set that the winning PRD draft used, including user answers and any AI-filled skipped answers. This artifact is supporting context only; edits are made to the PRD itself.',
       'Coverage Warnings: If the latest PRD candidate reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed prominently. These warnings describe any unresolved gaps so you can decide whether to address them manually before approving.',
       'Editing: You can edit any section of the PRD — add requirements, refine acceptance criteria, adjust edge cases, or rewrite test intent. The UI preserves temporary draft state between view switches. Saving writes the updated PRD artifact back to the ticket workspace. If this is a post-approval edit while the ticket is still before PRE_FLIGHT_CHECK, saving archives the current approved PRD version plus downstream beads planning attempts, intentionally cancels active downstream planning sessions, saves and approves the edited PRD as the new active version, clears stale downstream artifacts and UI state, and starts DRAFTING_BEADS.',
       'Approval Decision: Approving confirms the current PRD as the authoritative specification for beads drafting. The beads council will decompose this approved PRD into implementable tasks.',
@@ -447,6 +448,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Approved PRD artifact — the finalized, authoritative specification for the implementation.',
       'User-edited replacement (if edits were made before approval).',
       'Optional UI draft state for in-progress structured and raw edits.',
+      'Read-only winning Full Answers artifact available as approval context when PRD drafting produced one.',
       'A locked PRD baseline that the beads council uses as its primary input.',
       'Archived approved PRD versions and downstream beads planning attempts remain read-only history when a post-approval edit creates a new active version.',
     ],
@@ -457,6 +459,7 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'This is the review artifact gate for the PRD phase — it ensures a human has signed off on the specification before expensive architecture planning begins.',
       'No AI context is passed in this phase — it is entirely user-driven. The AI does not see or process anything during approval.',
+      'The Full Answers chip does not create another editable approval artifact. It shows the winning model\'s Part 1 context so you can understand which completed interview answers shaped the PRD.',
       'Tip: Pay special attention to acceptance criteria — they directly determine how the AI will verify its own implementation during the coding phase.',
       'Tip: If coverage warnings exist, read the unresolved gaps carefully. Minor gaps may be acceptable, but gaps in core requirements could lead to an incomplete implementation.',
       'Tip: Editing the PRD after beads planning starts intentionally cancels and archives downstream beads planning. Active downstream session aborts are cancellation, not blocked errors; archived attempts remain inspectable, while DRAFTING_BEADS restarts from the edited approved PRD.',
@@ -1096,7 +1099,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'DRAFTING_PRD',
     label: 'Council Drafting Specs',
-    description: 'Models produce competing PRD drafts.',
+    description: 'Models produce per-model Full Answers artifacts and competing PRD drafts.',
     details: WORKFLOW_PHASE_DETAILS.DRAFTING_PRD,
     kanbanPhase: 'in_progress',
     groupId: 'prd',
@@ -1145,7 +1148,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_PRD_APPROVAL',
     label: 'Approving Specs',
-    description: 'Waiting for your approval of the latest PRD candidate.',
+    description: 'Waiting for your approval of the latest PRD candidate, with the winning Full Answers artifact available for review.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_PRD_APPROVAL,
     kanbanPhase: 'needs_input',
     groupId: 'prd',
