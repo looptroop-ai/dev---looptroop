@@ -174,7 +174,7 @@ describe('FullLogView', () => {
     renderWithTooltipProvider(<FullLogView />)
 
     expect(screen.getByText('Scanning Relevant Files')).toBeTruthy()
-    expect(screen.getByText('AI Council Thinking')).toBeTruthy()
+    expect(screen.getByText('Council Drafting Questions')).toBeTruthy()
   })
 
   it('renders a second delimiter when the same status reappears after another', () => {

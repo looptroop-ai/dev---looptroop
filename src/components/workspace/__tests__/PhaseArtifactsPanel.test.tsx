@@ -818,7 +818,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Score Breakdown')).toBeInTheDocument()
   })
 
-  it('keeps Voting on Architecture details on the voting results and winning draft views', () => {
+  it('keeps Voting on Blueprint details on the voting results and winning draft views', () => {
     const voteArtifact = makeArtifact({
       phase: 'COUNCIL_VOTING_BEADS',
       artifactType: 'beads_votes',
@@ -2860,7 +2860,7 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Close the final interview gap before PRD generation.')).toBeInTheDocument()
   })
 
-  it('shows pull request metadata directly on the Creating PR artifact and opens the structured report', () => {
+  it('shows pull request metadata directly on the Creating Pull Request artifact and opens the structured report', () => {
     const pullRequestArtifact = makeArtifact({
       phase: 'CREATING_PULL_REQUEST',
       artifactType: 'pull_request_report',

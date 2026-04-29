@@ -148,7 +148,7 @@ describe('ErrorOccurrencesPanel', () => {
       />,
     )
 
-    const statusBadge = screen.getByText('Retried to Approve Workspace Setup')
+    const statusBadge = screen.getByText('Retried to Approving Workspace Setup')
     expect(statusBadge).toHaveClass('max-w-full', 'whitespace-normal', 'break-words')
 
     const occurrenceRow = screen.getByRole('button', { name: /error 1/i })

@@ -131,9 +131,9 @@ describe.concurrent('workflow metadata', () => {
     const codingPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'CODING')
 
     expect(preFlightPhase?.details.transitions).toContain(
-      'All Checks Pass → Approve Workspace Setup: The workflow advances to the setup-plan approval gate, which audits workspace readiness and drafts only any missing temporary setup before anything mutates the worktree.',
+      'All Checks Pass → Approving Workspace Setup: The workflow advances to the setup-plan approval gate, which audits workspace readiness and drafts only any missing temporary setup before anything mutates the worktree.',
     )
-    expect(setupApprovalPhase?.label).toBe('Approve Workspace Setup')
+    expect(setupApprovalPhase?.label).toBe('Approving Workspace Setup')
     expect(setupApprovalPhase?.reviewArtifactType).toBe('execution_setup_plan')
     expect(setupPhase?.label).toBe('Preparing Workspace Runtime')
     expect(setupPhase?.description).toContain('Verifying readiness and performing only the missing temporary execution setup before coding begins.')

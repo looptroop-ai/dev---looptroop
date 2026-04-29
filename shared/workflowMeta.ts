@@ -1,5 +1,15 @@
 export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
-type WorkflowGroupId = 'todo' | 'interview' | 'prd' | 'beads' | 'execution' | 'done'
+type WorkflowGroupId =
+  | 'todo'
+  | 'discovery'
+  | 'interview'
+  | 'prd'
+  | 'beads'
+  | 'pre_implementation'
+  | 'implementation'
+  | 'post_implementation'
+  | 'done'
+  | 'errors'
 type WorkflowUIView = 'draft' | 'council' | 'interview_qa' | 'approval' | 'coding' | 'error' | 'done' | 'canceled'
 export type EditableArtifactType = 'interview' | 'prd' | 'beads' | 'execution_setup_plan'
 export type WorkflowContextKey =
@@ -110,7 +120,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Phase logs with session lifecycle, prompt dispatch, retry history, and diagnostics.',
     ],
     transitions: [
-      'Success → AI Council Thinking: A valid scan artifact advances the ticket to the council deliberation phase where multiple models begin drafting interview questions.',
+      'Success → Council Drafting Questions: A valid scan artifact advances the ticket to the council deliberation phase where multiple models begin drafting interview questions.',
       'Failure → Blocked Error: Validation failure after retry, model timeout, missing implementer configuration, or unexpected runtime errors route the ticket to the Blocked Error state for manual intervention.',
     ],
     notes: [
@@ -136,7 +146,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Persisted council draft artifacts that will be anonymized and presented to voters in the next phase.',
     ],
     transitions: [
-      'Quorum Met → Selecting Best Questions: When enough valid drafts are complete (meeting the configured quorum threshold), the workflow advances to the voting phase where the council scores each draft.',
+      'Quorum Met → Voting on Questions: When enough valid drafts are complete (meeting the configured quorum threshold), the workflow advances to the voting phase where the council scores each draft.',
       'Quorum Failure → Blocked Error: If too many models fail, produce invalid output, or time out — leaving fewer valid drafts than the quorum requires — the ticket routes to Blocked Error for manual retry.',
       'Cancel → Canceled: User cancellation during this phase stops all active model sessions and moves the ticket to Canceled.',
     ],
@@ -147,7 +157,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why multiple drafts? A single model might focus narrowly on one aspect of the ticket. By having multiple models independently draft interview approaches, the system captures a wider range of relevant questions and perspectives.',
     ],
     equivalents: [
-      'This is the "multi-model drafting" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Drafting Specs" (where council members independently write competing PRD documents from the approved interview) and in the Blueprint (Beads) phase as "Architecting Beads" (where council members independently propose competing task decompositions from the approved PRD).',
+      'This is the "multi-model drafting" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Council Drafting Specs" (where council members independently write competing PRD documents from the approved interview) and in the Blueprint (Beads) phase as "Council Drafting Blueprint" (where council members independently propose competing task decompositions from the approved PRD).',
       'All three drafting phases share the same mechanics: parallel independent generation → quorum check → advance to voting. The difference is what is being drafted (interview questions vs. specification document vs. implementation plan) and what context each council member receives.',
     ],
   },
@@ -167,7 +177,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Complete audit data showing how the council arrived at the selection, including score spread, presentation order, and tie-breaking decisions (if any).',
     ],
     transitions: [
-      'Winner Selected → Preparing Interview: A successful winner selection advances the workflow to the compilation phase where the winning draft is normalized into the interactive interview format.',
+      'Winner Selected → Refining Interview: A successful winner selection advances the workflow to the refinement phase where the winning draft is normalized into the interactive interview format.',
       'Voting Failure → Blocked Error: Invalid vote structure, malformed model responses, quorum collapse (not enough valid votes), or unresolvable ties route the ticket to Blocked Error.',
     ],
     notes: [
@@ -177,12 +187,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why vote instead of just picking one? Voting aggregates multiple perspectives on quality. A draft that impresses all council members is more likely to be genuinely strong than one that a single model happened to prefer.',
     ],
     equivalents: [
-      'This is the "council voting" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Voting on Specs" (where the council scores competing PRD drafts using a PRD-specific rubric) and in the Blueprint (Beads) phase as "Voting on Architecture" (where the council scores competing beads blueprints using an architecture rubric).',
+      'This is the "council voting" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Voting on Specs" (where the council scores competing PRD drafts using a PRD-specific rubric) and in the Blueprint (Beads) phase as "Voting on Blueprint" (where the council scores competing beads blueprints using an architecture rubric).',
       'All three voting phases share the same mechanics: anonymization → randomized presentation → independent scoring → vote resolution → winner selection. The difference is the scoring rubric used: interview voting evaluates question relevance and coverage; PRD voting evaluates requirement completeness and acceptance criteria quality; beads voting evaluates decomposition quality and dependency correctness.',
     ],
   },
   COMPILING_INTERVIEW: {
-    overview: 'LoopTroop turns the winning interview draft into the normalized, interactive interview session that you will actually answer. This is a single-model phase using the winning model from the vote. The compilation step standardizes question formats, sets up batch state tracking, and produces the UI-ready interview artifact that the interview screen renders.',
+    overview: 'LoopTroop turns the winning interview draft into the normalized, interactive interview session that you will actually answer. This is a single-model phase using the winning model from the vote. The refinement step standardizes question formats, sets up batch state tracking, and produces the UI-ready interview artifact that the interview screen renders.',
     steps: [
       'Winning Draft Ingestion: The winning interview draft (selected by council vote) is loaded along with its question set, ordering rationale, and any strategic notes the winning model included.',
       'Question Normalization: LoopTroop normalizes all questions into a standardized format — each question gets a unique identifier, a question type (free-text, single-choice, multi-choice), display text, optional context/hints, and ordering metadata. This ensures the interview UI can render any question regardless of how the original model formatted it.',
@@ -202,12 +212,12 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     notes: [
       'This phase produces the first user-facing interactive artifact in the planning flow — everything before this was AI-only work.',
-      'The compilation is done by the winning model (from the vote), not the main implementer or all council members.',
+      'The refinement is done by the winning model (from the vote), not the main implementer or all council members.',
       'Context available: Relevant Files + Ticket Details + Competing Drafts (used for reference during normalization).',
       'The session snapshot is designed to support multiple interview rounds — if coverage later adds follow-up questions, the same snapshot structure accommodates them.',
     ],
     equivalents: [
-      'This is the "refinement/compilation" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts) and in the Blueprint (Beads) phase as "Finalizing Plan" (where the winning blueprint is enhanced with ideas from losing blueprints).',
+      'This is the "refinement" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts) and in the Blueprint (Beads) phase as "Refining Blueprint" (where the winning blueprint is enhanced with ideas from losing blueprints).',
       'All three use the winning model to consolidate the best output. The interview phase calls it "compiling" because it normalizes the draft into an interactive format; the PRD and beads phases call it "refining" because they merge improvements from losing drafts into the winner. The underlying principle is the same: take the best candidate and make it stronger.',
     ],
   },
@@ -290,7 +300,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'A locked interview baseline that the PRD council treats as ground truth.',
     ],
     transitions: [
-      'Approve → Drafting Specs: Approval advances the workflow to PRD drafting, where multiple council models independently generate specification documents based on your approved interview answers.',
+      'Approve → Council Drafting Specs: Approval advances the workflow to PRD drafting, where multiple council models independently generate specification documents based on your approved interview answers.',
       'Cancel → Canceled: Cancellation moves the ticket to the terminal Canceled state.',
     ],
     notes: [
@@ -329,7 +339,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'The Full Answers artifact from Part 1 is reused by all council members in Part 2, ensuring consistency in how skipped questions are handled.',
     ],
     equivalents: [
-      'This is the "multi-model drafting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "AI Council Thinking" (where council members independently draft competing interview questions) and in the Blueprint (Beads) phase is "Architecting Beads" (where council members independently propose competing task decompositions).',
+      'This is the "multi-model drafting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Council Drafting Questions" (where council members independently draft competing interview questions) and in the Blueprint (Beads) phase is "Council Drafting Blueprint" (where council members independently propose competing task decompositions).',
       'Unlike the Interview drafting phase, PRD drafting has a 2-part structure: Part 1 fills in skipped interview answers first, then Part 2 generates actual PRD drafts. This extra step ensures all council members work from the same complete answer set. The Interview and Beads drafting phases are single-part.',
     ],
   },
@@ -358,7 +368,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'The voting rubric is weighted, meaning some categories (like requirement completeness) may count more than others (like structural coherence) in the final score.',
     ],
     equivalents: [
-      'This is the "council voting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Selecting Best Questions" (where the council votes on competing interview drafts) and in the Blueprint (Beads) phase is "Voting on Architecture" (where the council votes on competing beads blueprints).',
+      'This is the "council voting" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Voting on Questions" (where the council votes on competing interview drafts) and in the Blueprint (Beads) phase is "Voting on Blueprint" (where the council votes on competing beads blueprints).',
       'The PRD voting rubric differs from the other two: it is weighted and focuses on requirement completeness, acceptance criteria quality, edge case coverage, test intent clarity, and structural coherence. Interview voting focuses on question relevance and coverage breadth. Beads voting focuses on decomposition quality, feasibility, and dependency correctness.',
     ],
   },
@@ -387,7 +397,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why refine? The winning draft scored highest overall, but losing drafts often contain individual insights that the winner lacks. Refinement captures those insights without losing the winning structure.',
     ],
     equivalents: [
-      'This is the "refinement" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Preparing Interview" (where the winning interview draft is compiled into the interactive format) and in the Blueprint (Beads) phase is "Finalizing Plan" (where the winning blueprint is enhanced with ideas from losing blueprints).',
+      'This is the "refinement" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Refining Interview" (where the winning interview draft is compiled into the interactive format) and in the Blueprint (Beads) phase is "Refining Blueprint" (where the winning blueprint is enhanced with ideas from losing blueprints).',
       'PRD and Beads refinement are very similar — both merge improvements from losing drafts into the winner. Interview compilation differs slightly because it also transforms the format (from a raw draft into a normalized, interactive session structure), but the core idea is the same: take the winning output and strengthen it.',
     ],
   },
@@ -439,7 +449,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'A locked PRD baseline that the beads council uses as its primary input.',
     ],
     transitions: [
-      'Approve → Architecting Beads: Approval advances the workflow to the beads drafting phase, where multiple council models independently decompose the PRD into implementable task blueprints.',
+      'Approve → Council Drafting Blueprint: Approval advances the workflow to the beads drafting phase, where multiple council models independently decompose the PRD into implementable task blueprints.',
       'Cancel → Canceled: Cancellation moves the ticket to the terminal Canceled state.',
     ],
     notes: [
@@ -467,7 +477,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Council artifacts persisted for the upcoming voting phase.',
     ],
     transitions: [
-      'Quorum Met → Voting on Architecture: When enough valid blueprints are complete (meeting quorum), the workflow advances to the beads voting phase.',
+      'Quorum Met → Voting on Blueprint: When enough valid blueprints are complete (meeting quorum), the workflow advances to the beads voting phase.',
       'Quorum Failure → Blocked Error: Drafting failures, insufficient valid blueprints for quorum, or model timeouts route the ticket to Blocked Error.',
     ],
     notes: [
@@ -476,7 +486,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why independent drafting? Different models may identify different natural task boundaries. Voting on competing blueprints helps select the most logical and implementable decomposition.',
     ],
     equivalents: [
-      'This is the "multi-model drafting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "AI Council Thinking" (where council members draft competing interview questions) and in the Specs (PRD) phase is "Drafting Specs" (where council members draft competing PRD documents).',
+      'This is the "multi-model drafting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Council Drafting Questions" (where council members draft competing interview questions) and in the Specs (PRD) phase is "Council Drafting Specs" (where council members draft competing PRD documents).',
       'Unlike PRD drafting (which has a 2-part structure with skipped-answer filling), beads drafting is a single-part phase. The output is also fundamentally different: instead of a document (interview questions or specification), each council member produces a task decomposition graph with dependencies — making this the most architecturally complex drafting phase.',
     ],
   },
@@ -495,7 +505,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Audit history showing why the blueprint won, including score spread, per-category breakdowns, and any tie-breaking decisions.',
     ],
     transitions: [
-      'Winner Selected → Finalizing Plan: A successful winner selection advances the workflow to the refinement phase, where the winner is enhanced with the best ideas from losing blueprints.',
+      'Winner Selected → Refining Blueprint: A successful winner selection advances the workflow to the refinement phase, where the winner is enhanced with the best ideas from losing blueprints.',
       'Voting Failure → Blocked Error: Invalid votes, quorum collapse, or unresolvable errors route the ticket to Blocked Error.',
     ],
     notes: [
@@ -504,7 +514,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'The winning blueprint is not the final plan — it still goes through refinement, coverage checking, and expansion before becoming execution-ready beads.',
     ],
     equivalents: [
-      'This is the "council voting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Selecting Best Questions" (where the council votes on competing interview drafts) and in the Specs (PRD) phase is "Voting on Specs" (where the council votes on competing PRD drafts).',
+      'This is the "council voting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Voting on Questions" (where the council votes on competing interview drafts) and in the Specs (PRD) phase is "Voting on Specs" (where the council votes on competing PRD drafts).',
       'The architecture rubric used here is the most technically focused of the three voting rubrics: it evaluates decomposition quality, feasibility, dependency correctness, and testability. By contrast, interview voting evaluates question relevance and coverage, while PRD voting evaluates requirement completeness and acceptance criteria quality.',
     ],
   },
@@ -532,7 +542,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why refine before expansion? Semantic-level refinement is cheaper and more flexible. It is easier to add or modify task descriptions than to redo execution-specific fields after expansion.',
     ],
     equivalents: [
-      'This is the "refinement" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Preparing Interview" (where the winning interview draft is compiled into the interactive format) and in the Specs (PRD) phase is "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts).',
+      'This is the "refinement" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Refining Interview" (where the winning interview draft is compiled into the interactive format) and in the Specs (PRD) phase is "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts).',
       'Beads refinement is very similar to PRD refinement — both merge improvements from losing drafts. The key difference is that beads refinement stays at the semantic level (task descriptions and acceptance criteria) because the execution-ready fields (commands, file paths) are added later during the expansion step in the next phase. PRD refinement produces the near-final document directly.',
     ],
   },
@@ -584,7 +594,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'The authoritative bead set consumed by pre-flight checks and the coding loop.',
     ],
     transitions: [
-      'Approve → Initializing Agent: Approval advances the workflow to pre-flight checks, which validate that the execution environment is ready before the first bead runs.',
+      'Approve → Checking Readiness: Approval advances the workflow to pre-flight checks, which validate that the execution environment is ready before the first bead runs.',
       'Cancel → Canceled: Cancellation moves the ticket to the terminal Canceled state.',
     ],
     notes: [
@@ -614,7 +624,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Execution readiness decision — either "ready to draft the setup plan" or "blocked with specific failure reason."',
     ],
     transitions: [
-      'All Checks Pass → Approve Workspace Setup: The workflow advances to the setup-plan approval gate, which audits workspace readiness and drafts only any missing temporary setup before anything mutates the worktree.',
+      'All Checks Pass → Approving Workspace Setup: The workflow advances to the setup-plan approval gate, which audits workspace readiness and drafts only any missing temporary setup before anything mutates the worktree.',
       'Any Critical Failure → Blocked Error: Connectivity failures, missing artifacts, dependency graph problems, or workspace integrity issues route the ticket to Blocked Error with a detailed failure reason.',
     ],
     notes: [
@@ -702,7 +712,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     transitions: [
       'Bead Success + More Remaining → Stays in Coding: After a successful bead, `BEAD_COMPLETE` is sent and the loop immediately selects the next runnable bead.',
-      'All Beads Done → Self-Testing: When every bead is marked `done`, `ALL_BEADS_DONE` is sent and the workflow advances to the final testing phase.',
+      'All Beads Done → Testing Implementation: When every bead is marked `done`, `ALL_BEADS_DONE` is sent and the workflow advances to the final testing phase.',
       'Bead Failure → Blocked Error: A bead that exhausts its iteration budget (`BEAD_RETRY_BUDGET_EXHAUSTED`) or hits an unrecoverable runtime error sends `BEAD_ERROR` and routes the ticket to Blocked Error. Retry from there re-enters CODING and re-attempts the failed bead using accumulated iteration notes as additional context.',
     ],
     notes: [
@@ -729,7 +739,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'A pass/fail gate that determines whether the implementation proceeds to integration or needs manual intervention.',
     ],
     transitions: [
-      'All Tests Pass → Finalizing Code: Successful final tests advance the workflow to the integration phase, which prepares a clean candidate commit.',
+      'All Tests Pass → Preparing Final Commit: Successful final tests advance the workflow to the integration phase, which prepares a clean candidate commit.',
       'Any Test Failure → Blocked Error: Failed tests or test generation failures route the ticket to Blocked Error, where you can retry (re-run tests) or cancel.',
     ],
     notes: [
@@ -755,7 +765,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Pre-squash metadata for audit, rollback reference, and troubleshooting.',
     ],
     transitions: [
-      'Success → Creating PR: A successful candidate commit advances the workflow to the GitHub sync phase, which creates or updates the draft PR.',
+      'Success → Creating Pull Request: A successful candidate commit advances the workflow to the GitHub sync phase, which creates or updates the draft PR.',
       'Failure → Blocked Error: Git operation failures, empty changesets, or merge conflicts route the ticket to Blocked Error.',
     ],
     notes: [
@@ -780,7 +790,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'A draft GitHub pull request ready for human review.',
     ],
     transitions: [
-      'Success → Review Draft PR: A successful PR sync advances the workflow to the human PR review gate.',
+      'Success → Reviewing Pull Request: A successful PR sync advances the workflow to the human PR review gate.',
       'Failure → Blocked Error: Push failures, GitHub auth issues, or PR creation/update failures route the ticket to Blocked Error.',
     ],
     notes: [
@@ -909,11 +919,15 @@ const WORKFLOW_PHASE_DETAILS = {
 
 export const WORKFLOW_GROUPS: WorkflowGroupMeta[] = [
   { id: 'todo', label: 'To Do' },
+  { id: 'discovery', label: 'Discovery' },
   { id: 'interview', label: 'Interview' },
   { id: 'prd', label: 'Specs (PRD)' },
   { id: 'beads', label: 'Blueprint (Beads)' },
-  { id: 'execution', label: 'Execution' },
+  { id: 'pre_implementation', label: 'Pre-Implementation' },
+  { id: 'implementation', label: 'Implementation' },
+  { id: 'post_implementation', label: 'Post-Implementation' },
   { id: 'done', label: 'Done' },
+  { id: 'errors', label: 'Errors' },
 ]
 
 const DRAFTING_PRD_CONTEXT_SECTIONS = [
@@ -995,7 +1009,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     description: 'AI reads and extracts relevant source file contents for context.',
     details: WORKFLOW_PHASE_DETAILS.SCANNING_RELEVANT_FILES,
     kanbanPhase: 'in_progress',
-    groupId: 'interview',
+    groupId: 'discovery',
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
@@ -1003,7 +1017,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'COUNCIL_DELIBERATING',
-    label: 'AI Council Thinking',
+    label: 'Council Drafting Questions',
     description: 'Models generate initial interview questions and debate approach.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_DELIBERATING,
     kanbanPhase: 'in_progress',
@@ -1015,7 +1029,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'COUNCIL_VOTING_INTERVIEW',
-    label: 'Selecting Best Questions',
+    label: 'Voting on Questions',
     description: 'Models vote on the strongest interview draft.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_VOTING_INTERVIEW,
     kanbanPhase: 'in_progress',
@@ -1027,7 +1041,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'COMPILING_INTERVIEW',
-    label: 'Preparing Interview',
+    label: 'Refining Interview',
     description: 'Winning interview draft is consolidated.',
     details: WORKFLOW_PHASE_DETAILS.COMPILING_INTERVIEW,
     kanbanPhase: 'in_progress',
@@ -1077,7 +1091,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'DRAFTING_PRD',
-    label: 'Drafting Specs',
+    label: 'Council Drafting Specs',
     description: 'Models produce competing PRD drafts.',
     details: WORKFLOW_PHASE_DETAILS.DRAFTING_PRD,
     kanbanPhase: 'in_progress',
@@ -1139,7 +1153,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'DRAFTING_BEADS',
-    label: 'Architecting Beads',
+    label: 'Council Drafting Blueprint',
     description: 'Models split PRD into implementable beads.',
     details: WORKFLOW_PHASE_DETAILS.DRAFTING_BEADS,
     kanbanPhase: 'in_progress',
@@ -1151,7 +1165,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'COUNCIL_VOTING_BEADS',
-    label: 'Voting on Architecture',
+    label: 'Voting on Blueprint',
     description: 'Models vote on the architecture/beads breakdown.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_VOTING_BEADS,
     kanbanPhase: 'in_progress',
@@ -1163,7 +1177,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'REFINING_BEADS',
-    label: 'Finalizing Plan',
+    label: 'Refining Blueprint',
     description: 'Winning draft is consolidated into the final semantic beads blueprint using the strongest ideas from the losing drafts.',
     details: WORKFLOW_PHASE_DETAILS.REFINING_BEADS,
     kanbanPhase: 'in_progress',
@@ -1201,11 +1215,11 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'PRE_FLIGHT_CHECK',
-    label: 'Initializing Agent',
+    label: 'Checking Readiness',
     description: 'Running checks before coding starts. This status does not use context for AI models.',
     details: WORKFLOW_PHASE_DETAILS.PRE_FLIGHT_CHECK,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'pre_implementation',
     uiView: 'coding',
     editable: true,
     multiModelLogs: false,
@@ -1213,11 +1227,11 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'WAITING_EXECUTION_SETUP_APPROVAL',
-    label: 'Approve Workspace Setup',
+    label: 'Approving Workspace Setup',
     description: 'Review the readiness audit and approve any temporary workspace preparation before execution runs it.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_EXECUTION_SETUP_APPROVAL,
     kanbanPhase: 'needs_input',
-    groupId: 'execution',
+    groupId: 'pre_implementation',
     uiView: 'approval',
     editable: true,
     multiModelLogs: false,
@@ -1230,7 +1244,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     description: 'Verifying readiness and performing only the missing temporary execution setup before coding begins.',
     details: WORKFLOW_PHASE_DETAILS.PREPARING_EXECUTION_ENV,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'pre_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1242,7 +1256,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     description: 'AI coding agent executes beads one at a time; each bead has its own session, context-wipe recovery between iterations, and a git commit after success.',
     details: WORKFLOW_PHASE_DETAILS.CODING,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1251,11 +1265,11 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'RUNNING_FINAL_TEST',
-    label: 'Self-Testing',
+    label: 'Testing Implementation',
     description: 'Running ticket-level final tests.',
     details: WORKFLOW_PHASE_DETAILS.RUNNING_FINAL_TEST,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1263,11 +1277,11 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'INTEGRATING_CHANGES',
-    label: 'Finalizing Code',
+    label: 'Preparing Final Commit',
     description: 'Preparing final candidate branch state.',
     details: WORKFLOW_PHASE_DETAILS.INTEGRATING_CHANGES,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1275,11 +1289,11 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'CREATING_PULL_REQUEST',
-    label: 'Creating PR',
+    label: 'Creating Pull Request',
     description: 'Pushing final candidate branch and creating or updating a draft pull request.',
     details: WORKFLOW_PHASE_DETAILS.CREATING_PULL_REQUEST,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1287,11 +1301,11 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   },
   {
     id: 'WAITING_PR_REVIEW',
-    label: 'Review Draft PR',
+    label: 'Reviewing Pull Request',
     description: 'Waiting for your review of the draft pull request before finishing the ticket.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_PR_REVIEW,
     kanbanPhase: 'needs_input',
-    groupId: 'execution',
+    groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1303,7 +1317,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     description: 'Cleaning temporary resources/worktree data.',
     details: WORKFLOW_PHASE_DETAILS.CLEANING_ENV,
     kanbanPhase: 'in_progress',
-    groupId: 'execution',
+    groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
@@ -1339,7 +1353,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     description: 'A blocking error requires retry or cancel.',
     details: WORKFLOW_PHASE_DETAILS.BLOCKED_ERROR,
     kanbanPhase: 'needs_input',
-    groupId: 'execution',
+    groupId: 'errors',
     uiView: 'error',
     editable: false,
     multiModelLogs: false,

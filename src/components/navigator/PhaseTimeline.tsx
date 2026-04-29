@@ -132,25 +132,34 @@ export function PhaseTimeline({
     if (showBlockedErrorPhase || currentStatus !== 'BLOCKED_ERROR') return currentStatus
     return previousStatus ?? currentStatus
   }, [currentStatus, previousStatus, showBlockedErrorPhase])
-  const phaseGroups = useMemo(() => groups.map((group) => ({
-    id: group.id,
-    label: group.label,
-    phases: visiblePhases.filter((phase) => phase.groupId === group.id).map((phase) => ({ id: phase.id })),
-  })), [groups, visiblePhases])
+  const phaseGroups = useMemo(() => groups
+    .map((group) => ({
+      id: group.id,
+      label: group.label,
+      phases: visiblePhases.filter((phase) => phase.groupId === group.id).map((phase) => ({ id: phase.id })),
+    }))
+    .filter((group) => group.phases.length > 0), [groups, visiblePhases])
   const phaseOrder = useMemo(() => visiblePhases.map((phase) => phase.id), [visiblePhases])
-  const activeGroupIndex = useMemo(() => {
-    return phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentTimelineStatus))
-  }, [currentTimelineStatus, phaseGroups])
+  const defaultExpandedGroupIndexes = useMemo(() => {
+    const indexes = new Set<number>()
+    const activeGroupIndex = phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentTimelineStatus))
+    if (activeGroupIndex >= 0) indexes.add(activeGroupIndex)
 
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set([Math.max(0, activeGroupIndex)]))
+    if (currentStatus === 'BLOCKED_ERROR' && previousStatus) {
+      const previousGroupIndex = phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === previousStatus))
+      if (previousGroupIndex >= 0) indexes.add(previousGroupIndex)
+    }
+
+    if (indexes.size === 0) indexes.add(0)
+    return indexes
+  }, [currentStatus, currentTimelineStatus, phaseGroups, previousStatus])
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set(defaultExpandedGroupIndexes))
 
   // Auto-collapse previous group and expand new active group when status changes
   useEffect(() => {
-    const newActiveGroupIndex = phaseGroups.findIndex(group => group.phases.some((phase) => phase.id === currentTimelineStatus))
-    if (newActiveGroupIndex >= 0) {
-      setExpandedGroups(new Set([newActiveGroupIndex]))
-    }
-  }, [currentTimelineStatus, phaseGroups])
+    setExpandedGroups(new Set(defaultExpandedGroupIndexes))
+  }, [defaultExpandedGroupIndexes])
 
   const toggleGroup = (idx: number) => {
     setExpandedGroups(prev => {

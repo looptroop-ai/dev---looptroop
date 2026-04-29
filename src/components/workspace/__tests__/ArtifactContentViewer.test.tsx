@@ -607,7 +607,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.queryByText(/Something went wrong rendering this content/i)).not.toBeInTheDocument()
   })
 
-  it('renders Voting on Architecture results with shared vote rankings, presentation order, and processing notices', () => {
+  it('renders Voting on Blueprint results with shared vote rankings, presentation order, and processing notices', () => {
     render(
       <ArtifactContent
         artifactId="beads-votes"

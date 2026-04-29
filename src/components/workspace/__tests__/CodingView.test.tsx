@@ -143,7 +143,7 @@ describe('CodingView', () => {
       },
     })
 
-    expect(screen.getByText('Initializing Agent')).toBeTruthy()
+    expect(screen.getByText('Checking Readiness')).toBeTruthy()
     expect(screen.queryByText('First setup-hidden bead')).toBeNull()
     expect(screen.queryByText('Second setup-hidden bead')).toBeNull()
     expect(screen.queryByText('0/2')).toBeNull()

@@ -56,14 +56,14 @@ LoopTroop deliberately splits state across several storage layers. Each layer ow
 
 1. A ticket starts in `DRAFT` with editable title, description, and priority.
 2. `SCANNING_RELEVANT_FILES` creates `relevant-files.yaml` from the ticket description and repo context.
-3. The interview council drafts, votes, compiles, and iterates until interview coverage is good enough.
+3. The interview council drafts, votes, refines the interview artifact, and iterates until interview coverage is good enough.
 4. The user approves the interview artifact.
 5. The PRD council drafts, votes, refines, and coverage-checks the spec.
 6. The user approves the PRD artifact.
 7. The beads council drafts, votes, refines, expands, and coverage-checks the execution plan.
-8. The user approves the beads artifact and then reviews the execution setup plan.
-9. Coding runs bead by bead in an isolated ticket worktree, with bounded retry per bead.
-10. Final testing, integration, PR creation, review follow-up, and cleanup drive the ticket to `COMPLETED`, `CANCELED`, or `BLOCKED_ERROR`.
+8. The user approves the beads artifact and then reviews the pre-implementation execution setup plan.
+9. Implementation runs bead by bead in an isolated ticket worktree, with bounded retry per bead.
+10. Post-implementation final testing, integration, PR creation, review follow-up, and cleanup drive the ticket to `COMPLETED`, `CANCELED`, or `BLOCKED_ERROR`.
 
 The full phase map lives in [State Machine](state-machine.md).
 
@@ -73,7 +73,7 @@ Planning is intentionally artifact-driven.
 
 | Stage | Primary input | Primary output | Why it exists |
 | --- | --- | --- | --- |
-| Relevant file scan | Ticket details | `relevant-files.yaml` | Grounds planning in the actual codebase |
+| Discovery scan | Ticket details | `relevant-files.yaml` | Grounds planning in the actual codebase |
 | Interview council | Ticket details, relevant files | Interview document and answer session | Forces ambiguity out before specs |
 | PRD council | Ticket details, interview, relevant files, full answers | PRD document | Produces the feature contract |
 | Beads council | Ticket details, PRD, relevant files | Execution bead plan | Converts the spec into execution units |
@@ -85,14 +85,15 @@ The planning phases are not one long conversation. Each stage assembles a new co
 
 Execution is built around beads, not around one monolithic coding prompt.
 
-1. `PRE_FLIGHT_CHECK` verifies the ticket can enter execution.
-2. `PREPARING_EXECUTION_ENV` creates the execution environment described by the setup plan.
-3. `CODING` selects the next runnable bead from the scheduler.
-4. `executeBead()` starts or reattaches to the owned OpenCode session for that bead attempt.
-5. The model must emit the expected structured bead status markers. Missing or malformed markers trigger a structured retry path.
-6. If the attempt stalls or fails, LoopTroop generates a context wipe note, resets the worktree to the bead start commit, and retries in fresh context.
-7. When the bead succeeds, LoopTroop captures a diff artifact and advances scheduler state.
-8. `RUNNING_FINAL_TEST`, `INTEGRATING_CHANGES`, and `CREATING_PULL_REQUEST` package the result for delivery.
+1. `PRE_FLIGHT_CHECK` verifies the ticket can enter pre-implementation setup.
+2. `WAITING_EXECUTION_SETUP_APPROVAL` pauses for setup-plan review before setup commands run.
+3. `PREPARING_EXECUTION_ENV` creates the temporary execution environment described by the approved setup plan.
+4. `CODING` selects the next runnable bead from the scheduler.
+5. `executeBead()` starts or reattaches to the owned OpenCode session for that bead attempt.
+6. The model must emit the expected structured bead status markers. Missing or malformed markers trigger a structured retry path.
+7. If the attempt stalls or fails, LoopTroop generates a context wipe note, resets the worktree to the bead start commit, and retries in fresh context.
+8. When the bead succeeds, LoopTroop captures a diff artifact and advances scheduler state.
+9. `RUNNING_FINAL_TEST`, `INTEGRATING_CHANGES`, and `CREATING_PULL_REQUEST` package the result for post-implementation delivery.
 
 See [Execution Loop](execution-loop.md) and [Beads](beads.md).
 

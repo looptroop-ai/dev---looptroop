@@ -66,7 +66,7 @@ describe('interview workflow phases', () => {
     repoManager.cleanup()
   })
 
-  it('persists live interview draft parser metadata for the AI Council Thinking status', async () => {
+  it('persists live interview draft parser metadata for the Council Drafting Questions status', async () => {
     const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
       title: 'Show live interview parser notices',
     })

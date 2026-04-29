@@ -563,7 +563,7 @@ describe('TicketDashboard', () => {
       expect(screen.getByText(/Models produce competing PRD drafts\./)).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Drafting Specs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Council Drafting Specs' }))
 
     await waitFor(() => {
       expect(screen.queryByText(/Models produce competing PRD drafts\./)).not.toBeInTheDocument()

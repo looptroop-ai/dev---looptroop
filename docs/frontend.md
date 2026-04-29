@@ -174,6 +174,8 @@ The frontend does not hardcode the full workflow. Instead, it derives major beha
 - whether multi-model logs are expected
 - whether a phase has question or bead progress semantics
 
+The current timeline group order is To Do, Discovery, Interview, Specs (PRD), Blueprint (Beads), Pre-Implementation, Implementation, Post-Implementation, Done, and Errors. `PhaseTimeline` hides empty groups, so Errors only appears when the blocked-error phase is visible.
+
 This is why keeping the docs aligned with `workflowMeta` matters: the UI is built around that shared metadata contract.
 
 ## Related Docs

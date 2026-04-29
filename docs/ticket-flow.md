@@ -208,7 +208,7 @@ Two extra guards matter at the user-action layer:
 | Start of planning | ticket row, locked model configuration, ticket worktree |
 | Workflow state | durable ticket status plus serialized XState snapshot |
 | Relevant file scan | `.ticket/relevant-files.yaml` plus scan companion artifacts |
-| Interview compile and answers | `.ticket/interview.yaml`, interview session snapshot, answer state |
+| Interview refinement and answers | `.ticket/interview.yaml`, interview session snapshot, answer state |
 | PRD drafting and approval | `.ticket/prd.yaml`, full answers artifact, PRD coverage history |
 | Beads coverage and approval | `.ticket/beads/<flow>/.beads/issues.jsonl`, beads coverage history, approval receipt |
 | Setup-plan approval | `execution_setup_plan` artifact and approval receipt |
@@ -223,11 +223,15 @@ The UI and API both group workflow states:
 | Group | Meaning |
 | --- | --- |
 | `todo` | Draft-only backlog state before AI work starts |
-| `interview` | Intake, questioning, and interview approval |
+| `discovery` | Initial relevant-file scan before interview planning |
+| `interview` | Question drafting, interviewing, coverage, and interview approval |
 | `prd` | Specification drafting, refinement, coverage, approval |
 | `beads` | Execution-plan drafting, refinement, expansion, approval |
-| `execution` | Pre-flight, setup, coding, final verification, PR delivery, error recovery |
+| `pre_implementation` | Pre-flight checks, setup-plan approval, and temporary runtime preparation |
+| `implementation` | Bead-by-bead coding |
+| `post_implementation` | Final verification, commit preparation, PR delivery, review, and cleanup |
 | `done` | Successful completion or cancellation |
+| `errors` | The dedicated blocked-error recovery gate |
 
 ## Status-By-Status Detail
 
@@ -237,13 +241,18 @@ The UI and API both group workflow states:
 | --- | --- | --- | --- | --- |
 | `DRAFT` | The ticket is a backlog item only. Title, description, priority, and project assignment are still user-editable. No AI work, planning artifacts, or runtime worktree activity has started yet. | Ticket record only. | `start`, `cancel` | `start` initializes the workspace and enters scan; `cancel` goes straight to `CANCELED`. |
 
-### Interview
+### Discovery
 
 | Status | What happens here | Main outputs | User action | Normal exits |
 | --- | --- | --- | --- | --- |
 | `SCANNING_RELEVANT_FILES` | The locked main implementer scans the repo context from ticket details and identifies likely files, interfaces, and related logic. This is single-model groundwork before any council phase starts. | `relevant-files.yaml`, scan artifact, scan logs. | `cancel` | Success advances to interview drafting; failures block. |
+
+### Interview
+
+| Status | What happens here | Main outputs | User action | Normal exits |
+| --- | --- | --- | --- | --- |
 | `COUNCIL_DELIBERATING` | Council members independently draft competing interview strategies and question sets from the same ticket + relevant-file context. Quorum matters here. | Interview draft artifacts and per-model logs. | `cancel` | Enough valid drafts moves to interview voting. |
-| `COUNCIL_VOTING_INTERVIEW` | The council scores anonymized interview drafts with a structured rubric and picks one winner for normalization. | Vote artifacts, score breakdowns, winner selection. | `cancel` | Winner advances to interview compilation. |
+| `COUNCIL_VOTING_INTERVIEW` | The council scores anonymized interview drafts with a structured rubric and picks one winner for normalization. | Vote artifacts, score breakdowns, winner selection. | `cancel` | Winner advances to interview refinement. |
 | `COMPILING_INTERVIEW` | The winning draft is normalized into the interactive interview that the UI can render and track across batches and follow-up rounds. | Canonical interview artifact and interview session snapshot. | `cancel` | Success advances to `WAITING_INTERVIEW_ANSWERS`. |
 | `WAITING_INTERVIEW_ANSWERS` | The automated pipeline pauses while you answer or skip the active question batch. This state can repeat when coverage asks for follow-up questions. | Answer state, updated interview artifact, per-round history. | submit answers, skip, skip all, `cancel` | Submission moves to coverage; skip-all jumps directly to approval with a synthetic clean coverage receipt. |
 | `VERIFYING_INTERVIEW_COVERAGE` | The interview winner checks whether the current answers are sufficient. If not, it creates targeted follow-up questions until the configured budget is exhausted. | Coverage artifact, gap descriptions, follow-up batch when needed. | `cancel` | Gaps loop back to answers; clean or budget exhaustion advances to approval. |
@@ -289,14 +298,24 @@ This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run whil
 
 This setting caps how many coverage and expansion revisions LoopTroop may run while turning the semantic blueprint into execution-ready beads. It keeps decomposition quality work bounded before execution starts.
 
-### Execution And Delivery
+### Pre-Implementation
 
 | Status | What happens here | Main outputs | User action | Normal exits |
 | --- | --- | --- | --- | --- |
 | `PRE_FLIGHT_CHECK` | LoopTroop runs deterministic readiness checks: workspace health, OpenCode reachability, execution-mode probe, bead availability, and dependency-graph sanity. | Pre-flight report. | `cancel` | Passing checks move to setup-plan approval. |
 | `WAITING_EXECUTION_SETUP_APPROVAL` | LoopTroop audits the workspace, drafts only the temporary setup still needed, and pauses for you to review or regenerate the setup plan before any setup commands run. | `execution_setup_plan`, generation report, approval receipt on approval. | `approve`, `cancel` | Approved plan advances to execution setup. |
 | `PREPARING_EXECUTION_ENV` | The approved setup plan is executed in a constrained way. The goal is a reusable runtime profile, not general project mutation. | Execution setup profile, setup logs, setup diagnostics. | `cancel` | Success enters `CODING`. |
+
+### Implementation
+
+| Status | What happens here | Main outputs | User action | Normal exits |
+| --- | --- | --- | --- | --- |
 | `CODING` | The coding agent executes one bead at a time. Each bead gets narrow context, owned sessions, structured completion markers, bead diffs, and bounded fresh-session retries. | Bead status updates, bead notes, per-bead commits, diff artifacts, execution log stream. | `cancel` | Each successful bead self-transitions back to `CODING`; when all beads are done the flow moves to final test. |
+
+### Post-Implementation
+
+| Status | What happens here | Main outputs | User action | Normal exits |
+| --- | --- | --- | --- | --- |
 | `RUNNING_FINAL_TEST` | The main implementer verifies the whole ticket result holistically, beyond individual bead success. | Final test artifact, test results, retry diagnostics if needed. | `cancel` | Passing tests advance to integration. |
 | `INTEGRATING_CHANGES` | The ticket branch is squashed into a single clean candidate commit for human review, while preserving the bead-level history in audit artifacts. | Integration report and candidate commit metadata. | `cancel` | Success advances to PR creation. |
 | `CREATING_PULL_REQUEST` | The candidate branch is pushed and a draft PR is created or updated on GitHub using the ticket intent, diff, and verification results. | Pull request report with URL, number, head SHA, generated title/body. | `cancel` | Success advances to PR review waiting state. |

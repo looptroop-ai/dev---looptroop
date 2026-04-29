@@ -54,7 +54,7 @@ describe('WorkspacePhaseSummary', () => {
     )
 
     expect(screen.getByText(/Models produce competing PRD drafts\./)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /show detailed explanation for drafting specs/i }))
+    fireEvent.click(screen.getByRole('button', { name: /show detailed explanation for council drafting specs/i }))
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText(/Part 1 — Answering Skipped Questions/)).toBeInTheDocument()
@@ -69,7 +69,7 @@ describe('WorkspacePhaseSummary', () => {
       <WorkspacePhaseSummary phase="DRAFTING_PRD" ticket={ticket} />,
     )
 
-    const toggle = screen.getByRole('button', { name: 'Drafting Specs' })
+    const toggle = screen.getByRole('button', { name: 'Council Drafting Specs' })
     expect(screen.getByText(/Models produce competing PRD drafts\./)).toBeInTheDocument()
 
     fireEvent.click(toggle)

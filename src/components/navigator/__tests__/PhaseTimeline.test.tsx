@@ -7,11 +7,15 @@ describe('PhaseTimeline', () => {
   it('renders phase groups', () => {
     renderWithProviders(<PhaseTimeline currentStatus="DRAFT" />)
     expect(screen.getByText('To Do')).toBeInTheDocument()
+    expect(screen.getByText('Discovery')).toBeInTheDocument()
     expect(screen.getByText('Interview')).toBeInTheDocument()
     expect(screen.getByText('Specs (PRD)')).toBeInTheDocument()
     expect(screen.getByText('Blueprint (Beads)')).toBeInTheDocument()
-    expect(screen.getByText('Execution')).toBeInTheDocument()
+    expect(screen.getByText('Pre-Implementation')).toBeInTheDocument()
+    expect(screen.getByText('Implementation')).toBeInTheDocument()
+    expect(screen.getByText('Post-Implementation')).toBeInTheDocument()
     expect(screen.getByText('Done')).toBeInTheDocument()
+    expect(screen.queryByText('Errors')).not.toBeInTheDocument()
   })
 
   it('shows Draft as active when currentStatus is DRAFT', () => {
@@ -31,8 +35,8 @@ describe('PhaseTimeline', () => {
 
   it('disables future phases', () => {
     renderWithProviders(<PhaseTimeline currentStatus="DRAFT" />)
-    // Expand Execution group to see Coding
-    fireEvent.click(screen.getByText('Execution'))
+    // Expand Implementation group to see Coding
+    fireEvent.click(screen.getByText('Implementation'))
     const codingBtn = screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')
     expect(codingBtn).toBeDisabled()
   })
@@ -42,9 +46,10 @@ describe('PhaseTimeline', () => {
     // Interview group phases - expand to see waiting label
     fireEvent.click(screen.getByText('Interview'))
     expect(screen.getByText(/Interviewing/)).toBeInTheDocument()
-    // Execution group is auto-expanded since CODING is active
+    // Implementation group is auto-expanded since CODING is active
     expect(screen.getByText(/Implementing \(Bead \?\/\?\)/)).toBeInTheDocument()
-    expect(screen.getByText('Self-Testing')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Post-Implementation'))
+    expect(screen.getByText('Testing Implementation')).toBeInTheDocument()
   })
 
   it('hides the error phase once a ticket is no longer actively blocked', () => {
@@ -58,10 +63,11 @@ describe('PhaseTimeline', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('Execution'))
+    fireEvent.click(screen.getByText('Implementation'))
+    fireEvent.click(screen.getByText('Post-Implementation'))
 
     const codingBtn = screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')
-    const finalTestBtn = screen.getByText('Self-Testing').closest('button')
+    const finalTestBtn = screen.getByText('Testing Implementation').closest('button')
 
     expect(codingBtn).not.toBeDisabled()
     expect(finalTestBtn).toBeDisabled()
@@ -80,10 +86,11 @@ describe('PhaseTimeline', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('Execution'))
+    fireEvent.click(screen.getByText('Implementation'))
+    fireEvent.click(screen.getByText('Post-Implementation'))
 
     expect(screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')).not.toBeDisabled()
-    expect(screen.getByText('Self-Testing').closest('button')).toBeDisabled()
+    expect(screen.getByText('Testing Implementation').closest('button')).toBeDisabled()
   })
 
   it('does not render any spinning indicators for canceled tickets', () => {
@@ -109,9 +116,10 @@ describe('PhaseTimeline', () => {
       />,
     )
 
-    // Execution group is auto-expanded since BLOCKED_ERROR belongs there.
+    // The previous implementation group and the live Errors group both auto-expand.
     const codingBtn = screen.getByText(/Implementing \(Bead \?\/\?\)/).closest('button')
-    const finalTestBtn = screen.getByText('Self-Testing').closest('button')
+    fireEvent.click(screen.getByText('Post-Implementation'))
+    const finalTestBtn = screen.getByText('Testing Implementation').closest('button')
     const blockedErrorBtn = screen.getByText('Error (reason)').closest('button')
 
     expect(codingBtn).not.toBeDisabled()

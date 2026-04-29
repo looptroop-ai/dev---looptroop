@@ -214,15 +214,19 @@ describe('Council Pipeline', () => {
   })
 
   it('returns partial draft results at the hard phase deadline', async () => {
+    const fastDelayMs = 5
+    const phaseTimeoutMs = 20
+    const lateResponseMs = 300
+
     class MixedLatencyAdapter extends MockOpenCodeAdapter {
       override async promptSession(sessionId: string, _parts: PromptPart[], signal?: AbortSignal): Promise<string> {
         if (sessionId === 'mock-session-1') {
-          await new Promise(resolve => setTimeout(resolve, 5))
+          await new Promise(resolve => setTimeout(resolve, fastDelayMs))
           return super.promptSession(sessionId, _parts, signal)
         }
 
         return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => resolve(`late response for ${sessionId}`), 100)
+          const timer = setTimeout(() => resolve(`late response for ${sessionId}`), lateResponseMs)
           signal?.addEventListener('abort', () => {
             clearTimeout(timer)
             const abortError = new Error('Aborted')
@@ -239,14 +243,14 @@ describe('Council Pipeline', () => {
       members,
       [{ type: 'text', content: 'draft prompt' }],
       '/tmp/test',
-      20,
+      phaseTimeoutMs,
     )
 
-    expect(Date.now() - start).toBeLessThan(80)
+    expect(Date.now() - start).toBeLessThan(lateResponseMs)
     expect(draftRun.deadlineReached).toBe(true)
     expect(draftRun.drafts.filter(d => d.outcome === 'completed')).toHaveLength(1)
     expect(draftRun.drafts.filter(d => d.outcome === 'timed_out')).toHaveLength(2)
-    expect(draftRun.drafts.filter(d => d.outcome === 'timed_out').every(d => d.duration === 20)).toBe(true)
+    expect(draftRun.drafts.filter(d => d.outcome === 'timed_out').every(d => d.duration === phaseTimeoutMs)).toBe(true)
   })
 
   it('deliberateInterview proceeds when validated drafts still meet quorum', async () => {

@@ -8,17 +8,17 @@ The workflow-side orchestration that resumes interrupted coding work lives in `s
 
 ## Execution Phases Around The Loop
 
-| Phase | Purpose |
-| --- | --- |
-| `PRE_FLIGHT_CHECK` | Confirm the ticket is ready to leave planning |
-| `WAITING_EXECUTION_SETUP_APPROVAL` | Human review of the setup plan |
-| `PREPARING_EXECUTION_ENV` | Materialize the execution environment |
-| `CODING` | Run beads one at a time with bounded retries |
-| `RUNNING_FINAL_TEST` | Validate the full result after all beads are done |
-| `INTEGRATING_CHANGES` | Prepare the final change set |
-| `CREATING_PULL_REQUEST` | Publish the delivery artifact |
-| `WAITING_PR_REVIEW` | Wait for merge or close-unmerged outcome |
-| `CLEANING_ENV` | Remove temporary execution state |
+| UI group | Phase | Purpose |
+| --- | --- | --- |
+| Pre-Implementation | `PRE_FLIGHT_CHECK` | Confirm the ticket is ready to leave planning |
+| Pre-Implementation | `WAITING_EXECUTION_SETUP_APPROVAL` | Human review of the setup plan |
+| Pre-Implementation | `PREPARING_EXECUTION_ENV` | Materialize the execution environment |
+| Implementation | `CODING` | Run beads one at a time with bounded retries |
+| Post-Implementation | `RUNNING_FINAL_TEST` | Validate the full result after all beads are done |
+| Post-Implementation | `INTEGRATING_CHANGES` | Prepare the final change set |
+| Post-Implementation | `CREATING_PULL_REQUEST` | Publish the delivery artifact |
+| Post-Implementation | `WAITING_PR_REVIEW` | Wait for merge or close-unmerged outcome |
+| Post-Implementation | `CLEANING_ENV` | Remove temporary execution state |
 
 ## The Bead Execution Cycle
 
