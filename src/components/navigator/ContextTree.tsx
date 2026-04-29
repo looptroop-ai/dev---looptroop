@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowMeta } from '@/hooks/useWorkflowMeta'
 import type { WorkflowContextKey, WorkflowContextSection } from '@shared/workflowMeta'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface ContextTreeProps {
   selectedPhase: string
@@ -264,13 +265,17 @@ function getAllowedContextSections(
 
 function ContextRow({ item }: { item: ContextItem }) {
   return (
-    <div
-      className="w-full flex items-center gap-2 py-1 px-2 rounded-md text-xs hover:bg-accent transition-colors"
-      title={item.description}
-    >
-      <span className="text-sm leading-none" aria-hidden>{item.icon}</span>
-      <span className="truncate font-medium">{item.label}</span>
-    </div>
+    <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className="w-full flex items-center gap-2 py-1 px-2 rounded-md text-xs hover:bg-accent transition-colors"
+          >
+            <span className="text-sm leading-none" aria-hidden>{item.icon}</span>
+            <span className="truncate font-medium">{item.label}</span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-center text-balance">{item.description}</TooltipContent>
+      </Tooltip>
   )
 }
 

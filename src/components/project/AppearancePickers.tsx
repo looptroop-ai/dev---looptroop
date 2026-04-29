@@ -3,6 +3,7 @@ import { Search, X, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { emojiMatchesSearch } from '@/lib/emojiNames'
 import { DropdownPicker } from '@/components/shared/DropdownPicker'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 const FAVORITE_EMOJIS = ['😀', '📁', '🔧', '🎨', '🐱', '❤️', '✈️', '🎮', '🌲', '🔥']
 
@@ -85,15 +86,19 @@ export function EmojiPickerSection({ icon, onIconChange, isIconPickerOpen, onIco
                 reader.readAsDataURL(file)
               }}
             />
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 border border-input rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
-              onClick={() => fileInputRef.current?.click()}
-              title="Upload custom icon image"
-            >
-              <Upload className="h-4 w-4" />
-              Upload image
-            </button>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 border border-input rounded-md px-3 py-1.5 text-sm font-medium hover:bg-muted transition"
+                                    onClick={() => fileInputRef.current?.click()}
+                                  >
+                                    <Upload className="h-4 w-4" />
+                                    Upload image
+                                  </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Upload custom icon image</TooltipContent>
+                      </Tooltip>
           </div>
 
           <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1.5 mb-2">
@@ -232,24 +237,28 @@ export function ColorPickerSection({ color, onColorChange, isColorPickerOpen, on
         <div className="w-64">
           <div className="grid grid-cols-4 gap-2">
             {PROJECT_COLORS.map(c => (
-              <button
-                key={c.value}
-                type="button"
-                className="group flex flex-col items-center gap-1 rounded-lg p-1 transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                onClick={() => { onColorChange(c.value); onColorOpenChange(false) }}
-                title={c.name}
-              >
-                <span
-                  className={cn(
-                    'flex h-9 w-9 items-center justify-center rounded-full border border-background shadow-sm transition-transform group-hover:scale-110',
-                    color === c.value && 'ring-2 ring-primary ring-offset-1',
-                  )}
-                  style={{ backgroundColor: c.value }}
-                >
-                  {color === c.value && <span className="text-xs font-bold text-white">✓</span>}
-                </span>
-                <span className="text-[10px] leading-tight text-muted-foreground text-center">{c.name}</span>
-              </button>
+              <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                                key={c.value}
+                                type="button"
+                                className="group flex flex-col items-center gap-1 rounded-lg p-1 transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                onClick={() => { onColorChange(c.value); onColorOpenChange(false) }}
+                              >
+                                <span
+                                  className={cn(
+                                    'flex h-9 w-9 items-center justify-center rounded-full border border-background shadow-sm transition-transform group-hover:scale-110',
+                                    color === c.value && 'ring-2 ring-primary ring-offset-1',
+                                  )}
+                                  style={{ backgroundColor: c.value }}
+                                >
+                                  {color === c.value && <span className="text-xs font-bold text-white">✓</span>}
+                                </span>
+                                <span className="text-[10px] leading-tight text-muted-foreground text-center">{c.name}</span>
+                              </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-center text-balance">{c.name}</TooltipContent>
+                </Tooltip>
             ))}
           </div>
         </div>

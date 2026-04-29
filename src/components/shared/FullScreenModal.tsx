@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
-
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface FullScreenModalProps {
   open: boolean
@@ -24,15 +24,19 @@ export function FullScreenModal({ open, onClose, title, children }: FullScreenMo
 
   return createPortal(
     <div className="fixed inset-0 z-[60] bg-background flex flex-col">
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="absolute top-3 right-3 z-10 flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted text-foreground hover:bg-destructive hover:text-white hover:border-destructive transition-colors"
-        title="Close window (Esc)"
-      >
-        <X className="h-4 w-4" strokeWidth={2.5} />
-      </button>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close"
+                  className="absolute top-3 right-3 z-10 flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted text-foreground hover:bg-destructive hover:text-white hover:border-destructive transition-colors"
+                >
+                  <X className="h-4 w-4" strokeWidth={2.5} />
+                </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Close window (Esc)</TooltipContent>
+          </Tooltip>
       <div className="flex items-center border-b border-border px-6 py-4 pr-10">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
       </div>

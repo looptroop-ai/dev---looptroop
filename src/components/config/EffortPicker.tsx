@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { EFFORT_META } from '@/lib/effortMeta'
 import { Zap } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface EffortPickerProps {
   variants: Record<string, Record<string, unknown>> | undefined
@@ -41,24 +42,28 @@ export function EffortPicker({ variants, value, onChange, disabled }: EffortPick
           const meta = EFFORT_META[variant] ?? { label: variant, shortLabel: variant, icon: '●', description: variant, intensity: 3 }
           const selected = value === variant
           return (
-            <button
-              key={variant}
-              type="button"
-              disabled={disabled}
-              title={meta.description}
-              onClick={() => onChange(selected ? undefined : variant)}
-              className={cn(
-                'relative px-2 py-0.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer select-none',
-                'disabled:opacity-40 disabled:cursor-not-allowed',
-                intensityColor(meta.intensity, selected),
-                selected && 'shadow-sm scale-[1.02]',
-              )}
-            >
-              <span className="flex items-center gap-1">
-                <span className="text-[10px] leading-none">{meta.icon}</span>
-                <span>{meta.shortLabel}</span>
-              </span>
-            </button>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                            key={variant}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => onChange(selected ? undefined : variant)}
+                            className={cn(
+                              'relative px-2 py-0.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer select-none',
+                              'disabled:opacity-40 disabled:cursor-not-allowed',
+                              intensityColor(meta.intensity, selected),
+                              selected && 'shadow-sm scale-[1.02]',
+                            )}
+                          >
+                            <span className="flex items-center gap-1">
+                              <span className="text-[10px] leading-none">{meta.icon}</span>
+                              <span>{meta.shortLabel}</span>
+                            </span>
+                          </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">{meta.description}</TooltipContent>
+              </Tooltip>
           )
         })}
       </div>

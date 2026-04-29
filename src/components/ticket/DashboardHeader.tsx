@@ -15,6 +15,7 @@ import { EffortBadge } from '@/components/shared/EffortBadge'
 import { TicketActions } from './TicketActions'
 import { ErrorBanner } from './ErrorBanner'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface DashboardHeaderProps {
   ticket: Ticket
@@ -56,15 +57,24 @@ function CopyablePathRow({ label, path }: { label: string; path: string }) {
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <div className="mt-0.5 flex items-center gap-1.5 group">
         <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <code className="text-xs font-mono text-muted-foreground truncate flex-1" title={path}>{path}</code>
-        <button
-          type="button"
-          onClick={() => handleCopy(path)}
-          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
-          title="Copy path"
-        >
-          {copied ? <CheckIcon className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-        </button>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <code className="text-xs font-mono text-muted-foreground truncate flex-1">{path}</code>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">{path}</TooltipContent>
+              </Tooltip>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                        type="button"
+                        onClick={() => handleCopy(path)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
+                      >
+                        {copied ? <CheckIcon className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+                      </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">Copy path</TooltipContent>
+              </Tooltip>
       </div>
     </div>
   )
@@ -77,14 +87,18 @@ function CopyableDescription({ description }: { description: string }) {
     <div className="col-span-2 border-t-[2px] border-border/70 pt-2 mt-1">
       <div className="flex items-center justify-between group">
         <span className="text-xs font-medium text-muted-foreground">Description</span>
-        <button
-          type="button"
-          onClick={() => handleCopy(description)}
-          className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
-          title="Copy description"
-        >
-          {copied ? <CheckIcon className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-        </button>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                        type="button"
+                        onClick={() => handleCopy(description)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
+                      >
+                        {copied ? <CheckIcon className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+                      </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">Copy description</TooltipContent>
+              </Tooltip>
       </div>
       <div className="mt-1 rounded-md border border-border/50 bg-muted/30 p-3">
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-muted-foreground">{description}</p>
@@ -185,21 +199,30 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
             <div className="flex items-center gap-1.5 group min-w-0">
               <h2 className="text-base font-semibold truncate max-w-[400px]">{ticket.title}</h2>
               {ticket.status === 'DRAFT' && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingTitle(true)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded shrink-0"
-                  aria-label="Edit title"
-                  title="Edit Title"
-                >
-                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
+                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                                    type="button"
+                                                    onClick={() => setIsEditingTitle(true)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded shrink-0"
+                                                    aria-label="Edit title"
+                                                  >
+                                                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                                                  </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-center text-balance">Edit Title</TooltipContent>
+                                  </Tooltip>
               )}
             </div>
           )}
-          <Badge variant="outline" className={`text-xs shrink-0 ${getStatusBadgeClasses(ticket.status)}`} title="Current workflow phase">
-            {statusLabel}
-          </Badge>
+          <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className={`text-xs shrink-0 ${getStatusBadgeClasses(ticket.status)}`}>
+                              {statusLabel}
+                            </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-center text-balance">Current workflow phase</TooltipContent>
+                  </Tooltip>
         </div>
         <TicketActions
           ticket={ticket}
@@ -239,7 +262,12 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                 <span className="text-xs font-medium text-muted-foreground">Project</span>
                 <div className="mt-0.5 flex items-center gap-2 min-w-0">
                   <ProjectIcon icon={project.icon} imageClassName="h-4 w-4" emojiClassName="text-sm leading-none" />
-                  <span className="truncate font-medium" title={project.name}>{project.name}</span>
+                  <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="truncate font-medium">{project.name}</span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-center text-balance">{project.name}</TooltipContent>
+                                      </Tooltip>
                 </div>
               </div>
             )}
@@ -290,10 +318,15 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
                   {statusLabel}
                 </span>
                 {ticket.status !== 'DRAFT' && progress !== null && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title="Workflow progress">
-                    <ProgressRing percent={progress} colorClass={ringColor} />
-                    <span className={ringColor}>{progress}%</span>
-                  </span>
+                  <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                                                          <ProgressRing percent={progress} colorClass={ringColor} />
+                                                          <span className={ringColor}>{progress}%</span>
+                                                        </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-center text-balance">Workflow progress</TooltipContent>
+                                      </Tooltip>
                 )}
               </div>
             </div>

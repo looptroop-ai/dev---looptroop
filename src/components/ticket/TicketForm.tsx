@@ -7,6 +7,7 @@ import { DropdownPicker } from '@/components/shared/DropdownPicker'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface TicketFormProps {
   onClose: () => void
@@ -41,35 +42,44 @@ export function TicketForm({ onClose }: TicketFormProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium block mb-1" title="Project where the ticket will run">
-              Project
-            </label>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <label className="text-sm font-medium block mb-1">
+                                    Project
+                                  </label>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Project where the ticket will run</TooltipContent>
+                      </Tooltip>
             <DropdownPicker
               open={projectPickerOpen}
               onOpenChange={setProjectPickerOpen}
               trigger={
-                <button
-                  type="button"
-                  className={cn(
-                    'w-full flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm',
-                    projectPickerOpen && 'ring-2 ring-primary/30',
-                  )}
-                  title="Choose project"
-                >
-                  {selectedProject ? (
-                    <span className="flex items-center gap-2 min-w-0 text-left overflow-hidden">
-                      <span className="shrink-0 flex items-center">
-                        {selectedProject.icon?.startsWith('data:')
-                          ? <img src={selectedProject.icon} className="h-5 w-5 rounded block" alt="" />
-                          : <span>{selectedProject.icon}</span>}
-                      </span>
-                      <span className="truncate">{selectedProject.name} ({selectedProject.shortname})</span>
-                    </span>
-                  ) : (
-                    <span className="truncate text-left text-muted-foreground">Select a project...</span>
-                  )}
-                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                                    type="button"
+                                    className={cn(
+                                      'w-full flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm',
+                                      projectPickerOpen && 'ring-2 ring-primary/30',
+                                    )}
+                                  >
+                                    {selectedProject ? (
+                                      <span className="flex items-center gap-2 min-w-0 text-left overflow-hidden">
+                                        <span className="shrink-0 flex items-center">
+                                          {selectedProject.icon?.startsWith('data:')
+                                            ? <img src={selectedProject.icon} className="h-5 w-5 rounded block" alt="" />
+                                            : <span>{selectedProject.icon}</span>}
+                                        </span>
+                                        <span className="truncate">{selectedProject.name} ({selectedProject.shortname})</span>
+                                      </span>
+                                    ) : (
+                                      <span className="truncate text-left text-muted-foreground">Select a project...</span>
+                                    )}
+                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-center text-balance">Choose project</TooltipContent>
+                  </Tooltip>
               }
             >
               <div className="w-[420px] max-w-[calc(100vw-48px)]">
@@ -80,28 +90,32 @@ export function TicketForm({ onClose }: TicketFormProps) {
                   {projects.map((p, idx) => {
                     const isSelected = effectiveProjectId === p.id
                     return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors',
-                          idx !== projects.length - 1 && 'border-b border-input',
-                          isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
-                        )}
-                        onClick={() => {
-                          setProjectId(p.id)
-                          setProjectPickerOpen(false)
-                        }}
-                        title={`Use project ${p.name}`}
-                      >
-                        <span className="shrink-0 flex items-center">
-                          {p.icon?.startsWith('data:')
-                            ? <img src={p.icon} className="h-5 w-5 rounded block" alt="" />
-                            : <span>{p.icon}</span>}
-                        </span>
-                        <span className="truncate flex-1">{p.name} ({p.shortname})</span>
-                        {isSelected && <Check className="h-4 w-4 text-primary" />}
-                      </button>
+                      <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                                                key={p.id}
+                                                type="button"
+                                                className={cn(
+                                                  'w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors',
+                                                  idx !== projects.length - 1 && 'border-b border-input',
+                                                  isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+                                                )}
+                                                onClick={() => {
+                                                  setProjectId(p.id)
+                                                  setProjectPickerOpen(false)
+                                                }}
+                                              >
+                                                <span className="shrink-0 flex items-center">
+                                                  {p.icon?.startsWith('data:')
+                                                    ? <img src={p.icon} className="h-5 w-5 rounded block" alt="" />
+                                                    : <span>{p.icon}</span>}
+                                                </span>
+                                                <span className="truncate flex-1">{p.name} ({p.shortname})</span>
+                                                {isSelected && <Check className="h-4 w-4 text-primary" />}
+                                              </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-center text-balance">{`Use project ${p.name}`}</TooltipContent>
+                        </Tooltip>
                     )
                   })}
                 </div>
@@ -110,9 +124,14 @@ export function TicketForm({ onClose }: TicketFormProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium block mb-1" title="Short summary of the requested work">
-              Title
-            </label>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <label className="text-sm font-medium block mb-1">
+                                    Title
+                                  </label>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Short summary of the requested work</TooltipContent>
+                      </Tooltip>
             <input
               autoFocus
               type="text"
@@ -125,9 +144,14 @@ export function TicketForm({ onClose }: TicketFormProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium block mb-1" title="Detailed implementation request">
-              Description
-            </label>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <label className="text-sm font-medium block mb-1">
+                                    Description
+                                  </label>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Detailed implementation request</TooltipContent>
+                      </Tooltip>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
@@ -137,9 +161,14 @@ export function TicketForm({ onClose }: TicketFormProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium block mb-1" title="Ticket urgency and processing order">
-              Priority
-            </label>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <label className="text-sm font-medium block mb-1">
+                                    Priority
+                                  </label>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Ticket urgency and processing order</TooltipContent>
+                      </Tooltip>
             <select
               value={priority}
               onChange={e => setPriority(Number(e.target.value))}
@@ -156,12 +185,22 @@ export function TicketForm({ onClose }: TicketFormProps) {
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onClose} title="Close without creating ticket">
-          Cancel
-        </Button>
-        <Button type="submit" disabled={createTicket.isPending || !effectiveProjectId} title="Create ticket in selected project">
-          {createTicket.isPending ? <LoadingText text="Creating" /> : 'Create Ticket'}
-        </Button>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="outline" onClick={onClose}>
+                        Cancel
+                      </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">Close without creating ticket</TooltipContent>
+              </Tooltip>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="submit" disabled={createTicket.isPending || !effectiveProjectId}>
+                        {createTicket.isPending ? <LoadingText text="Creating" /> : 'Create Ticket'}
+                      </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">Create ticket in selected project</TooltipContent>
+              </Tooltip>
       </div>
     </form>
   )

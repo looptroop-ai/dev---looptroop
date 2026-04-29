@@ -171,13 +171,17 @@ export function CopyButton({ content, className = '', title = 'Copy raw output' 
   }
 
   return (
-    <button
-      onClick={handleCopy}
-      className={`inline-flex items-center justify-center p-1 rounded hover:bg-muted transition-colors ${className}`}
-      title={title}
-    >
-      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
-    </button>
+    <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleCopy}
+            className={`inline-flex items-center justify-center p-1 rounded hover:bg-muted transition-colors ${className}`}
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-center text-balance">{title}</TooltipContent>
+      </Tooltip>
   )
 }
 
@@ -191,13 +195,17 @@ export function TextCopyButton({ content, title, className = '' }: { content: st
   }
 
   return (
-    <button
-      onClick={handleCopy}
-      className={`opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80 focus:opacity-100 outline-none ${className}`}
-      title={title}
-    >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-    </button>
+    <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleCopy}
+            className={`opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80 focus:opacity-100 outline-none ${className}`}
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-center text-balance">{title}</TooltipContent>
+      </Tooltip>
   )
 }
 
@@ -377,26 +385,30 @@ export function WithRawTab({
                         const variantDisabled = Boolean(variant.disabled)
                         const variantLabel = index === 0 ? label : variant.label
                         return (
-                          <button
-                            key={variant.id}
-                            type="button"
-                            disabled={variantDisabled}
-                            aria-pressed={active}
-                            aria-label={variant.ariaLabel ?? (index === 0 ? label : `${label} ${variant.label}`)}
-                            title={variant.title}
-                            onClick={() => setActiveRawSourceId(variant.id)}
-                            className={cn(
-                              'inline-flex min-w-0 max-w-full items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium transition-colors',
-                              index > 0 && 'border-l border-border',
-                              active
-                                ? 'bg-primary text-primary-foreground'
-                                : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground',
-                              variantDisabled && 'cursor-not-allowed hover:bg-background hover:text-muted-foreground',
-                            )}
-                          >
-                            {index === 0 && source.modelId ? <ModelIcon modelId={source.modelId} className="h-3 w-3" /> : null}
-                            <span className="min-w-0 truncate">{variantLabel}</span>
-                          </button>
+                          <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                                        key={variant.id}
+                                                        type="button"
+                                                        disabled={variantDisabled}
+                                                        aria-pressed={active}
+                                                        aria-label={variant.ariaLabel ?? (index === 0 ? label : `${label} ${variant.label}`)}
+                                                        onClick={() => setActiveRawSourceId(variant.id)}
+                                                        className={cn(
+                                                          'inline-flex min-w-0 max-w-full items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium transition-colors',
+                                                          index > 0 && 'border-l border-border',
+                                                          active
+                                                            ? 'bg-primary text-primary-foreground'
+                                                            : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground',
+                                                          variantDisabled && 'cursor-not-allowed hover:bg-background hover:text-muted-foreground',
+                                                        )}
+                                                      >
+                                                        {index === 0 && source.modelId ? <ModelIcon modelId={source.modelId} className="h-3 w-3" /> : null}
+                                                        <span className="min-w-0 truncate">{variantLabel}</span>
+                                                      </button>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs text-center text-balance">{variant.title}</TooltipContent>
+                            </Tooltip>
                         )
                       })}
                     </div>
@@ -405,24 +417,28 @@ export function WithRawTab({
                 const active = activeRawSource.id === source.id
                 const disabled = Boolean(source.disabled)
                 return (
-                  <button
-                    key={source.id}
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={active}
-                    title={source.title}
-                    onClick={() => setActiveRawSourceId(source.id)}
-                    className={cn(
-                      'inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-medium transition-colors',
-                      active
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-background text-muted-foreground hover:bg-accent/70 hover:text-foreground',
-                      disabled && 'cursor-not-allowed opacity-45 hover:bg-background hover:text-muted-foreground',
-                    )}
-                  >
-                    {source.modelId ? <ModelIcon modelId={source.modelId} className="h-3 w-3" /> : null}
-                    <span className="min-w-0 truncate">{label}</span>
-                  </button>
+                  <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                                        key={source.id}
+                                        type="button"
+                                        disabled={disabled}
+                                        aria-pressed={active}
+                                        onClick={() => setActiveRawSourceId(source.id)}
+                                        className={cn(
+                                          'inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-medium transition-colors',
+                                          active
+                                            ? 'border-primary bg-primary text-primary-foreground'
+                                            : 'border-border bg-background text-muted-foreground hover:bg-accent/70 hover:text-foreground',
+                                          disabled && 'cursor-not-allowed opacity-45 hover:bg-background hover:text-muted-foreground',
+                                        )}
+                                      >
+                                        {source.modelId ? <ModelIcon modelId={source.modelId} className="h-3 w-3" /> : null}
+                                        <span className="min-w-0 truncate">{label}</span>
+                                      </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-center text-balance">{source.title}</TooltipContent>
+                    </Tooltip>
                 )
               })}
             </div>
@@ -3113,9 +3129,14 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
               <tr className="border-b border-border">
                 <th className="text-left py-1 pr-2 font-medium text-muted-foreground">Model</th>
                 {categories.map(cat => (
-                  <th key={cat} className="text-center py-1 px-1 font-medium text-muted-foreground" title={cat}>
-                    {cat.length > 20 ? cat.slice(0, 18) + '…' : cat}
-                  </th>
+                  <Tooltip>
+                      <TooltipTrigger asChild>
+                        <th key={cat} className="text-center py-1 px-1 font-medium text-muted-foreground">
+                                        {cat.length > 20 ? cat.slice(0, 18) + '…' : cat}
+                                      </th>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-center text-balance">{cat}</TooltipContent>
+                    </Tooltip>
                 ))}
                 <th className="text-center py-1 pl-2 font-semibold">Total</th>
               </tr>

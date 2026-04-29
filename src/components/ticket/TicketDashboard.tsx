@@ -19,6 +19,7 @@ import { PRD_APPROVAL_FOCUS_EVENT } from '@/lib/prdDocument'
 import { BEADS_APPROVAL_FOCUS_EVENT } from '@/lib/beadsDocument'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT, type WorkspacePhaseNavigateDetail } from '@/lib/workspaceNavigation'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 function toDebugJson(data: Record<string, unknown>) {
   if (import.meta.env.PROD) return '[debug]'
@@ -439,14 +440,18 @@ export function TicketDashboard() {
         aria-live="polite"
       >
         <div className="flex flex-col gap-1">
-          <Badge
-            variant="outline"
-            className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-            title="Waiting for ticket data from the server."
-          >
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            Loading ticket...
-          </Badge>
+          <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                              variant="outline"
+                              className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                            >
+                              <RefreshCw className="h-3 w-3 animate-spin" />
+                              Loading ticket...
+                            </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-center text-balance">Waiting for ticket data from the server.</TooltipContent>
+                  </Tooltip>
           <p className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/80">
             LoopTroop is fetching the ticket state. This might take a few seconds on initial load.
           </p>
@@ -506,14 +511,18 @@ export function TicketDashboard() {
             aria-live="polite"
           >
             <div className="flex flex-col gap-1">
-              <Badge
-                variant="outline"
-                className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                title="Realtime updates disconnected. LoopTroop is refetching the ticket and will reconnect automatically."
-              >
-                <RefreshCw className="h-3 w-3 animate-spin" />
-                Live updates reconnecting...
-              </Badge>
+              <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge
+                                          variant="outline"
+                                          className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                        >
+                                          <RefreshCw className="h-3 w-3 animate-spin" />
+                                          Live updates reconnecting...
+                                        </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs text-center text-balance">Realtime updates disconnected. LoopTroop is refetching the ticket and will reconnect automatically.</TooltipContent>
+                          </Tooltip>
               <p className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/80">
                 LoopTroop is refetching the latest ticket state and will reconnect automatically.
               </p>

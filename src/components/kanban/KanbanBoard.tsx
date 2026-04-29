@@ -5,6 +5,7 @@ import { useProjects } from '@/hooks/useProjects'
 import { STATUS_TO_PHASE } from '@/lib/workflowMeta'
 import { Badge } from '@/components/ui/badge'
 import { RefreshCw } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 export type KanbanPhase = 'todo' | 'in_progress' | 'needs_input' | 'done'
 
@@ -41,14 +42,18 @@ export function KanbanBoard() {
           aria-live="polite"
         >
           <div className="flex flex-col gap-1">
-            <Badge
-              variant="outline"
-              className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-              title="Waiting for ticket data from the server."
-            >
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              Loading tickets...
-            </Badge>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                                    variant="outline"
+                                    className="w-fit gap-1.5 border-amber-300 bg-amber-100/80 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                  >
+                                    <RefreshCw className="h-3 w-3 animate-spin" />
+                                    Loading tickets...
+                                  </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Waiting for ticket data from the server.</TooltipContent>
+                      </Tooltip>
             <p className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/80">
               LoopTroop is fetching the tickets. This might take a few seconds on initial load.
             </p>

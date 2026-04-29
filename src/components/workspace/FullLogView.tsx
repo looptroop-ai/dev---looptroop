@@ -473,17 +473,21 @@ export function FullLogView({ ticket }: FullLogViewProps) {
             return (
               <Tooltip key={tab} delayDuration={300}>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab(tab)}
-                    className={cn(
-                      'px-2 py-0.5 rounded text-xs font-medium shrink-0',
-                      effectiveTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                    title={singleModelTabId}
-                  >
-                    {aiTabLabel}
-                  </button>
+                  <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                                            type="button"
+                                            onClick={() => setActiveTab(tab)}
+                                            className={cn(
+                                              'px-2 py-0.5 rounded text-xs font-medium shrink-0',
+                                              effectiveTab === tab ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
+                                            )}
+                                          >
+                                            {aiTabLabel}
+                                          </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-center text-balance">{singleModelTabId}</TooltipContent>
+                        </Tooltip>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
                   {tooltipContent}
@@ -511,14 +515,18 @@ export function FullLogView({ ticket }: FullLogViewProps) {
                       >
                         {tab}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setModelsCollapsed(!modelsCollapsed)}
-                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
-                        title={modelsCollapsed ? 'Show models' : 'Hide models'}
-                      >
-                        {modelsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-                      </button>
+                      <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                                        type="button"
+                                                        onClick={() => setModelsCollapsed(!modelsCollapsed)}
+                                                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
+                                                      >
+                                                        {modelsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                                                      </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-center text-balance">{modelsCollapsed ? 'Show models' : 'Hide models'}</TooltipContent>
+                                </Tooltip>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
@@ -557,14 +565,18 @@ export function FullLogView({ ticket }: FullLogViewProps) {
                       >
                         {tab}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setSysCollapsed(!sysCollapsed)}
-                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
-                        title={sysCollapsed ? 'Show commands' : 'Hide commands'}
-                      >
-                        {sysCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-                      </button>
+                      <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                                        type="button"
+                                                        onClick={() => setSysCollapsed(!sysCollapsed)}
+                                                        className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
+                                                      >
+                                                        {sysCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                                                      </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-center text-balance">{sysCollapsed ? 'Show commands' : 'Hide commands'}</TooltipContent>
+                                </Tooltip>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground border border-border shadow-md font-medium max-w-[200px] text-center">
@@ -620,15 +632,19 @@ export function FullLogView({ ticket }: FullLogViewProps) {
               <LogColorLegend />
             </TooltipContent>
           </Tooltip>
-          <button
-            type="button"
-            onClick={handleCopyLogs}
-            disabled={!hasLogs}
-            title="Copy all logs"
-            className="flex items-center justify-center p-1 rounded hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
+          <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                              type="button"
+                              onClick={handleCopyLogs}
+                              disabled={!hasLogs}
+                              className="flex items-center justify-center p-1 rounded hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-center text-balance">Copy all logs</TooltipContent>
+                  </Tooltip>
         </div>
       </div>
 

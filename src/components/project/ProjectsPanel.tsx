@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useProjects } from '@/hooks/useProjects'
 import type { Project } from '@/hooks/useProjects'
 import { ProjectForm } from './ProjectForm'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type View = { mode: 'list' } | { mode: 'create' } | { mode: 'edit'; project: Project }
 
@@ -100,15 +101,19 @@ export function ProjectsPanel({ onClose }: ProjectsPanelProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-2"
-                onClick={() => setIsSortDescending(d => !d)}
-                title={isSortDescending ? 'Descending' : 'Ascending'}
-              >
-                {isSortDescending ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
-              </Button>
+              <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-8 px-2"
+                                          onClick={() => setIsSortDescending(d => !d)}
+                                        >
+                                          {isSortDescending ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                                        </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs text-center text-balance">{isSortDescending ? 'Descending' : 'Ascending'}</TooltipContent>
+                          </Tooltip>
             </div>
           )}
         </div>

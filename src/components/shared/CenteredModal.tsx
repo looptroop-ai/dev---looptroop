@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface CenteredModalProps {
   open: boolean
@@ -60,21 +61,25 @@ export function CenteredModal({ open, onClose, title, children, maxWidth = 'max-
       }}
     >
       <div className={`${maxWidth} w-full mx-4 bg-background rounded-xl shadow-xl border border-border flex flex-col max-h-[85vh] relative`}>
-        <button
-          type="button"
-          onClick={() => {
-            if (isSessionDirty) {
-              const shouldClose = window.confirm('You have unsaved changes. Close this window anyway?')
-              if (!shouldClose) return
-            }
-            onClose()
-          }}
-          aria-label="Close"
-          className="absolute top-3 right-3 z-10 flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted text-foreground hover:bg-destructive hover:text-white hover:border-destructive transition-colors"
-          title="Close window (Esc)"
-        >
-          <X className="h-4 w-4" strokeWidth={2.5} />
-        </button>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                        type="button"
+                        onClick={() => {
+                          if (isSessionDirty) {
+                            const shouldClose = window.confirm('You have unsaved changes. Close this window anyway?')
+                            if (!shouldClose) return
+                          }
+                          onClose()
+                        }}
+                        aria-label="Close"
+                        className="absolute top-3 right-3 z-10 flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted text-foreground hover:bg-destructive hover:text-white hover:border-destructive transition-colors"
+                      >
+                        <X className="h-4 w-4" strokeWidth={2.5} />
+                      </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">Close window (Esc)</TooltipContent>
+              </Tooltip>
         <div className="flex items-center border-b border-border px-6 py-4 pr-10">
           <h2 className="text-lg font-semibold text-foreground">{title}</h2>
         </div>

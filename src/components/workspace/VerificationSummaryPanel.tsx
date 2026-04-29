@@ -7,6 +7,7 @@ import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
 import { getArtifactTargetPhases, parseIntegrationReport } from './phaseArtifactTypes'
 import type { Ticket } from '@/hooks/useTickets'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface VerificationSummaryPanelProps {
   ticket: Ticket
@@ -130,7 +131,12 @@ export function VerificationSummaryPanel({ ticket, onMerge, onCloseUnmerged, isP
                 </a>
               )}
             </div>
-            <div className="font-mono truncate" title={prUrl ?? undefined}>{prUrl ?? 'No PR URL'}</div>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="font-mono truncate">{prUrl ?? 'No PR URL'}</div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">{prUrl ?? undefined}</TooltipContent>
+                      </Tooltip>
           </div>
         </div>
 
@@ -139,7 +145,12 @@ export function VerificationSummaryPanel({ ticket, onMerge, onCloseUnmerged, isP
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Branch</div>
-            <div className="font-mono truncate" title={branchName}>{branchName}</div>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="font-mono truncate">{branchName}</div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">{branchName}</TooltipContent>
+                      </Tooltip>
             <div className="text-muted-foreground">
               → <span className="font-mono">{baseBranch}</span>
             </div>
@@ -151,7 +162,12 @@ export function VerificationSummaryPanel({ ticket, onMerge, onCloseUnmerged, isP
           <GitCommitHorizontal className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Candidate Commit</div>
-            <code className="font-mono text-xs" title={commitSha ?? undefined}>{shortSha(commitSha)}</code>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <code className="font-mono text-xs">{shortSha(commitSha)}</code>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">{commitSha ?? undefined}</TooltipContent>
+                      </Tooltip>
             {commitCount != null && commitCount > 0 && (
               <div className="text-muted-foreground">
                 {commitCount} commit{commitCount !== 1 ? 's' : ''} squashed

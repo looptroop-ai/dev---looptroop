@@ -182,10 +182,15 @@ export function DraftView({ ticket }: DraftViewProps) {
             <Badge variant="outline" className={PRIORITY_COLORS[ticket.priority] ?? PRIORITY_COLORS[3]}>
               P{ticket.priority} — {PRIORITY_LABELS[ticket.priority] ?? 'Normal'}
             </Badge>
-            <span className="flex items-center gap-1 text-muted-foreground" title={new Date(ticket.createdAt).toLocaleString()}>
-              <CalendarDays className="h-3.5 w-3.5" />
-              Created {new Date(ticket.createdAt).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-            </span>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    Created {new Date(ticket.createdAt).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                  </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">{new Date(ticket.createdAt).toLocaleString()}</TooltipContent>
+                      </Tooltip>
             {project && (
               <span className="flex items-center gap-1 text-muted-foreground">
                 {project.icon && (project.icon.startsWith('data:') ? <img src={project.icon} className="h-3.5 w-3.5 rounded" alt="" /> : <span>{project.icon}</span>)}

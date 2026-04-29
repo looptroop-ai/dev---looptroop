@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { formatLogLine, getEntryColor, formatTimestamp } from './logFormat'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type StructuredSectionKind = 'input' | 'stdin' | 'output' | 'stdout' | 'error' | 'stderr'
 
@@ -70,12 +71,16 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
 
   return (
     <>
-      <span
-        className={cn('font-semibold', color)}
-        title={formatted.tagTitle}
-      >
-        {formatted.tagText}
-      </span>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                  className={cn('font-semibold', color)}
+                >
+                  {formatted.tagText}
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">{formatted.tagTitle}</TooltipContent>
+          </Tooltip>
       {formatted.bodyText}
     </>
   )
@@ -190,12 +195,16 @@ function renderStructuredLogLine(
 
   return (
     <>
-      <span
-        className={cn('font-semibold', color)}
-        title={tagTitle}
-      >
-        {tagText}
-      </span>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                  className={cn('font-semibold', color)}
+                >
+                  {tagText}
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">{tagTitle}</TooltipContent>
+          </Tooltip>
       {introText}
       {sections.map((section) => (
         <span
@@ -228,12 +237,16 @@ function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | 
     const color = getEntryColor(entry)
     return (
       <>
-        <span
-          className={cn('font-semibold', color)}
-          title={tagTitle}
-        >
-          {tagText}
-        </span>
+        <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                      className={cn('font-semibold', color)}
+                    >
+                      {tagText}
+                    </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-center text-balance">{tagTitle}</TooltipContent>
+            </Tooltip>
         {bodyText}
       </>
     )
@@ -256,12 +269,16 @@ function renderCommandLogLine(entry: LogEntry, tagText: string, tagTitle: string
   const color = getEntryColor(entry)
   return (
     <>
-      <span
-        className={cn('font-semibold', color)}
-        title={tagTitle}
-      >
-        {tagText}
-      </span>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                  className={cn('font-semibold', color)}
+                >
+                  {tagText}
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">{tagTitle}</TooltipContent>
+          </Tooltip>
       {bodyText}
     </>
   )
@@ -342,14 +359,18 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
 
   const isTruncatable = isMultiline || isOverflowing
   const renderCopyButton = (className: string) => (
-    <button
-      type="button"
-      onClick={copyEntry}
-      className={cn('transition-colors cursor-pointer', className)}
-      title="Copy log entry"
-    >
-      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-    </button>
+    <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={copyEntry}
+            className={cn('transition-colors cursor-pointer', className)}
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-center text-balance">Copy log entry</TooltipContent>
+      </Tooltip>
   )
 
   return (
@@ -380,12 +401,16 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
         )}
         {isStreamingUiEntry && (
           <div className="mt-0.5">
-            <span
-              title="Receiving continuous text from AI model"
-              className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/30 shadow-sm opacity-80 select-none cursor-default animate-pulse"
-            >
-              Stream
-            </span>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                                    className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/30 shadow-sm opacity-80 select-none cursor-default animate-pulse"
+                                  >
+                                    Stream
+                                  </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Receiving continuous text from AI model</TooltipContent>
+                      </Tooltip>
           </div>
         )}
       </div>

@@ -17,6 +17,7 @@ import {
 } from '@/lib/errorOccurrences'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { BEAD_RETRY_BUDGET_EXHAUSTED } from '@shared/errorCodes'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface ErrorViewProps {
   ticket: Ticket
@@ -160,15 +161,19 @@ export function ErrorView({ ticket, occurrence, readOnly = false }: ErrorViewPro
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <span
-                  className="flex items-center gap-1"
-                  title={visibleOccurrence?.occurredAt
-                    ? formatTimestampString(visibleOccurrence.occurredAt, { includeMilliseconds: false })
-                    : undefined}
-                >
-                  <Clock3 className="h-3.5 w-3.5" />
-                  {visibleOccurrence ? `Blocked from ${getStatusUserLabel(visibleOccurrence.blockedFromStatus)}` : 'Blocked error'}
-                </span>
+                <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                                className="flex items-center gap-1"
+                                              >
+                                                <Clock3 className="h-3.5 w-3.5" />
+                                                {visibleOccurrence ? `Blocked from ${getStatusUserLabel(visibleOccurrence.blockedFromStatus)}` : 'Blocked error'}
+                                              </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-center text-balance">{visibleOccurrence?.occurredAt
+                                                  ? formatTimestampString(visibleOccurrence.occurredAt, { includeMilliseconds: false })
+                                                  : undefined}</TooltipContent>
+                              </Tooltip>
                 {visibleOccurrence?.resolvedAt && (
                   <span className="flex items-center gap-1">
                     <RotateCcw className="h-3.5 w-3.5" />

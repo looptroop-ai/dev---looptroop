@@ -3,6 +3,7 @@ import { Folder, ArrowUp, CheckCircle2, XCircle, CircleDot } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FullScreenModal } from '@/components/shared/FullScreenModal'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface DirItem {
     name: string
@@ -112,15 +113,19 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
 
                 {/* Navigation Bar */}
                 <div className="flex gap-2">
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        disabled={!data?.parentPath || loading}
-                        onClick={() => data?.parentPath && fetchLs(data.parentPath)}
-                        title="Go up one level"
-                    >
-                        <ArrowUp className="h-4 w-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            disabled={!data?.parentPath || loading}
+                                            onClick={() => data?.parentPath && fetchLs(data.parentPath)}
+                                        >
+                                            <ArrowUp className="h-4 w-4" />
+                                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-center text-balance">Go up one level</TooltipContent>
+                    </Tooltip>
 
                     <form
                         className="flex-1 flex gap-2"
@@ -191,14 +196,18 @@ export function FolderPicker({ open, onClose, onSelect, initialPath }: FolderPic
                     </div>
                     <div className="flex gap-2 shrink-0">
                         <Button variant="outline" onClick={onClose}>Cancel</Button>
-                        <Button
-                            disabled={loading || !!error || !data?.currentPath || gitStatus !== 'valid'}
-                            onClick={() => data?.currentPath && onSelect(data.currentPath)}
-                            title={gitStatus === 'invalid' ? 'Selected folder is not a git repository' : gitStatus === 'checking' ? 'Checking git status...' : ''}
-                        >
-                            <CheckCircle2 className="h-4 w-4 mr-2" />
-                            Select This Folder
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                                                    disabled={loading || !!error || !data?.currentPath || gitStatus !== 'valid'}
+                                                    onClick={() => data?.currentPath && onSelect(data.currentPath)}
+                                                >
+                                                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                                                    Select This Folder
+                                                </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-center text-balance">{gitStatus === 'invalid' ? 'Selected folder is not a git repository' : gitStatus === 'checking' ? 'Checking git status...' : ''}</TooltipContent>
+                        </Tooltip>
                     </div>
                 </div>
 

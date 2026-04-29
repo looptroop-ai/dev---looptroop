@@ -111,6 +111,8 @@
     "jsdom": "^29.1.0",
     "mermaid": "^11.14.0",
     "tailwindcss": "^4.2.4",
+    "ts-morph": "^28.0.0",
+    "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1",

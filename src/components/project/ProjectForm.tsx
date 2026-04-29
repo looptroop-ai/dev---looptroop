@@ -8,6 +8,7 @@ import { ArrowLeft, Trash2, CheckCircle2, XCircle, CircleDot, AlertTriangle } fr
 import { cn } from '@/lib/utils'
 import { FolderPicker } from '@/components/project/FolderPicker'
 import { EmojiPickerSection, ColorPickerSection } from './AppearancePickers'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface ProjectFormProps {
   onClose: () => void
@@ -253,26 +254,34 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
               <div className="grid grid-cols-2 gap-4 border-t border-border pt-4">
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 block">Project Created</label>
-                  <span 
-                    className="text-sm font-medium cursor-help"
-                    title={new Date(project.createdAt).toLocaleString()}
-                  >
-                    {formatRelativeTime(project.createdAt)}
-                  </span>
+                  <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span 
+                                                          className="text-sm font-medium cursor-help"
+                                                        >
+                                                          {formatRelativeTime(project.createdAt)}
+                                                        </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-center text-balance">{new Date(project.createdAt).toLocaleString()}</TooltipContent>
+                                      </Tooltip>
                 </div>
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 block">Last Update</label>
-                  <span 
-                    className="text-sm font-medium cursor-help"
-                    title={`${new Date(project.updatedAt).toLocaleString()}${project.latestActivityTicketExternalId ? ` - Ticket ${project.latestActivityTicketExternalId}` : ''}`}
-                  >
-                    {formatRelativeTime(project.updatedAt)}
-                    {project.latestActivityTicketExternalId && (
-                      <span className="ml-1 text-muted-foreground font-normal">
-                        ({project.latestActivityTicketExternalId})
-                      </span>
-                    )}
-                  </span>
+                  <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span 
+                                                          className="text-sm font-medium cursor-help"
+                                                        >
+                                                          {formatRelativeTime(project.updatedAt)}
+                                                          {project.latestActivityTicketExternalId && (
+                                                            <span className="ml-1 text-muted-foreground font-normal">
+                                                              ({project.latestActivityTicketExternalId})
+                                                            </span>
+                                                          )}
+                                                        </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-center text-balance">{`${new Date(project.updatedAt).toLocaleString()}${project.latestActivityTicketExternalId ? ` - Ticket ${project.latestActivityTicketExternalId}` : ''}`}</TooltipContent>
+                                      </Tooltip>
                 </div>
               </div>
             </div>

@@ -510,17 +510,26 @@ function TargetFileRow({ file }: { file: string }) {
 
   return (
     <div className="group flex items-center gap-1">
-      <code className="block text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1" title={file}>{file}</code>
-      <button
-        type="button"
-        onClick={() => handleCopy(file)}
-        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
-        title="Copy path"
-      >
-        {copied
-          ? <Check className="h-3 w-3 text-green-500" />
-          : <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />}
-      </button>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <code className="block text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1">{file}</code>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">{file}</TooltipContent>
+          </Tooltip>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                  type="button"
+                  onClick={() => handleCopy(file)}
+                  className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
+                >
+                  {copied
+                    ? <Check className="h-3 w-3 text-green-500" />
+                    : <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />}
+                </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Copy path</TooltipContent>
+          </Tooltip>
     </div>
   )
 }
@@ -569,24 +578,28 @@ function BeadGrid({
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(28px, 1fr))` }}
         >
           {beads.map((bead, index) => (
-            <button
-              key={bead.id}
-              onClick={() => onSelect(viewingBeadId === bead.id ? null : bead.id)}
-              title={`#${index + 1}: ${bead.title}${bead.iteration > 0 ? ` (${bead.iteration}x)` : ''}`}
-              className={cn(
-                'h-7 w-full rounded text-[10px] font-mono font-medium transition-colors',
-                bead.status === 'completed' || bead.status === 'skipped'
-                  ? 'bg-green-500/20 text-green-700 dark:text-green-400 border border-green-600/20'
-                  : bead.status === 'in_progress'
-                    ? 'bg-primary/20 text-primary border border-primary/40 animate-pulse'
-                    : bead.status === 'failed'
-                      ? 'bg-red-500/20 text-red-700 dark:text-red-400 border border-red-600/20'
-                      : 'bg-muted text-muted-foreground border border-border opacity-60',
-                viewingBeadId === bead.id && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
-              )}
-            >
-              {index + 1}
-            </button>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                            key={bead.id}
+                            onClick={() => onSelect(viewingBeadId === bead.id ? null : bead.id)}
+                            className={cn(
+                              'h-7 w-full rounded text-[10px] font-mono font-medium transition-colors',
+                              bead.status === 'completed' || bead.status === 'skipped'
+                                ? 'bg-green-500/20 text-green-700 dark:text-green-400 border border-green-600/20'
+                                : bead.status === 'in_progress'
+                                  ? 'bg-primary/20 text-primary border border-primary/40 animate-pulse'
+                                  : bead.status === 'failed'
+                                    ? 'bg-red-500/20 text-red-700 dark:text-red-400 border border-red-600/20'
+                                    : 'bg-muted text-muted-foreground border border-border opacity-60',
+                              viewingBeadId === bead.id && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
+                            )}
+                          >
+                            {index + 1}
+                          </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">{`#${index + 1}: ${bead.title}${bead.iteration > 0 ? ` (${bead.iteration}x)` : ''}`}</TooltipContent>
+              </Tooltip>
           ))}
         </div>
       </div>
@@ -598,27 +611,31 @@ function BeadGrid({
       <BeadProgressSummary beads={beads} />
       <div className="flex flex-wrap gap-1.5">
         {beads.map((bead, index) => (
-          <button
-            key={bead.id}
-            onClick={() => onSelect(viewingBeadId === bead.id ? null : bead.id)}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs whitespace-nowrap transition-colors',
-              bead.status === 'in_progress' && 'border-primary bg-primary/10 font-medium animate-pulse',
-              (bead.status === 'completed' || bead.status === 'skipped') && 'border-green-600/30 bg-green-50 dark:bg-green-900/20',
-              bead.status === 'failed' && 'border-red-600/30 bg-red-50 dark:bg-red-900/20',
-              bead.status === 'pending' && 'border-border opacity-70',
-              viewingBeadId === bead.id && 'ring-2 ring-primary',
-            )}
-            title={bead.title}
-          >
-            {statusIcon(bead.status)}
-            <span>{bead.title || `Bead ${index + 1}`}</span>
-            {bead.iteration > 0 && (
-              <Badge variant="outline" className="text-[10px] h-4 px-1">
-                {bead.iteration}x
-              </Badge>
-            )}
-          </button>
+          <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                        key={bead.id}
+                        onClick={() => onSelect(viewingBeadId === bead.id ? null : bead.id)}
+                        className={cn(
+                          'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs whitespace-nowrap transition-colors',
+                          bead.status === 'in_progress' && 'border-primary bg-primary/10 font-medium animate-pulse',
+                          (bead.status === 'completed' || bead.status === 'skipped') && 'border-green-600/30 bg-green-50 dark:bg-green-900/20',
+                          bead.status === 'failed' && 'border-red-600/30 bg-red-50 dark:bg-red-900/20',
+                          bead.status === 'pending' && 'border-border opacity-70',
+                          viewingBeadId === bead.id && 'ring-2 ring-primary',
+                        )}
+                      >
+                        {statusIcon(bead.status)}
+                        <span>{bead.title || `Bead ${index + 1}`}</span>
+                        {bead.iteration > 0 && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1">
+                            {bead.iteration}x
+                          </Badge>
+                        )}
+                      </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-center text-balance">{bead.title}</TooltipContent>
+            </Tooltip>
         ))}
       </div>
     </div>
@@ -1131,7 +1148,12 @@ export function CodingView({ ticket, readOnly }: CodingViewProps) {
                             {iterNum && (
                               <div className="flex items-center gap-2 mb-1 text-[10px] text-muted-foreground/70">
                                 <Badge variant="outline" className="text-[9px] px-1 py-0">Iteration {iterNum}</Badge>
-                                {timestamp && <span title={timestamp}>{formatTimestamp(timestamp)}</span>}
+                                {timestamp && <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span>{formatTimestamp(timestamp)}</span>
+                                          </TooltipTrigger>
+                                          <TooltipContent className="max-w-xs text-center text-balance">{timestamp}</TooltipContent>
+                                        </Tooltip>}
                               </div>
                             )}
                             <div className="whitespace-pre-wrap">{body}</div>

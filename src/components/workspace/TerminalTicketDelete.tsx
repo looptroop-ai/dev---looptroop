@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { useUI } from '@/context/useUI'
 import { useDeleteTicket, type Ticket } from '@/hooks/useTickets'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface TerminalTicketDeleteProps {
   ticket: Ticket
@@ -51,16 +52,20 @@ export function TerminalTicketDelete({
 
   return (
     <>
-      <Button
-        variant={buttonVariant}
-        size={buttonSize}
-        onClick={() => handleOpenChange(true)}
-        className={cn('gap-1.5 shrink-0', buttonClassName)}
-        title={buttonTitle}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-        <span>{buttonLabel}</span>
-      </Button>
+      <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                  variant={buttonVariant}
+                  size={buttonSize}
+                  onClick={() => handleOpenChange(true)}
+                  className={cn('gap-1.5 shrink-0', buttonClassName)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>{buttonLabel}</span>
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">{buttonTitle}</TooltipContent>
+          </Tooltip>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-md">

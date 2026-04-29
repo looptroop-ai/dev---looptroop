@@ -41,41 +41,71 @@ function PriorityArrows({ priority }: { priority: number }) {
   switch (priority) {
     case 1:
       return (
-        <span className="flex flex-col items-center -space-y-1 text-red-600" title="Very High">
-          <ChevronUp className="h-3 w-3" strokeWidth={3} />
-          <ChevronUp className="h-3 w-3" strokeWidth={3} />
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex flex-col items-center -space-y-1 text-red-600">
+                    <ChevronUp className="h-3 w-3" strokeWidth={3} />
+                    <ChevronUp className="h-3 w-3" strokeWidth={3} />
+                  </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Very High</TooltipContent>
+          </Tooltip>
       )
     case 2:
       return (
-        <span className="inline-flex items-center text-orange-500" title="High">
-          <ChevronUp className="h-3 w-3" strokeWidth={2.5} />
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center text-orange-500">
+                    <ChevronUp className="h-3 w-3" strokeWidth={2.5} />
+                  </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">High</TooltipContent>
+          </Tooltip>
       )
     case 3:
       return (
-        <span className="inline-flex items-center text-gray-400" title="Normal">
-          <Minus className="h-3 w-3" strokeWidth={2.5} />
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center text-gray-400">
+                    <Minus className="h-3 w-3" strokeWidth={2.5} />
+                  </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Normal</TooltipContent>
+          </Tooltip>
       )
     case 4:
       return (
-        <span className="inline-flex items-center text-blue-400" title="Low">
-          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center text-blue-400">
+                    <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
+                  </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Low</TooltipContent>
+          </Tooltip>
       )
     case 5:
       return (
-        <span className="flex flex-col items-center -space-y-1 text-blue-400" title="Very Low">
-          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
-          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex flex-col items-center -space-y-1 text-blue-400">
+                    <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
+                    <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
+                  </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Very Low</TooltipContent>
+          </Tooltip>
       )
     default:
       return (
-        <span className="inline-flex items-center text-gray-400" title="Normal">
-          <Minus className="h-3 w-3" strokeWidth={2.5} />
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center text-gray-400">
+                    <Minus className="h-3 w-3" strokeWidth={2.5} />
+                  </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-center text-balance">Normal</TooltipContent>
+          </Tooltip>
       )
   }
 }
@@ -173,15 +203,25 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
             </Badge>
           )}
           {progress !== null && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title="Workflow progress">
-              <ProgressRing percent={progress} colorClass={ringColor} />
-              <span className={ringColor}>{progress}%</span>
-            </span>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                                    <ProgressRing percent={progress} colorClass={ringColor} />
+                                    <span className={ringColor}>{progress}%</span>
+                                  </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">Workflow progress</TooltipContent>
+                      </Tooltip>
           )}
         </div>
-        <span className="text-xs text-muted-foreground shrink-0" title={new Date(ticket.updatedAt).toLocaleString()}>
-          {getRelativeTime(ticket.updatedAt)}
-        </span>
+        <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                        {getRelativeTime(ticket.updatedAt)}
+                      </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-center text-balance">{new Date(ticket.updatedAt).toLocaleString()}</TooltipContent>
+              </Tooltip>
       </div>
     </Card>
   )

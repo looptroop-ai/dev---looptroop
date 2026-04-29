@@ -41,6 +41,7 @@ import {
   mergeDraftArtifactContent,
   mergeVoteArtifactContent,
 } from './artifactCompanionUtils'
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type EditTab = 'structured' | 'yaml'
 
@@ -420,20 +421,24 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
           <span className="font-semibold">Product Requirements Document</span>
           <span className="flex-1 text-xs text-muted-foreground">Review the final PRD, edit it if needed, then approve it before Beads drafting begins.</span>
           {fullAnswersArtifact ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFullAnswers(true)}
-              className="h-7 shrink-0 gap-1.5 px-2 text-[11px]"
-              title={`View ${fullAnswersArtifact.questionCount} Full Answers question${fullAnswersArtifact.questionCount === 1 ? '' : 's'} from ${fullAnswersArtifact.winnerLabel}`}
-            >
-              <FileText className="h-3.5 w-3.5" />
-              <span>Full Answers</span>
-              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {fullAnswersArtifact.questionCount}
-              </span>
-            </Button>
+            <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowFullAnswers(true)}
+                                    className="h-7 shrink-0 gap-1.5 px-2 text-[11px]"
+                                  >
+                                    <FileText className="h-3.5 w-3.5" />
+                                    <span>Full Answers</span>
+                                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                      {fullAnswersArtifact.questionCount}
+                                    </span>
+                                  </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-center text-balance">{`View ${fullAnswersArtifact.questionCount} Full Answers question${fullAnswersArtifact.questionCount === 1 ? '' : 's'} from ${fullAnswersArtifact.winnerLabel}`}</TooltipContent>
+                      </Tooltip>
           ) : null}
           <Button
             variant="outline"

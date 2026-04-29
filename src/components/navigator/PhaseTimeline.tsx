@@ -179,22 +179,26 @@ export function PhaseTimeline({
 
           return (
             <div key={group.id}>
-              <button
-                onClick={() => toggleGroup(gi)}
-                className={cn(
-                  'w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors text-left',
-                  groupStatus === 'active' && 'text-primary',
-                  groupStatus === 'completed' && 'text-green-600',
-                  groupStatus === 'error' && 'text-destructive',
-                  groupStatus === 'pending' && 'text-muted-foreground',
-                  'hover:bg-accent/50',
-                )}
-                title={`Toggle ${group.label} phases`}
-              >
-                <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
-                <StatusIndicator status={groupStatus} />
-                <span>{group.label}</span>
-              </button>
+              <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                                  onClick={() => toggleGroup(gi)}
+                                  className={cn(
+                                    'w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors text-left',
+                                    groupStatus === 'active' && 'text-primary',
+                                    groupStatus === 'completed' && 'text-green-600',
+                                    groupStatus === 'error' && 'text-destructive',
+                                    groupStatus === 'pending' && 'text-muted-foreground',
+                                    'hover:bg-accent/50',
+                                  )}
+                                >
+                                  <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
+                                  <StatusIndicator status={groupStatus} />
+                                  <span>{group.label}</span>
+                                </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-center text-balance">{`Toggle ${group.label} phases`}</TooltipContent>
+                  </Tooltip>
 
               {isExpanded && (
                 <div className="ml-3 space-y-0.5 mt-0.5">
