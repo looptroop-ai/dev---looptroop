@@ -982,7 +982,7 @@ function getSafeResumeDescription(phase: Pick<WorkflowPhaseMeta, 'id' | 'kanbanP
   if (phase.kanbanPhase === 'needs_input') {
     return 'No background model work should be active; browser/frontend restarts reload the saved artifact or UI draft, and backend restarts keep waiting for the same user action.'
   }
-  return 'Backend or OpenCode restarts rehydrate the ticket actor and rerun or reconnect this phase from durable artifacts; unrecoverable state moves to Blocked Error instead of falling back to Draft.'
+  return 'Backend or OpenCode restarts rehydrate the ticket actor and rerun or reconnect this phase from durable artifacts; unrecoverable state moves to Blocked Error.'
 }
 
 function withSafeResumeMetadata(phase: WorkflowPhaseMeta): WorkflowPhaseMeta {

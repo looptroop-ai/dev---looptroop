@@ -157,7 +157,7 @@ Each non-terminal ticket stores both the durable ticket status and the serialize
 
 - valid snapshots are rehydrated and immediately processed, so active phases continue without waiting for a new state-change event
 - missing snapshots for active tickets are reconstructed from the durable ticket status and persisted back to storage
-- corrupt or impossible snapshots for active tickets move the ticket to `BLOCKED_ERROR` instead of silently restarting from `DRAFT`
+- corrupt or impossible snapshots for active tickets move the ticket to `BLOCKED_ERROR`
 - terminal tickets remain terminal and do not restart work
 
 This keeps browser reloads, frontend reconnects, backend restarts, and OpenCode reconnect gaps from changing the workflow phase behind the user's back. The user should return to the same ticket status, or to an explicit blocked state with a retry/cancel decision.

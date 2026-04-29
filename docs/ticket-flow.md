@@ -198,7 +198,7 @@ Two extra guards matter at the user-action layer:
 
 - `WAITING_BEADS_APPROVAL`, `WAITING_EXECUTION_SETUP_APPROVAL`, and execution-band retries check for project-level execution-band conflicts before they advance.
 - `BLOCKED_ERROR` retry from `CODING` first tries to restore the failed bead into a retryable state before it re-enters `CODING`.
-- `BLOCKED_ERROR` retry is rejected when no preserved `previousStatus` exists. The app no longer falls back to `DRAFT`, because that can hide an unsafe partial run.
+- `BLOCKED_ERROR` retry is rejected when no preserved `previousStatus` exists.
 - `CODING` retry is rejected when the failed bead cannot be reset to a recorded bead-start commit.
 
 ## Artifact Checkpoints

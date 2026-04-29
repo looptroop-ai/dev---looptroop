@@ -116,7 +116,7 @@ LoopTroop tries hard to preserve the work product while discarding the bad conve
 
 Planning edit restarts are intentionally cancellation-based. Editing an approved interview from later PRD or beads planning cancels active downstream planning sessions as intentional cancellation, archives the current approved interview version plus downstream PRD/beads phase attempts, removes stale PRD/beads artifacts and approval UI state, saves and approves the edited interview as the new active version, and starts `DRAFTING_PRD`. Editing an approved PRD from beads planning applies the same rule to the current approved PRD version and downstream beads attempts, then starts `DRAFTING_BEADS`. Archived approved versions are read-only planning generations backed by phase attempts. These routes stop at the planning boundary: at `PRE_FLIGHT_CHECK` or later, interview and PRD edit saves return `409` instead of modifying execution readiness. Existing tickets and projects, including `PCKM-22`, are not migrated or repaired by this behavior.
 
-If a resume point cannot be proven, recovery stops at `BLOCKED_ERROR` rather than falling back to `DRAFT` or continuing execution against unknown state. `BLOCKED_ERROR` retry requires a preserved `previousStatus`; `CODING` retry also requires a successful reset to the failed bead's `beadStartCommit`.
+If a resume point cannot be proven, recovery stops at `BLOCKED_ERROR` instead of continuing execution against unknown state. `BLOCKED_ERROR` retry requires a preserved `previousStatus`; `CODING` retry also requires a successful reset to the failed bead's `beadStartCommit`.
 
 ## Restart And Session Ownership
 

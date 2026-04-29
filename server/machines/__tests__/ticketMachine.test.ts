@@ -149,7 +149,7 @@ describe('ticketMachine execution setup flow', () => {
     expect(actor.getSnapshot().context.error).toBeNull()
   })
 
-  it('does not retry blocked errors to draft when previousStatus is missing', () => {
+  it('does not retry blocked errors when previousStatus is missing', () => {
     const actor = createActor(ticketMachine, {
       snapshot: {
         status: 'active',
