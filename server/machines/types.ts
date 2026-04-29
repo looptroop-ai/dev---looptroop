@@ -51,6 +51,7 @@ export type TicketEvent =
   | { type: 'COVERAGE_CLEAN' }
   | { type: 'GAPS_FOUND' }
   | { type: 'COVERAGE_LIMIT_REACHED' }
+  | { type: 'EXPANDED' }
   | { type: 'APPROVE' }
   | { type: 'DRAFTS_READY' }
   | { type: 'REFINED' }
@@ -98,6 +99,7 @@ export const STATUS_TO_PHASE: Record<string, KanbanPhase> = {
   COUNCIL_VOTING_BEADS: 'in_progress',
   REFINING_BEADS: 'in_progress',
   VERIFYING_BEADS_COVERAGE: 'in_progress',
+  EXPANDING_BEADS: 'in_progress',
   WAITING_BEADS_APPROVAL: 'needs_input',
   PRE_FLIGHT_CHECK: 'in_progress',
   WAITING_EXECUTION_SETUP_APPROVAL: 'needs_input',

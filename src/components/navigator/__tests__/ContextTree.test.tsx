@@ -23,20 +23,27 @@ describe('ContextTree', () => {
     expect(screen.getByText('PRD Drafts')).toBeInTheDocument()
   })
 
-  it('shows Beads coverage as review followed by final expansion', () => {
+  it('shows Beads coverage as coverage-only review (no expansion)', () => {
     renderWithProviders(<ContextTree selectedPhase="VERIFYING_BEADS_COVERAGE" ticketId={TEST.ticketId} />)
 
     fireEvent.click(screen.getByRole('button', { name: /context & output/i }))
 
-    expect(screen.getByText('Part 1')).toBeInTheDocument()
-    expect(screen.getByText(/Coverage Review/)).toBeInTheDocument()
-    expect(screen.getByText('Part 2')).toBeInTheDocument()
-    expect(screen.getByText(/Final Expansion/)).toBeInTheDocument()
-    expect(screen.getAllByText('PRD')).toHaveLength(2)
-    expect(screen.getAllByText('Beads Plan')).toHaveLength(2)
-    expect(screen.getAllByText('Semantic Blueprint')).toHaveLength(2)
-    expect(screen.getByText('Relevant Files')).toBeInTheDocument()
-    expect(screen.getByText('Ticket Details')).toBeInTheDocument()
+    expect(screen.getByText('Allowed Context')).toBeInTheDocument()
+    expect(screen.getByText('Coverage Review')).toBeInTheDocument()
+    expect(screen.queryByText('Part 1')).not.toBeInTheDocument()
+    expect(screen.queryByText('Part 2')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Final Expansion/)).not.toBeInTheDocument()
+    expect(screen.getByText('PRD')).toBeInTheDocument()
+    expect(screen.getByText('Output')).toBeInTheDocument()
+    expect(screen.getByText('Semantic Blueprint')).toBeInTheDocument()
+  })
+
+  it('shows Expanding Beads as expansion step with beads plan output', () => {
+    renderWithProviders(<ContextTree selectedPhase="EXPANDING_BEADS" ticketId={TEST.ticketId} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /context & output/i }))
+
+    expect(screen.getByText('Expansion')).toBeInTheDocument()
     expect(screen.getByText('Output')).toBeInTheDocument()
     expect(screen.getByTitle('Execution-ready tasks for approval.')).toBeInTheDocument()
   })

@@ -1078,7 +1078,7 @@ function buildMockBeadVoteResult(
   return { votes, voterOutcomes, presentationOrders }
 }
 
-function readMockBeadsWinnerId(ticketId: string, fallbackWinnerId: string): string {
+export function readMockBeadsWinnerId(ticketId: string, fallbackWinnerId: string): string {
   const voteArtifact = getLatestPhaseArtifact(ticketId, 'beads_votes')
   if (!voteArtifact) return fallbackWinnerId
 

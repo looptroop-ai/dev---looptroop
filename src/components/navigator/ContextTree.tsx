@@ -195,6 +195,8 @@ const PHASE_OUTPUTS: Record<string, ContextItem[]> = {
   ],
   VERIFYING_BEADS_COVERAGE: [
     outputItem('semantic-blueprint', 'Semantic Blueprint', 'beads_draft', 'Latest checked task blueprint.'),
+  ],
+  EXPANDING_BEADS: [
     outputItem('beads-plan', 'Beads Plan', 'beads', 'Execution-ready tasks for approval.'),
   ],
   WAITING_BEADS_APPROVAL: [

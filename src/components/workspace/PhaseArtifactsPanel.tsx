@@ -358,7 +358,9 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
           label: `Implementation Plan v${candidateVersion}`,
           description: phase === 'VERIFYING_BEADS_COVERAGE'
             ? 'The implementation plan version currently being checked.'
-            : 'Latest implementation plan awaiting approval',
+            : phase === 'EXPANDING_BEADS'
+              ? 'The implementation plan version being expanded into execution-ready beads.'
+              : 'Latest implementation plan awaiting approval',
         }
       }
 

@@ -275,9 +275,19 @@ export const ticketMachine = setup({
         },
       ],
       on: {
-        COVERAGE_CLEAN: { target: 'WAITING_BEADS_APPROVAL' },
+        COVERAGE_CLEAN: { target: 'EXPANDING_BEADS' },
         GAPS_FOUND: { target: 'REFINING_BEADS' },
-        COVERAGE_LIMIT_REACHED: { target: 'WAITING_BEADS_APPROVAL' },
+        COVERAGE_LIMIT_REACHED: { target: 'EXPANDING_BEADS' },
+        ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
+        CANCEL: { target: 'CANCELED' },
+      },
+    },
+    EXPANDING_BEADS: {
+      entry: [
+        { type: 'updateStatus', params: { status: 'EXPANDING_BEADS' } },
+      ],
+      on: {
+        EXPANDED: { target: 'WAITING_BEADS_APPROVAL' },
         ERROR: { target: 'BLOCKED_ERROR', actions: ['recordError'] },
         CANCEL: { target: 'CANCELED' },
       },
@@ -423,6 +433,7 @@ export const ticketMachine = setup({
           { guard: ({ context }) => context.previousStatus === 'COUNCIL_VOTING_BEADS', target: 'COUNCIL_VOTING_BEADS' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'REFINING_BEADS', target: 'REFINING_BEADS' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'VERIFYING_BEADS_COVERAGE', target: 'VERIFYING_BEADS_COVERAGE' as const, actions: ['clearError'] },
+          { guard: ({ context }) => context.previousStatus === 'EXPANDING_BEADS', target: 'EXPANDING_BEADS' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'WAITING_BEADS_APPROVAL', target: 'WAITING_BEADS_APPROVAL' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'PRE_FLIGHT_CHECK', target: 'PRE_FLIGHT_CHECK' as const, actions: ['clearError'] },
           { guard: ({ context }) => context.previousStatus === 'WAITING_EXECUTION_SETUP_APPROVAL', target: 'WAITING_EXECUTION_SETUP_APPROVAL' as const, actions: ['clearError'] },

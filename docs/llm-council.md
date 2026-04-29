@@ -11,7 +11,7 @@ LoopTroop uses a council whenever it is choosing a plan, not just executing one.
 | --- | --- | --- | --- | --- |
 | Interview | `COUNCIL_DELIBERATING` | `COUNCIL_VOTING_INTERVIEW` | `COMPILING_INTERVIEW` | `VERIFYING_INTERVIEW_COVERAGE` |
 | PRD | `DRAFTING_PRD` | `COUNCIL_VOTING_PRD` | `REFINING_PRD` | `VERIFYING_PRD_COVERAGE` |
-| Beads | `DRAFTING_BEADS` | `COUNCIL_VOTING_BEADS` | `REFINING_BEADS` and `VERIFYING_BEADS_COVERAGE` | `VERIFYING_BEADS_COVERAGE` plus expansion |
+| Beads | `DRAFTING_BEADS` | `COUNCIL_VOTING_BEADS` | `REFINING_BEADS` | `VERIFYING_BEADS_COVERAGE` then `EXPANDING_BEADS` |
 
 ## Council Lifecycle
 
@@ -70,7 +70,7 @@ The council does not end at "winner picked." LoopTroop then checks whether the a
 | --- | --- |
 | Interview | Generate targeted follow-up questions when gaps remain |
 | PRD | Revise the PRD until coverage is acceptable or the pass budget is exhausted |
-| Beads | Revise the bead plan, then expand it into execution-ready beads |
+| Beads | Revise the bead plan until coverage is clean or capped (`VERIFYING_BEADS_COVERAGE`), then expand into execution-ready beads in a separate `EXPANDING_BEADS` pass |
 
 This is why the council is better understood as a planning discipline than as a single phase.
 

@@ -280,8 +280,8 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     equivalents: [
       'This is the "coverage check" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Coverage Check (PRD)" (where the PRD is checked against the approved interview) and in the Blueprint (Beads) phase as "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
-      'All three coverage checks share the goal of verifying completeness, but they differ in how gaps are resolved: Interview coverage sends you back to answer follow-up questions (user-facing loop). PRD coverage revises the document automatically within the same phase (AI-internal loop, up to the configured pass cap). Beads coverage also revises automatically, then performs a final expansion step to produce execution-ready bead records.',
-      'Each coverage check has a budget or cap to ensure convergence — interview has a follow-up round budget, PRD has a configured pass cap, and beads has its own configured pass cap plus the expansion step.',
+      'All three coverage checks share the goal of verifying completeness, but they differ in how gaps are resolved: Interview coverage sends you back to answer follow-up questions (user-facing loop). PRD coverage revises the document automatically within the same phase (AI-internal loop, up to the configured pass cap). Beads coverage also revises automatically within the Coverage Check (Beads) phase, and is then followed by a separate Expanding Blueprint phase that transforms the validated semantic blueprint into execution-ready bead records.',
+      'Each coverage check has a budget or cap to ensure convergence — interview has a follow-up round budget, PRD has a configured pass cap, and beads has its own configured pass cap. Blueprint expansion happens in the dedicated Expanding Blueprint phase that follows.',
     ],
   },
   WAITING_INTERVIEW_APPROVAL: {
@@ -430,7 +430,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     equivalents: [
       'This is the "coverage check" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Blueprint (Beads) phase is "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
-      'Key difference from Interview coverage: PRD coverage resolves gaps automatically (the model revises the PRD within this same phase) rather than sending you back for more user input. Key difference from Beads coverage: Beads coverage includes a final expansion step that transforms the semantic blueprint into execution-ready bead records — PRD coverage does not have an equivalent expansion.',
+      'Key difference from Interview coverage: PRD coverage resolves gaps automatically (the model revises the PRD within this same phase) rather than sending you back for more user input. Key difference from Beads coverage: Beads coverage is followed by a dedicated Expanding Blueprint phase that transforms the validated semantic blueprint into execution-ready bead records with commands, file targets, and dependency graphs — PRD coverage has no equivalent expansion phase.',
       'What is being verified against what: Interview coverage checks interview answers against the ticket description. PRD coverage checks the PRD against the approved interview. Beads coverage checks the beads blueprint against the approved PRD. Each layer verifies against the previous approved artifact.',
     ],
   },
@@ -517,7 +517,7 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'Context available: Relevant Files + Ticket Details + PRD + Competing Drafts (all anonymized).',
       'The architecture rubric differs from the PRD and interview rubrics — it focuses on implementation feasibility and dependency structure rather than requirement coverage.',
-      'The winning blueprint is not the final plan — it still goes through refinement, coverage checking, and expansion before becoming execution-ready beads.',
+      'The winning blueprint is not the final plan — it still goes through refinement, coverage checking (Coverage Check (Beads)), and expansion (Expanding Blueprint) before becoming execution-ready beads.',
     ],
     equivalents: [
       'This is the "council voting" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Voting on Questions" (where the council votes on competing interview drafts) and in the Specs (PRD) phase is "Voting on Specs" (where the council votes on competing PRD drafts).',
@@ -525,13 +525,13 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   REFINING_BEADS: {
-    overview: 'The winning beads blueprint stays the backbone while LoopTroop pulls in stronger tasks, tests, constraints, and edge cases from the losing blueprints. The refined output remains a semantic plan — execution-specific fields (shell commands, exact file paths, runtime configuration) are added later during the expansion step in the coverage phase.',
+    overview: 'The winning beads blueprint stays the backbone while LoopTroop pulls in stronger tasks, tests, constraints, and edge cases from the losing blueprints. The refined output remains a semantic plan — execution-specific fields (shell commands, exact file paths, runtime configuration) are added later during the expansion step in the Expanding Blueprint phase that follows coverage checking.',
     steps: [
       'Context Assembly: The winning model receives its own winning blueprint plus all losing blueprints, clearly labeled. The prompt instructs it to preserve the winning structure while selectively merging improvements from the losers.',
       'Selective Merging: The model reviews each losing blueprint for tasks, acceptance criteria, edge cases, or dependency insights that are present in the loser but absent from the winner. It incorporates these improvements without duplicating content, breaking the dependency graph, or fundamentally restructuring the winning blueprint.',
       'Output Normalization: LoopTroop normalizes the refinement output, validates the bead structure and dependency graph integrity, and stores the refined candidate. Attribution metadata is preserved where possible so you can see which improvements came from which losing blueprint.',
       'UI Diff Artifacts: Diff artifacts are generated showing what changed between the original winning blueprint and the refined version, helping you understand the refinement impact during later review.',
-      'Semantic Preservation: The refined candidate is intentionally kept at the semantic level — task descriptions, acceptance criteria, and dependency declarations, but no execution commands or runtime paths. The expansion step (in the next phase) handles that transformation.',
+      'Semantic Preservation: The refined candidate is intentionally kept at the semantic level — task descriptions, acceptance criteria, and dependency declarations, but no execution commands or runtime paths. The expansion step (in the Expanding Blueprint phase, after coverage checking) handles that transformation.',
     ],
     outputs: [
       'Refined semantic beads blueprint — the winning blueprint enhanced with the best elements from losing competitors.',
@@ -543,45 +543,70 @@ const WORKFLOW_PHASE_DETAILS = {
       'Failure → Blocked Error: Refinement failures, dependency graph violations, or validation errors route the ticket to Blocked Error.',
     ],
     notes: [
-      'This phase still works on the semantic plan, not execution-ready bead records. Execution fields are added in the next phase\'s expansion step.',
+      'This phase still works on the semantic plan, not execution-ready bead records. Execution fields are added in the Expanding Blueprint phase, after coverage checking.',
       'Context available: Relevant Files + Ticket Details + PRD + Competing Drafts.',
       'Why refine before expansion? Semantic-level refinement is cheaper and more flexible. It is easier to add or modify task descriptions than to redo execution-specific fields after expansion.',
     ],
     equivalents: [
       'This is the "refinement" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Refining Interview" (where the winning interview draft is compiled into the interactive format) and in the Specs (PRD) phase is "Refining Specs" (where the winning PRD draft is enhanced with ideas from losing drafts).',
-      'Beads refinement is very similar to PRD refinement — both merge improvements from losing drafts. The key difference is that beads refinement stays at the semantic level (task descriptions and acceptance criteria) because the execution-ready fields (commands, file paths) are added later during the expansion step in the next phase. PRD refinement produces the near-final document directly.',
+      'Beads refinement is very similar to PRD refinement — both merge improvements from losing drafts. The key difference is that beads refinement stays at the semantic level (task descriptions and acceptance criteria) because the execution-ready fields (commands, file paths) are added later in the Expanding Blueprint phase, after the coverage check. PRD refinement produces the near-final document directly.',
     ],
   },
   VERIFYING_BEADS_COVERAGE: {
-    overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revises it until acceptable, and then expands the final blueprint into execution-ready bead records. This is a 2-part phase: Part 1 is the coverage review loop (checking and revising the semantic blueprint against the PRD), and Part 2 is the final expansion step that transforms the validated semantic blueprint into execution-ready bead data with commands, file targets, and dependency graphs.',
+    overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revising it until it is acceptable. This is a pure coverage review loop: it checks and revises the semantic blueprint against the PRD until coverage is clean or until the configured beads coverage cap is reached. Once done, the workflow automatically advances to the Expanding Blueprint phase.',
     steps: [
-      'Part 1 — Coverage Review: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result. "Clean" means every PRD requirement is covered by at least one bead. "Gaps" means specific requirements lack corresponding beads or have insufficient acceptance criteria.',
-      'Part 1 — Gap Resolution: If gaps are found, LoopTroop records the coverage attempt, requests a targeted revision that adds the missing beads or strengthens existing acceptance criteria, validates the revision, and promotes the next blueprint version. This loop can repeat until clean or until the configured beads coverage cap is reached.',
-      'Part 1 — Version Tracking: Each coverage attempt and revision is persisted as coverage history, so you can see the evolution from the initial blueprint through each revision and understand what changed at each step.',
-      'Part 2 — Final Expansion: Once the blueprint is clean (or the cap is reached), LoopTroop runs the expansion step. This transforms the semantic blueprint (task descriptions, acceptance criteria) into execution-ready bead records. Expansion adds fields like shell commands to run, file paths to create or modify, expected test commands, dependency graph with topological ordering, and runtime metadata.',
-      'Part 2 — Expansion Output: The expanded bead data becomes the actual execution plan that the coding agent will consume bead-by-bead. Each bead record includes everything the coding agent needs to implement that task without additional context about the overall plan.',
-      'Part 2 — Approval Candidate: The expanded output is persisted and becomes the approval candidate shown in the beads approval UI, where you can review the full execution plan before coding starts.',
+      'Coverage Evaluation: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result. "Clean" means every PRD requirement is covered by at least one bead. "Gaps" means specific requirements lack corresponding beads or have insufficient acceptance criteria.',
+      'Gap Resolution: If gaps are found, LoopTroop records the coverage attempt, requests a targeted revision that adds the missing beads or strengthens existing acceptance criteria, validates the revision, and promotes the next blueprint version. This loop can repeat until clean or until the configured beads coverage cap is reached.',
+      'Version Tracking: Each coverage attempt and revision is persisted as coverage history, so you can see the evolution from the initial blueprint through each revision and understand what changed at each step.',
+      'Finalization: Once coverage is clean (or the cap is reached), the workflow emits the result and automatically advances to the Expanding Blueprint phase, which transforms the validated semantic blueprint into execution-ready bead records.',
     ],
     outputs: [
       'Versioned beads coverage history showing each coverage evaluation and revision.',
       'Latest refined semantic blueprint (after coverage revisions).',
-      'Expanded execution-ready beads data with commands, file targets, dependency graphs, and runtime metadata (produced in Part 2).',
-      'Approval candidate artifact for the beads approval UI.',
+      'Coverage result (clean or cap-reached) that triggers automatic advancement to the expansion phase.',
     ],
     transitions: [
-      'After Expansion → Approving Blueprint: After the expansion step completes, the workflow advances to beads approval where you review the execution plan.',
-      'Coverage or Expansion Failure → Blocked Error: Coverage evaluation errors, revision validation failures, expansion errors, or model timeouts route the ticket to Blocked Error.',
+      'Coverage Clean → Expanding Blueprint: When the semantic blueprint passes coverage with no gaps, the workflow automatically advances to the Expanding Blueprint phase.',
+      'Coverage Cap Reached → Expanding Blueprint: If the coverage cap is hit, the workflow advances to expansion with the latest available blueprint even if minor gaps remain. Coverage history is preserved for later review.',
+      'Coverage Failure → Blocked Error: Coverage evaluation errors, revision validation failures, or model timeouts route the ticket to Blocked Error.',
     ],
     notes: [
-      'This is the only planning phase that ends with an explicit semantic-to-execution expansion step — all other phases work at the semantic level only.',
-      'This phase has 2 internal parts with different context inputs: Part 1 receives PRD + Beads (semantic blueprint); Part 2 receives Relevant Files + Ticket Details + PRD + Semantic Blueprint (beads_draft).',
+      'This phase handles only the semantic coverage loop — expansion into execution-ready bead records happens in the separate Expanding Blueprint phase that follows.',
       'The beads coverage cap ensures convergence — the loop cannot run indefinitely.',
-      'Why expand separately? Expansion is expensive and adds execution-specific detail. By doing coverage at the semantic level first, LoopTroop avoids wasting expansion effort on a blueprint that would need revision.',
+      'Context available: PRD + Beads (semantic blueprint).',
+      'Why separate coverage from expansion? Coverage at the semantic level is cheaper and faster than expansion. By checking coverage first at the semantic level, LoopTroop avoids wasting expansion effort on a blueprint that would need revision.',
     ],
     equivalents: [
       'This is the "coverage check" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Specs (PRD) phase is "Coverage Check (PRD)" (where the PRD is checked against the approved interview).',
-      'Beads coverage is the most complex of the three coverage checks because it has a 2-part structure: Part 1 is the standard coverage loop (similar to PRD coverage — automatic revisions within the same phase), and Part 2 is the unique "expansion" step that transforms the semantic blueprint into execution-ready bead records with commands, file targets, and dependency graphs. Neither Interview nor PRD coverage has an equivalent expansion step.',
+      'All three coverage checks share the goal of verifying completeness and resolve gaps automatically or via user input. What makes beads coverage unique is that it is followed by a separate expansion phase (Expanding Blueprint) that transforms the validated semantic blueprint into execution-ready bead records with commands, file targets, and dependency graphs. Interview and PRD coverage have no equivalent expansion step.',
       'What is being verified against what: Interview coverage checks answers against the ticket. PRD coverage checks the PRD against the approved interview. Beads coverage checks the blueprint against the approved PRD. This creates a chain of verification where each artifact is validated against its predecessor.',
+    ],
+  },
+  EXPANDING_BEADS: {
+    overview: 'LoopTroop transforms the coverage-validated semantic blueprint into execution-ready bead records. This expansion step adds execution-specific fields to each bead — shell commands to run, file paths to create or modify, expected test commands, dependency graph with topological ordering, and runtime metadata. The expanded output becomes the approval candidate shown in the beads approval UI.',
+    steps: [
+      'Blueprint Loading: LoopTroop loads the latest semantic blueprint from the coverage phase — either the final coverage revision or the original refined blueprint if no revisions were needed.',
+      'Expansion: The expansion model receives the semantic blueprint along with the relevant files, ticket details, and approved PRD. It produces execution-ready bead records by enriching each bead with shell commands, file targets, test commands, dependency edges, and runtime metadata.',
+      'Bead Record Writing: The expanded bead records are written to the ticket workspace as the canonical beads data file. This is the file the pre-flight check validates and the coding loop consumes bead-by-bead.',
+      'Approval Candidate: The expanded output is persisted as the beads approval candidate artifact. This is what you review in the Approving Blueprint phase before coding starts.',
+    ],
+    outputs: [
+      'Expanded execution-ready beads data with commands, file targets, dependency graphs, and runtime metadata.',
+      'Canonical beads data file in the ticket workspace — the file the coding agent consumes.',
+      'Approval candidate artifact for the Approving Blueprint UI.',
+    ],
+    transitions: [
+      'Expansion Complete → Approving Blueprint: After the expansion step completes, the workflow advances to beads approval where you review the full execution plan.',
+      'Expansion Failure → Blocked Error: Expansion errors or model timeouts route the ticket to Blocked Error.',
+    ],
+    notes: [
+      'This is the only planning phase that ends with an explicit semantic-to-execution expansion step — all other phases work at the semantic level only.',
+      'Context available: Relevant Files + Ticket Details + PRD + Semantic Blueprint (beads_draft).',
+      'Why expand separately from coverage? Expansion is expensive and adds execution-specific detail. By doing coverage at the semantic level first (in Coverage Check (Beads)), LoopTroop avoids wasting expansion effort on a blueprint that would need revision.',
+    ],
+    equivalents: [
+      'This is the "expansion" step unique to the Blueprint (Beads) phase — it has no direct equivalent in the Interview or Specs (PRD) phases. It follows immediately after Coverage Check (Beads) and precedes Approving Blueprint.',
+      'Unlike all other planning phases which stay at the semantic level, this phase produces execution-ready artifacts: bead records with concrete commands, file targets, and dependency graphs that the coding agent will consume directly.',
     ],
   },
   WAITING_BEADS_APPROVAL: {
@@ -952,13 +977,16 @@ const DRAFTING_PRD_CONTEXT_SECTIONS = [
 
 const VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS = [
   {
-    label: 'Part 1',
-    description: 'Coverage Review',
+    label: 'Coverage Review',
+    description: 'Checking Blueprint Against PRD',
     keys: ['prd', 'beads'],
   },
+] as const satisfies readonly WorkflowContextSection[]
+
+const EXPANDING_BEADS_CONTEXT_SECTIONS = [
   {
-    label: 'Part 2',
-    description: 'Final Expansion',
+    label: 'Expansion',
+    description: 'Transforming Blueprint into Execution-Ready Beads',
     keys: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
   },
 ] as const satisfies readonly WorkflowContextSection[]
@@ -1197,7 +1225,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'VERIFYING_BEADS_COVERAGE',
     label: 'Coverage Check (Beads)',
-    description: 'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint, checks again, then expands the final version into execution-ready beads before approval.',
+    description: 'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint and checks again. Once clean or the cap is reached, the workflow advances automatically to the Expanding Blueprint phase.',
     details: WORKFLOW_PHASE_DETAILS.VERIFYING_BEADS_COVERAGE,
     kanbanPhase: 'in_progress',
     groupId: 'beads',
@@ -1206,6 +1234,19 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     multiModelLogs: false,
     contextSummary: mergeContextSections(VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS),
     contextSections: VERIFYING_BEADS_COVERAGE_CONTEXT_SECTIONS,
+  },
+  {
+    id: 'EXPANDING_BEADS',
+    label: 'Expanding Blueprint',
+    description: 'LoopTroop transforms the coverage-validated semantic blueprint into execution-ready bead records with commands, file targets, dependency graphs, and runtime metadata.',
+    details: WORKFLOW_PHASE_DETAILS.EXPANDING_BEADS,
+    kanbanPhase: 'in_progress',
+    groupId: 'beads',
+    uiView: 'council',
+    editable: true,
+    multiModelLogs: false,
+    contextSummary: mergeContextSections(EXPANDING_BEADS_CONTEXT_SECTIONS),
+    contextSections: EXPANDING_BEADS_CONTEXT_SECTIONS,
   },
   {
     id: 'WAITING_BEADS_APPROVAL',

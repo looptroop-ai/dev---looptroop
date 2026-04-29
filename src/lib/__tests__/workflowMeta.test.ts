@@ -106,22 +106,33 @@ describe.concurrent('workflow metadata', () => {
     )
   })
 
-  it('describes beads coverage as semantic review followed by final expansion', () => {
+  it('describes beads coverage as a pure semantic coverage review loop', () => {
     const beadsCoveragePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'VERIFYING_BEADS_COVERAGE')
 
     expect(beadsCoveragePhase?.description).toContain(
-      'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint, checks again, then expands the final version into execution-ready beads before approval.',
+      'LoopTroop checks the current semantic beads blueprint against the approved PRD. If something is missing, it updates the blueprint and checks again.',
     )
-    expect(beadsCoveragePhase?.contextSummary).toEqual(['prd', 'beads', 'relevant_files', 'ticket_details', 'beads_draft'])
+    expect(beadsCoveragePhase?.contextSummary).toEqual(['prd', 'beads'])
     expect(beadsCoveragePhase?.contextSections).toEqual([
       {
-        label: 'Part 1',
-        description: 'Coverage Review',
+        label: 'Coverage Review',
+        description: 'Checking Blueprint Against PRD',
         keys: ['prd', 'beads'],
       },
+    ])
+  })
+
+  it('describes the expanding beads phase as blueprint-to-execution transformation', () => {
+    const expandingPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'EXPANDING_BEADS')
+
+    expect(expandingPhase?.description).toContain(
+      'LoopTroop transforms the coverage-validated semantic blueprint into execution-ready bead records',
+    )
+    expect(expandingPhase?.contextSummary).toEqual(['relevant_files', 'ticket_details', 'prd', 'beads_draft'])
+    expect(expandingPhase?.contextSections).toEqual([
       {
-        label: 'Part 2',
-        description: 'Final Expansion',
+        label: 'Expansion',
+        description: 'Transforming Blueprint into Execution-Ready Beads',
         keys: ['relevant_files', 'ticket_details', 'prd', 'beads_draft'],
       },
     ])

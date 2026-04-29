@@ -42,9 +42,11 @@ import {
   handleBeadsDraft,
   handleBeadsVote,
   handleBeadsRefine,
+  handleBeadsExpansion,
   handleMockBeadsDraft,
   handleMockBeadsVote,
   handleMockBeadsRefine,
+  handleMockBeadsExpansion,
 
   // Execution phase
   handleCoding,
@@ -126,6 +128,9 @@ async function handleMockLifecycleState(
       return
     case 'VERIFYING_BEADS_COVERAGE':
       await handleMockCoverage(ticketId, context, 'beads', sendEvent)
+      return
+    case 'EXPANDING_BEADS':
+      await handleMockBeadsExpansion(ticketId, context, sendEvent)
       return
     case 'PRE_FLIGHT_CHECK':
       await handleMockExecutionUnsupported(ticketId, context, 'PRE_FLIGHT_CHECK', sendEvent)
@@ -229,6 +234,7 @@ export function attachWorkflowRunner(
         'COUNCIL_VOTING_BEADS',
         'REFINING_BEADS',
         'VERIFYING_BEADS_COVERAGE',
+        'EXPANDING_BEADS',
         'PRE_FLIGHT_CHECK',
         'WAITING_EXECUTION_SETUP_APPROVAL',
         'PREPARING_EXECUTION_ENV',
@@ -454,6 +460,18 @@ export function attachWorkflowRunner(
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_BEADS_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
+        })
+        .finally(() => {
+          runningPhases.delete(key)
+        })
+    } else if (state === 'EXPANDING_BEADS') {
+      runningPhases.add(key)
+      handleBeadsExpansion(ticketId, context, sendEvent, signal)
+        .catch(err => {
+          if (isCancellationError(err, signal)) return
+          const errMsg = err instanceof Error ? err.message : String(err)
+          emitPhaseLog(ticketId, context.externalId, 'EXPANDING_BEADS', 'error', errMsg)
+          sendEvent({ type: 'ERROR', message: errMsg, codes: ['EXPANSION_FAILED'] })
         })
         .finally(() => {
           runningPhases.delete(key)

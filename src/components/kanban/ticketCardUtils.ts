@@ -25,6 +25,7 @@ export function getStatusColor(status: string): string {
     case 'COUNCIL_VOTING_BEADS':
     case 'REFINING_BEADS':
     case 'VERIFYING_BEADS_COVERAGE':
+    case 'EXPANDING_BEADS':
       return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
     case 'PRE_FLIGHT_CHECK':
     case 'PREPARING_EXECUTION_ENV':
@@ -91,6 +92,7 @@ export function getStatusRingColor(status: string): string {
     case 'COUNCIL_VOTING_BEADS':
     case 'REFINING_BEADS':
     case 'VERIFYING_BEADS_COVERAGE':
+    case 'EXPANDING_BEADS':
       return 'text-purple-500'
     case 'PRE_FLIGHT_CHECK':
     case 'PREPARING_EXECUTION_ENV':

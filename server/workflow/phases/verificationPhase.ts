@@ -52,6 +52,7 @@ import {
   validateBeadsCoverageRevisionOutput,
 } from '../../phases/beads/coverageRevision'
 import { BEADS_PIPELINE_STEPS, getBeadsDraftMetrics } from '../../phases/beads/refined'
+import { hydrateExpandedBeads } from '../../phases/beads/expand'
 import { clearContextCache } from '../../opencode/contextBuilder'
 import {
   countCoverageFollowUpQuestions,
@@ -91,7 +92,7 @@ import {
   buildCoverageFollowUpCommentary,
   readMockInterviewWinnerId,
 } from './interviewPhase'
-import { readTicketBeads, updateTicketProgressFromBeads, writeTicketBeads } from './beadsPhase'
+import { readTicketBeads, updateTicketProgressFromBeads, writeTicketBeads, buildMockBeadSubsets, readMockBeadsWinnerId } from './beadsPhase'
 import { executeBeadsExpandStep } from './beadsPhase'
 import { getStructuredRetryDecision } from '../../lib/structuredOutputRetry'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
@@ -177,6 +178,33 @@ function loadRecoveredBeadsCoverageContent(ticketId: string) {
   } catch {
     return null
   }
+}
+
+function loadBeadsExpansionInput(ticketId: string): { candidateContent: string; candidateVersion: number } | null {
+  const revisionArtifact = getLatestPhaseArtifact(ticketId, 'beads_coverage_revision', 'VERIFYING_BEADS_COVERAGE')
+  if (revisionArtifact) {
+    try {
+      const parsed = JSON.parse(revisionArtifact.content) as { refinedContent?: string; candidateVersion?: number }
+      if (typeof parsed.refinedContent === 'string' && parsed.refinedContent) {
+        return {
+          candidateContent: parsed.refinedContent,
+          candidateVersion: typeof parsed.candidateVersion === 'number' ? parsed.candidateVersion : 1,
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  const refinedArtifact = getLatestPhaseArtifact(ticketId, 'beads_refined', 'REFINING_BEADS')
+  if (refinedArtifact) {
+    try {
+      const parsed = JSON.parse(refinedArtifact.content) as { refinedContent?: string }
+      if (typeof parsed.refinedContent === 'string' && parsed.refinedContent) {
+        return { candidateContent: parsed.refinedContent, candidateVersion: 1 }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return null
 }
 
 type CoverageAttemptHistoryEntry = {
@@ -1660,20 +1688,8 @@ async function handleBeadsCoverageVerificationLoop(params: {
         params.context.externalId,
         params.stateLabel,
         'info',
-        `Coverage retry cap already reached for beads (${completedCoveragePasses}/${maxCoveragePasses}). Finalizing the execution-ready blueprint before approval.`,
+        `Coverage retry cap already reached for beads (${completedCoveragePasses}/${maxCoveragePasses}). Routing to approval with limit already reached.`,
       )
-      await finalizeBeadsCoverageExpansion({
-        ticketId: params.ticketId,
-        externalId: params.context.externalId,
-        stateLabel: params.stateLabel,
-        winnerId: params.winnerId,
-        worktreePath: params.worktreePath,
-        signal: params.signal,
-        councilSettings: params.councilSettings,
-        ticketState: params.ticketState,
-        candidateContent: currentCandidateContent,
-        candidateVersion: currentCandidateVersion,
-      })
       params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
       return
     }
@@ -1781,18 +1797,6 @@ async function handleBeadsCoverageVerificationLoop(params: {
         `Coverage verification passed (winning model: ${params.winnerId}) for Implementation Plan v${currentCandidateVersion}.`,
         params.winnerId,
       )
-      await finalizeBeadsCoverageExpansion({
-        ticketId: params.ticketId,
-        externalId: params.context.externalId,
-        stateLabel: params.stateLabel,
-        winnerId: params.winnerId,
-        worktreePath: params.worktreePath,
-        signal: params.signal,
-        councilSettings: params.councilSettings,
-        ticketState: params.ticketState,
-        candidateContent: currentCandidateContent,
-        candidateVersion: currentCandidateVersion,
-      })
       params.sendEvent({ type: 'COVERAGE_CLEAN' })
       return
     }
@@ -1828,18 +1832,6 @@ async function handleBeadsCoverageVerificationLoop(params: {
         reviewReason,
         params.winnerId,
       )
-      await finalizeBeadsCoverageExpansion({
-        ticketId: params.ticketId,
-        externalId: params.context.externalId,
-        stateLabel: params.stateLabel,
-        winnerId: params.winnerId,
-        worktreePath: params.worktreePath,
-        signal: params.signal,
-        councilSettings: params.councilSettings,
-        ticketState: params.ticketState,
-        candidateContent: currentCandidateContent,
-        candidateVersion: currentCandidateVersion,
-      })
       params.sendEvent({ type: 'COVERAGE_LIMIT_REACHED' })
       return
     }
@@ -2966,6 +2958,104 @@ export async function handleCoverageVerification(
   }
 }
 
+export async function handleBeadsExpansion(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+  signal: AbortSignal,
+) {
+  const { worktreePath, ticket, ticketDir, relevantFiles } = loadTicketDirContext(context)
+  const paths = getTicketPaths(ticketId)
+  const stateLabel = 'EXPANDING_BEADS'
+  const councilSettings = resolveCouncilRuntimeSettings(context)
+
+  const winnerArtifact = getLatestPhaseArtifact(ticketId, 'beads_winner')
+    ?? getLatestPhaseArtifact(ticketId, 'beads_votes')
+  if (!winnerArtifact) {
+    const msg = 'No persisted council winner found for beads — cannot determine winning model for expansion'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  let winnerId = ''
+  try {
+    const parsed = JSON.parse(winnerArtifact.content) as { winnerId?: string }
+    winnerId = parsed.winnerId ?? ''
+  } catch {
+    const msg = 'Failed to parse winning model from persisted artifact for beads expansion'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  if (!winnerId) {
+    const msg = 'No winnerId found in persisted artifact for beads expansion'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  const expansionInput = loadBeadsExpansionInput(ticketId)
+  if (!expansionInput) {
+    const msg = 'Beads expansion requires a validated semantic blueprint, but no coverage revision or refined artifact was found.'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  const { candidateContent, candidateVersion } = expansionInput
+
+  const prdPath = resolve(ticketDir, 'prd.yaml')
+  const diskPrdContent = existsSync(prdPath) ? readFileSync(prdPath, 'utf-8').trim() : ''
+  if (!diskPrdContent) {
+    const msg = 'Beads expansion requires an approved PRD, but prd.yaml was not available.'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  if (!paths) {
+    const msg = 'Beads expansion requires a ticket workspace path, but it was not available.'
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
+  const ticketState: TicketState = {
+    ticketId: context.externalId,
+    title: context.title,
+    description: ticket?.description ?? '',
+    relevantFiles,
+    prd: diskPrdContent,
+    beads: candidateContent,
+  }
+
+  emitModelSystemLog(
+    ticketId,
+    context.externalId,
+    stateLabel,
+    'info',
+    `Expanding validated Implementation Plan v${candidateVersion} into execution-ready beads.`,
+    winnerId,
+  )
+
+  await finalizeBeadsCoverageExpansion({
+    ticketId,
+    externalId: context.externalId,
+    stateLabel,
+    winnerId,
+    worktreePath,
+    signal,
+    councilSettings,
+    ticketState,
+    candidateContent,
+    candidateVersion,
+  })
+
+  sendEvent({ type: 'EXPANDED' })
+}
+
 export async function handlePreFlight(
   ticketId: string,
   context: TicketContext,
@@ -3623,4 +3713,64 @@ export async function handleMockCoverage(
 
   emitPhaseLog(ticketId, context.externalId, stateLabel, 'info', `Mock ${phase} coverage passed.`)
   sendEvent({ type: 'COVERAGE_CLEAN' })
+}
+
+export async function handleMockBeadsExpansion(
+  ticketId: string,
+  context: TicketContext,
+  sendEvent: (event: TicketEvent) => void,
+) {
+  const { members } = resolveCouncilMembers(context)
+  const winnerId = readMockBeadsWinnerId(ticketId, members[0]?.modelId ?? 'mock-model-1')
+  const paths = getTicketPaths(ticketId)
+  if (!paths) throw new Error(`Ticket workspace not initialized: missing ticket paths for ${context.externalId}`)
+
+  const beadSubsets = buildMockBeadSubsets(context)
+  const mockExpansionCandidates = beadSubsets.map((subset, index) => {
+    const prevSubset = beadSubsets[index - 1]
+    return {
+      id: `${context.externalId.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${subset.id}`,
+      issueType: 'feature',
+      labels: [`ticket:${context.externalId}`],
+      dependencies: {
+        blocked_by: prevSubset
+          ? [`${context.externalId.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${prevSubset.id}`]
+          : [],
+        blocks: [],
+      },
+      targetFiles: [],
+    }
+  })
+  const hydratedBeads = hydrateExpandedBeads(beadSubsets, mockExpansionCandidates, context.externalId)
+  const expandedContent = beadSubsets
+    .map((s) => `- id: ${s.id}\n  title: ${s.title}`)
+    .join('\n')
+
+  insertPhaseArtifact(ticketId, {
+    phase: 'EXPANDING_BEADS',
+    artifactType: 'beads_expanded',
+    content: JSON.stringify({
+      winnerId,
+      refinedContent: expandedContent,
+      expandedContent,
+      candidateVersion: 1,
+    }),
+  })
+  persistUiArtifactCompanionArtifact(ticketId, 'EXPANDING_BEADS', 'beads_expanded', {
+    structuredOutput: null,
+    draftMetrics: {
+      beadCount: beadSubsets.length,
+      totalTestCount: beadSubsets.reduce((sum, b) => sum + b.tests.length, 0),
+      totalAcceptanceCriteriaCount: beadSubsets.reduce((sum, b) => sum + b.acceptanceCriteria.length, 0),
+    },
+    pipelineSteps: BEADS_PIPELINE_STEPS,
+    candidateVersion: 1,
+  })
+
+  writeTicketBeads(ticketId, hydratedBeads)
+  updateTicketProgressFromBeads(ticketId, hydratedBeads)
+  clearContextCache(context.externalId)
+
+  emitPhaseLog(ticketId, context.externalId, 'EXPANDING_BEADS', 'info', `Mock beads expansion completed. Persisted ${hydratedBeads.length} execution-ready beads.`)
+  sendEvent({ type: 'EXPANDED' })
 }

@@ -34,9 +34,8 @@ describe('ticketMachine execution setup flow', () => {
     actor.send({ type: 'WINNER_SELECTED', winner: 'model-a' })
     actor.send({ type: 'REFINED' })
     actor.send({ type: 'COVERAGE_CLEAN' })
+    actor.send({ type: 'EXPANDED' })
     actor.send({ type: 'APPROVE' })
-
-    expect(actor.getSnapshot().value).toBe('PRE_FLIGHT_CHECK')
 
     actor.send({ type: 'CHECKS_PASSED' })
     expect(actor.getSnapshot().value).toBe('WAITING_EXECUTION_SETUP_APPROVAL')

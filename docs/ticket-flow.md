@@ -65,7 +65,8 @@ flowchart TB
         BD[DRAFTING_BEADS<br/>Semantic blueprint drafts]
         BV[COUNCIL_VOTING_BEADS<br/>Choose architecture]
         BR[REFINING_BEADS<br/>Strengthen winner]
-        BC[VERIFYING_BEADS_COVERAGE<br/>Coverage + expansion]
+        BC[VERIFYING_BEADS_COVERAGE<br/>Coverage review loop]
+        BE[EXPANDING_BEADS<br/>Expand into execution-ready beads]
         BA[WAITING_BEADS_APPROVAL<br/>Execution plan approval]
     end
 
@@ -113,7 +114,8 @@ flowchart TB
     BV --> BR
     BR --> BC
     BC -->|gaps| BR
-    BC -->|expanded plan ready| BA
+    BC -->|clean or cap reached| BE
+    BE -->|expanded plan ready| BA
     BA -->|approve| PF
     BA -->|cancel| CAN
 
@@ -143,6 +145,7 @@ flowchart TB
     BV -.-> ERR
     BR -.-> ERR
     BC -.-> ERR
+    BE -.-> ERR
     PF -.-> ERR
     ESA -.-> ERR
     EE -.-> ERR
@@ -169,6 +172,7 @@ flowchart TB
     ERR -->|retry| BV
     ERR -->|retry| BR
     ERR -->|retry| BC
+    ERR -->|retry| BE
     ERR -->|retry| PF
     ERR -->|retry| ESA
     ERR -->|retry| EE
@@ -301,12 +305,13 @@ This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run whil
 | `DRAFTING_BEADS` | Council members independently decompose the approved PRD into semantic execution blueprints with dependencies, acceptance criteria, and test intent. | Beads draft artifacts and structure metrics. | `cancel` | Valid quorum advances to beads voting. |
 | `COUNCIL_VOTING_BEADS` | The council ranks anonymized blueprints using an architecture rubric focused on decomposition quality, feasibility, dependency correctness, and testability. | Beads vote artifacts, scorecards, winner selection. | `cancel` | Winner advances to beads refinement. |
 | `REFINING_BEADS` | The winning blueprint is strengthened with better tasks, constraints, and test ideas from losing blueprints, while preserving the dependency graph shape. | Refined semantic blueprint plus diff metadata. | `cancel` | Success advances to beads coverage. |
-| `VERIFYING_BEADS_COVERAGE` | The semantic blueprint is checked against the PRD, revised until acceptable, then expanded into execution-ready beads with file targets, commands, and runtime fields. | Coverage history, expanded `issues.jsonl`, approval candidate. | `cancel` | Expanded plan advances to beads approval. |
+| `VERIFYING_BEADS_COVERAGE` | The semantic blueprint is checked against the PRD and revised until coverage is acceptable or the pass budget is exhausted. | Coverage history, revised blueprint candidate, unresolved-gap diagnostics. | `cancel` | Clean or cap-reached advances to beads expansion. |
+| `EXPANDING_BEADS` | The coverage-validated blueprint is expanded into execution-ready bead records with file targets, commands, and runtime dependency fields using PROM25. | Expanded `issues.jsonl`, approval candidate. | `cancel` | Expanded plan advances to beads approval. |
 | `WAITING_BEADS_APPROVAL` | You review the execution-ready bead plan before any coding begins. This is the last planning approval gate and the last easy point to reshape execution ordering. | Approved beads artifact and approval receipt. | `approve`, `cancel` | Approval advances to pre-flight checks. |
 
 #### Beads Coverage Passes
 
-This setting caps how many coverage and expansion revisions LoopTroop may run while turning the semantic blueprint into execution-ready beads. It keeps decomposition quality work bounded before execution starts.
+This setting caps how many coverage revision cycles `VERIFYING_BEADS_COVERAGE` may run while reconciling the semantic blueprint against the PRD. Once clean or capped, the flow advances to `EXPANDING_BEADS` which runs independently to produce execution-ready bead records.
 
 ### Pre-Implementation
 

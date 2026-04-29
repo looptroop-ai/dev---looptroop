@@ -96,6 +96,7 @@ const COVERAGE_ATTRIBUTION_HIDDEN_PHASES = new Set([
   'VERIFYING_PRD_COVERAGE',
   'WAITING_PRD_APPROVAL',
   'VERIFYING_BEADS_COVERAGE',
+  'EXPANDING_BEADS',
   'WAITING_BEADS_APPROVAL',
 ])
 
@@ -1766,7 +1767,7 @@ function CoverageTransitionDetailsView({
   transition: CoverageTransitionData
   phase?: string
 }) {
-  const isBeads = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
+  const isBeads = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL'
   const [activeTab, setActiveTab] = useState<'gaps' | 'notes' | 'diff'>(
     transition.gapResolutions.length > 0 ? 'notes' : 'gaps',
   )
@@ -3242,7 +3243,7 @@ function getCoverageCandidateLabel(phase?: string, candidateVersion?: number): s
   if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') {
     return candidateVersion ? `PRD Candidate v${candidateVersion}` : 'current PRD candidate'
   }
-  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') {
+  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL') {
     return candidateVersion ? `Implementation Plan v${candidateVersion}` : 'current implementation plan'
   }
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') {
@@ -3253,7 +3254,7 @@ function getCoverageCandidateLabel(phase?: string, candidateVersion?: number): s
 
 function getCoverageReviewedAgainst(phase?: string): string {
   if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') return 'approved interview'
-  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL') return 'approved PRD'
+  if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL') return 'approved PRD'
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') return 'submitted answers'
   return 'source material'
 }
@@ -5226,7 +5227,7 @@ export function ArtifactContent({
       ? 'Coverage review of the current PRD candidate'
       : phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL'
         ? 'Coverage review of the compiled interview'
-        : phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
+        : phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL'
           ? 'Coverage review of the current implementation plan'
           : 'Coverage review'
     const header = coverageResult?.winnerId ? (
@@ -5268,7 +5269,7 @@ export function ArtifactContent({
     const parsedRefinement = parseRefinementArtifact(content)
     const coverageResult = parseCoverageArtifact(content)
     const hasChanges = diffEntries.length > 0 || Boolean(parsedRefinement?.winnerDraftContent) || Boolean(parsedRefinement?.coverageBaselineContent)
-    const defaultBeadsTab = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'WAITING_BEADS_APPROVAL'
+    const defaultBeadsTab = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL'
       ? 'sections'
       : undefined
     const showBeadsDiffTab = phase !== 'WAITING_BEADS_APPROVAL'

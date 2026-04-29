@@ -27,7 +27,7 @@ vi.mock('../runOpenCodePrompt', () => ({
 }))
 
 import { handleBeadsRefine } from '../phases/beadsPhase'
-import { handleCoverageVerification } from '../phases/verificationPhase'
+import { handleBeadsExpansion, handleCoverageVerification } from '../phases/verificationPhase'
 
 const repoManager = createTestRepoManager('beads-refine')
 
@@ -317,7 +317,6 @@ describe('handleBeadsRefine', () => {
 
   afterAll(() => {
     resetTestDb()
-    repoManager.cleanup()
   })
 
   it('persists the semantic refined blueprint and refinement diff without expanding beads during REFINING_BEADS', async () => {
@@ -462,6 +461,7 @@ describe('handleBeadsRefine', () => {
       })
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'beads', new AbortController().signal)
+    await handleBeadsExpansion(ticket.id, context, sendEvent, new AbortController().signal)
 
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(4)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
@@ -525,7 +525,7 @@ describe('handleBeadsRefine', () => {
       refinedContent: expect.stringContaining('Render coverage warning state'),
     })
 
-    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'VERIFYING_BEADS_COVERAGE')
+    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'EXPANDING_BEADS')
     expect(expandedArtifact).toBeDefined()
     expect(JSON.parse(expandedArtifact!.content)).toMatchObject({
       winnerId,
@@ -685,6 +685,7 @@ describe('handleBeadsRefine', () => {
       })
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'beads', new AbortController().signal)
+    await handleBeadsExpansion(ticket.id, context, sendEvent, new AbortController().signal)
 
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(10)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
@@ -772,7 +773,7 @@ describe('handleBeadsRefine', () => {
       refinedContent: expect.stringContaining('Render final review-safe coverage warning state'),
     })
 
-    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'VERIFYING_BEADS_COVERAGE')
+    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'EXPANDING_BEADS')
     expect(expandedArtifact).toBeDefined()
     expect(JSON.parse(expandedArtifact!.content)).toMatchObject({
       winnerId,
@@ -918,6 +919,7 @@ describe('handleBeadsRefine', () => {
       })
 
     await handleCoverageVerification(ticket.id, context, sendEvent, 'beads', new AbortController().signal)
+    await handleBeadsExpansion(ticket.id, context, sendEvent, new AbortController().signal)
 
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(10)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_LIMIT_REACHED' })
@@ -935,7 +937,7 @@ describe('handleBeadsRefine', () => {
       terminationReason: 'coverage_pass_limit_reached',
     })
 
-    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'VERIFYING_BEADS_COVERAGE')
+    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'EXPANDING_BEADS')
     expect(expandedArtifact).toBeDefined()
     expect(JSON.parse(expandedArtifact!.content)).toMatchObject({
       winnerId,
@@ -956,5 +958,97 @@ describe('handleBeadsRefine', () => {
     expect(storedTicket?.runtime.totalBeads).toBe(2)
     expect(storedTicket?.runtime.currentBead).toBe(1)
     expect(storedTicket?.runtime.percentComplete).toBe(0)
+  })
+})
+
+describe('handleBeadsExpansion', () => {
+  beforeEach(() => {
+    resetTestDb()
+    phaseIntermediate.clear()
+    runOpenCodePromptMock.mockReset()
+  })
+
+  afterAll(() => {
+    resetTestDb()
+    repoManager.cleanup()
+  })
+
+  it('emits EXPANDED and persists beads_expanded under EXPANDING_BEADS on success', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Expand beads blueprint into execution-ready records',
+      description: 'Run expansion after coverage is clean.',
+    })
+    const sendEvent = vi.fn()
+    const winnerId = TEST.councilMembers[0]
+    const initialBlueprint = buildBeadSubsetContent({
+      includeSecondBead: true,
+      secondBeadTitle: 'Render coverage warning state',
+      secondBeadDescription: 'Surface unresolved coverage gaps during beads approval without blocking manual review.',
+    })
+
+    writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_refined',
+      content: JSON.stringify({ winnerId, refinedContent: initialBlueprint }),
+    })
+
+    runOpenCodePromptMock.mockResolvedValueOnce({
+      session: { id: 'beads-expand-session-1', projectPath: paths.worktreePath },
+      response: buildValidExpansionOutput(),
+      messages: [],
+    })
+
+    await handleBeadsExpansion(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
+    expect(sendEvent).toHaveBeenCalledWith({ type: 'EXPANDED' })
+
+    const expandedArtifact = getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'EXPANDING_BEADS')
+    expect(expandedArtifact).toBeDefined()
+    expect(JSON.parse(expandedArtifact!.content)).toMatchObject({
+      winnerId,
+      candidateVersion: 1,
+      expandedContent: expect.stringContaining('proj-1-validate-refinement-attribution'),
+    })
+
+    const persistedBeads = readPersistedBeads(paths.beadsPath)
+    expect(persistedBeads).toHaveLength(2)
+    expect(persistedBeads[0]).toMatchObject({
+      id: 'proj-1-validate-refinement-attribution',
+      status: 'pending',
+    })
+  })
+
+  it('emits ERROR when no expansion input (no beads_refined artifact) is found', async () => {
+    const { ticket, context, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Expansion fails without blueprint',
+      description: 'Expansion should error when no coverage revision or refined artifact exists.',
+    })
+    const sendEvent = vi.fn()
+    const winnerId = TEST.councilMembers[0]
+
+    writeFileSync(resolve(paths.ticketDir, 'prd.yaml'), buildPrdContent(), 'utf-8')
+
+    insertPhaseArtifact(ticket.id, {
+      phase: 'REFINING_BEADS',
+      artifactType: 'beads_winner',
+      content: JSON.stringify({ winnerId }),
+    })
+    // Intentionally omit beads_refined / beads_coverage_revision — no blueprint available.
+
+    await handleBeadsExpansion(ticket.id, context, sendEvent, new AbortController().signal)
+
+    expect(runOpenCodePromptMock).not.toHaveBeenCalled()
+    expect(sendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'ERROR', codes: ['COVERAGE_FAILED'] }),
+    )
+    expect(getLatestPhaseArtifact(ticket.id, 'beads_expanded', 'EXPANDING_BEADS')).toBeUndefined()
   })
 })

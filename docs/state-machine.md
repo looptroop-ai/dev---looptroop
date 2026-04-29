@@ -40,6 +40,7 @@ Use this page for the phase inventory and transition model. Use [Ticket Flow](ti
 | `COUNCIL_VOTING_BEADS` | Voting on Blueprint | `beads` | `council` | — | yes | yes | — |
 | `REFINING_BEADS` | Refining Blueprint | `beads` | `council` | — | yes | no | — |
 | `VERIFYING_BEADS_COVERAGE` | Coverage Check (Beads) | `beads` | `council` | — | yes | no | — |
+| `EXPANDING_BEADS` | Expanding Blueprint | `beads` | `council` | — | yes | no | — |
 | `WAITING_BEADS_APPROVAL` | Approving Blueprint | `beads` | `approval` | `beads` | yes | no | — |
 | `PRE_FLIGHT_CHECK` | Checking Readiness | `pre_implementation` | `coding` | — | yes | no | — |
 | `WAITING_EXECUTION_SETUP_APPROVAL` | Approving Workspace Setup | `pre_implementation` | `approval` | `execution_setup_plan` | yes | no | — |
@@ -89,8 +90,9 @@ stateDiagram-v2
     COUNCIL_VOTING_BEADS --> REFINING_BEADS: WINNER_SELECTED
     REFINING_BEADS --> VERIFYING_BEADS_COVERAGE: REFINED
     VERIFYING_BEADS_COVERAGE --> REFINING_BEADS: GAPS_FOUND
-    VERIFYING_BEADS_COVERAGE --> WAITING_BEADS_APPROVAL: COVERAGE_CLEAN
-    VERIFYING_BEADS_COVERAGE --> WAITING_BEADS_APPROVAL: COVERAGE_LIMIT_REACHED
+    VERIFYING_BEADS_COVERAGE --> EXPANDING_BEADS: COVERAGE_CLEAN
+    VERIFYING_BEADS_COVERAGE --> EXPANDING_BEADS: COVERAGE_LIMIT_REACHED
+    EXPANDING_BEADS --> WAITING_BEADS_APPROVAL: EXPANDED
     WAITING_BEADS_APPROVAL --> PRE_FLIGHT_CHECK: APPROVE
 
     PRE_FLIGHT_CHECK --> WAITING_EXECUTION_SETUP_APPROVAL: CHECKS_PASSED
@@ -125,6 +127,7 @@ stateDiagram-v2
     COUNCIL_VOTING_BEADS --> BLOCKED_ERROR: ERROR
     REFINING_BEADS --> BLOCKED_ERROR: ERROR
     VERIFYING_BEADS_COVERAGE --> BLOCKED_ERROR: ERROR
+    EXPANDING_BEADS --> BLOCKED_ERROR: ERROR
     WAITING_BEADS_APPROVAL --> BLOCKED_ERROR: ERROR
     PRE_FLIGHT_CHECK --> BLOCKED_ERROR: ERROR / CHECKS_FAILED
     WAITING_EXECUTION_SETUP_APPROVAL --> BLOCKED_ERROR: ERROR / PLAN_FAILED
