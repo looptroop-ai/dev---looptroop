@@ -18,7 +18,8 @@ import { fetchConnectedModelIds } from '../../opencode/providerCatalog'
 import { buildPromptFromTemplate, PROM_EXECUTION_CAPABILITY_PROBE } from '../../prompts/index'
 import { OPENCODE_EXECUTION_YOLO_PERMISSIONS } from '../../opencode/permissions'
 import { resolveOpenCodeTools } from '../../opencode/toolPolicy'
-import { parseModelRef } from '../../opencode/types'
+import { parseModelRef, type Session, type SessionErrorStreamEvent, type StreamEvent } from '../../opencode/types'
+import { summarizeModelErrorForLog } from '../../opencode/errorDetails'
 
 export interface DoctorDeps {
   fileExists: (path: string) => boolean
@@ -32,6 +33,14 @@ export interface DoctorDeps {
   getLatestPhaseArtifact: typeof getLatestPhaseArtifact
   fetchConnectedModelIds: typeof fetchConnectedModelIds
   findExecutionBandConflict: (ticketId: string) => ReturnType<typeof findProjectExecutionBandConflict>
+}
+
+export interface PreFlightRunOptions {
+  onOpenCodeStreamEvent?: (event: {
+    session: Session
+    modelId: string
+    event: StreamEvent
+  }) => void
 }
 
 export const defaultDoctorDeps: DoctorDeps = {
@@ -56,27 +65,57 @@ async function runExecutionCapabilityProbe(
   worktreePath: string,
   preFlightContext: PreFlightContext,
   signal?: AbortSignal,
+  options: PreFlightRunOptions = {},
 ): Promise<void> {
+  const modelId = preFlightContext.lockedMainImplementer
+  if (!modelId) {
+    throw new Error('No main implementer model configured')
+  }
+
   const session = await raceWithCancel(
     adapter.createSession(worktreePath, signal, {
       permission: OPENCODE_EXECUTION_YOLO_PERMISSIONS,
     }),
     signal,
   )
+  let sessionErrorEvent: SessionErrorStreamEvent | undefined
+  const handleStreamEvent = (event: StreamEvent) => {
+    if (event.type === 'session_error') {
+      sessionErrorEvent = event
+    }
+    options.onOpenCodeStreamEvent?.({
+      session,
+      modelId,
+      event,
+    })
+  }
+  const throwSessionErrorIfPresent = () => {
+    if (!sessionErrorEvent) return
+    const summary = summarizeModelErrorForLog(sessionErrorEvent.details ?? sessionErrorEvent.error, sessionErrorEvent.error)
+    throw new Error(summary.message)
+  }
   try {
-    const response = await raceWithCancel(
-      adapter.promptSession(
-        session.id,
-        [{ type: 'text', content: buildPromptFromTemplate(PROM_EXECUTION_CAPABILITY_PROBE, []) }],
+    let response: string
+    try {
+      response = await raceWithCancel(
+        adapter.promptSession(
+          session.id,
+          [{ type: 'text', content: buildPromptFromTemplate(PROM_EXECUTION_CAPABILITY_PROBE, []) }],
+          signal,
+          {
+            model: parseModelRef(modelId),
+            variant: preFlightContext.lockedMainImplementerVariant ?? undefined,
+            tools: resolveOpenCodeTools(PROM_EXECUTION_CAPABILITY_PROBE.toolPolicy),
+            onEvent: handleStreamEvent,
+          },
+        ),
         signal,
-        {
-          model: parseModelRef(preFlightContext.lockedMainImplementer),
-          variant: preFlightContext.lockedMainImplementerVariant ?? undefined,
-          tools: resolveOpenCodeTools(PROM_EXECUTION_CAPABILITY_PROBE.toolPolicy),
-        },
-      ),
-      signal,
-    )
+      )
+    } catch (err) {
+      throwSessionErrorIfPresent()
+      throw err
+    }
+    throwSessionErrorIfPresent()
     if (response.trim() !== 'OK') {
       throw new Error(`Probe returned unexpected response: ${response.trim() || '<empty>'}`)
     }
@@ -92,6 +131,7 @@ export async function runPreFlightChecks(
   preFlightContext: PreFlightContext,
   signal?: AbortSignal,
   deps: DoctorDeps = defaultDoctorDeps,
+  options: PreFlightRunOptions = {},
 ): Promise<PreFlightReport> {
   const checks: DiagnosticCheck[] = []
 
@@ -443,7 +483,7 @@ export async function runPreFlightChecks(
   if (preFlightContext.lockedMainImplementer && paths?.worktreePath) {
     try {
       throwIfAborted(signal, ticketId)
-      await runExecutionCapabilityProbe(adapter, paths.worktreePath, preFlightContext, signal)
+      await runExecutionCapabilityProbe(adapter, paths.worktreePath, preFlightContext, signal, options)
       throwIfAborted(signal, ticketId)
       checks.push({
         name: 'OpenCode Execution Capability',

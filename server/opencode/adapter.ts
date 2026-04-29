@@ -13,6 +13,7 @@ import type {
   PromptPart,
   PromptSessionOptions,
   ReasoningMessagePart,
+  SessionErrorStreamEvent,
   Session,
   StepFinishMessagePart,
   StreamEvent,
@@ -40,6 +41,7 @@ import {
   analyzeAssistantMessages,
   extractTextFromMessageParts,
 } from './assistantMessageAnalysis'
+import { summarizeModelErrorForLog } from './errorDetails'
 
 interface RawEvent {
   type: string
@@ -188,7 +190,13 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const streamedTextMessageOrder: string[] = []
     const streamedTextPartIndex = new Map<string, string>()
     let latestTextMessageId: string | undefined
+    let latestSessionErrorEvent: SessionErrorStreamEvent | undefined
     const rememberStreamText = (event: StreamEvent) => {
+      if (event.type === 'session_error') {
+        latestSessionErrorEvent = event
+        return
+      }
+
       if (event.type === 'text') {
         const messageId = event.messageId ?? '__stream__'
         const partId = event.partId ?? `${messageId}:text`
@@ -318,12 +326,27 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
       if (!responseText) {
         responseText = buildStreamedTextResponse()
       }
+      if (!responseText && latestSessionErrorEvent) {
+        const summary = summarizeModelErrorForLog(
+          latestSessionErrorEvent.details ?? latestSessionErrorEvent.error,
+          latestSessionErrorEvent.error,
+        )
+        const error = new Error(summary.message)
+        Object.assign(error, {
+          details: latestSessionErrorEvent.details,
+          sessionError: latestSessionErrorEvent.error,
+          modelErrorDetails: summary.details,
+        })
+        error.name = 'OpenCodeSessionError'
+        throw error
+      }
       if (!responseText) {
         warnIfVerbose(`[adapter] promptSession: OpenCode returned empty response for session=${sessionId}`)
       }
       return responseText
     } catch (err) {
       if (err instanceof Error && (err.name === 'AbortError' || promptOptions.signal?.aborted)) throw err
+      if (err instanceof Error && err.name === 'OpenCodeSessionError') throw err
       throw new Error(
         `Failed to prompt OpenCode session: ${err instanceof Error ? err.message : String(err)}`,
       )

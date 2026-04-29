@@ -766,6 +766,47 @@ describe('runOpenCodePrompt', () => {
     })
   })
 
+  it('throws the streamed provider error when the SDK prompt response is empty', async () => {
+    const fakeClient = createFakeSdkClient({
+      prompt: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 20))
+        return { data: { parts: [] } }
+      },
+      messages: async () => ({ data: [] }),
+      subscribe: async () => ({
+        stream: (async function* () {
+          yield {
+            type: 'session.error',
+            properties: {
+              sessionID: 'ses-1',
+              error: {
+                name: 'APIError',
+                data: {
+                  message: 'Your authentication token has been invalidated. Please try signing in again.',
+                  statusCode: 401,
+                  isRetryable: false,
+                  responseBody: JSON.stringify({
+                    error: {
+                      type: 'invalid_request_error',
+                      code: 'token_invalidated',
+                      message: 'Your authentication token has been invalidated. Please try signing in again.',
+                    },
+                  }),
+                },
+              },
+            },
+          }
+          yield { type: 'session.idle', properties: { info: { id: 'ses-1' } } }
+        })(),
+      }),
+    })
+    const adapter = new OpenCodeSDKAdapter('http://localhost:4096', fakeClient as unknown as OpenCodeSDKClient)
+
+    await expect(adapter.promptSession('ses-1', [{ type: 'text', content: 'Prompt body' }]))
+      .rejects
+      .toThrow(/Your authentication token has been invalidated.*HTTP 401/)
+  })
+
   it('surfaces provider metadata from the latest assistant snapshot instead of reusing stale text', async () => {
     const fakeClient = createFakeSdkClient({
       prompt: async () => ({

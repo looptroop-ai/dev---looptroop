@@ -369,6 +369,52 @@ describe('OpenCode log canonicalization', () => {
     expect(errorEntry?.data?.errorDetails).not.toHaveProperty('requestBodyValues')
   })
 
+  it('persists generated OpenCode APIError details from readiness probe session errors', () => {
+    const state = createOpenCodeStreamState()
+
+    emitOpenCodeStreamEvent('1:T-42', 'T-42', 'PRE_FLIGHT_CHECK', 'openai/gpt-5.3-codex', 'ses-probe', {
+      type: 'session_error',
+      sessionId: 'ses-probe',
+      error: 'Provider request failed',
+      details: {
+        name: 'APIError',
+        data: {
+          message: 'Your authentication token has been invalidated. Please try signing in again.',
+          statusCode: 401,
+          isRetryable: false,
+          responseBody: JSON.stringify({
+            error: {
+              type: 'invalid_request_error',
+              code: 'token_invalidated',
+              message: 'Your authentication token has been invalidated. Please try signing in again.',
+            },
+          }),
+        },
+      },
+    }, state)
+
+    expect(getPersistedEntries()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'error',
+        entryId: 'ses-probe:error',
+        content: 'invalid_request_error: Your authentication token has been invalidated. Please try signing in again. (HTTP 401)',
+        audience: 'ai',
+        kind: 'error',
+        source: 'model:openai/gpt-5.3-codex',
+        modelId: 'openai/gpt-5.3-codex',
+        sessionId: 'ses-probe',
+        data: expect.objectContaining({
+          errorDetails: expect.objectContaining({
+            name: 'APIError',
+            statusCode: 401,
+            responseErrorType: 'invalid_request_error',
+            responseErrorMessage: 'Your authentication token has been invalidated. Please try signing in again.',
+          }),
+        }),
+      }),
+    ]))
+  })
+
   it('emits one canonical text row per assistant response when a session is reused', () => {
     const state = createOpenCodeStreamState()
 

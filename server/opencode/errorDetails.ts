@@ -106,20 +106,22 @@ export function extractModelErrorInfo(error: unknown): ModelErrorInfo | undefine
 
   const data = toRecord(record?.data)
   const dataError = toRecord(data?.error)
-  const responseBody = truncate(getString(record?.responseBody))
-  const responseBodyRecord = parseJsonRecord(getString(record?.responseBody))
+  const responseBodySource = getString(record?.responseBody) ?? getString(data?.responseBody)
+  const responseBody = truncate(responseBodySource)
+  const responseBodyRecord = parseJsonRecord(responseBodySource)
   const responseBodyError = toRecord(responseBodyRecord?.error)
 
   const info: ModelErrorInfo = {
     name: cleanMessage(getString(record?.name)),
     message: cleanMessage(
       getString(record?.message)
+      ?? getString(data?.message)
       ?? getString(dataError?.message)
       ?? fallbackMessage,
     ),
-    statusCode: getNumber(record?.statusCode),
+    statusCode: getNumber(record?.statusCode) ?? getNumber(data?.statusCode),
     url: getString(record?.url),
-    isRetryable: getBoolean(record?.isRetryable),
+    isRetryable: getBoolean(record?.isRetryable) ?? getBoolean(data?.isRetryable),
     requestModel: cleanMessage(
       getString(record?.requestModel)
       ?? getString(toRecord(record?.requestBodyValues)?.model),
@@ -138,6 +140,7 @@ export function extractModelErrorInfo(error: unknown): ModelErrorInfo | undefine
     ),
     responseErrorMessage: cleanMessage(
       getString(record?.responseErrorMessage)
+      ?? getString(data?.message)
       ?? getString(dataError?.message)
       ?? getString(responseBodyError?.message)
       ?? getString(responseBodyRecord?.message),

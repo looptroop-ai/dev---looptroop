@@ -3066,45 +3066,71 @@ export async function handlePreFlight(
   return withCommandLoggingAsync(
     ticketId, context.externalId, 'PRE_FLIGHT_CHECK',
     async () => {
-  const beads = readTicketBeads(ticketId)
-  const preFlightContext = {
-    lockedMainImplementer: context.lockedMainImplementer,
-    lockedMainImplementerVariant: context.lockedMainImplementerVariant,
-    maxIterations: context.maxIterations,
-  }
-  const report = await runPreFlightChecks(adapter, ticketId, beads, preFlightContext, signal)
-  throwIfAborted(signal, ticketId)
+      const beads = readTicketBeads(ticketId)
+      const preFlightContext = {
+        lockedMainImplementer: context.lockedMainImplementer,
+        lockedMainImplementerVariant: context.lockedMainImplementerVariant,
+        maxIterations: context.maxIterations,
+      }
+      const preFlightStreamState = createOpenCodeStreamState()
+      const report = await runPreFlightChecks(adapter, ticketId, beads, preFlightContext, signal, undefined, {
+        onOpenCodeStreamEvent: ({ session, modelId, event }) => {
+          if (event.type !== 'session_error') return
+          emitOpenCodeStreamEvent(
+            ticketId,
+            context.externalId,
+            'PRE_FLIGHT_CHECK',
+            modelId,
+            session.id,
+            event,
+            preFlightStreamState,
+          )
+        },
+      })
+      throwIfAborted(signal, ticketId)
 
-  // Emit individual per-check SYS log entries so each diagnostic result
-  // is visible in the SYS tab (not only stored in the JSON artifact).
-  for (const check of report.checks) {
-    const icon = check.result === 'pass' ? '✓' : check.result === 'warning' ? '⚠' : '✗'
-    emitPhaseLog(
-      ticketId,
-      context.externalId,
-      'PRE_FLIGHT_CHECK',
-      check.result === 'fail' ? 'error' : 'info',
-      `${icon} ${check.name}: ${check.message}`,
-    )
-  }
+      // Emit individual per-check SYS log entries so each diagnostic result
+      // is visible in the SYS tab (not only stored in the JSON artifact).
+      for (const check of report.checks) {
+        const icon = check.result === 'pass' ? '✓' : check.result === 'warning' ? '⚠' : '✗'
+        emitPhaseLog(
+          ticketId,
+          context.externalId,
+          'PRE_FLIGHT_CHECK',
+          check.result === 'fail' ? 'error' : 'info',
+          `${icon} ${check.name}: ${check.message}`,
+          {
+            source: 'system',
+            audience: 'all',
+            kind: check.result === 'fail' ? 'error' : 'milestone',
+          },
+        )
+      }
 
-  insertPhaseArtifact(ticketId, {
-    phase: 'PRE_FLIGHT_CHECK',
-    artifactType: 'preflight_report',
-    content: JSON.stringify(report),
-  })
+      insertPhaseArtifact(ticketId, {
+        phase: 'PRE_FLIGHT_CHECK',
+        artifactType: 'preflight_report',
+        content: JSON.stringify(report),
+      })
 
-  if (!report.passed) {
-    emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', 'Pre-flight checks failed.', {
-      failures: report.criticalFailures.map(check => check.message),
-    })
-    sendEvent({ type: 'CHECKS_FAILED', errors: report.criticalFailures.map(check => check.message) })
-    return
-  }
+      if (!report.passed) {
+        emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', 'Pre-flight checks failed.', {
+          failures: report.criticalFailures.map(check => check.message),
+          source: 'system',
+          audience: 'all',
+          kind: 'error',
+        })
+        sendEvent({ type: 'CHECKS_FAILED', errors: report.criticalFailures.map(check => check.message) })
+        return
+      }
 
-  updateTicketProgressFromBeads(ticketId, beads)
-  emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'info', `Pre-flight checks passed with ${beads.length} beads ready.`)
-  sendEvent({ type: 'CHECKS_PASSED' })
+      updateTicketProgressFromBeads(ticketId, beads)
+      emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'info', `Pre-flight checks passed with ${beads.length} beads ready.`, {
+        source: 'system',
+        audience: 'all',
+        kind: 'milestone',
+      })
+      sendEvent({ type: 'CHECKS_PASSED' })
     },
     (phase, type, content) => emitPhaseLog(ticketId, context.externalId, phase, type, content, { source: 'system', audience: 'all' }),
   )

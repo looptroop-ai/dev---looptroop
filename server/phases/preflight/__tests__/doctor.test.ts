@@ -261,4 +261,46 @@ describe('Pre-Flight Doctor', () => {
     expect(capabilityCheck).toBeDefined()
     expect(capabilityCheck?.message).toContain('unexpected response')
   })
+
+  it('reports rich provider errors from the execution capability probe stream', async () => {
+    const beads = [makeBead()]
+    const events: unknown[] = []
+    adapter.mockResponses.set('mock-session-1', '')
+    adapter.mockStreamEvents.set('mock-session-1', [{
+      type: 'session_error',
+      sessionId: 'mock-session-1',
+      error: 'Provider request failed',
+      details: {
+        name: 'APIError',
+        data: {
+          message: 'Your authentication token has been invalidated. Please try signing in again.',
+          statusCode: 401,
+          isRetryable: false,
+          responseBody: JSON.stringify({
+            error: {
+              type: 'invalid_request_error',
+              code: 'token_invalidated',
+              message: 'Your authentication token has been invalidated. Please try signing in again.',
+            },
+          }),
+        },
+      },
+    }])
+
+    const report = await runPreFlightChecks(adapter, TEST.ticketId, beads, defaultContext, undefined, deps, {
+      onOpenCodeStreamEvent: (event) => events.push(event),
+    })
+
+    const capabilityCheck = report.criticalFailures.find((check) => check.name === 'OpenCode Execution Capability')
+    expect(capabilityCheck).toBeDefined()
+    expect(capabilityCheck?.message).toContain('Your authentication token has been invalidated')
+    expect(capabilityCheck?.message).toContain('HTTP 401')
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        modelId: 'model-a',
+        session: expect.objectContaining({ id: 'mock-session-1' }),
+        event: expect.objectContaining({ type: 'session_error' }),
+      }),
+    ]))
+  })
 })
