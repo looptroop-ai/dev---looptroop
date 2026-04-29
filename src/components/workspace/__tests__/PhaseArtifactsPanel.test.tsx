@@ -1112,6 +1112,53 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Shows what each coverage pass found, what changed, and why.')).toBeInTheDocument()
   })
 
+  it('shows only Implementation Plan and Coverage Report during Beads coverage verification', async () => {
+    const coverageInputArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage_input',
+      content: JSON.stringify({
+        candidateVersion: 1,
+        refinedContent: buildBeadsDocumentContent([
+          { id: 'bead-1', title: 'Inspect the implementation plan under review' },
+        ]),
+      }),
+    })
+
+    const coverageArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        hasGaps: true,
+        coverageRunNumber: 1,
+        maxCoveragePasses: 2,
+        limitReached: false,
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="VERIFYING_BEADS_COVERAGE"
+        isCompleted={false}
+        councilMemberNames={['openai/gpt-5.2']}
+        preloadedArtifacts={[coverageInputArtifact, coverageArtifact]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /Implementation Plan v1/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Coverage Report/i })).toBeInTheDocument()
+    expect(screen.queryByText(/gpt-5\.2/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Implementation Plan v1/i }))
+    expect(screen.getByText('The implementation plan version currently being checked.')).toBeInTheDocument()
+    expect(screen.getByText('Inspect the implementation plan under review')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Coverage Report/i }))
+    expect(screen.getByText('Shows what each coverage pass found, what changed, and why.')).toBeInTheDocument()
+  })
+
   it('hides stale PRD diff metadata in approval when coverage did not revise the candidate', () => {
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',

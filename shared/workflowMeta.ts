@@ -1041,7 +1041,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'SCANNING_RELEVANT_FILES',
     label: 'Scanning Relevant Files',
-    description: 'AI reads and extracts relevant source file contents for context.',
+    description: 'The locked main implementer scans the codebase and extracts relevant file paths, excerpts, and rationales. This single-model step produces the shared relevant-files context artifact that every subsequent planning phase draws from.',
     details: WORKFLOW_PHASE_DETAILS.SCANNING_RELEVANT_FILES,
     kanbanPhase: 'in_progress',
     groupId: 'discovery',
@@ -1053,7 +1053,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'COUNCIL_DELIBERATING',
     label: 'Council Drafting Questions',
-    description: 'Models generate initial interview questions and debate approach.',
+    description: 'Each council member independently drafts its own interview question strategy in parallel — no model sees another\'s draft, ensuring diverse coverage before the voting round selects the strongest candidate.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_DELIBERATING,
     kanbanPhase: 'in_progress',
     groupId: 'interview',
@@ -1065,7 +1065,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'COUNCIL_VOTING_INTERVIEW',
     label: 'Voting on Questions',
-    description: 'Models vote on the strongest interview draft.',
+    description: 'Council members score all anonymized interview drafts against a structured rubric (question relevance, coverage breadth, clarity, and actionability) to select the strongest candidate.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_VOTING_INTERVIEW,
     kanbanPhase: 'in_progress',
     groupId: 'interview',
@@ -1077,7 +1077,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'COMPILING_INTERVIEW',
     label: 'Refining Interview',
-    description: 'Winning interview draft is consolidated.',
+    description: 'The winning interview draft is normalized into an interactive session: questions get unique IDs, types, and display metadata, and a batch-state snapshot is built for the interview UI.',
     details: WORKFLOW_PHASE_DETAILS.COMPILING_INTERVIEW,
     kanbanPhase: 'in_progress',
     groupId: 'interview',
@@ -1089,7 +1089,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_INTERVIEW_ANSWERS',
     label: 'Interviewing',
-    description: 'Waiting for your interview answers.',
+    description: 'Answer the interview questions that will shape the PRD. Your responses and skip decisions are recorded; if coverage finds gaps after submission, follow-up question batches may bring you back here.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_INTERVIEW_ANSWERS,
     kanbanPhase: 'needs_input',
     groupId: 'interview',
@@ -1114,7 +1114,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_INTERVIEW_APPROVAL',
     label: 'Approving Interview',
-    description: 'Waiting for your approval of interview results before PRD drafting.',
+    description: 'Review and approve the final interview Q&A before PRD drafting starts. Edits are allowed; saving a post-approval edit archives the current version and restarts downstream PRD planning.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_INTERVIEW_APPROVAL,
     kanbanPhase: 'needs_input',
     groupId: 'interview',
@@ -1140,7 +1140,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'COUNCIL_VOTING_PRD',
     label: 'Voting on Specs',
-    description: 'Models vote on the best PRD draft.',
+    description: 'Council members score all anonymized PRD drafts against a weighted rubric (requirement completeness, acceptance criteria quality, edge-case coverage, test intent clarity) to select the strongest specification baseline.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_VOTING_PRD,
     kanbanPhase: 'in_progress',
     groupId: 'prd',
@@ -1176,7 +1176,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_PRD_APPROVAL',
     label: 'Approving Specs',
-    description: 'Waiting for your approval of the latest PRD candidate, with the winning Full Answers artifact available for review.',
+    description: 'Review and approve the PRD candidate before architecture planning starts. The winning Full Answers artifact is available as reference context. Edits are allowed; saving a post-approval edit archives the current version and restarts beads planning.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_PRD_APPROVAL,
     kanbanPhase: 'needs_input',
     groupId: 'prd',
@@ -1189,7 +1189,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'DRAFTING_BEADS',
     label: 'Council Drafting Blueprint',
-    description: 'Models split PRD into implementable beads.',
+    description: 'Each council member independently decomposes the approved PRD into a competing semantic beads blueprint — a task graph with descriptions, acceptance criteria, dependencies, and test intent — before voting selects the best candidate.',
     details: WORKFLOW_PHASE_DETAILS.DRAFTING_BEADS,
     kanbanPhase: 'in_progress',
     groupId: 'beads',
@@ -1201,7 +1201,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'COUNCIL_VOTING_BEADS',
     label: 'Voting on Blueprint',
-    description: 'Models vote on the architecture/beads breakdown.',
+    description: 'Council members score all anonymized beads blueprints against an architecture rubric (decomposition quality, feasibility, dependency correctness, and testability) to select the best implementation plan.',
     details: WORKFLOW_PHASE_DETAILS.COUNCIL_VOTING_BEADS,
     kanbanPhase: 'in_progress',
     groupId: 'beads',
@@ -1251,7 +1251,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_BEADS_APPROVAL',
     label: 'Approving Blueprint',
-    description: 'Waiting for your approval of the beads blueprint.',
+    description: 'Review and approve the full execution-ready beads plan — task descriptions, acceptance criteria, dependency chain, and test commands. This is the last human gate before the coding agent begins.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_BEADS_APPROVAL,
     kanbanPhase: 'needs_input',
     groupId: 'beads',
@@ -1264,7 +1264,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'PRE_FLIGHT_CHECK',
     label: 'Checking Readiness',
-    description: 'Running checks before coding starts. This status does not use context for AI models.',
+    description: 'Validates the execution environment before coding begins: workspace health, coding-agent connectivity, an execution-mode session probe, bead artifact availability, and dependency-graph integrity. No AI context is passed.',
     details: WORKFLOW_PHASE_DETAILS.PRE_FLIGHT_CHECK,
     kanbanPhase: 'in_progress',
     groupId: 'pre_implementation',
@@ -1314,7 +1314,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'RUNNING_FINAL_TEST',
     label: 'Testing Implementation',
-    description: 'Running ticket-level final tests.',
+    description: 'The main implementer generates a comprehensive test plan from the full implementation context (ticket, interview, PRD, beads) and runs it against the ticket branch to verify the whole implementation holistically — catching integration issues individual bead tests may miss.',
     details: WORKFLOW_PHASE_DETAILS.RUNNING_FINAL_TEST,
     kanbanPhase: 'in_progress',
     groupId: 'post_implementation',
@@ -1326,7 +1326,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'INTEGRATING_CHANGES',
     label: 'Preparing Final Commit',
-    description: 'Preparing final candidate branch state.',
+    description: 'Squashes all individual bead commits into one clean candidate commit on the ticket branch, ready for the draft pull request. Per-bead history is preserved in the audit trail.',
     details: WORKFLOW_PHASE_DETAILS.INTEGRATING_CHANGES,
     kanbanPhase: 'in_progress',
     groupId: 'post_implementation',
@@ -1350,7 +1350,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'WAITING_PR_REVIEW',
     label: 'Reviewing Pull Request',
-    description: 'Waiting for your review of the draft pull request before finishing the ticket.',
+    description: 'Review the draft pull request on GitHub, then choose Merge PR & Finish or Finish Without Merge. Either path closes the ticket successfully and proceeds to cleanup.',
     details: WORKFLOW_PHASE_DETAILS.WAITING_PR_REVIEW,
     kanbanPhase: 'needs_input',
     groupId: 'post_implementation',
@@ -1362,7 +1362,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'CLEANING_ENV',
     label: 'Cleaning Up',
-    description: 'Cleaning temporary resources/worktree data.',
+    description: 'Removes transient runtime resources (lock files, session folders, temp files) while preserving permanent artifacts (interview, PRD, beads, logs, test and integration reports) for long-term review and audit.',
     details: WORKFLOW_PHASE_DETAILS.CLEANING_ENV,
     kanbanPhase: 'in_progress',
     groupId: 'post_implementation',
@@ -1374,7 +1374,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'COMPLETED',
     label: 'Done',
-    description: 'Ticket closed successfully.',
+    description: 'The workflow reached its successful terminal state. All planning, execution, PR, and cleanup artifacts remain accessible. The ticket records whether it closed as a merged PR or finished without merge.',
     details: WORKFLOW_PHASE_DETAILS.COMPLETED,
     kanbanPhase: 'done',
     groupId: 'done',
@@ -1398,7 +1398,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'BLOCKED_ERROR',
     label: 'Error (reason)',
-    description: 'A blocking error requires retry or cancel.',
+    description: 'A phase failure paused the workflow. The failed phase is preserved so Retry re-enters it with full context. Inspect the error details and logs, then choose Retry or Cancel.',
     details: WORKFLOW_PHASE_DETAILS.BLOCKED_ERROR,
     kanbanPhase: 'needs_input',
     groupId: 'errors',

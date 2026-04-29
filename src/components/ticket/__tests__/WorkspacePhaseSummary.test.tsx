@@ -91,7 +91,7 @@ describe('WorkspacePhaseSummary', () => {
     )
 
     expect(screen.getByText(/Error \(The runner crashed while executing bead B-12\.\)/)).toBeInTheDocument()
-    expect(screen.getByText(/A blocking error requires retry or cancel\./)).toBeInTheDocument()
+    expect(screen.getByText(/A phase failure paused the workflow\./)).toBeInTheDocument()
   })
 
   it('shows the next live PRD coverage version in the main title when revision work starts', async () => {

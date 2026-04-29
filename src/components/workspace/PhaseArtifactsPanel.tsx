@@ -546,7 +546,11 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
     }
   }, [displayedSupplementalArtifacts, findDbContent, findReportContent, fullAnswerArtifacts, memberArtifacts, viewingSelection])
 
-  const visibleMemberArtifacts = collapseVotingMemberArtifacts || phase === 'VERIFYING_PRD_COVERAGE' ? [] : memberArtifacts
+  const visibleMemberArtifacts = collapseVotingMemberArtifacts
+    || phase === 'VERIFYING_PRD_COVERAGE'
+    || phase === 'VERIFYING_BEADS_COVERAGE'
+    ? []
+    : memberArtifacts
   const compactInterviewArtifacts = phase === 'COMPILING_INTERVIEW'
   const hasTopArtifactRow = visibleMemberArtifacts.length > 0 || prominentSupplementalArtifacts.length > 0
   const hasFullAnswerRow = fullAnswerArtifacts.length > 0
