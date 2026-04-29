@@ -268,8 +268,10 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       const coverageReviewCompanion = findCompanionArtifact('beads_coverage')
       const revisionArtifact = findExactArtifact('beads_coverage_revision')
       const revisionCompanion = findCompanionArtifact('beads_coverage_revision')
-      const refinedArtifact = findExactArtifact('beads_expanded') ?? findExactArtifact('beads_refined')
-      const refinedCompanion = findCompanionArtifact('beads_expanded') ?? findCompanionArtifact('beads_refined')
+      const expandedArtifact = findExactArtifact('beads_expanded')
+      const expandedCompanion = findCompanionArtifact('beads_expanded')
+      const refinedArtifact = expandedArtifact ?? findExactArtifact('beads_refined')
+      const refinedCompanion = expandedCompanion ?? findCompanionArtifact('beads_refined')
       const winnerArtifact = findExactArtifact('beads_winner')
       const uiDiffArtifact = findExactArtifact('ui_refinement_diff:beads')
       const coverageInputContent = unwrapArtifactCompanionPayloadContent(coverageCompanion?.content, 'beads_coverage_input')
@@ -278,6 +280,29 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
         ?? coverageReviewArtifact?.content
       const latestRevisionContent = unwrapArtifactCompanionPayloadContent(revisionCompanion?.content, 'beads_coverage_revision')
         ?? revisionArtifact?.content
+      if ((phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL') && expandedArtifact?.content) {
+        return buildFinalRefinementArtifactContent(
+          expandedArtifact.content,
+          undefined,
+          undefined,
+          expandedCompanion?.content,
+          winnerArtifact?.content,
+        )
+          ?? expandedArtifact.content
+      }
+      if (phase === 'EXPANDING_BEADS') {
+        const expansionInputContent = latestRevisionContent ?? coverageInputContent ?? refinedArtifact?.content
+        return expansionInputContent
+          ? buildFinalRefinementArtifactContent(
+              expansionInputContent,
+              undefined,
+              undefined,
+              refinedCompanion?.content,
+              winnerArtifact?.content,
+            )
+              ?? expansionInputContent
+          : null
+      }
       return buildFinalRefinementArtifactContent(
         refinedArtifact?.content,
         uiDiffArtifact?.content,
@@ -352,15 +377,17 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
 
       if (artifact.id === 'refined-beads') {
         const content = findDbContent(artifact)
-        const candidateVersion = content ? parseRefinementArtifact(content)?.candidateVersion ?? 1 : 1
+        const parsed = content ? parseRefinementArtifact(content) : null
+        const candidateVersion = parsed?.candidateVersion ?? 1
+        const isExpandedPlanPhase = phase === 'EXPANDING_BEADS' || Boolean(parsed?.semanticPlanContent)
         return {
           ...artifact,
-          label: `Implementation Plan v${candidateVersion}`,
+          label: `${isExpandedPlanPhase ? 'Expanded Plan' : 'Implementation Plan'} v${candidateVersion}`,
           description: phase === 'VERIFYING_BEADS_COVERAGE'
             ? 'The implementation plan version currently being checked.'
             : phase === 'EXPANDING_BEADS'
-              ? 'The implementation plan version being expanded into execution-ready beads.'
-              : 'Latest implementation plan awaiting approval',
+              ? 'The execution-ready bead plan produced from the validated implementation plan.'
+              : 'Latest expanded bead plan awaiting approval',
         }
       }
 

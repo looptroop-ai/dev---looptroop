@@ -247,6 +247,8 @@ export interface RefinementDiffArtifactData {
   winnerId?: string
   refinedContent?: string
   winnerDraftContent?: string
+  semanticPlanContent?: string
+  expandedContent?: string
   coverageBaselineContent?: string
   coverageBaselineVersion?: number
   coverageDiffLabel?: string
@@ -1087,6 +1089,8 @@ export function parseRefinementArtifact(content: string): RefinementDiffArtifact
     winnerId: typeof parsed.winnerId === 'string' ? parsed.winnerId : undefined,
     refinedContent,
     winnerDraftContent: typeof parsed.winnerDraftContent === 'string' ? parsed.winnerDraftContent : undefined,
+    semanticPlanContent: typeof parsed.semanticPlanContent === 'string' ? parsed.semanticPlanContent : undefined,
+    expandedContent: typeof parsed.expandedContent === 'string' ? parsed.expandedContent : undefined,
     coverageBaselineContent: typeof parsed.coverageBaselineContent === 'string' ? parsed.coverageBaselineContent : undefined,
     coverageBaselineVersion: normalizeCandidateVersion(parsed.coverageBaselineVersion),
     coverageDiffLabel: typeof parsed.coverageDiffLabel === 'string' && parsed.coverageDiffLabel.trim()
@@ -1370,6 +1374,8 @@ export function buildFinalRefinementArtifactContent(
           uiRefinementDiff: sourceArtifact?.uiRefinementDiff ?? normalizeUiRefinementDiff(uiDiffContent),
         }),
     draftMetrics: sourceArtifact?.draftMetrics ?? normalizeRefinementDraftMetrics(refinedCompanion?.draftMetrics),
+    semanticPlanContent: sourceArtifact?.semanticPlanContent,
+    expandedContent: sourceArtifact?.expandedContent,
     structuredOutput: sourceArtifact?.structuredOutput
       ?? normalizeArtifactStructuredOutput(refinedCompanion?.structuredOutput)
       ?? coverageArtifact?.structuredOutput,

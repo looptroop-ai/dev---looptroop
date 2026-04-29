@@ -1295,6 +1295,7 @@ async function finalizeBeadsCoverageExpansion(params: {
     artifactType: 'beads_expanded',
     content: JSON.stringify({
       winnerId: params.winnerId,
+      semanticPlanContent: params.candidateContent,
       refinedContent: expansionResult.hydratedContent,
       expandedContent: expansionResult.expandedModelContent,
       candidateVersion: params.candidateVersion,
@@ -3742,16 +3743,16 @@ export async function handleMockBeadsExpansion(
     }
   })
   const hydratedBeads = hydrateExpandedBeads(beadSubsets, mockExpansionCandidates, context.externalId)
-  const expandedContent = beadSubsets
-    .map((s) => `- id: ${s.id}\n  title: ${s.title}`)
-    .join('\n')
+  const expandedContent = mockExpansionCandidates.map((bead) => JSON.stringify(bead)).join('\n')
+  const hydratedContent = hydratedBeads.map((bead) => JSON.stringify(bead)).join('\n')
 
   insertPhaseArtifact(ticketId, {
     phase: 'EXPANDING_BEADS',
     artifactType: 'beads_expanded',
     content: JSON.stringify({
       winnerId,
-      refinedContent: expandedContent,
+      semanticPlanContent: buildYamlDocument({ beads: beadSubsets }),
+      refinedContent: hydratedContent,
       expandedContent,
       candidateVersion: 1,
     }),

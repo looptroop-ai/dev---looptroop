@@ -160,7 +160,7 @@ export function TicketCard({ ticket, projectColor, projectIcon, projectName }: T
                 {statusLabel}
               </Badge>
             </TooltipTrigger>
-            <TooltipContent>{STATUS_DESCRIPTIONS[ticket.status] ?? statusLabel}</TooltipContent>
+            <TooltipContent className="max-w-xs text-center text-balance">{STATUS_DESCRIPTIONS[ticket.status] ?? statusLabel}</TooltipContent>
           </Tooltip>
           {ticket.status === 'COMPLETED' && ticket.completionDisposition && (
             <Badge variant="outline" className="text-[10px]">

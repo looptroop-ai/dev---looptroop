@@ -1159,6 +1159,106 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Shows what each coverage pass found, what changed, and why.')).toBeInTheDocument()
   })
 
+  it('shows expanded plan and expansion diff during Beads expansion', () => {
+    const semanticPlanContent = buildBeadsDocumentContent([
+      { id: 'bead-1', title: 'Inspect the implementation plan under review' },
+    ])
+    const expandedBead = {
+      id: 'proj-1-inspect-the-implementation-plan-under-review',
+      title: 'Inspect the implementation plan under review',
+      prdRefs: [TEST.epicId, TEST.storyId],
+      description: 'Deliver the expanded execution-ready plan.',
+      contextGuidance: {
+        patterns: ['Keep expansion-specific fields visible.'],
+        anti_patterns: ['Do not show coverage revision diffs here.'],
+      },
+      acceptanceCriteria: ['Validate inspect the implementation plan under review'],
+      tests: ['Test inspect the implementation plan under review'],
+      testCommands: ['npm run test:server'],
+      priority: 1,
+      status: 'pending',
+      issueType: 'task',
+      externalRef: TEST.externalId,
+      labels: [`ticket:${TEST.externalId}`, `story:${TEST.storyId}`],
+      dependencies: { blocked_by: [], blocks: [] },
+      targetFiles: ['src/components/workspace/ExpandedPlanView.tsx'],
+      notes: '',
+      iteration: 1,
+      createdAt: '2026-04-15T10:00:00.000Z',
+      updatedAt: '2026-04-15T10:00:00.000Z',
+      completedAt: '',
+      startedAt: '',
+      beadStartCommit: null,
+    }
+    const expandedContent = JSON.stringify(expandedBead)
+    const expandedArtifact = makeArtifact({
+      phase: 'EXPANDING_BEADS',
+      artifactType: 'beads_expanded',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        semanticPlanContent,
+        refinedContent: expandedContent,
+        expandedContent: JSON.stringify([{
+          id: expandedBead.id,
+          issueType: expandedBead.issueType,
+          labels: expandedBead.labels,
+          dependencies: expandedBead.dependencies,
+          targetFiles: expandedBead.targetFiles,
+        }]),
+        candidateVersion: 2,
+      }),
+    })
+    const coverageArtifact = makeArtifact({
+      phase: 'VERIFYING_BEADS_COVERAGE',
+      artifactType: 'beads_coverage',
+      content: JSON.stringify({
+        winnerId: 'openai/gpt-5.2',
+        status: 'clean',
+        finalCandidateVersion: 2,
+        transitions: [{
+          fromVersion: 1,
+          toVersion: 2,
+          summary: 'Coverage revised the semantic plan.',
+          gaps: ['Missing expansion test intent.'],
+          auditNotes: 'status: gaps',
+          fromContent: buildBeadsDocumentContent([{ id: 'bead-1', title: 'Initial semantic plan' }]),
+          toContent: semanticPlanContent,
+          gapResolutions: [],
+          resolutionNotes: [],
+          uiRefinementDiff: null,
+        }],
+      }),
+    })
+
+    renderWithProviders(
+      <PhaseArtifactsPanel
+        phase="EXPANDING_BEADS"
+        isCompleted={false}
+        preloadedArtifacts={[coverageArtifact, expandedArtifact]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /Expanded Plan v2/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Implementation Plan v2/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Expanded Plan v2/i }))
+
+    expect(screen.getByText('The execution-ready bead plan produced from the validated implementation plan.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Diff vs Plan/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Diff vs v1/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Inspect the implementation plan under review').closest('button')!)
+    expect(screen.getByText('Target Files')).toBeInTheDocument()
+    expect(screen.getByText('src/components/workspace/ExpandedPlanView.tsx')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Diff vs Plan/i }))
+
+    expect(screen.getByText('Model-Added Execution Fields')).toBeInTheDocument()
+    expect(screen.getByText('Runtime Defaults')).toBeInTheDocument()
+    expect(screen.getByText('Execution ID')).toBeInTheDocument()
+    expect(screen.getByText(expandedBead.id)).toBeInTheDocument()
+    expect(screen.getByText('src/components/workspace/ExpandedPlanView.tsx')).toBeInTheDocument()
+  })
+
   it('hides stale PRD diff metadata in approval when coverage did not revise the candidate', () => {
     const refinedArtifact = makeArtifact({
       phase: 'REFINING_PRD',

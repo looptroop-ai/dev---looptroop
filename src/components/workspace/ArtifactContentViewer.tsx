@@ -2435,6 +2435,160 @@ function BeadSection({
   )
 }
 
+interface ExpansionAddedField {
+  label: string
+  values: string[]
+  mono?: boolean
+}
+
+interface ExpansionAddedGroup {
+  title: string
+  fields: ExpansionAddedField[]
+}
+
+function compactExpansionValues(values: Array<string | number | null | undefined>): string[] {
+  return values
+    .map((value) => value == null ? '' : String(value).trim())
+    .filter(Boolean)
+}
+
+function makeExpansionField(label: string, value: string | number | null | undefined, mono = false): ExpansionAddedField | null {
+  const values = compactExpansionValues([value])
+  return values.length > 0 ? { label, values, mono } : null
+}
+
+function makeExpansionArrayField(label: string, values: string[], mono = false): ExpansionAddedField | null {
+  const nextValues = compactExpansionValues(values)
+  return nextValues.length > 0 ? { label, values: nextValues, mono } : null
+}
+
+function buildExpansionAddedGroups(planBead: ParsedBead | undefined, expandedBead: ParsedBead, index: number): ExpansionAddedGroup[] {
+  const planId = planBead ? getBeadStringValue(planBead, ['id']) : ''
+  const expandedId = getBeadStringValue(expandedBead, ['id'])
+  const { blockedBy, blocks } = getBeadDependencies(expandedBead)
+
+  const modelFields = [
+    expandedId && expandedId !== planId ? makeExpansionField('Execution ID', expandedId, true) : null,
+    makeExpansionField('Issue Type', getBeadStringValue(expandedBead, ['issueType', 'issue_type'])),
+    makeExpansionArrayField('Labels', getBeadStringArray(expandedBead, ['labels'])),
+    makeExpansionArrayField('Blocked By', blockedBy, true),
+    makeExpansionArrayField('Blocks', blocks, true),
+    makeExpansionArrayField('Target Files', getBeadStringArray(expandedBead, ['targetFiles', 'target_files']), true),
+  ].filter((field): field is ExpansionAddedField => field !== null)
+
+  const runtimeFields = [
+    makeExpansionField('Priority', getBeadNumberValue(expandedBead, ['priority']) ?? index + 1),
+    makeExpansionField('Status', getBeadStringValue(expandedBead, ['status']) || 'pending'),
+    makeExpansionField('External Ref', getBeadStringValue(expandedBead, ['externalRef', 'external_ref']), true),
+    makeExpansionField('Iteration', getBeadNumberValue(expandedBead, ['iteration'])),
+    makeExpansionField('Created At', getBeadStringValue(expandedBead, ['createdAt', 'created_at']), true),
+    makeExpansionField('Updated At', getBeadStringValue(expandedBead, ['updatedAt', 'updated_at']), true),
+  ].filter((field): field is ExpansionAddedField => field !== null)
+
+  return [
+    { title: 'Model-Added Execution Fields', fields: modelFields },
+    { title: 'Runtime Defaults', fields: runtimeFields },
+  ].filter((group) => group.fields.length > 0)
+}
+
+function countExpansionAddedFields(content: string): number {
+  const parsed = parseRefinementArtifact(content)
+  if (!parsed?.semanticPlanContent || !parsed.refinedContent) return 0
+
+  const planBeads = parseBeadsArtifact(parsed.semanticPlanContent)
+  const expandedBeads = parseBeadsArtifact(parsed.refinedContent)
+  if (!planBeads || !expandedBeads) return 0
+
+  return expandedBeads.reduce((count, bead, index) => {
+    const groups = buildExpansionAddedGroups(planBeads[index], bead, index)
+    return count + groups.reduce((sum, group) => sum + group.fields.length, 0)
+  }, 0)
+}
+
+function ExpansionAddedValue({ values, mono }: { values: string[]; mono?: boolean }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {values.map((value) => (
+        <span
+          key={value}
+          className={cn(
+            'inline-flex items-center rounded border border-green-200 bg-green-50 px-2 py-1 text-[10px] text-green-800 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200',
+            mono && 'font-mono break-all',
+          )}
+        >
+          <span className="mr-1 font-semibold">+</span>
+          {value}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ExpandedPlanDiffView({ content }: { content: string }) {
+  const parsed = parseRefinementArtifact(content)
+  const planBeads = parsed?.semanticPlanContent ? parseBeadsArtifact(parsed.semanticPlanContent) : null
+  const expandedBeads = parsed?.refinedContent ? parseBeadsArtifact(parsed.refinedContent) : null
+
+  if (!planBeads || !expandedBeads) {
+    return <RawContentWithCopy content={content} />
+  }
+
+  const addedFieldCount = countExpansionAddedFields(content)
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200">
+        Expansion added {addedFieldCount} execution field{addedFieldCount === 1 ? '' : 's'} across {expandedBeads.length} bead{expandedBeads.length === 1 ? '' : 's'}.
+      </div>
+      {expandedBeads.map((expandedBead, index) => {
+        const planBead = planBeads[index]
+        const title = getBeadStringValue(expandedBead, ['title']) || getBeadStringValue(planBead ?? {}, ['title']) || `Bead ${index + 1}`
+        const planId = getBeadStringValue(planBead ?? {}, ['id'])
+        const expandedId = getBeadStringValue(expandedBead, ['id'])
+        const groups = buildExpansionAddedGroups(planBead, expandedBead, index)
+
+        return (
+          <CollapsibleSection
+            key={`${expandedId || title}:${index}`}
+            defaultOpen={index === 0}
+            title={(
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="rounded bg-green-100 px-1.5 py-0.5 font-mono text-[10px] text-green-800 dark:bg-green-900 dark:text-green-200">
+                  #{index + 1}
+                </span>
+                <span className="min-w-0 truncate">{title}</span>
+                {planId && expandedId && planId !== expandedId ? (
+                  <span className="font-mono text-[10px] text-muted-foreground">{planId} -&gt; {expandedId}</span>
+                ) : null}
+              </span>
+            )}
+          >
+            {groups.length > 0 ? (
+              <div className="space-y-3 p-2">
+                {groups.map((group) => (
+                  <div key={group.title} className="space-y-2 border-l-2 border-green-300 pl-3 dark:border-green-800">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-green-700 dark:text-green-300">{group.title}</div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {group.fields.map((field) => (
+                        <div key={`${group.title}:${field.label}`} className="space-y-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{field.label}</div>
+                          <ExpansionAddedValue values={field.values} mono={field.mono} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-2 text-xs text-muted-foreground">No expansion-only fields were recorded for this bead.</div>
+            )}
+          </CollapsibleSection>
+        )
+      })}
+    </div>
+  )
+}
+
 function MetadataValue({ value, mono = false }: { value: string; mono?: boolean }) {
   if (!value) {
     return <span className="text-muted-foreground/70">Not set</span>
@@ -5268,16 +5422,21 @@ export function ArtifactContent({
     const diffEntries = buildRefinementDiffEntries(content, 'beads')
     const parsedRefinement = parseRefinementArtifact(content)
     const coverageResult = parseCoverageArtifact(content)
-    const hasChanges = diffEntries.length > 0 || Boolean(parsedRefinement?.winnerDraftContent) || Boolean(parsedRefinement?.coverageBaselineContent)
+    const expansionDiffCount = phase === 'EXPANDING_BEADS' ? countExpansionAddedFields(content) : 0
+    const hasExpansionDiff = expansionDiffCount > 0
+    const hasRefinementChanges = diffEntries.length > 0 || Boolean(parsedRefinement?.winnerDraftContent) || Boolean(parsedRefinement?.coverageBaselineContent)
+    const hasChanges = hasExpansionDiff || (phase !== 'EXPANDING_BEADS' && hasRefinementChanges)
     const defaultBeadsTab = phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL'
       ? 'sections'
       : undefined
-    const showBeadsDiffTab = phase !== 'WAITING_BEADS_APPROVAL'
+    const showBeadsDiffTab = phase === 'EXPANDING_BEADS'
+      ? hasExpansionDiff
+      : phase !== 'WAITING_BEADS_APPROVAL'
     return (
       <RefinedArtifactTabs
         content={content}
         hasChanges={hasChanges}
-        diffLabel={parsedRefinement?.coverageDiffLabel ?? 'Diff'}
+        diffLabel={hasExpansionDiff ? 'Diff vs Plan' : parsedRefinement?.coverageDiffLabel ?? 'Diff'}
         defaultTab={defaultBeadsTab}
         showDiffTab={showBeadsDiffTab}
         notice={<ArtifactProcessingNotice structuredOutput={parsedRefinement?.structuredOutput} kind="diff" />}
@@ -5310,7 +5469,11 @@ export function ArtifactContent({
             )}
           </div>
         )}
-        diffContent={hasChanges ? <RefinementDiffView content={content} domain={'beads'} phase={phase} /> : undefined}
+        diffContent={hasExpansionDiff
+          ? <ExpandedPlanDiffView content={content} />
+          : hasRefinementChanges
+            ? <RefinementDiffView content={content} domain={'beads'} phase={phase} />
+            : undefined}
       />
     )
   }

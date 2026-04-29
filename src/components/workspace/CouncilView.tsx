@@ -16,6 +16,7 @@ interface CouncilViewProps {
 
 function getCouncilStepLabel(phase: string): string {
   if (phase === 'SCANNING_RELEVANT_FILES') return 'Scanning'
+  if (phase === 'EXPANDING_BEADS') return 'Expanding'
   if (phase.includes('DELIBERATING') || phase.includes('DRAFTING')) return 'Drafting'
   if (phase.includes('VOTING')) return 'Voting'
   if (phase.includes('COMPILING') || phase.includes('REFINING')) return 'Refining'
@@ -37,6 +38,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   const isDrafting = step === 'Drafting'
   const isVoting = step === 'Voting'
   const isVerifying = step === 'Verifying Coverage'
+  const isExpanding = step === 'Expanding'
   const { data: attempts = [] } = useTicketPhaseAttempts(ticket.id, phase)
   const [manualSelectedAttemptNumber, setManualSelectedAttemptNumber] = useState<number | null>(null)
   const selectedAttemptNumber = useMemo(() => {
@@ -90,6 +92,7 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
               {isVoting && `Council members are scoring all ${domain.toLowerCase()} drafts.`}
               {step === 'Refining' && `Winning model incorporates best ideas from other drafts.`}
               {isVerifying && `Winning model verifies ${domain.toLowerCase()} covers all requirements.`}
+              {isExpanding && 'Winning model expands the validated implementation plan into execution-ready bead records.'}
             </p>
           </CardContent>
         </Card>

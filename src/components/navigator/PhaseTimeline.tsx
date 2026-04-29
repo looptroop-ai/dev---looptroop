@@ -229,7 +229,7 @@ export function PhaseTimeline({
                             <span className="truncate flex-1">{phaseLabel}</span>
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent side="right">{getPhaseTooltip(phase.id)}</TooltipContent>
+                        <TooltipContent side="right" className="max-w-xs text-center text-balance">{getPhaseTooltip(phase.id)}</TooltipContent>
                       </Tooltip>
                     )
                   })}
