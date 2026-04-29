@@ -4,13 +4,16 @@ export function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
+export function isCancellationError(error: unknown, signal?: AbortSignal): boolean {
+  return error instanceof CancelledError || Boolean(signal?.aborted) || isAbortError(error)
+}
+
 export function throwIfCancelled(
   error: unknown,
   signal?: AbortSignal,
   ticketId?: number | string,
 ): void {
-  if (error instanceof CancelledError) throw error
-  if (signal?.aborted || isAbortError(error)) {
+  if (isCancellationError(error, signal)) {
     throw new CancelledError(ticketId)
   }
 }

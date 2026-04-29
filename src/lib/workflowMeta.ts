@@ -37,6 +37,10 @@ function hasReachedStatus(currentStatus: string, targetStatus: string): boolean 
   return currentIndex >= 0 && targetIndex >= 0 && currentIndex >= targetIndex
 }
 
+function isStatusInRange(currentStatus: string, startStatus: string, endStatus: string): boolean {
+  return hasReachedStatus(currentStatus, startStatus) && !hasReachedStatus(currentStatus, endStatus)
+}
+
 export function getCascadeEditWarningMessage(
   currentStatus: string,
   artifactType: EditableArtifactType,
@@ -49,13 +53,18 @@ export function getCascadeEditWarningMessage(
 
   const affectedPhases: string[] = []
 
-  if (artifactType === 'interview' && hasReachedStatus(effectiveStatus, 'DRAFTING_BEADS')) {
+  if (
+    artifactType === 'interview'
+    && isStatusInRange(effectiveStatus, 'DRAFTING_PRD', 'PRE_FLIGHT_CHECK')
+  ) {
     affectedPhases.push('PRD')
   }
 
-  const shouldWarnAboutBeads = artifactType === 'prd'
-    ? hasReachedStatus(effectiveStatus, 'DRAFTING_BEADS')
-    : hasReachedStatus(effectiveStatus, 'WAITING_BEADS_APPROVAL')
+  const shouldWarnAboutBeads = isStatusInRange(
+    effectiveStatus,
+    'DRAFTING_BEADS',
+    'PRE_FLIGHT_CHECK',
+  )
 
   if (shouldWarnAboutBeads) {
     affectedPhases.push('Beads')
@@ -63,15 +72,15 @@ export function getCascadeEditWarningMessage(
 
   if (affectedPhases.length === 0) return null
 
-  const phaseLabel = affectedPhases.length === 1
-    ? `${affectedPhases[0]} phase`
-    : `${affectedPhases.join(' and ')} phases`
-  const dataLabel = affectedPhases.length === 1
-    ? `${affectedPhases[0]} data`
-    : `${affectedPhases.join(' and ')} data`
-  const artifactLabel = artifactType === 'interview' ? 'Interview Results' : 'the PRD'
+  if (artifactType === 'interview') {
+    if (affectedPhases.includes('Beads')) {
+      return 'Saving this Interview edit will restart PRD/specs planning and Beads planning from the edited Interview. Previous PRD and Beads versions will be archived and remain available read-only.'
+    }
 
-  return `Editing ${artifactLabel} will restart the ${phaseLabel}. Previous ${dataLabel} cannot continue, but they will be archived and remain available read-only.`
+    return 'Saving this Interview edit will restart PRD/specs planning from the edited Interview. Previous PRD versions will be archived and remain available read-only.'
+  }
+
+  return 'Saving this PRD edit will restart Beads/blueprint planning from the edited PRD. Previous Beads versions will be archived and remain available read-only.'
 }
 
 function formatBlockedErrorLabel(errorMessage?: string | null): string {

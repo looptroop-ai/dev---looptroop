@@ -88,6 +88,20 @@ export function writePrdDocument(ticketId: string, document: PrdDocument): strin
   return nextRaw
 }
 
+export function buildDraftPrdDocumentFromRawContent(
+  ticketId: string,
+  rawContent: string,
+): PrdDocument {
+  return toDraftPrdDocument(normalizePrdDocumentForTicket(ticketId, rawContent))
+}
+
+export function buildDraftPrdDocumentFromStructuredContent(
+  ticketId: string,
+  document: PrdDocument,
+): PrdDocument {
+  return buildDraftPrdDocumentFromRawContent(ticketId, buildYamlDocument(document))
+}
+
 export function readPrdDocument(ticketId: string): {
   raw: string
   document: PrdDocument
@@ -206,10 +220,7 @@ export function savePrdRawContent(
   document: PrdDocument
   invalidation: { removedArtifacts: number; removedFiles: string[] }
 } {
-  const document = toDraftPrdDocument(normalizePrdDocumentForTicket(ticketId, rawContent))
-  const raw = writePrdDocument(ticketId, document)
-  const invalidation = invalidateDownstreamBeadsArtifacts(ticketId)
-  return { raw, document, invalidation }
+  return savePrdDocument(ticketId, buildDraftPrdDocumentFromRawContent(ticketId, rawContent))
 }
 
 export function savePrdStructuredContent(
@@ -220,5 +231,29 @@ export function savePrdStructuredContent(
   document: PrdDocument
   invalidation: { removedArtifacts: number; removedFiles: string[] }
 } {
-  return savePrdRawContent(ticketId, buildYamlDocument(document))
+  return savePrdDocument(ticketId, buildDraftPrdDocumentFromStructuredContent(ticketId, document))
+}
+
+export function savePrdDocument(
+  ticketId: string,
+  document: PrdDocument,
+): {
+  raw: string
+  document: PrdDocument
+  invalidation: { removedArtifacts: number; removedFiles: string[] }
+} {
+  const raw = writePrdDocument(ticketId, document)
+  const invalidation = invalidateDownstreamBeadsArtifacts(ticketId)
+  return { raw, document, invalidation }
+}
+
+export function saveApprovedPrdDocument(
+  ticketId: string,
+  document: PrdDocument,
+): {
+  raw: string
+  document: PrdDocument
+  invalidation: { removedArtifacts: number; removedFiles: string[] }
+} {
+  return savePrdDocument(ticketId, buildApprovedPrdDocument(document, nowIso()))
 }

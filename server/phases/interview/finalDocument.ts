@@ -88,6 +88,21 @@ function writeInterviewDocument(ticketId: string, document: InterviewDocument): 
   return nextRaw
 }
 
+export function buildDraftInterviewDocumentFromRawContent(
+  ticketId: string,
+  rawContent: string,
+): InterviewDocument {
+  return toDraftInterviewDocument(normalizeInterviewDocumentForTicket(ticketId, rawContent))
+}
+
+export function buildDraftInterviewDocumentFromAnswerUpdates(
+  ticketId: string,
+  updates: InterviewAnswerUpdate[],
+): InterviewDocument {
+  const current = readInterviewDocument(ticketId)
+  return updateInterviewDocumentAnswers(current.document, updates, nowIso())
+}
+
 export function readInterviewDocument(ticketId: string): {
   raw: string
   document: InterviewDocument
@@ -179,10 +194,7 @@ export function saveInterviewRawContent(
   document: InterviewDocument
   invalidation: { removedArtifacts: number; removedFiles: string[] }
 } {
-  const document = toDraftInterviewDocument(normalizeInterviewDocumentForTicket(ticketId, rawContent))
-  const raw = writeInterviewDocument(ticketId, document)
-  const invalidation = invalidateDownstreamPlanningArtifacts(ticketId)
-  return { raw, document, invalidation }
+  return saveInterviewDocument(ticketId, buildDraftInterviewDocumentFromRawContent(ticketId, rawContent))
 }
 
 export function saveInterviewAnswerUpdates(
@@ -193,11 +205,31 @@ export function saveInterviewAnswerUpdates(
   document: InterviewDocument
   invalidation: { removedArtifacts: number; removedFiles: string[] }
 } {
-  const current = readInterviewDocument(ticketId)
-  const document = updateInterviewDocumentAnswers(current.document, updates, nowIso())
+  return saveInterviewDocument(ticketId, buildDraftInterviewDocumentFromAnswerUpdates(ticketId, updates))
+}
+
+export function saveInterviewDocument(
+  ticketId: string,
+  document: InterviewDocument,
+): {
+  raw: string
+  document: InterviewDocument
+  invalidation: { removedArtifacts: number; removedFiles: string[] }
+} {
   const raw = writeInterviewDocument(ticketId, document)
   const invalidation = invalidateDownstreamPlanningArtifacts(ticketId)
   return { raw, document, invalidation }
+}
+
+export function saveApprovedInterviewDocument(
+  ticketId: string,
+  document: InterviewDocument,
+): {
+  raw: string
+  document: InterviewDocument
+  invalidation: { removedArtifacts: number; removedFiles: string[] }
+} {
+  return saveInterviewDocument(ticketId, buildApprovedInterviewDocument(document, nowIso()))
 }
 
 export function approveInterviewDocument(ticketId: string): {

@@ -8,8 +8,11 @@ import { safeAtomicWrite } from '../../io/atomicWrite'
 import { attachProject } from '../../storage/projects'
 import {
   createTicket,
+  createFreshPhaseAttempts,
   getLatestPhaseArtifact,
+  getTicketByRef,
   getTicketPaths,
+  INTERVIEW_EDIT_RESTART_PHASES,
   patchTicket,
   upsertLatestPhaseArtifact,
 } from '../../storage/tickets'
@@ -26,9 +29,13 @@ vi.mock('../../machines/persistence', async () => {
   return {
     createTicketActor: vi.fn(),
     ensureActorForTicket: vi.fn(() => ({ id: 'mock-actor' })),
+    revertTicketToApprovalStatus: vi.fn((ticketRef: string | number, status: string) => {
+      storage.patchTicket(String(ticketRef), { status })
+      return { id: 'mock-actor', status }
+    }),
     sendTicketEvent: vi.fn((ticketRef: string | number, event: { type: string }) => {
       if (event.type === 'APPROVE') {
-        storage.patchTicket(String(ticketRef), { status: 'WAITING_PRD_APPROVAL' })
+        storage.patchTicket(String(ticketRef), { status: 'DRAFTING_PRD' })
       }
       return { value: event.type }
     }),
@@ -157,6 +164,174 @@ describe('ticketRouter interview approval routes', () => {
     expect(getLatestPhaseArtifact(ticket.id, 'ui_state:approval_prd', 'UI_STATE')).toBeUndefined()
   })
 
+  it('archives approval and PRD attempts, clears stale PRD state, approves the edit, and starts PRD drafting', async () => {
+    const { app, ticket, paths, raw } = setupApprovalTicket()
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'approval_snapshot:interview',
+      'WAITING_INTERVIEW_APPROVAL',
+      JSON.stringify({ raw }),
+    )
+    patchTicket(ticket.id, { status: 'REFINING_PRD' })
+    createFreshPhaseAttempts(ticket.id, INTERVIEW_EDIT_RESTART_PHASES)
+
+    safeAtomicWrite(`${paths.ticketDir}/prd.yaml`, 'artifact: prd\n')
+    upsertLatestPhaseArtifact(ticket.id, 'prd', 'WAITING_PRD_APPROVAL', 'artifact: prd\n')
+    upsertLatestPhaseArtifact(ticket.id, 'ui_state:approval_prd', 'UI_STATE', '{"data":{"editMode":true}}')
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'approval_snapshot:prd',
+      'WAITING_PRD_APPROVAL',
+      JSON.stringify({ raw: 'artifact: prd\nstatus: approved\n' }),
+    )
+
+    const response = await app.request(`/api/tickets/${ticket.id}/interview-answers`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        questions: [
+          {
+            id: 'Q01',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Restart PRD planning from corrected interview answers.',
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      success: boolean
+      document: InterviewDocument
+      status?: string
+    }
+    expect(payload.success).toBe(true)
+    expect(payload.document.status).toBe('approved')
+    expect(payload.document.approval.approved_by).toBe('user')
+    expect(payload.document.approval.approved_at).toEqual(expect.any(String))
+    expect(payload.status).toBe('DRAFTING_PRD')
+    expect(payload.document.questions.find((question) => question.id === 'Q01')?.answer.free_text)
+      .toBe('Restart PRD planning from corrected interview answers.')
+
+    const savedRaw = readFileSync(`${paths.ticketDir}/interview.yaml`, 'utf-8')
+    expect(savedRaw).toContain('status: approved')
+    expect(savedRaw).toContain('free_text: Restart PRD planning from corrected interview answers.')
+    expect(existsSync(`${paths.ticketDir}/prd.yaml`)).toBe(false)
+    expect(getLatestPhaseArtifact(ticket.id, 'prd', 'WAITING_PRD_APPROVAL')).toBeUndefined()
+    expect(getLatestPhaseArtifact(ticket.id, 'ui_state:approval_prd', 'UI_STATE')).toBeUndefined()
+
+    const interviewAttemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_INTERVIEW_APPROVAL/attempts`)
+    expect(interviewAttemptsResponse.status).toBe(200)
+    const interviewAttempts = await interviewAttemptsResponse.json() as Array<{ attemptNumber: number; state: string; archivedReason: string | null }>
+    expect(interviewAttempts[0]).toMatchObject({ attemptNumber: 2, state: 'active' })
+    expect(interviewAttempts[1]).toMatchObject({
+      attemptNumber: 1,
+      state: 'archived',
+      archivedReason: 'interview_edit_restart',
+    })
+
+    const archivedInterviewArtifactsResponse = await app.request(`/api/tickets/${ticket.id}/artifacts?phase=WAITING_INTERVIEW_APPROVAL&phaseAttempt=1`)
+    expect(archivedInterviewArtifactsResponse.status).toBe(200)
+    const archivedInterviewArtifacts = await archivedInterviewArtifactsResponse.json() as Array<{ artifactType: string; phaseAttempt: number }>
+    expect(archivedInterviewArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        artifactType: 'approval_snapshot:interview',
+        phaseAttempt: 1,
+      }),
+    ]))
+
+    const attemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_PRD_APPROVAL/attempts`)
+    expect(attemptsResponse.status).toBe(200)
+    const attempts = await attemptsResponse.json() as Array<{ attemptNumber: number; state: string; archivedReason: string | null }>
+    expect(attempts[0]).toMatchObject({ attemptNumber: 2, state: 'active' })
+    expect(attempts[1]).toMatchObject({
+      attemptNumber: 1,
+      state: 'archived',
+      archivedReason: 'interview_edit_restart',
+    })
+
+    const defaultArtifactsResponse = await app.request(`/api/tickets/${ticket.id}/artifacts?phase=WAITING_PRD_APPROVAL`)
+    expect(defaultArtifactsResponse.status).toBe(200)
+    const defaultArtifacts = await defaultArtifactsResponse.json() as Array<{ artifactType: string }>
+    expect(defaultArtifacts).toEqual([])
+
+    const archivedArtifactsResponse = await app.request(`/api/tickets/${ticket.id}/artifacts?phase=WAITING_PRD_APPROVAL&phaseAttempt=1`)
+    expect(archivedArtifactsResponse.status).toBe(200)
+    const archivedArtifacts = await archivedArtifactsResponse.json() as Array<{ artifactType: string; phaseAttempt: number }>
+    expect(archivedArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        artifactType: 'approval_snapshot:prd',
+        phaseAttempt: 1,
+      }),
+    ]))
+  })
+
+  it('does not archive attempts when a post-approval interview edit is invalid', async () => {
+    const { app, ticket } = setupApprovalTicket()
+    patchTicket(ticket.id, { status: 'REFINING_PRD' })
+    createFreshPhaseAttempts(ticket.id, INTERVIEW_EDIT_RESTART_PHASES)
+
+    const response = await app.request(`/api/tickets/${ticket.id}/interview`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'artifact: interview\nquestions: [',
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(getTicketByRef(ticket.id)?.status).toBe('REFINING_PRD')
+
+    const attemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_INTERVIEW_APPROVAL/attempts`)
+    expect(attemptsResponse.status).toBe(200)
+    const attempts = await attemptsResponse.json() as Array<{ attemptNumber: number; state: string; archivedReason: string | null }>
+    expect(attempts).toEqual([
+      expect.objectContaining({ attemptNumber: 1, state: 'active', archivedReason: null }),
+    ])
+  })
+
+  it('rejects interview answer edits at pre-flight or later', async () => {
+    const { app, ticket } = setupApprovalTicket()
+    patchTicket(ticket.id, { status: 'PRE_FLIGHT_CHECK' })
+
+    const response = await app.request(`/api/tickets/${ticket.id}/interview-answers`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        questions: [
+          {
+            id: 'Q01',
+            answer: {
+              skipped: false,
+              selected_option_ids: [],
+              free_text: 'Too late to edit interview answers.',
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(response.status).toBe(409)
+  })
+
+  it('rejects raw interview edits at pre-flight or later', async () => {
+    const { app, ticket, raw } = setupApprovalTicket()
+    patchTicket(ticket.id, { status: 'PRE_FLIGHT_CHECK' })
+
+    const response = await app.request(`/api/tickets/${ticket.id}/interview`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: raw,
+      }),
+    })
+
+    expect(response.status).toBe(409)
+  })
+
   it('rejects invalid answer-only payloads', async () => {
     const { app, ticket, raw, paths } = setupApprovalTicket()
 
@@ -278,7 +453,7 @@ describe('ticketRouter interview approval routes', () => {
     expect(response.status).toBe(200)
     const payload = await response.json() as { status?: string; message?: string }
     expect(payload.message).toBe('Interview approved')
-    expect(payload.status).toBe('WAITING_PRD_APPROVAL')
+    expect(payload.status).toBe('DRAFTING_PRD')
 
     const savedRaw = readFileSync(`${paths.ticketDir}/interview.yaml`, 'utf-8')
     expect(savedRaw).toContain('status: approved')

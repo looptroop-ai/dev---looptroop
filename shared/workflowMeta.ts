@@ -289,15 +289,16 @@ const WORKFLOW_PHASE_DETAILS = {
     steps: [
       'Review Interface: LoopTroop exposes the canonical interview in two modes — a structured view showing questions and answers in a readable format, and a raw YAML editing view for direct text manipulation. You can switch between these views freely.',
       'Editing Answers: You can adjust any answer text, change skip decisions, or modify the raw YAML directly. The UI maintains temporary unsaved draft state between view switches so your edits are not lost when toggling between structured and raw modes.',
-      'Saving Changes: Saving writes the updated interview artifact back to the ticket workspace and refreshes all relevant caches. The saved version replaces the previous canonical interview.',
+      'Saving Changes: Saving writes the updated interview artifact back to the ticket workspace and refreshes all relevant caches. If this is a post-approval edit while the ticket is still before PRE_FLIGHT_CHECK, saving archives the current approved interview version plus downstream PRD/beads planning attempts, intentionally cancels active downstream planning sessions, saves and approves the edited interview as the new active version, clears stale downstream artifacts and UI state, and starts DRAFTING_PRD.',
       'Approval Decision: Approving locks in the current interview results as the authoritative source material for PRD drafting. Once approved, the interview answers become the ground truth that the PRD council uses to generate specifications.',
-      'Post-Approval Editing: If you navigate back to the interview after approval and make edits, LoopTroop will display a cascade warning explaining that changes will trigger regeneration of the PRD and potentially the beads plan — because those downstream artifacts were generated based on the original approved interview.',
+      'Post-Approval Editing Window: After approval, interview edits remain allowed only while the ticket is still before PRE_FLIGHT_CHECK. Once the ticket reaches pre-flight or later, interview edits are rejected because implementation planning has already been locked for execution.',
     ],
     outputs: [
       'Approved interview artifact — the finalized, authoritative version of interview questions and answers.',
       'User-edited replacement (if edits were made before approval).',
       'Optional persisted UI draft state for in-progress edits.',
       'A locked interview baseline that the PRD council treats as ground truth.',
+      'Archived approved interview versions and downstream PRD/beads planning attempts remain read-only history when a post-approval edit creates a new active version.',
     ],
     transitions: [
       'Approve → Council Drafting Specs: Approval advances the workflow to PRD drafting, where multiple council models independently generate specification documents based on your approved interview answers.',
@@ -307,12 +308,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'This is the review artifact gate for the interview phase — it ensures a human has signed off before expensive PRD generation begins.',
       'No AI context is passed in this phase — it is entirely user-driven. The AI does not see or process anything during approval.',
       'Tip: Review skipped questions carefully. Skipped questions will have AI-generated answers filled in during PRD drafting. If you have opinions about those topics, it is better to provide real answers now than to rely on AI guesses later.',
-      'Tip: This is your last easy chance to influence the interview before it feeds into the PRD. Editing after approval is possible but triggers cascade regeneration of downstream artifacts.',
+      'Tip: This is your last easy chance to influence the interview before it feeds into the PRD. Editing after approval is possible only before PRE_FLIGHT_CHECK, and saving intentionally cancels active downstream planning sessions as cancellation rather than blocked errors so DRAFTING_PRD restarts from the new approved interview.',
     ],
     equivalents: [
       'This is the "approval gate" of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Approving Specs" (where you review and approve the PRD before beads planning) and in the Blueprint (Beads) phase as "Approving Blueprint" (where you review and approve the execution plan before coding starts).',
       'All three approval gates share the same mechanics: human review → optional editing → explicit approval to advance. Each gate controls what feeds into the next major phase: approved interview → PRD drafting, approved PRD → beads drafting, approved beads → coding execution.',
-      'Post-approval edits trigger cascade warnings in all three cases — because downstream artifacts were built on the approved version and would need regeneration.',
+      'Post-approval edits are planning-only. Interview and PRD edits are allowed only before PRE_FLIGHT_CHECK. Saving them archives the previous approved planning generation and affected downstream attempts, treats active downstream session aborts as intentional cancellation, saves and approves the edit, and restarts the next drafting phase.',
     ],
   },
   DRAFTING_PRD: {
@@ -438,15 +439,16 @@ const WORKFLOW_PHASE_DETAILS = {
     steps: [
       'Review Interface: LoopTroop renders the PRD in two modes — a structured view showing requirements, acceptance criteria, edge cases, and test intent in a readable format, and a raw YAML editing view for direct manipulation. You can switch freely between views.',
       'Coverage Warnings: If the latest PRD candidate reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed prominently. These warnings describe any unresolved gaps so you can decide whether to address them manually before approving.',
-      'Editing: You can edit any section of the PRD — add requirements, refine acceptance criteria, adjust edge cases, or rewrite test intent. The UI preserves temporary draft state between view switches. Saving writes the updated PRD artifact back to the ticket workspace.',
+      'Editing: You can edit any section of the PRD — add requirements, refine acceptance criteria, adjust edge cases, or rewrite test intent. The UI preserves temporary draft state between view switches. Saving writes the updated PRD artifact back to the ticket workspace. If this is a post-approval edit while the ticket is still before PRE_FLIGHT_CHECK, saving archives the current approved PRD version plus downstream beads planning attempts, intentionally cancels active downstream planning sessions, saves and approves the edited PRD as the new active version, clears stale downstream artifacts and UI state, and starts DRAFTING_BEADS.',
       'Approval Decision: Approving confirms the current PRD as the authoritative specification for beads drafting. The beads council will decompose this approved PRD into implementable tasks.',
-      'Post-Approval Cascade: If you navigate back to the PRD after approval and make edits, LoopTroop displays a cascade warning. Editing the PRD at this point will restart the beads phase. Previous beads data cannot continue, but it will be archived and remain available read-only while a new active attempt is generated from the updated PRD.',
+      'Post-Approval Editing Window: After approval, PRD edits remain allowed only while the ticket is still before PRE_FLIGHT_CHECK. Once the ticket reaches pre-flight or later, PRD edits are rejected because the implementation plan has already been accepted for execution.',
     ],
     outputs: [
       'Approved PRD artifact — the finalized, authoritative specification for the implementation.',
       'User-edited replacement (if edits were made before approval).',
       'Optional UI draft state for in-progress structured and raw edits.',
       'A locked PRD baseline that the beads council uses as its primary input.',
+      'Archived approved PRD versions and downstream beads planning attempts remain read-only history when a post-approval edit creates a new active version.',
     ],
     transitions: [
       'Approve → Council Drafting Blueprint: Approval advances the workflow to the beads drafting phase, where multiple council models independently decompose the PRD into implementable task blueprints.',
@@ -457,6 +459,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'No AI context is passed in this phase — it is entirely user-driven. The AI does not see or process anything during approval.',
       'Tip: Pay special attention to acceptance criteria — they directly determine how the AI will verify its own implementation during the coding phase.',
       'Tip: If coverage warnings exist, read the unresolved gaps carefully. Minor gaps may be acceptable, but gaps in core requirements could lead to an incomplete implementation.',
+      'Tip: Editing the PRD after beads planning starts intentionally cancels and archives downstream beads planning. Active downstream session aborts are cancellation, not blocked errors; archived attempts remain inspectable, while DRAFTING_BEADS restarts from the edited approved PRD.',
     ],
     equivalents: [
       'This is the "approval gate" of the Specs (PRD) phase. The equivalent in the Interview phase is "Approving Interview" (where you review and approve the interview results before PRD drafting) and in the Blueprint (Beads) phase is "Approving Blueprint" (where you review and approve the execution plan before coding starts).',

@@ -12,6 +12,7 @@ import {
   createFreshPhaseAttempts,
   createTicket,
   getLatestPhaseArtifact,
+  getTicketByRef,
   getTicketPaths,
   patchTicket,
   PRD_EDIT_RESTART_PHASES,
@@ -275,6 +276,40 @@ describe('ticketRouter PRD approval routes', () => {
     expect(savedRaw).toBe(prdRaw)
   })
 
+  it('rejects raw PRD edits at pre-flight or later', async () => {
+    const { app, ticket, prdRaw, paths } = setupPrdApprovalTicket()
+    patchTicket(ticket.id, { status: 'PRE_FLIGHT_CHECK' })
+
+    const response = await app.request(`/api/files/${ticket.id}/prd`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: prdRaw,
+      }),
+    })
+
+    expect(response.status).toBe(409)
+    const savedRaw = readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')
+    expect(savedRaw).toBe(prdRaw)
+  })
+
+  it('rejects structured PRD edits at pre-flight or later', async () => {
+    const { app, ticket, prdRaw, paths } = setupPrdApprovalTicket()
+    patchTicket(ticket.id, { status: 'PRE_FLIGHT_CHECK' })
+
+    const response = await app.request(`/api/files/${ticket.id}/prd`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        document: buildPrdDocument(ticket.externalId, '0000000000000000000000000000000000000000000000000000000000000000'),
+      }),
+    })
+
+    expect(response.status).toBe(409)
+    const savedRaw = readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')
+    expect(savedRaw).toBe(prdRaw)
+  })
+
   it('clears downstream beads artifacts when PRD is edited', async () => {
     const { app, ticket, paths } = setupPrdApprovalTicket()
 
@@ -345,8 +380,14 @@ describe('ticketRouter PRD approval routes', () => {
     expect(getLatestPhaseArtifact(ticket.id, 'ui_state:approval_beads', 'UI_STATE')).toBeUndefined()
   })
 
-  it('archives downstream beads attempts and hides them from default artifact queries when PRD is edited from a later phase', async () => {
-    const { app, ticket, paths } = setupPrdApprovalTicket()
+  it('archives approval and beads attempts, approves the edit, and starts beads drafting when PRD is edited from a later phase', async () => {
+    const { app, ticket, paths, prdRaw } = setupPrdApprovalTicket()
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'approval_snapshot:prd',
+      'WAITING_PRD_APPROVAL',
+      JSON.stringify({ raw: prdRaw }),
+    )
     patchTicket(ticket.id, { status: 'WAITING_BEADS_APPROVAL' })
     createFreshPhaseAttempts(ticket.id, PRD_EDIT_RESTART_PHASES)
 
@@ -416,7 +457,32 @@ describe('ticketRouter PRD approval routes', () => {
     })
 
     expect(response.status).toBe(200)
+    const payload = await response.json() as { content: string; status?: string }
+    expect(payload.status).toBe('DRAFTING_BEADS')
+    expect(payload.content).toContain('status: approved')
+    expect(payload.content).toContain('approved_by: user')
     expect(existsSync(beadsDir)).toBe(false)
+    expect(readFileSync(`${paths.ticketDir}/prd.yaml`, 'utf-8')).toContain('status: approved')
+
+    const prdAttemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_PRD_APPROVAL/attempts`)
+    expect(prdAttemptsResponse.status).toBe(200)
+    const prdAttempts = await prdAttemptsResponse.json() as Array<{ attemptNumber: number; state: string; archivedReason: string | null }>
+    expect(prdAttempts[0]).toMatchObject({ attemptNumber: 2, state: 'active' })
+    expect(prdAttempts[1]).toMatchObject({
+      attemptNumber: 1,
+      state: 'archived',
+      archivedReason: 'prd_edit_restart',
+    })
+
+    const archivedPrdArtifactsResponse = await app.request(`/api/tickets/${ticket.id}/artifacts?phase=WAITING_PRD_APPROVAL&phaseAttempt=1`)
+    expect(archivedPrdArtifactsResponse.status).toBe(200)
+    const archivedPrdArtifacts = await archivedPrdArtifactsResponse.json() as Array<{ artifactType: string; phaseAttempt: number }>
+    expect(archivedPrdArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        artifactType: 'approval_snapshot:prd',
+        phaseAttempt: 1,
+      }),
+    ]))
 
     const attemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_BEADS_APPROVAL/attempts`)
     expect(attemptsResponse.status).toBe(200)
@@ -437,6 +503,30 @@ describe('ticketRouter PRD approval routes', () => {
         artifactType: 'approval_snapshot:beads',
         phaseAttempt: 1,
       }),
+    ])
+  })
+
+  it('does not archive attempts when a post-approval PRD edit is invalid', async () => {
+    const { app, ticket } = setupPrdApprovalTicket()
+    patchTicket(ticket.id, { status: 'WAITING_BEADS_APPROVAL' })
+    createFreshPhaseAttempts(ticket.id, PRD_EDIT_RESTART_PHASES)
+
+    const response = await app.request(`/api/files/${ticket.id}/prd`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'artifact: prd\nepics: [',
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(getTicketByRef(ticket.id)?.status).toBe('WAITING_BEADS_APPROVAL')
+
+    const attemptsResponse = await app.request(`/api/tickets/${ticket.id}/phases/WAITING_PRD_APPROVAL/attempts`)
+    expect(attemptsResponse.status).toBe(200)
+    const attempts = await attemptsResponse.json() as Array<{ attemptNumber: number; state: string; archivedReason: string | null }>
+    expect(attempts).toEqual([
+      expect.objectContaining({ attemptNumber: 1, state: 'active', archivedReason: null }),
     ])
   })
 

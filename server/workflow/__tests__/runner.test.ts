@@ -2,18 +2,20 @@ import { createActor } from 'xstate'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ticketMachine } from '../../machines/ticketMachine'
 import { attachWorkflowRunner } from '../runner'
-import { runningPhases, ticketAbortControllers } from '../phases'
+import { phaseIntermediate, runningPhases, ticketAbortControllers } from '../phases'
 import { TEST } from '../../test/factories'
 
 const {
   handleCodingMock,
   handleFinalTestMock,
+  handlePrdRefineMock,
   handleMockExecutionUnsupportedMock,
   emitPhaseLogMock,
   isMockOpenCodeModeMock,
 } = vi.hoisted(() => ({
   handleCodingMock: vi.fn(),
   handleFinalTestMock: vi.fn(),
+  handlePrdRefineMock: vi.fn(),
   handleMockExecutionUnsupportedMock: vi.fn(),
   emitPhaseLogMock: vi.fn(),
   isMockOpenCodeModeMock: vi.fn(),
@@ -33,12 +35,58 @@ vi.mock('../phases', async () => {
     ...actual,
     handleCoding: handleCodingMock,
     handleFinalTest: handleFinalTestMock,
+    handlePrdRefine: handlePrdRefineMock,
     handleMockExecutionUnsupported: handleMockExecutionUnsupportedMock,
     emitPhaseLog: emitPhaseLogMock,
   }
 })
 
 describe('attachWorkflowRunner', () => {
+  function createRefiningPrdActor() {
+    return createActor(ticketMachine, {
+      snapshot: {
+        status: 'active',
+        value: 'REFINING_PRD',
+        historyValue: {},
+        context: {
+          ticketId: TEST.ticketId,
+          projectId: TEST.projectId,
+          externalId: TEST.externalId,
+          title: 'Runner PRD refinement test',
+          status: 'REFINING_PRD',
+          lockedMainImplementer: TEST.implementer,
+          lockedMainImplementerVariant: null,
+          lockedCouncilMembers: [...TEST.councilMembers],
+          lockedCouncilMemberVariants: null,
+          lockedInterviewQuestions: null,
+          lockedCoverageFollowUpBudgetPercent: null,
+          lockedMaxCoveragePasses: null,
+          lockedMaxPrdCoveragePasses: null,
+          lockedMaxBeadsCoveragePasses: null,
+          previousStatus: 'COUNCIL_VOTING_PRD',
+          error: null,
+          errorCodes: [],
+          beadProgress: { total: 0, completed: 0, current: null },
+          iterationCount: 0,
+          maxIterations: 5,
+          councilResults: null,
+          createdAt: TEST.timestamp,
+          updatedAt: TEST.timestamp,
+        },
+        children: {},
+      } as unknown as never,
+      input: {
+        ticketId: TEST.ticketId,
+        projectId: TEST.projectId,
+        externalId: TEST.externalId,
+        title: 'Runner PRD refinement test',
+        maxIterations: 5,
+        lockedMainImplementer: TEST.implementer,
+        lockedCouncilMembers: [...TEST.councilMembers],
+      },
+    })
+  }
+
   afterEach(() => {
     runningPhases.clear()
     for (const controller of ticketAbortControllers.values()) {
@@ -47,9 +95,73 @@ describe('attachWorkflowRunner', () => {
     ticketAbortControllers.clear()
     handleCodingMock.mockReset()
     handleFinalTestMock.mockReset()
+    handlePrdRefineMock.mockReset()
     handleMockExecutionUnsupportedMock.mockReset()
     emitPhaseLogMock.mockReset()
     isMockOpenCodeModeMock.mockReset()
+    phaseIntermediate.clear()
+  })
+
+  it('does not block an active PRD refinement when the phase rejects after abort', async () => {
+    isMockOpenCodeModeMock.mockReturnValue(false)
+    phaseIntermediate.set(`${TEST.ticketId}:prd`, {} as never)
+    handlePrdRefineMock.mockImplementation(async (
+      _ticketId,
+      _context,
+      _sendEvent,
+      signal: AbortSignal,
+    ) => {
+      await new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted', 'AbortError'))
+        }, { once: true })
+      })
+    })
+
+    const actor = createRefiningPrdActor()
+    const sentEvents: unknown[] = []
+    actor.start()
+    attachWorkflowRunner(TEST.ticketId, actor, (event) => {
+      sentEvents.push(event)
+      actor.send(event)
+    })
+
+    await vi.waitFor(() => {
+      expect(handlePrdRefineMock).toHaveBeenCalledTimes(1)
+    })
+
+    ticketAbortControllers.get(TEST.ticketId)?.abort()
+
+    await vi.waitFor(() => {
+      expect(runningPhases.has(`${TEST.ticketId}:REFINING_PRD`)).toBe(false)
+    })
+
+    expect(actor.getSnapshot().value).toBe('REFINING_PRD')
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ type: 'ERROR' }))
+    expect(emitPhaseLogMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks an active PRD refinement when it fails without cancellation', async () => {
+    isMockOpenCodeModeMock.mockReturnValue(false)
+    phaseIntermediate.set(`${TEST.ticketId}:prd`, {} as never)
+    handlePrdRefineMock.mockRejectedValue(new Error('Refinement failed'))
+
+    const actor = createRefiningPrdActor()
+    actor.start()
+    attachWorkflowRunner(TEST.ticketId, actor, (event) => actor.send(event))
+
+    await vi.waitFor(() => {
+      expect(actor.getSnapshot().value).toBe('BLOCKED_ERROR')
+    })
+
+    expect(actor.getSnapshot().context.error).toBe('Refinement failed')
+    expect(emitPhaseLogMock).toHaveBeenCalledWith(
+      TEST.ticketId,
+      TEST.externalId,
+      'REFINING_PRD',
+      'error',
+      'Refinement failed',
+    )
   })
 
   it('starts work for a restored active snapshot immediately after attachment', async () => {

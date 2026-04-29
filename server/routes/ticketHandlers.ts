@@ -39,6 +39,7 @@ import {
   lockTicketStartConfiguration,
   archiveActivePhaseAttempts,
   createFreshPhaseAttempts,
+  ensureActivePhaseAttempt,
   INTERVIEW_EDIT_RESTART_PHASES,
   PRD_EDIT_RESTART_PHASES,
   updateTicket,
@@ -55,14 +56,18 @@ import {
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import {
   approveInterviewDocument,
+  buildDraftInterviewDocumentFromAnswerUpdates,
+  buildDraftInterviewDocumentFromRawContent,
   readInterviewDocument,
-  saveInterviewAnswerUpdates,
-  saveInterviewRawContent,
+  saveApprovedInterviewDocument,
+  saveInterviewDocument,
 } from '../phases/interview/finalDocument'
 import {
   approvePrdDocument,
-  savePrdStructuredContent,
-  savePrdRawContent,
+  buildDraftPrdDocumentFromRawContent,
+  buildDraftPrdDocumentFromStructuredContent,
+  saveApprovedPrdDocument,
+  savePrdDocument,
 } from '../phases/prd/document'
 import { approveBeadsDocument } from '../phases/beads/document'
 import {
@@ -226,6 +231,16 @@ function respondWithState(c: Context, ticketId: string, message: string) {
     state: state?.state,
     ...(updated ? { ticket: updated } : {}),
   })
+}
+
+function buildRouteStatePayload(ticketId: string) {
+  const updated = getTicketByRef(ticketId)
+  const state = getTicketState(ticketId)
+  return {
+    status: state?.state ?? updated?.status,
+    state: state?.state,
+    ...(updated ? { ticket: updated } : {}),
+  }
 }
 
 function emitRoutePhaseLog(
@@ -420,6 +435,7 @@ async function preparePlanningRestart(
   cancelTicket(ticketId)
   await abortTicketSessions(ticketId)
   clearContextCache(ticketId)
+  ensureActivePhaseAttempt(ticketId, targetApprovalStatus)
   archiveActivePhaseAttempts(ticketId, phasesToArchive, restartReason)
   createFreshPhaseAttempts(ticketId, phasesToArchive)
 
@@ -1191,14 +1207,29 @@ export async function handlePutInterviewAnswers(c: Context) {
     return c.json({ error: 'Invalid interview answer payload', details: parsed.error.flatten() }, 400)
   }
 
+  let document: InterviewDocument
+  try {
+    document = buildDraftInterviewDocumentFromAnswerUpdates(ticketId, parsed.data.questions)
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save interview answers',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+
   try {
     if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
       await preparePlanningRestart(ticketId, 'WAITING_INTERVIEW_APPROVAL')
+      saveApprovedInterviewDocument(ticketId, document)
+      emitRoutePhaseLog(ticketId, 'WAITING_INTERVIEW_APPROVAL', 'info', 'Interview edit saved and approved. Restarting PRD planning from the edited interview.')
+      sendTicketEvent(ticketId, { type: 'APPROVE' })
+    } else {
+      saveInterviewDocument(ticketId, document)
     }
-    saveInterviewAnswerUpdates(ticketId, parsed.data.questions)
     return c.json({
       success: true,
       ...buildInterviewPayload(ticketId),
+      ...buildRouteStatePayload(ticketId),
     })
   } catch (err) {
     return c.json({
@@ -1222,14 +1253,29 @@ export async function handlePutInterview(c: Context) {
     return c.json({ error: 'Invalid interview document payload', details: parsed.error.flatten() }, 400)
   }
 
+  let document: InterviewDocument
+  try {
+    document = buildDraftInterviewDocumentFromRawContent(ticketId, parsed.data.content)
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save interview document',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+
   try {
     if (ticket.status !== 'WAITING_INTERVIEW_APPROVAL') {
       await preparePlanningRestart(ticketId, 'WAITING_INTERVIEW_APPROVAL')
+      saveApprovedInterviewDocument(ticketId, document)
+      emitRoutePhaseLog(ticketId, 'WAITING_INTERVIEW_APPROVAL', 'info', 'Interview edit saved and approved. Restarting PRD planning from the edited interview.')
+      sendTicketEvent(ticketId, { type: 'APPROVE' })
+    } else {
+      saveInterviewDocument(ticketId, document)
     }
-    saveInterviewRawContent(ticketId, parsed.data.content)
     return c.json({
       success: true,
       ...buildInterviewPayload(ticketId),
+      ...buildRouteStatePayload(ticketId),
     })
   } catch (err) {
     return c.json({
@@ -1250,14 +1296,33 @@ export async function handlePutPrd(c: Context) {
   const body = await c.req.json().catch(() => ({}))
   const rawParsed = rawPrdSaveSchema.safeParse(body)
   if (rawParsed.success) {
+    let document: PrdDocument
+    try {
+      document = buildDraftPrdDocumentFromRawContent(ticketId, rawParsed.data.content)
+    } catch (err) {
+      return c.json({
+        error: 'Failed to save PRD document',
+        details: err instanceof Error ? err.message : String(err),
+      }, 400)
+    }
+
     try {
       if (ticket.status !== 'WAITING_PRD_APPROVAL') {
         await preparePlanningRestart(ticketId, 'WAITING_PRD_APPROVAL')
+        const { raw } = saveApprovedPrdDocument(ticketId, document)
+        emitRoutePhaseLog(ticketId, 'WAITING_PRD_APPROVAL', 'info', 'PRD edit saved and approved. Restarting Beads planning from the edited PRD.')
+        sendTicketEvent(ticketId, { type: 'APPROVE' })
+        return c.json({
+          success: true,
+          content: raw,
+          ...buildRouteStatePayload(ticketId),
+        })
       }
-      const { raw } = savePrdRawContent(ticketId, rawParsed.data.content)
+      const { raw } = savePrdDocument(ticketId, document)
       return c.json({
         success: true,
         content: raw,
+        ...buildRouteStatePayload(ticketId),
       })
     } catch (err) {
       return c.json({
@@ -1272,14 +1337,33 @@ export async function handlePutPrd(c: Context) {
     return c.json({ error: 'Invalid PRD document payload', details: structuredParsed.error.flatten() }, 400)
   }
 
+  let document: PrdDocument
+  try {
+    document = buildDraftPrdDocumentFromStructuredContent(ticketId, structuredParsed.data.document)
+  } catch (err) {
+    return c.json({
+      error: 'Failed to save PRD document',
+      details: err instanceof Error ? err.message : String(err),
+    }, 400)
+  }
+
   try {
     if (ticket.status !== 'WAITING_PRD_APPROVAL') {
       await preparePlanningRestart(ticketId, 'WAITING_PRD_APPROVAL')
+      const { raw } = saveApprovedPrdDocument(ticketId, document)
+      emitRoutePhaseLog(ticketId, 'WAITING_PRD_APPROVAL', 'info', 'PRD edit saved and approved. Restarting Beads planning from the edited PRD.')
+      sendTicketEvent(ticketId, { type: 'APPROVE' })
+      return c.json({
+        success: true,
+        content: raw,
+        ...buildRouteStatePayload(ticketId),
+      })
     }
-    const { raw } = savePrdStructuredContent(ticketId, structuredParsed.data.document)
+    const { raw } = savePrdDocument(ticketId, document)
     return c.json({
       success: true,
       content: raw,
+      ...buildRouteStatePayload(ticketId),
     })
   } catch (err) {
     return c.json({

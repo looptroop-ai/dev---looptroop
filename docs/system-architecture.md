@@ -109,10 +109,12 @@ Recovery is a first-class architectural concern.
 | Bead execution stall | Generate context wipe note, reset worktree, retry in fresh session |
 | OpenCode reconnect gap | Validate owned session against remote sessions and recreate if needed |
 | Backend process restart | Validate or reconstruct serialized actor snapshots, start actors from durable ticket state, and immediately process restored active snapshots |
-| User edits approved planning artifact | Prepare a planning restart from the affected approval boundary |
+| User edits approved planning artifact | Before `PRE_FLIGHT_CHECK`, archive the current approved planning version and downstream phase attempts, cancel active downstream sessions intentionally, save and approve the edit as the new active version, clear stale downstream artifacts/UI state, and restart from the next drafting phase |
 | Terminal blockage | Enter `BLOCKED_ERROR` with persisted error occurrence history |
 
 LoopTroop tries hard to preserve the work product while discarding the bad conversational state that produced the failure.
+
+Planning edit restarts are intentionally cancellation-based. Editing an approved interview from later PRD or beads planning cancels active downstream planning sessions as intentional cancellation, archives the current approved interview version plus downstream PRD/beads phase attempts, removes stale PRD/beads artifacts and approval UI state, saves and approves the edited interview as the new active version, and starts `DRAFTING_PRD`. Editing an approved PRD from beads planning applies the same rule to the current approved PRD version and downstream beads attempts, then starts `DRAFTING_BEADS`. Archived approved versions are read-only planning generations backed by phase attempts. These routes stop at the planning boundary: at `PRE_FLIGHT_CHECK` or later, interview and PRD edit saves return `409` instead of modifying execution readiness. Existing tickets and projects, including `PCKM-22`, are not migrated or repaired by this behavior.
 
 If a resume point cannot be proven, recovery stops at `BLOCKED_ERROR` rather than falling back to `DRAFT` or continuing execution against unknown state. `BLOCKED_ERROR` retry requires a preserved `previousStatus`; `CODING` retry also requires a successful reset to the failed bead's `beadStartCommit`.
 

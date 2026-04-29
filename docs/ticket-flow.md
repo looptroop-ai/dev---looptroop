@@ -216,6 +216,16 @@ Two extra guards matter at the user-action layer:
 | Frontend resume | ticket UI-state artifacts for approval drafts and interview drafts, plus SSE last-event id in browser storage |
 | Final delivery | final test report, integration report, pull request report, merge report, cleanup report |
 
+## Planning Edit Restarts
+
+Approved interview and PRD artifacts can still be edited while the ticket is in planning before `PRE_FLIGHT_CHECK`. These saves intentionally cancel active downstream planning work instead of trying to patch artifacts generated from stale inputs. The cancellation is intentional session cancellation, not a blocked error.
+
+- Editing the interview from PRD or beads planning archives the current approved interview version and downstream PRD/beads phase attempts, aborts active downstream sessions as intentional cancellation, clears stale PRD/beads artifacts and approval UI state, saves and approves the edited interview as the new active version, and starts `DRAFTING_PRD`.
+- Editing the PRD from beads planning archives the current approved PRD version and downstream beads phase attempts, aborts active downstream sessions as intentional cancellation, clears stale beads artifacts and approval UI state, saves and approves the edited PRD as the new active version, and starts `DRAFTING_BEADS`.
+- Versions are approved planning generations backed by phase attempts. Archived versions are read-only.
+- Interview and PRD edits are rejected with `409` at `PRE_FLIGHT_CHECK` or later. At that point the bead plan has crossed into execution readiness, so LoopTroop does not use approval edit routes to modify execution readiness.
+- Existing tickets and projects, including `PCKM-22`, are not migrated or repaired by this behavior.
+
 ## Status Groups
 
 The UI and API both group workflow states:
@@ -256,7 +266,7 @@ The UI and API both group workflow states:
 | `COMPILING_INTERVIEW` | The winning draft is normalized into the interactive interview that the UI can render and track across batches and follow-up rounds. | Canonical interview artifact and interview session snapshot. | `cancel` | Success advances to `WAITING_INTERVIEW_ANSWERS`. |
 | `WAITING_INTERVIEW_ANSWERS` | The automated pipeline pauses while you answer or skip the active question batch. This state can repeat when coverage asks for follow-up questions. | Answer state, updated interview artifact, per-round history. | submit answers, skip, skip all, `cancel` | Submission moves to coverage; skip-all jumps directly to approval with a synthetic clean coverage receipt. |
 | `VERIFYING_INTERVIEW_COVERAGE` | The interview winner checks whether the current answers are sufficient. If not, it creates targeted follow-up questions until the configured budget is exhausted. | Coverage artifact, gap descriptions, follow-up batch when needed. | `cancel` | Gaps loop back to answers; clean or budget exhaustion advances to approval. |
-| `WAITING_INTERVIEW_APPROVAL` | You review the finalized interview in structured or raw form, edit it if needed, and explicitly approve the interview as the source material for PRD generation. | Approved interview artifact and approval receipt. | `approve`, `cancel` | Approval advances to PRD drafting. |
+| `WAITING_INTERVIEW_APPROVAL` | You review the finalized interview in structured or raw form, edit it if needed, and explicitly approve the interview as the source material for PRD generation. Post-approval edits remain allowed only before `PRE_FLIGHT_CHECK`; saving from downstream planning archives the current approved interview version and downstream PRD/beads attempts, saves and approves the edit, and starts `DRAFTING_PRD`. | Approved interview artifact, approval receipt, and read-only archived versions when post-approval edits occur. | `approve`, `cancel` | Approval advances to PRD drafting. |
 
 #### Max Interview Questions
 
@@ -278,7 +288,7 @@ This setting caps how many times `VERIFYING_INTERVIEW_COVERAGE` may generate fol
 | `COUNCIL_VOTING_PRD` | The council scores anonymized PRD drafts against a weighted requirements rubric and selects the best baseline. | PRD vote artifacts, ranking breakdowns, winner selection. | `cancel` | Winner advances to PRD refinement. |
 | `REFINING_PRD` | The winning PRD model upgrades its own draft by selectively merging stronger requirements, acceptance criteria, tests, and edge cases from the losing drafts. | Refined PRD Candidate v1 and optional diff metadata. | `cancel` | Success advances to PRD coverage. |
 | `VERIFYING_PRD_COVERAGE` | The current PRD candidate is checked against the approved interview and revised in-place when gaps are found. This is a versioned loop capped by configuration. | PRD coverage history, latest PRD candidate, unresolved-gap diagnostics. | `cancel` | Clean or cap-reached advances to PRD approval. |
-| `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, edit the document if needed, and explicitly lock the spec that beads planning will decompose. | Approved PRD artifact and approval receipt. | `approve`, `cancel` | Approval advances to beads drafting. |
+| `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, edit the document if needed, and explicitly lock the spec that beads planning will decompose. Post-approval edits remain allowed only before `PRE_FLIGHT_CHECK`; saving from downstream beads planning archives the current approved PRD version and downstream beads attempts, saves and approves the edit, and starts `DRAFTING_BEADS`. | Approved PRD artifact, approval receipt, and read-only archived versions when post-approval edits occur. | `approve`, `cancel` | Approval advances to beads drafting. |
 
 #### PRD Coverage Passes
 

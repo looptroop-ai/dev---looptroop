@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { useTicketArtifacts } from '@/hooks/useTicketArtifacts'
+import { PhaseAttemptSelector } from './PhaseAttemptSelector'
+import { useTicketPhaseAttempts } from '@/hooks/useTicketPhaseAttempts'
 
 import type { Ticket } from '@/hooks/useTickets'
 
@@ -35,7 +37,28 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   const isDrafting = step === 'Drafting'
   const isVoting = step === 'Voting'
   const isVerifying = step === 'Verifying Coverage'
-  const { artifacts: phaseArtifacts } = useTicketArtifacts(ticket.id)
+  const { data: attempts = [] } = useTicketPhaseAttempts(ticket.id, phase)
+  const [manualSelectedAttemptNumber, setManualSelectedAttemptNumber] = useState<number | null>(null)
+  const selectedAttemptNumber = useMemo(() => {
+    if (manualSelectedAttemptNumber != null && attempts.some((attempt) => attempt.attemptNumber === manualSelectedAttemptNumber)) {
+      return manualSelectedAttemptNumber
+    }
+    return (attempts.find((attempt) => attempt.state === 'active') ?? attempts[0])?.attemptNumber ?? null
+  }, [attempts, manualSelectedAttemptNumber])
+  const selectedAttempt = useMemo(
+    () => attempts.find((attempt) => attempt.attemptNumber === selectedAttemptNumber)
+      ?? attempts.find((attempt) => attempt.state === 'active')
+      ?? attempts[0]
+      ?? null,
+    [attempts, selectedAttemptNumber],
+  )
+  const archivedAttemptNumber = selectedAttempt?.state === 'archived' ? selectedAttempt.attemptNumber : undefined
+  const { artifacts: phaseArtifacts } = useTicketArtifacts(ticket.id, archivedAttemptNumber != null
+    ? {
+        phase,
+        phaseAttempt: archivedAttemptNumber,
+      }
+    : undefined)
   const councilMemberNames = useMemo(
     () => ticket.lockedCouncilMembers.filter((memberId) => memberId.trim().length > 0),
     [ticket.lockedCouncilMembers],
@@ -45,10 +68,18 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="p-4 space-y-3 shrink-0">
+        {attempts.length > 1 ? (
+          <PhaseAttemptSelector
+            attempts={attempts}
+            value={selectedAttempt?.attemptNumber ?? attempts[0]!.attemptNumber}
+            onChange={setManualSelectedAttemptNumber}
+          />
+        ) : null}
+
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              {archivedAttemptNumber == null ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               AI Council — {domain} {step}
             </CardTitle>
           </CardHeader>
@@ -73,7 +104,12 @@ export function CouncilView({ phase, ticket }: CouncilViewProps) {
         />
       </div>
 
-      <CollapsiblePhaseLogSection phase={phase} ticket={ticket} className="px-4 pb-4" />
+      <CollapsiblePhaseLogSection
+        phase={phase}
+        phaseAttempt={archivedAttemptNumber}
+        ticket={ticket}
+        className="px-4 pb-4"
+      />
     </div>
   )
 }

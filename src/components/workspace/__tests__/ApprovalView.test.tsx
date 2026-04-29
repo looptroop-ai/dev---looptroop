@@ -257,6 +257,88 @@ describe('Interview approval UI', () => {
     expect(screen.getByTestId('execution-setup-plan-approval-pane')).toBeInTheDocument()
   })
 
+  it('shows the Interview cascade warning copy after PRD and Beads planning have started', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url === `/api/tickets/${TEST.ticketId}/artifacts`) {
+        return createJsonResponse([])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }))
+
+    clickHeaderEditButton()
+
+    expect(screen.getByText('Cascading Edit Warning')).toBeInTheDocument()
+    expect(screen.getByText('Saving this Interview edit will restart PRD/specs planning and Beads planning from the edited Interview. Previous PRD and Beads versions will be archived and remain available read-only.')).toBeInTheDocument()
+    expect(screen.queryByText('Answer-only editor')).not.toBeInTheDocument()
+  })
+
+  it('defaults the version selector to the active Interview approval version and routes archived versions to read-only history', async () => {
+    mockUseTicketArtifacts.mockImplementation((_ticketId: string, options?: { phaseAttempt?: number }) => ({
+      artifacts: options?.phaseAttempt === 1
+        ? [
+          {
+            id: 301,
+            ticketId: TEST.ticketId,
+            phase: 'WAITING_INTERVIEW_APPROVAL',
+            artifactType: 'approval_snapshot:interview',
+            filePath: null,
+            createdAt: TEST.timestamp,
+            content: JSON.stringify({ raw: buildInterviewYaml('Archived approved answer.') }),
+          },
+        ]
+        : [],
+      isLoading: false,
+    }))
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url === `/api/tickets/${TEST.ticketId}/phases/WAITING_INTERVIEW_APPROVAL/attempts`) {
+        return createJsonResponse([
+          {
+            ticketId: TEST.ticketId,
+            phase: 'WAITING_INTERVIEW_APPROVAL',
+            attemptNumber: 1,
+            state: 'archived',
+            archivedReason: 'superseded_by_edit',
+            createdAt: TEST.timestamp,
+            archivedAt: TEST.timestamp,
+          },
+          {
+            ticketId: TEST.ticketId,
+            phase: 'WAITING_INTERVIEW_APPROVAL',
+            attemptNumber: 2,
+            state: 'active',
+            archivedReason: null,
+            createdAt: TEST.timestamp,
+            archivedAt: null,
+          },
+        ])
+      }
+      if (url === `/api/tickets/${TEST.ticketId}/artifacts`) {
+        return createJsonResponse([])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+
+    const selector = await screen.findByRole('combobox', { name: /version/i })
+    expect(selector).toHaveValue('2')
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+
+    fireEvent.change(selector, { target: { value: '1' } })
+
+    expect(await screen.findByText('This archived attempt is read-only. You can inspect and copy its content, but it can no longer be used by the workflow.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+
+    openFoundationSection()
+    expect(screen.getByText('Archived approved answer.')).toBeInTheDocument()
+    expect(mockUseTicketArtifacts).toHaveBeenCalledWith(TEST.ticketId, expect.objectContaining({ phaseAttempt: 1 }))
+  }, 30_000)
+
   it('lets the interview summary collapse and reopen in approval view', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)

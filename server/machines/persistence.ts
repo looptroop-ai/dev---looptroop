@@ -474,6 +474,7 @@ function hydrateTicketActor(
   ticketRef: string | number,
   snapshot: unknown,
   input: TicketActorInput,
+  options?: { skipFirstPersist?: boolean },
 ) {
   const resolvedTicketRef = resolveTicketRef(ticketRef)
   const actor = createActor(ticketMachine, {
@@ -496,7 +497,9 @@ function hydrateTicketActor(
     },
   })
 
-  attachPersistenceSubscription(resolvedTicketRef, actor, { skipFirstPersist: true })
+  attachPersistenceSubscription(resolvedTicketRef, actor, {
+    skipFirstPersist: options?.skipFirstPersist ?? true,
+  })
 
   actor.start()
   activeActors.set(resolvedTicketRef, actor)
@@ -626,6 +629,8 @@ export function revertTicketToApprovalStatus(
     lockedMaxCoveragePasses: ticket.localTicket.lockedMaxCoveragePasses ?? null,
     lockedMaxPrdCoveragePasses: ticket.localTicket.lockedMaxPrdCoveragePasses ?? null,
     lockedMaxBeadsCoveragePasses: ticket.localTicket.lockedMaxBeadsCoveragePasses ?? null,
+  }, {
+    skipFirstPersist: false,
   })
 }
 

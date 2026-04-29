@@ -9,9 +9,9 @@ interface PhaseAttemptSelectorProps {
 
 function buildAttemptLabel(attempt: TicketPhaseAttempt): string {
   if (attempt.state === 'active') {
-    return `Current attempt (${attempt.attemptNumber})`
+    return `Current version (${attempt.attemptNumber})`
   }
-  return `Archived attempt ${attempt.attemptNumber}`
+  return `Archived version ${attempt.attemptNumber}`
 }
 
 export function PhaseAttemptSelector({

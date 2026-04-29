@@ -7,14 +7,26 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
     expect(getCascadeEditWarningMessage('WAITING_INTERVIEW_APPROVAL', 'interview')).toBeNull()
   })
 
-  it('does not warn when editing interview at PRD approval (PRD not yet approved)', () => {
-    expect(getCascadeEditWarningMessage('WAITING_PRD_APPROVAL', 'interview')).toBeNull()
+  it('warns about PRD when editing interview while PRD is being drafted', () => {
+    expect(getCascadeEditWarningMessage('DRAFTING_PRD', 'interview')).toBe(
+      'Saving this Interview edit will restart PRD/specs planning from the edited Interview. Previous PRD versions will be archived and remain available read-only.',
+    )
+  })
+
+  it('warns about PRD when editing interview at PRD approval', () => {
+    expect(getCascadeEditWarningMessage('WAITING_PRD_APPROVAL', 'interview')).toBe(
+      'Saving this Interview edit will restart PRD/specs planning from the edited Interview. Previous PRD versions will be archived and remain available read-only.',
+    )
   })
 
   it('warns about PRD and Beads when editing interview at Beads approval', () => {
     expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'interview')).toBe(
-      'Editing Interview Results will restart the PRD and Beads phases. Previous PRD and Beads data cannot continue, but they will be archived and remain available read-only.',
+      'Saving this Interview edit will restart PRD/specs planning and Beads planning from the edited Interview. Previous PRD and Beads versions will be archived and remain available read-only.',
     )
+  })
+
+  it('does not warn when editing interview during execution phases', () => {
+    expect(getCascadeEditWarningMessage('PRE_FLIGHT_CHECK', 'interview')).toBeNull()
   })
 
   it('does not warn when editing PRD before Beads has been approved', () => {
@@ -23,18 +35,26 @@ describe.concurrent('getCascadeEditWarningMessage', () => {
 
   it('warns when editing PRD once Beads drafting has started', () => {
     expect(getCascadeEditWarningMessage('DRAFTING_BEADS', 'prd')).toBe(
-      'Editing the PRD will restart the Beads phase. Previous Beads data cannot continue, but they will be archived and remain available read-only.',
+      'Saving this PRD edit will restart Beads/blueprint planning from the edited PRD. Previous Beads versions will be archived and remain available read-only.',
     )
   })
 
-  it('keeps warning when editing PRD during later execution phases', () => {
-    expect(getCascadeEditWarningMessage('PRE_FLIGHT_CHECK', 'prd')).toBe(
-      'Editing the PRD will restart the Beads phase. Previous Beads data cannot continue, but they will be archived and remain available read-only.',
+  it('warns when editing PRD at Beads approval', () => {
+    expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'prd')).toBe(
+      'Saving this PRD edit will restart Beads/blueprint planning from the edited PRD. Previous Beads versions will be archived and remain available read-only.',
     )
+  })
+
+  it('does not warn when editing PRD during execution phases', () => {
+    expect(getCascadeEditWarningMessage('PRE_FLIGHT_CHECK', 'prd')).toBeNull()
   })
 
   it('never warns when editing beads', () => {
     expect(getCascadeEditWarningMessage('WAITING_BEADS_APPROVAL', 'beads')).toBeNull()
+  })
+
+  it('never warns when editing execution setup', () => {
+    expect(getCascadeEditWarningMessage('WAITING_EXECUTION_SETUP_APPROVAL', 'execution_setup_plan')).toBeNull()
   })
 })
 

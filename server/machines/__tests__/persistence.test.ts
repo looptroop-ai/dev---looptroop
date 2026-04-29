@@ -4,7 +4,7 @@ import { appendLogEvent } from '../../log/executionLog'
 import { patchTicket, getTicketByRef, getTicketPaths } from '../../storage/tickets'
 import { TEST, makeTicketContextFromTicket } from '../../test/factories'
 import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../test/integration'
-import { hydrateAllTickets, stopActor } from '../persistence'
+import { ensureActorForTicket, hydrateAllTickets, revertTicketToApprovalStatus, stopActor } from '../persistence'
 
 vi.mock('../../workflow/runner', () => ({
   attachWorkflowRunner: vi.fn(),
@@ -106,6 +106,50 @@ describe('hydrateAllTickets', () => {
       const recovered = getTicketByRef(ticket.id)
       expect(recovered?.status).toBe('WAITING_PR_REVIEW')
       expect(recovered?.xstateSnapshot).toContain('WAITING_PR_REVIEW')
+    } finally {
+      stopActor(ticket.id)
+    }
+  })
+
+  it('persists a planning edit rewind when reverting an active actor to approval', () => {
+    const { ticket, paths } = createInitializedTestTicket(repoManager, {
+      title: 'Persist planning edit rewind',
+    })
+
+    const snapshot = {
+      status: 'active',
+      value: 'REFINING_PRD',
+      historyValue: {},
+      context: makeTicketContextFromTicket(ticket, {
+        status: 'REFINING_PRD',
+        previousStatus: 'COUNCIL_VOTING_PRD',
+      }),
+      children: {},
+    }
+
+    patchTicket(ticket.id, {
+      status: 'REFINING_PRD',
+      xstateSnapshot: JSON.stringify(snapshot),
+    })
+
+    try {
+      expect(ensureActorForTicket(ticket.id).getSnapshot().value).toBe('REFINING_PRD')
+
+      const rewoundActor = revertTicketToApprovalStatus(ticket.id, 'WAITING_INTERVIEW_APPROVAL')
+      expect(rewoundActor.getSnapshot().value).toBe('WAITING_INTERVIEW_APPROVAL')
+
+      const rewound = getTicketByRef(ticket.id)
+      expect(rewound?.status).toBe('WAITING_INTERVIEW_APPROVAL')
+      expect(rewound?.xstateSnapshot).toContain('WAITING_INTERVIEW_APPROVAL')
+
+      const persistedSnapshot = JSON.parse(rewound?.xstateSnapshot ?? '{}') as {
+        value?: string
+        context?: { status?: string; previousStatus?: string }
+      }
+      expect(persistedSnapshot.value).toBe('WAITING_INTERVIEW_APPROVAL')
+      expect(persistedSnapshot.context?.status).toBe('WAITING_INTERVIEW_APPROVAL')
+      expect(persistedSnapshot.context?.previousStatus).toBe('REFINING_PRD')
+      expect(readFileSync(`${paths.ticketDir}/runtime/state.yaml`, 'utf8')).toContain('status: WAITING_INTERVIEW_APPROVAL')
     } finally {
       stopActor(ticket.id)
     }

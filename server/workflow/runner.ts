@@ -1,7 +1,7 @@
 import { createActor } from 'xstate'
 import { ticketMachine } from '../machines/ticketMachine'
 import type { TicketContext, TicketEvent } from '../machines/types'
-import { CancelledError } from '../council/types'
+import { isCancellationError } from '../lib/abort'
 import { isMockOpenCodeMode } from '../opencode/factory'
 
 // Import from phase modules
@@ -177,7 +177,7 @@ function startCodingPhase(
   runningPhases.add(key)
   handleCoding(ticketId, context, sendEvent, signal)
     .catch(err => {
-      if (err instanceof CancelledError) return
+      if (isCancellationError(err, signal)) return
       const errMsg = err instanceof Error ? err.message : String(err)
       emitPhaseLog(ticketId, context.externalId, 'CODING', 'error', errMsg)
       sendEvent({ type: 'ERROR', message: errMsg, codes: ['CODING_FAILED'] })
@@ -243,7 +243,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleMockLifecycleState(ticketId, context, state, sendEvent)
           .catch((err: unknown) => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, state, 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['MOCK_LIFECYCLE_FAILED'] })
@@ -259,7 +259,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
         handleRelevantFilesScan(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'SCANNING_RELEVANT_FILES', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['RELEVANT_FILES_SCAN_FAILED'] })
@@ -271,7 +271,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleInterviewDeliberate(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           const isOpenCode = errMsg.includes('OpenCode server is not running')
           const isWorkspace = errMsg.includes('Ticket workspace not initialized')
@@ -291,7 +291,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleInterviewVote(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_INTERVIEW', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
@@ -307,7 +307,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleInterviewCompile(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'COMPILING_INTERVIEW', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg })
@@ -325,7 +325,7 @@ export function attachWorkflowRunner(
         runningPhases.add(qaInitKey)
         handleInterviewQAStart(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'WAITING_INTERVIEW_ANSWERS', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['PROM4_INIT_FAILED'] })
@@ -338,7 +338,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleCoverageVerification(ticketId, context, sendEvent, 'interview', signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_INTERVIEW_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
@@ -350,7 +350,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handlePrdDraft(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'DRAFTING_PRD', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
@@ -363,7 +363,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handlePrdVote(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_PRD', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
@@ -379,7 +379,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handlePrdRefine(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'REFINING_PRD', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg })
@@ -394,7 +394,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleCoverageVerification(ticketId, context, sendEvent, 'prd', signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_PRD_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
@@ -406,7 +406,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleBeadsDraft(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'DRAFTING_BEADS', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
@@ -419,7 +419,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleBeadsVote(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'COUNCIL_VOTING_BEADS', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg, codes: ['QUORUM_NOT_MET'] })
@@ -435,7 +435,7 @@ export function attachWorkflowRunner(
         runningPhases.add(key)
         handleBeadsRefine(ticketId, context, sendEvent, signal)
           .catch(err => {
-            if (err instanceof CancelledError) return
+            if (isCancellationError(err, signal)) return
             const errMsg = err instanceof Error ? err.message : String(err)
             emitPhaseLog(ticketId, context.externalId, 'REFINING_BEADS', 'error', errMsg)
             sendEvent({ type: 'ERROR', message: errMsg })
@@ -450,7 +450,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleCoverageVerification(ticketId, context, sendEvent, 'beads', signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'VERIFYING_BEADS_COVERAGE', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['COVERAGE_FAILED'] })
@@ -462,7 +462,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handlePreFlight(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'PRE_FLIGHT_CHECK', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['PREFLIGHT_FAILED'] })
@@ -474,7 +474,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleExecutionSetupPlanApprovalState(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'WAITING_EXECUTION_SETUP_APPROVAL', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['EXECUTION_SETUP_PLAN_FAILED'] })
@@ -486,7 +486,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleExecutionSetup(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'PREPARING_EXECUTION_ENV', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['EXECUTION_SETUP_FAILED'] })
@@ -500,7 +500,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleFinalTest(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'RUNNING_FINAL_TEST', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['TESTS_FAILED'] })
@@ -512,7 +512,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleIntegration(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'INTEGRATING_CHANGES', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['INTEGRATION_FAILED'] })
@@ -524,7 +524,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleCreatePullRequest(ticketId, context, sendEvent, signal)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'CREATING_PULL_REQUEST', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['PULL_REQUEST_FAILED'] })
@@ -536,7 +536,7 @@ export function attachWorkflowRunner(
       runningPhases.add(key)
       handleCleanup(ticketId, context, sendEvent)
         .catch(err => {
-          if (err instanceof CancelledError) return
+          if (isCancellationError(err, signal)) return
           const errMsg = err instanceof Error ? err.message : String(err)
           emitPhaseLog(ticketId, context.externalId, 'CLEANING_ENV', 'error', errMsg)
           sendEvent({ type: 'ERROR', message: errMsg, codes: ['CLEANUP_FAILED'] })
