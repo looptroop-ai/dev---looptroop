@@ -8,12 +8,13 @@ export interface TicketActionsProps {
   canCancel: boolean
   canDelete: boolean
   isPending: boolean
+  cancelLabel?: string
   onShowDetails: () => void
   onCancelConfirm: () => void
   onClose: () => void
 }
 
-export function TicketActions({ ticket, canCancel, canDelete, isPending, onShowDetails, onCancelConfirm, onClose }: TicketActionsProps) {
+export function TicketActions({ ticket, canCancel, canDelete, isPending, cancelLabel = 'Cancel…', onShowDetails, onCancelConfirm, onClose }: TicketActionsProps) {
   return (
     <div className="flex items-center gap-1.5 shrink-0">
       {ticket.status !== 'DRAFT' && (
@@ -49,7 +50,7 @@ export function TicketActions({ ticket, canCancel, canDelete, isPending, onShowD
           title="Cancel this ticket"
         >
           <Ban className="h-3.5 w-3.5" />
-          <span className="text-xs">Cancel…</span>
+          <span className="text-xs">{cancelLabel}</span>
         </Button>
       )}
       <button

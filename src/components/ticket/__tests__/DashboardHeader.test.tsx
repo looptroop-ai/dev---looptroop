@@ -105,7 +105,7 @@ describe('DashboardHeader', () => {
     expect(within(projectSection as HTMLElement).getByText('🧭')).toBeInTheDocument()
   })
 
-  it('shows the cancel button labeled "Cancel…" when cancel action is available', () => {
+  it('shows the cancel button labeled "Cancel…" when cancel action is available on a non-DRAFT ticket', () => {
     const ticket = makeTicket({ status: 'DRAFTING_PRD', availableActions: ['cancel'] })
 
     renderWithProviders(
@@ -115,6 +115,40 @@ describe('DashboardHeader', () => {
     )
 
     expect(screen.getByRole('button', { name: /cancel…/i })).toBeInTheDocument()
+  })
+
+  it('shows the cancel button labeled "Cancel" (no ellipsis) for a DRAFT ticket', () => {
+    const ticket = makeTicket({ status: 'DRAFT', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /cancel…/i })).not.toBeInTheDocument()
+  })
+
+  it('cancels a DRAFT ticket immediately without opening a dialog', () => {
+    const cancelMutate = vi.fn()
+    mockUseCancelTicket.mockReturnValue({ mutate: cancelMutate, isPending: false })
+
+    const ticket = makeTicket({ status: 'DRAFT', availableActions: ['cancel'] })
+
+    renderWithProviders(
+      <UIContext.Provider value={makeUIValue(ticket.id, ticket.externalId)}>
+        <DashboardHeader ticket={ticket} />
+      </UIContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    expect(cancelMutate).toHaveBeenCalledWith({
+      id: ticket.id,
+      options: { deleteContent: false, deleteLog: false },
+    })
+    expect(screen.queryByText('Cancel Ticket')).not.toBeInTheDocument()
   })
 
   it('opens cancel confirmation dialog with both checkboxes unchecked', () => {

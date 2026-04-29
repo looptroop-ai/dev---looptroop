@@ -154,6 +154,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
   const canCancel = ticket.availableActions.includes('cancel')
   const canDelete = NON_CANCELABLE.includes(ticket.status)
   const isActionPending = isPending || isCancelPending
+  const isDraft = ticket.status === 'DRAFT'
   const { data: projects = [] } = useProjects()
   const project = projects.find(p => p.id === ticket.projectId)
   const statusLabel = getStatusUserLabel(ticket.status, {
@@ -205,8 +206,12 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
           canCancel={canCancel}
           canDelete={canDelete}
           isPending={isActionPending}
+          cancelLabel={isDraft ? 'Cancel' : 'Cancel…'}
           onShowDetails={() => setShowDetails(true)}
-          onCancelConfirm={() => setShowCancelConfirm(true)}
+          onCancelConfirm={isDraft
+            ? () => { cancelTicket({ id: ticket.id, options: { deleteContent: false, deleteLog: false } }) }
+            : () => setShowCancelConfirm(true)
+          }
           onClose={() => dispatch({ type: 'CLOSE_TICKET' })}
         />
       </div>
