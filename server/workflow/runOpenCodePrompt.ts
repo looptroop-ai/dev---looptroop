@@ -276,7 +276,6 @@ export async function runOpenCodePrompt({
       agent,
       variant,
       toolPolicy,
-      ...(sessionOwnership ? { sessionOwnership } : {}),
       erroredSessionPolicy,
       onPromptDispatched,
       onStreamEvent,

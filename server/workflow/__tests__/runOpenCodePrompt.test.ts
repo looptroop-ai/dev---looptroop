@@ -67,6 +67,7 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     parts: PromptPart[]
     options?: PromptSessionOptions
   }> = []
+  public listSessionsCalls = 0
   private readonly sessions: Session[] = []
   private sessionCounter = 0
 
@@ -80,7 +81,9 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
         messageInfo?: Partial<MessageInfo>
         streamEvents?: StreamEvent[]
       }
-  >) {
+  >, private readonly options: {
+    listSessions?: () => Session[]
+  } = {}) {
     this.queuedResponses = [...responses]
   }
 
@@ -178,7 +181,8 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
   }
 
   async listSessions(): Promise<Session[]> {
-    return this.sessions
+    this.listSessionsCalls += 1
+    return this.options.listSessions?.() ?? this.sessions
   }
 
   async getSessionMessages(sessionId: string): Promise<Message[]> {
@@ -400,6 +404,35 @@ describe('runOpenCodePrompt', () => {
 
     expect(adapter.sessionCreateCalls).toHaveLength(1)
     expect(adapter.sessionCreateCalls[0]?.options?.permission).toEqual(OPENCODE_EXECUTION_YOLO_PERMISSIONS)
+  })
+
+  it('prompts a newly-created owned session without requiring it to appear in the remote session list first', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Owned session immediate prompt',
+    })
+    patchTicket(ticket.id, { status: 'COUNCIL_DELIBERATING' })
+    const adapter = new TestOpenCodeAdapter(['assistant response'], {
+      listSessions: () => [],
+    })
+
+    await expect(runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Prompt body' }],
+      sessionOwnership: {
+        ticketId: ticket.id,
+        phase: 'COUNCIL_DELIBERATING',
+        memberId: 'openai/gpt-5.3-codex',
+      },
+    })).resolves.toMatchObject({
+      response: 'assistant response',
+      session: { id: 'ses-1' },
+    })
+
+    expect(adapter.promptCalls).toHaveLength(1)
+    expect(adapter.listSessionsCalls).toBe(0)
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['completed'])).toHaveLength(1)
   })
 
   it('abandons an owned same-session prompt after transport failure when keepActive is not explicit', async () => {
