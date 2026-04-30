@@ -58,6 +58,7 @@ type DiscardTarget =
   | null
 
 interface FullAnswersArtifact {
+  winnerModelId: string
   winnerLabel: string
   questionCount: number
   document: InterviewDocument
@@ -115,6 +116,7 @@ function resolveWinnerFullAnswers(artifacts: DBartifact[]): FullAnswersArtifact 
   if (document.questions.length === 0) return null
 
   return {
+    winnerModelId: winnerId,
     winnerLabel: getModelDisplayName(winnerId),
     questionCount: document.questions.length,
     document,
@@ -402,6 +404,14 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
             <DialogDescription className="text-xs text-muted-foreground">
               Read-only Part 1 artifact from {fullAnswersArtifact?.winnerLabel ?? 'the winning PRD model'}, including all interview questions and answers used for PRD drafting.
             </DialogDescription>
+            {fullAnswersArtifact ? (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span>Produced by</span>
+                <span className="rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-foreground">
+                  {fullAnswersArtifact.winnerModelId}
+                </span>
+              </div>
+            ) : null}
           </DialogHeader>
           <div className="max-h-[60vh] overflow-auto rounded-md bg-muted p-4">
             {fullAnswersArtifact ? (

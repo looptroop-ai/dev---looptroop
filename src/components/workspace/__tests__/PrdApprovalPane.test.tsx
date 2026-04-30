@@ -234,6 +234,8 @@ describe('PrdApprovalPane', () => {
     fireEvent.click(chip)
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Produced by')).toBeInTheDocument()
+    expect(screen.getByText('openai/gpt-5.2')).toBeInTheDocument()
     expect(screen.getByText('Which user-owned constraint matters?')).toBeInTheDocument()
     expect(screen.getByText('User selected strict validation.')).toBeInTheDocument()
     expect(screen.getByText('Which fallback path should the PRD assume?')).toBeInTheDocument()

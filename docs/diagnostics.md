@@ -42,6 +42,7 @@ It captures:
 - **Node.js & Git Audit** — Checks for `UV_THREADPOOL_SIZE` bottlenecks and Git index bloat.
 - frontend, backend, ticket-list, project-list, startup-status, and OpenCode health probe latency
 - repeated backend health and ticket-list samples for short stall correlation
+- a 5-second trend window that samples backend health, `/api/tickets`, watched process CPU/RSS/I/O, Linux pressure deltas, and app/project DB/WAL/log growth
 - backend, frontend, and OpenCode process memory, thread, wait-state, file descriptor, CPU, and I/O activity
 - whole-system top CPU, RSS, read-I/O, and write-I/O consumers during the sample window
 - system load, memory, Linux pressure-stall metrics, cgroup resource state, `vmstat`, and `iostat` or `/proc/diskstats`
@@ -66,6 +67,12 @@ npm run diagnose:stall -- --sample-ms 5000
 Use a longer sample window when CPU or I/O spikes are brief and hard to catch. The default is `1000ms`.
 
 ```bash
+npm run diagnose:stall -- --trend-ms 10000 --trend-interval-ms 1000
+```
+
+Use a longer trend window when you need to catch changing latency, process spikes, pressure-stall movement, or growing DB/WAL/log files over time. The default is `5000ms`; pass `--trend-ms 0` to disable it.
+
+```bash
 npm run diagnose:stall -- --backend-port 3001 --frontend-port 5175 --opencode-url http://127.0.0.1:4097
 ```
 
@@ -86,6 +93,7 @@ After that, cross-reference by category:
 - **🔍 ENVIRONMENT & CONFIGURATION**: Resolved ports, PIDs, shell startup latency, and backend env vars.
 - **🌐 NETWORK & ENDPOINT HEALTH**: HTTP probe results for frontend, backend, and OpenCode.
 - **🔁 STALL CORRELATION SAMPLES**: Repeated backend/ticket probes — whether the app was actually unresponsive during capture.
+- **Short Window Runtime Trend**: Per-interval backend health, `/api/tickets`, watched process, pressure, and file-growth changes.
 - **⚙️ APPLICATION PROCESS ACTIVITY**: Per-process CPU, I/O, FD counts, and memory for backend, frontend, and OpenCode.
 - **💻 SYSTEM RESOURCES**: Pressure-stall metrics, cgroup state, uptime, memory, and top process consumers.
 - **💾 STORAGE, MOUNTS & FILESYSTEM**: Mount type, disk space, inodes, and filesystem latency for workspace and project paths.

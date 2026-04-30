@@ -11,6 +11,8 @@ interface CliOptions {
   opencodeUrl?: string
   timeoutMs?: number
   sampleMs?: number
+  trendMs?: number
+  trendIntervalMs?: number
   noColor?: boolean
 }
 
@@ -149,6 +151,60 @@ interface SystemProcessActivitySnapshot {
   topRss: SystemProcessUsage[]
   topReadBytes: SystemProcessUsage[]
   topWriteBytes: SystemProcessUsage[]
+}
+
+interface TrendFileTarget {
+  label: string
+  path: string
+}
+
+interface TrendFileSample {
+  label: string
+  path: string
+  exists: boolean
+  sizeBytes: number | null
+  sizeDeltaBytes: number | null
+  modifiedAt: string | null
+  error?: string
+}
+
+interface PressureTrendDelta {
+  ioSomeUs: number | null
+  ioFullUs: number | null
+  memorySomeUs: number | null
+  memoryFullUs: number | null
+  cpuSomeUs: number | null
+  cpuFullUs: number | null
+}
+
+interface PressureTrendTotals {
+  ioSome: number | null
+  ioFull: number | null
+  memorySome: number | null
+  memoryFull: number | null
+  cpuSome: number | null
+  cpuFull: number | null
+}
+
+interface RuntimeTrendSample {
+  index: number
+  at: string
+  elapsedMs: number
+  intervalMs: number
+  loopDriftMs: number
+  health: HttpProbeResult
+  tickets: HttpProbeResult
+  processActivities: ProcessActivitySample[]
+  systemActivity: SystemProcessActivitySnapshot
+  files: TrendFileSample[]
+  pressureDelta: PressureTrendDelta
+}
+
+interface RuntimeTrendReport {
+  enabled: boolean
+  durationMs: number
+  intervalMs: number
+  samples: RuntimeTrendSample[]
 }
 
 interface ProcessRecord {
@@ -529,6 +585,18 @@ function parseCliArgs(args: string[]): CliOptions {
       continue
     }
 
+    if (arg === '--trend-ms' && next) {
+      options.trendMs = Number(next)
+      i += 1
+      continue
+    }
+
+    if (arg === '--trend-interval-ms' && next) {
+      options.trendIntervalMs = Number(next)
+      i += 1
+      continue
+    }
+
     if (arg === '--no-color') {
       options.noColor = true
       continue
@@ -550,6 +618,8 @@ Optional flags:
   --opencode-url <url>
   --timeout-ms <ms>
   --sample-ms <ms>
+  --trend-ms <ms>            Short trend window duration. Default: 5000. Use 0 to disable.
+  --trend-interval-ms <ms>   Trend sample interval. Default: 1000.
   --no-color         Disable colored output (also respects NO_COLOR env var)
 
 What it checks:
@@ -569,6 +639,7 @@ What it checks:
   - Project DB ticket/session state
   - Git responsiveness for attached projects
   - A short backend correlation sampler across repeated probes
+  - A short trend sampler for process CPU/RSS/I/O, HTTP latency, pressure deltas, and growing files
   - Shell startup baseline to separate diagnostic overhead from real probe latency
   - Git Trace2 perf output for repo status calls
   - Direct filesystem latency probes for project metadata paths
@@ -1355,6 +1426,14 @@ async function sampleSystemProcessActivity(sampleMs: number): Promise<SystemProc
   await sleep(sampleMs)
   const durationMs = Date.now() - startedAtMs
   const endSnapshots = listSystemRuntimeSnapshots()
+  return buildSystemProcessActivitySnapshot(startSnapshots, endSnapshots, durationMs)
+}
+
+function buildSystemProcessActivitySnapshot(
+  startSnapshots: Map<number, ProcessRuntimeSnapshot>,
+  endSnapshots: ProcessRuntimeSnapshot[],
+  durationMs: number,
+): SystemProcessActivitySnapshot {
   const usages = endSnapshots.map((snapshot) => toSystemProcessUsage(
     snapshot,
     startSnapshots.get(snapshot.pid) ?? null,
@@ -1376,6 +1455,194 @@ async function sampleSystemProcessActivity(sampleMs: number): Promise<SystemProc
     topRss: byNumberDesc('rssKb').slice(0, 10),
     topReadBytes: byIoDeltaDesc('readBytesDelta').slice(0, 10),
     topWriteBytes: byIoDeltaDesc('writeBytesDelta').slice(0, 10),
+  }
+}
+
+function readTrendFileSample(target: TrendFileTarget, previous?: TrendFileSample): TrendFileSample {
+  try {
+    const previousSize = previous?.sizeBytes
+    if (!existsSync(target.path)) {
+      return {
+        label: target.label,
+        path: target.path,
+        exists: false,
+        sizeBytes: null,
+        sizeDeltaBytes: typeof previousSize === 'number' ? -previousSize : null,
+        modifiedAt: null,
+      }
+    }
+
+    const stats = statSync(target.path)
+    return {
+      label: target.label,
+      path: target.path,
+      exists: true,
+      sizeBytes: stats.size,
+      sizeDeltaBytes: typeof previousSize === 'number'
+        ? stats.size - previousSize
+        : previous && !previous.exists
+          ? stats.size
+          : null,
+      modifiedAt: stats.mtime.toISOString(),
+    }
+  } catch (error) {
+    return {
+      label: target.label,
+      path: target.path,
+      exists: false,
+      sizeBytes: null,
+      sizeDeltaBytes: null,
+      modifiedAt: null,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function readPressureTrendTotals(): PressureTrendTotals {
+  const io = inspectPressureFile('/proc/pressure/io')
+  const memory = inspectPressureFile('/proc/pressure/memory')
+  const cpu = inspectPressureFile('/proc/pressure/cpu')
+
+  return {
+    ioSome: io.some?.total ?? null,
+    ioFull: io.full?.total ?? null,
+    memorySome: memory.some?.total ?? null,
+    memoryFull: memory.full?.total ?? null,
+    cpuSome: cpu.some?.total ?? null,
+    cpuFull: cpu.full?.total ?? null,
+  }
+}
+
+function buildPressureTrendDelta(start: PressureTrendTotals, end: PressureTrendTotals): PressureTrendDelta {
+  return {
+    ioSomeUs: numberDelta(start.ioSome, end.ioSome),
+    ioFullUs: numberDelta(start.ioFull, end.ioFull),
+    memorySomeUs: numberDelta(start.memorySome, end.memorySome),
+    memoryFullUs: numberDelta(start.memoryFull, end.memoryFull),
+    cpuSomeUs: numberDelta(start.cpuSome, end.cpuSome),
+    cpuFullUs: numberDelta(start.cpuFull, end.cpuFull),
+  }
+}
+
+function buildTrendFileTargets(appDbPath: string, projectSnapshots: ProjectSnapshot[]): TrendFileTarget[] {
+  const targets: TrendFileTarget[] = [
+    { label: 'app db', path: appDbPath },
+    { label: 'app db wal', path: `${appDbPath}-wal` },
+    { label: 'app db shm', path: `${appDbPath}-shm` },
+  ]
+
+  for (const project of projectSnapshots) {
+    targets.push({ label: `project ${project.id} db`, path: project.projectDbPath })
+    targets.push({ label: `project ${project.id} db wal`, path: `${project.projectDbPath}-wal` })
+    targets.push({ label: `project ${project.id} db shm`, path: `${project.projectDbPath}-shm` })
+    if (project.latestNonTerminalTicketLog?.logPath) {
+      targets.push({
+        label: `project ${project.id} ${project.latestNonTerminalTicketLog.externalId} log`,
+        path: project.latestNonTerminalTicketLog.logPath,
+      })
+    }
+  }
+
+  const seen = new Set<string>()
+  return targets.filter((target) => {
+    if (seen.has(target.path)) return false
+    seen.add(target.path)
+    return true
+  })
+}
+
+async function sampleRuntimeTrend(options: {
+  durationMs: number
+  intervalMs: number
+  backendHealthUrl: string
+  ticketsUrl: string
+  probeTimeoutMs: number
+  processTargets: Array<{ label: string; pid: number | null }>
+  fileTargets: TrendFileTarget[]
+}): Promise<RuntimeTrendReport> {
+  const durationMs = Math.max(0, Math.floor(options.durationMs))
+  if (durationMs <= 0) {
+    return {
+      enabled: false,
+      durationMs,
+      intervalMs: options.intervalMs,
+      samples: [],
+    }
+  }
+
+  const intervalMs = Math.max(250, Math.floor(options.intervalMs))
+  const samples: RuntimeTrendSample[] = []
+  const startedAtMs = Date.now()
+  let previousCapturedAtMs = startedAtMs
+  let previousProcesses = new Map<number, ProcessRuntimeSnapshot>()
+  let previousSystemProcesses = new Map(listSystemRuntimeSnapshots().map((snapshot) => [snapshot.pid, snapshot]))
+  let previousFiles = new Map<string, TrendFileSample>()
+  let previousPressure = readPressureTrendTotals()
+
+  for (const target of options.processTargets) {
+    if (target.pid !== null) previousProcesses.set(target.pid, readProcessRuntimeSnapshot(target.pid))
+  }
+  for (const target of options.fileTargets) {
+    previousFiles.set(target.path, readTrendFileSample(target))
+  }
+
+  const sampleCount = Math.max(1, Math.ceil(durationMs / intervalMs))
+
+  for (let index = 1; index <= sampleCount; index += 1) {
+    const scheduledAtMs = startedAtMs + index * intervalMs
+    const waitMs = Math.max(0, Math.min(intervalMs, scheduledAtMs - Date.now()))
+    if (waitMs > 0) await sleep(waitMs)
+
+    const wokeAtMs = Date.now()
+    const [health, tickets] = await Promise.all([
+      probeHttp(`trend health ${index}`, options.backendHealthUrl, options.probeTimeoutMs),
+      probeHttp(`trend tickets ${index}`, options.ticketsUrl, options.probeTimeoutMs),
+    ])
+
+    const endProcesses = new Map<number, ProcessRuntimeSnapshot>()
+    for (const target of options.processTargets) {
+      if (target.pid !== null) endProcesses.set(target.pid, readProcessRuntimeSnapshot(target.pid))
+    }
+
+    const endSystemProcesses = listSystemRuntimeSnapshots()
+    const endPressure = readPressureTrendTotals()
+    const capturedAtMs = Date.now()
+    const actualIntervalMs = Math.max(1, capturedAtMs - previousCapturedAtMs)
+    const fileSamples = options.fileTargets.map((target) => readTrendFileSample(target, previousFiles.get(target.path)))
+    const processActivities = options.processTargets.map((target) => buildProcessActivitySample(
+      target.label,
+      target.pid,
+      target.pid !== null ? previousProcesses.get(target.pid) ?? null : null,
+      target.pid !== null ? endProcesses.get(target.pid) ?? null : null,
+      actualIntervalMs,
+    ))
+
+    samples.push({
+      index,
+      at: new Date(capturedAtMs).toISOString(),
+      elapsedMs: capturedAtMs - startedAtMs,
+      intervalMs: actualIntervalMs,
+      loopDriftMs: Math.max(0, wokeAtMs - scheduledAtMs),
+      health,
+      tickets,
+      processActivities,
+      systemActivity: buildSystemProcessActivitySnapshot(previousSystemProcesses, endSystemProcesses, actualIntervalMs),
+      files: fileSamples,
+      pressureDelta: buildPressureTrendDelta(previousPressure, endPressure),
+    })
+
+    previousCapturedAtMs = capturedAtMs
+    previousProcesses = endProcesses
+    previousSystemProcesses = new Map(endSystemProcesses.map((snapshot) => [snapshot.pid, snapshot]))
+    previousPressure = endPressure
+    previousFiles = new Map(fileSamples.map((sample) => [sample.path, sample]))
+  }
+
+  return {
+    enabled: true,
+    durationMs,
+    intervalMs,
+    samples,
   }
 }
 
@@ -2357,6 +2624,126 @@ function printSystemProcessActivitySnapshot(title: string, snapshot: SystemProce
   printSystemUsageList('Top write I/O consumers during sample:', snapshot.topWriteBytes, 'write')
 }
 
+function formatTrendHttpProbe(probe: HttpProbeResult): string {
+  const status = probe.status ?? 'n/a'
+  return `${probe.ok ? 'ok' : 'fail'}:${status}:${formatDuration(probe.durationMs)}`
+}
+
+function formatPressureDelta(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return 'n/a'
+  if (value === 0) return '0ms'
+  return `${(value / 1000).toFixed(1)}ms`
+}
+
+function hasPressureDelta(delta: PressureTrendDelta): boolean {
+  return Object.values(delta).some((value) => (value ?? 0) > 0)
+}
+
+function formatSystemUsageShort(usage: SystemProcessUsage | undefined, metric: 'cpu' | 'read' | 'write'): string {
+  if (!usage) return 'n/a'
+  const metricText = metric === 'cpu'
+    ? formatPercent(usage.cpuPercent)
+    : metric === 'read'
+      ? formatBytes(usage.readBytesDelta)
+      : formatBytes(usage.writeBytesDelta)
+  return `pid=${usage.pid} ${metric}=${metricText} cmd=${formatBodyPreview(usage.command, 90)}`
+}
+
+function printRuntimeTrendReport(title: string, report: RuntimeTrendReport) {
+  heading(title)
+  if (!report.enabled) {
+    print('(disabled; pass --trend-ms with a positive value to enable)')
+    return
+  }
+  if (report.samples.length === 0) {
+    print('(no samples captured)')
+    return
+  }
+
+  const healthMax = Math.max(...report.samples.map((sample) => sample.health.durationMs))
+  const ticketsMax = Math.max(...report.samples.map((sample) => sample.tickets.durationMs))
+  const healthFailures = report.samples.filter((sample) => !sample.health.ok).length
+  const ticketFailures = report.samples.filter((sample) => !sample.tickets.ok).length
+  const maxProcessCpu = report.samples
+    .flatMap((sample) => sample.processActivities)
+    .filter((sample) => sample.cpuPercent !== null)
+    .sort((left, right) => (right.cpuPercent ?? -Infinity) - (left.cpuPercent ?? -Infinity))[0]
+  const maxFileGrowth = report.samples
+    .flatMap((sample) => sample.files)
+    .filter((sample) => (sample.sizeDeltaBytes ?? 0) > 0)
+    .sort((left, right) => (right.sizeDeltaBytes ?? 0) - (left.sizeDeltaBytes ?? 0))[0]
+
+  kv('Trend window', formatDuration(report.durationMs))
+  kv('Trend interval target', formatDuration(report.intervalMs))
+  kv('Samples captured', report.samples.length)
+  kv('Health max', formatDuration(healthMax))
+  kv('Tickets max', formatDuration(ticketsMax))
+  kv('Health failures', healthFailures)
+  kv('Tickets failures', ticketFailures)
+  if (maxProcessCpu) {
+    print(`Max watched-process CPU: ${maxProcessCpu.label} pid=${maxProcessCpu.pid ?? 'n/a'} cpu=${formatPercent(maxProcessCpu.cpuPercent)} at rss=${formatBytes(maxProcessCpu.rssKb !== null ? maxProcessCpu.rssKb * 1024 : null)}`)
+  }
+  if (maxFileGrowth) {
+    print(`Largest watched-file growth: ${maxFileGrowth.label} delta=${formatBytes(maxFileGrowth.sizeDeltaBytes)} size=${formatBytes(maxFileGrowth.sizeBytes)}`)
+  }
+
+  for (const sample of report.samples) {
+    print(
+      `- #${sample.index}` +
+      ` at=${sample.at}` +
+      ` elapsed=${formatDuration(sample.elapsedMs)}` +
+      ` interval=${formatDuration(sample.intervalMs)}` +
+      ` drift=${formatDuration(sample.loopDriftMs)}` +
+      ` health=${formatTrendHttpProbe(sample.health)}` +
+      ` tickets=${formatTrendHttpProbe(sample.tickets)}` +
+      ` top_cpu=${formatSystemUsageShort(sample.systemActivity.topCpu[0], 'cpu')}` +
+      ` top_write=${formatSystemUsageShort(sample.systemActivity.topWriteBytes[0], 'write')}`,
+    )
+
+    for (const processSample of sample.processActivities) {
+      print(
+        `  process ${processSample.label}` +
+        ` pid=${processSample.pid ?? 'n/a'}` +
+        ` cpu=${formatPercent(processSample.cpuPercent)}` +
+        ` rss=${formatBytes(processSample.rssKb !== null ? processSample.rssKb * 1024 : null)}` +
+        ` fd_delta=${processSample.fdCountDelta ?? 'n/a'}` +
+        ` read_delta=${formatBytes(processSample.readBytesDelta)}` +
+        ` write_delta=${formatBytes(processSample.writeBytesDelta)}` +
+        ` state=${processSample.state ?? 'n/a'}` +
+        ` wchan=${processSample.wchan ?? 'n/a'}`,
+      )
+    }
+
+    if (hasPressureDelta(sample.pressureDelta)) {
+      print(
+        `  pressure_delta` +
+        ` io_some=${formatPressureDelta(sample.pressureDelta.ioSomeUs)}` +
+        ` io_full=${formatPressureDelta(sample.pressureDelta.ioFullUs)}` +
+        ` memory_some=${formatPressureDelta(sample.pressureDelta.memorySomeUs)}` +
+        ` memory_full=${formatPressureDelta(sample.pressureDelta.memoryFullUs)}` +
+        ` cpu_some=${formatPressureDelta(sample.pressureDelta.cpuSomeUs)}` +
+        ` cpu_full=${formatPressureDelta(sample.pressureDelta.cpuFullUs)}`,
+      )
+    }
+
+    const changedFiles = sample.files.filter((file) => file.error || (file.sizeDeltaBytes ?? 0) !== 0)
+    if (changedFiles.length === 0) {
+      print('  file_changes=(none)')
+    } else {
+      for (const file of changedFiles) {
+        print(
+          `  file ${file.label}` +
+          ` exists=${file.exists}` +
+          ` size=${formatBytes(file.sizeBytes)}` +
+          ` delta=${formatBytes(file.sizeDeltaBytes)}` +
+          ` mtime=${file.modifiedAt ?? 'n/a'}` +
+          `${file.error ? ` error=${file.error}` : ''}`,
+        )
+      }
+    }
+  }
+}
+
 function readMemoryStatSummary(): string | null {
   const raw = readOptionalProcText('/sys/fs/cgroup/memory.stat')
   if (!raw) return null
@@ -2687,6 +3074,7 @@ function buildHeuristics(input: {
   shellLatencyBaselines: SpawnLatencyBaseline[]
   processActivities: ProcessActivitySample[]
   systemActivity: SystemProcessActivitySnapshot
+  runtimeTrend: RuntimeTrendReport
   eventLoopLagMs: number
   fdLimits: FdLimits
   tcpStats: TcpStats
@@ -2748,6 +3136,27 @@ function buildHeuristics(input: {
   const topCpuProcess = input.systemActivity.topCpu[0]
   const topReadProcess = input.systemActivity.topReadBytes[0]
   const topWriteProcess = input.systemActivity.topWriteBytes[0]
+  const trendSamples = input.runtimeTrend.enabled ? input.runtimeTrend.samples : []
+  const slowTrendTickets = trendSamples.filter((sample) => !sample.tickets.ok || sample.tickets.durationMs >= 750)
+  const slowTrendHealth = trendSamples.filter((sample) => !sample.health.ok || sample.health.durationMs >= 750)
+  const maxTrendProcessCpu = trendSamples
+    .flatMap((sample) => sample.processActivities)
+    .filter((sample) => sample.cpuPercent !== null)
+    .sort((left, right) => (right.cpuPercent ?? -Infinity) - (left.cpuPercent ?? -Infinity))[0]
+  const maxTrendFileGrowth = trendSamples
+    .flatMap((sample) => sample.files)
+    .filter((sample) => (sample.sizeDeltaBytes ?? 0) > 0)
+    .sort((left, right) => (right.sizeDeltaBytes ?? 0) - (left.sizeDeltaBytes ?? 0))[0]
+  const maxTrendWrite = trendSamples
+    .flatMap((sample) => sample.systemActivity.topWriteBytes)
+    .filter((usage) => (usage.writeBytesDelta ?? 0) > 0)
+    .sort((left, right) => (right.writeBytesDelta ?? 0) - (left.writeBytesDelta ?? 0))[0]
+  const trendPressureSpikes = trendSamples.filter((sample) =>
+    (sample.pressureDelta.ioSomeUs ?? 0) >= 50_000
+    || (sample.pressureDelta.ioFullUs ?? 0) >= 10_000
+    || (sample.pressureDelta.memorySomeUs ?? 0) >= 50_000
+    || (sample.pressureDelta.cpuSomeUs ?? 0) >= 100_000,
+  )
 
   if (input.backendPid === null) {
     messages.push('🚨 CRITICAL: No backend listener was found on the configured backend port. The app is likely offline.')
@@ -2832,6 +3241,36 @@ function buildHeuristics(input: {
 
   if ((opencodeActivity?.cpuPercent ?? 0) >= 50) {
     messages.push(`During the ${opencodeActivity?.durationMs}ms process sample, OpenCode used ${formatPercent(opencodeActivity?.cpuPercent)} CPU. Active model/session work can compete with the app for local CPU.`)
+  }
+
+  if (slowTrendTickets.length > 0) {
+    const worst = slowTrendTickets
+      .slice()
+      .sort((left, right) => right.tickets.durationMs - left.tickets.durationMs)[0]
+    messages.push(`During the short trend window, /api/tickets was slow or failed in ${slowTrendTickets.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.tickets.durationMs)} status=${worst.tickets.status ?? 'n/a'} error=${worst.tickets.error ?? 'n/a'}. This is the strongest report-local signal that the UI slowdown was visible at the ticket-list API layer.`)
+  }
+
+  if (slowTrendHealth.length > 0) {
+    const worst = slowTrendHealth
+      .slice()
+      .sort((left, right) => right.health.durationMs - left.health.durationMs)[0]
+    messages.push(`During the short trend window, backend health was slow or failed in ${slowTrendHealth.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.health.durationMs)} status=${worst.health.status ?? 'n/a'} error=${worst.health.error ?? 'n/a'}. That points to a broader backend stall rather than only a heavy ticket query.`)
+  }
+
+  if ((maxTrendProcessCpu?.cpuPercent ?? 0) >= 80) {
+    messages.push(`The short trend window caught a watched process CPU spike: ${maxTrendProcessCpu?.label} pid=${maxTrendProcessCpu?.pid ?? 'n/a'} at ${formatPercent(maxTrendProcessCpu?.cpuPercent)}. Check the per-sample trend lines to see whether the spike lines up with API latency.`)
+  }
+
+  if ((maxTrendFileGrowth?.sizeDeltaBytes ?? 0) >= 1024 * 1024) {
+    messages.push(`A watched file grew by ${formatBytes(maxTrendFileGrowth?.sizeDeltaBytes)} inside one trend interval (${maxTrendFileGrowth?.label}). If this is an execution log or WAL, the app may be paying for fast-growing persisted runtime state during refresh.`)
+  }
+
+  if ((maxTrendWrite?.writeBytesDelta ?? 0) >= 10 * 1024 * 1024) {
+    messages.push(`The short trend window caught a whole-system write spike of ${formatBytes(maxTrendWrite?.writeBytesDelta)} from pid=${maxTrendWrite?.pid}: ${maxTrendWrite?.command}. That helps identify whether LoopTroop or another local process was competing for storage.`)
+  }
+
+  if (trendPressureSpikes.length > 0) {
+    messages.push(`Linux pressure-stall counters moved during ${trendPressureSpikes.length}/${trendSamples.length} trend sample(s). If API latency rose in the same samples, the slowdown likely involved scheduler, memory, or I/O pressure rather than just application code.`)
   }
 
   if ((backendActivity?.readBytesDelta ?? 0) + (backendActivity?.writeBytesDelta ?? 0) >= 10 * 1024 * 1024) {
@@ -3034,12 +3473,21 @@ async function main() {
     ?? 'http://127.0.0.1:4096'
   const timeoutMs = Number.isFinite(cli.timeoutMs) && (cli.timeoutMs ?? 0) > 0 ? cli.timeoutMs! : 4000
   const sampleMs = Number.isFinite(cli.sampleMs) && (cli.sampleMs ?? 0) > 0 ? cli.sampleMs! : 1000
+  const trendMs = Number.isFinite(cli.trendMs) ? Math.max(0, Math.floor(cli.trendMs!)) : 5000
+  const trendIntervalMs = Number.isFinite(cli.trendIntervalMs) && (cli.trendIntervalMs ?? 0) > 0
+    ? Math.floor(cli.trendIntervalMs!)
+    : 1000
   const appDbPath = resolveAppDbPath(effectiveEnv)
   const frontendPid = findListeningPid(effectiveFrontendPort)
   const opencodePort = parseLocalPortFromUrl(effectiveOpenCodeUrl)
   const opencodePid = opencodePort ? findListeningPid(opencodePort) : null
   const frontendInspectPid = frontendPid ?? frontendCandidate?.pid ?? null
   const opencodeInspectPid = opencodePid ?? opencodeCandidate?.pid ?? null
+  const watchedProcessTargets = [
+    { label: 'backend', pid: backendInspectPid },
+    { label: 'frontend', pid: frontendInspectPid },
+    { label: 'opencode', pid: opencodeInspectPid },
+  ]
   const backendCwd = backendInspectPid ? readProcessCwd(backendInspectPid) : null
   const frontendCwd = frontendInspectPid ? readProcessCwd(frontendInspectPid) : null
   const opencodeCwd = opencodeInspectPid ? readProcessCwd(opencodeInspectPid) : null
@@ -3067,6 +3515,8 @@ async function main() {
   const diskWriteLatency = appDbLatency[appDbLatency.length - 1] as FsLatencyProbe
   const gitIndexPath = resolve(process.cwd(), '.git', 'index')
   const gitIndexSizeBytes = existsSync(gitIndexPath) ? statSync(gitIndexPath).size : null
+  const appDbInspection = inspectAppDatabase(appDbPath)
+  const projectSnapshots = appDbInspection.attachedProjects.map(inspectProjectDatabase)
 
   const ioPressure = inspectPressureFile('/proc/pressure/io')
   const memoryPressure = inspectPressureFile('/proc/pressure/memory')
@@ -3078,6 +3528,7 @@ async function main() {
   const projectsUrl = `http://localhost:${effectiveBackendPort}/api/projects`
   const ticketsUrl = `http://localhost:${effectiveBackendPort}/api/tickets`
   const opencodeHealthUrl = `http://localhost:${effectiveBackendPort}/api/health/opencode`
+  const trendProbeTimeoutMs = Math.min(timeoutMs, Math.max(500, Math.floor(trendIntervalMs * 0.8)))
 
   const frontendProbe = await probeHttp('frontend root', frontendUrl, timeoutMs)
   const healthProbe = await probeHttp('backend health', backendHealthUrl, timeoutMs)
@@ -3093,12 +3544,17 @@ async function main() {
     intervalMs: 700,
     probeTimeoutMs: 900,
   })
+  const runtimeTrend = await sampleRuntimeTrend({
+    durationMs: trendMs,
+    intervalMs: trendIntervalMs,
+    backendHealthUrl,
+    ticketsUrl,
+    probeTimeoutMs: trendProbeTimeoutMs,
+    processTargets: watchedProcessTargets,
+    fileTargets: buildTrendFileTargets(appDbPath, projectSnapshots),
+  })
   const [processActivities, systemActivity] = await Promise.all([
-    sampleProcessActivities([
-      { label: 'backend', pid: backendInspectPid },
-      { label: 'frontend', pid: frontendInspectPid },
-      { label: 'opencode', pid: opencodeInspectPid },
-    ], sampleMs),
+    sampleProcessActivities(watchedProcessTargets, sampleMs),
     sampleSystemProcessActivity(sampleMs),
   ])
 
@@ -3123,6 +3579,9 @@ async function main() {
   kv('OpenCode URL', effectiveOpenCodeUrl)
   kv('HTTP probe timeout', timeoutMs)
   kv('Process activity sample window', formatDuration(sampleMs))
+  kv('Trend sample window', formatDuration(trendMs))
+  kv('Trend sample interval', formatDuration(trendIntervalMs))
+  kv('Trend HTTP probe timeout', formatDuration(trendProbeTimeoutMs))
   kv('Detected backend listener PID', backendPid)
   kv('Detected backend candidate PID', backendCandidate?.pid ?? 'n/a')
   kv('Backend inspect PID', backendInspectPid)
@@ -3171,6 +3630,7 @@ async function main() {
 
   banner('🔁  STALL CORRELATION SAMPLES')
   printCorrelationSamples('Backend Stall Correlation Samples', correlationSamples)
+  printRuntimeTrendReport('Short Window Runtime Trend', runtimeTrend)
 
   banner('⚙️   APPLICATION PROCESS ACTIVITY')
   printProcessCandidate('Backend Candidate Process', backendCandidate)
@@ -3274,7 +3734,6 @@ async function main() {
   printFileStats('App DB WAL Stats', `${appDbPath}-wal`)
   printFileStats('App DB SHM Stats', `${appDbPath}-shm`)
 
-  const appDbInspection = inspectAppDatabase(appDbPath)
   heading('App DB Inspection')
   kv('App DB exists', appDbInspection.exists)
   kv('Open time', formatDuration(appDbInspection.openMs))
@@ -3288,8 +3747,6 @@ async function main() {
       print(`- id=${project.id} folder=${project.folderPath} created_at=${project.createdAt} updated_at=${project.updatedAt}`)
     }
   }
-
-  const projectSnapshots = appDbInspection.attachedProjects.map(inspectProjectDatabase)
 
   for (const project of projectSnapshots) {
     printProjectSnapshot(project)
@@ -3355,6 +3812,7 @@ async function main() {
     shellLatencyBaselines,
     processActivities,
     systemActivity,
+    runtimeTrend,
     eventLoopLagMs,
     fdLimits,
     tcpStats,
