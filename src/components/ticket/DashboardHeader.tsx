@@ -490,7 +490,7 @@ export function DashboardHeader({ ticket }: DashboardHeaderProps) {
               <span className="text-sm leading-snug text-muted-foreground group-hover:text-foreground transition-colors">
                 <span className="font-medium text-foreground">Delete execution log</span>
                 <br />
-                Permanently removes the execution log file containing all AI session output, tool call history, and phase-by-phase reasoning transcripts. The log viewer will show no history for this ticket after deletion.
+                Permanently removes both persisted execution logs: the normal phase log and the debug/forensic log. The log viewer will show no history for this ticket after deletion.
               </span>
             </label>
           </div>

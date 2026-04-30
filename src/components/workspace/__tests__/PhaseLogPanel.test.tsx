@@ -2,6 +2,8 @@ import type { ReactNode, Ref } from 'react'
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogEntry } from '@/context/LogContext'
+import { LogContext } from '@/context/logContextDef'
+import type { LogContextValue } from '@/context/logUtils'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 vi.mock('@/components/ui/scroll-area', () => ({
@@ -149,6 +151,36 @@ beforeEach(() => {
 })
 
 describe('PhaseLogPanel', () => {
+  it('asks for phase debug logs only after the DEBUG tab is selected', () => {
+    const loadLogsForPhase = vi.fn()
+    const value: LogContextValue = {
+      logsByPhase: {},
+      activePhase: null,
+      isLoadingLogs: false,
+      addLog: vi.fn(),
+      addLogRecord: vi.fn(),
+      getLogsForPhase: vi.fn(() => []),
+      getAllLogs: vi.fn(() => []),
+      setActivePhase: vi.fn(),
+      loadLogsForPhase,
+      isLoadingLogScope: vi.fn(() => false),
+      clearLogs: vi.fn(),
+    }
+
+    renderWithTooltipProvider(
+      <LogContext.Provider value={value}>
+        <PhaseLogPanel phase="CODING" />
+      </LogContext.Provider>,
+    )
+
+    expect(loadLogsForPhase).toHaveBeenCalledWith('CODING')
+    expect(loadLogsForPhase).not.toHaveBeenCalledWith('CODING', { channel: 'debug' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEBUG' }))
+
+    expect(loadLogsForPhase).toHaveBeenCalledWith('CODING', { channel: 'debug' })
+  })
+
   it('shows canonical raw AI output in ALL while suppressing transcript and summary duplicates', () => {
     const logs: LogEntry[] = [
       {

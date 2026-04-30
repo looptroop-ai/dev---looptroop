@@ -17,6 +17,16 @@ export interface LogEntry {
   op: 'append' | 'upsert' | 'finalize'
 }
 
+export type LogChannel = 'normal' | 'debug'
+
+export interface ServerLogScope {
+  channel?: LogChannel
+  status?: string
+  phase?: string
+  phaseAttempt?: number
+  lifecycle?: boolean
+}
+
 export interface PlainLogOptions {
   source?: string
   status?: string
@@ -40,6 +50,9 @@ export interface LogContextValue {
   getLogsForPhase: (phase: string) => LogEntry[]
   getAllLogs: () => LogEntry[]
   setActivePhase: (phase: string | null) => void
+  loadLogsForPhase?: (phase: string, options?: { channel?: LogChannel }) => void
+  loadAllLogs?: (options?: { channel?: LogChannel }) => void
+  isLoadingLogScope?: (scope: ServerLogScope) => boolean
   clearLogs: () => void
 }
 
@@ -58,6 +71,47 @@ const LOG_TYPE_TAGS: Record<string, string> = {
 }
 
 export const serverLogCache = new Map<string, Array<Record<string, unknown>>>()
+
+function normalizeChannel(channel?: LogChannel): LogChannel {
+  return channel === 'debug' ? 'debug' : 'normal'
+}
+
+export function getServerLogCacheKey(ticketId: string, scope: ServerLogScope = {}): string {
+  const channel = normalizeChannel(scope.channel)
+  const target = scope.lifecycle
+    ? 'lifecycle'
+    : scope.status
+      ? `status:${scope.status}`
+      : scope.phase
+        ? `phase:${scope.phase}`
+        : 'lifecycle'
+  const attempt = typeof scope.phaseAttempt === 'number' && Number.isFinite(scope.phaseAttempt)
+    ? `attempt:${scope.phaseAttempt}`
+    : 'attempt:active'
+  return `${ticketId}|${channel}|${target}|${attempt}`
+}
+
+export function getServerLogsUrl(ticketId: string, scope: ServerLogScope = {}): string {
+  const params = new URLSearchParams()
+  if (scope.status) params.set('status', scope.status)
+  if (scope.phase) params.set('phase', scope.phase)
+  if (typeof scope.phaseAttempt === 'number' && Number.isFinite(scope.phaseAttempt)) {
+    params.set('phaseAttempt', String(scope.phaseAttempt))
+  }
+  if (scope.channel === 'debug') params.set('channel', 'debug')
+
+  const query = params.toString()
+  return `/api/files/${ticketId}/logs${query ? `?${query}` : ''}`
+}
+
+export function clearServerLogCache(ticketId: string) {
+  serverLogCache.delete(ticketId)
+  for (const key of Array.from(serverLogCache.keys())) {
+    if (key.startsWith(`${ticketId}|`)) {
+      serverLogCache.delete(key)
+    }
+  }
+}
 
 const LOW_VALUE_GIT_PROBE_PATTERNS = [
   ' symbolic-ref --quiet --short refs/remotes/origin/HEAD',
@@ -231,6 +285,10 @@ export function normalizeStoredEntry(entry: Partial<LogEntry>, fallbackStatus: s
   }
 }
 
+export function isDebugLogEntry(entry: Pick<LogEntry, 'audience' | 'source' | 'line'>): boolean {
+  return entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
+}
+
 export function compareTimestamps(a?: string, b?: string): number {
   const at = a ? Date.parse(a) : Number.NaN
   const bt = b ? Date.parse(b) : Number.NaN
@@ -339,7 +397,8 @@ export function persistLogs(ticketId: string | null | undefined, logsByPhase: Re
   if (!ticketId || typeof window === 'undefined') return
   for (const [status, entries] of Object.entries(logsByPhase)) {
     try {
-      localStorage.setItem(`${LOG_STORAGE_PREFIX}${ticketId}-${status}`, JSON.stringify(entries))
+      const persistableEntries = entries.filter(entry => !isDebugLogEntry(entry))
+      localStorage.setItem(`${LOG_STORAGE_PREFIX}${ticketId}-${status}`, JSON.stringify(persistableEntries))
     } catch {
       // Ignore quota failures; in-memory state is still usable.
     }
@@ -352,7 +411,7 @@ export function formatLogLine(data: Record<string, unknown>): { line: string; so
 }
 
 export function clearPersistedTicketLogs(ticketId: string) {
-  serverLogCache.delete(ticketId)
+  clearServerLogCache(ticketId)
 
   if (typeof window === 'undefined') return
 

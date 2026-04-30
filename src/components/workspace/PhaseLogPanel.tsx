@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
-import { normalizeLogRecord } from '@/context/logUtils'
+import { compareTimestamps, isDebugLogEntry, normalizeLogRecord } from '@/context/logUtils'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelBadge } from '@/components/shared/ModelBadge'
@@ -51,7 +51,12 @@ export function PhaseLogPanel({
   defaultTab,
 }: PhaseLogPanelProps) {
   const logCtx = useLogs()
+  const [activeTab, setActiveTab] = useState<string>(defaultTab ?? 'ALL')
   const [archivedLogsState, setArchivedLogsState] = useState<{ key: string | null, entries: LogEntry[] }>({
+    key: null,
+    entries: [],
+  })
+  const [archivedDebugLogsState, setArchivedDebugLogsState] = useState<{ key: string | null, entries: LogEntry[] }>({
     key: null,
     entries: [],
   })
@@ -79,7 +84,9 @@ export function PhaseLogPanel({
         if (!response.ok) return [] as LogEntry[]
         const payload = await response.json()
         if (!Array.isArray(payload)) return [] as LogEntry[]
-        return payload.map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
+        return payload
+          .map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
+          .filter((entry) => !isDebugLogEntry(entry))
       })
       .then((entries) => {
         if (!controller.signal.aborted) {
@@ -95,18 +102,83 @@ export function PhaseLogPanel({
     return () => controller.abort()
   }, [archivedLogsKey, phase, phaseAttempt, ticket?.id])
 
-  const isLoadingLogs = shouldLoadArchivedLogs
-    ? archivedLogsState.key !== archivedLogsKey
-    : (logCtx?.isLoadingLogs ?? false)
+  useEffect(() => {
+    if (!archivedLogsKey || !ticket?.id || typeof phaseAttempt !== 'number') {
+      return
+    }
+    if (activeTab !== 'DEBUG' || archivedDebugLogsState.key === archivedLogsKey) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    void fetch(`/api/files/${ticket.id}/logs?${new URLSearchParams({
+      phase,
+      phaseAttempt: String(phaseAttempt),
+      channel: 'debug',
+    }).toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return [] as LogEntry[]
+        const payload = await response.json()
+        if (!Array.isArray(payload)) return [] as LogEntry[]
+        return payload
+          .map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
+          .filter((entry) => isDebugLogEntry(entry))
+      })
+      .then((entries) => {
+        if (!controller.signal.aborted) {
+          setArchivedDebugLogsState({ key: archivedLogsKey, entries })
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setArchivedDebugLogsState({ key: archivedLogsKey, entries: [] })
+        }
+      })
+
+    return () => controller.abort()
+  }, [activeTab, archivedDebugLogsState.key, archivedLogsKey, phase, phaseAttempt, ticket?.id])
+
+  useEffect(() => {
+    if (propLogs || shouldLoadArchivedLogs) return
+    logCtx?.loadLogsForPhase?.(phase)
+  }, [logCtx, phase, propLogs, shouldLoadArchivedLogs])
+
+  useEffect(() => {
+    if (shouldLoadArchivedLogs || activeTab !== 'DEBUG') return
+    logCtx?.loadLogsForPhase?.(phase, { channel: 'debug' })
+  }, [activeTab, logCtx, phase, shouldLoadArchivedLogs])
+
+  const isLoadingLogs = propLogs
+    ? false
+    : shouldLoadArchivedLogs
+      ? activeTab === 'DEBUG'
+        ? archivedDebugLogsState.key !== archivedLogsKey
+        : archivedLogsState.key !== archivedLogsKey
+      : activeTab === 'DEBUG'
+        ? (logCtx?.isLoadingLogScope?.({ status: phase, channel: 'debug' }) ?? false)
+        : (logCtx?.isLoadingLogScope?.({ status: phase }) ?? (logCtx?.isLoadingLogs ?? false))
   const phaseLogs: LogEntry[] = useMemo(
-    () => propLogs
-      ?? (shouldLoadArchivedLogs
-        ? (archivedLogsState.key === archivedLogsKey ? archivedLogsState.entries : [])
-        : (logCtx?.getLogsForPhase(phase) ?? [])),
-    [archivedLogsKey, archivedLogsState.entries, archivedLogsState.key, logCtx, phase, propLogs, shouldLoadArchivedLogs],
+    () => {
+      if (propLogs) {
+        if (activeTab !== 'DEBUG') return propLogs
+        const debugEntries = (logCtx?.getLogsForPhase(phase) ?? []).filter((entry) => isDebugLogEntry(entry))
+        const seenEntryIds = new Set(propLogs.map((entry) => entry.entryId))
+        return [
+          ...propLogs,
+          ...debugEntries.filter((entry) => !seenEntryIds.has(entry.entryId)),
+        ].sort((a, b) => compareTimestamps(a.timestamp, b.timestamp))
+      }
+      if (shouldLoadArchivedLogs) {
+        const normalEntries = archivedLogsState.key === archivedLogsKey ? archivedLogsState.entries : []
+        const debugEntries = archivedDebugLogsState.key === archivedLogsKey ? archivedDebugLogsState.entries : []
+        return [...normalEntries, ...debugEntries].sort((a, b) => compareTimestamps(a.timestamp, b.timestamp))
+      }
+      return logCtx?.getLogsForPhase(phase) ?? []
+    },
+    [activeTab, archivedDebugLogsState.entries, archivedDebugLogsState.key, archivedLogsKey, archivedLogsState.entries, archivedLogsState.key, logCtx, phase, propLogs, shouldLoadArchivedLogs],
   )
   const hasToolbarPrefix = toolbarPrefix != null
-  const [activeTab, setActiveTab] = useState<string>(defaultTab ?? 'ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const [sysCollapsed, setSysCollapsed] = useState(true)
   const isKnownMultiModelPhase = MULTI_MODEL_PHASES.has(phase)

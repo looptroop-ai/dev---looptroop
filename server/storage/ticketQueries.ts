@@ -5,6 +5,7 @@ import { getProjectContextById, getProjectById, listProjects } from './projects'
 import { phaseArtifacts, profiles, projects, ticketErrorOccurrences, tickets } from '../db/schema'
 import {
   getTicketDir,
+  getTicketDebugLogPath,
   getTicketExecutionLogPath,
   getTicketExecutionSetupDir,
   getTicketExecutionSetupProfilePath,
@@ -562,6 +563,7 @@ export function getTicketPaths(ticketRef: string): {
   worktreePath: string
   ticketDir: string
   executionLogPath: string
+  debugLogPath: string
   executionSetupDir: string
   executionSetupProfilePath: string
   baseBranch: string
@@ -574,6 +576,7 @@ export function getTicketPaths(ticketRef: string): {
     worktreePath: getTicketWorktreePath(storage.projectRoot, storage.externalId),
     ticketDir: getTicketDir(storage.projectRoot, storage.externalId),
     executionLogPath: getTicketExecutionLogPath(storage.projectRoot, storage.externalId),
+    debugLogPath: getTicketDebugLogPath(storage.projectRoot, storage.externalId),
     executionSetupDir: getTicketExecutionSetupDir(storage.projectRoot, storage.externalId),
     executionSetupProfilePath: getTicketExecutionSetupProfilePath(storage.projectRoot, storage.externalId),
     baseBranch,

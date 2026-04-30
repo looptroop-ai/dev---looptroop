@@ -11,6 +11,7 @@ import * as atomicAppendModule from '../../io/atomicAppend'
 
 vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
   executionLogPath: '/tmp/test-execution-log.jsonl',
+  debugLogPath: '/tmp/test-execution-log.debug.jsonl',
   worktreePath: '/tmp/test-worktree',
   ticketDir: '/tmp/test-ticket-dir',
   executionSetupDir: '/tmp/test-ticket-dir/.ticket/runtime/execution-setup',

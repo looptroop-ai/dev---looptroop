@@ -112,12 +112,12 @@ const WORKFLOW_PHASE_DETAILS = {
       'Output Validation: LoopTroop validates the structured output against the expected schema (correct field types, non-empty file paths, valid relevance levels). If validation fails — for example, if the model returns malformed JSON or missing required fields — it automatically retries once, either within the same session or by starting a fresh session.',
       'Artifact Persistence: On success, LoopTroop writes the canonical `relevant-files.yaml` artifact into the ticket workspace directory. This YAML file becomes the reusable file-context artifact that all downstream phases can reference without needing to re-scan the codebase.',
       'Summarized Scan Artifact: A companion summarized scan artifact is also stored for UI review, giving you a quick overview of what files were identified and why.',
-      'Logging: Phase logs capture the full session lifecycle — prompt dispatch timing, model response, any retry attempts, validation results, and the final extracted file count.',
+      'Logging: The normal phase log captures key session lifecycle milestones — prompt dispatch timing, summarized model output, retry attempts, validation results, and the final extracted file count.',
     ],
     outputs: [
       'Canonical `relevant-files.yaml` inside the ticket workspace — this becomes a shared context artifact that interview, PRD, and beads phases all receive as part of their input context.',
       'Structured scan artifact containing file paths, content previews, relevance levels (high/medium/low), and natural-language rationales for each identified file.',
-      'Phase logs with session lifecycle, prompt dispatch, retry history, and diagnostics.',
+      'Normal phase logs with session lifecycle, prompt dispatch, retry history, and diagnostics.',
     ],
     transitions: [
       'Success → Council Drafting Questions: A valid scan artifact advances the ticket to the council deliberation phase where multiple models begin drafting interview questions.',
@@ -142,7 +142,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     outputs: [
       'A set of competing interview drafts — one from each council member — each with its own question set, ordering, and strategic rationale.',
-      'Per-model draft progress and session logs viewable in the phase log panel (you can see exactly what each model produced).',
+      'Per-model draft progress and selected session milestones viewable in the phase log panel; completed drafts are preserved as artifacts for exact review.',
       'Persisted council draft artifacts that will be anonymized and presented to voters in the next phase.',
     ],
     transitions: [
@@ -726,7 +726,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Context Assembly: For the selected bead, LoopTroop assembles context from three sources: (a) the bead\'s own description, acceptance criteria, file targets, and test commands (`bead_data`); (b) any iteration notes accumulated from prior failed attempts (`bead_notes` — these grow with each context wipe); (c) the compact execution setup profile written by the PREPARING_EXECUTION_ENV phase (`execution_setup_profile`). The agent receives only this bead-focused context — it does not see the full beads plan, other beads\' results, the PRD, or the interview.',
       'Session Creation and Main Prompt: The locked main implementer opens a new OpenCode session with `keepActive: true` (the session stays open for potential in-session retries without re-creation overhead). The initial bead prompt built from template PROM_CODING is dispatched. Session creation, prompt dispatch, and the start of streaming are logged as AI milestone events.',
       'Inner Response Loop — Completion Marker Evaluation: After each agent response, LoopTroop parses the `<BEAD_STATUS>...</BEAD_STATUS>` completion marker from the response text and branches into one of three paths. (1) Marker present and all gates passing (tests, lint, typecheck, qualitative all "pass", status "done") → success, exit the inner loop immediately. (2) Marker missing or has a validation error (`shouldUseStructuredRetry()` returns true) → if the session is still healthy, sends a same-session structured retry prompt with the BEAD_STATUS_SCHEMA_REMINDER; if the session is unhealthy, abandons it and re-sends the full original bead prompt in a fresh session. (3) Marker found but gates not all passing → sends a continuation prompt (`buildContinuationPrompt`) in the same session, instructing the agent to inspect failures, keep working, and return the final marker only when done. A per-iteration timeout deadline (`perIterationTimeoutMs`) is tracked across all inner-loop steps; once remaining time drops to zero, the inner loop exits with a Timeout error.',
-      'Live Streaming: Execution events, prompt dispatches, agent responses, file modification events, test results, and session lifecycle events are captured and emitted into the phase log in real time. You can observe which files the agent is modifying, what test output looks like, and how the session evolves.',
+      'Live Streaming: High-signal execution events, prompt dispatches, visible agent responses, file modification events, test results, and session lifecycle events are emitted into the normal phase log in real time. Deeper forensic/debug details live in the debug log.',
       'Scoped Verification: During execution, LoopTroop prefers bead-specific test commands first, then impacted or package-scoped lint and typecheck commands derived from the execution setup profile. This avoids failing beads solely because of pre-existing repository-wide baseline failures unrelated to this bead\'s work.',
       'Success Path — Git Commit, Diff Capture, Artifacts, and Broadcast: When the inner loop exits successfully, LoopTroop marks the bead `done` in the tracker and updates progress counters. It then runs best-effort git side effects: (a) `commitBeadChanges` creates a per-bead git commit of all file changes and optionally pushes to the remote branch — git failures are logged as warnings but do not un-mark the bead as done; (b) if `beadStartCommit` was recorded, `captureBeadDiff` generates a code-only diff from that SHA to the new HEAD (excluding `.ticket/**` metadata) and stores it as a `bead_diff:{beadId}` phase artifact. The full execution result (iteration count, response text, error history) is persisted as a `bead_execution:{beadId}` phase artifact on both success and failure. Finally, a `bead_complete` SSE event with progress counters (e.g., completed 3/7) is broadcast to the UI.',
       'Failure Path — Context Wipe Note Generation: When an iteration fails (timeout, uncaught error, or inner-loop exhaustion without a valid completion marker), LoopTroop attempts to generate an AI context wipe note by sending the PROM51 prompt to the still-open failing session. PROM51 asks the model to summarise what went wrong, what it tried, and what the next attempt should do differently — the session\'s accumulated tool calls, test output, and error traces make this note more informative than any static template. If PROM51 itself fails (session error, timeout, parse failure), LoopTroop falls back to a deterministic note built from the recorded iteration errors and recent tool-failure excerpts. The note (AI-generated or fallback) is stamped with the iteration number and timestamp and appended to `bead.notes`, accumulating across iterations. These notes are included in the bead context on every subsequent attempt.',
@@ -762,7 +762,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Test Plan Generation: The locked main implementer analyzes the full context and generates a structured final-test plan. This plan includes test commands to execute, expected outcomes, and what each test is verifying. Tests may include unit tests, integration tests, build verification, and acceptance criteria validation.',
       'Test Execution: LoopTroop executes the generated test commands in the ticket worktree under the configured timeout budget. Tests run on the actual branch state produced by the coding phase.',
       'Result Recording: A final test report artifact is written whether tests pass or fail. The report includes the generated test plan, actual command output, pass/fail status for each test, and any error messages or stack traces from failures.',
-      'Phase Logging: The phase log captures the full test lifecycle — plan generation, command execution, output streams, and final results — for review and diagnosis.',
+      'Phase Logging: The normal phase log captures the test lifecycle — plan generation, command execution, output streams, and final results — for review and diagnosis.',
     ],
     outputs: [
       'Final test report with the generated test plan, execution results, pass/fail status, and error details.',
@@ -860,7 +860,7 @@ const WORKFLOW_PHASE_DETAILS = {
     steps: [
       'Cleanup Scope Determination: LoopTroop identifies which runtime resources are transient (safe to remove) and which are permanent artifacts (must be preserved). The distinction is based on resource type: runtime state is transient, planning and audit artifacts are permanent.',
       'Transient Resource Removal: Lock files, active session folders, stream buffers, temporary files, and runtime state files are removed when present. These resources were needed during execution but have no long-term value.',
-      'Artifact Preservation: Planning artifacts (interview, PRD, beads plan), execution logs, test reports, integration reports, and all phase log history are intentionally preserved. These remain accessible for review, audit, and reference long after the ticket is closed.',
+      'Artifact Preservation: Planning artifacts (interview, PRD, beads plan), normal and debug execution logs, test reports, integration reports, and phase log history are intentionally preserved. These remain accessible for review, audit, and reference long after the ticket is closed.',
       'Cleanup Report: A cleanup report artifact is generated detailing what was removed, what was preserved, and whether any cleanup operations failed. This report is itself preserved as part of the ticket\'s permanent record.',
     ],
     outputs: [
@@ -900,11 +900,11 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   CANCELED: {
-    overview: 'The ticket was stopped by user action before normal completion and now sits in a terminal canceled state. By default, all progress and artifacts created up to the cancellation point are preserved. At cancellation time the user may optionally choose to delete AI-generated artifacts (interview results, PRD drafts, beads plan, worktree code) and/or the execution log.',
+    overview: 'The ticket was stopped by user action before normal completion and now sits in a terminal canceled state. By default, all progress and artifacts created up to the cancellation point are preserved. At cancellation time the user may optionally choose to delete AI-generated artifacts (interview results, PRD drafts, beads plan, worktree code) and/or the execution logs.',
     steps: [
       'Cancellation Recording: LoopTroop records the cancellation event, including the phase from which cancellation was triggered, the timestamp, and any active sessions that were terminated.',
       'Active Session Cleanup: If AI sessions were running when cancellation was triggered (e.g., during a council phase or coding), those sessions are terminated gracefully.',
-      'Optional Cleanup: If requested at cancellation time, AI-generated artifacts (interview Q&A, PRD drafts, beads plan, worktree code and its git branch) and/or the execution log file may be permanently deleted. Both options are opt-in and unchecked by default.',
+      'Optional Cleanup: If requested at cancellation time, AI-generated artifacts (interview Q&A, PRD drafts, beads plan, worktree code and its git branch) and/or both execution log files may be permanently deleted. Both options are opt-in and unchecked by default.',
       'History Preservation: Unless the user explicitly chose to delete them, all artifacts generated before cancellation (interview results, PRD drafts, beads plans, execution logs) remain accessible through the navigator.',
       'Terminal State: No more planning or execution actions are allowed once cancellation is finalized. The ticket cannot be restarted from the canceled state.',
     ],

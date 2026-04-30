@@ -54,6 +54,14 @@ function cleanDataForPersistence(data?: Record<string, unknown>): Record<string,
   return hasKeys ? cleaned : undefined
 }
 
+function isDebugEvent(event: Pick<LogEvent, 'type' | 'source' | 'audience'>): boolean {
+  return event.type === 'debug' || event.source === 'debug' || event.audience === 'debug'
+}
+
+function isDebugLogInput(type: LogEventType, source?: LogSource, extra?: Partial<StructuredLogFields>): boolean {
+  return type === 'debug' || source === 'debug' || extra?.audience === 'debug'
+}
+
 function resolvePhaseAttemptSafely(
   ticketId: string,
   phase: string,
@@ -72,8 +80,9 @@ function resolvePhaseAttemptSafely(
 /*
  * ── LOG SIZE BUDGET ──────────────────────────────────────────────────────
  *
- * The execution-log.jsonl file is preserved as audit/debug evidence and is
- * never automatically truncated. To keep it from growing unbounded:
+ * The execution-log.jsonl and execution-log.debug.jsonl files are preserved as
+ * audit/debug evidence and are never automatically truncated. To keep normal
+ * logs from growing unbounded:
  *
  * 1. STREAMING UPSERTS ARE NOT PERSISTED. Intermediate streaming snapshots
  *    (op='upsert' + streaming=true) are only delivered to the UI via SSE
@@ -84,8 +93,9 @@ function resolvePhaseAttemptSafely(
  * 2. DEBUG MIRROR ENTRIES ARE NOT PERSISTED. emitPhaseLog() auto-creates a
  *    debug copy of every non-debug log entry. These mirrors are broadcast
  *    via SSE for the real-time DEBUG tab but are NOT written to disk. Direct
- *    emitDebugLog() calls (e.g., opencode response logging) still persist.
- *    See the `persist` parameter on emitDebugLog in helpers.ts.
+ *    emitDebugLog() calls (e.g., opencode response logging) still persist to
+ *    execution-log.debug.jsonl. See the `persist` parameter on emitDebugLog in
+ *    helpers.ts.
  *
  * 3. REDUNDANT DATA FIELDS ARE STRIPPED. Structured fields already promoted
  *    to top-level event properties (entryId, sessionId, etc.) and internal
@@ -106,7 +116,8 @@ export function appendLogEvent(
   status?: string,
   extra?: Partial<StructuredLogFields>,
 ) {
-  const structured = pickStructuredFields(data)
+  const isDebugLog = isDebugLogInput(type, source, extra)
+  const structured: Partial<LogEvent> = isDebugLog ? {} : pickStructuredFields(data)
   const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
   const phaseAttempt = extra?.phaseAttempt
     ?? structured.phaseAttempt
@@ -118,13 +129,13 @@ export function appendLogEvent(
     phase,
     phaseAttempt,
     message,
-    content: typeof data?.content === 'string' ? data.content : message,
+    content: !isDebugLog && typeof data?.content === 'string' ? data.content : message,
     ...(source != null ? { source } : structured.source ? { source: structured.source } : {}),
     ...(status != null ? { status } : structured.status ? { status: structured.status } : {}),
-    data: cleanDataForPersistence(data),
     ...structured,
     ...extra,
   }
+  event.data = isDebugEvent(event) ? data : cleanDataForPersistence(data)
 
   const fingerprint = typeof event.fingerprint === 'string' && event.fingerprint
     ? event.fingerprint
@@ -134,7 +145,7 @@ export function appendLogEvent(
   if (!paths) {
     throw new Error(`Ticket not found for execution log append: ${ticketId}`)
   }
-  const logPath = paths.executionLogPath
+  const logPath = isDebugEvent(event) ? paths.debugLogPath : paths.executionLogPath
 
   // Streaming upserts are NOT persisted — only delivered via SSE (see budget
   // note above). The finalize event carries the complete final content.
@@ -196,7 +207,8 @@ export function createLogEvent(
   status?: string,
   extra?: Partial<StructuredLogFields>,
 ): LogEvent {
-  const structured = pickStructuredFields(data)
+  const isDebugLog = isDebugLogInput(type, source, extra)
+  const structured: Partial<LogEvent> = isDebugLog ? {} : pickStructuredFields(data)
   const timestamp = typeof data?.timestamp === 'string' ? data.timestamp : new Date().toISOString()
   const phaseAttempt = extra?.phaseAttempt
     ?? structured.phaseAttempt
@@ -208,7 +220,7 @@ export function createLogEvent(
     phase,
     phaseAttempt,
     message,
-    content: typeof data?.content === 'string' ? data.content : message,
+    content: !isDebugLog && typeof data?.content === 'string' ? data.content : message,
     ...(source != null ? { source } : structured.source ? { source: structured.source } : {}),
     ...(status != null ? { status } : structured.status ? { status: structured.status } : {}),
     data,

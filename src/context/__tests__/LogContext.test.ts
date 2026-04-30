@@ -1,7 +1,7 @@
 import { createElement, useEffect } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatLogLine, mergeEntry, SERVER_LOG_REFRESH_EVENT, type LogEntry } from '@/context/logUtils'
+import { formatLogLine, LOG_STORAGE_PREFIX, mergeEntry, serverLogCache, SERVER_LOG_REFRESH_EVENT, type LogEntry } from '@/context/logUtils'
 import { LogProvider } from '@/context/LogContext'
 import { useLogs } from '@/context/useLogContext'
 import { createJsonResponse } from '@/test/renderHelpers'
@@ -51,7 +51,118 @@ describe('formatLogLine', () => {
 describe('LogProvider', () => {
   afterEach(() => {
     latestLogApi = null
+    localStorage.clear()
+    serverLogCache.clear()
     vi.restoreAllMocks()
+  })
+
+  it('fetches only the visible status on mount and phase changes', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
+
+    const { rerender } = render(createElement(
+      LogProvider,
+      {
+        ticketId: '1:T-scope',
+        currentStatus: 'CODING',
+        visiblePhase: 'CODING',
+        children: createElement(LogHarness),
+      },
+    ))
+
+    await flushMicrotasks()
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/files/1:T-scope/logs?status=CODING')
+
+    rerender(createElement(
+      LogProvider,
+      {
+        ticketId: '1:T-scope',
+        currentStatus: 'CODING',
+        visiblePhase: 'DRAFTING_PRD',
+        children: createElement(LogHarness),
+      },
+    ))
+
+    await flushMicrotasks()
+    expect(globalThis.fetch).toHaveBeenLastCalledWith('/api/files/1:T-scope/logs?status=DRAFTING_PRD')
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(url))).not.toContain('/api/files/1:T-scope/logs')
+    expect(vi.mocked(globalThis.fetch).mock.calls.every(([url]) => !String(url).includes('tail='))).toBe(true)
+  })
+
+  it('requests phase debug logs through the debug channel only when asked', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
+
+    render(createElement(
+      LogProvider,
+      {
+        ticketId: '1:T-debug-phase',
+        currentStatus: 'CODING',
+        children: createElement(LogHarness),
+      },
+    ))
+
+    await flushMicrotasks()
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/files/1:T-debug-phase/logs?status=CODING')
+
+    await act(async () => {
+      latestLogApi?.loadLogsForPhase?.('CODING', { channel: 'debug' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(globalThis.fetch).toHaveBeenLastCalledWith('/api/files/1:T-debug-phase/logs?status=CODING&channel=debug')
+  })
+
+  it('ignores debug rows from normal server fetches but keeps live debug rows', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([{
+      type: 'info',
+      phase: 'CODING',
+      status: 'CODING',
+      source: 'system',
+      content: 'Normal server row.',
+      entryId: 'normal-row',
+      timestamp: '2026-03-13T10:00:01.000Z',
+    }, {
+      type: 'debug',
+      phase: 'CODING',
+      status: 'CODING',
+      source: 'debug',
+      content: 'Legacy mixed debug row.',
+      entryId: 'legacy-debug-row',
+      timestamp: '2026-03-13T10:00:02.000Z',
+    }]))
+
+    try {
+      render(createElement(
+        LogProvider,
+        {
+          ticketId: '1:T-debug-filter',
+          currentStatus: 'CODING',
+          children: createElement(LogHarness),
+        },
+      ))
+
+      await flushMicrotasks()
+      expect(screen.getByTestId('log-count')).toHaveTextContent('1')
+
+      await act(async () => {
+        latestLogApi?.addLog('CODING', '[DEBUG] live state_change payload', {
+          source: 'debug',
+          audience: 'debug',
+          kind: 'session',
+          entryId: 'live-debug-row',
+          timestamp: '2026-03-13T10:00:03.000Z',
+        })
+        await vi.advanceTimersByTimeAsync(0)
+      })
+
+      expect(screen.getByTestId('log-count')).toHaveTextContent('2')
+      const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-debug-filter-CODING`) ?? '[]') as LogEntry[]
+      expect(stored.map((entry) => entry.entryId)).toEqual(['normal-row'])
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
   })
 
   it('dedupes SSE-delivered logs against the initial server fetch', async () => {

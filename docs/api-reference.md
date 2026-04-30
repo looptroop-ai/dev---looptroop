@@ -189,7 +189,7 @@ The cancel endpoint accepts an optional JSON request body to trigger cleanup at 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `deleteContent` | `boolean` | `false` | Permanently removes all AI-generated artifacts (interview Q&A, PRD drafts, beads plan) from the database and deletes the isolated git worktree and its branch |
-| `deleteLog` | `boolean` | `false` | Permanently removes the execution log file (`execution-log.jsonl`) for this ticket. This is only effective when the worktree still exists; if `deleteContent` is also `true` the worktree removal already covers the log |
+| `deleteLog` | `boolean` | `false` | Permanently removes both execution log files (`.ticket/runtime/execution-log.jsonl` and `.ticket/runtime/execution-log.debug.jsonl`) for this ticket. This is only effective when the worktree still exists; if `deleteContent` is also `true` the worktree removal already covers the logs |
 
 ### Interview And Planning Editing
 
@@ -325,9 +325,12 @@ These routes are intentionally narrow.
 
 | Method | Route | Notes |
 | --- | --- | --- |
-| `GET` | `/api/files/:ticketId/logs` | Read folded execution logs |
+| `GET` | `/api/files/:ticketId/logs` | Read folded normal execution logs from `.ticket/runtime/execution-log.jsonl` |
+| `GET` | `/api/files/:ticketId/logs?channel=debug` | Read folded debug/forensic execution logs from `.ticket/runtime/execution-log.debug.jsonl`; the same `status`, `phase`, and `phaseAttempt` filters apply |
 | `GET` | `/api/files/:ticketId/:file` | Only `interview` or `prd` |
 | `PUT` | `/api/files/:ticketId/:file` | Only `interview` or `prd` |
+
+Log routes accept optional `status`, `phase`, and `phaseAttempt` filters. The same filters apply to the default normal log channel and `channel=debug`.
 
 There is no generic filesystem browser or arbitrary file read route under `/api/files`.
 

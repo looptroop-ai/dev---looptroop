@@ -229,7 +229,8 @@ interface FullLogViewProps {
 
 export function FullLogView({ ticket }: FullLogViewProps) {
   const logCtx = useLogs()
-  const isLoadingLogs = logCtx?.isLoadingLogs ?? false
+  const loadAllLogs = logCtx?.loadAllLogs
+  const isLoadingLogScope = logCtx?.isLoadingLogScope
 
   const allLogs: LogEntry[] = useMemo(
     () => logCtx?.getAllLogs() ?? [],
@@ -239,6 +240,15 @@ export function FullLogView({ ticket }: FullLogViewProps) {
   const [activeTab, setActiveTab] = useState<string>('ALL')
   const [modelsCollapsed, setModelsCollapsed] = useState(true)
   const [sysCollapsed, setSysCollapsed] = useState(true)
+
+  useEffect(() => {
+    loadAllLogs?.()
+  }, [loadAllLogs])
+
+  useEffect(() => {
+    if (activeTab !== 'DEBUG') return
+    loadAllLogs?.({ channel: 'debug' })
+  }, [activeTab, loadAllLogs])
 
   const hasCmdLogs = useMemo(() => {
     return allLogs.some((entry) => isSystem(entry) && isCommand(entry))
@@ -291,6 +301,9 @@ export function FullLogView({ ticket }: FullLogViewProps) {
     : singleModelTabId && activeTab === singleModelTabId
       ? 'AI'
       : 'ALL'
+  const isLoadingLogs = effectiveTab === 'DEBUG'
+    ? (isLoadingLogScope?.({ lifecycle: true, channel: 'debug' }) ?? false)
+    : (isLoadingLogScope?.({ lifecycle: true }) ?? (logCtx?.isLoadingLogs ?? false))
 
   const filteredLogs = useMemo(
     () => filterEntries(allLogs, effectiveTab),

@@ -99,7 +99,7 @@ describe('PhaseReviewView', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url === `/api/files/${ticket.id}/logs`) {
+      if (url.startsWith(`/api/files/${ticket.id}/logs`)) {
         return createJsonResponse([])
       }
       throw new Error(`Unhandled fetch: ${url}`)
@@ -128,7 +128,7 @@ describe('PhaseReviewView', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url === `/api/files/${ticket.id}/logs`) {
+      if (url.startsWith(`/api/files/${ticket.id}/logs`)) {
         return createJsonResponse([])
       }
       throw new Error(`Unhandled fetch: ${url}`)

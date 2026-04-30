@@ -3,12 +3,17 @@ import { LogContext } from './logContextDef'
 import {
   type LogEntry,
   type PlainLogOptions,
+  type ServerLogScope,
   LOG_STORAGE_PREFIX,
   LEGACY_LOG_STORAGE_PREFIX,
   serverLogCache,
   SERVER_LOG_REFRESH_EVENT,
+  getServerLogCacheKey,
+  getServerLogsUrl,
+  clearServerLogCache,
   normalizeLogRecord,
   normalizeStoredEntry,
+  isDebugLogEntry,
   compareTimestamps,
   mergeEntry,
   persistLogs,
@@ -17,12 +22,74 @@ import {
 
 export type { LogEntry }
 
-export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: string | null; currentStatus?: string; children: ReactNode }) {
+interface LogProviderProps {
+  ticketId?: string | null
+  currentStatus?: string
+  visiblePhase?: string | null
+  fullLogOpen?: boolean
+  children: ReactNode
+}
+
+function normalizeScope(scope: ServerLogScope = {}): ServerLogScope {
+  const normalized: ServerLogScope = {
+    channel: scope.channel === 'debug' ? 'debug' : 'normal',
+  }
+
+  if (scope.status) {
+    normalized.status = scope.status
+  } else if (scope.phase) {
+    normalized.phase = scope.phase
+  } else {
+    normalized.lifecycle = true
+  }
+
+  if (typeof scope.phaseAttempt === 'number' && Number.isFinite(scope.phaseAttempt)) {
+    normalized.phaseAttempt = scope.phaseAttempt
+  }
+
+  return normalized
+}
+
+function getRawPhaseAttempt(rawEntry: Record<string, unknown>): number | null {
+  const phaseAttempt = typeof rawEntry.phaseAttempt === 'number' && Number.isFinite(rawEntry.phaseAttempt)
+    ? rawEntry.phaseAttempt
+    : Number(rawEntry.phaseAttempt)
+  return Number.isFinite(phaseAttempt) ? phaseAttempt : null
+}
+
+function entryMatchesScope(rawEntry: Record<string, unknown>, entry: LogEntry, scope: ServerLogScope): boolean {
+  if (scope.status && entry.status !== scope.status) return false
+  if (scope.phase) {
+    const entryPhase = typeof rawEntry.phase === 'string' ? rawEntry.phase : entry.status
+    if (entryPhase !== scope.phase) return false
+  }
+  if (typeof scope.phaseAttempt === 'number' && Number.isFinite(scope.phaseAttempt)) {
+    if (getRawPhaseAttempt(rawEntry) !== scope.phaseAttempt) return false
+  }
+  return true
+}
+
+function shouldIncludeEntryForScope(entry: LogEntry, scope: ServerLogScope): boolean {
+  const isDebug = isDebugLogEntry(entry)
+  return scope.channel === 'debug' ? isDebug : !isDebug
+}
+
+export function LogProvider({
+  ticketId,
+  currentStatus,
+  visiblePhase,
+  fullLogOpen = false,
+  children,
+}: LogProviderProps) {
   const [logsByPhase, setLogsByPhase] = useState<Record<string, LogEntry[]>>({})
-  const [isLoadingLogs, setIsLoadingLogs] = useState(false)
+  const [loadingScopeKeys, setLoadingScopeKeys] = useState<Set<string>>(() => new Set())
   const [manualActivePhase, setManualActivePhase] = useState<string | null>(null)
   const activePhase = manualActivePhase ?? currentStatus ?? null
+  const isLoadingLogs = loadingScopeKeys.size > 0
   const currentStatusRef = useRef(currentStatus)
+  const loadedScopeKeysRef = useRef<Set<string>>(new Set())
+  const loadingScopeKeysRef = useRef<Set<string>>(new Set())
+  const scopeByKeyRef = useRef<Map<string, ServerLogScope>>(new Map())
 
   useEffect(() => {
     currentStatusRef.current = currentStatus
@@ -97,6 +164,19 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     })
   }, [ticketId])
 
+  const setScopeLoading = useCallback((scopeKey: string, isLoading: boolean) => {
+    const loading = loadingScopeKeysRef.current
+    const alreadyLoading = loading.has(scopeKey)
+    if (isLoading === alreadyLoading) return
+
+    if (isLoading) {
+      loading.add(scopeKey)
+    } else {
+      loading.delete(scopeKey)
+    }
+    setLoadingScopeKeys(new Set(loading))
+  }, [])
+
   useEffect(() => {
     if (!ticketId) return
 
@@ -110,7 +190,9 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
       const status = key.slice(prefix.length)
       try {
         const parsed = JSON.parse(localStorage.getItem(key) || '[]') as Array<Partial<LogEntry>>
-        loaded[status] = parsed.map(entry => normalizeStoredEntry(entry, status))
+        loaded[status] = parsed
+          .map(entry => normalizeStoredEntry(entry, status))
+          .filter(entry => !isDebugLogEntry(entry))
       } catch {
         loaded[status] = []
       }
@@ -119,74 +201,133 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
     startTransition(() => {
       setLogsByPhase(loaded)
     })
+  }, [ticketId])
 
-    const applyServerLogs = (serverLogs: Array<Record<string, unknown>>) => {
-      if (!serverLogs.length) return
-      startTransition(() => {
-        setLogsByPhase(prev => {
-          const merged = { ...prev }
-          for (const rawEntry of serverLogs) {
-            const phase = String(rawEntry.phase ?? rawEntry.status ?? 'unknown')
-            const entry = normalizeLogRecord(rawEntry, phase)
-            merged[entry.status] = mergeEntry(merged[entry.status] ?? [], entry)
+  const applyServerLogs = useCallback((serverLogs: Array<Record<string, unknown>>, scope: ServerLogScope) => {
+    if (!ticketId) return
+
+    startTransition(() => {
+      setLogsByPhase(prev => {
+        const merged = { ...prev }
+        let hasChanges = false
+        for (const rawEntry of serverLogs) {
+          const phase = String(rawEntry.phase ?? rawEntry.status ?? 'unknown')
+          const entry = normalizeLogRecord(rawEntry, phase)
+          if (!entryMatchesScope(rawEntry, entry, scope)) continue
+          if (!shouldIncludeEntryForScope(entry, scope)) continue
+
+          const bucket = merged[entry.status] ?? []
+          const nextBucket = mergeEntry(bucket, entry)
+          if (nextBucket !== bucket) {
+            merged[entry.status] = nextBucket
+            hasChanges = true
           }
+        }
 
-          const status = currentStatusRef.current
-          if (status && (merged[status] ?? []).length === 0) {
+        const syntheticStatus = scope.channel !== 'debug'
+          && (
+            scope.lifecycle
+              ? currentStatusRef.current
+              : scope.status === currentStatusRef.current
+                ? scope.status
+                : null
+          )
+        if (syntheticStatus) {
+          const bucket = merged[syntheticStatus] ?? []
+          const hasNormalEntry = bucket.some(entry => !isDebugLogEntry(entry))
+          if (!hasNormalEntry) {
             const synthetic = normalizeLogRecord({
               type: 'info',
-              phase: status,
-              status: status,
+              phase: syntheticStatus,
+              status: syntheticStatus,
               source: 'system',
               audience: 'all',
               kind: 'milestone',
-              content: `[SYS] Status ${status} is active.`,
+              content: `[SYS] Status ${syntheticStatus} is active.`,
               timestamp: new Date().toISOString(),
-            }, status)
-            merged[status] = [synthetic]
+            }, syntheticStatus)
+            const nextBucket = mergeEntry(bucket, synthetic)
+            if (nextBucket !== bucket) {
+              merged[syntheticStatus] = nextBucket
+              hasChanges = true
+            }
           }
+        }
 
-          persistLogs(ticketId, merged)
-          return merged
-        })
+        if (!hasChanges) return prev
+        persistLogs(ticketId, merged)
+        return merged
       })
+    })
+  }, [ticketId])
+
+  const requestServerLogs = useCallback((
+    scope: ServerLogScope,
+    options: { showLoading?: boolean; force?: boolean } = {},
+  ) => {
+    if (!ticketId) return
+
+    const normalizedScope = normalizeScope(scope)
+    const scopeKey = getServerLogCacheKey(ticketId, normalizedScope)
+    scopeByKeyRef.current.set(scopeKey, normalizedScope)
+
+    if (!options.force && loadedScopeKeysRef.current.has(scopeKey)) {
+      const cached = serverLogCache.get(scopeKey)
+      if (cached) applyServerLogs(cached, normalizedScope)
+      return
     }
 
-    const initialCached = serverLogCache.get(ticketId)
-    if (initialCached) {
-      applyServerLogs(initialCached)
+    if (!options.force && serverLogCache.has(scopeKey)) {
+      const cached = serverLogCache.get(scopeKey) ?? []
+      loadedScopeKeysRef.current.add(scopeKey)
+      applyServerLogs(cached, normalizedScope)
+      return
     }
 
-    const mergeServerLogs = (showLoading: boolean = true) => {
-      if (showLoading && !serverLogCache.has(ticketId)) setIsLoadingLogs(true)
-      fetch(`/api/files/${ticketId}/logs`)
-        .then(res => res.ok ? res.json() : [])
-        .then((raw: unknown) => {
-          const serverLogs = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []
-          serverLogCache.set(ticketId, serverLogs)
-          applyServerLogs(serverLogs)
-        })
-        .catch(() => {
-          // Ignore network failures; cached logs remain available.
-        })
-        .finally(() => {
-          setIsLoadingLogs(false)
-        })
-    }
+    if (loadingScopeKeysRef.current.has(scopeKey)) return
 
-    mergeServerLogs()
+    if (options.showLoading !== false) setScopeLoading(scopeKey, true)
+    fetch(getServerLogsUrl(ticketId, normalizedScope))
+      .then(res => res.ok ? res.json() : [])
+      .then((raw: unknown) => {
+        const serverLogs = Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []
+        serverLogCache.set(scopeKey, serverLogs)
+        loadedScopeKeysRef.current.add(scopeKey)
+        applyServerLogs(serverLogs, normalizedScope)
+      })
+      .catch(() => {
+        // Ignore network failures; cached logs remain available.
+      })
+      .finally(() => {
+        setScopeLoading(scopeKey, false)
+      })
+  }, [applyServerLogs, setScopeLoading, ticketId])
+
+  const requestedPhase = fullLogOpen ? null : (visiblePhase ?? currentStatus ?? null)
+  useEffect(() => {
+    if (!requestedPhase) return
+    requestServerLogs({ status: requestedPhase })
+  }, [requestServerLogs, requestedPhase])
+
+  useEffect(() => {
+    if (!ticketId) return
 
     const handleServerLogRefresh = (event: Event) => {
       const detail = (event as CustomEvent<{ ticketId?: string | null }>).detail
       if (String(detail?.ticketId ?? '') !== String(ticketId)) return
-      mergeServerLogs(false)
+      const scopes = Array.from(scopeByKeyRef.current.entries())
+      clearServerLogCache(ticketId)
+      for (const [scopeKey, scope] of scopes) {
+        loadedScopeKeysRef.current.delete(scopeKey)
+        requestServerLogs(scope, { showLoading: false, force: true })
+      }
     }
 
     window.addEventListener(SERVER_LOG_REFRESH_EVENT, handleServerLogRefresh)
     return () => {
       window.removeEventListener(SERVER_LOG_REFRESH_EVENT, handleServerLogRefresh)
     }
-  }, [ticketId])
+  }, [requestServerLogs, ticketId])
 
   const addLog = useCallback((phase: string, line: string, options?: PlainLogOptions) => {
     if (!phase) return
@@ -242,14 +383,32 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
       .sort((a, b) => compareTimestamps(a.timestamp, b.timestamp))
   }, [logsByPhase])
 
+  const loadLogsForPhase = useCallback((phase: string, options?: { channel?: 'normal' | 'debug' }) => {
+    if (!phase) return
+    requestServerLogs({ status: phase, channel: options?.channel })
+  }, [requestServerLogs])
+
+  const loadAllLogs = useCallback((options?: { channel?: 'normal' | 'debug' }) => {
+    requestServerLogs({ lifecycle: true, channel: options?.channel })
+  }, [requestServerLogs])
+
+  const isLoadingLogScope = useCallback((scope: ServerLogScope) => {
+    if (!ticketId) return false
+    return loadingScopeKeys.has(getServerLogCacheKey(ticketId, normalizeScope(scope)))
+  }, [loadingScopeKeys, ticketId])
+
   const clearLogs = useCallback(() => {
     if (ticketId) clearPersistedTicketLogs(ticketId)
-    
+
     if (flushTimeoutRef.current) {
       clearTimeout(flushTimeoutRef.current)
       flushTimeoutRef.current = null
     }
     pendingLogsRef.current = {}
+    loadedScopeKeysRef.current.clear()
+    loadingScopeKeysRef.current.clear()
+    scopeByKeyRef.current.clear()
+    setLoadingScopeKeys(new Set())
 
     startTransition(() => {
       setLogsByPhase({})
@@ -258,7 +417,7 @@ export function LogProvider({ ticketId, currentStatus, children }: { ticketId?: 
   }, [ticketId])
 
   return (
-    <LogContext.Provider value={{ logsByPhase, activePhase, isLoadingLogs, addLog, addLogRecord, getLogsForPhase, getAllLogs, setActivePhase: setManualActivePhase, clearLogs }}>
+    <LogContext.Provider value={{ logsByPhase, activePhase, isLoadingLogs, addLog, addLogRecord, getLogsForPhase, getAllLogs, setActivePhase: setManualActivePhase, loadLogsForPhase, loadAllLogs, isLoadingLogScope, clearLogs }}>
       {children}
     </LogContext.Provider>
   )

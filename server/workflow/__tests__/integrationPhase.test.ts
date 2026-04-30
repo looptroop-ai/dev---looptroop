@@ -62,6 +62,7 @@ const defaultPaths = {
   baseBranch: 'main',
   ticketDir: '/fake/worktree/.ticket',
   executionLogPath: '/fake/worktree/.ticket/runtime/execution-log.jsonl',
+  debugLogPath: '/fake/worktree/.ticket/runtime/execution-log.debug.jsonl',
   executionSetupDir: '/fake/worktree/.ticket/runtime/execution-setup',
   executionSetupProfilePath: '/fake/worktree/.ticket/runtime/execution-setup-profile.json',
   beadsPath: '/fake/worktree/.ticket/beads.yaml',

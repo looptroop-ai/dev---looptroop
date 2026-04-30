@@ -495,7 +495,13 @@ export function TicketDashboard() {
   const isReconnecting = liveUpdatesState === 'reconnecting'
 
   return (
-    <LogProvider key={ticketId} ticketId={ticketId} currentStatus={currentStatus}>
+    <LogProvider
+      key={ticketId}
+      ticketId={ticketId}
+      currentStatus={currentStatus}
+      visiblePhase={contextPhase}
+      fullLogOpen={fullLogOpen}
+    >
       <SSELogConnector
         ticketId={ticketId}
         currentStatus={currentStatus}

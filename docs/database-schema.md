@@ -202,6 +202,7 @@ Important non-DB state includes:
 - `.ticket/prd.yaml`
 - `.ticket/beads/<flow>/.beads/issues.jsonl`
 - `.ticket/runtime/execution-log.jsonl`
+- `.ticket/runtime/execution-log.debug.jsonl`
 - `.ticket/runtime/state.yaml`
 - `.ticket/runtime/execution-setup-profile.json`
 

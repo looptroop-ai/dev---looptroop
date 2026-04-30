@@ -26,6 +26,8 @@ vi.mock('@/components/ui/scroll-area', () => ({
 
 const getAllLogsMock = vi.fn(() => [] as LogEntry[])
 const getLogsForPhaseMock = vi.fn(() => [] as LogEntry[])
+const loadAllLogsMock = vi.fn()
+const isLoadingLogScopeMock = vi.fn(() => false)
 
 vi.mock('@/context/useLogContext', () => ({
   useLogs: () => ({
@@ -37,6 +39,8 @@ vi.mock('@/context/useLogContext', () => ({
     getLogsForPhase: getLogsForPhaseMock,
     getAllLogs: getAllLogsMock,
     setActivePhase: vi.fn(),
+    loadAllLogs: loadAllLogsMock,
+    isLoadingLogScope: isLoadingLogScopeMock,
     clearLogs: vi.fn(),
   }),
 }))
@@ -149,6 +153,9 @@ beforeAll(() => {
 beforeEach(() => {
   getAllLogsMock.mockReset()
   getLogsForPhaseMock.mockReset()
+  loadAllLogsMock.mockReset()
+  isLoadingLogScopeMock.mockReset()
+  isLoadingLogScopeMock.mockReturnValue(false)
   writeTextMock.mockClear()
 })
 
@@ -278,6 +285,18 @@ describe('FullLogView', () => {
     for (const tab of ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']) {
       expect(screen.getByRole('button', { name: tab })).toBeTruthy()
     }
+  })
+
+  it('loads normal lifecycle logs on open and debug lifecycle logs only when DEBUG is selected', () => {
+    getAllLogsMock.mockReturnValue([])
+    renderWithTooltipProvider(<FullLogView />)
+
+    expect(loadAllLogsMock).toHaveBeenCalledWith()
+    expect(loadAllLogsMock).not.toHaveBeenCalledWith({ channel: 'debug' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEBUG' }))
+
+    expect(loadAllLogsMock).toHaveBeenCalledWith({ channel: 'debug' })
   })
 
   it('filters logs when a tab is selected', () => {

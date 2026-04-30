@@ -16,7 +16,7 @@ import {
 import { fixTrailingLineCorruption, recoverOrphanTmpFiles } from './io/recovery'
 import { rebuildTicketRuntimeProjections } from './storage/ticketRuntimeProjection'
 
-function recoverTicketRuntimeArtifacts() {
+export function recoverTicketRuntimeArtifacts() {
   let recoveredTmpFiles = 0
   let repairedExecutionLogs = 0
 
@@ -25,8 +25,10 @@ function recoverTicketRuntimeArtifacts() {
     if (!paths) continue
 
     recoveredTmpFiles += recoverOrphanTmpFiles(paths.ticketDir).length
-    if (fixTrailingLineCorruption(paths.executionLogPath)) {
-      repairedExecutionLogs += 1
+    for (const logPath of [paths.executionLogPath, paths.debugLogPath]) {
+      if (fixTrailingLineCorruption(logPath)) {
+        repairedExecutionLogs += 1
+      }
     }
   }
 

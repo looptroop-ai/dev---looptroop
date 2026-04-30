@@ -153,11 +153,11 @@ Several UI components exist specifically to inspect durable workflow state:
 | `WorkspacePhaseSummary` | Compact summary for the selected phase |
 | `VerificationSummaryPanel` | Delivery actions during PR review |
 | `PhaseReviewView` | Historical artifact review with phase-attempt support |
-| `FullLogView` | Rawer, fuller log inspection |
+| `FullLogView` | Ticket-wide log inspection |
 
 The frontend is built around the assumption that users must be able to inspect prior attempts and artifacts without replaying the run mentally from logs.
 
-`LogProvider` treats server-side execution logs as durable truth. Browser-local logs are merged for responsiveness, but reconnect recovery requests the server log file again and merges by stable entry identity so a frontend restart does not leave the visible log pane stale.
+`LogProvider` treats the server-side normal execution log as durable truth. Browser-local logs are merged for responsiveness, but reconnect recovery requests that log again and merges by stable entry identity so a frontend restart does not leave the visible log pane stale.
 
 ### Artifact Processing Notices
 
@@ -192,7 +192,7 @@ Clicking the button opens a confirmation dialog with two optional, unchecked-by-
 | Checkbox | Effect when checked |
 | --- | --- |
 | **Delete AI-generated artifacts and worktree** | Permanently removes interview Q&A, PRD drafts, and beads plan entries from the database, and deletes the isolated git worktree (including its branch and any code written to it) |
-| **Delete execution log** | Permanently removes the `execution-log.jsonl` file for this ticket; effective only when the worktree still exists (worktree removal via the first checkbox already covers the log) |
+| **Delete execution log** | Permanently removes both `.ticket/runtime/execution-log.jsonl` and `.ticket/runtime/execution-log.debug.jsonl` for this ticket; effective only when the worktree still exists (worktree removal via the first checkbox already covers both logs) |
 
 Both options default to unchecked — canceling without checking anything preserves all artifacts exactly as the basic cancel behavior did before.
 

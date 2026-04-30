@@ -174,7 +174,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -221,7 +221,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -269,7 +269,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -297,7 +297,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -352,7 +352,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -407,7 +407,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -463,7 +463,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -507,7 +507,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -545,7 +545,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
@@ -589,7 +589,7 @@ describe('TicketDashboard', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = String(input)
-      if (url.endsWith(`/api/files/${selectedTicketId}/logs`)) {
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
         return createJsonResponse([])
       }
       if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {

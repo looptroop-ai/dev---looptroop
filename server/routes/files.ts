@@ -80,11 +80,13 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
 
   const paths = getTicketPaths(ticketId)
   if (!paths) return c.json({ error: 'Ticket not found' }, 404)
-  if (!fs.existsSync(paths.executionLogPath)) return c.json([])
+  const channel = c.req.query('channel')
+  const logPath = channel === 'debug' ? paths.debugLogPath : paths.executionLogPath
+  if (!fs.existsSync(logPath)) return c.json([])
 
   const entries: Record<string, unknown>[] = []
   const rl = readline.createInterface({
-    input: fs.createReadStream(paths.executionLogPath, { encoding: 'utf-8' }),
+    input: fs.createReadStream(logPath, { encoding: 'utf-8' }),
     crlfDelay: Infinity,
   })
   for await (const line of rl) {
@@ -104,8 +106,9 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
     return at - bt
   })
 
+  const isDebugChannel = channel === 'debug'
   const hasCurrentStatusEntry = foldedEntries.some(entry => entry.status === ticket.status)
-  if (!hasCurrentStatusEntry) {
+  if (!isDebugChannel && !hasCurrentStatusEntry) {
     const nowIso = new Date().toISOString()
     foldedEntries.push({
       timestamp: ticket.updatedAt ?? nowIso,

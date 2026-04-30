@@ -5,6 +5,7 @@ import * as atomicAppendModule from '../../io/atomicAppend'
 
 const mockGetTicketPaths = vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
   executionLogPath: '/tmp/test-execution-log.jsonl',
+  debugLogPath: '/tmp/test-execution-log.debug.jsonl',
   worktreePath: '/tmp/test-worktree',
   ticketDir: '/tmp/test-ticket-dir',
   executionSetupDir: '/tmp/test-ticket-dir/.ticket/runtime/execution-setup',
@@ -125,6 +126,33 @@ describe('appendLogEvent', () => {
     )
 
     expect(mockAppend).toHaveBeenCalledOnce()
+    expect(mockAppend.mock.calls[0]?.[0]).toBe('/tmp/test-execution-log.jsonl')
+  })
+
+  it('persists direct debug events to the debug log with raw payload fields', () => {
+    appendLogEvent(
+      '1:T-42',
+      'debug',
+      'CODING',
+      '[DEBUG] raw provider response',
+      {
+        timestamp: '2026-03-13T12:00:00.000Z',
+        source: 'payload-source',
+        status: 'payload-status',
+        customField: 'keep-this',
+      },
+      'debug',
+      'CODING',
+    )
+
+    expect(mockAppend).toHaveBeenCalledOnce()
+    expect(mockAppend.mock.calls[0]?.[0]).toBe('/tmp/test-execution-log.debug.jsonl')
+    const written = JSON.parse(mockAppend.mock.calls[0]![1]!)
+    expect(written.type).toBe('debug')
+    expect(written.source).toBe('debug')
+    expect(written.data?.source).toBe('payload-source')
+    expect(written.data?.status).toBe('payload-status')
+    expect(written.data?.customField).toBe('keep-this')
   })
 
   it('skips persisting repeated append events with the same fingerprint', () => {

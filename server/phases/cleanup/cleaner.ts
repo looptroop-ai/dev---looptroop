@@ -65,6 +65,7 @@ export function cleanupTicketResources(ticketId: string): CleanupReport {
     'prd.yaml',
     'relevant-files.yaml',
     'runtime/execution-log.jsonl',
+    'runtime/execution-log.debug.jsonl',
   ]
   for (const artifact of preservedArtifacts) {
     const path = resolve(ticketRoot, '.ticket', artifact)

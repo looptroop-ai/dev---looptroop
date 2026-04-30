@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { dirname } from 'node:path'
 import { Hono } from 'hono'
 import { initializeDatabase } from '../../db/init'
 import { sqlite } from '../../db/index'
@@ -83,6 +84,9 @@ describe('ticketRouter DELETE /tickets/:id', () => {
 
     const worktreePath = init.worktreePath
     const executionLogPath = `${init.ticketDir}/runtime/execution-log.jsonl`
+    const debugLogPath = `${init.ticketDir}/runtime/execution-log.debug.jsonl`
+    mkdirSync(dirname(debugLogPath), { recursive: true })
+    writeFileSync(debugLogPath, '{"type":"debug"}\n')
 
     expect(existsSync(worktreePath)).toBe(true)
 
@@ -100,6 +104,7 @@ describe('ticketRouter DELETE /tickets/:id', () => {
     expect(getTicketByRef(ticket.id)).toBeUndefined()
     expect(existsSync(worktreePath)).toBe(false)
     expect(existsSync(executionLogPath)).toBe(false)
+    expect(existsSync(debugLogPath)).toBe(false)
 
     const branchResult = spawnSync('git', ['-C', repoDir, 'show-ref', '--verify', '--quiet', `refs/heads/${ticket.externalId}`], {
       encoding: 'utf8',

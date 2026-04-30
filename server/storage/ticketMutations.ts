@@ -23,7 +23,7 @@ function logCmd(
 }
 import { getProjectContextById } from './projects'
 import { opencodeSessions, phaseArtifacts, projects, ticketErrorOccurrences, ticketStatusHistory, tickets } from '../db/schema'
-import { getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
+import { getTicketDebugLogPath, getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { lockTicketModelSelection, resolveTicketBaseBranch } from '../ticket/metadata'
 import type {
@@ -429,9 +429,13 @@ export function cleanupCanceledTicketData(
       tx.delete(opencodeSessions).where(eq(opencodeSessions.ticketId, localTicketId)).run()
     })
   } else if (opts.deleteLog) {
-    const logPath = getTicketExecutionLogPath(projectRoot, externalId)
-    if (existsSync(logPath)) {
-      rmSync(logPath, { force: true })
+    for (const logPath of [
+      getTicketExecutionLogPath(projectRoot, externalId),
+      getTicketDebugLogPath(projectRoot, externalId),
+    ]) {
+      if (existsSync(logPath)) {
+        rmSync(logPath, { force: true })
+      }
     }
   }
 
