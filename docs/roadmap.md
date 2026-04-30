@@ -1874,6 +1874,22 @@ search: false
 *   **Chat in dashboard:** The cheaper model is used to chat live about what tickets are doing, projects, statuses, etc., so the user does not need to read all logs, and the chat should be actionable (e.g., you type into a box: "Retry all the failed ones." The system understands and does it).
 *   **Exhaustive Interrogation Mode for Interviews:** After the interview phase ends, an optional mode uses a specialized prompt to interrogate app ideas ruthlessly, asking endless questions on details, edges, and constraints until zero assumptions remain. Manual ending or automatic ending with a summary for user confirmation. Rules: no inferences, push on vagueness, ask what might be missed. Persist as enhanced follow-ups in session logs.
 *   **Different implementer per bead/component:** Manually or automatically assign an implementer per bead or group of beads (e.g., all UI components should be done by Gemini 3 Pro).
+*   **Ticket-Scoped Commands & Instructions (testing + workspace setup):** Allow users to attach executable commands and free-form instructions directly to a ticket at creation time, which are then consumed during execution by the appropriate workflow phases.
+    *   **Testing commands/instructions:** Users can specify test commands or testing instructions in the ticket description at creation. These are persisted, validated, and injected into the execution loop so the implementing agent can use them when writing and running tests.
+        *   Accept both shell commands (e.g., `npm run test:integration`, `pytest tests/api/`) and natural-language instructions (e.g., "Run all unit tests after each bead", "Always test edge cases for null inputs").
+        *   Persist testing commands at `.looptroop/tickets/<ticket-id>/testing-commands.yaml` with fields: `id`, `kind` (`command` | `instruction`), `value`, `phase_scope` (`per_bead` | `per_ticket` | `on_demand`), `created_at`, `source` (`user` | `ai_suggested`).
+        *   Validate command entries for shell-injection safety (deny `&&`, `||`, `;`, pipe unless explicitly escaped) and path confinement before persistence; invalid entries are rejected with deterministic reason codes.
+        *   Inject approved testing commands into execution context at relevant checkpoints: bead-scoped commands before each bead's test gate, ticket-scoped commands before the final verification pass.
+        *   If a testing command fails, capture structured failure diagnostics (`command`, `exit_code`, `stderr_summary`, `timestamp`) and route to ticket recovery flow (retry, skip with warning, or block depending on policy).
+    *   **Workspace setup commands/instructions:** Users can specify workspace setup commands or instructions in the ticket description at creation. These are executed or followed during workspace initialization/approval before implementation begins.
+        *   Accept both shell commands (e.g., `cp .env.example .env && npm install`, `docker compose up -d db`) and natural-language instructions (e.g., "Ensure the Redis container is running before starting", "Create a test database named `test_<ticket_id>`").
+        *   Persist workspace setup commands at `.looptroop/tickets/<ticket-id>/workspace-setup.yaml` with fields: `id`, `kind` (`command` | `instruction`), `value`, `execution_order` (explicit sequence number), `created_at`, `source` (`user` | `ai_suggested`).
+        *   Execute command-type entries deterministically during workspace setup phase (before first bead starts) with per-command timeout (default 60s) and structured output logging.
+        *   Instruction-type entries are injected into the agent's planning context so the implementer follows them during workspace preparation and bead execution.
+        *   Workspace setup must complete with explicit user approval before implementation proceeds; persist approval receipt with `approved_by`, `approved_at`, and `command_results` summary.
+        *   If a workspace setup command fails, block ticket progression with deterministic diagnostics and offer remediation actions (`retry`, `edit_command`, `skip_with_warning`, `cancel_ticket`).
+    *   Both testing and workspace setup entries are editable until the ticket enters active execution; after that, changes require explicit version bump and persist `pre_edit_snapshot` for audit trail.
+    *   Expose a `Doctor` check that validates all ticket-scoped commands against the current environment (binary exists, path resolves, permissions sufficient) and reports mismatches before execution starts.
 
 
 
