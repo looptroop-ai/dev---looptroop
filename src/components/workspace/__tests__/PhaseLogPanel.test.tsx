@@ -373,7 +373,7 @@ describe('PhaseLogPanel', () => {
 
     const errorTag = screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)
     expect(errorTag).toBeInTheDocument()
-    expect(errorTag).toHaveAttribute('title', 'opencode/minimax-m2.5-free')
+    expect(errorTag).not.toHaveAttribute('title')
 
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
     expect(screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)).toBeInTheDocument()

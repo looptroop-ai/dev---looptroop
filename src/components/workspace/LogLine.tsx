@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/context/LogContext'
 import { formatLogLine, getEntryColor, formatTimestamp } from './logFormat'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type StructuredSectionKind = 'input' | 'stdin' | 'output' | 'stdout' | 'error' | 'stderr'
 
@@ -63,25 +62,17 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
   const isToolEntry = entry.kind === 'tool' || formatted.tagText === '[TOOL]'
   const isCommandEntry = formatted.tagText === '[CMD]'
   if (isToolEntry) {
-    return renderToolLogLine(entry, formatted.tagText, formatted.tagTitle, formatted.bodyText)
+    return renderToolLogLine(entry, formatted.tagText, formatted.bodyText)
   }
   if (isCommandEntry) {
-    return renderCommandLogLine(entry, formatted.tagText, formatted.tagTitle, formatted.bodyText)
+    return renderCommandLogLine(entry, formatted.tagText, formatted.bodyText)
   }
 
   return (
     <>
-      <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                  className={cn('font-semibold', color)}
-                  title={formatted.tagTitle}
-                >
-                  {formatted.tagText}
-                </span>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-center text-balance">{formatted.tagTitle}</TooltipContent>
-          </Tooltip>
+      <span className={cn('font-semibold', color)}>
+        {formatted.tagText}
+      </span>
       {formatted.bodyText}
     </>
   )
@@ -188,7 +179,6 @@ function shouldRenderImplicitStdoutSection(resultText: string): boolean {
 function renderStructuredLogLine(
   entry: LogEntry,
   tagText: string,
-  tagTitle: string | undefined,
   body: { introText: string; sections: StructuredBodySection[] },
 ) {
   const color = getEntryColor(entry)
@@ -196,17 +186,9 @@ function renderStructuredLogLine(
 
   return (
     <>
-      <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                  className={cn('font-semibold', color)}
-                  title={tagTitle}
-                >
-                  {tagText}
-                </span>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-center text-balance">{tagTitle}</TooltipContent>
-          </Tooltip>
+      <span className={cn('font-semibold', color)}>
+        {tagText}
+      </span>
       {introText}
       {sections.map((section) => (
         <span
@@ -233,55 +215,40 @@ function renderStructuredLogLine(
   )
 }
 
-function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | undefined, bodyText: string) {
+function renderToolLogLine(entry: LogEntry, tagText: string, bodyText: string) {
   const body = splitStructuredBody(bodyText)
   if (body.sections.length === 0) {
     const color = getEntryColor(entry)
     return (
       <>
-        <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                      className={cn('font-semibold', color)}
-                      title={tagTitle}
-                    >
-                      {tagText}
-                    </span>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-center text-balance">{tagTitle}</TooltipContent>
-            </Tooltip>
+        <span className={cn('font-semibold', color)}>
+          {tagText}
+        </span>
         {bodyText}
       </>
     )
   }
 
-  return renderStructuredLogLine(entry, tagText, tagTitle, body)
+  return renderStructuredLogLine(entry, tagText, body)
 }
 
-function renderCommandLogLine(entry: LogEntry, tagText: string, tagTitle: string | undefined, bodyText: string) {
+function renderCommandLogLine(entry: LogEntry, tagText: string, bodyText: string) {
   const structuredBody = splitStructuredBody(bodyText)
   if (structuredBody.sections.length > 0) {
-    return renderStructuredLogLine(entry, tagText, tagTitle, structuredBody)
+    return renderStructuredLogLine(entry, tagText, structuredBody)
   }
 
   const legacyBody = splitLegacyCommandBody(bodyText)
   if (legacyBody.sections.length > 0) {
-    return renderStructuredLogLine(entry, tagText, tagTitle, legacyBody)
+    return renderStructuredLogLine(entry, tagText, legacyBody)
   }
 
   const color = getEntryColor(entry)
   return (
     <>
-      <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                  className={cn('font-semibold', color)}
-                >
-                  {tagText}
-                </span>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-center text-balance">{tagTitle}</TooltipContent>
-          </Tooltip>
+      <span className={cn('font-semibold', color)}>
+        {tagText}
+      </span>
       {bodyText}
     </>
   )
@@ -362,19 +329,14 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
 
   const isTruncatable = isMultiline || isOverflowing
   const renderCopyButton = (className: string) => (
-    <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Copy log entry"
-            onClick={copyEntry}
-            className={cn('transition-colors cursor-pointer', className)}
-          >
-            {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs text-center text-balance">Copy log entry</TooltipContent>
-      </Tooltip>
+    <button
+      type="button"
+      aria-label="Copy log entry"
+      onClick={copyEntry}
+      className={cn('transition-colors cursor-pointer', className)}
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+    </button>
   )
 
   return (
@@ -405,16 +367,9 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
         )}
         {isStreamingUiEntry && (
           <div className="mt-0.5">
-            <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                                    className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/30 shadow-sm opacity-80 select-none cursor-default animate-pulse"
-                                  >
-                                    Stream
-                                  </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs text-center text-balance">Receiving continuous text from AI model</TooltipContent>
-                      </Tooltip>
+            <span className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/30 shadow-sm opacity-80 select-none cursor-default animate-pulse">
+              Stream
+            </span>
           </div>
         )}
       </div>
