@@ -1,9 +1,28 @@
 import { createActor } from 'xstate'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { TicketContext } from '../../machines/types'
 import { ticketMachine } from '../../machines/ticketMachine'
 import { attachWorkflowRunner } from '../runner'
 import { phaseIntermediate, runningPhases, ticketAbortControllers } from '../phases'
-import { TEST } from '../../test/factories'
+import { TEST, makeTicketContext } from '../../test/factories'
+
+function createSnapshotActor(value: string, overrides: Partial<TicketContext> = {}) {
+  const context = makeTicketContext(overrides)
+  return createActor(ticketMachine, {
+    snapshot: {
+      status: 'active', value, historyValue: {}, context, children: {},
+    } as unknown as never,
+    input: {
+      ticketId: context.ticketId,
+      projectId: context.projectId,
+      externalId: context.externalId,
+      title: context.title,
+      maxIterations: context.maxIterations,
+      lockedMainImplementer: context.lockedMainImplementer ?? TEST.implementer,
+      lockedCouncilMembers: context.lockedCouncilMembers ?? [...TEST.councilMembers],
+    },
+  })
+}
 
 const {
   handleCodingMock,
@@ -43,47 +62,10 @@ vi.mock('../phases', async () => {
 
 describe('attachWorkflowRunner', () => {
   function createRefiningPrdActor() {
-    return createActor(ticketMachine, {
-      snapshot: {
-        status: 'active',
-        value: 'REFINING_PRD',
-        historyValue: {},
-        context: {
-          ticketId: TEST.ticketId,
-          projectId: TEST.projectId,
-          externalId: TEST.externalId,
-          title: 'Runner PRD refinement test',
-          status: 'REFINING_PRD',
-          lockedMainImplementer: TEST.implementer,
-          lockedMainImplementerVariant: null,
-          lockedCouncilMembers: [...TEST.councilMembers],
-          lockedCouncilMemberVariants: null,
-          lockedInterviewQuestions: null,
-          lockedCoverageFollowUpBudgetPercent: null,
-          lockedMaxCoveragePasses: null,
-          lockedMaxPrdCoveragePasses: null,
-          lockedMaxBeadsCoveragePasses: null,
-          previousStatus: 'COUNCIL_VOTING_PRD',
-          error: null,
-          errorCodes: [],
-          beadProgress: { total: 0, completed: 0, current: null },
-          iterationCount: 0,
-          maxIterations: 5,
-          councilResults: null,
-          createdAt: TEST.timestamp,
-          updatedAt: TEST.timestamp,
-        },
-        children: {},
-      } as unknown as never,
-      input: {
-        ticketId: TEST.ticketId,
-        projectId: TEST.projectId,
-        externalId: TEST.externalId,
-        title: 'Runner PRD refinement test',
-        maxIterations: 5,
-        lockedMainImplementer: TEST.implementer,
-        lockedCouncilMembers: [...TEST.councilMembers],
-      },
+    return createSnapshotActor('REFINING_PRD', {
+      title: 'Runner PRD refinement test',
+      status: 'REFINING_PRD',
+      previousStatus: 'COUNCIL_VOTING_PRD',
     })
   }
 
@@ -171,47 +153,11 @@ describe('attachWorkflowRunner', () => {
     })
     handleFinalTestMock.mockResolvedValue(undefined)
 
-    const actor = createActor(ticketMachine, {
-      snapshot: {
-        status: 'active',
-        value: 'CODING',
-        historyValue: {},
-        context: {
-          ticketId: TEST.ticketId,
-          projectId: TEST.projectId,
-          externalId: TEST.externalId,
-          title: 'Runner restored coding test',
-          status: 'CODING',
-          lockedMainImplementer: TEST.implementer,
-          lockedMainImplementerVariant: null,
-          lockedCouncilMembers: [...TEST.councilMembers],
-          lockedCouncilMemberVariants: null,
-          lockedInterviewQuestions: null,
-          lockedCoverageFollowUpBudgetPercent: null,
-          lockedMaxCoveragePasses: null,
-          lockedMaxPrdCoveragePasses: null,
-          lockedMaxBeadsCoveragePasses: null,
-          previousStatus: 'PREPARING_EXECUTION_ENV',
-          error: null,
-          errorCodes: [],
-          beadProgress: { total: 2, completed: 0, current: 'bead-1' },
-          iterationCount: 0,
-          maxIterations: 5,
-          councilResults: null,
-          createdAt: TEST.timestamp,
-          updatedAt: TEST.timestamp,
-        },
-        children: {},
-      } as unknown as never,
-      input: {
-        ticketId: TEST.ticketId,
-        projectId: TEST.projectId,
-        externalId: TEST.externalId,
-        title: 'Runner restored coding test',
-        maxIterations: 5,
-        lockedMainImplementer: TEST.implementer,
-        lockedCouncilMembers: [...TEST.councilMembers],
-      },
+    const actor = createSnapshotActor('CODING', {
+      title: 'Runner restored coding test',
+      status: 'CODING',
+      previousStatus: 'PREPARING_EXECUTION_ENV',
+      beadProgress: { total: 2, completed: 0, current: 'bead-1' },
     })
 
     actor.start()
@@ -235,45 +181,12 @@ describe('attachWorkflowRunner', () => {
 
     handleFinalTestMock.mockResolvedValue(undefined)
 
-    const actor = createActor(ticketMachine, {
-      snapshot: {
-        status: 'active',
-        value: 'CODING',
-        historyValue: {},
-        context: {
-          ticketId: TEST.ticketId,
-          projectId: TEST.projectId,
-          externalId: TEST.externalId,
-          title: 'Runner test',
-          status: 'CODING',
-          lockedMainImplementer: TEST.implementer,
-          lockedMainImplementerVariant: null,
-          lockedCouncilMembers: [...TEST.councilMembers],
-          lockedCouncilMemberVariants: null,
-          lockedInterviewQuestions: null,
-          lockedCoverageFollowUpBudgetPercent: null,
-          lockedMaxCoveragePasses: null,
-          previousStatus: 'PRE_FLIGHT_CHECK',
-          error: null,
-          errorCodes: [],
-          beadProgress: { total: 5, completed: 1, current: 'bead-2' },
-          iterationCount: 1,
-          maxIterations: 5,
-          councilResults: null,
-          createdAt: TEST.timestamp,
-          updatedAt: TEST.timestamp,
-        },
-        children: {},
-      } as unknown as never,
-      input: {
-        ticketId: TEST.ticketId,
-        projectId: TEST.projectId,
-        externalId: TEST.externalId,
-        title: 'Runner test',
-        maxIterations: 5,
-        lockedMainImplementer: TEST.implementer,
-        lockedCouncilMembers: [...TEST.councilMembers],
-      },
+    const actor = createSnapshotActor('CODING', {
+      title: 'Runner test',
+      status: 'CODING',
+      previousStatus: 'PRE_FLIGHT_CHECK',
+      beadProgress: { total: 5, completed: 1, current: 'bead-2' },
+      iterationCount: 1,
     })
 
     actor.start()
@@ -289,45 +202,13 @@ describe('attachWorkflowRunner', () => {
   })
 
   it('does not block CODING when completed beads exceed maxIterations', () => {
-    const actor = createActor(ticketMachine, {
-      snapshot: {
-        status: 'active',
-        value: 'CODING',
-        historyValue: {},
-        context: {
-          ticketId: TEST.ticketId,
-          projectId: TEST.projectId,
-          externalId: TEST.externalId,
-          title: 'Runner test',
-          status: 'CODING',
-          lockedMainImplementer: TEST.implementer,
-          lockedMainImplementerVariant: null,
-          lockedCouncilMembers: [...TEST.councilMembers],
-          lockedCouncilMemberVariants: null,
-          lockedInterviewQuestions: null,
-          lockedCoverageFollowUpBudgetPercent: null,
-          lockedMaxCoveragePasses: null,
-          previousStatus: 'PRE_FLIGHT_CHECK',
-          error: null,
-          errorCodes: [],
-          beadProgress: { total: 5, completed: 1, current: 'bead-2' },
-          iterationCount: 5,
-          maxIterations: 1,
-          councilResults: null,
-          createdAt: TEST.timestamp,
-          updatedAt: TEST.timestamp,
-        },
-        children: {},
-      } as unknown as never,
-      input: {
-        ticketId: TEST.ticketId,
-        projectId: TEST.projectId,
-        externalId: TEST.externalId,
-        title: 'Runner test',
-        maxIterations: 1,
-        lockedMainImplementer: TEST.implementer,
-        lockedCouncilMembers: [...TEST.councilMembers],
-      },
+    const actor = createSnapshotActor('CODING', {
+      title: 'Runner test',
+      status: 'CODING',
+      previousStatus: 'PRE_FLIGHT_CHECK',
+      beadProgress: { total: 5, completed: 1, current: 'bead-2' },
+      iterationCount: 5,
+      maxIterations: 1,
     })
 
     actor.start()
@@ -340,45 +221,11 @@ describe('attachWorkflowRunner', () => {
   it('routes WAITING_EXECUTION_SETUP_APPROVAL through the mock execution guard in mock mode', async () => {
     isMockOpenCodeModeMock.mockReturnValue(true)
 
-    const actor = createActor(ticketMachine, {
-      snapshot: {
-        status: 'active',
-        value: 'PRE_FLIGHT_CHECK',
-        historyValue: {},
-        context: {
-          ticketId: TEST.ticketId,
-          projectId: TEST.projectId,
-          externalId: TEST.externalId,
-          title: 'Runner mock setup test',
-          status: 'PRE_FLIGHT_CHECK',
-          lockedMainImplementer: TEST.implementer,
-          lockedMainImplementerVariant: null,
-          lockedCouncilMembers: [...TEST.councilMembers],
-          lockedCouncilMemberVariants: null,
-          lockedInterviewQuestions: null,
-          lockedCoverageFollowUpBudgetPercent: null,
-          lockedMaxCoveragePasses: null,
-          previousStatus: 'PRE_FLIGHT_CHECK',
-          error: null,
-          errorCodes: [],
-          beadProgress: { total: 5, completed: 0, current: null },
-          iterationCount: 0,
-          maxIterations: 5,
-          councilResults: null,
-          createdAt: TEST.timestamp,
-          updatedAt: TEST.timestamp,
-        },
-        children: {},
-      } as unknown as never,
-      input: {
-        ticketId: TEST.ticketId,
-        projectId: TEST.projectId,
-        externalId: TEST.externalId,
-        title: 'Runner mock setup test',
-        maxIterations: 5,
-        lockedMainImplementer: TEST.implementer,
-        lockedCouncilMembers: [...TEST.councilMembers],
-      },
+    const actor = createSnapshotActor('PRE_FLIGHT_CHECK', {
+      title: 'Runner mock setup test',
+      status: 'PRE_FLIGHT_CHECK',
+      previousStatus: 'PRE_FLIGHT_CHECK',
+      beadProgress: { total: 5, completed: 0, current: null },
     })
 
     actor.start()
@@ -398,45 +245,11 @@ describe('attachWorkflowRunner', () => {
   it('routes PREPARING_EXECUTION_ENV through the mock execution guard in mock mode', async () => {
     isMockOpenCodeModeMock.mockReturnValue(true)
 
-    const actor = createActor(ticketMachine, {
-      snapshot: {
-        status: 'active',
-        value: 'WAITING_EXECUTION_SETUP_APPROVAL',
-        historyValue: {},
-        context: {
-          ticketId: TEST.ticketId,
-          projectId: TEST.projectId,
-          externalId: TEST.externalId,
-          title: 'Runner mock execution setup test',
-          status: 'WAITING_EXECUTION_SETUP_APPROVAL',
-          lockedMainImplementer: TEST.implementer,
-          lockedMainImplementerVariant: null,
-          lockedCouncilMembers: [...TEST.councilMembers],
-          lockedCouncilMemberVariants: null,
-          lockedInterviewQuestions: null,
-          lockedCoverageFollowUpBudgetPercent: null,
-          lockedMaxCoveragePasses: null,
-          previousStatus: 'WAITING_EXECUTION_SETUP_APPROVAL',
-          error: null,
-          errorCodes: [],
-          beadProgress: { total: 5, completed: 0, current: null },
-          iterationCount: 0,
-          maxIterations: 5,
-          councilResults: null,
-          createdAt: TEST.timestamp,
-          updatedAt: TEST.timestamp,
-        },
-        children: {},
-      } as unknown as never,
-      input: {
-        ticketId: TEST.ticketId,
-        projectId: TEST.projectId,
-        externalId: TEST.externalId,
-        title: 'Runner mock execution setup test',
-        maxIterations: 5,
-        lockedMainImplementer: TEST.implementer,
-        lockedCouncilMembers: [...TEST.councilMembers],
-      },
+    const actor = createSnapshotActor('WAITING_EXECUTION_SETUP_APPROVAL', {
+      title: 'Runner mock execution setup test',
+      status: 'WAITING_EXECUTION_SETUP_APPROVAL',
+      previousStatus: 'WAITING_EXECUTION_SETUP_APPROVAL',
+      beadProgress: { total: 5, completed: 0, current: null },
     })
 
     actor.start()
