@@ -153,12 +153,84 @@ describe('LogProvider', () => {
           entryId: 'live-debug-row',
           timestamp: '2026-03-13T10:00:03.000Z',
         })
-        await vi.advanceTimersByTimeAsync(0)
+        await vi.advanceTimersByTimeAsync(250)
       })
 
       expect(screen.getByTestId('log-count')).toHaveTextContent('2')
       const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-debug-filter-CODING`) ?? '[]') as LogEntry[]
       expect(stored.map((entry) => entry.entryId)).toEqual(['normal-row'])
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps streaming AI updates in memory without rewriting localStorage until a final row arrives', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+
+    try {
+      render(createElement(
+        LogProvider,
+        {
+          ticketId: '1:T-streaming',
+          currentStatus: 'CODING',
+          children: createElement(LogHarness),
+        },
+      ))
+
+      await flushMicrotasks()
+      localStorage.clear()
+      setItemSpy.mockClear()
+
+      await act(async () => {
+        latestLogApi?.addLogRecord('CODING', {
+          type: 'model_output',
+          phase: 'CODING',
+          status: 'CODING',
+          source: 'model:openai/gpt-5-mini',
+          audience: 'ai',
+          kind: 'text',
+          content: 'partial response',
+          entryId: 'session-1:message-1:text',
+          op: 'upsert',
+          streaming: true,
+          timestamp: '2026-03-13T10:00:03.000Z',
+        })
+        await vi.advanceTimersByTimeAsync(250)
+      })
+
+      expect(screen.getByTestId('log-count')).toHaveTextContent('2')
+      expect(setItemSpy).not.toHaveBeenCalled()
+      expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`)).toBeNull()
+
+      await act(async () => {
+        latestLogApi?.addLogRecord('CODING', {
+          type: 'model_output',
+          phase: 'CODING',
+          status: 'CODING',
+          source: 'model:openai/gpt-5-mini',
+          audience: 'ai',
+          kind: 'text',
+          content: 'final response',
+          entryId: 'session-1:message-1:text',
+          op: 'finalize',
+          streaming: false,
+          timestamp: '2026-03-13T10:00:04.000Z',
+        })
+        await vi.advanceTimersByTimeAsync(250)
+      })
+
+      const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`) ?? '[]') as LogEntry[]
+      expect(stored).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          entryId: 'session-1:message-1:text',
+          streaming: false,
+          op: 'finalize',
+        }),
+      ]))
+      expect(stored.some((entry) => entry.streaming || entry.op === 'upsert')).toBe(false)
     } finally {
       vi.clearAllTimers()
       vi.useRealTimers()

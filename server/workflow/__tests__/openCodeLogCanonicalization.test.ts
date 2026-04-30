@@ -8,6 +8,7 @@ vi.mock('../../sse/broadcaster', () => ({
 
 import * as ticketsModule from '../../storage/tickets'
 import * as atomicAppendModule from '../../io/atomicAppend'
+import { broadcaster } from '../../sse/broadcaster'
 
 vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
   executionLogPath: '/tmp/test-execution-log.jsonl',
@@ -21,6 +22,7 @@ vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
 })
 
 const mockAppend = vi.spyOn(atomicAppendModule, 'safeAtomicAppend').mockImplementation(() => {})
+const mockBroadcast = vi.mocked(broadcaster.broadcast)
 
 import {
   createOpenCodeStreamState,
@@ -39,6 +41,7 @@ function getPersistedTextEntries() {
 describe('OpenCode log canonicalization', () => {
   beforeEach(() => {
     mockAppend.mockClear()
+    mockBroadcast.mockClear()
   })
 
   it('persists a single canonical text row for a single text-part assistant response', () => {
@@ -176,6 +179,102 @@ describe('OpenCode log canonicalization', () => {
       content: 'prd:\n  title: Canonical PRD',
       op: 'finalize',
     })
+  })
+
+  it('throttles progressive text upserts while still broadcasting the final canonical row', () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    const state = createOpenCodeStreamState()
+
+    try {
+      emitOpenCodeStreamEvent('1:T-42', 'T-42', 'DRAFTING_PRD', 'openai/gpt-5-codex', 'ses-throttle', {
+        type: 'text',
+        sessionId: 'ses-throttle',
+        messageId: 'msg-throttle',
+        partId: 'part-throttle',
+        text: 'a',
+        streaming: true,
+        complete: false,
+      }, state)
+
+      emitOpenCodeStreamEvent('1:T-42', 'T-42', 'DRAFTING_PRD', 'openai/gpt-5-codex', 'ses-throttle', {
+        type: 'text',
+        sessionId: 'ses-throttle',
+        messageId: 'msg-throttle',
+        partId: 'part-throttle',
+        text: 'ab',
+        streaming: true,
+        complete: false,
+      }, state)
+
+      nowSpy.mockReturnValue(1300)
+      emitOpenCodeStreamEvent('1:T-42', 'T-42', 'DRAFTING_PRD', 'openai/gpt-5-codex', 'ses-throttle', {
+        type: 'text',
+        sessionId: 'ses-throttle',
+        messageId: 'msg-throttle',
+        partId: 'part-throttle',
+        text: 'abc',
+        streaming: true,
+        complete: false,
+      }, state)
+
+      emitOpenCodeStreamEvent('1:T-42', 'T-42', 'DRAFTING_PRD', 'openai/gpt-5-codex', 'ses-throttle', {
+        type: 'done',
+        sessionId: 'ses-throttle',
+      }, state)
+
+      const textBroadcasts = mockBroadcast.mock.calls
+        .map(([, , payload]) => payload as Record<string, unknown>)
+        .filter((payload) => payload.kind === 'text')
+
+      expect(textBroadcasts.map((payload) => ({
+        content: payload.content,
+        op: payload.op,
+        streaming: payload.streaming,
+      }))).toEqual([
+        { content: 'a', op: 'upsert', streaming: true },
+        { content: 'abc', op: 'upsert', streaming: true },
+        { content: 'abc', op: 'finalize', streaming: false },
+      ])
+      expect(getPersistedTextEntries()).toEqual([
+        expect.objectContaining({
+          entryId: 'ses-throttle:msg-throttle:text',
+          content: 'abc',
+          op: 'finalize',
+        }),
+      ])
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('truncates oversized live debug broadcasts while keeping the persisted debug entry complete', () => {
+    emitOpenCodeSessionLogs(
+      '1:T-42',
+      'T-42',
+      'DRAFTING_PRD',
+      'openai/gpt-5-codex',
+      'ses-debug',
+      'draft',
+      'x'.repeat(10_000),
+      [
+        {
+          id: 'msg-debug',
+          role: 'assistant',
+          content: 'x'.repeat(10_000),
+        },
+      ],
+      createOpenCodeStreamState(),
+    )
+
+    const debugBroadcast = mockBroadcast.mock.calls
+      .map(([, , payload]) => payload as Record<string, unknown>)
+      .find((payload) => payload.type === 'debug' && String(payload.content).includes('opencode.draft.response'))
+    expect(String(debugBroadcast?.content)).toContain('debug payload truncated for live stream')
+    expect(String(debugBroadcast?.content).length).toBeLessThan(9000)
+
+    const persistedDebug = getPersistedEntries()
+      .find((entry) => entry.type === 'debug' && String(entry.content).includes('opencode.draft.response'))
+    expect(String(persistedDebug?.content).length).toBeGreaterThan(10_000)
   })
 
   it('falls back to one raw output row when no streamed text was observed', () => {

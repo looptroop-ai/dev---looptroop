@@ -364,7 +364,7 @@ export function PhaseLogPanel({
       filteredLogs.length,
       lastEntry.entryId,
       lastEntry.timestamp ?? '',
-      lastEntry.line,
+      lastEntry.line.length,
       lastEntry.streaming ? 'streaming' : 'static',
       lastEntry.op,
     ].join('|')

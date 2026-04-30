@@ -58,6 +58,10 @@ const DEFAULT_TOOL_LOG_LIMITS: ToolLogLimits = {
   errorMaxChars: PROFILE_DEFAULTS.toolErrorMaxChars,
 }
 
+const STREAMING_LOG_MIN_INTERVAL_MS = 250
+const STREAMING_LOG_MIN_GROWTH_CHARS = 2048
+const LIVE_DEBUG_LOG_MAX_CHARS = 8000
+
 let _cachedToolLogLimits: ToolLogLimits = { ...DEFAULT_TOOL_LOG_LIMITS }
 let _toolLogLimitsCachedAt = 0
 const TOOL_LOG_LIMITS_CACHE_TTL_MS = 30_000
@@ -174,6 +178,9 @@ export function emitDebugLog(
 ) {
   const payloadText = payload === undefined ? '' : ` ${stringifyForLog(payload)}`
   const content = `[DEBUG] ${message}${payloadText}`
+  const liveContent = content.length > LIVE_DEBUG_LOG_MAX_CHARS
+    ? `${content.slice(0, LIVE_DEBUG_LOG_MAX_CHARS)}\n... [debug payload truncated for live stream; full entry is available in the debug log]`
+    : content
   const debugData = payload && typeof payload === 'object'
     ? (payload as Record<string, unknown>)
     : (payload !== undefined ? { value: payload } : undefined)
@@ -184,7 +191,7 @@ export function emitDebugLog(
     ticketId,
     phase,
     type: 'debug',
-    content,
+    content: liveContent,
     source: 'debug',
     audience: 'debug',
     kind: 'session',
@@ -234,11 +241,42 @@ export function createOpenCodeStreamState(): OpenCodeStreamState {
     seenFirstActivity: false,
     liveKinds: new Map(),
     liveContents: new Map(),
+    liveStreamEmissions: new Map(),
     todoStatuses: new Map(),
     liveTextMessages: new Map(),
     textPartToMessageIds: new Map(),
     finalizedTextEntryIds: new Set(),
   }
+}
+
+function shouldEmitStreamingLogUpdate(
+  state: OpenCodeStreamState,
+  entryId: string,
+  content: string,
+  complete: boolean,
+): boolean {
+  const now = Date.now()
+  const previous = state.liveStreamEmissions.get(entryId)
+
+  if (!previous) {
+    state.liveStreamEmissions.set(entryId, {
+      lastEmittedAt: now,
+      lastContentLength: content.length,
+    })
+    return true
+  }
+
+  const elapsedMs = now - previous.lastEmittedAt
+  const growthChars = Math.abs(content.length - previous.lastContentLength)
+  if (!complete && elapsedMs < STREAMING_LOG_MIN_INTERVAL_MS && growthChars < STREAMING_LOG_MIN_GROWTH_CHARS) {
+    return false
+  }
+
+  state.liveStreamEmissions.set(entryId, {
+    lastEmittedAt: now,
+    lastContentLength: content.length,
+  })
+  return true
 }
 
 function getTextMessageEntryId(sessionId: string, messageId: string): string {
@@ -455,9 +493,11 @@ export function finalizeOpenCodeParts(
       )
       state.finalizedTextEntryIds.add(message.entryId)
     }
+    state.liveStreamEmissions.delete(message.entryId)
   }
 
   for (const [partId, kind] of state.liveKinds.entries()) {
+    const entryId = `${sessionId}:${partId}`
     const content = state.liveContents.get(partId)
       ?? (kind === 'tool' ? 'Tool event finalized.' : kind === 'step' ? 'Step finalized.' : '')
     emitAiDetail(
@@ -467,7 +507,7 @@ export function finalizeOpenCodeParts(
       kind === 'error' ? 'error' : kind === 'text' || kind === 'reasoning' ? 'model_output' : 'info',
       content,
         {
-          entryId: `${sessionId}:${partId}`,
+          entryId,
           audience: 'ai',
           kind,
           op: 'finalize',
@@ -478,11 +518,13 @@ export function finalizeOpenCodeParts(
           streaming: false,
         },
       )
+    state.liveStreamEmissions.delete(entryId)
   }
   state.liveTextMessages.clear()
   state.textPartToMessageIds.clear()
   state.liveKinds.clear()
   state.liveContents.clear()
+  state.liveStreamEmissions.clear()
   state.todoStatuses.clear()
 }
 
@@ -516,9 +558,13 @@ export function emitOpenCodeStreamEvent(
   if (event.type === 'reasoning') {
     emitFirstActivity()
     const partId = event.partId ?? event.messageId ?? event.type
+    const entryId = `${sessionId}:${partId}`
     const kind = 'reasoning'
     state.liveKinds.set(partId, kind)
     state.liveContents.set(partId, event.text)
+    if (!shouldEmitStreamingLogUpdate(state, entryId, event.text, event.complete)) {
+      return
+    }
     emitAiDetail(
       ticketId,
       ticketExternalId,
@@ -526,7 +572,7 @@ export function emitOpenCodeStreamEvent(
       'model_output',
       event.text,
       {
-        entryId: `${sessionId}:${partId}`,
+        entryId,
         audience: 'ai',
         kind,
         op: event.complete ? 'finalize' : 'upsert',
@@ -540,6 +586,7 @@ export function emitOpenCodeStreamEvent(
     if (event.complete) {
       state.liveKinds.delete(partId)
       state.liveContents.delete(partId)
+      state.liveStreamEmissions.delete(entryId)
     }
     return
   }
@@ -551,7 +598,7 @@ export function emitOpenCodeStreamEvent(
     const message = upsertLiveTextMessage(state, sessionId, messageId, partId, event.text)
     const content = buildLiveTextMessageContent(message)
 
-    if (content.length > 0) {
+    if (content.length > 0 && shouldEmitStreamingLogUpdate(state, message.entryId, content, event.complete)) {
       emitAiDetail(
         ticketId,
         ticketExternalId,
@@ -846,6 +893,7 @@ export function emitOpenCodeStreamEvent(
       removeLiveTextPart(state, partId)
       state.liveKinds.delete(partId)
       state.liveContents.delete(partId)
+      state.liveStreamEmissions.delete(`${sessionId}:${partId}`)
     }
     return
   }

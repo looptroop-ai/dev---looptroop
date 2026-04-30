@@ -35,13 +35,9 @@ The report is read-only. It does not repair state, mutate tickets, or modify att
 
 It captures:
 
-- **Quick Health Status** — At-a-glance health of backend, frontend, OpenCode, and system resources using visual health bars.
-- **Risk Assessment** — Categorized summary of findings into `CRITICAL`, `WARNING`, and `OBSERVATIONS` for immediate troubleshooting.
 - **Disk Write Latency** — Direct measurement of storage responsiveness (crucial for WSL/mounted drive diagnostics).
-- **Competitor Detection** — Identifies non-LoopTroop processes consuming excessive CPU or I/O.
-- **Node.js & Git Audit** — Checks for `UV_THREADPOOL_SIZE` bottlenecks and Git index bloat.
 - frontend, backend, ticket-list, project-list, startup-status, and OpenCode health probe latency
-- repeated backend health and ticket-list samples for short stall correlation
+- repeated backend health and ticket-list samples
 - a 3-minute runtime observation window that samples backend health, `/api/tickets`, watched process CPU/RSS/I/O, Linux pressure deltas, and app/project DB/WAL/log growth
 - backend, frontend, and OpenCode process memory, thread, wait-state, file descriptor, CPU, and I/O activity
 - whole-system top CPU, RSS, read-I/O, and write-I/O consumers during the sample window
@@ -50,7 +46,6 @@ It captures:
 - attached project ticket counts, active OpenCode sessions, recent ticket states, execution-log tail, and git responsiveness
 - **Advanced Diagnostics**: event-loop lag, DNS probe, FD limits, TCP connection states, zombie process count, diagnostic heap snapshot, and swap pressure
 - macOS-specific: `vm_stat`, load average, CPU count, and top processes (macOS only)
-- a `Likely Causes` section that summarizes the strongest signals found in the report
 
 ## Useful Options
 
@@ -86,9 +81,7 @@ Disable colored output. Useful when piping or running in CI. Also respected via 
 
 ## Reading The Report
 
-The report opens with a **Quick Status** box summarizing the most important signals. Start there, then verify against `Likely Causes` at the bottom.
-
-After that, cross-reference by category:
+Read the report by category:
 
 - **🔍 ENVIRONMENT & CONFIGURATION**: Resolved ports, PIDs, shell startup latency, and backend env vars.
 - **🌐 NETWORK & ENDPOINT HEALTH**: HTTP probe results for frontend, backend, and OpenCode.
@@ -100,6 +93,5 @@ After that, cross-reference by category:
 - **🗄️ DATABASE & PROJECT STATE**: App DB and project DB inspection, WAL/SHM file sizes, ticket and session state.
 - **🔀 GIT RESPONSIVENESS**: Git status, Trace2 perf output, and branch resolution for attached projects.
 - **🧬 ADVANCED DIAGNOSTICS**: Event-loop lag, DNS probe for localhost, FD limits, TCP states, zombie count, diagnostic heap, and swap pressure.
-- **🎯 LIKELY CAUSES**: Heuristic summary of the strongest signals.
 
 For intermittent stalls, save at least one report from a healthy moment and one from a slow moment. The differences are usually more useful than either report alone.

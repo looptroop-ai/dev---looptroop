@@ -289,6 +289,14 @@ export function isDebugLogEntry(entry: Pick<LogEntry, 'audience' | 'source' | 'l
   return entry.audience === 'debug' || entry.source === 'debug' || entry.line.includes('[DEBUG]')
 }
 
+export function isPersistableLogEntry(entry: LogEntry): boolean {
+  return !isDebugLogEntry(entry) && !entry.streaming && entry.op !== 'upsert'
+}
+
+export function hasPersistableLogEntries(entries: LogEntry[]): boolean {
+  return entries.some(isPersistableLogEntry)
+}
+
 export function compareTimestamps(a?: string, b?: string): number {
   const at = a ? Date.parse(a) : Number.NaN
   const bt = b ? Date.parse(b) : Number.NaN
@@ -397,7 +405,7 @@ export function persistLogs(ticketId: string | null | undefined, logsByPhase: Re
   if (!ticketId || typeof window === 'undefined') return
   for (const [status, entries] of Object.entries(logsByPhase)) {
     try {
-      const persistableEntries = entries.filter(entry => !isDebugLogEntry(entry))
+      const persistableEntries = entries.filter(isPersistableLogEntry)
       localStorage.setItem(`${LOG_STORAGE_PREFIX}${ticketId}-${status}`, JSON.stringify(persistableEntries))
     } catch {
       // Ignore quota failures; in-memory state is still usable.

@@ -234,7 +234,7 @@ interface ProcessMemorySnapshot {
   error?: string
 }
 
-interface CorrelationSample {
+interface RepeatedProbeSample {
   at: string
   healthOk: boolean
   healthStatus: number | null
@@ -293,8 +293,8 @@ interface ProjectSnapshot {
   metaFilesChecked: number
   missingMetaFiles: number
   metaWithoutBaseBranch: number
-  metaWarnings: string[]
-  pathWarnings: string[]
+  metaCheckDetails: string[]
+  pathCheckDetails: string[]
   dbOpenMs: number
   dbQueryMs: number
   mount: MountSnapshot
@@ -309,7 +309,7 @@ interface TicketLogPreview {
   logPath: string
   exists: boolean
   tailLines: string[]
-  warning?: string
+  detail?: string
 }
 
 type Platform = 'linux' | 'wsl' | 'macos' | 'windows'
@@ -420,18 +420,6 @@ function colorize(text: string, color: AnsiColor): string {
   return `${ANSI[color]}${text}${ANSI_RESET}`
 }
 
-type Severity = 'ok' | 'warn' | 'crit' | 'info' | 'na'
-
-function icon(severity: Severity): string {
-  switch (severity) {
-    case 'ok': return colorize('✅', 'green')
-    case 'warn': return colorize('⚠️ ', 'yellow')
-    case 'crit': return colorize('🚨', 'red')
-    case 'info': return colorize('ℹ️ ', 'cyan')
-    case 'na': return colorize('–', 'dim')
-  }
-}
-
 function print(line = '') {
   console.log(line)
   reportLines.push(stripAnsi(line))
@@ -454,48 +442,6 @@ function banner(emojiAndTitle: string) {
   print(colorize(top, 'bold'))
   print(colorize(mid, 'bold'))
   print(colorize(bot, 'bold'))
-}
-
-function drawHealthBar(percent: number, width = 20): string {
-  const filledCount = Math.round((percent / 100) * width)
-  const emptyCount = width - filledCount
-  const filled = '■'.repeat(Math.max(0, filledCount))
-  const empty = '□'.repeat(Math.max(0, emptyCount))
-  
-  let color: AnsiColor = 'green'
-  if (percent > 90) color = 'red'
-  else if (percent > 70) color = 'yellow'
-  
-  return colorize(`[${filled}${empty}]`, color) + ` ${percent.toFixed(1)}%`
-}
-
-function printRiskAssessment(heuristics: string[]) {
-  const criticals = heuristics.filter(h => h.toLowerCase().includes('critical') || h.toLowerCase().includes('🚨') || h.toLowerCase().includes('down') || h.toLowerCase().includes('timed out'))
-  const warnings = heuristics.filter(h => !criticals.includes(h) && (h.toLowerCase().includes('warning') || h.toLowerCase().includes('⚠️') || h.toLowerCase().includes('slow') || h.toLowerCase().includes('elevated') || h.toLowerCase().includes('high')))
-  const infos = heuristics.filter(h => !criticals.includes(h) && !warnings.includes(h))
-
-  banner('🎯  RISK ASSESSMENT')
-  
-  if (criticals.length > 0) {
-    print(colorize('🔴 CRITICAL ISSUES', 'red'))
-    for (const msg of criticals) print(`  - ${msg}`)
-  }
-  
-  if (warnings.length > 0) {
-    if (criticals.length > 0) print()
-    print(colorize('🟡 WARNINGS', 'yellow'))
-    for (const msg of warnings) print(`  - ${msg}`)
-  }
-  
-  if (infos.length > 0) {
-    if (criticals.length > 0 || warnings.length > 0) print()
-    print(colorize('🔵 OBSERVATIONS', 'cyan'))
-    for (const msg of infos) print(`  - ${msg}`)
-  }
-  
-  if (heuristics.length === 0) {
-    print(colorize('✅ No significant risks detected.', 'green'))
-  }
 }
 
 function kv(label: string, value: unknown) {
@@ -633,18 +579,17 @@ What it checks:
   - Linux cgroup resource snapshot when available
   - Mount type, disk space, and inode usage for app/project paths
   - Per-process I/O counters from /proc/<pid>/io
-  - Workspace mount/watcher risk checks for WSL mounted drives
+  - Workspace/project mount, cwd, and watcher environment data
   - Best-effort kernel OOM scan from dmesg
   - App DB attached projects
   - Project DB ticket/session state
   - Git responsiveness for attached projects
-  - A short backend correlation sampler across repeated probes
+  - A short repeated backend sampler across HTTP probes
   - A multi-minute trend sampler for process CPU/RSS/I/O, HTTP latency, pressure deltas, and growing files
   - Shell startup baseline to separate diagnostic overhead from real probe latency
   - Git Trace2 perf output for repo status calls
   - Direct filesystem latency probes for project metadata paths
-  - Ticket meta files that could trigger extra base-branch detection
-  - Heuristic summary of the most likely cause
+  - Ticket meta file presence and baseBranch fields
 `)
 }
 
@@ -1964,23 +1909,23 @@ function collectMacosSystemMetrics(): MacosSystemMetrics {
   }
 }
 
-async function sampleRuntimeCorrelation(options: {
+async function sampleRepeatedBackendProbes(options: {
   backendPid: number | null
   backendHealthUrl: string
   ticketsUrl: string
   iterations?: number
   intervalMs?: number
   probeTimeoutMs?: number
-}): Promise<CorrelationSample[]> {
-  const samples: CorrelationSample[] = []
+}): Promise<RepeatedProbeSample[]> {
+  const samples: RepeatedProbeSample[] = []
   const iterations = options.iterations ?? 5
   const intervalMs = options.intervalMs ?? 700
   const probeTimeoutMs = options.probeTimeoutMs ?? 900
 
   for (let index = 0; index < iterations; index += 1) {
     const [healthProbe, ticketsProbe] = await Promise.all([
-      probeHttp(`correlation health ${index + 1}`, options.backendHealthUrl, probeTimeoutMs),
-      probeHttp(`correlation tickets ${index + 1}`, options.ticketsUrl, probeTimeoutMs),
+      probeHttp(`repeated health ${index + 1}`, options.backendHealthUrl, probeTimeoutMs),
+      probeHttp(`repeated tickets ${index + 1}`, options.ticketsUrl, probeTimeoutMs),
     ])
 
     let processStat: string | null = null
@@ -2104,9 +2049,9 @@ function inspectTicketMetaFiles(projectRoot: string, ticketRefs: string[]): {
   checked: number
   missingMetaFiles: number
   metaWithoutBaseBranch: number
-  warnings: string[]
+  details: string[]
 } {
-  const warnings: string[] = []
+  const details: string[] = []
   let checked = 0
   let missingMetaFiles = 0
   let metaWithoutBaseBranch = 0
@@ -2116,7 +2061,7 @@ function inspectTicketMetaFiles(projectRoot: string, ticketRefs: string[]): {
     const metaPath = resolve(projectRoot, '.looptroop', 'worktrees', externalId, '.ticket', 'meta', 'ticket.meta.json')
     if (!existsSync(metaPath)) {
       missingMetaFiles += 1
-      if (warnings.length < 8) warnings.push(`${externalId}: missing ${metaPath}`)
+      if (details.length < 8) details.push(`${externalId}: missing ${metaPath}`)
       continue
     }
 
@@ -2124,18 +2069,18 @@ function inspectTicketMetaFiles(projectRoot: string, ticketRefs: string[]): {
       const parsed = JSON.parse(readFileSync(metaPath, 'utf8')) as { baseBranch?: unknown }
       if (typeof parsed.baseBranch !== 'string' || parsed.baseBranch.trim().length === 0) {
         metaWithoutBaseBranch += 1
-        if (warnings.length < 8) warnings.push(`${externalId}: meta present but baseBranch missing or empty`)
+        if (details.length < 8) details.push(`${externalId}: meta present but baseBranch missing or empty`)
       }
     } catch (error) {
       metaWithoutBaseBranch += 1
-      if (warnings.length < 8) {
+      if (details.length < 8) {
         const message = error instanceof Error ? error.message : String(error)
-        warnings.push(`${externalId}: failed to parse meta file (${message})`)
+        details.push(`${externalId}: failed to parse meta file (${message})`)
       }
     }
   }
 
-  return { checked, missingMetaFiles, metaWithoutBaseBranch, warnings }
+  return { checked, missingMetaFiles, metaWithoutBaseBranch, details }
 }
 
 function formatExecutionLogTailLine(rawLine: string): string {
@@ -2174,7 +2119,7 @@ function readTicketExecutionLogPreview(
       logPath,
       exists: false,
       tailLines: [],
-      warning: 'Execution log file is missing.',
+      detail: 'Execution log file is missing.',
     }
   }
 
@@ -2193,7 +2138,7 @@ function readTicketExecutionLogPreview(
       logPath,
       exists: true,
       tailLines,
-      ...(tailLines.length === 0 ? { warning: 'Execution log file exists but contains no entries.' } : {}),
+      ...(tailLines.length === 0 ? { detail: 'Execution log file exists but contains no entries.' } : {}),
     }
   } catch (error) {
     return {
@@ -2202,7 +2147,7 @@ function readTicketExecutionLogPreview(
       logPath,
       exists: true,
       tailLines: [],
-      warning: error instanceof Error ? error.message : String(error),
+      detail: error instanceof Error ? error.message : String(error),
     }
   }
 }
@@ -2211,26 +2156,17 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
   const projectDbPath = resolve(project.folderPath, '.looptroop', 'db.sqlite')
   const exists = existsSync(project.folderPath)
   const projectDbExists = existsSync(projectDbPath)
-  const pathWarnings: string[] = []
+  const pathCheckDetails: string[] = []
   const mount = inspectMount(project.folderPath)
   const diskUsage = inspectDiskUsage(project.folderPath)
   const inodeUsage = inspectInodeUsage(project.folderPath)
   const latencyProbes: FsLatencyProbe[] = []
 
-  if (project.folderPath.startsWith('/mnt/')) {
-    pathWarnings.push('Project is on a mounted Windows drive under /mnt/. WSL file I/O stalls can block Node here.')
-  }
-  if (mount.fstype === '9p') {
-    pathWarnings.push('Mount type is 9p, which is the common WSL path for mounted Windows drives and can stall on metadata-heavy access.')
-    if (inodeUsage.usePercent === null) {
-      pathWarnings.push('Inode counts on this 9p mount appear synthetic or unavailable, so inode usage is not a reliable signal here.')
-    }
-  }
   if (!exists) {
-    pathWarnings.push('Project root path does not exist right now.')
+    pathCheckDetails.push('Project root path does not exist right now.')
   }
   if (!projectDbExists) {
-    pathWarnings.push('Project DB file does not exist at .looptroop/db.sqlite.')
+    pathCheckDetails.push('Project DB file does not exist at .looptroop/db.sqlite.')
   }
 
   if (!projectDbExists) {
@@ -2252,8 +2188,8 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
       metaFilesChecked: 0,
       missingMetaFiles: 0,
       metaWithoutBaseBranch: 0,
-      metaWarnings: [],
-      pathWarnings,
+      metaCheckDetails: [],
+      pathCheckDetails,
       dbOpenMs: 0,
       dbQueryMs: 0,
       mount,
@@ -2391,8 +2327,8 @@ function inspectProjectDatabase(project: AttachedProjectRow): ProjectSnapshot {
       metaFilesChecked: metaInspection.checked,
       missingMetaFiles: metaInspection.missingMetaFiles,
       metaWithoutBaseBranch: metaInspection.metaWithoutBaseBranch,
-      metaWarnings: metaInspection.warnings,
-      pathWarnings,
+      metaCheckDetails: metaInspection.details,
+      pathCheckDetails,
       dbOpenMs,
       dbQueryMs,
       mount,
@@ -2591,7 +2527,7 @@ function printProcessActivitySamples(title: string, samples: ProcessActivitySamp
       ` wchan=${sample.wchan ?? 'n/a'}`,
     )
     if (sample.command) print(`  command=${sample.command}`)
-    if (sample.error) print(`  warning=${sample.error}`)
+    if (sample.error) print(`  error=${sample.error}`)
   }
 }
 
@@ -2916,7 +2852,7 @@ function printCgroupResourceSnapshot() {
   }
 }
 
-function printCorrelationSamples(title: string, samples: CorrelationSample[]) {
+function printRepeatedBackendSamples(title: string, samples: RepeatedProbeSample[]) {
   heading(title)
   if (samples.length === 0) {
     print('(none)')
@@ -2968,12 +2904,12 @@ function printProjectSnapshot(project: ProjectSnapshot) {
   kv('Disk use %', project.diskUsage.usePercent)
   kv('Inode use %', project.inodeUsage.usePercent)
 
-  print('Warnings:')
-  if (project.pathWarnings.length === 0 && project.metaWarnings.length === 0) {
+  print('Path/meta file check details:')
+  if (project.pathCheckDetails.length === 0 && project.metaCheckDetails.length === 0) {
     print('(none)')
   } else {
-    for (const warning of [...project.pathWarnings, ...project.metaWarnings]) {
-      print(`- ${warning}`)
+    for (const detail of [...project.pathCheckDetails, ...project.metaCheckDetails]) {
+      print(`- ${detail}`)
     }
   }
 
@@ -2994,8 +2930,8 @@ function printProjectSnapshot(project: ProjectSnapshot) {
       `- ticket=${project.latestNonTerminalTicketLog.externalId} status=${project.latestNonTerminalTicketLog.status}` +
       ` exists=${project.latestNonTerminalTicketLog.exists} path=${project.latestNonTerminalTicketLog.logPath}`,
     )
-    if (project.latestNonTerminalTicketLog.warning) {
-      print(`- warning=${project.latestNonTerminalTicketLog.warning}`)
+    if (project.latestNonTerminalTicketLog.detail) {
+      print(`- detail=${project.latestNonTerminalTicketLog.detail}`)
     }
     if (project.latestNonTerminalTicketLog.tailLines.length === 0) {
       print('(no log lines)')
@@ -3041,15 +2977,10 @@ function printAdvancedDiagnostics(params: {
   banner('🧬  ADVANCED DIAGNOSTICS')
 
   heading('Event Loop Lag')
-  const lagSeverity: Severity = params.eventLoopLagMs > 200 ? 'crit' : params.eventLoopLagMs > 50 ? 'warn' : 'ok'
-  kv(`${icon(lagSeverity)} Event loop lag`, `${params.eventLoopLagMs}ms`)
-  if (params.eventLoopLagMs > 50) {
-    print(`  Hint: Lag >50ms suggests the Node.js event loop is busy. This diagnostic script is affected too.`)
-  }
+  kv('Event loop lag', `${params.eventLoopLagMs}ms`)
 
   heading('DNS Resolution Probe')
-  const dnsSeverity: Severity = params.dnsProbe.ok ? 'ok' : 'crit'
-  kv(`${icon(dnsSeverity)} localhost`, params.dnsProbe.ok
+  kv('localhost', params.dnsProbe.ok
     ? `${params.dnsProbe.durationMs}ms → ${params.dnsProbe.addresses.join(', ')}`
     : `FAILED – ${params.dnsProbe.error}`)
 
@@ -3065,16 +2996,14 @@ function printAdvancedDiagnostics(params: {
   if (params.tcpStats.error && params.tcpStats.established === 0) {
     kv('TCP stats', params.tcpStats.error)
   } else {
-    const twSeverity: Severity = params.tcpStats.timeWait > 1000 ? 'crit' : params.tcpStats.timeWait > 200 ? 'warn' : 'ok'
     kv('ESTABLISHED', params.tcpStats.established)
-    kv(`${icon(twSeverity)} TIME_WAIT`, params.tcpStats.timeWait)
+    kv('TIME_WAIT', params.tcpStats.timeWait)
     kv('CLOSE_WAIT', params.tcpStats.closeWait)
     kv('LISTEN', params.tcpStats.listen)
   }
 
   heading('Zombie Processes')
-  const zombieSeverity: Severity = params.zombieCount > 0 ? 'warn' : 'ok'
-  kv(`${icon(zombieSeverity)} Zombie count`, params.zombieCount)
+  kv('Zombie count', params.zombieCount)
 
   heading('Diagnostic Process Heap (this script)')
   kv('Heap used', `${params.heap.heapUsedMb} MiB`)
@@ -3086,8 +3015,7 @@ function printAdvancedDiagnostics(params: {
   if (params.swap.error && params.swap.totalKb === null) {
     kv('Swap', params.swap.error)
   } else {
-    const swapSeverity: Severity = (params.swap.usePercent ?? 0) > 80 ? 'crit' : (params.swap.usePercent ?? 0) > 50 ? 'warn' : 'ok'
-    kv(`${icon(swapSeverity)} Swap total`, formatBytes(params.swap.totalKb !== null ? params.swap.totalKb * 1024 : null))
+    kv('Swap total', formatBytes(params.swap.totalKb !== null ? params.swap.totalKb * 1024 : null))
     kv('Swap free', formatBytes(params.swap.freeKb !== null ? params.swap.freeKb * 1024 : null))
     kv('Swap used', formatBytes(params.swap.usedKb !== null ? params.swap.usedKb * 1024 : null))
     kv('Swap use %', formatPercent(params.swap.usePercent))
@@ -3111,435 +3039,6 @@ function printAdvancedDiagnostics(params: {
       }
     }
   }
-}
-
-function printQuickSummary(params: {
-  backendPid: number | null
-  frontendPid: number | null
-  opencodePid: number | null
-  healthProbe: HttpProbeResult
-  frontendProbe: HttpProbeResult
-  opencodeProbe: HttpProbeResult
-  ioPressure: PressureSnapshot
-  workspaceDiskUsage: DiskUsageSnapshot
-  platform: Platform
-  eventLoopLagMs: number
-}) {
-  const LINE_WIDTH = 72
-
-  const backendSeverity: Severity = params.backendPid !== null ? (params.healthProbe.ok ? 'ok' : 'warn') : 'crit'
-  const frontendSeverity: Severity = params.frontendPid !== null ? (params.frontendProbe.ok ? 'ok' : 'warn') : 'crit'
-  const opencodeSeverity: Severity = params.opencodePid !== null ? (params.opencodeProbe.ok ? 'ok' : 'warn') : 'na'
-  const ioPressureVal = params.ioPressure.some?.avg10 ?? 0
-  const systemSeverity: Severity = ioPressureVal > 10 ? 'crit' : ioPressureVal > 2 ? 'warn' : 'ok'
-  const diskPercent = params.workspaceDiskUsage.usePercent ?? 0
-  const diskSeverity: Severity = diskPercent >= 95 ? 'crit' : diskPercent >= 85 ? 'warn' : 'ok'
-  const loopSeverity: Severity = params.eventLoopLagMs > 200 ? 'crit' : params.eventLoopLagMs > 50 ? 'warn' : 'ok'
-
-  const row = (label: string, ic: string, detail: string) => {
-    const text = `  ${ic}  ${label.padEnd(16)}${detail}`
-    const stripped = stripAnsi(text)
-    const padded = text + ' '.repeat(Math.max(0, LINE_WIDTH - stripped.length))
-    return colorize('║', 'bold') + padded + colorize('║', 'bold')
-  }
-
-  const divider = colorize(`╠${'═'.repeat(LINE_WIDTH)}╣`, 'bold')
-  const top = colorize(`╔${'═'.repeat(LINE_WIDTH)}╗`, 'bold')
-  const bot = colorize(`╚${'═'.repeat(LINE_WIDTH)}╝`, 'bold')
-  const titleText = '  QUICK HEALTH STATUS  '
-  const titlePad = LINE_WIDTH - titleText.length
-  const titleLeft = Math.floor(titlePad / 2)
-  const titleRight = titlePad - titleLeft
-  const titleLine = colorize(`║${'═'.repeat(titleLeft)}${colorize(titleText, 'bold')}${'═'.repeat(titleRight)}║`, 'bold')
-
-  print()
-  print(top)
-  print(titleLine)
-  print(divider)
-  const backendDetail = params.backendPid
-    ? `PID ${params.backendPid.toString().padEnd(6)} HTTP ${params.healthProbe.durationMs}ms`
-    : 'Not detected'
-  print(row('Backend', icon(backendSeverity), backendDetail))
-
-  const frontendDetail = params.frontendPid
-    ? `PID ${params.frontendPid.toString().padEnd(6)} HTTP ${params.frontendProbe.durationMs}ms`
-    : 'Not detected'
-  print(row('Frontend', icon(frontendSeverity), frontendDetail))
-
-  const opencodeDetail = params.opencodePid
-    ? `PID ${params.opencodePid.toString().padEnd(6)} HTTP ${params.opencodeProbe.durationMs}ms`
-    : 'Not detected'
-  print(row('OpenCode', icon(opencodeSeverity), opencodeDetail))
-
-  print(divider)
-  print(row('Platform', icon('info'), params.platform.toUpperCase()))
-  
-  const ioDetail = params.ioPressure.error
-    ? 'n/a'
-    : drawHealthBar(ioPressureVal * 5, 20) // Multiplier to make small pressure visible
-  print(row('I/O Pressure', icon(systemSeverity), ioDetail))
-
-  print(row('Disk Usage', icon(diskSeverity), drawHealthBar(diskPercent, 20)))
-  
-  const loopColor = params.eventLoopLagMs > 200 ? 'red' : params.eventLoopLagMs > 50 ? 'yellow' : 'green'
-  print(row('Event Loop', icon(loopSeverity), colorize(`${params.eventLoopLagMs}ms lag`, loopColor)))
-  print(bot)
-}
-
-function buildHeuristics(input: {
-  backendPid: number | null
-  backendInspectPid: number | null
-  backendCandidate: ProcessRecord | null
-  backendMemory: ProcessMemorySnapshot | null
-  backendCwd: string | null
-  backendEnv: Record<string, string>
-  backendThreadDump: string
-  frontendProbe: HttpProbeResult
-  healthProbe: HttpProbeResult
-  ticketsProbe: HttpProbeResult
-  opencodeProbe: HttpProbeResult
-  attachedProjects: AttachedProjectRow[]
-  projectSnapshots: ProjectSnapshot[]
-  ioPressure: PressureSnapshot
-  backendIo: ProcessIoSnapshot | null
-  correlationSamples: CorrelationSample[]
-  workspaceMount: MountSnapshot
-  shellLatencyBaselines: SpawnLatencyBaseline[]
-  processActivities: ProcessActivitySample[]
-  systemActivity: SystemProcessActivitySnapshot
-  runtimeTrend: RuntimeTrendReport
-  eventLoopLagMs: number
-  fdLimits: FdLimits
-  tcpStats: TcpStats
-  zombieCount: number
-  swap: SwapSnapshot
-  dnsProbe: DnsProbeResult
-  walSizeBytes: number
-  appDbWalSizeBytes: number
-  diskWriteLatency: FsLatencyProbe
-  uvThreadpoolSize: number | null
-  gitIndexSizeBytes: number | null
-}): string[] {
-  const messages: string[] = []
-  const totalTickets = input.projectSnapshots.reduce((sum, project) => sum + project.ticketCount, 0)
-  const totalActiveSessions = input.projectSnapshots.reduce((sum, project) => sum + project.activeSessionCount, 0)
-  const onMountedDrive = input.projectSnapshots.some((project) => project.folderPath.startsWith('/mnt/'))
-  const mountedVia9p = input.projectSnapshots.some((project) => project.mount.fstype === '9p')
-  const hasP9Wait = input.backendThreadDump.includes('p9_client_rpc')
-  const backendTimedOut = Boolean(input.healthProbe.error?.includes('timed out'))
-  const ticketsTimedOut = Boolean(input.ticketsProbe.error?.includes('timed out'))
-  const opencodeTimedOut = Boolean(input.opencodeProbe.error?.includes('timed out'))
-  const hasTicketDataOnDisk = totalTickets > 0
-  const directDbReadable = input.projectSnapshots.some((project) => project.projectDbExists && project.dbQueryMs > 0)
-  const someProjectDbWasSlow = input.projectSnapshots.some((project) => project.dbQueryMs >= 500)
-  const slowFsProbe = input.projectSnapshots.some((project) => project.latencyProbes.some((probe) => probe.durationMs >= 750))
-  const lowDiskProjects = input.projectSnapshots.filter((project) => (project.diskUsage.usePercent ?? 0) >= 95)
-  const lowInodeProjects = input.projectSnapshots.filter((project) => (project.inodeUsage.usePercent ?? 0) >= 95)
-  const missingProjectPaths = input.projectSnapshots.filter((project) => !project.exists)
-  const missingBaseBranch = input.projectSnapshots.reduce((sum, project) => sum + project.metaWithoutBaseBranch, 0)
-  const ioPressureSome = input.ioPressure.some?.avg10 ?? 0
-  const ioPressureFull = input.ioPressure.full?.avg10 ?? 0
-  const correlatedP9Timeouts = input.correlationSamples.filter((sample) =>
-    (!sample.healthOk || !sample.ticketsOk)
-    && (sample.processWchan?.includes('p9_client_rpc') ?? false),
-  ).length
-  const allCorrelatedSamples = input.correlationSamples.length > 0
-    && correlatedP9Timeouts === input.correlationSamples.length
-  const backendWatcherOnMountedDrive = Boolean(
-    input.backendCandidate?.args.includes('tsx watch server/index.ts')
-    && (input.backendCwd?.startsWith('/mnt/') || input.workspaceMount.fstype === '9p'),
-  )
-  const backendPollingEnabled = input.backendEnv.CHOKIDAR_USEPOLLING === '1'
-  const backendVmRssKb = input.backendMemory?.vmRssKb ?? 0
-  const backendVmHwmKb = input.backendMemory?.vmHwmKb ?? 0
-  const backendCpuPercent = input.backendCandidate?.pcpu ?? 0
-  const runningNonIoBlockedSamples = input.correlationSamples.filter((sample) =>
-    (sample.processStat?.includes('R') ?? false)
-    && !(sample.processWchan?.includes('p9_client_rpc') ?? false),
-  ).length
-  const minimalBashStartupMs = input.shellLatencyBaselines.find(
-    (baseline) => baseline.label === 'bash --noprofile --norc -c true',
-  )?.result.durationMs
-  const loginBashStartupMs = input.shellLatencyBaselines.find(
-    (baseline) => baseline.label === 'bash -lc true',
-  )?.result.durationMs
-  const backendActivity = input.processActivities.find((sample) => sample.label === 'backend')
-  const frontendActivity = input.processActivities.find((sample) => sample.label === 'frontend')
-  const opencodeActivity = input.processActivities.find((sample) => sample.label === 'opencode')
-  const topCpuProcess = input.systemActivity.topCpu[0]
-  const topReadProcess = input.systemActivity.topReadBytes[0]
-  const topWriteProcess = input.systemActivity.topWriteBytes[0]
-  const trendSamples = input.runtimeTrend.enabled ? input.runtimeTrend.samples : []
-  const slowTrendTickets = trendSamples.filter((sample) => !sample.tickets.ok || sample.tickets.durationMs >= 750)
-  const slowTrendHealth = trendSamples.filter((sample) => !sample.health.ok || sample.health.durationMs >= 750)
-  const maxTrendProcessCpu = trendSamples
-    .flatMap((sample) => sample.processActivities)
-    .filter((sample) => sample.cpuPercent !== null)
-    .sort((left, right) => (right.cpuPercent ?? -Infinity) - (left.cpuPercent ?? -Infinity))[0]
-  const maxTrendFileGrowth = trendSamples
-    .flatMap((sample) => sample.files)
-    .filter((sample) => (sample.sizeDeltaBytes ?? 0) > 0)
-    .sort((left, right) => (right.sizeDeltaBytes ?? 0) - (left.sizeDeltaBytes ?? 0))[0]
-  const maxTrendWrite = trendSamples
-    .flatMap((sample) => sample.systemActivity.topWriteBytes)
-    .filter((usage) => (usage.writeBytesDelta ?? 0) > 0)
-    .sort((left, right) => (right.writeBytesDelta ?? 0) - (left.writeBytesDelta ?? 0))[0]
-  const trendPressureSpikes = trendSamples.filter((sample) =>
-    (sample.pressureDelta.ioSomeUs ?? 0) >= 50_000
-    || (sample.pressureDelta.ioFullUs ?? 0) >= 10_000
-    || (sample.pressureDelta.memorySomeUs ?? 0) >= 50_000
-    || (sample.pressureDelta.cpuSomeUs ?? 0) >= 100_000,
-  )
-
-  if (input.backendPid === null) {
-    messages.push('🚨 CRITICAL: No backend listener was found on the configured backend port. The app is likely offline.')
-  }
-
-  if (input.diskWriteLatency.durationMs > 500) {
-    messages.push(`🚨 CRITICAL: Extremely slow disk write latency (${input.diskWriteLatency.durationMs}ms for 64KB). This will cause massive stalls in all file operations.`)
-  } else if (input.diskWriteLatency.durationMs > 100) {
-    messages.push(`⚠️ WARNING: Elevated disk write latency (${input.diskWriteLatency.durationMs}ms for 64KB). File-heavy operations like Git or SQLite WAL will be slow.`)
-  }
-
-  if (input.uvThreadpoolSize !== null && input.uvThreadpoolSize <= 4) {
-    messages.push(`🔵 INFO: UV_THREADPOOL_SIZE is at default (4). Increasing this (e.g., to 16 or 32) can improve performance if many concurrent I/O or SQLite tasks are active.`)
-  }
-
-  if (input.gitIndexSizeBytes && input.gitIndexSizeBytes > 10 * 1024 * 1024) {
-    messages.push(`⚠️ WARNING: Large Git index detected (${formatBytes(input.gitIndexSizeBytes)}). This can make git status calls expensive and slow down the UI refresh.`)
-  }
-
-  const competitors = input.systemActivity.topCpu.filter(p => !p.command.includes('node') && !p.command.includes('tsx') && !p.command.includes('opencode') && (p.cpuPercent ?? 0) > 30)
-  if (competitors.length > 0) {
-    messages.push(`⚠️ WARNING: Non-LoopTroop processes are consuming significant CPU: ${competitors.map(p => `${p.command} (${p.cpuPercent?.toFixed(1)}%)`).join(', ')}`)
-  }
-
-  if (input.backendPid === null && input.backendCandidate) {
-    messages.push(`A backend candidate process was still alive (pid=${input.backendCandidate.pid}, args=${input.backendCandidate.args}). That usually means the watch wrapper survived after the actual backend server stopped listening or crashed.`)
-  }
-
-  if (input.attachedProjects.length === 0) {
-    messages.push('No attached projects were found in the app DB. In that state, the UI would legitimately show no tickets.')
-  }
-
-  if (missingProjectPaths.length > 0) {
-    messages.push(`The app DB still contains attached project path(s) that no longer exist on disk (${missingProjectPaths.map((project) => project.folderPath).join(', ')}). That stale attachment state should be cleaned up because it can make the UI look inconsistent after refresh.`)
-  }
-
-  if (input.backendPid !== null && backendTimedOut && hasTicketDataOnDisk) {
-    messages.push('The backend process was alive, but even /api/health timed out while project DBs still contained tickets. That strongly suggests a backend stall rather than ticket loss.')
-  }
-
-  if (input.backendPid !== null && ticketsTimedOut && hasTicketDataOnDisk) {
-    messages.push('The UI would likely appear empty on refresh in this state, because /api/tickets could not answer even though tickets still existed on disk.')
-  }
-
-  if (onMountedDrive) {
-    messages.push('At least one attached project lives under /mnt/. Even when the app is healthy, that keeps WSL mounted-drive latency in play as a recurring risk factor for future stalls.')
-  }
-
-  if (backendWatcherOnMountedDrive && backendPollingEnabled) {
-    messages.push('The backend is being watched via tsx/chokidar polling on a mounted-drive path under /mnt/. That combination is expensive in WSL and can turn normal file activity into high CPU, latency spikes, or apparent hangs.')
-  }
-
-  if (input.workspaceMount.fstype === '9p') {
-    messages.push('The current LoopTroop workspace itself is running from a 9p-mounted path. Even before attached projects are considered, the dev watcher stack is paying WSL mounted-drive penalties here.')
-  }
-
-  if (mountedVia9p) {
-    messages.push('At least one attached project is mounted through a 9p filesystem. That is the typical WSL bridge for Windows drives and is a frequent cause of metadata-heavy stalls.')
-  }
-
-  if (hasP9Wait && onMountedDrive) {
-    messages.push('The backend thread list included p9_client_rpc while at least one attached project lives under /mnt/. That is a strong signal of WSL mounted-drive I/O blocking the Node process.')
-  }
-
-  if (allCorrelatedSamples) {
-    messages.push('Every correlation sample that checked the backend during this snapshot saw API failure together with p9_client_rpc. That is very strong evidence that the outage is directly tied to the mounted-drive path layer.')
-  } else if (correlatedP9Timeouts > 0) {
-    messages.push(`Some correlation samples (${correlatedP9Timeouts}/${input.correlationSamples.length}) saw API failure at the same time as p9_client_rpc. That materially increases confidence that the mounted-drive layer is the blocker, not a random unrelated slowdown.`)
-  }
-
-  if (totalActiveSessions > 0) {
-    messages.push(`There were ${totalActiveSessions} active OpenCode session(s). Heavy active workflow phases can increase the chance of a temporary stall becoming user-visible.`)
-  }
-
-  if ((backendActivity?.cpuPercent ?? 0) >= 80) {
-    messages.push(`During the ${backendActivity?.durationMs}ms process sample, the backend used ${formatPercent(backendActivity?.cpuPercent)} CPU. That points to backend event-loop work or synchronous processing as a direct contributor.`)
-  }
-
-  if ((frontendActivity?.cpuPercent ?? 0) >= 80) {
-    messages.push(`During the ${frontendActivity?.durationMs}ms process sample, the frontend dev server used ${formatPercent(frontendActivity?.cpuPercent)} CPU. That can make Vite/HMR and page refreshes feel slow even when backend APIs answer.`)
-  }
-
-  if ((opencodeActivity?.cpuPercent ?? 0) >= 50) {
-    messages.push(`During the ${opencodeActivity?.durationMs}ms process sample, OpenCode used ${formatPercent(opencodeActivity?.cpuPercent)} CPU. Active model/session work can compete with the app for local CPU.`)
-  }
-
-  if (slowTrendTickets.length > 0) {
-    const worst = slowTrendTickets
-      .slice()
-      .sort((left, right) => right.tickets.durationMs - left.tickets.durationMs)[0]
-    messages.push(`During the runtime observation window, /api/tickets was slow or failed in ${slowTrendTickets.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.tickets.durationMs)} status=${worst.tickets.status ?? 'n/a'} error=${worst.tickets.error ?? 'n/a'}. This is the strongest report-local signal that the UI slowdown was visible at the ticket-list API layer.`)
-  }
-
-  if (slowTrendHealth.length > 0) {
-    const worst = slowTrendHealth
-      .slice()
-      .sort((left, right) => right.health.durationMs - left.health.durationMs)[0]
-    messages.push(`During the runtime observation window, backend health was slow or failed in ${slowTrendHealth.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.health.durationMs)} status=${worst.health.status ?? 'n/a'} error=${worst.health.error ?? 'n/a'}. That points to a broader backend stall rather than only a heavy ticket query.`)
-  }
-
-  if ((maxTrendProcessCpu?.cpuPercent ?? 0) >= 80) {
-    messages.push(`The runtime observation window caught a watched process CPU spike: ${maxTrendProcessCpu?.label} pid=${maxTrendProcessCpu?.pid ?? 'n/a'} at ${formatPercent(maxTrendProcessCpu?.cpuPercent)}. Check the per-sample trend lines to see whether the spike lines up with API latency.`)
-  }
-
-  if ((maxTrendFileGrowth?.sizeDeltaBytes ?? 0) >= 1024 * 1024) {
-    messages.push(`A watched file grew by ${formatBytes(maxTrendFileGrowth?.sizeDeltaBytes)} inside one trend interval (${maxTrendFileGrowth?.label}). If this is an execution log or WAL, the app may be paying for fast-growing persisted runtime state during refresh.`)
-  }
-
-  if ((maxTrendWrite?.writeBytesDelta ?? 0) >= 10 * 1024 * 1024) {
-    messages.push(`The runtime observation window caught a whole-system write spike of ${formatBytes(maxTrendWrite?.writeBytesDelta)} from pid=${maxTrendWrite?.pid}: ${maxTrendWrite?.command}. That helps identify whether LoopTroop or another local process was competing for storage.`)
-  }
-
-  if (trendPressureSpikes.length > 0) {
-    messages.push(`Linux pressure-stall counters moved during ${trendPressureSpikes.length}/${trendSamples.length} trend sample(s). If API latency rose in the same samples, the slowdown likely involved scheduler, memory, or I/O pressure rather than just application code.`)
-  }
-
-  if ((backendActivity?.readBytesDelta ?? 0) + (backendActivity?.writeBytesDelta ?? 0) >= 10 * 1024 * 1024) {
-    messages.push(`During the process sample, the backend performed ${formatBytes((backendActivity?.readBytesDelta ?? 0) + (backendActivity?.writeBytesDelta ?? 0))} of direct disk I/O. If API latency rose at the same time, storage work is a likely contributor.`)
-  }
-
-  if ((backendActivity?.fdCount ?? 0) >= 1024) {
-    messages.push(`The backend had ${backendActivity?.fdCount} open file descriptors during the activity sample. That is high enough to check for watcher/socket/file leaks if it keeps growing across runs.`)
-  }
-
-  if (backendVmRssKb >= 1_250_000 || backendVmHwmKb >= 1_500_000) {
-    messages.push(`The backend candidate process had high resident/high-water memory (VmRSS=${backendVmRssKb} KB, VmHWM=${backendVmHwmKb} KB). That is consistent with a Node heap-growth problem rather than a pure network outage.`)
-  }
-
-  if (!backendTimedOut && opencodeTimedOut) {
-    messages.push('The backend answered, but /api/health/opencode timed out. OpenCode itself may have been slow or unreachable even if the backend was otherwise up.')
-  }
-
-  if (!backendTimedOut && input.frontendProbe.error?.includes('timed out')) {
-    messages.push('The frontend probe timed out while the backend answered. That points to a slower dev UI at that moment, but it would not by itself explain tickets disappearing after refresh.')
-  }
-
-  if (directDbReadable && input.backendPid !== null && backendTimedOut) {
-    messages.push('A fresh process could still read the project DB directly while the backend timed out. That points away from permanent SQLite corruption and toward the backend event loop or mounted-drive I/O being blocked.')
-  }
-
-  if (
-    directDbReadable
-    && input.backendPid !== null
-    && backendTimedOut
-    && (backendCpuPercent >= 70 || runningNonIoBlockedSamples > 0)
-  ) {
-    messages.push(`The backend timed out while direct DB reads still worked and the Node process looked CPU-busy (pcpu=${backendCpuPercent}, running_samples=${runningNonIoBlockedSamples}/${input.correlationSamples.length}). That pattern is consistent with an event-loop hot loop or recursive internal work, not missing tickets or broken SQLite state.`)
-  }
-
-  if (someProjectDbWasSlow) {
-    messages.push('Direct project DB inspection was slower than usual. If this correlates with a stall, it is another hint that filesystem or mounted-drive latency is part of the problem.')
-  }
-
-  if (slowFsProbe) {
-    messages.push('At least one direct filesystem probe on the project path was slow. That supports the theory that path-level file access latency, not just HTTP or SQLite, contributed to the stall.')
-  }
-
-  if (ioPressureSome >= 0.5 || ioPressureFull >= 0.1) {
-    messages.push(`System I/O pressure was elevated (io.some.avg10=${ioPressureSome}, io.full.avg10=${ioPressureFull}). That means the whole environment was experiencing measurable I/O stall pressure during the snapshot.`)
-  }
-
-  if (lowDiskProjects.length > 0) {
-    messages.push(`One or more project filesystems were almost full (${lowDiskProjects.map((project) => `${project.folderPath}=${project.diskUsage.usePercent}%`).join(', ')}). Low free space can amplify SQLite and WAL latency.`)
-  }
-
-  if (lowInodeProjects.length > 0) {
-    messages.push(`One or more project filesystems were nearly out of inodes (${lowInodeProjects.map((project) => `${project.folderPath}=${project.inodeUsage.usePercent}%`).join(', ')}). Inode pressure can also create pathological slowdowns.`)
-  }
-
-  if (input.backendIo && !input.backendIo.error) {
-    const writeBytes = input.backendIo.values.write_bytes ?? 0
-    const readBytes = input.backendIo.values.read_bytes ?? 0
-    if (writeBytes > 50_000_000 || readBytes > 50_000_000) {
-      messages.push(`The backend process had already accumulated substantial direct disk I/O (read_bytes=${readBytes}, write_bytes=${writeBytes}). This does not prove a stall by itself, but it shows the backend is doing non-trivial storage work.`)
-    }
-  }
-
-  if (missingBaseBranch > 0) {
-    messages.push(`${missingBaseBranch} ticket meta file(s) were missing baseBranch data. When that happens, LoopTroop may do extra git base-branch detection work during ticket reads.`)
-  }
-
-  if ((topCpuProcess?.cpuPercent ?? 0) >= 50) {
-    messages.push(`The top whole-system CPU consumer during the sample was pid=${topCpuProcess?.pid} at ${formatPercent(topCpuProcess?.cpuPercent)}: ${topCpuProcess?.command}. This helps separate LoopTroop slowness from other local workload.`)
-  }
-
-  if ((topReadProcess?.readBytesDelta ?? 0) >= 10 * 1024 * 1024) {
-    messages.push(`The top whole-system read I/O consumer during the sample was pid=${topReadProcess?.pid}, reading ${formatBytes(topReadProcess?.readBytesDelta)}: ${topReadProcess?.command}.`)
-  }
-
-  if ((topWriteProcess?.writeBytesDelta ?? 0) >= 10 * 1024 * 1024) {
-    messages.push(`The top whole-system write I/O consumer during the sample was pid=${topWriteProcess?.pid}, writing ${formatBytes(topWriteProcess?.writeBytesDelta)}: ${topWriteProcess?.command}.`)
-  }
-
-  if (
-    loginBashStartupMs !== undefined
-    && loginBashStartupMs >= 250
-    && (minimalBashStartupMs === undefined || minimalBashStartupMs * 3 < loginBashStartupMs)
-  ) {
-    messages.push(`Login-shell startup is slow (bash -lc true took ${loginBashStartupMs}ms). If older reports show shell command durations around this size while Git Trace2 or direct probes are fast, that latency is shell initialization overhead, not app/file-system work.`)
-  }
-
-  if (input.eventLoopLagMs > 200) {
-    messages.push(`The diagnostic script itself measured a Node.js event-loop lag of ${input.eventLoopLagMs}ms. That indicates the Node process (or the machine) is overloaded enough that even setTimeout/setImmediate delivery is delayed.`)
-  } else if (input.eventLoopLagMs > 50) {
-    messages.push(`Moderate event-loop lag (${input.eventLoopLagMs}ms) was observed during the diagnostic run. If this matches symptom timing, Node is competing for CPU or doing heavy synchronous work.`)
-  }
-
-  if (!input.dnsProbe.ok) {
-    messages.push(`DNS resolution of 'localhost' failed (${input.dnsProbe.error}). That could prevent the backend, frontend, and OpenCode from finding each other on the loopback interface—especially after WSL network resets.`)
-  }
-
-  if (input.fdLimits.soft !== null && (input.backendMemory?.fdSize ?? 0) > 0) {
-    const ratio = (input.backendMemory?.fdSize ?? 0) / input.fdLimits.soft
-    if (ratio >= 0.9) {
-      messages.push(`The backend is using ${input.backendMemory?.fdSize} file descriptors against a soft limit of ${input.fdLimits.soft} (${(ratio * 100).toFixed(0)}%). Approaching this limit causes EMFILE errors and can stall all I/O.`)
-    } else if (ratio >= 0.7) {
-      messages.push(`The backend has ${input.backendMemory?.fdSize} open file descriptors with a soft limit of ${input.fdLimits.soft}. Worth monitoring—it could become a problem if the count grows.`)
-    }
-  }
-
-  if (input.tcpStats.timeWait > 1000) {
-    messages.push(`There were ${input.tcpStats.timeWait} TCP connections in TIME_WAIT state. Extreme TIME_WAIT accumulation can exhaust local port range and block new connections.`)
-  }
-
-  if (input.zombieCount > 0) {
-    messages.push(`${input.zombieCount} zombie process(es) detected. While zombies consume little, they indicate a parent process is not reaping children—often a sign of an unhealthy process tree around the app.`)
-  }
-
-  const swapPercent = input.swap.usePercent ?? 0
-  if (swapPercent >= 80) {
-    messages.push(`Swap usage is at ${swapPercent}%. Heavy swap activity dramatically increases I/O latency across all subsystems and is a common cause of intermittent stalls.`)
-  } else if (swapPercent >= 50) {
-    messages.push(`Swap is ${swapPercent}% used. If the app is stalling intermittently, this is worth watching—swap growth under memory pressure can compound into I/O stalls.`)
-  }
-
-  if (input.walSizeBytes >= 50 * 1024 * 1024) {
-    messages.push(`A project WAL file is ${formatBytes(input.walSizeBytes)} — very large. An uncheckpointed WAL of this size forces SQLite to scan the whole file on each read, multiplying query latency.`)
-  } else if (input.walSizeBytes >= 10 * 1024 * 1024) {
-    messages.push(`A project WAL file is ${formatBytes(input.walSizeBytes)}. SQLite reads become slower as the WAL grows. A checkpoint may be overdue.`)
-  }
-
-  if (input.appDbWalSizeBytes >= 10 * 1024 * 1024) {
-    messages.push(`The app DB WAL file is ${formatBytes(input.appDbWalSizeBytes)}. That can slow every attached-project query the backend makes during a refresh.`)
-  }
-
-  if (messages.length === 0) {
-    messages.push('No single smoking gun was found. The report still captures process, DB, and network state so you can compare it against a healthy run.')
-  }
-
-  return messages
 }
 
 async function main() {
@@ -3645,9 +3144,6 @@ async function main() {
     }),
     measureDiskWriteLatency(process.cwd()),
   ]
-  const diskWriteLatency = appDbLatency[appDbLatency.length - 1] as FsLatencyProbe
-  const gitIndexPath = resolve(process.cwd(), '.git', 'index')
-  const gitIndexSizeBytes = existsSync(gitIndexPath) ? statSync(gitIndexPath).size : null
   const appDbInspection = inspectAppDatabase(appDbPath)
   const projectSnapshots = appDbInspection.attachedProjects.map(inspectProjectDatabase)
 
@@ -3669,7 +3165,7 @@ async function main() {
   const projectsProbe = await probeHttp('projects list', projectsUrl, timeoutMs)
   const ticketsProbe = await probeHttp('tickets list', ticketsUrl, timeoutMs)
   const opencodeProbe = await probeHttp('backend OpenCode health', opencodeHealthUrl, timeoutMs)
-  const correlationSamples = await sampleRuntimeCorrelation({
+  const repeatedBackendSamples = await sampleRepeatedBackendProbes({
     backendPid: backendInspectPid,
     backendHealthUrl,
     ticketsUrl,
@@ -3693,20 +3189,6 @@ async function main() {
     sampleProcessActivities(watchedProcessTargets, sampleMs),
     sampleSystemProcessActivity(sampleMs),
   ])
-
-  // Quick Summary (shown after all data is collected)
-  printQuickSummary({
-    backendPid,
-    frontendPid,
-    opencodePid,
-    healthProbe,
-    frontendProbe,
-    opencodeProbe,
-    ioPressure,
-    workspaceDiskUsage,
-    platform,
-    eventLoopLagMs,
-  })
 
   banner('🔍  ENVIRONMENT & CONFIGURATION')
   heading('Resolved Runtime Configuration')
@@ -3764,8 +3246,8 @@ async function main() {
   printHttpProbe(ticketsProbe)
   printHttpProbe(opencodeProbe)
 
-  banner('🔁  STALL CORRELATION SAMPLES')
-  printCorrelationSamples('Backend Stall Correlation Samples', correlationSamples)
+  banner('🔁  REPEATED RUNTIME SAMPLES')
+  printRepeatedBackendSamples('Backend Repeated Probe Samples', repeatedBackendSamples)
   printRuntimeTrendReport('Runtime Observation Trend', runtimeTrend)
 
   banner('⚙️   APPLICATION PROCESS ACTIVITY')
@@ -3916,59 +3398,9 @@ async function main() {
 
   printAdvancedDiagnostics({ eventLoopLagMs, dnsProbe, fdLimits, tcpStats, zombieCount, heap, swap, macosMetrics })
 
-  const walSizeBytes = projectSnapshots.reduce((max, project) => {
-    const walPath = `${project.projectDbPath}-wal`
-    try { return Math.max(max, existsSync(walPath) ? statSync(walPath).size : 0) } catch { return max }
-  }, 0)
-  const appDbWalPath = `${appDbPath}-wal`
-  const appDbWalSizeBytes = (() => {
-    try { return existsSync(appDbWalPath) ? statSync(appDbWalPath).size : 0 } catch { return 0 }
-  })()
-
-  const uvThreadpoolSize = backendEnv.UV_THREADPOOL_SIZE ? Number(backendEnv.UV_THREADPOOL_SIZE) : null
-
-  const heuristics = buildHeuristics({
-    backendPid,
-    backendInspectPid,
-    backendCandidate,
-    backendMemory: backendMemorySnapshot,
-    backendCwd,
-    backendEnv,
-    backendThreadDump: backendInspectPid ? runShell(`ps -L -p ${backendInspectPid} -o pid,tid,pcpu,stat,wchan:32,comm`, 5000).stdout : '',
-    frontendProbe,
-    healthProbe,
-    ticketsProbe,
-    opencodeProbe,
-    attachedProjects: appDbInspection.attachedProjects,
-    projectSnapshots,
-    ioPressure,
-    backendIo: backendInspectPid ? readProcessIo(backendInspectPid) : null,
-    correlationSamples,
-    workspaceMount,
-    shellLatencyBaselines,
-    processActivities,
-    systemActivity,
-    runtimeTrend,
-    eventLoopLagMs,
-    fdLimits,
-    tcpStats,
-    zombieCount,
-    swap,
-    dnsProbe,
-    walSizeBytes,
-    appDbWalSizeBytes,
-    diskWriteLatency,
-    uvThreadpoolSize,
-    gitIndexSizeBytes,
-  })
-
-  printRiskAssessment(heuristics)
-
   heading('Report Saved')
   kv('Path', reportPath)
   kv('Finished at', new Date().toISOString())
-  print()
-  print('Run this again during the next outage and compare the "Likely Causes" plus the backend candidate/memory/thread sections.')
 
   mkdirSync(reportDir, { recursive: true })
   writeFileSync(reportPath, `${reportLines.join('\n')}\n`, 'utf8')

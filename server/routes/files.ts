@@ -73,6 +73,30 @@ function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
   }
 }
 
+function getEntryPhaseAttempt(entry: Record<string, unknown>): number | null {
+  const phaseAttempt = typeof entry.phaseAttempt === 'number' && Number.isFinite(entry.phaseAttempt)
+    ? entry.phaseAttempt
+    : Number(entry.phaseAttempt)
+  return Number.isFinite(phaseAttempt) ? phaseAttempt : null
+}
+
+function logEntryMatchesFilters(
+  entry: Record<string, unknown>,
+  filters: {
+    status?: string
+    phase?: string
+    phaseAttempt?: number
+  },
+): boolean {
+  if (filters.status && entry.status !== filters.status) return false
+  if (filters.phase && entry.phase !== filters.phase) return false
+  if (typeof filters.phaseAttempt === 'number' && Number.isFinite(filters.phaseAttempt)) {
+    const entryPhaseAttempt = getEntryPhaseAttempt(entry)
+    if (!Number.isFinite(entryPhaseAttempt) || entryPhaseAttempt !== filters.phaseAttempt) return false
+  }
+  return true
+}
+
 filesRouter.get('/files/:ticketId/logs', async (c) => {
   const ticketId = c.req.param('ticketId')
   const ticket = getTicketByRef(ticketId)
@@ -83,6 +107,15 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
   const channel = c.req.query('channel')
   const logPath = channel === 'debug' ? paths.debugLogPath : paths.executionLogPath
   if (!fs.existsSync(logPath)) return c.json([])
+  const statusFilter = c.req.query('status')
+  const phaseFilter = c.req.query('phase')
+  const phaseAttemptFilterRaw = c.req.query('phaseAttempt')
+  const phaseAttemptFilter = phaseAttemptFilterRaw != null ? Number(phaseAttemptFilterRaw) : undefined
+  const filters = {
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(phaseFilter ? { phase: phaseFilter } : {}),
+    ...(typeof phaseAttemptFilter === 'number' && Number.isFinite(phaseAttemptFilter) ? { phaseAttempt: phaseAttemptFilter } : {}),
+  }
 
   const entries: Record<string, unknown>[] = []
   const rl = readline.createInterface({
@@ -93,7 +126,7 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
     if (!line.trim()) continue
     try {
       const normalized = normalizeLogEntry(JSON.parse(line))
-      if (normalized) entries.push(normalized)
+      if (normalized && logEntryMatchesFilters(normalized, filters)) entries.push(normalized)
     } catch {
       // Skip malformed lines.
     }
@@ -108,13 +141,19 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
 
   const isDebugChannel = channel === 'debug'
   const hasCurrentStatusEntry = foldedEntries.some(entry => entry.status === ticket.status)
-  if (!isDebugChannel && !hasCurrentStatusEntry) {
+  const currentPhaseAttempt = !isDebugChannel && !hasCurrentStatusEntry ? resolvePhaseAttempt(ticketId, ticket.status) : null
+  const syntheticMatchesFilters = logEntryMatchesFilters({
+    phase: ticket.status,
+    phaseAttempt: currentPhaseAttempt ?? 1,
+    status: ticket.status,
+  }, filters)
+  if (!isDebugChannel && !hasCurrentStatusEntry && syntheticMatchesFilters) {
     const nowIso = new Date().toISOString()
     foldedEntries.push({
       timestamp: ticket.updatedAt ?? nowIso,
       type: 'info',
       phase: ticket.status,
-      phaseAttempt: resolvePhaseAttempt(ticketId, ticket.status),
+      phaseAttempt: currentPhaseAttempt ?? 1,
       status: ticket.status,
       source: 'system',
       message: `[SYS] Status ${ticket.status} is active. Older runs may not have generated status-scoped logs yet.`,
@@ -125,24 +164,7 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
       op: 'append',
     })
   }
-
-  const statusFilter = c.req.query('status')
-  const phaseFilter = c.req.query('phase')
-  const phaseAttemptFilterRaw = c.req.query('phaseAttempt')
-  const phaseAttemptFilter = phaseAttemptFilterRaw != null ? Number(phaseAttemptFilterRaw) : Number.NaN
-  const filtered = foldedEntries.filter((entry) => {
-    if (statusFilter && entry.status !== statusFilter) return false
-    if (phaseFilter && entry.phase !== phaseFilter) return false
-    if (Number.isFinite(phaseAttemptFilter)) {
-      const entryPhaseAttempt = typeof entry.phaseAttempt === 'number' && Number.isFinite(entry.phaseAttempt)
-        ? entry.phaseAttempt
-        : Number(entry.phaseAttempt)
-      if (!Number.isFinite(entryPhaseAttempt) || entryPhaseAttempt !== phaseAttemptFilter) return false
-    }
-    return true
-  })
-
-  return c.json(filtered)
+  return c.json(foldedEntries)
 })
 
 filesRouter.get('/files/:ticketId/:file', (c) => {

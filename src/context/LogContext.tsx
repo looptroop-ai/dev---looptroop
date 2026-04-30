@@ -14,6 +14,7 @@ import {
   normalizeLogRecord,
   normalizeStoredEntry,
   isDebugLogEntry,
+  hasPersistableLogEntries,
   compareTimestamps,
   mergeEntry,
   persistLogs,
@@ -29,6 +30,8 @@ interface LogProviderProps {
   fullLogOpen?: boolean
   children: ReactNode
 }
+
+const LOG_FLUSH_DELAY_MS = 200
 
 function normalizeScope(scope: ServerLogScope = {}): ServerLogScope {
   const normalized: ServerLogScope = {
@@ -114,6 +117,7 @@ export function LogProvider({
         try {
           const snapshot: Record<string, LogEntry[]> = {}
           for (const [status, entries] of Object.entries(pending)) {
+            if (!hasPersistableLogEntries(entries)) continue
             const storageKey = `${LOG_STORAGE_PREFIX}${ticketId}-${status}`
             let bucket: LogEntry[] = []
             try {
@@ -125,7 +129,9 @@ export function LogProvider({
             }
             snapshot[status] = bucket
           }
-          persistLogs(ticketId, snapshot)
+          if (Object.keys(snapshot).length > 0) {
+            persistLogs(ticketId, snapshot)
+          }
         } catch { /* best-effort */ }
       }
     }
@@ -141,26 +147,29 @@ export function LogProvider({
     if (Object.keys(pending).length === 0) return
 
     pendingLogsRef.current = {}
+    const shouldPersist = Object.values(pending).some(hasPersistableLogEntries)
 
-    setLogsByPhase(prev => {
-      const merged = { ...prev }
-      let hasChanges = false
-      for (const [status, entries] of Object.entries(pending)) {
-        if (entries.length > 0) {
-          hasChanges = true
-          let bucket = merged[status] ?? []
-          for (const entry of entries) {
-            bucket = mergeEntry(bucket, entry)
+    startTransition(() => {
+      setLogsByPhase(prev => {
+        const merged = { ...prev }
+        let hasChanges = false
+        for (const [status, entries] of Object.entries(pending)) {
+          if (entries.length > 0) {
+            hasChanges = true
+            let bucket = merged[status] ?? []
+            for (const entry of entries) {
+              bucket = mergeEntry(bucket, entry)
+            }
+            merged[status] = bucket
           }
-          merged[status] = bucket
         }
-      }
 
-      if (hasChanges) {
-        persistLogs(ticketId, merged)
-        return merged
-      }
-      return prev
+        if (hasChanges) {
+          if (shouldPersist) persistLogs(ticketId, merged)
+          return merged
+        }
+        return prev
+      })
     })
   }, [ticketId])
 
@@ -355,7 +364,7 @@ export function LogProvider({
     pendingLogsRef.current[entry.status] = bucket
 
     if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = setTimeout(flushPendingLogs, 0)
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, LOG_FLUSH_DELAY_MS)
     }
   }, [flushPendingLogs])
 
@@ -368,7 +377,7 @@ export function LogProvider({
     pendingLogsRef.current[entry.status] = bucket
 
     if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = setTimeout(flushPendingLogs, 0)
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, LOG_FLUSH_DELAY_MS)
     }
   }, [flushPendingLogs])
 
