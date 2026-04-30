@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { QUERY_STALE_TIME_5M } from '@/lib/constants'
 import { YamlEditor } from '@/components/editor/YamlEditor'
-import { CheckCircle2 } from 'lucide-react'
+import { Archive, CheckCircle2 } from 'lucide-react'
 import { CollapsiblePhaseLogSection } from './CollapsiblePhaseLogSection'
 import { ArtifactContent } from './ArtifactContentViewer'
 import { PhaseArtifactsPanel } from './PhaseArtifactsPanel'
 import { clearTicketArtifactsCache, useTicketArtifacts } from '@/hooks/useTicketArtifacts'
+import { getTicketPhaseAttemptsQueryKey } from '@/hooks/useTicketPhaseAttempts'
 import { useSaveTicketUIState, useTicketUIState, type Ticket } from '@/hooks/useTickets'
 import { parseExecutionSetupPlanReport } from './phaseArtifactTypes'
 import {
@@ -72,17 +73,7 @@ function formatReviewTimestamp(value?: string | null): string | null {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
 }
 
-function ApprovedSetupPlanBanner({
-  receipt,
-  updatedAt,
-  reportContent,
-}: {
-  receipt: ExecutionSetupApprovalReceipt | null
-  updatedAt?: string | null
-  reportContent?: string | null
-}) {
-  const approvedAtLabel = formatReviewTimestamp(receipt?.approved_at)
-  const updatedAtLabel = formatReviewTimestamp(updatedAt)
+function buildSetupPlanSourceChips(updatedAt?: string | null, reportContent?: string | null): string[] {
   const report = reportContent ? parseExecutionSetupPlanReport(reportContent) : null
   const updatedAtMs = updatedAt ? Date.parse(updatedAt) : Number.NaN
   const generatedAtMs = report?.generatedAt ? Date.parse(report.generatedAt) : Number.NaN
@@ -99,12 +90,54 @@ function ApprovedSetupPlanBanner({
           : null,
     editedAfterGeneration ? 'Edited before approval' : null,
   ].filter((item): item is string => Boolean(item))
+  return sourceChips
+}
+
+function getSetupPlanRegenerateNotes(reportContent?: string | null): string[] {
+  const report = reportContent ? parseExecutionSetupPlanReport(reportContent) : null
+  if (report?.source !== 'regenerate') return []
+  return (report.notes ?? []).filter((note) => note.trim().length > 0)
+}
+
+function RegenerateCommentaryPanel({ notes }: { notes: string[] }) {
+  if (notes.length === 0) return null
+
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50/80 px-3 py-3 text-blue-950 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-100">
+      <div className="text-xs font-semibold uppercase tracking-wider text-blue-900/70 dark:text-blue-200/80">
+        Regeneration Request
+      </div>
+      <div className="mt-2 space-y-2">
+        {notes.map((note, index) => (
+          <div
+            key={`${index}:${note}`}
+            className="rounded-md border border-blue-200/70 bg-background/75 px-3 py-2 text-xs leading-5 text-foreground dark:border-blue-900/50"
+          >
+            {note}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ApprovedSetupPlanBanner({
+  receipt,
+  updatedAt,
+  reportContent,
+}: {
+  receipt: ExecutionSetupApprovalReceipt | null
+  updatedAt?: string | null
+  reportContent?: string | null
+}) {
+  const approvedAtLabel = formatReviewTimestamp(receipt?.approved_at)
+  const updatedAtLabel = formatReviewTimestamp(updatedAt)
   const detailChips = [
     receipt?.approved_by ? `Approved by ${receipt.approved_by}` : 'Approved',
     approvedAtLabel ? `Approved at ${approvedAtLabel}` : null,
     typeof receipt?.step_count === 'number' ? `${receipt.step_count} step${receipt.step_count === 1 ? '' : 's'}` : null,
     typeof receipt?.command_count === 'number' ? `${receipt.command_count} command${receipt.command_count === 1 ? '' : 's'}` : null,
-    ...sourceChips,
+    ...buildSetupPlanSourceChips(updatedAt, reportContent),
     updatedAtLabel ? `Saved at ${updatedAtLabel}` : null,
   ].filter((item): item is string => Boolean(item))
 
@@ -132,12 +165,53 @@ function ApprovedSetupPlanBanner({
   )
 }
 
+function RejectedSetupPlanDraftBanner({
+  updatedAt,
+  reportContent,
+}: {
+  updatedAt?: string | null
+  reportContent?: string | null
+}) {
+  const updatedAtLabel = formatReviewTimestamp(updatedAt)
+  const detailChips = [
+    'Rejected draft',
+    ...buildSetupPlanSourceChips(updatedAt, reportContent),
+    updatedAtLabel ? `Saved at ${updatedAtLabel}` : null,
+  ].filter((item): item is string => Boolean(item))
+
+  return (
+    <div className="rounded-md border border-amber-300/70 bg-amber-50/80 px-3 py-3 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+      <div className="flex items-start gap-2">
+        <Archive className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">Rejected setup draft</div>
+          <div className="mt-1 text-xs leading-5">
+            This draft was replaced by a later regeneration. It was not handed to Preparing Workspace Runtime and is locked here for review only.
+          </div>
+          {detailChips.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {detailChips.map((chip) => (
+                <span key={chip} className="rounded-full border border-amber-300/70 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-foreground dark:border-amber-900/60">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false, phaseAttempt }: { ticket: Ticket; readOnly?: boolean; phaseAttempt?: number }) {
   const queryClient = useQueryClient()
   const { mutateAsync: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_execution_setup'
   const { data: persistedUiState } = useTicketUIState<ExecutionSetupPlanApprovalUiState>(ticket.id, uiStateScope, true)
-  const { artifacts } = useTicketArtifacts(ticket.id)
+  const isArchivedAttempt = phaseAttempt != null
+  const { artifacts } = useTicketArtifacts(ticket.id, isArchivedAttempt
+    ? { phase: 'WAITING_EXECUTION_SETUP_APPROVAL', phaseAttempt }
+    : undefined)
   const planQueryKey = phaseAttempt != null
     ? ['artifact', ticket.id, 'execution-setup-plan', phaseAttempt]
     : ['artifact', ticket.id, 'execution-setup-plan']
@@ -177,6 +251,10 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false, phase
     ))
     return parseExecutionSetupApprovalReceipt(matchingArtifact?.content)
   }, [artifacts])
+  const regenerateNotes = useMemo(
+    () => getSetupPlanRegenerateNotes(executionSetupPlanReportContent),
+    [executionSetupPlanReportContent],
+  )
   const artifactPanelPhase = readOnly ? 'WAITING_EXECUTION_SETUP_APPROVAL' : ticket.status
 
   const [isEditMode, setIsEditMode] = useState(false)
@@ -336,17 +414,20 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false, phase
       // Invalidate queries so old cached plan is gone, new poll will start fresh
       queryClient.removeQueries({ queryKey: ['artifact', ticket.id, 'execution-setup-plan'] })
       clearTicketArtifactsCache(ticket.id)
+      queryClient.invalidateQueries({
+        queryKey: getTicketPhaseAttemptsQueryKey(ticket.id, 'WAITING_EXECUTION_SETUP_APPROVAL'),
+      })
       queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
 
-      // Close dialog and navigate back to ticket view — ticket is still in WAITING_EXECUTION_SETUP_APPROVAL
-      // but now with a new empty attempt → shows loading state
+      // Close dialog and navigate back to ticket view. The ticket remains in
+      // WAITING_EXECUTION_SETUP_APPROVAL, with a fresh active attempt generating.
       setShowRegenerateDialog(false)
       requestWorkspacePhaseNavigation({ ticketId: ticket.id, phase: ticket.status })
+      setIsRegenerating(false)
     } catch (error) {
       setRegenerateError(error instanceof Error ? error.message : 'Failed to regenerate execution setup plan')
       setIsRegenerating(false)
     }
-    // Note: setIsRegenerating(false) is intentionally NOT called on success — we're navigating away
   }
 
   async function handleApprove() {
@@ -475,15 +556,24 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false, phase
 
       <div className="p-4 space-y-3 shrink-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold">{readOnly ? 'Approved Execution Setup Plan' : 'Execution Setup Plan'}</span>
+          <span className="font-semibold">
+            {readOnly
+              ? isArchivedAttempt ? 'Rejected Execution Setup Draft' : 'Approved Execution Setup Plan'
+              : 'Execution Setup Plan'}
+          </span>
           {readOnly ? (
-            <span className="rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200">
-              Approved
+            <span className={isArchivedAttempt
+              ? 'rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200'
+              : 'rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green-800 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-200'}
+            >
+              {isArchivedAttempt ? 'Rejected Draft' : 'Approved'}
             </span>
           ) : null}
           <span className="flex-1 text-xs text-muted-foreground">
             {readOnly
-              ? 'Review the approved workspace readiness audit and setup contract.'
+              ? isArchivedAttempt
+                ? 'Review the superseded workspace readiness audit and setup draft.'
+                : 'Review the approved workspace readiness audit and setup contract.'
               : 'Review the workspace readiness audit and any setup steps, edit if needed, regenerate with commentary, then approve.'}
           </span>
           {!readOnly ? (
@@ -567,12 +657,21 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false, phase
       <div className="flex-1 min-h-0 px-4 pb-2 overflow-auto">
         <div className="space-y-3">
           {readOnly ? (
-            <ApprovedSetupPlanBanner
-              receipt={approvalReceipt}
-              updatedAt={fetchedPlan?.updatedAt}
-              reportContent={executionSetupPlanReportContent}
-            />
+            isArchivedAttempt ? (
+              <RejectedSetupPlanDraftBanner
+                updatedAt={fetchedPlan?.updatedAt}
+                reportContent={executionSetupPlanReportContent}
+              />
+            ) : (
+              <ApprovedSetupPlanBanner
+                receipt={approvalReceipt}
+                updatedAt={fetchedPlan?.updatedAt}
+                reportContent={executionSetupPlanReportContent}
+              />
+            )
           ) : null}
+
+          <RegenerateCommentaryPanel notes={regenerateNotes} />
 
           {isPlanGenerating ? (
             <div className="rounded-2xl border border-border bg-muted/20 p-6 text-sm">

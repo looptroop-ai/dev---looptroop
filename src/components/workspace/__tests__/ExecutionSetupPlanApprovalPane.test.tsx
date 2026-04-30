@@ -1,7 +1,8 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket, TEST } from '@/test/factories'
-import { renderWithProviders } from '@/test/renderHelpers'
+import { createTestQueryClient, renderWithProviders } from '@/test/renderHelpers'
+import { getTicketPhaseAttemptsQueryKey } from '@/hooks/useTicketPhaseAttempts'
 import { ExecutionSetupPlanApprovalPane } from '../ExecutionSetupPlanApprovalPane'
 
 const mockSaveUiState = vi.fn()
@@ -91,7 +92,10 @@ function buildRawPlan(summary = 'Prepare the workspace runtime.') {
   }, null, 2)
 }
 
-function buildReportContent() {
+function buildReportContent(
+  source: 'auto' | 'regenerate' = 'auto',
+  notes: string[] = ['Prefer the project-native bootstrap command.'],
+) {
   return JSON.stringify({
     status: 'draft',
     ready: true,
@@ -100,8 +104,8 @@ function buildReportContent() {
     summary: 'Prepare the workspace runtime.',
     modelOutput: '<EXECUTION_SETUP_PLAN>\nsummary: generated\n</EXECUTION_SETUP_PLAN>',
     errors: [],
-    notes: ['Prefer the project-native bootstrap command.'],
-    source: 'auto',
+    notes,
+    source,
   })
 }
 
@@ -221,6 +225,20 @@ describe('ExecutionSetupPlanApprovalPane', () => {
         )
       }
 
+      if (url === `/api/tickets/${TEST.ticketId}/execution-setup-plan?phaseAttempt=1` && (!init || init.method === 'GET')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({
+            exists: true,
+            raw: buildRawPlan('Archived rejected draft.'),
+            plan: buildPlan('Archived rejected draft.'),
+            updatedAt: '2026-03-25T10:05:00.000Z',
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }
+
       if (url === `/api/tickets/${TEST.ticketId}/regenerate-execution-setup-plan` && init?.method === 'POST') {
         return Promise.resolve(
           new Response(JSON.stringify({
@@ -252,7 +270,11 @@ describe('ExecutionSetupPlanApprovalPane', () => {
   })
 
   it('opens regenerate in a modal from the header and submits commentary through the regenerate route', async () => {
-    renderWithProviders(<ExecutionSetupPlanApprovalPane ticket={makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' })} />)
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    renderWithProviders(<ExecutionSetupPlanApprovalPane ticket={makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' })} />, {
+      queryClient,
+    })
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(`/api/tickets/${TEST.ticketId}/execution-setup-plan`)
@@ -297,6 +319,9 @@ describe('ExecutionSetupPlanApprovalPane', () => {
     await waitFor(() => {
       expect(screen.queryByText('Regenerate setup plan')).not.toBeInTheDocument()
     })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: getTicketPhaseAttemptsQueryKey(TEST.ticketId, 'WAITING_EXECUTION_SETUP_APPROVAL'),
+    })
   })
 
   it('renders saved setup plan content without mutation controls in read-only mode', async () => {
@@ -317,6 +342,74 @@ describe('ExecutionSetupPlanApprovalPane', () => {
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('execution-setup-plan-editor')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('YAML editor')).not.toBeInTheDocument()
+  })
+
+  it('shows regenerate commentary on the active approval draft', async () => {
+    mockUseTicketArtifacts.mockReturnValue({
+      artifacts: [
+        {
+          id: 31,
+          ticketId: TEST.ticketId,
+          phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+          phaseAttempt: 2,
+          artifactType: 'execution_setup_plan_report',
+          filePath: null,
+          content: buildReportContent('regenerate', ['Use pnpm install before running the test suite.']),
+          createdAt: '2026-03-25T10:20:00.000Z',
+        },
+      ],
+      isLoading: false,
+    })
+
+    renderWithProviders(<ExecutionSetupPlanApprovalPane ticket={makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' })} />)
+
+    expect(await screen.findByText('Regeneration Request')).toBeInTheDocument()
+    expect(screen.getByText('Use pnpm install before running the test suite.')).toBeInTheDocument()
+  })
+
+  it('labels archived setup plan attempts as rejected drafts', async () => {
+    mockUseTicketArtifacts.mockImplementation((_ticketId: string, options?: { phase?: string; phaseAttempt?: number }) => ({
+      artifacts: options?.phaseAttempt === 1
+        ? [
+          {
+            id: 21,
+            ticketId: TEST.ticketId,
+            phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+            phaseAttempt: 1,
+            artifactType: 'execution_setup_plan_report',
+            filePath: null,
+            content: buildReportContent('regenerate', ['Please switch to the project-native bootstrap command.']),
+            createdAt: '2026-03-25T10:05:00.000Z',
+          },
+        ]
+        : [],
+      isLoading: false,
+    }))
+
+    renderWithProviders(
+      <ExecutionSetupPlanApprovalPane
+        ticket={makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' })}
+        readOnly
+        phaseAttempt={1}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artifact-content')).toHaveTextContent('execution-setup-plan:with-report:plan')
+    })
+
+    expect(screen.getByText('Rejected Execution Setup Draft')).toBeInTheDocument()
+    expect(screen.getByText('Rejected setup draft')).toBeInTheDocument()
+    expect(screen.getByText('Rejected draft')).toBeInTheDocument()
+    expect(screen.getByText('Regenerated before approval')).toBeInTheDocument()
+    expect(screen.getByText('Please switch to the project-native bootstrap command.')).toBeInTheDocument()
+    expect(screen.getByText(/not handed to Preparing Workspace Runtime/i)).toBeInTheDocument()
+    expect(screen.queryByText('Approved setup contract')).not.toBeInTheDocument()
+    expect(screen.queryByText('Approved')).not.toBeInTheDocument()
+    expect(mockUseTicketArtifacts).toHaveBeenCalledWith(TEST.ticketId, {
+      phase: 'WAITING_EXECUTION_SETUP_APPROVAL',
+      phaseAttempt: 1,
+    })
   })
 
   it('ignores persisted edit mode while rendering read-only setup plan review', async () => {
