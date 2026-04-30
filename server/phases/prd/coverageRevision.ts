@@ -429,6 +429,7 @@ export function buildPrdCoverageRevisionRetryPrompt(
         '- Include a top-level `gap_resolutions` list with exactly one entry per provided coverage gap.',
         '- Preserve epic IDs and user story IDs unless the revised candidate contains a genuinely new item.',
         '- If a gap was already covered, keep the PRD unchanged for that gap and record `action: already_covered`.',
+        '- If a gap describes internally contradictory source artifacts, do not choose a side or invent a requirement. Record `action: left_unresolved`, explain the contradiction in `rationale`, and use `affected_items: []`.',
         '- Use `affected_items` only for epic or user_story references. Leave it empty when no epic/story mapping applies.',
         '- If a gap updates top-level PRD sections such as `product`, `scope`, `technical_requirements`, or `api_contracts`, use `affected_items: []` instead of section references like `item_type: prd`.',
         '',

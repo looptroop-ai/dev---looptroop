@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDoubleQuotedInvalidEscapes, repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDoubleQuotedInvalidEscapes, repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlInlineSequenceParents, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe.concurrent('repairYamlListDashSpace', () => {
   it.each([
@@ -445,6 +445,22 @@ describe('repairYamlQuotedScalarFragments', () => {
     expect(parsed.description).toBe('"pink" remains a supported theme in UIState.')
   })
 
+  it('repairs doubled single-quote scalar wrappers without inventing text', () => {
+    const input = [
+      'api_contracts:',
+      "  - ''Response includes Content-Disposition: attachment; filename=synonyms.json''",
+      "  - ''Dry-run errors include line: column metadata",
+    ].join('\n')
+
+    const repaired = repairYamlQuotedScalarFragments(input)
+    const parsed = jsYaml.load(repaired) as { api_contracts: string[] }
+
+    expect(parsed.api_contracts).toEqual([
+      'Response includes Content-Disposition: attachment; filename=synonyms.json',
+      'Dry-run errors include line: column metadata',
+    ])
+  })
+
   it('preserves inner quotes and trailing comments when wrapping the full scalar', () => {
     const input = 'description: "pink" remains the "marketing" label in UIState. # preserve comment'
     const repaired = repairYamlQuotedScalarFragments(input)
@@ -587,6 +603,29 @@ describe('repairYamlPlainScalarColons', () => {
     const parsed = jsYaml.load(repaired) as { technical_requirements: { architecture_constraints: string[] } }
     expect(parsed.technical_requirements.architecture_constraints[1]).toBe('Persisted strategy artifact path: `.looptroop/tickets/<ticket-id>/test-strategy.yaml`')
     expect(parsed.technical_requirements.architecture_constraints[2]).toBe('Schema must support inheritance: epic-level properties with story-level overrides')
+  })
+
+  it('quotes header-style list scalar values that YAML would otherwise parse as mappings', () => {
+    const yaml = [
+      'api_contracts:',
+      '  - Content-Disposition: attachment; filename=synonyms.json',
+      '  - X-Request-Id: required for diagnostics',
+      'affected_items:',
+      '  - item_type: bead',
+      '    id: bead-1',
+    ].join('\n')
+
+    const repaired = repairYamlPlainScalarColons(yaml)
+    const parsed = jsYaml.load(repaired) as {
+      api_contracts: string[]
+      affected_items: Array<{ item_type: string; id: string }>
+    }
+
+    expect(parsed.api_contracts).toEqual([
+      'Content-Disposition: attachment; filename=synonyms.json',
+      'X-Request-Id: required for diagnostics',
+    ])
+    expect(parsed.affected_items[0]).toEqual({ item_type: 'bead', id: 'bead-1' })
   })
 })
 
@@ -779,6 +818,11 @@ describe('repairYamlInlineKeys', () => {
       [{ id: 'Q01', phase: 'Foundation', priority: 'critical' }],
     ],
     [
+      'list-item lines with a final free-text question',
+      '  - id: Q01 phase: foundation question: What behavior should the API expose?',
+      [{ id: 'Q01', phase: 'foundation', question: 'What behavior should the API expose?' }],
+    ],
+    [
       'mixed valid and inline lines',
       ['batch_number: 4', 'progress: current: 4 total: 17', 'is_final_free_form: false'].join('\n'),
       { batch_number: 4, progress: { current: 4, total: 17 }, is_final_free_form: false },
@@ -792,5 +836,22 @@ describe('repairYamlInlineKeys', () => {
     ['quoted values containing colons', 'rationale: "key: value style explanation"'],
   ])('does not break %s', (_, input) => {
     expect(repairYamlInlineKeys(input)).toBe(input)
+  })
+})
+
+describe('repairYamlInlineSequenceParents', () => {
+  it('opens collection-like inline sequence parents onto the next line', () => {
+    const input = 'questions: - id: Q01 phase: foundation question: What behavior should the API expose?'
+    const repaired = repairYamlInlineSequenceParents(input)
+
+    expect(repaired).toBe([
+      'questions:',
+      '  - id: Q01 phase: foundation question: What behavior should the API expose?',
+    ].join('\n'))
+  })
+
+  it('leaves scalar-looking parent keys unchanged', () => {
+    const input = 'status: - pending'
+    expect(repairYamlInlineSequenceParents(input)).toBe(input)
   })
 })

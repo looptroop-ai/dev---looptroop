@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDoubleQuotedInvalidEscapes, repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDoubleQuotedInvalidEscapes, repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlInlineSequenceParents, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 import { isRecord } from '@shared/typeGuards'
 
 export { isRecord }
@@ -130,6 +130,8 @@ const NESTED_MAPPING_CHILDREN_WARNING = 'Repaired inconsistent YAML indentation 
 const XML_STYLE_TAGS_WARNING = 'Stripped XML-style tags from the payload before parsing.'
 const CANDIDATE_RECOVERY_WARNING = 'Recovered the structured artifact from surrounding transcript or wrapper text before validation.'
 const WRAPPER_KEY_WARNING = 'Removed wrapper key from top level.'
+const INLINE_YAML_WARNING = 'Repaired inline YAML sequence or mapping syntax before parsing.'
+const PLAIN_SCALAR_COLON_WARNING = 'Quoted YAML plain scalar values containing colon-space before reparsing.'
 const QUOTED_SCALAR_WARNING = 'Repaired improperly quoted YAML scalar value.'
 const RESERVED_INDICATOR_SCALAR_WARNING = 'Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.'
 const DOUBLE_QUOTED_ESCAPE_WARNING = 'Escaped invalid YAML double-quoted scalar backslash sequences before reparsing.'
@@ -511,6 +513,8 @@ export function parseYamlOrJsonCandidate(
       appliedRepairs?: {
         markdownCodeFence?: boolean
         nestedMappingChildren?: boolean
+        inlineYaml?: boolean
+        plainScalarColon?: boolean
         xmlStyleTags?: string[]
       },
     ): unknown => {
@@ -519,6 +523,12 @@ export function parseYamlOrJsonCandidate(
       }
       if (appliedRepairs?.nestedMappingChildren) {
         appendRepairWarningOnce(options?.repairWarnings, NESTED_MAPPING_CHILDREN_WARNING)
+      }
+      if (appliedRepairs?.inlineYaml) {
+        appendRepairWarningOnce(options?.repairWarnings, INLINE_YAML_WARNING)
+      }
+      if (appliedRepairs?.plainScalarColon) {
+        appendRepairWarningOnce(options?.repairWarnings, PLAIN_SCALAR_COLON_WARNING)
       }
       if (appliedRepairs?.xmlStyleTags && appliedRepairs.xmlStyleTags.length > 0) {
         appendRepairWarningOnce(options?.repairWarnings, buildXmlStyleTagsWarning(appliedRepairs.xmlStyleTags))
@@ -548,6 +558,20 @@ export function parseYamlOrJsonCandidate(
         } catch { /* fall through to the original input and later repairs */ }
       }
 
+      const inlineSequencePreRepaired = repairYamlInlineSequenceParents(candidate)
+      const inlineKeyPreRepaired = repairYamlInlineKeys(inlineSequencePreRepaired)
+      const plainScalarColonPreRepaired = repairYamlPlainScalarColons(inlineKeyPreRepaired)
+      const preParseRepaired = applyNestedMappingRepair(plainScalarColonPreRepaired)
+      if (preParseRepaired !== candidate) {
+        try {
+          return finalizeParsedCandidate(jsYaml.load(preParseRepaired), {
+            inlineYaml: inlineSequencePreRepaired !== candidate || inlineKeyPreRepaired !== inlineSequencePreRepaired,
+            plainScalarColon: plainScalarColonPreRepaired !== inlineKeyPreRepaired,
+            nestedMappingChildren: preParseRepaired !== plainScalarColonPreRepaired,
+          })
+        } catch { /* fall through to the original input and later repairs */ }
+      }
+
       try {
         return jsYaml.load(candidate)
       } catch {
@@ -564,19 +588,23 @@ export function parseYamlOrJsonCandidate(
           } catch { /* fall through to further repairs */ }
         }
 
-        // Earliest repair: split inline keys onto separate lines (prerequisite for all other repairs)
-        const inlineRepaired = repairYamlInlineKeys(effectiveBase)
+        // Earliest repair: split inline sequence parents and keys onto separate lines (prerequisite for all other repairs)
+        const inlineSequenceRepaired = repairYamlInlineSequenceParents(effectiveBase)
+        const inlineRepaired = repairYamlInlineKeys(inlineSequenceRepaired)
         if (inlineRepaired !== effectiveBase) {
           const nestedInlineRepaired = applyNestedMappingRepair(inlineRepaired)
           if (nestedInlineRepaired !== inlineRepaired) {
             try {
               return finalizeParsedCandidate(jsYaml.load(nestedInlineRepaired), {
                 nestedMappingChildren: true,
+                inlineYaml: true,
               })
             } catch { /* fall through — later repairs may still be needed */ }
           }
           try {
-            return jsYaml.load(inlineRepaired)
+            const parsed = jsYaml.load(inlineRepaired)
+            appendRepairWarningOnce(options?.repairWarnings, INLINE_YAML_WARNING)
+            return parsed
           } catch { /* fall through — lines split but further repairs may be needed */ }
         }
         const afterInline = inlineRepaired !== effectiveBase ? inlineRepaired : effectiveBase
@@ -677,16 +705,23 @@ export function parseYamlOrJsonCandidate(
 
         // Try colon-in-scalar repair (most targeted fix)
         const colonRepaired = repairYamlPlainScalarColons(postQuotedScalarBase)
+        const appendPlainScalarColonRepairWarning = () => {
+          if (colonRepaired !== postQuotedScalarBase) {
+            appendRepairWarningOnce(options?.repairWarnings, PLAIN_SCALAR_COLON_WARNING)
+          }
+        }
         if (colonRepaired !== postQuotedScalarBase) {
           try {
             appendDoubleQuotedEscapeRepairWarning()
             appendQuotedScalarRepairWarning()
+            appendPlainScalarColonRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(colonRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: colon repair + indentation repair
             try {
               appendDoubleQuotedEscapeRepairWarning()
               appendQuotedScalarRepairWarning()
+              appendPlainScalarColonRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(colonRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
@@ -699,6 +734,7 @@ export function parseYamlOrJsonCandidate(
             const parsed = jsYaml.load(reservedIndicatorRepaired)
             appendDoubleQuotedEscapeRepairWarning()
             appendQuotedScalarRepairWarning()
+            appendPlainScalarColonRepairWarning()
             appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
             return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
           } catch {
@@ -706,6 +742,7 @@ export function parseYamlOrJsonCandidate(
               const parsed = jsYaml.load(repairYamlIndentation(reservedIndicatorRepaired))
               appendDoubleQuotedEscapeRepairWarning()
               appendQuotedScalarRepairWarning()
+              appendPlainScalarColonRepairWarning()
               appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
               return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
             } catch { /* fall through */ }

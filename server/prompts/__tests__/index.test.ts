@@ -120,6 +120,8 @@ describe.concurrent('structured prompt hardening', () => {
     const draftPrompt = buildPromptFromTemplate(PROM10b, [])
     expect(draftPrompt).toContain('Schema Contract')
     expect(draftPrompt).toContain('Complete Interview Input')
+    expect(draftPrompt).toContain('Source Contradiction Rule')
+    expect(draftPrompt).toContain('do not choose a side or invent a requirement')
     expect(draftPrompt).toContain('artifact: "prd"')
     expect(draftPrompt).toContain('acceptance_criteria')
     expect(draftPrompt).toContain('Every epic must include at least one fully populated `user_stories` entry')
@@ -139,6 +141,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(coverageResolutionPrompt).toContain('Every epic in the revised PRD must include at least one fully populated `user_stories` entry')
     expect(coverageResolutionPrompt).toContain('making the affected acceptance criteria, scope language, or verification guidance more concrete and testable')
     expect(coverageResolutionPrompt).toContain('If a gap updates top-level PRD sections such as `product`, `scope`, `technical_requirements`, or `api_contracts`, keep `affected_items: []`')
+    expect(coverageResolutionPrompt).toContain('If a provided gap describes internally contradictory source artifacts')
+    expect(coverageResolutionPrompt).toContain('Record that gap with `action: left_unresolved` and `affected_items: []`')
   })
 
   it('keeps PROM10a strict about preserving user answers and outputting only a full interview artifact', () => {
@@ -181,6 +185,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(coveragePrompt).toContain('Every major in-scope requirement, user flow, constraint, non-goal, or explicit edge case')
     expect(coveragePrompt).toContain('Flag PRD user stories that have missing or weak verification guidance')
     expect(coveragePrompt).toContain('missing traceability for major in-scope items')
+    expect(coveragePrompt).toContain('If the approved Interview Results and winner Full Answers artifact are internally contradictory')
+    expect(coveragePrompt).toContain('report the contradiction as an unresolved coverage gap')
     expect(coveragePrompt).toContain('Do not output a rewritten PRD')
     expect(coveragePrompt).not.toContain('Provide the necessary additions or modifications to the PRD')
   })
@@ -202,6 +208,8 @@ describe.concurrent('structured prompt hardening', () => {
     const coveragePrompt = buildPromptFromTemplate(PROM23, [])
     expect(coveragePrompt).toContain('Every item in `gaps` must be a double-quoted YAML string')
     expect(coveragePrompt).toContain('backticks, or punctuation')
+    expect(coveragePrompt).toContain('If the approved PRD is internally contradictory')
+    expect(coveragePrompt).toContain('report the contradiction as an unresolved coverage gap')
   })
 
   it('keeps beads coverage resolution explicit about semantic-plan output and gap accounting', () => {
@@ -212,6 +220,8 @@ describe.concurrent('structured prompt hardening', () => {
     expect(coverageResolutionPrompt).toContain('`action` must be one of `updated_beads`, `already_covered`, or `left_unresolved`')
     expect(coverageResolutionPrompt).toContain('top-level `beads` list')
     expect(coverageResolutionPrompt).toContain('If a gap does not map cleanly to one or more specific beads, keep `affected_items: []`')
+    expect(coverageResolutionPrompt).toContain('If a provided gap describes internally contradictory source artifacts')
+    expect(coverageResolutionPrompt).toContain('Record that gap with `action: left_unresolved` and `affected_items: []`')
   })
 
   it('requires the bead subset schema consistently in draft and refine prompts', () => {

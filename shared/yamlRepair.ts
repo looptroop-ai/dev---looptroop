@@ -131,6 +131,111 @@ function normalizeYamlRepairKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+const INLINE_SEQUENCE_SCALAR_PARENT_KEYS = new Set([
+  'artifact',
+  'content',
+  'description',
+  'id',
+  'phase',
+  'question',
+  'rationale',
+  'status',
+  'summary',
+  'text',
+  'title',
+])
+
+const INLINE_SEQUENCE_PARENT_KEYS = new Set([
+  'acceptancecriteria',
+  'affecteditems',
+  'antipatterns',
+  'apicontracts',
+  'architectureconstraints',
+  'beads',
+  'changes',
+  'children',
+  'commands',
+  'constraints',
+  'datamodel',
+  'dependencies',
+  'duplicatekeycollisions',
+  'entries',
+  'epics',
+  'errorhandlingrules',
+  'errors',
+  'files',
+  'followupquestions',
+  'followuprounds',
+  'gapresolutions',
+  'gaps',
+  'goals',
+  'implementationsteps',
+  'inscope',
+  'interviewquestions',
+  'invalidentries',
+  'items',
+  'labels',
+  'nongoals',
+  'options',
+  'outofscope',
+  'overwrittenkeys',
+  'patterns',
+  'performanceconstraints',
+  'prdrefs',
+  'questions',
+  'records',
+  'rejectedentries',
+  'reliabilityconstraints',
+  'requiredcommands',
+  'results',
+  'risks',
+  'securityconstraints',
+  'selectedoptionids',
+  'stories',
+  'targetfiles',
+  'targetusers',
+  'testcommands',
+  'tests',
+  'toolingassumptions',
+  'userstories',
+  'validentries',
+  'warnings',
+])
+
+function isLikelyInlineSequenceParentKey(key: string): boolean {
+  const normalized = normalizeYamlRepairKey(key)
+  if (!normalized || INLINE_SEQUENCE_SCALAR_PARENT_KEYS.has(normalized)) return false
+  return INLINE_SEQUENCE_PARENT_KEYS.has(normalized)
+    || normalized.endsWith('list')
+    || normalized.endsWith('items')
+}
+
+/**
+ * Repair inline block-sequence parents.
+ *
+ * Models sometimes emit `questions: - id: Q01 ...` instead of opening the
+ * sequence on the next line. YAML accepts that as a plain scalar, so this
+ * repair must run before the first YAML parse. It only targets collection-like
+ * parent keys and preserves the entire emitted sequence entry text.
+ */
+export function repairYamlInlineSequenceParents(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+
+  for (const line of lines) {
+    const match = line.match(/^(\s*)([A-Za-z_][\w_-]*)\s*:\s+-\s+(.+)$/)
+    if (!match || !isLikelyInlineSequenceParentKey(match[2]!)) {
+      result.push(line)
+      continue
+    }
+
+    result.push(`${match[1]}${match[2]}:`)
+    result.push(`${match[1]}  - ${match[3]}`)
+  }
+
+  return result.join('\n')
+}
+
 function getLineIndent(line: string): number {
   return line.match(/^(\s*)/)?.[1]?.length ?? 0
 }
@@ -824,6 +929,11 @@ function findLeadingQuotedScalarFragmentEnd(value: string): number | null {
 function repairLeadingQuotedScalarFragment(value: string): string | null {
   if (!value.startsWith('"') && !value.startsWith('\'')) return null
 
+  const doubledSingleQuoteWrapperRepaired = repairDoubledSingleQuoteWrapper(value)
+  if (doubledSingleQuoteWrapperRepaired !== null) {
+    return doubledSingleQuoteWrapperRepaired
+  }
+
   const { value: scalarValue, comment } = splitYamlValueAndComment(value)
   const fragmentEnd = findLeadingQuotedScalarFragmentEnd(scalarValue)
   if (fragmentEnd === null) return null
@@ -832,6 +942,29 @@ function repairLeadingQuotedScalarFragment(value: string): string | null {
   if (!/^\s+\S/.test(trailingText)) return null
 
   return `${JSON.stringify(scalarValue)}${comment ? ` ${comment}` : ''}`
+}
+
+function repairDoubledSingleQuoteWrapper(value: string): string | null {
+  if (!value.startsWith("''")) return null
+
+  const { value: scalarValue, comment } = splitYamlValueAndComment(value)
+  const trimmed = scalarValue.trim()
+  if (!trimmed.startsWith("''") || trimmed.startsWith("'''") || trimmed === "''") {
+    return null
+  }
+
+  let content = trimmed.slice(2)
+  const hasClosingWrapper = content.endsWith("''") && content.length > 2
+  if (hasClosingWrapper) {
+    content = content.slice(0, -2)
+  } else if (!/:\s/.test(content)) {
+    return null
+  }
+
+  const normalizedContent = content.trim()
+  if (!normalizedContent) return null
+
+  return `${JSON.stringify(normalizedContent)}${comment ? ` ${comment}` : ''}`
 }
 
 function findNextNonEmptyLineIndex(lines: string[], startIndex: number): number | null {
@@ -1259,9 +1392,14 @@ function tokenizeInlineKeys(text: string): InlineKVToken[] | null {
     tokens.push({ key: km.key, value: text.slice(km.valueStart, nextStart).trim() })
   }
 
-  // Validate: all non-empty values must be simple (number, boolean, quoted, single word)
-  for (const token of tokens) {
-    if (token.value && !isInlineSimpleValue(token.value)) return null
+  // Validate: all non-empty values must be simple (number, boolean, quoted, single word).
+  // The final free-text field may contain spaces because no later inline key
+  // can be swallowed after it.
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!
+    if (!token.value) continue
+    if (index === tokens.length - 1 && isInlineFreeTextFinalKey(token.key)) continue
+    if (!isInlineSimpleValue(token.value)) return null
   }
 
   return tokens
@@ -1313,12 +1451,34 @@ function nameHasUnderscore(name: string): boolean {
   return name.includes('_')
 }
 
+const INLINE_FREE_TEXT_FINAL_KEYS = new Set([
+  'content',
+  'description',
+  'prompt',
+  'question',
+  'rationale',
+  'summary',
+  'text',
+])
+
+function isInlineFreeTextFinalKey(key: string): boolean {
+  return INLINE_FREE_TEXT_FINAL_KEYS.has(normalizeYamlRepairKey(key))
+}
+
 function isInlineSimpleValue(text: string): boolean {
   if (/^-?\d+(\.\d+)?$/.test(text)) return true
   if (/^(true|false|yes|no|null|~)$/i.test(text)) return true
   if (/^"[^"]*"$/.test(text) || /^'[^']*'$/.test(text)) return true
   if (/^[^\s:]+$/.test(text)) return true
   return false
+}
+
+function quoteYamlPlainScalar(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function looksLikeHeaderStyleListScalar(value: string): boolean {
+  return /^[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+:\s+\S/.test(value)
 }
 
 export function repairYamlPlainScalarColons(yaml: string): string {
@@ -1376,8 +1536,7 @@ export function repairYamlPlainScalarColons(yaml: string): string {
 
       // Check if the value contains a problematic `: ` or ends with `:`
       if (/:\s/.test(value) || value.endsWith(':')) {
-        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        result.push(`${prefix}"${escaped}"`)
+        result.push(`${prefix}${quoteYamlPlainScalar(value)}`)
         continue
       }
     }
@@ -1386,15 +1545,23 @@ export function repairYamlPlainScalarColons(yaml: string): string {
     if (listScalarMatch) {
       const prefix = listScalarMatch[1]!
       const value = listScalarMatch[2]!
+      const looksLikeListItemMapping = /^[A-Za-z_][\w_-]*\s*:\s+/.test(value)
 
-      if (SAFE_VALUE_START.test(value) || /^[A-Za-z_][\w_-]*\s*:\s+/.test(value)) {
+      if (SAFE_VALUE_START.test(value)) {
         result.push(line)
         continue
       }
 
-      if (/:\s/.test(value) || value.endsWith(':')) {
-        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        result.push(`${prefix}"${escaped}"`)
+      if (
+        looksLikeHeaderStyleListScalar(value)
+        || (!looksLikeListItemMapping && (/:\s/.test(value) || value.endsWith(':')))
+      ) {
+        result.push(`${prefix}${quoteYamlPlainScalar(value)}`)
+        continue
+      }
+
+      if (looksLikeListItemMapping) {
+        result.push(line)
         continue
       }
     }

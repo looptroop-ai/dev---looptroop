@@ -258,7 +258,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Follow-Up Generation (if budget allows): If gaps remain and the follow-up budget has not been exhausted, LoopTroop generates targeted follow-up questions based on the identified gaps. These questions are added to the session snapshot as a new interview batch and the workflow returns to the Interviewing phase.',
       'Budget Enforcement: The follow-up budget tracks how many rounds of follow-up questions have been generated. Once the budget is exhausted, coverage will finalize the interview regardless of remaining gaps — the PRD phase will work with whatever information is available.',
       'Clean Finalization: If the interview is clean (no gaps or all gaps are minor), LoopTroop refreshes the canonical interview artifact with the finalized clean status and stores the coverage result for audit and UI review.',
-      'Coverage History: Every coverage attempt (whether clean or gap-found) is persisted as a coverage history artifact, capturing the response, parsed result, follow-up budget usage, any structural repair metadata, and timestamps.',
+      'Coverage History: Every coverage attempt (whether clean or gap-found) is persisted as a coverage history artifact, capturing the response, parsed result, follow-up budget usage, any artifact processing notices such as parser repairs or structured retries, and timestamps.',
     ],
     outputs: [
       'Interview coverage artifact describing whether the interview is clean or has remaining gaps, with detailed gap descriptions if applicable.',
@@ -406,7 +406,7 @@ const WORKFLOW_PHASE_DETAILS = {
     overview: 'LoopTroop runs a versioned PRD coverage loop, comparing the current PRD candidate against the approved interview answers to find any missing requirements or gaps. Unlike the interview coverage loop (which sends you back to answer more questions), PRD coverage stays inside this same phase — the model revises the PRD directly when gaps are found. The loop can produce later PRD candidate versions until the configured cap is reached, and if gaps remain after that, the latest version still advances to approval with warnings.',
     steps: [
       'Coverage Evaluation: The winning PRD model compares the current PRD candidate against the approved interview and full answers. It returns a structured coverage result: either "clean" (the PRD fully covers the interview) or "gaps found" (specific requirements or acceptance criteria are missing or incomplete).',
-      'Gap Details: When gaps are found, the coverage result includes specific descriptions of what is missing, which interview answers are not reflected in the PRD, and why the gap matters for implementation correctness.',
+      'Gap Details: When gaps are found, the coverage result includes specific descriptions of what is missing, which interview answers are not reflected in the PRD, unresolved source-artifact contradictions when present, and why the gap matters for implementation correctness.',
       'In-Phase Revision: If gaps are found and the coverage cap has not been reached, LoopTroop asks the model to produce a revised PRD that addresses the identified gaps. The revised candidate is validated and promoted to the next version number (for example v1 → v2) within the same phase.',
       'Version History: Coverage attempts and version transitions are persisted, so you can see what changed between PRD versions and why. Each attempt records the coverage result, identified gaps, revision actions, and the resulting candidate version.',
       'Clean Finalization: If the PRD becomes clean (all gaps resolved), the clean result is recorded and the current candidate becomes the approval candidate with a clean status.',
@@ -415,7 +415,7 @@ const WORKFLOW_PHASE_DETAILS = {
     outputs: [
       'Versioned PRD coverage attempts and transition history — showing the journey from Candidate v1 through any revisions.',
       'Latest PRD candidate after zero or more coverage revisions.',
-      'Structured diagnostics about repair attempts, retries, identified gaps, and whether they were resolved.',
+      'Structured diagnostics about artifact processing notices, identified gaps, and whether they were resolved.',
     ],
     transitions: [
       'Clean → Approving Specs: A clean candidate (no remaining gaps) advances to the PRD approval gate.',
@@ -439,7 +439,7 @@ const WORKFLOW_PHASE_DETAILS = {
     steps: [
       'Review Interface: LoopTroop renders the PRD in two modes — a structured view showing requirements, acceptance criteria, edge cases, and test intent in a readable format, and a raw YAML editing view for direct manipulation. You can switch freely between views.',
       'Full Answers Context: If the winning PRD model produced a Full Answers artifact during Part 1 of PRD drafting, the approval header shows a compact Full Answers chip. Opening it displays the complete read-only interview answer set that the winning PRD draft used, including user answers and any AI-filled skipped answers. This artifact is supporting context only; edits are made to the PRD itself.',
-      'Coverage Warnings: If the latest PRD candidate reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed prominently. These warnings describe any unresolved gaps so you can decide whether to address them manually before approving.',
+      'Coverage Warnings: If the latest PRD candidate reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed prominently. These warnings describe unresolved gaps, including unresolved source-artifact contradictions when present, so you can decide whether to address them manually before approving.',
       'Editing: You can edit any section of the PRD — add requirements, refine acceptance criteria, adjust edge cases, or rewrite test intent. The UI preserves temporary draft state between view switches. Saving writes the updated PRD artifact back to the ticket workspace. If this is a post-approval edit while the ticket is still before PRE_FLIGHT_CHECK, saving archives the current approved PRD version plus downstream beads planning attempts, intentionally cancels active downstream planning sessions, saves and approves the edited PRD as the new active version, clears stale downstream artifacts and UI state, and starts DRAFTING_BEADS.',
       'Approval Decision: Approving confirms the current PRD as the authoritative specification for beads drafting. The beads council will decompose this approved PRD into implementable tasks.',
       'Post-Approval Editing Window: After approval, PRD edits remain allowed only while the ticket is still before PRE_FLIGHT_CHECK. Once the ticket reaches pre-flight or later, PRD edits are rejected because the implementation plan has already been accepted for execution.',
@@ -555,7 +555,7 @@ const WORKFLOW_PHASE_DETAILS = {
   VERIFYING_BEADS_COVERAGE: {
     overview: 'LoopTroop verifies the semantic beads blueprint against the approved PRD, revising it until it is acceptable. This is a pure coverage review loop: it checks and revises the semantic blueprint against the PRD until coverage is clean or until the configured beads coverage cap is reached. Once done, the workflow automatically advances to the Expanding Blueprint phase.',
     steps: [
-      'Coverage Evaluation: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result. "Clean" means every PRD requirement is covered by at least one bead. "Gaps" means specific requirements lack corresponding beads or have insufficient acceptance criteria.',
+      'Coverage Evaluation: The winning beads model compares the current semantic blueprint against the PRD and returns a structured clean-or-gaps result. "Clean" means every PRD requirement is covered by at least one bead. "Gaps" means specific requirements lack corresponding beads, have insufficient acceptance criteria, or depend on unresolved source-artifact contradictions.',
       'Gap Resolution: If gaps are found, LoopTroop records the coverage attempt, requests a targeted revision that adds the missing beads or strengthens existing acceptance criteria, validates the revision, and promotes the next blueprint version. This loop can repeat until clean or until the configured beads coverage cap is reached.',
       'Version Tracking: Each coverage attempt and revision is persisted as coverage history, so you can see the evolution from the initial blueprint through each revision and understand what changed at each step.',
       'Finalization: Once coverage is clean (or the cap is reached), the workflow emits the result and automatically advances to the Expanding Blueprint phase, which transforms the validated semantic blueprint into execution-ready bead records.',
@@ -563,7 +563,7 @@ const WORKFLOW_PHASE_DETAILS = {
     outputs: [
       'Versioned beads coverage history showing each coverage evaluation and revision.',
       'Latest refined semantic blueprint (after coverage revisions).',
-      'Coverage result (clean or cap-reached) that triggers automatic advancement to the expansion phase.',
+      'Coverage result (clean or cap-reached), including any unresolved-gap warnings, that triggers automatic advancement to the expansion phase.',
     ],
     transitions: [
       'Coverage Clean → Expanding Blueprint: When the semantic blueprint passes coverage with no gaps, the workflow automatically advances to the Expanding Blueprint phase.',
@@ -615,7 +615,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Execution Plan Review: LoopTroop shows the execution-ready beads breakdown, including each bead\'s description, acceptance criteria, dependency chain, file targets, test commands, and execution ordering. You can see exactly what the coding agent will do and in what order.',
       'Dependency Visualization: The beads are shown with their dependency relationships, so you can verify that the execution order makes sense — beads that depend on other beads will not run until their dependencies complete.',
       'Editing: You can review the plan in structured form or edit the raw representation before approving. Changes are saved back to the beads artifact.',
-      'Coverage Warnings: If the beads plan reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed. These describe any PRD requirements that may not have corresponding beads.',
+      'Coverage Warnings: If the beads plan reached approval after exhausting the coverage loop cap (rather than achieving a fully clean status), coverage warnings are displayed. These describe unresolved gaps, including PRD requirements that may not have corresponding beads and unresolved source-artifact contradictions when present.',
       'Approval Decision: Approval confirms the execution plan that the coding loop will consume bead-by-bead. After approval, the coding agent receives individual bead specifications — it does not see the full plan, only the bead it is currently implementing.',
     ],
     outputs: [

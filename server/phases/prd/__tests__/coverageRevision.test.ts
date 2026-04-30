@@ -2,6 +2,7 @@ import jsYaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 import {
   buildPrdCoverageRevisionArtifact,
+  buildPrdCoverageRevisionRetryPrompt,
   buildPrdCoverageRevisionUiDiff,
   validatePrdCoverageRevisionOutput,
 } from '../coverageRevision'
@@ -232,5 +233,16 @@ describe.concurrent('PRD coverage revision diffs', () => {
         label: 'Record the validated coverage story directly',
       },
     ])
+  })
+
+  it('keeps the retry prompt strict about unresolved source-artifact contradictions', () => {
+    const prompt = buildPrdCoverageRevisionRetryPrompt([], {
+      validationError: 'missing gap_resolutions',
+      rawResponse: 'schema_version: 1',
+    })
+
+    expect(prompt.at(-1)?.content).toContain('internally contradictory source artifacts')
+    expect(prompt.at(-1)?.content).toContain('action: left_unresolved')
+    expect(prompt.at(-1)?.content).toContain('affected_items: []')
   })
 })

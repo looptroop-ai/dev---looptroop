@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
-import { validateBeadsCoverageRevisionOutput } from '../coverageRevision'
+import { buildBeadsCoverageRevisionRetryPrompt, validateBeadsCoverageRevisionOutput } from '../coverageRevision'
 
 function buildBeadsContent() {
   return jsYaml.dump({
@@ -54,5 +54,16 @@ describe.concurrent('beads coverage revision parsing', () => {
         label: 'Validate refinement attribution',
       },
     ])
+  })
+
+  it('keeps the retry prompt strict about unresolved source-artifact contradictions', () => {
+    const prompt = buildBeadsCoverageRevisionRetryPrompt([], {
+      validationError: 'missing gap_resolutions',
+      rawResponse: 'beads: []',
+    })
+
+    expect(prompt.at(-1)?.content).toContain('internally contradictory source artifacts')
+    expect(prompt.at(-1)?.content).toContain('action: left_unresolved')
+    expect(prompt.at(-1)?.content).toContain('affected_items: []')
   })
 })

@@ -1,5 +1,5 @@
 import jsYaml from 'js-yaml'
-import { repairYamlIndentation, repairYamlListDashSpace, repairYamlSequenceEntryIndent } from './yamlRepair'
+import { repairYamlIndentation, repairYamlInlineKeys, repairYamlInlineSequenceParents, repairYamlListDashSpace, repairYamlSequenceEntryIndent } from './yamlRepair'
 import { isRecord } from './typeGuards'
 
 export interface InterviewQuestionPreview {
@@ -367,7 +367,12 @@ function cleanRecoveredQuestion(rawQuestion: string): { question: string; carryI
 
 function repairInterviewCandidate(candidate: string): string {
   const repairedLines: string[] = []
-  const rawLines = stripTranscriptPrefixes(repairYamlIndentation(repairYamlSequenceEntryIndent(repairYamlListDashSpace(candidate)))).split('\n')
+  const inlineSequenceRepaired = repairYamlInlineSequenceParents(candidate)
+  const inlineKeyRepaired = repairYamlInlineKeys(inlineSequenceRepaired)
+  const dashRepaired = repairYamlListDashSpace(inlineKeyRepaired)
+  const sequenceIndentRepaired = repairYamlSequenceEntryIndent(dashRepaired)
+  const indentationRepaired = repairYamlIndentation(sequenceIndentRepaired)
+  const rawLines = stripTranscriptPrefixes(indentationRepaired).split('\n')
   let carryIdForNextItem: string | undefined
 
   for (let index = 0; index < rawLines.length; index += 1) {

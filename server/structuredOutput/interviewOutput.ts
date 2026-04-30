@@ -4,6 +4,7 @@ import type {
   InterviewQuestionChangeType,
   InterviewQuestionPreview,
 } from '@shared/interviewQuestions'
+import { repairYamlInlineKeys, repairYamlInlineSequenceParents } from '@shared/yamlRepair'
 import { MAX_SINGLE_CHOICE_OPTIONS, MAX_MULTIPLE_CHOICE_OPTIONS } from '../lib/constants'
 import { looksLikePromptEcho } from '../lib/promptEcho'
 import type {
@@ -1356,9 +1357,15 @@ export function normalizeInterviewQuestionsOutput(
 
   for (const candidate of candidates) {
     try {
+      const inlineSequenceRepaired = repairYamlInlineSequenceParents(candidate)
+      const inlineKeyRepaired = repairYamlInlineKeys(inlineSequenceRepaired)
       const parsed = parseInterviewQuestions(candidate)
       const normalized = normalizeParsedInterviewQuestionList(parsed, maxInitialQuestions)
 
+      if (inlineKeyRepaired !== candidate) {
+        repairApplied = true
+        repairWarnings.push('Repaired inline YAML sequence or mapping syntax before parsing.')
+      }
       if (normalized.repairApplied) {
         repairApplied = true
         repairWarnings.push(...normalized.repairWarnings)

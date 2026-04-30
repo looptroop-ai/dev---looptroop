@@ -967,6 +967,18 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
     })
   }
 
+  if (/plain scalar.*colon-space|colon-space.*plain scalar/i.test(normalized)) {
+    return buildIntervention(warning, {
+      code: 'parser_plain_scalar_colon',
+      stage: 'parse',
+      category: 'parser_fix',
+      title: 'Quoted a colon-containing YAML scalar',
+      summary: 'A plain YAML scalar contained colon-space text that YAML could otherwise interpret as a nested mapping.',
+      why: 'YAML treats colon-space inside an unquoted scalar as structure, so header-like or prose values can parse as the wrong type.',
+      how: 'LoopTroop wrapped the existing scalar text in double quotes and reparsed the payload without changing the scalar content.',
+    })
+  }
+
   if (/quoted .*scalar/i.test(normalized)) {
     return buildIntervention(warning, {
       code: 'parser_quoted_scalar',

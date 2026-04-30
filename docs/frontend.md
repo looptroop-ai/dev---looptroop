@@ -165,6 +165,8 @@ Future artifact companion payloads should persist parser and normalizer interven
 
 `structuredOutput.repairWarnings` remains a raw audit string list and can be shown as source messages. When a legacy `.ticket/**` artifact has recognized warning strings but no explicit interventions, the frontend derives best-effort notice categories at render time without rewriting or migrating the artifact. Generic legacy repair strings stay quiet unless a structured intervention or retry diagnostic is present.
 
+Parser repairs and structured retries are artifact processing notices, not coverage warnings. Coverage warnings should stay reserved for unresolved planning gaps, including unresolved contradictions inside the source artifacts when a prompt reports them.
+
 ## Frontend-State Relationship To Workflow Metadata
 
 The frontend does not hardcode the full workflow. Instead, it derives major behavior from `shared/workflowMeta.ts`:

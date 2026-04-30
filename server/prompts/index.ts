@@ -387,6 +387,7 @@ export const PROM10b: PromptTemplate = {
   task: 'Generate a complete Product Requirements Document (PRD) based on the provided Full Answers interview artifact. The PRD must be detailed enough that an AI coding agent can implement the feature without ambiguity.',
   instructions: [
     'Complete Interview Input: Treat the provided Full Answers interview artifact as the complete requirement source, including any AI-resolved answers for questions the user originally skipped.',
+    'Source Contradiction Rule: If the provided source artifacts are internally contradictory, do not choose a side or invent a requirement to reconcile them. Represent only requirements that are supported by the source artifacts and preserve unresolved contradictions as explicit risks or open ambiguity in the PRD.',
     'Product Scope: Include epics, user stories, and acceptance criteria. Every in-scope feature from the Interview Results must map to at least one user story.',
     'Epic Completeness: Every epic must include at least one fully populated `user_stories` entry. Never emit an epic shell with `user_stories: []`, omit `user_stories`, or park requirements only at epic level.',
     'Implementation Steps: For each user story, include detailed technical implementation steps decomposed as far as possible — data flows, state changes, component interactions, and integration points.',
@@ -457,6 +458,7 @@ export const PROM13: PromptTemplate = {
   instructions: [
     'Primary Truth: Treat the approved Interview Results as primary user truth. Use the winner Full Answers artifact as the adopted completion for questions the user skipped.',
     'Coverage Check: Detect unresolved ambiguity, missing requirements, missing edge cases, missing constraints, missing acceptance criteria, missing non-goals or out-of-scope items, and inconsistencies between the Interview Results and the PRD.',
+    'Source Artifact Contradictions: If the approved Interview Results and winner Full Answers artifact are internally contradictory in a way the PRD cannot faithfully satisfy, report the contradiction as an unresolved coverage gap. Do not choose a side or invent requirements to reconcile contradictory source artifacts.',
     'Coverage Strictness: Treat weak coverage as a real gap when the PRD mentions a requirement but leaves it materially underspecified. Acceptance criteria must be specific enough to verify, not just broad restatements of the feature title or user story.',
     'Traceability Rule: Every major in-scope requirement, user flow, constraint, non-goal, or explicit edge case captured in the Interview Results or winner Full Answers must be represented somewhere in the PRD by at least one concrete epic, user story, acceptance criterion, scope item, constraint, or risk entry.',
     'Verification Readiness: Flag PRD user stories that have missing or weak verification guidance when the acceptance criteria are not concrete enough to support later implementation verification.',
@@ -485,6 +487,7 @@ export const PROM13b: PromptTemplate = {
     'Primary Truth: Treat the approved Interview Results as primary user truth. Use the winner Full Answers artifact only as adopted context for skipped questions.',
     'Baseline Rule: Treat the provided current PRD candidate as the baseline. Do not rewrite from scratch.',
     'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
+    'Source Artifact Contradictions: If a provided gap describes internally contradictory source artifacts, do not choose a side, invent a requirement, or revise the PRD to pretend the contradiction is resolved. Record that gap with `action: left_unresolved` and `affected_items: []`.',
     'Preservation Rule: Keep existing epic IDs and user story IDs unless the revised candidate requires a genuinely new item.',
     'Epic Completeness: Every epic in the revised PRD must include at least one fully populated `user_stories` entry. Never leave an epic as a shell with `user_stories: []`, omit `user_stories`, or move story-level requirements only into epic-level fields.',
     'Specificity Rule: When a provided gap says coverage is vague or hard to verify, resolve it by making the affected acceptance criteria, scope language, or verification guidance more concrete and testable instead of adding generic filler prose.',
@@ -586,6 +589,7 @@ export const PROM23: PromptTemplate = {
   instructions: [
     'Primary Truth: Treat the approved PRD as the sole source of truth for this audit. Every in-scope PRD requirement must be traceable to at least one bead.',
     'Coverage Check: Detect uncovered PRD requirements, oversized beads, vague work splits, missing verification steps, empty or insufficient acceptance criteria, missing test commands, and beads with no `prdRefs` mapping.',
+    'Source Artifact Contradictions: If the approved PRD is internally contradictory in a way the Beads blueprint cannot faithfully satisfy, report the contradiction as an unresolved coverage gap. Do not choose a side or invent implementation requirements to reconcile contradictory source artifacts.',
     'Identify Gaps: List any specific gaps or discrepancies found between the PRD and the Beads breakdown.',
     'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
     'If no gaps exist, confirm that the Beads blueprint is complete and ready for the final expansion step.',
@@ -611,6 +615,7 @@ export const PROM24: PromptTemplate = {
     'Primary Truth: Treat the approved PRD as the source of truth.',
     'Baseline Rule: Treat the provided current implementation plan as the baseline. Do not rewrite from scratch.',
     'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
+    'Source Artifact Contradictions: If a provided gap describes internally contradictory source artifacts, do not choose a side, invent implementation requirements, or revise beads to pretend the contradiction is resolved. Record that gap with `action: left_unresolved` and `affected_items: []`.',
     'Preservation Rule: Keep the existing bead order, IDs, and unaffected fields unless a provided gap requires a concrete change. If you add a new bead, insert it at the minimal valid position that preserves dependency order.',
     'Bead Completeness: Every bead in the revised blueprint must include non-empty `acceptanceCriteria`, `tests`, and `testCommands`. Never leave a bead as a shell with empty verification fields.',
     'Semantic Blueprint Rule: Return semantic Part 1 bead records only. Each bead must include exactly the Beads blueprint fields: `id`, `title`, `prdRefs`, `description`, `contextGuidance`, `acceptanceCriteria`, `tests`, and `testCommands`.',

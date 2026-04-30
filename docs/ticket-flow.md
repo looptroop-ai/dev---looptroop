@@ -292,11 +292,11 @@ This setting caps how many times `VERIFYING_INTERVIEW_COVERAGE` may generate fol
 | `COUNCIL_VOTING_PRD` | The council scores anonymized PRD drafts against a weighted requirements rubric and selects the best baseline. | PRD vote artifacts, ranking breakdowns, winner selection. | `cancel` | Winner advances to PRD refinement. |
 | `REFINING_PRD` | The winning PRD model upgrades its own draft by selectively merging stronger requirements, acceptance criteria, tests, and edge cases from the losing drafts. | Refined PRD Candidate v1 and optional diff metadata. | `cancel` | Success advances to PRD coverage. |
 | `VERIFYING_PRD_COVERAGE` | The current PRD candidate is checked against the approved interview and revised in-place when gaps are found. This is a versioned loop capped by configuration. | PRD coverage history, latest PRD candidate, unresolved-gap diagnostics. | `cancel` | Clean or cap-reached advances to PRD approval. |
-| `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, optionally open the compact read-only Full Answers chip for the winning model's Part 1 artifact, edit the PRD document if needed, and explicitly lock the spec that beads planning will decompose. Post-approval edits remain allowed only before `PRE_FLIGHT_CHECK`; saving from downstream beads planning archives the current approved PRD version and downstream beads attempts, saves and approves the edit, and starts `DRAFTING_BEADS`. | Approved PRD artifact, approval receipt, winning Full Answers context, and read-only archived versions when post-approval edits occur. | `approve`, `cancel` | Approval advances to beads drafting. |
+| `WAITING_PRD_APPROVAL` | You review the current PRD candidate, inspect any unresolved warnings, optionally open the compact read-only Full Answers chip for the winning model's Part 1 artifact, edit the PRD document if needed, and explicitly lock the spec that beads planning will decompose. Coverage warnings may include unresolved source-artifact contradictions. Post-approval edits remain allowed only before `PRE_FLIGHT_CHECK`; saving from downstream beads planning archives the current approved PRD version and downstream beads attempts, saves and approves the edit, and starts `DRAFTING_BEADS`. | Approved PRD artifact, approval receipt, winning Full Answers context, and read-only archived versions when post-approval edits occur. | `approve`, `cancel` | Approval advances to beads drafting. |
 
 #### PRD Coverage Passes
 
-This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run while reconciling the PRD against the approved interview. The goal is to improve completeness without letting PRD coverage revise forever.
+This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run while reconciling the PRD against the approved interview. The goal is to improve completeness without letting PRD coverage revise forever. Parser repairs and structured retries are recorded as artifact processing notices; coverage warnings are reserved for unresolved planning gaps.
 
 ### Beads
 
@@ -307,11 +307,11 @@ This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run whil
 | `REFINING_BEADS` | The winning blueprint is strengthened with better tasks, constraints, and test ideas from losing blueprints, while preserving the dependency graph shape. | Refined semantic blueprint plus diff metadata. | `cancel` | Success advances to beads coverage. |
 | `VERIFYING_BEADS_COVERAGE` | The semantic blueprint is checked against the PRD and revised until coverage is acceptable or the pass budget is exhausted. | Coverage history, revised blueprint candidate, unresolved-gap diagnostics. | `cancel` | Clean or cap-reached advances to beads expansion. |
 | `EXPANDING_BEADS` | The coverage-validated blueprint is expanded into execution-ready bead records with file targets, commands, and runtime dependency fields using PROM25. | Expanded `issues.jsonl`, approval candidate. | `cancel` | Expanded plan advances to beads approval. |
-| `WAITING_BEADS_APPROVAL` | You review the execution-ready bead plan before any coding begins. This is the last planning approval gate and the last easy point to reshape execution ordering. | Approved beads artifact and approval receipt. | `approve`, `cancel` | Approval advances to pre-flight checks. |
+| `WAITING_BEADS_APPROVAL` | You review the execution-ready bead plan before any coding begins. This is the last planning approval gate and the last easy point to reshape execution ordering. Coverage warnings may include unresolved source-artifact contradictions. | Approved beads artifact and approval receipt. | `approve`, `cancel` | Approval advances to pre-flight checks. |
 
 #### Beads Coverage Passes
 
-This setting caps how many coverage revision cycles `VERIFYING_BEADS_COVERAGE` may run while reconciling the semantic blueprint against the PRD. Once clean or capped, the flow advances to `EXPANDING_BEADS` which runs independently to produce execution-ready bead records.
+This setting caps how many coverage revision cycles `VERIFYING_BEADS_COVERAGE` may run while reconciling the semantic blueprint against the PRD. Once clean or capped, the flow advances to `EXPANDING_BEADS` which runs independently to produce execution-ready bead records. Parser repairs and structured retries are artifact processing notices, separate from coverage warnings.
 
 ### Pre-Implementation
 

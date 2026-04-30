@@ -157,6 +157,11 @@ describe('parser fix interventions', () => {
     expect(i.exactCorrection).toBe('Escaped invalid backslash sequences inside double-quoted YAML scalars before reparsing the payload.')
   })
 
+  it('maps colon-containing plain scalar repairs', () => {
+    const i = deriveOne('Quoted YAML plain scalar values containing colon-space before reparsing.')
+    expectIntervention(i, { code: 'parser_plain_scalar_colon', stage: 'parse', category: 'parser_fix' })
+  })
+
   it('maps indentation', () => {
     const i = deriveOne('Repaired YAML indentation at line 42.')
     expectIntervention(i, { code: 'parser_indentation', stage: 'parse', category: 'parser_fix' })

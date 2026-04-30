@@ -221,6 +221,25 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value.questions[2]!.id).toBe('Q03')
   })
 
+  it('recovers interview questions emitted as an inline sequence parent', () => {
+    const result = normalizeInterviewQuestionsOutput(
+      'questions: - id: Q01 phase: foundation question: What behavior should the API expose?',
+      10,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Repaired inline YAML sequence or mapping syntax before parsing.')
+    expect(result.value.questions).toEqual([
+      {
+        id: 'Q01',
+        phase: 'foundation',
+        question: 'What behavior should the API expose?',
+      },
+    ])
+  })
+
   it('normalizes refinement output wrapped in ```yaml code fences', () => {
     const winnerDraft = [
       'questions:',
@@ -1419,6 +1438,31 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value.epics).toHaveLength(1)
   })
 
+  it('preserves header-like PRD list scalar text instead of accepting YAML mapping coercion', () => {
+    const interviewContent = buildInterviewContent(TICKET_ID)
+    const prdContent = buildStandardPrdYaml({
+      ticketId: TICKET_ID,
+    }).replace(
+      '  data_model: []',
+      [
+        '  data_model:',
+        '    - Content-Disposition: attachment; filename=synonyms.json',
+      ].join('\n'),
+    )
+
+    const result = normalizePrdYamlOutput(prdContent, {
+      ticketId: TICKET_ID,
+      interviewContent,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairWarnings).toContain('Quoted YAML plain scalar values containing colon-space before reparsing.')
+    expect(result.value.technical_requirements.data_model).toEqual([
+      'Content-Disposition: attachment; filename=synonyms.json',
+    ])
+  })
+
   it('unwraps artifact.prd object wrappers without relaxing PRD validation', () => {
     const interviewContent = buildInterviewContent(TICKET_ID)
 
@@ -1866,6 +1910,35 @@ describe.concurrent('structured output normalization', () => {
     expect(result.repairWarnings).toContain('Repaired improperly quoted YAML scalar value.')
     expect(result.value[0]?.acceptanceCriteria).toEqual([
       '\'pink\' is accepted as a valid theme value in UIState.',
+    ])
+  })
+
+  it('accepts bead subset YAML after repairing doubled single-quote scalar wrappers', () => {
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Tighten header validation',
+      '    prdRefs:',
+      '      - EPIC-1 / US-1',
+      '    description: Keep header requirements as scalar text.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Keep parser repairs text-preserving.',
+      '      anti_patterns:',
+      '        - Do not invent missing fields.',
+      '    acceptanceCriteria:',
+      "      - ''Response includes Content-Disposition: attachment; filename=synonyms.json''",
+      '    tests:',
+      '      - Header parser regression covers doubled single quotes.',
+      '    testCommands:',
+      '      - npm run test:server',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairWarnings).toContain('Repaired improperly quoted YAML scalar value.')
+    expect(result.value[0]?.acceptanceCriteria).toEqual([
+      'Response includes Content-Disposition: attachment; filename=synonyms.json',
     ])
   })
 

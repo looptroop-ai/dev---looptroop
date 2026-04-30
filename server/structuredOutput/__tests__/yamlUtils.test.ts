@@ -15,6 +15,66 @@ describe.concurrent('buildStructuredRetryPrompt', () => {
 })
 
 describe.concurrent('parseYamlOrJsonCandidate', () => {
+  it('repairs inline sequence parents before YAML can accept them as plain scalars', () => {
+    const repairWarnings: string[] = []
+
+    const parsed = parseYamlOrJsonCandidate(
+      'questions: - id: Q01 phase: foundation question: What behavior should the API expose?',
+      { repairWarnings },
+    ) as {
+      questions: Array<{ id: string; phase: string; question: string }>
+    }
+
+    expect(repairWarnings).toContain('Repaired inline YAML sequence or mapping syntax before parsing.')
+    expect(parsed.questions).toEqual([
+      {
+        id: 'Q01',
+        phase: 'foundation',
+        question: 'What behavior should the API expose?',
+      },
+    ])
+  })
+
+  it('quotes header-like list scalars before YAML can accept them as mappings', () => {
+    const repairWarnings: string[] = []
+
+    const parsed = parseYamlOrJsonCandidate([
+      'api_contracts:',
+      '  - Content-Disposition: attachment; filename=synonyms.json',
+      'gap_resolutions:',
+      '  - gap: keep bead references typed',
+      '    action: already_covered',
+    ].join('\n'), { repairWarnings }) as {
+      api_contracts: string[]
+      gap_resolutions: Array<{ gap: string; action: string }>
+    }
+
+    expect(repairWarnings).toContain('Quoted YAML plain scalar values containing colon-space before reparsing.')
+    expect(parsed.api_contracts).toEqual([
+      'Content-Disposition: attachment; filename=synonyms.json',
+    ])
+    expect(parsed.gap_resolutions[0]).toEqual({
+      gap: 'keep bead references typed',
+      action: 'already_covered',
+    })
+  })
+
+  it('repairs doubled single-quote wrappers around colon-containing list scalars', () => {
+    const repairWarnings: string[] = []
+
+    const parsed = parseYamlOrJsonCandidate([
+      'api_contracts:',
+      "  - ''Response includes Content-Disposition: attachment; filename=synonyms.json''",
+    ].join('\n'), { repairWarnings }) as {
+      api_contracts: string[]
+    }
+
+    expect(repairWarnings).toContain('Repaired improperly quoted YAML scalar value.')
+    expect(parsed.api_contracts).toEqual([
+      'Response includes Content-Disposition: attachment; filename=synonyms.json',
+    ])
+  })
+
   it('recovers combined quoted-scalar and colon-scalar near misses in one pass', () => {
     const command = 'node -e "const fs=require(\'fs\');console.error(\'Missing pink tokens: \'+[\'accent\'].join(\',\'))"'
     const repairWarnings: string[] = []
