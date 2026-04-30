@@ -49,6 +49,7 @@ If you are new to LoopTroop, use this order:
 ### Reference
 
 - [API Reference](api-reference.md): routes, SSE events, payload shapes.
+- [Runtime Diagnostics](diagnostics.md): local stall and resource-pressure report command.
 
 ### Direction
 

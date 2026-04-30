@@ -174,6 +174,18 @@ npm run audit:remediate
 npm run opencode:upgrade
 ```
 
+### Runtime Stall Diagnostics
+
+If the UI feels slow, tickets disappear after refresh, or the app appears to stall, run the diagnostic command while `npm run dev` is still running:
+
+```bash
+npm run diagnose:stall
+```
+
+The report is saved under `tmp/diagnostics/` and includes endpoint latency, backend/frontend/OpenCode activity, whole-system CPU/RSS/I/O consumers, pressure-stall metrics, SQLite/WAL state, attached project health, active sessions, git responsiveness, and a `Likely Causes` summary.
+
+Use `--sample-ms <ms>` to catch longer CPU or I/O spikes, and `--timeout-ms <ms>` if the app is already responding slowly. See [Runtime Diagnostics](diagnostics.md) for the full report guide.
+
 ### Environment Variables
 
 If you need to customize ports or paths, you can use these environment variables:
