@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import { fireEvent, render as baseRender, screen, within } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 import { encode } from 'gpt-tokenizer'
 import { deriveStructuredInterventions } from '@shared/structuredInterventions'
 import { ArtifactContent, CollapsibleSection, InterviewAnswersView } from '../ArtifactContentViewer'
@@ -19,6 +19,11 @@ import {
   buildInterviewDocumentContent,
   buildPrdDocumentContent,
 } from '@/test/workspaceArtifactBuilders'
+import { TooltipProvider } from '@/components/ui/tooltip'
+
+function render(ui: ReactNode) {
+  return baseRender(<TooltipProvider>{ui}</TooltipProvider>)
+}
 
 function openFoundationGroup() {
   fireEvent.click(screen.getByText('Foundation').closest('button')!)
@@ -168,7 +173,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Switch to the project-native bootstrap command.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
-    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy raw output' })).toBeInTheDocument()
     expect(screen.getByText(/project bootstrap/)).toBeInTheDocument()
   })
 
@@ -188,7 +193,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Quality Gate Policy')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
-    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy raw output' })).toBeInTheDocument()
     expect(screen.getByText(/execution_setup_profile/)).toBeInTheDocument()
   })
 
@@ -210,7 +215,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('project cache verify')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
-    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy raw output' })).toBeInTheDocument()
     expect(screen.getByText(/executionAddedCommands/)).toBeInTheDocument()
   })
 
@@ -229,7 +234,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Command Audit')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
-    expect(screen.getByTitle('Copy raw output')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy raw output' })).toBeInTheDocument()
     expect(screen.getByText(/executionAddedCommands/)).toBeInTheDocument()
   })
 
@@ -1194,7 +1199,7 @@ describe('ArtifactContentViewer', () => {
       && !element.textContent.includes('\\n  Draft 1'),
     )
     expect(allModelsPre).toBeInTheDocument()
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
     expect(writeTextMock).toHaveBeenLastCalledWith(content)
 
     fireEvent.click(within(voterAGroup).getByRole('button', { name: /voter-a$/ }))
@@ -1205,7 +1210,7 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText(`${encode(firstRawResponse).length.toLocaleString()} Tokens (GPT-5 tokenizer)`)).toBeInTheDocument()
     expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === firstRawResponse)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
 
     expect(writeTextMock).toHaveBeenLastCalledWith(firstRawResponse)
 
@@ -1213,7 +1218,7 @@ describe('ArtifactContentViewer', () => {
 
     expect(within(voterAGroup).getByRole('button', { name: /voter-a Validated/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === firstNormalizedResponse)).toBeInTheDocument()
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
     expect(writeTextMock).toHaveBeenLastCalledWith(firstNormalizedResponse)
   })
 
@@ -1369,12 +1374,12 @@ describe('ArtifactContentViewer', () => {
 
     fireEvent.click(within(draftGroup).getByRole('button', { name: /draft-a Raw Output/ }))
     expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === rawDraftResponse)).toBeInTheDocument()
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
     expect(writeTextMock).toHaveBeenLastCalledWith(rawDraftResponse)
 
     fireEvent.click(within(draftGroup).getByRole('button', { name: /draft-a Validated/ }))
     expect(screen.getByText((_text, element) => element?.tagName === 'PRE' && element.textContent === validatedDraftResponse)).toBeInTheDocument()
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
     expect(writeTextMock).toHaveBeenLastCalledWith(validatedDraftResponse)
   })
 
@@ -2054,7 +2059,7 @@ describe('ArtifactContentViewer', () => {
     expect(rawPre.textContent).not.toContain('no\n      theme switcher')
     expect(rawPre.textContent).toContain('    source: compiled')
 
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
     expect(writeTextMock).toHaveBeenLastCalledWith(content)
   })
 
@@ -2097,7 +2102,7 @@ describe('ArtifactContentViewer', () => {
     expect(rawPre.textContent).not.toContain('prompt: >-')
     expect(rawPre.textContent).not.toContain('readable\n        when viewing')
 
-    fireEvent.click(screen.getByTitle('Copy raw output'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy raw output' }))
     expect(writeTextMock).toHaveBeenLastCalledWith(content)
   })
 

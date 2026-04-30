@@ -1,4 +1,4 @@
-import { Project, SyntaxKind, JsxOpeningElement, JsxSelfClosingElement } from 'ts-morph';
+import { Project, SyntaxKind } from 'ts-morph';
 
 const project = new Project({
   tsConfigFilePath: "tsconfig.json",
@@ -14,12 +14,12 @@ const ALLOWED_TAGS = new Set([
 
 for (const file of files) {
   let hasChanges = false;
-  let hasTooltipImport = file.getImportDeclaration(decl => decl.getModuleSpecifierValue() === "@/components/ui/tooltip") !== undefined;
+  const hasTooltipImport = file.getImportDeclaration(decl => decl.getModuleSpecifierValue() === "@/components/ui/tooltip") !== undefined;
   
   const jsxElements = file.getDescendantsOfKind(SyntaxKind.JsxElement);
   const jsxSelfClosingElements = file.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement);
   
-  const replacements: { node: any, replacement: string, isSelfClosing: boolean }[] = [];
+  const replacements: { node: ReturnType<typeof file.getDescendantsOfKind>[number] | ReturnType<typeof file.getDescendantsOfKind>[number], replacement: string, isSelfClosing: boolean }[] = [];
 
   for (const element of jsxElements) {
     const openingElement = element.getOpeningElement();

@@ -1,6 +1,7 @@
 import type { TicketContext, TicketEvent } from '../../machines/types'
 import type { PromptPart } from '../../opencode/types'
 import { withCommandLoggingAsync } from '../../log/commandLogger'
+import { ensureActivePhaseAttempt } from '../../storage/ticketPhaseAttempts'
 import { getTicketPaths } from '../../storage/tickets'
 import { throwIfAborted } from '../../council/types'
 import { persistUiArtifactCompanionArtifact } from '../artifactCompanions'
@@ -141,6 +142,8 @@ async function generateAndPersistExecutionSetupPlan(input: {
       : 'Regenerating the readiness assessment and execution setup plan from user commentary.',
   )
 
+  const phaseAttempt = ensureActivePhaseAttempt(input.ticketId, 'WAITING_EXECUTION_SETUP_APPROVAL')
+
   const generation = await generateExecutionSetupPlan(
     adapter,
     promptContext,
@@ -151,7 +154,7 @@ async function generateAndPersistExecutionSetupPlan(input: {
       model: planModelId,
       variant: input.context.lockedMainImplementerVariant ?? undefined,
       timeoutMs: runtimeSettings.timeoutMs,
-      phaseAttempt: 1,
+      phaseAttempt,
       promptTemplate: input.source === 'regenerate'
         ? PROM_EXECUTION_SETUP_PLAN_REGENERATE
         : PROM_EXECUTION_SETUP_PLAN,

@@ -45,7 +45,7 @@ describe('ContextTree', () => {
 
     expect(screen.getByText('Expansion')).toBeInTheDocument()
     expect(screen.getByText('Output')).toBeInTheDocument()
-    expect(screen.getByTitle('Execution-ready tasks for approval.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Execution-ready tasks for approval.')).toBeInTheDocument()
   })
 
   it('uses curated output labels for council drafting', () => {
@@ -54,7 +54,7 @@ describe('ContextTree', () => {
     fireEvent.click(screen.getByRole('button', { name: /context & output/i }))
 
     expect(screen.getByText('Interview Drafts')).toBeInTheDocument()
-    expect(screen.getByTitle('Candidate question sets for voting.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Candidate question sets for voting.')).toBeInTheDocument()
     expect(screen.queryByText('Pull Request')).toBeNull()
   })
 
@@ -64,7 +64,7 @@ describe('ContextTree', () => {
     fireEvent.click(screen.getByRole('button', { name: /context & output/i }))
 
     expect(screen.getByText('Winning Draft')).toBeInTheDocument()
-    expect(screen.getByTitle('Selected draft used to build the interview.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Selected draft used to build the interview.')).toBeInTheDocument()
     expect(screen.queryByText('Council Votes')).toBeNull()
   })
 })

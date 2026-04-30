@@ -381,7 +381,7 @@ describe('PhaseLogPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
     expect(screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByTitle('Show models'))
+    fireEvent.click(screen.getByRole('button', { name: 'Show models' }))
     fireEvent.click(screen.getByRole('button', { name: /minimax-m2\.5-free/i }))
     expect(screen.getByText(/\[ERROR-minimax-m2.5-free\]/i)).toBeInTheDocument()
   })
@@ -428,7 +428,7 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
 
-    fireEvent.click(screen.getByTitle('Copy log entry'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy log entry' }))
 
     await waitFor(() => {
       expect(writeTextMock).toHaveBeenCalledWith(
@@ -454,7 +454,7 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={logs} />)
 
-    const copyButton = screen.getByTitle('Copy log entry')
+    const copyButton = screen.getByRole('button', { name: 'Copy log entry' })
     const stickyActions = copyButton.closest('[data-log-entry-sticky-actions]')
 
     expect(screen.getByRole('button', { name: 'More' })).toBeInTheDocument()
@@ -509,7 +509,7 @@ describe('PhaseLogPanel', () => {
     renderWithTooltipProvider(<PhaseLogPanel phase="DRAFTING_PRD" logs={logs} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'ERROR' }))
-    fireEvent.click(screen.getByTitle('Copy all logs'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy all logs' }))
 
     await waitFor(() => {
       expect(writeTextMock).toHaveBeenCalledWith([
@@ -583,7 +583,7 @@ describe('PhaseLogPanel', () => {
     renderWithTooltipProvider(<PhaseLogPanel phase="CODING" logs={logs} />)
 
     expect(screen.getByRole('button', { name: 'AI > gpt-5.4' })).toBeInTheDocument()
-    expect(screen.queryByTitle('Show models')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show models' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'AI' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'AI > gpt-5.4' }))
@@ -610,7 +610,7 @@ describe('PhaseLogPanel', () => {
 
     renderWithTooltipProvider(<PhaseLogPanel phase="COUNCIL_VOTING_PRD" logs={logs} />)
 
-    fireEvent.click(screen.getByTitle('Show models'))
+    fireEvent.click(screen.getByRole('button', { name: 'Show models' }))
     fireEvent.click(screen.getByTitle('openai/gpt-5.4'))
 
     const line = screen.getByText(/OpenCode vote: openai\/gpt-5\.4 session=ses-1/i)

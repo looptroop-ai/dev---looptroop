@@ -174,6 +174,7 @@ export function CopyButton({ content, className = '', title = 'Copy raw output' 
     <Tooltip>
         <TooltipTrigger asChild>
           <button
+            aria-label={title}
             onClick={handleCopy}
             className={`inline-flex items-center justify-center p-1 rounded hover:bg-muted transition-colors ${className}`}
           >

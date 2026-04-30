@@ -171,7 +171,7 @@ describe('CodingView hover cards', () => {
       expect(screen.getByText('src/utils.ts')).toBeTruthy()
 
       // Copy buttons should exist (one per file)
-      const copyButtons = screen.getAllByTitle('Copy path')
+      const copyButtons = screen.getAllByRole('button', { name: 'Copy path' })
       expect(copyButtons.length).toBe(2)
     })
 
@@ -191,7 +191,7 @@ describe('CodingView hover cards', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /Test Bead/ }))
 
-      const copyBtn = screen.getByTitle('Copy path')
+      const copyBtn = screen.getByRole('button', { name: 'Copy path' })
       fireEvent.click(copyBtn)
 
       await waitFor(() => {

@@ -385,7 +385,7 @@ describe('FullLogView', () => {
 
     renderWithTooltipProvider(<FullLogView />)
 
-    fireEvent.click(screen.getByTitle('Show models'))
+    fireEvent.click(screen.getByRole('button', { name: 'Show models' }))
     fireEvent.click(screen.getByRole('button', { name: /gpt-5\.4/i }))
 
     expect(screen.getByText('1 entries')).toBeTruthy()
@@ -449,7 +449,7 @@ describe('FullLogView', () => {
     renderWithTooltipProvider(<FullLogView />)
 
     expect(screen.getByRole('button', { name: 'AI > gpt-5.4' })).toBeTruthy()
-    expect(screen.queryByTitle('Show models')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show models' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'AI' })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'AI > gpt-5.4' }))
@@ -597,7 +597,7 @@ describe('FullLogView', () => {
     renderWithTooltipProvider(<FullLogView />)
 
     await act(async () => {
-      fireEvent.click(screen.getByTitle('Copy all logs'))
+      fireEvent.click(screen.getByRole('button', { name: 'Copy all logs' }))
       await Promise.resolve()
     })
     expect(writeTextMock).toHaveBeenCalledTimes(1)

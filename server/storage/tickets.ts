@@ -42,6 +42,7 @@ export {
 export {
   INTERVIEW_EDIT_RESTART_PHASES,
   PRD_EDIT_RESTART_PHASES,
+  EXECUTION_SETUP_PLAN_RESTART_PHASES,
   isAttemptTrackedPhase,
   getActivePhaseAttempt,
   resolvePhaseAttempt,

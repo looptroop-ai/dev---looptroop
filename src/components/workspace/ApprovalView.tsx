@@ -685,11 +685,16 @@ export function ApprovalView({ ticket, phase, artifactType, readOnly }: Approval
   ) : null
 
   if (artifactType === 'execution_setup_plan') {
+    const isArchivedAttempt = archivedAttemptNumber != null
     return (
       <div className="h-full flex flex-col min-h-0">
         {selector}
-      <div className="flex-1 min-h-0">
-          <ExecutionSetupPlanApprovalPane ticket={ticket} readOnly={readOnly} />
+        <div className="flex-1 min-h-0">
+          <ExecutionSetupPlanApprovalPane
+            ticket={ticket}
+            readOnly={readOnly || isArchivedAttempt}
+            phaseAttempt={isArchivedAttempt ? archivedAttemptNumber : undefined}
+          />
         </div>
       </div>
     )

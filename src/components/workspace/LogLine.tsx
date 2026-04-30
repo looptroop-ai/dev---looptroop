@@ -75,6 +75,7 @@ function renderLogLine(entry: LogEntry, showModelName: boolean) {
             <TooltipTrigger asChild>
               <span
                   className={cn('font-semibold', color)}
+                  title={formatted.tagTitle}
                 >
                   {formatted.tagText}
                 </span>
@@ -199,6 +200,7 @@ function renderStructuredLogLine(
             <TooltipTrigger asChild>
               <span
                   className={cn('font-semibold', color)}
+                  title={tagTitle}
                 >
                   {tagText}
                 </span>
@@ -241,6 +243,7 @@ function renderToolLogLine(entry: LogEntry, tagText: string, tagTitle: string | 
               <TooltipTrigger asChild>
                 <span
                       className={cn('font-semibold', color)}
+                      title={tagTitle}
                     >
                       {tagText}
                     </span>
@@ -363,6 +366,7 @@ export const LogEntryRow = memo(function LogEntryRow({ entry, index, showModelNa
         <TooltipTrigger asChild>
           <button
             type="button"
+            aria-label="Copy log entry"
             onClick={copyEntry}
             className={cn('transition-colors cursor-pointer', className)}
           >

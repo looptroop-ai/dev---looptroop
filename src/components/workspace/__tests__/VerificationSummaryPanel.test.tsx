@@ -2,6 +2,7 @@ import { cleanup, render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeTicket } from '@/test/factories'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 const useTicketArtifactsMock = vi.fn<
   () => {
@@ -52,7 +53,9 @@ function renderPanel(
   return {
     ...render(
       <QueryClientProvider client={qc}>
-        <VerificationSummaryPanel ticket={ticket} {...actions} />
+        <TooltipProvider>
+          <VerificationSummaryPanel ticket={ticket} {...actions} />
+        </TooltipProvider>
       </QueryClientProvider>,
     ),
     ...actions,

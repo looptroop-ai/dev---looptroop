@@ -14,7 +14,6 @@ import { parseExecutionSetupPlanReport } from './phaseArtifactTypes'
 import {
   EXECUTION_SETUP_PLAN_APPROVAL_FOCUS_EVENT,
   parseExecutionSetupPlanContent,
-  serializeExecutionSetupPlan,
   type ExecutionSetupPlan,
 } from '@/lib/executionSetupPlan'
 import { ExecutionSetupPlanEditor } from './ExecutionSetupPlanEditor'
@@ -23,6 +22,7 @@ import {
   useApprovalFocusAnchor,
   useDebouncedApprovalUiState,
 } from './approvalHooks'
+import { requestWorkspacePhaseNavigation } from '@/lib/workspaceNavigation'
 
 type EditTab = 'structured' | 'raw'
 type DiscardTarget = { type: 'close' } | { type: 'switch-tab'; tab: EditTab } | null
@@ -132,23 +132,30 @@ function ApprovedSetupPlanBanner({
   )
 }
 
-export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { ticket: Ticket; readOnly?: boolean }) {
+export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false, phaseAttempt }: { ticket: Ticket; readOnly?: boolean; phaseAttempt?: number }) {
   const queryClient = useQueryClient()
   const { mutateAsync: saveUiState } = useSaveTicketUIState()
   const uiStateScope = 'approval_execution_setup'
   const { data: persistedUiState } = useTicketUIState<ExecutionSetupPlanApprovalUiState>(ticket.id, uiStateScope, true)
   const { artifacts } = useTicketArtifacts(ticket.id)
+  const planQueryKey = phaseAttempt != null
+    ? ['artifact', ticket.id, 'execution-setup-plan', phaseAttempt]
+    : ['artifact', ticket.id, 'execution-setup-plan']
+  const planUrl = phaseAttempt != null
+    ? `/api/tickets/${ticket.id}/execution-setup-plan?phaseAttempt=${phaseAttempt}`
+    : `/api/tickets/${ticket.id}/execution-setup-plan`
   const { data: fetchedPlan, isLoading, isFetching } = useQuery({
-    queryKey: ['artifact', ticket.id, 'execution-setup-plan'],
+    queryKey: planQueryKey,
     queryFn: async () => {
-      const response = await fetch(`/api/tickets/${ticket.id}/execution-setup-plan`)
+      const response = await fetch(planUrl)
       if (!response.ok) throw new Error('Failed to load execution setup plan')
       return response.json() as Promise<ExecutionSetupPlanApprovalResponse>
     },
     staleTime: QUERY_STALE_TIME_5M,
     refetchInterval: (query) => {
       const data = query.state.data as ExecutionSetupPlanApprovalResponse | undefined
-      return ticket.status === 'WAITING_EXECUTION_SETUP_APPROVAL' && !data?.exists ? 2000 : false
+      // Only poll for loading state when viewing the live active attempt
+      return phaseAttempt == null && ticket.status === 'WAITING_EXECUTION_SETUP_APPROVAL' && !data?.exists ? 2000 : false
     },
   })
 
@@ -305,7 +312,7 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
 
   async function handleRegenerate() {
     if (!commentary.trim()) {
-      setRegenerateError('Add commentary before isRegenerating the setup plan.')
+      setRegenerateError('Add commentary before regenerating the setup plan.')
       return
     }
 
@@ -321,29 +328,25 @@ export function ExecutionSetupPlanApprovalPane({ ticket, readOnly = false }: { t
           ...(editTab === 'raw' && rawDraft.trim() ? { rawContent: rawDraft } : {}),
         }),
       })
-      const payload = await response.json() as { raw?: string; plan?: ExecutionSetupPlan; error?: string; details?: string }
+      const payload = await response.json() as { success?: boolean; error?: string; details?: string }
       if (!response.ok) {
         throw new Error(payload.details || payload.error || 'Failed to regenerate execution setup plan')
       }
 
-      const nextData: ExecutionSetupPlanApprovalResponse = {
-        exists: Boolean(payload.plan),
-        raw: payload.raw ?? (payload.plan ? serializeExecutionSetupPlan(payload.plan) : rawDraft),
-        plan: payload.plan ?? null,
-        updatedAt: new Date().toISOString(),
-      }
-      queryClient.setQueryData(['artifact', ticket.id, 'execution-setup-plan'], nextData)
-      queryClient.invalidateQueries({ queryKey: ['artifact', ticket.id, 'execution-setup-plan'] })
+      // Invalidate queries so old cached plan is gone, new poll will start fresh
+      queryClient.removeQueries({ queryKey: ['artifact', ticket.id, 'execution-setup-plan'] })
       clearTicketArtifactsCache(ticket.id)
-      setCommentary('')
+      queryClient.invalidateQueries({ queryKey: ['ticket', ticket.id] })
+
+      // Close dialog and navigate back to ticket view — ticket is still in WAITING_EXECUTION_SETUP_APPROVAL
+      // but now with a new empty attempt → shows loading state
       setShowRegenerateDialog(false)
-      setIsEditMode(false)
-      setEditTab('structured')
+      requestWorkspacePhaseNavigation({ ticketId: ticket.id, phase: ticket.status })
     } catch (error) {
       setRegenerateError(error instanceof Error ? error.message : 'Failed to regenerate execution setup plan')
-    } finally {
       setIsRegenerating(false)
     }
+    // Note: setIsRegenerating(false) is intentionally NOT called on success — we're navigating away
   }
 
   async function handleApprove() {

@@ -22,13 +22,13 @@ function normalizeStoredExecutionSetupPlanContent(rawContent: string) {
   return normalizeExecutionSetupPlanOutput(content)
 }
 
-export function readExecutionSetupPlan(ticketId: string): {
+export function readExecutionSetupPlan(ticketId: string, phaseAttempt?: number): {
   artifactId: number | null
   raw: string | null
   plan: ExecutionSetupPlan | null
   updatedAt: string | null
 } {
-  const artifact = getLatestPhaseArtifact(ticketId, EXECUTION_SETUP_PLAN_ARTIFACT_TYPE, EXECUTION_SETUP_PLAN_PHASE)
+  const artifact = getLatestPhaseArtifact(ticketId, EXECUTION_SETUP_PLAN_ARTIFACT_TYPE, EXECUTION_SETUP_PLAN_PHASE, phaseAttempt)
   if (!artifact?.content) {
     return {
       artifactId: null,

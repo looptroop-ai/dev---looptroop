@@ -110,7 +110,7 @@ vi.mock('@/hooks/useTickets', async () => {
   return {
     ...actual,
     useTicketUIState: (...args: unknown[]) => mockUseTicketUIState(...args),
-    useSaveTicketUIState: () => ({ mutate: mockSaveUiState }),
+    useSaveTicketUIState: () => ({ mutateAsync: mockSaveUiState }),
   }
 })
 

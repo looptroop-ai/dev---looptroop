@@ -7,6 +7,7 @@ import { attachProject } from '../../storage/projects'
 import {
   createTicket,
   getLatestPhaseArtifact,
+  listPhaseAttempts,
   patchTicket,
   upsertLatestPhaseArtifact,
 } from '../../storage/tickets'
@@ -411,8 +412,14 @@ describe('ticketRouter execution setup plan approval routes', () => {
     expect(payload.details).toContain('cannot include setup steps when readiness is ready')
   })
 
-  it('regenerates the execution setup plan with commentary', async () => {
+  it('regenerates the execution setup plan with commentary (returns immediately, generates in background)', async () => {
     const { app, ticket } = setupExecutionSetupPlanTicket()
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'execution_setup_plan',
+      'WAITING_EXECUTION_SETUP_APPROVAL',
+      JSON.stringify(buildPlan(ticket.externalId), null, 2),
+    )
 
     const response = await app.request(`/api/tickets/${ticket.id}/regenerate-execution-setup-plan`, {
       method: 'POST',
@@ -421,10 +428,78 @@ describe('ticketRouter execution setup plan approval routes', () => {
     })
 
     expect(response.status).toBe(200)
-    const payload = await response.json() as { plan: { summary: string } }
-    expect(payload.plan.summary).toContain('Use the project-native bootstrap command.')
+    const payload = await response.json() as { success: boolean; plan?: unknown }
+    expect(payload.success).toBe(true)
+    expect(payload.plan).toBeUndefined()
+
+    // Background generation (mock) runs synchronously — artifact should be saved to new active attempt
     const stored = getLatestPhaseArtifact(ticket.id, 'execution_setup_plan', 'WAITING_EXECUTION_SETUP_APPROVAL')
     expect(stored?.content).toContain('Use the project-native bootstrap command.')
+  })
+
+  it('archives the current attempt and creates a new one on regenerate', async () => {
+    const { app, ticket } = setupExecutionSetupPlanTicket()
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'execution_setup_plan',
+      'WAITING_EXECUTION_SETUP_APPROVAL',
+      JSON.stringify(buildPlan(ticket.externalId, 'Original plan.'), null, 2),
+    )
+
+    const response = await app.request(`/api/tickets/${ticket.id}/regenerate-execution-setup-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commentary: 'New commentary.' }),
+    })
+
+    expect(response.status).toBe(200)
+
+    const attempts = listPhaseAttempts(ticket.id, 'WAITING_EXECUTION_SETUP_APPROVAL')
+    expect(attempts).toHaveLength(2)
+    // listPhaseAttempts returns newest first
+    expect(attempts[0]!.state).toBe('active')
+    expect(attempts[0]!.attemptNumber).toBe(2)
+    expect(attempts[1]!.state).toBe('archived')
+    expect(attempts[1]!.attemptNumber).toBe(1)
+
+    // Old plan preserved in archived attempt 1
+    const oldArtifact = getLatestPhaseArtifact(ticket.id, 'execution_setup_plan', 'WAITING_EXECUTION_SETUP_APPROVAL', 1)
+    expect(oldArtifact?.content).toContain('Original plan.')
+
+    // New plan saved to active attempt 2
+    const newArtifact = getLatestPhaseArtifact(ticket.id, 'execution_setup_plan', 'WAITING_EXECUTION_SETUP_APPROVAL')
+    expect(newArtifact?.content).toContain('New commentary.')
+  })
+
+  it('reads an archived execution setup plan by phase attempt number', async () => {
+    const { app, ticket } = setupExecutionSetupPlanTicket()
+    upsertLatestPhaseArtifact(
+      ticket.id,
+      'execution_setup_plan',
+      'WAITING_EXECUTION_SETUP_APPROVAL',
+      JSON.stringify(buildPlan(ticket.externalId, 'Attempt 1 plan.'), null, 2),
+    )
+
+    // Regenerate to archive attempt 1 and start attempt 2
+    await app.request(`/api/tickets/${ticket.id}/regenerate-execution-setup-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commentary: 'New run.' }),
+    })
+
+    // GET with ?phaseAttempt=1 should return the archived plan
+    const archiveResponse = await app.request(`/api/tickets/${ticket.id}/execution-setup-plan?phaseAttempt=1`)
+    expect(archiveResponse.status).toBe(200)
+    const archivePayload = await archiveResponse.json() as { exists: boolean; plan: { summary: string } | null }
+    expect(archivePayload.exists).toBe(true)
+    expect(archivePayload.plan?.summary).toBe('Attempt 1 plan.')
+
+    // GET without param returns the active (attempt 2) plan
+    const activeResponse = await app.request(`/api/tickets/${ticket.id}/execution-setup-plan`)
+    expect(activeResponse.status).toBe(200)
+    const activePayload = await activeResponse.json() as { exists: boolean; plan: { summary: string } | null }
+    expect(activePayload.exists).toBe(true)
+    expect(activePayload.plan?.summary).toContain('New run.')
   })
 
   it('approves the execution setup plan, stamps approval receipt, and advances the ticket', async () => {

@@ -4,8 +4,6 @@ search: false
 
 # Roadmap
 
-This page mirrors the root `roadmap.md` inside the docs site. The root file stays in place, and this version keeps every roadmap detail and link intact while making it easier to navigate from the shared docs sidebar.
-
 ## Contents
 
 - [High Priority](#high-priority)
@@ -15,9 +13,9 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
 ## High Priority
 
 
-*   **Argue the opposite** In approving interview, main implementer will refresh context, add ticket details and interview results, analyze the whole interview and then suggest a complete opposite way for ticket description and interview results (per question) . It will be an optional thing. 
-*   **Animate icons:** Update the icons for actions when models are doing different actions (eg when models create a draft it shows drafting with a pencil icon - can this pencil be animated or a similar animation to be used).
-*   **Optimise components:** Update each component to latest stable and optimise each component of the app, after creation, using ref.tools mcp that can read latest version of docs plus exa mcp that can search the internet and skill for each component.
+*   **Argue the opposite:** In approving interview, main implementer will refresh context, add ticket details and interview results, analyze the whole interview, and then suggest a completely opposite approach to each question's ticket description and interview results. It will be an optional thing.
+*   **Animate icons:** Update the icons for actions when models are doing different actions (e.g., when models create a draft, it shows drafting with a pencil icon — can this pencil be animated, or can a similar animation be used?).
+*   **Optimize components:** Update each component to latest stable and optimize each component of the app, after creation, using ref.tools mcp that can read latest version of docs plus exa mcp that can search the internet and skill for each component.
 *   **Diff view:** Show git diff per finished bead in ticket view dashboard
     *   Add one-click `rollback_to_bead` with preview and explicit confirmation.
     *   Rollback must target a finished bead commit, write an audit receipt, and never execute directly on `main` / `master`.
@@ -1156,7 +1154,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
         *   State-changing keyboard actions must emit audit events (`action`, `ticket_id`, `run_id`, `actor`, `timestamp`, `result`).
         *   Block shortcut execution while text input is focused and require explicit confirmation for destructive actions (`stop`, `cancel_ticket`).
 *   **Revert Capability:** Option to revert changes inside a completed ticket if issues are discovered later.
-*   **Delete tickets:** Option to delete tickets that are in done phase.
+*   **Delete tickets:** Option to delete tickets that are in the done phase.
 *   **Parallel execution (deterministic orchestration):** MVP remains sequential; parallel mode is introduced after reliability gates.
     *   Use wrapper architecture: `ParallelExecutor` orchestrates multiple worker `ExecutionEngine` instances while the sequential engine path remains unchanged.
     *   Parallel mode policy supports `auto`, `always`, `never` (CLI override > project config > default).
@@ -1220,7 +1218,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
         *   if queue age/count exceeds threshold, route to `NEEDS_INPUT` with explicit recovery actions.
     *   Keep push failures non-blocking by default; accumulate and surface outstanding push failures prominently at the next `WAITING_*` or manual verification checkpoint.
     *   Persist PR metadata in ticket artifacts (`branch`, `commit_sha`, `pr_url`, `created_at`, `status`).
-	*	research stack PRs on github
+    *   Research stack PRs on GitHub.
 *   **Different paths (explicit execution contracts):** At the beginning of a ticket, users can pick their plan:
     *   Add deterministic path recommendation before selection:
         *   choose `traditional/no-persona` mode when task is straightforward and single-focused, role handoffs are unnecessary, or user requests minimal setup.
@@ -1290,7 +1288,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
 
 ## Medium Priority
 
-*   **User background:** user can write his background and the interview will be tailored to his knowledge (eg carpenter, SRE, doctor) making the interview less or more technical.(it is implemented partially, but it is hidden right now).
+*   **User background:** Users can write their background, and the interview will be tailored to their knowledge (e.g., carpenter, SRE, doctor), making the interview less or more technical. (It is implemented partially, but it is hidden right now.)
 *   **Community playbooks/presets (typed overlay + visual workflow + safe merge contract):** add a new category, besides projects and tickets, called playbooks. It will contain reusable workflows organized in categories (security, marketing, i18n, documentation, refactoring, optimization) and usable across many project types.
     *   Add workflow-oriented preset taxonomy (Ralph-style) alongside domain categories:
         *   `Development Workflows`,
@@ -1332,8 +1330,8 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
     *   Persist `.looptroop/tickets/<ticket-id>/merged-config.yaml`, `.looptroop/tickets/<ticket-id>/merge-report.yaml`, and `.looptroop/tickets/<ticket-id>/workflow-graph.snapshot.json` with per-key `winning_layer`, `merge_policy`, `blocked_by`, and `effective_value`.
     *   Persist `.looptroop/tickets/<ticket-id>/persona-topology.snapshot.yaml` with resolved personas, routing rules, and validation outcome.
     *   Playbook apply must never silently overwrite safety-critical settings (`policy profile`, budget caps, lock settings, ownership guards).
-    *   Eg. Optimize SEO on the project website: user edits only fields marked editable (site name, description, target pages, and constraints).
-    *   Eg. Don't Know What to Build? - ideas preset - this launches Idea Mode, a brainstorming session to help users discover project ideas:
+    *   E.g., Optimize SEO on the project website: user edits only fields marked editable (site name, description, target pages, and constraints).
+    *   E.g., Don't Know What to Build? — ideas preset — this launches Idea Mode, a brainstorming session to help users discover project ideas:
         *   Brainstorm with AI - Get creative suggestions
         *   See trending ideas - Based on 2025-2026 tech trends
         *   Based on my skills - Personalized to technologies you know
@@ -1468,7 +1466,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
     *   Support optional hook events with condition checks; disabled extensions must not run hooks or commands.
     *   Keep smart auto-selection to choose the best MCP tool/skill for the specific bead, but only from enabled and compatible extensions. ([I1](https://x.com/intellectronica/status/2013625824549969964), [I2](https://www.pulumi.com/blog/self-verifying-ai-agents-vercels-agent-browser-in-the-ralph-wiggum-loop/#when-to-use-each))
 *   **UI Enhancements:** Dark mode support.
-*   **Subagents Work:** Delegate work like planning, documentation, etc. to subagents so the main loop only receives the absolutely necessary context.
+*   **Subagent Work:** Delegate work like planning, documentation, etc. to subagents so the main loop only receives the absolutely necessary context.
 *   **System Info + About (GUI + CLI/API):**
     *   Add `info` command/API and GUI `About` panel with: app version, runtime, OS/arch, config paths/status, active agent/tracker/provider, and template status.
     *   Add `Copy for bug report` action that emits redacted copyable output.
@@ -2018,7 +2016,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
     *   Provide MCP-control parity by mapping headless lifecycle actions to first-party MCP server tools for IDE-driven control flows.
 *   **Autonomous Watcher - Full AFK mode:**
     *   Background process to monitor GitHub Issues and PRs and auto-start AFK sessions for fixes.
-    *   Integration with messaging apps (e.g., WhatsApp) to trigger automatically feature implementation remotely.
+    *   Integration with messaging apps (e.g., WhatsApp) to automatically trigger feature implementation remotely.
 *   **Compounding (gated + license-safe):** Mechanisms for the system to learn and improve performance over time based on accumulated data. ([I1](https://x.com/ryancarson/status/2016520542723924279), [I2](https://x.com/i/status/2020917423273279613))
     *   Extract candidate lessons from completed runs into ticket-local learning candidates with evidence, affected phase, and measured outcome deltas.
     *   Promote a lesson to active rule only after replay validation on fixtures and a measurable improvement threshold is met (for example: success-rate gain or retry-count reduction).
@@ -2072,7 +2070,7 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
         *   required sections: `completeness` (all intended work shipped), `correctness` (behavior matches requirements), `coherence` (implementation still follows approved design decisions);
         *   categorize findings as `critical`, `warning`, `suggestion` with file evidence and remediation;
         *   any `critical` finding blocks transition to manual verification until resolved.
-*   **Benchmarks:** Put the app to test on different benchmarks
+*   **Benchmarks:** Put the app to the test on different benchmarks.
 *   **Dynamic Evolution via Tree-Based Strategic Re-Planning (MCTS-inspired for Beads):**
     *   Move beyond simple retry loops when a bead repeatedly fails or a complex epic starts with high uncertainty.
     *   **Expansion:** generate 3 distinct strategies for the blocked task (debug current path, refactor approach, temporary simplification/stub path).
@@ -2083,5 +2081,5 @@ This page mirrors the root `roadmap.md` inside the docs site. The root file stay
     *   On each failed bead iteration, require a structured reflection entry in `.looptroop/tickets/<ticket-id>/ticket_memory.md` with `trigger`, `fault`, and `correction`.
     *   The next retry must reference and apply the latest `correction`; retries without a new valid correction are rejected by loop control.
     *   Persist reflection outcomes (`applied`, `not_applied`, `regressed`) so harvest/review phases can measure whether the correction helped.
-*   **Global rankings:** Maestro has a global ranking for people who run the longest sessions, with badges and different levels of achievements. e.g., the best level is for those who run for 10 years (which can be achieved faster by running parallel sessions). Rankings are also done by cost. Users should be able to opt into these rankings and see their position in a leaderboard. [I1](https://runmaestro.ai/)
-*   **Actual data research** Integrate with last 30 days which will research a specific topic on Twitter and reddit in the last month to give accurate data  [I1](https://github.com/mvanhorn/last30days-skill) 
+*   **Global rankings:** Maestro has a global ranking for people who run the longest sessions, with badges and different levels of achievements. E.g., the best level is for those who run for 10 years (which can be achieved faster by running parallel sessions). Rankings are also done by cost. Users should be able to opt into these rankings and see their position in a leaderboard. [I1](https://runmaestro.ai/)
+*   **Actual data research:** Integrate with last 30 days, which will research a specific topic on Twitter and Reddit in the last month to give accurate data. [I1](https://github.com/mvanhorn/last30days-skill) 

@@ -671,7 +671,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Structured Setup Plan: The draft plan captures an explicit readiness assessment (`ready`, `partial`, or `missing`), whether actions are required, the evidence gathered, unresolved gaps, any ordered setup steps that remain necessary, the allowed temp roots, discovered project-wide command families, and the default quality-gate policy later coding beads should follow.',
       'No-Action Cases Are First-Class: If the audit finds that the environment already has everything needed, the plan stays reviewable but contains no setup steps. You can still approve it as-is or edit it to add commands if you want LoopTroop to do additional temporary preparation.',
       'User Review And Editing: The approval UI lets you review the readiness assessment and setup steps in structured form, edit commands or descriptions, add or remove steps, and fall back to raw YAML/JSON editing when you need full control over the artifact.',
-      'Regenerate With Commentary: If the initial assessment or plan is close but not correct, you can send commentary describing what should change. LoopTroop will regenerate the draft in the same approval state, reusing the active planning session when possible so the revision stays grounded in the previous attempt.',
+      'Regenerate With Commentary: If the initial assessment or plan is close but not correct, you can send commentary describing what should change. LoopTroop will archive the current plan as a prior version, then regenerate a new draft in the background. You are returned to the ticket overview immediately while generation runs. All previous versions are accessible via the VERSION dropdown at the top of the approval pane.',
       'Approval Handoff: Once approved, this plan becomes the primary execution contract for the next phase. The execution-setup agent must respect the approved readiness assessment and start from the approved plan rather than rediscovering workspace initialization from scratch.',
     ],
     outputs: [
@@ -681,7 +681,7 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
     transitions: [
       'Approve → Preparing Workspace Runtime: The workflow advances to the execution setup phase, which verifies the approved readiness assessment, performs only the missing temporary setup, and writes the reusable runtime profile.',
-      'Regenerate → Stays Here: Regeneration replaces the current setup-plan draft while remaining in the same approval state for another review pass.',
+      'Regenerate → Returns To Overview: LoopTroop archives the current setup-plan draft as a prior version, starts a new empty draft (loading state), runs generation in the background, and returns you to the ticket overview immediately. All prior versions are accessible via the VERSION dropdown at the top of the approval pane.',
       'Generation Failure → Blocked Error: If LoopTroop cannot produce a valid setup-plan artifact, the ticket routes to Blocked Error with the plan report preserved for diagnosis.',
     ],
     notes: [

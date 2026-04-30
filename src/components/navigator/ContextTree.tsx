@@ -268,6 +268,7 @@ function ContextRow({ item }: { item: ContextItem }) {
     <Tooltip>
         <TooltipTrigger asChild>
           <div
+            aria-label={item.description}
             className="w-full flex items-center gap-2 py-1 px-2 rounded-md text-xs hover:bg-accent transition-colors"
           >
             <span className="text-sm leading-none" aria-hidden>{item.icon}</span>

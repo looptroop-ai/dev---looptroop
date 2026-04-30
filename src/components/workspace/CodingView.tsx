@@ -520,6 +520,7 @@ function TargetFileRow({ file }: { file: string }) {
             <TooltipTrigger asChild>
               <button
                   type="button"
+                  aria-label="Copy path"
                   onClick={() => handleCopy(file)}
                   className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
                 >

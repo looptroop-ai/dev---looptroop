@@ -42,6 +42,7 @@ import {
   ensureActivePhaseAttempt,
   INTERVIEW_EDIT_RESTART_PHASES,
   PRD_EDIT_RESTART_PHASES,
+  EXECUTION_SETUP_PLAN_RESTART_PHASES,
   updateTicket,
   upsertLatestPhaseArtifact,
 } from '../storage/tickets'
@@ -77,7 +78,6 @@ import {
   saveExecutionSetupPlanRawContent,
 } from '../phases/executionSetupPlan/document'
 import type { ExecutionSetupPlan } from '../phases/executionSetupPlan/types'
-import { serializeExecutionSetupPlan } from '../phases/executionSetupPlan/types'
 import {
   completeCloseUnmerged,
   completeMergedPullRequest,
@@ -441,6 +441,17 @@ async function preparePlanningRestart(
 
   ensureActorForTicket(ticketId)
   revertTicketToApprovalStatus(ticketId, targetApprovalStatus)
+}
+
+async function prepareExecutionSetupPlanRestart(ticketId: string): Promise<void> {
+  emitRoutePhaseLog(ticketId, 'WAITING_EXECUTION_SETUP_APPROVAL', 'info', 'Archiving current execution setup plan attempt for versioned regenerate.')
+  cancelTicket(ticketId)
+  await abortTicketSessions(ticketId)
+  clearContextCache(ticketId)
+  ensureActivePhaseAttempt(ticketId, 'WAITING_EXECUTION_SETUP_APPROVAL')
+  archiveActivePhaseAttempts(ticketId, EXECUTION_SETUP_PLAN_RESTART_PHASES, 'execution_setup_plan_regenerate')
+  createFreshPhaseAttempts(ticketId, EXECUTION_SETUP_PLAN_RESTART_PHASES)
+  ensureActorForTicket(ticketId)
 }
 
 function rollbackTicketStartToDraft(ticketId: string): void {
@@ -1377,8 +1388,11 @@ export function handleGetExecutionSetupPlan(c: Context) {
   const ticketId = getTicketParam(c)
   if (!getTicketByRef(ticketId)) return c.json({ error: 'Ticket not found' }, 404)
 
+  const phaseAttemptParam = c.req.query('phaseAttempt')
+  const phaseAttempt = phaseAttemptParam ? parseInt(phaseAttemptParam, 10) : undefined
+
   try {
-    const current = readExecutionSetupPlan(ticketId)
+    const current = readExecutionSetupPlan(ticketId, phaseAttempt)
     return c.json({
       exists: Boolean(current.plan),
       artifactId: current.artifactId,
@@ -1446,6 +1460,7 @@ export async function handleRegenerateExecutionSetupPlan(c: Context) {
     return c.json({ error: 'Invalid regenerate payload', details: parsed.error.flatten() }, 400)
   }
 
+  // Read current plan before archiving (for context in background generation)
   let currentPlan = parsed.data.plan ?? null
   if (!currentPlan && parsed.data.rawContent) {
     const normalized = normalizeExecutionSetupPlanOutput(parsed.data.rawContent)
@@ -1458,31 +1473,23 @@ export async function handleRegenerateExecutionSetupPlan(c: Context) {
     currentPlan = readExecutionSetupPlan(ticketId).plan
   }
 
-  try {
-    const report = await regenerateExecutionSetupPlanDraft({
-      ticketId,
-      context: getMachineContext(ticketId),
-      commentary: parsed.data.commentary,
-      currentPlan,
-    })
-    if (!report.plan) {
-      return c.json({
-        error: 'Failed to regenerate execution setup plan',
-        details: report.errors.join('; ') || 'Generation failed',
-      }, 400)
-    }
-    return c.json({
-      success: true,
-      raw: serializeExecutionSetupPlan(report.plan),
-      plan: report.plan,
-      report,
-    })
-  } catch (err) {
-    return c.json({
-      error: 'Failed to regenerate execution setup plan',
-      details: err instanceof Error ? err.message : String(err),
-    }, 500)
-  }
+  const machineContext = getMachineContext(ticketId)
+
+  // Archive old attempt, create new empty attempt
+  await prepareExecutionSetupPlanRestart(ticketId)
+
+  // Fire-and-forget: generate new plan in background with commentary + old plan context
+  void regenerateExecutionSetupPlanDraft({
+    ticketId,
+    context: machineContext,
+    commentary: parsed.data.commentary,
+    currentPlan,
+  }).catch((err: unknown) => {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    emitRoutePhaseLog(ticketId, 'WAITING_EXECUTION_SETUP_APPROVAL', 'error', `Background regeneration failed: ${errMsg}`)
+  })
+
+  return c.json({ success: true })
 }
 
 export function handleApproveInterview(c: Context) {

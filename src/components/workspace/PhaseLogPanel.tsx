@@ -394,6 +394,7 @@ export function PhaseLogPanel({
                                   <TooltipTrigger asChild>
                                     <button
                                                         type="button"
+                                                        aria-label={modelsCollapsed ? 'Show models' : 'Hide models'}
                                                         onClick={() => setModelsCollapsed(!modelsCollapsed)}
                                                         className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
                                                       >
@@ -444,6 +445,7 @@ export function PhaseLogPanel({
                                   <TooltipTrigger asChild>
                                     <button
                                                         type="button"
+                                                        aria-label={sysCollapsed ? 'Show commands' : 'Hide commands'}
                                                         onClick={() => setSysCollapsed(!sysCollapsed)}
                                                         className="pr-1.5 pl-0.5 py-0.5 flex items-center justify-center hover:text-foreground transition-colors opacity-70 hover:opacity-100"
                                                       >
@@ -511,6 +513,7 @@ export function PhaseLogPanel({
                     <TooltipTrigger asChild>
                       <button
                               type="button"
+                              aria-label="Copy all logs"
                               onClick={handleCopyLogs}
                               disabled={!hasLogs}
                               className="flex items-center justify-center p-1 rounded hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
