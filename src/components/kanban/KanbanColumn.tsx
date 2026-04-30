@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { TicketCard } from './TicketCard'
 import type { KanbanColumnConfig } from './KanbanBoard'
@@ -50,14 +51,24 @@ export function KanbanColumn({ column, tickets, projectMap }: KanbanColumnProps)
 
   return (
     <Card className="flex flex-col overflow-hidden">
-      <CardHeader className="flex-shrink-0 pb-3" title={column.description}>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium" title={column.title}>{column.title}</CardTitle>
-          <Badge variant="secondary" className="text-xs">
-            {tickets.length}
-          </Badge>
-        </div>
-        <p className="text-xs text-muted-foreground">{column.description}</p>
+      <CardHeader className="flex-shrink-0 pb-3">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              tabIndex={0}
+              className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium">{column.title}</CardTitle>
+                <Badge variant="secondary" className="text-xs">
+                  {tickets.length}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">{column.description}</p>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-center text-balance">{column.tooltip}</TooltipContent>
+        </Tooltip>
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden px-3 pb-3">
         <ScrollArea className="h-full">

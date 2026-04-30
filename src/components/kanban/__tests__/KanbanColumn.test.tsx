@@ -24,12 +24,42 @@ function makeCompletedTickets(count: number) {
 }
 
 describe('KanbanColumn', () => {
+  it('shows a detailed tooltip for the column header', async () => {
+    render(
+      <TooltipProvider>
+        <UIProvider>
+          <KanbanColumn
+            column={{
+              id: 'needs_input',
+              title: 'Needs Input',
+              description: 'Waiting for user',
+              tooltip: 'Tickets paused because LoopTroop needs a human action before it can continue.',
+            }}
+            tickets={[]}
+            projectMap={new Map<number, Project>()}
+          />
+        </UIProvider>
+      </TooltipProvider>,
+    )
+
+    fireEvent.focus(screen.getByText('Needs Input'))
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Tickets paused because LoopTroop needs a human action before it can continue.',
+    )
+  })
+
   it('lets you jump to a page by editing the current page number', () => {
     render(
       <TooltipProvider>
         <UIProvider>
           <KanbanColumn
-            column={{ id: 'done', title: 'Done', description: 'Completed tickets' }}
+            column={{
+              id: 'done',
+              title: 'Done',
+              description: 'Completed tickets',
+              tooltip: 'Terminal tickets that no longer advance automatically.',
+            }}
             tickets={makeCompletedTickets(31)}
             projectMap={new Map<number, Project>()}
           />

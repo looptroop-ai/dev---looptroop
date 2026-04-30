@@ -13,13 +13,34 @@ export interface KanbanColumnConfig {
   id: KanbanPhase
   title: string
   description: string
+  tooltip: string
 }
 
 const columns: KanbanColumnConfig[] = [
-  { id: 'todo', title: 'To Do', description: 'Backlog' },
-  { id: 'needs_input', title: 'Needs Input', description: 'Waiting for user' },
-  { id: 'in_progress', title: 'In Progress', description: 'Active workflow' },
-  { id: 'done', title: 'Done', description: 'Completed tickets' },
+  {
+    id: 'todo',
+    title: 'To Do',
+    description: 'Backlog',
+    tooltip: 'Tickets that have been created but have not started the workflow yet. Use this column for queued work that is ready to review, edit, or start when you are ready.',
+  },
+  {
+    id: 'needs_input',
+    title: 'Needs Input',
+    description: 'Waiting for user',
+    tooltip: 'Tickets paused because LoopTroop needs a human action before it can continue, such as interview answers, artifact approval, execution setup approval, PR review, or a retry/cancel decision after an error.',
+  },
+  {
+    id: 'in_progress',
+    title: 'In Progress',
+    description: 'Active workflow',
+    tooltip: 'Tickets currently moving through automated workflow steps, including discovery, council drafting and voting, coverage checks, setup, coding, final tests, integration, pull request creation, and cleanup.',
+  },
+  {
+    id: 'done',
+    title: 'Done',
+    description: 'Completed tickets',
+    tooltip: 'Terminal tickets that no longer advance automatically. This includes completed work and canceled work, with the ticket history and generated artifacts kept available for review.',
+  },
 ]
 
 export function KanbanBoard() {
