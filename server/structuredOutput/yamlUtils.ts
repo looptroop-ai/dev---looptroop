@@ -1,6 +1,6 @@
 import jsYaml from 'js-yaml'
 import type { PromptPart } from '../opencode/types'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
+import { repairYamlDoubleQuotedInvalidEscapes, repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlTypeUnionScalars, repairYamlUnclosedQuotes, stripCodeFences } from '@shared/yamlRepair'
 import { isRecord } from '@shared/typeGuards'
 
 export { isRecord }
@@ -132,6 +132,7 @@ const CANDIDATE_RECOVERY_WARNING = 'Recovered the structured artifact from surro
 const WRAPPER_KEY_WARNING = 'Removed wrapper key from top level.'
 const QUOTED_SCALAR_WARNING = 'Repaired improperly quoted YAML scalar value.'
 const RESERVED_INDICATOR_SCALAR_WARNING = 'Quoted plain YAML scalars that began with reserved indicator characters (` or @) before reparsing.'
+const DOUBLE_QUOTED_ESCAPE_WARNING = 'Escaped invalid YAML double-quoted scalar backslash sequences before reparsing.'
 
 function appendRepairWarningOnce(repairWarnings: string[] | undefined, warning: string) {
   if (!repairWarnings?.includes(warning)) {
@@ -598,37 +599,63 @@ export function parseYamlOrJsonCandidate(
           } catch { /* fall through to targeted repairs */ }
         }
 
-        // Try unclosed-quote repair
-        const quoteRepaired = repairYamlUnclosedQuotes(base)
-        if (quoteRepaired !== base) {
+        const doubleQuotedEscapeRepaired = repairYamlDoubleQuotedInvalidEscapes(base)
+        const doubleQuotedEscapeBase = doubleQuotedEscapeRepaired !== base ? doubleQuotedEscapeRepaired : base
+        const appendDoubleQuotedEscapeRepairWarning = () => {
+          if (doubleQuotedEscapeRepaired !== base) {
+            appendRepairWarningOnce(options?.repairWarnings, DOUBLE_QUOTED_ESCAPE_WARNING)
+          }
+        }
+
+        if (doubleQuotedEscapeRepaired !== base) {
           try {
+            const parsed = jsYaml.load(doubleQuotedEscapeRepaired)
+            appendDoubleQuotedEscapeRepairWarning()
+            return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
+          } catch {
+            try {
+              const parsed = jsYaml.load(repairYamlIndentation(doubleQuotedEscapeRepaired))
+              appendDoubleQuotedEscapeRepairWarning()
+              return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
+            } catch { /* fall through to later repairs */ }
+          }
+        }
+
+        // Try unclosed-quote repair
+        const quoteRepaired = repairYamlUnclosedQuotes(doubleQuotedEscapeBase)
+        if (quoteRepaired !== doubleQuotedEscapeBase) {
+          try {
+            appendDoubleQuotedEscapeRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(quoteRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: unclosed-quote + indentation repair
             try {
+              appendDoubleQuotedEscapeRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(quoteRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
 
-        const quotedScalarRepaired = repairYamlQuotedScalarFragments(base)
-        if (quotedScalarRepaired !== base) {
+        const quotedScalarRepaired = repairYamlQuotedScalarFragments(doubleQuotedEscapeBase)
+        if (quotedScalarRepaired !== doubleQuotedEscapeBase) {
           try {
             const parsed = jsYaml.load(quotedScalarRepaired)
+            appendDoubleQuotedEscapeRepairWarning()
             appendRepairWarningOnce(options?.repairWarnings, QUOTED_SCALAR_WARNING)
             return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
           } catch {
             try {
               const parsed = jsYaml.load(repairYamlIndentation(quotedScalarRepaired))
+              appendDoubleQuotedEscapeRepairWarning()
               appendRepairWarningOnce(options?.repairWarnings, QUOTED_SCALAR_WARNING)
               return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
             } catch { /* fall through */ }
           }
         }
 
-        const postQuotedScalarBase = quotedScalarRepaired !== base ? quotedScalarRepaired : base
+        const postQuotedScalarBase = quotedScalarRepaired !== doubleQuotedEscapeBase ? quotedScalarRepaired : doubleQuotedEscapeBase
         const appendQuotedScalarRepairWarning = () => {
-          if (postQuotedScalarBase !== base) {
+          if (postQuotedScalarBase !== doubleQuotedEscapeBase) {
             appendRepairWarningOnce(options?.repairWarnings, QUOTED_SCALAR_WARNING)
           }
         }
@@ -636,10 +663,12 @@ export function parseYamlOrJsonCandidate(
         const unionRepaired = repairYamlTypeUnionScalars(postQuotedScalarBase)
         if (unionRepaired !== postQuotedScalarBase) {
           try {
+            appendDoubleQuotedEscapeRepairWarning()
             appendQuotedScalarRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(unionRepaired), appliedPreParseRepairs)
           } catch {
             try {
+              appendDoubleQuotedEscapeRepairWarning()
               appendQuotedScalarRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(unionRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
@@ -650,11 +679,13 @@ export function parseYamlOrJsonCandidate(
         const colonRepaired = repairYamlPlainScalarColons(postQuotedScalarBase)
         if (colonRepaired !== postQuotedScalarBase) {
           try {
+            appendDoubleQuotedEscapeRepairWarning()
             appendQuotedScalarRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(colonRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: colon repair + indentation repair
             try {
+              appendDoubleQuotedEscapeRepairWarning()
               appendQuotedScalarRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(colonRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
@@ -666,12 +697,14 @@ export function parseYamlOrJsonCandidate(
         if (reservedIndicatorRepaired !== reservedIndicatorBase) {
           try {
             const parsed = jsYaml.load(reservedIndicatorRepaired)
+            appendDoubleQuotedEscapeRepairWarning()
             appendQuotedScalarRepairWarning()
             appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
             return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
           } catch {
             try {
               const parsed = jsYaml.load(repairYamlIndentation(reservedIndicatorRepaired))
+              appendDoubleQuotedEscapeRepairWarning()
               appendQuotedScalarRepairWarning()
               appendRepairWarningOnce(options?.repairWarnings, RESERVED_INDICATOR_SCALAR_WARNING)
               return finalizeParsedCandidate(parsed, appliedPreParseRepairs)
@@ -683,11 +716,13 @@ export function parseYamlOrJsonCandidate(
         const seqRepaired = repairYamlSequenceEntryIndent(postQuotedScalarBase)
         if (seqRepaired !== postQuotedScalarBase) {
           try {
+            appendDoubleQuotedEscapeRepairWarning()
             appendQuotedScalarRepairWarning()
             return finalizeParsedCandidate(jsYaml.load(seqRepaired), appliedPreParseRepairs)
           } catch {
             // Try combined: sequence entry + property indentation repair
             try {
+              appendDoubleQuotedEscapeRepairWarning()
               appendQuotedScalarRepairWarning()
               return finalizeParsedCandidate(jsYaml.load(repairYamlIndentation(seqRepaired)), appliedPreParseRepairs)
             } catch { /* fall through */ }
@@ -695,6 +730,7 @@ export function parseYamlOrJsonCandidate(
         }
 
         const repaired = repairYamlIndentation(repairYamlUnclosedQuotes(postQuotedScalarBase))
+        appendDoubleQuotedEscapeRepairWarning()
         appendQuotedScalarRepairWarning()
         return finalizeParsedCandidate(jsYaml.load(repaired), appliedPreParseRepairs)
       }

@@ -1903,6 +1903,35 @@ describe.concurrent('structured output normalization', () => {
     expect(result.value[0]?.testCommands).toEqual([command])
   })
 
+  it('accepts bead subset YAML after escaping invalid double-quoted regex backslashes', () => {
+    const command = 'git diff -- core/settings_model.go | grep -E \'^\\+(?!\\+\\+)\''
+    const result = normalizeBeadSubsetYamlOutput([
+      'beads:',
+      '  - id: bead-1',
+      '    title: Preserve regex commands in blueprint drafts',
+      '    prdRefs:',
+      '      - EPIC-1 / US-1',
+      '    description: Keep regex-heavy verification commands parseable without changing their text.',
+      '    contextGuidance:',
+      '      patterns:',
+      '        - Treat command strings as literal execution guidance.',
+      '      anti_patterns:',
+      '        - Do not infer replacement commands during parser repair.',
+      '    acceptanceCriteria:',
+      '      - Regex command text is preserved after YAML parsing.',
+      '    tests:',
+      '      - Parser regression covers invalid double-quoted YAML backslash escapes.',
+      '    testCommands:',
+      '      - "git diff -- core/settings_model.go | grep -E \'^\\+(?!\\+\\+)\'"',
+    ].join('\n'))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings).toContain('Escaped invalid YAML double-quoted scalar backslash sequences before reparsing.')
+    expect(result.value[0]?.testCommands).toEqual([command])
+  })
+
   it('canonicalizes object-form bead context guidance into the runtime string format', () => {
     const result = normalizeBeadSubsetYamlOutput([
       'beads:',

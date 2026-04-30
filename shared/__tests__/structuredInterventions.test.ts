@@ -150,6 +150,13 @@ describe('parser fix interventions', () => {
     expectIntervention(i, { code: 'parser_reserved_indicator_scalar', stage: 'parse', category: 'parser_fix' })
   })
 
+  it('maps invalid double-quoted scalar backslash escape repairs', () => {
+    const i = deriveOne('Escaped invalid YAML double-quoted scalar backslash sequences before reparsing.')
+    expectIntervention(i, { code: 'parser_double_quoted_scalar_escape', stage: 'parse', category: 'parser_fix' })
+    expect(i.rule).toEqual({ id: 'parser_double_quoted_scalar_escape', label: 'YAML Escape Repair' })
+    expect(i.exactCorrection).toBe('Escaped invalid backslash sequences inside double-quoted YAML scalars before reparsing the payload.')
+  })
+
   it('maps indentation', () => {
     const i = deriveOne('Repaired YAML indentation at line 42.')
     expectIntervention(i, { code: 'parser_indentation', stage: 'parse', category: 'parser_fix' })

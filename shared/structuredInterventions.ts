@@ -120,6 +120,7 @@ function formatRuleLabelToken(token: string): string {
 function buildDefaultRule(code: string): StructuredInterventionRule {
   const overrides: Record<string, string> = {
     parser_closing_fence: 'Closing Fence Trim',
+    parser_double_quoted_scalar_escape: 'YAML Escape Repair',
     parser_indentation: 'YAML Indentation Repair',
     parser_inline_yaml: 'Inline YAML Normalize',
     parser_list_dash: 'YAML List Dash Repair',
@@ -427,6 +428,12 @@ function buildExactInterventionDetails(
   if (code === 'parser_reserved_indicator_scalar') {
     return {
       exactCorrection: 'Quoted the plain YAML scalar that began with a reserved indicator character before reparsing the payload.',
+    }
+  }
+
+  if (code === 'parser_double_quoted_scalar_escape') {
+    return {
+      exactCorrection: 'Escaped invalid backslash sequences inside double-quoted YAML scalars before reparsing the payload.',
     }
   }
 
@@ -942,6 +949,21 @@ function deriveInterventionFromWarning(warning: string): StructuredIntervention 
       summary: 'A plain YAML scalar began with a reserved indicator character such as a backtick or `@`, which breaks strict parsing.',
       why: 'YAML does not allow plain one-line scalars to begin with reserved indicator characters, so the emitted value could not be parsed as structured data.',
       how: 'LoopTroop wrapped the existing scalar text in double quotes and reparsed the payload without changing the scalar content itself.',
+    })
+  }
+
+  if (
+    /double-quoted scalar backslash sequences/i.test(normalized)
+    || /invalid .*double-quoted .*backslash/i.test(normalized)
+  ) {
+    return buildIntervention(warning, {
+      code: 'parser_double_quoted_scalar_escape',
+      stage: 'parse',
+      category: 'parser_fix',
+      title: 'Escaped invalid YAML backslash sequences',
+      summary: 'A double-quoted YAML scalar contained a backslash sequence YAML does not allow.',
+      why: 'YAML double-quoted strings only permit specific escape sequences; an invalid backslash sequence makes the payload fail strict parsing.',
+      how: 'LoopTroop escaped the stray backslash sequence without changing the visible scalar text, then reparsed the payload.',
     })
   }
 

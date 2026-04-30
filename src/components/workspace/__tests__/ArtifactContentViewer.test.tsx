@@ -2007,6 +2007,46 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getAllByText(/Removed surrounding markdown code fence before parsing the relevant files result/i).length).toBeGreaterThan(0)
   })
 
+  it('shows invalid YAML escape parser repairs with specific details', () => {
+    const warning = 'Escaped invalid YAML double-quoted scalar backslash sequences before reparsing.'
+
+    render(
+      <ArtifactContent
+        artifactId="relevant-files-scan"
+        phase="PREPARING_CONTEXT"
+        content={JSON.stringify({
+          fileCount: 1,
+          files: [
+            {
+              path: 'src/app.ts',
+              rationale: 'Main app entry point.',
+              relevance: 'high',
+              likely_action: 'modify',
+              contentPreview: 'export function app() {}',
+              contentLength: 25,
+            },
+          ],
+          structuredOutput: futureStructuredOutput({
+            repairApplied: true,
+            repairWarnings: [warning],
+          }),
+        })}
+      />,
+    )
+
+    expect(screen.getByText('LoopTroop adjusted this relevant files scan.')).toBeInTheDocument()
+    expect(screen.getByText('1 intervention: YAML Escape Repair.')).toBeInTheDocument()
+    expect(screen.getByText('Parser Fix 1')).toBeInTheDocument()
+
+    openNotice('LoopTroop adjusted this relevant files scan.')
+
+    expect(screen.getByText('Escaped invalid YAML backslash sequences')).toBeInTheDocument()
+    expect(screen.getByText('YAML Escape Repair')).toBeInTheDocument()
+    expect(screen.getByText('parser_double_quoted_scalar_escape')).toBeInTheDocument()
+    expect(screen.getByText(/Escaped invalid backslash sequences inside double-quoted YAML scalars/i)).toBeInTheDocument()
+    expect(screen.getAllByText(hasTextContent(warning)).length).toBeGreaterThan(0)
+  })
+
   it('hides the relevant-files parser notice when there are no warnings or retries to explain', () => {
     render(
       <ArtifactContent

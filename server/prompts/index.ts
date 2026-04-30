@@ -127,6 +127,7 @@ const BEAD_SUBSET_OUTPUT_FORMAT = [
   '```',
   'YAML Safety: For any field value or list item that contains dense punctuation, quotes, backslashes, `: `, brackets, braces, shell metacharacters, or other code-like inline syntax, prefer a block scalar (`|-`) and otherwise use a double-quoted YAML string.',
   'When using double-quoted YAML strings, escape literal backslashes as `\\\\` (for example `\\\\|` in regex-like text), or use a block scalar for commands and regex-like text.',
+  'For `testCommands` containing regex backslashes such as `\\+`, prefer a block scalar list item (`- |-`) or escape every literal backslash as `\\\\+`; never put raw `\\+` inside a double-quoted YAML string.',
   'If you use a block scalar, emit the indicator unquoted on the key line (for example `description: |-`). Never emit quoted block-scalar indicators such as `"|-"`; if unsure, use a one-line double-quoted string instead.',
   'Never use YAML single-quoted scalars for punctuation-heavy commands, code snippets, regex-like text, or similar machine-oriented strings.',
   'Write `contextGuidance` as an object with two keys: `patterns` (list of specific patterns to follow) and `anti_patterns` (list of anti-patterns to avoid).',

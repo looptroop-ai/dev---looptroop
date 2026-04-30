@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { promises as dnsPromises } from 'node:dns'
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 import Database from 'better-sqlite3'
@@ -324,7 +324,7 @@ function detectPlatform(): Platform {
     return detectedPlatform
   }
   const procVersion = (() => {
-    try { return require('node:fs').readFileSync('/proc/version', 'utf8').toLowerCase() } catch { return '' }
+    try { return readFileSync('/proc/version', 'utf8').toLowerCase() } catch { return '' }
   })()
   detectedPlatform = procVersion.includes('microsoft') ? 'wsl' : 'linux'
   return detectedPlatform
@@ -759,9 +759,8 @@ function measureDiskWriteLatency(dirPath: string): FsLatencyProbe {
     writeFileSync(tempFile, buffer)
     const stats = statSync(tempFile)
     const readBack = readFileSync(tempFile)
-    const unlinkStartedAt = Date.now()
     try {
-      import('node:fs').then(({ unlinkSync }) => unlinkSync(tempFile)).catch(() => {})
+      unlinkSync(tempFile)
     } catch { /* ignore */ }
     
     return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import jsYaml from 'js-yaml'
-import { repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
+import { repairYamlDoubleQuotedInvalidEscapes, repairYamlDuplicateKeys, repairYamlFreeTextScalars, repairYamlIndentation, repairYamlInlineKeys, repairYamlListDashSpace, repairYamlNestedMappingChildren, repairYamlPlainScalarColons, repairYamlQuotedScalarFragments, repairYamlReservedIndicatorScalars, repairYamlSequenceEntryIndent, repairYamlUnclosedQuotes, stripCodeFences } from '../yamlRepair'
 
 describe.concurrent('repairYamlListDashSpace', () => {
   it.each([
@@ -218,6 +218,55 @@ describe('stripCodeFences', () => {
     ['fences mid-content', ['questions:', '  - id: Q01', '    question: "See this code:"', '```yaml', 'example: true', '```', '  - id: Q02'].join('\n')],
   ])('returns unchanged when %s', (_label, input) => {
     expect(stripCodeFences(input)).toBe(input)
+  })
+})
+
+describe('repairYamlDoubleQuotedInvalidEscapes', () => {
+  it('escapes invalid regex backslash sequences inside double-quoted scalars', () => {
+    const input = [
+      'testCommands:',
+      '  - "git diff -- core/settings_model.go | grep -E \'^\\+(?!\\+\\+)\'"',
+    ].join('\n')
+
+    const expected = [
+      'testCommands:',
+      '  - "git diff -- core/settings_model.go | grep -E \'^\\\\+(?!\\\\+\\\\+)\'"',
+    ].join('\n')
+
+    const repaired = repairYamlDoubleQuotedInvalidEscapes(input)
+
+    expect(repaired).toBe(expected)
+    const parsed = jsYaml.load(repaired) as { testCommands: string[] }
+    expect(parsed.testCommands).toEqual([
+      'git diff -- core/settings_model.go | grep -E \'^\\+(?!\\+\\+)\'',
+    ])
+  })
+
+  it('preserves valid YAML escapes and quoted content that YAML already accepts', () => {
+    const input = [
+      'values:',
+      '  newline: "line\\nnext"',
+      '  escaped_quote: "say \\"yes\\""',
+      '  escaped_slash: "C:\\\\temp"',
+      '  hex: "\\x41"',
+      '  unicode: "\\u0041"',
+      '  folded: "first \\',
+      '    second"',
+    ].join('\n')
+
+    expect(repairYamlDoubleQuotedInvalidEscapes(input)).toBe(input)
+  })
+
+  it('does not repair single-quoted strings, comments, or block scalar bodies', () => {
+    const input = [
+      'values:',
+      "  single: '^\\+(?!\\+\\+)'",
+      '  comment: ok # "^\\+(?!\\+\\+)"',
+      '  block: |-',
+      '    "^\\+(?!\\+\\+)"',
+    ].join('\n')
+
+    expect(repairYamlDoubleQuotedInvalidEscapes(input)).toBe(input)
   })
 })
 

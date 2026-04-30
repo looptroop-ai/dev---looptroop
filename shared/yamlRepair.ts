@@ -143,6 +143,136 @@ function replaceLineWithBareMappingKey(line: string, key: string): string {
   return `${' '.repeat(getLineIndent(line))}${key}:`
 }
 
+function hasOddTrailingBackslashes(value: string, index: number): boolean {
+  let backslashes = 0
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    backslashes += 1
+  }
+  return backslashes % 2 === 1
+}
+
+function isHexDigit(value: string | undefined): boolean {
+  return Boolean(value && /^[0-9a-fA-F]$/.test(value))
+}
+
+function hasHexDigits(value: string, start: number, count: number): boolean {
+  for (let offset = 0; offset < count; offset += 1) {
+    if (!isHexDigit(value[start + offset])) {
+      return false
+    }
+  }
+  return true
+}
+
+function isValidYamlDoubleQuotedEscape(value: string, slashIndex: number): boolean {
+  const next = value[slashIndex + 1]
+  if (next === undefined) return true
+
+  if ('0abt\tnvfre "/\\N_LP'.includes(next)) {
+    return true
+  }
+
+  if (next === 'x') {
+    return hasHexDigits(value, slashIndex + 2, 2)
+  }
+
+  if (next === 'u') {
+    return hasHexDigits(value, slashIndex + 2, 4)
+  }
+
+  if (next === 'U') {
+    return hasHexDigits(value, slashIndex + 2, 8)
+  }
+
+  return false
+}
+
+/**
+ * Escape invalid backslash sequences inside YAML double-quoted scalars.
+ *
+ * YAML double-quoted strings treat backslash as an escape introducer, so
+ * regex-like text such as `"\+"` is invalid even though the model meant a
+ * literal backslash. This repair only doubles backslashes that start invalid
+ * YAML escapes while preserving valid YAML escapes, single-quoted strings,
+ * comments, and block scalar bodies.
+ */
+export function repairYamlDoubleQuotedInvalidEscapes(yaml: string): string {
+  const lines = yaml.split('\n')
+  const result: string[] = []
+  const MAPPING_BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?(?:\s+#.*)?$/
+  const LIST_BLOCK_SCALAR_PATTERN = /^-\s*[>|][+-]?(?:\s+#.*)?$/
+
+  let insideSingleQuote = false
+  let insideDoubleQuote = false
+  let insideBlockScalar = false
+  let blockScalarBaseIndent = -1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const indent = getLineIndent(line)
+
+    if (insideBlockScalar) {
+      if (!trimmed || indent > blockScalarBaseIndent) {
+        result.push(line)
+        continue
+      }
+      insideBlockScalar = false
+      blockScalarBaseIndent = -1
+    }
+
+    let repairedLine = ''
+    let reachedComment = false
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index]!
+
+      if (char === '#' && !insideSingleQuote && !insideDoubleQuote) {
+        if (index === 0 || /\s/.test(line[index - 1] ?? '')) {
+          repairedLine += line.slice(index)
+          reachedComment = true
+          break
+        }
+      }
+
+      if (char === '\'' && !insideDoubleQuote) {
+        repairedLine += char
+        if (insideSingleQuote && line[index + 1] === '\'') {
+          index += 1
+          repairedLine += line[index]!
+          continue
+        }
+        insideSingleQuote = !insideSingleQuote
+        continue
+      }
+
+      if (char === '"' && !insideSingleQuote && !hasOddTrailingBackslashes(line, index)) {
+        insideDoubleQuote = !insideDoubleQuote
+        repairedLine += char
+        continue
+      }
+
+      if (char === '\\' && insideDoubleQuote && !isValidYamlDoubleQuotedEscape(line, index)) {
+        repairedLine += '\\\\'
+        continue
+      }
+
+      repairedLine += char
+    }
+
+    result.push(repairedLine)
+
+    if (!reachedComment && !insideSingleQuote && !insideDoubleQuote) {
+      const repairedTrimmed = repairedLine.trim()
+      if (MAPPING_BLOCK_SCALAR_PATTERN.test(repairedTrimmed) || LIST_BLOCK_SCALAR_PATTERN.test(repairedTrimmed)) {
+        insideBlockScalar = true
+        blockScalarBaseIndent = indent
+      }
+    }
+  }
+
+  return result.join('\n')
+}
+
 function hasFollowingWhitelistedSiblingChild(
   lines: string[],
   startIndex: number,
