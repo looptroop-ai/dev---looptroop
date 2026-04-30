@@ -618,7 +618,7 @@ Optional flags:
   --opencode-url <url>
   --timeout-ms <ms>
   --sample-ms <ms>
-  --trend-ms <ms>            Short trend window duration. Default: 5000. Use 0 to disable.
+  --trend-ms <ms>            Runtime observation window duration. Default: 180000 (3m). Use 0 to disable.
   --trend-interval-ms <ms>   Trend sample interval. Default: 1000.
   --no-color         Disable colored output (also respects NO_COLOR env var)
 
@@ -639,7 +639,7 @@ What it checks:
   - Project DB ticket/session state
   - Git responsiveness for attached projects
   - A short backend correlation sampler across repeated probes
-  - A short trend sampler for process CPU/RSS/I/O, HTTP latency, pressure deltas, and growing files
+  - A multi-minute trend sampler for process CPU/RSS/I/O, HTTP latency, pressure deltas, and growing files
   - Shell startup baseline to separate diagnostic overhead from real probe latency
   - Git Trace2 perf output for repo status calls
   - Direct filesystem latency probes for project metadata paths
@@ -2649,6 +2649,62 @@ function formatSystemUsageShort(usage: SystemProcessUsage | undefined, metric: '
   return `pid=${usage.pid} ${metric}=${metricText} cmd=${formatBodyPreview(usage.command, 90)}`
 }
 
+function percentile(values: number[], percentileValue: number): number | null {
+  if (values.length === 0) return null
+  const sorted = values.slice().sort((left, right) => left - right)
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1))
+  return sorted[index] ?? null
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function formatDurationStat(value: number | null): string {
+  return value === null ? 'n/a' : formatDuration(Math.round(value))
+}
+
+function formatTrendProbeStats(label: string, probes: HttpProbeResult[]) {
+  const durations = probes.map((probe) => probe.durationMs)
+  const failures = probes.filter((probe) => !probe.ok).length
+  print(
+    `${label}:` +
+    ` min=${formatDurationStat(percentile(durations, 0))}` +
+    ` avg=${formatDurationStat(average(durations))}` +
+    ` p50=${formatDurationStat(percentile(durations, 50))}` +
+    ` p95=${formatDurationStat(percentile(durations, 95))}` +
+    ` max=${formatDurationStat(percentile(durations, 100))}` +
+    ` failures=${failures}/${probes.length}`,
+  )
+}
+
+function formatTrendSampleSummary(sample: RuntimeTrendSample): string {
+  return (
+    `#${sample.index}` +
+    ` at=${sample.at}` +
+    ` elapsed=${formatDuration(sample.elapsedMs)}` +
+    ` interval=${formatDuration(sample.intervalMs)}` +
+    ` drift=${formatDuration(sample.loopDriftMs)}` +
+    ` health=${formatTrendHttpProbe(sample.health)}` +
+    ` tickets=${formatTrendHttpProbe(sample.tickets)}` +
+    ` top_cpu=${formatSystemUsageShort(sample.systemActivity.topCpu[0], 'cpu')}` +
+    ` top_write=${formatSystemUsageShort(sample.systemActivity.topWriteBytes[0], 'write')}`
+  )
+}
+
+function pressureDeltaTotal(samples: RuntimeTrendSample[], key: keyof PressureTrendDelta): number | null {
+  let sawValue = false
+  let total = 0
+  for (const sample of samples) {
+    const value = sample.pressureDelta[key]
+    if (value === null || !Number.isFinite(value)) continue
+    sawValue = true
+    total += value
+  }
+  return sawValue ? total : null
+}
+
 function printRuntimeTrendReport(title: string, report: RuntimeTrendReport) {
   heading(title)
   if (!report.enabled) {
@@ -2660,10 +2716,6 @@ function printRuntimeTrendReport(title: string, report: RuntimeTrendReport) {
     return
   }
 
-  const healthMax = Math.max(...report.samples.map((sample) => sample.health.durationMs))
-  const ticketsMax = Math.max(...report.samples.map((sample) => sample.tickets.durationMs))
-  const healthFailures = report.samples.filter((sample) => !sample.health.ok).length
-  const ticketFailures = report.samples.filter((sample) => !sample.tickets.ok).length
   const maxProcessCpu = report.samples
     .flatMap((sample) => sample.processActivities)
     .filter((sample) => sample.cpuPercent !== null)
@@ -2672,14 +2724,26 @@ function printRuntimeTrendReport(title: string, report: RuntimeTrendReport) {
     .flatMap((sample) => sample.files)
     .filter((sample) => (sample.sizeDeltaBytes ?? 0) > 0)
     .sort((left, right) => (right.sizeDeltaBytes ?? 0) - (left.sizeDeltaBytes ?? 0))[0]
+  const topTicketSamples = report.samples
+    .slice()
+    .sort((left, right) => {
+      if (left.tickets.ok !== right.tickets.ok) return left.tickets.ok ? 1 : -1
+      return right.tickets.durationMs - left.tickets.durationMs
+    })
+    .slice(0, 5)
+  const topHealthSamples = report.samples
+    .slice()
+    .sort((left, right) => {
+      if (left.health.ok !== right.health.ok) return left.health.ok ? 1 : -1
+      return right.health.durationMs - left.health.durationMs
+    })
+    .slice(0, 5)
 
   kv('Trend window', formatDuration(report.durationMs))
   kv('Trend interval target', formatDuration(report.intervalMs))
   kv('Samples captured', report.samples.length)
-  kv('Health max', formatDuration(healthMax))
-  kv('Tickets max', formatDuration(ticketsMax))
-  kv('Health failures', healthFailures)
-  kv('Tickets failures', ticketFailures)
+  formatTrendProbeStats('Health latency', report.samples.map((sample) => sample.health))
+  formatTrendProbeStats('Tickets latency', report.samples.map((sample) => sample.tickets))
   if (maxProcessCpu) {
     print(`Max watched-process CPU: ${maxProcessCpu.label} pid=${maxProcessCpu.pid ?? 'n/a'} cpu=${formatPercent(maxProcessCpu.cpuPercent)} at rss=${formatBytes(maxProcessCpu.rssKb !== null ? maxProcessCpu.rssKb * 1024 : null)}`)
   }
@@ -2687,18 +2751,87 @@ function printRuntimeTrendReport(title: string, report: RuntimeTrendReport) {
     print(`Largest watched-file growth: ${maxFileGrowth.label} delta=${formatBytes(maxFileGrowth.sizeDeltaBytes)} size=${formatBytes(maxFileGrowth.sizeBytes)}`)
   }
 
-  for (const sample of report.samples) {
+  heading('Top Latency Samples')
+  print('Slowest /api/tickets samples:')
+  for (const sample of topTicketSamples) {
+    print(`- ${formatTrendSampleSummary(sample)}`)
+  }
+  print('Slowest /api/health samples:')
+  for (const sample of topHealthSamples) {
+    print(`- ${formatTrendSampleSummary(sample)}`)
+  }
+
+  heading('Watched Process Totals')
+  const processLabels = Array.from(new Set(report.samples.flatMap((sample) => sample.processActivities.map((processSample) => processSample.label))))
+  for (const label of processLabels) {
+    const samples = report.samples
+      .flatMap((sample) => sample.processActivities)
+      .filter((processSample) => processSample.label === label)
+    const cpuValues = samples
+      .map((sample) => sample.cpuPercent)
+      .filter((value): value is number => value !== null && Number.isFinite(value))
+    const first = samples.find((sample) => sample.rssKb !== null || sample.fdCount !== null)
+    const last = samples.slice().reverse().find((sample) => sample.rssKb !== null || sample.fdCount !== null)
+    const totalRead = samples.reduce((sum, sample) => sum + (sample.readBytesDelta ?? 0), 0)
+    const totalWrite = samples.reduce((sum, sample) => sum + (sample.writeBytesDelta ?? 0), 0)
+    const totalFdDelta = samples.reduce((sum, sample) => sum + (sample.fdCountDelta ?? 0), 0)
+    const rssDeltaKb = first?.rssKb !== null && first?.rssKb !== undefined && last?.rssKb !== null && last?.rssKb !== undefined
+      ? last.rssKb - first.rssKb
+      : null
     print(
-      `- #${sample.index}` +
-      ` at=${sample.at}` +
-      ` elapsed=${formatDuration(sample.elapsedMs)}` +
-      ` interval=${formatDuration(sample.intervalMs)}` +
-      ` drift=${formatDuration(sample.loopDriftMs)}` +
-      ` health=${formatTrendHttpProbe(sample.health)}` +
-      ` tickets=${formatTrendHttpProbe(sample.tickets)}` +
-      ` top_cpu=${formatSystemUsageShort(sample.systemActivity.topCpu[0], 'cpu')}` +
-      ` top_write=${formatSystemUsageShort(sample.systemActivity.topWriteBytes[0], 'write')}`,
+      `- ${label}` +
+      ` pid=${last?.pid ?? first?.pid ?? 'n/a'}` +
+      ` cpu_avg=${formatPercent(average(cpuValues))}` +
+      ` cpu_peak=${formatPercent(percentile(cpuValues, 100))}` +
+      ` rss_first=${formatBytes(first?.rssKb !== null && first?.rssKb !== undefined ? first.rssKb * 1024 : null)}` +
+      ` rss_last=${formatBytes(last?.rssKb !== null && last?.rssKb !== undefined ? last.rssKb * 1024 : null)}` +
+      ` rss_delta=${formatBytes(rssDeltaKb !== null ? rssDeltaKb * 1024 : null)}` +
+      ` fd_delta_total=${totalFdDelta}` +
+      ` read_total=${formatBytes(totalRead)}` +
+      ` write_total=${formatBytes(totalWrite)}`,
     )
+  }
+
+  heading('Watched File Totals')
+  const fileLabels = Array.from(new Set(report.samples.flatMap((sample) => sample.files.map((file) => file.path))))
+  let printedFileChange = false
+  for (const path of fileLabels) {
+    const samples = report.samples
+      .flatMap((sample) => sample.files)
+      .filter((file) => file.path === path)
+    const first = samples.find((file) => file.sizeBytes !== null)
+    const last = samples.slice().reverse().find((file) => file.sizeBytes !== null)
+    const totalDelta = samples.reduce((sum, file) => sum + (file.sizeDeltaBytes ?? 0), 0)
+    const maxGrowth = Math.max(0, ...samples.map((file) => file.sizeDeltaBytes ?? 0))
+    if (totalDelta === 0 && maxGrowth === 0 && samples.every((file) => !file.error)) continue
+    printedFileChange = true
+    print(
+      `- ${last?.label ?? first?.label ?? path}` +
+      ` total_delta=${formatBytes(totalDelta)}` +
+      ` max_interval_growth=${formatBytes(maxGrowth)}` +
+      ` first_size=${formatBytes(first?.sizeBytes ?? null)}` +
+      ` last_size=${formatBytes(last?.sizeBytes ?? null)}` +
+      ` path=${path}` +
+      `${samples.find((file) => file.error)?.error ? ` error=${samples.find((file) => file.error)?.error}` : ''}`,
+    )
+  }
+  if (!printedFileChange) {
+    print('(no watched DB/WAL/log file size changes during the observation window)')
+  }
+
+  heading('Pressure Totals')
+  print(
+    `io_some=${formatPressureDelta(pressureDeltaTotal(report.samples, 'ioSomeUs'))}` +
+    ` io_full=${formatPressureDelta(pressureDeltaTotal(report.samples, 'ioFullUs'))}` +
+    ` memory_some=${formatPressureDelta(pressureDeltaTotal(report.samples, 'memorySomeUs'))}` +
+    ` memory_full=${formatPressureDelta(pressureDeltaTotal(report.samples, 'memoryFullUs'))}` +
+    ` cpu_some=${formatPressureDelta(pressureDeltaTotal(report.samples, 'cpuSomeUs'))}` +
+    ` cpu_full=${formatPressureDelta(pressureDeltaTotal(report.samples, 'cpuFullUs'))}`,
+  )
+
+  heading('Per-Sample Timeline')
+  for (const sample of report.samples) {
+    print(`- ${formatTrendSampleSummary(sample)}`)
 
     for (const processSample of sample.processActivities) {
       print(
@@ -3247,18 +3380,18 @@ function buildHeuristics(input: {
     const worst = slowTrendTickets
       .slice()
       .sort((left, right) => right.tickets.durationMs - left.tickets.durationMs)[0]
-    messages.push(`During the short trend window, /api/tickets was slow or failed in ${slowTrendTickets.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.tickets.durationMs)} status=${worst.tickets.status ?? 'n/a'} error=${worst.tickets.error ?? 'n/a'}. This is the strongest report-local signal that the UI slowdown was visible at the ticket-list API layer.`)
+    messages.push(`During the runtime observation window, /api/tickets was slow or failed in ${slowTrendTickets.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.tickets.durationMs)} status=${worst.tickets.status ?? 'n/a'} error=${worst.tickets.error ?? 'n/a'}. This is the strongest report-local signal that the UI slowdown was visible at the ticket-list API layer.`)
   }
 
   if (slowTrendHealth.length > 0) {
     const worst = slowTrendHealth
       .slice()
       .sort((left, right) => right.health.durationMs - left.health.durationMs)[0]
-    messages.push(`During the short trend window, backend health was slow or failed in ${slowTrendHealth.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.health.durationMs)} status=${worst.health.status ?? 'n/a'} error=${worst.health.error ?? 'n/a'}. That points to a broader backend stall rather than only a heavy ticket query.`)
+    messages.push(`During the runtime observation window, backend health was slow or failed in ${slowTrendHealth.length}/${trendSamples.length} sample(s); worst=${formatDuration(worst.health.durationMs)} status=${worst.health.status ?? 'n/a'} error=${worst.health.error ?? 'n/a'}. That points to a broader backend stall rather than only a heavy ticket query.`)
   }
 
   if ((maxTrendProcessCpu?.cpuPercent ?? 0) >= 80) {
-    messages.push(`The short trend window caught a watched process CPU spike: ${maxTrendProcessCpu?.label} pid=${maxTrendProcessCpu?.pid ?? 'n/a'} at ${formatPercent(maxTrendProcessCpu?.cpuPercent)}. Check the per-sample trend lines to see whether the spike lines up with API latency.`)
+    messages.push(`The runtime observation window caught a watched process CPU spike: ${maxTrendProcessCpu?.label} pid=${maxTrendProcessCpu?.pid ?? 'n/a'} at ${formatPercent(maxTrendProcessCpu?.cpuPercent)}. Check the per-sample trend lines to see whether the spike lines up with API latency.`)
   }
 
   if ((maxTrendFileGrowth?.sizeDeltaBytes ?? 0) >= 1024 * 1024) {
@@ -3266,7 +3399,7 @@ function buildHeuristics(input: {
   }
 
   if ((maxTrendWrite?.writeBytesDelta ?? 0) >= 10 * 1024 * 1024) {
-    messages.push(`The short trend window caught a whole-system write spike of ${formatBytes(maxTrendWrite?.writeBytesDelta)} from pid=${maxTrendWrite?.pid}: ${maxTrendWrite?.command}. That helps identify whether LoopTroop or another local process was competing for storage.`)
+    messages.push(`The runtime observation window caught a whole-system write spike of ${formatBytes(maxTrendWrite?.writeBytesDelta)} from pid=${maxTrendWrite?.pid}: ${maxTrendWrite?.command}. That helps identify whether LoopTroop or another local process was competing for storage.`)
   }
 
   if (trendPressureSpikes.length > 0) {
@@ -3473,7 +3606,7 @@ async function main() {
     ?? 'http://127.0.0.1:4096'
   const timeoutMs = Number.isFinite(cli.timeoutMs) && (cli.timeoutMs ?? 0) > 0 ? cli.timeoutMs! : 4000
   const sampleMs = Number.isFinite(cli.sampleMs) && (cli.sampleMs ?? 0) > 0 ? cli.sampleMs! : 1000
-  const trendMs = Number.isFinite(cli.trendMs) ? Math.max(0, Math.floor(cli.trendMs!)) : 5000
+  const trendMs = Number.isFinite(cli.trendMs) ? Math.max(0, Math.floor(cli.trendMs!)) : 180000
   const trendIntervalMs = Number.isFinite(cli.trendIntervalMs) && (cli.trendIntervalMs ?? 0) > 0
     ? Math.floor(cli.trendIntervalMs!)
     : 1000
@@ -3544,6 +3677,9 @@ async function main() {
     intervalMs: 700,
     probeTimeoutMs: 900,
   })
+  if (trendMs > 0) {
+    print(`Collecting runtime observation trend for ${formatDuration(trendMs)} at ${formatDuration(trendIntervalMs)} intervals...`)
+  }
   const runtimeTrend = await sampleRuntimeTrend({
     durationMs: trendMs,
     intervalMs: trendIntervalMs,
@@ -3630,7 +3766,7 @@ async function main() {
 
   banner('🔁  STALL CORRELATION SAMPLES')
   printCorrelationSamples('Backend Stall Correlation Samples', correlationSamples)
-  printRuntimeTrendReport('Short Window Runtime Trend', runtimeTrend)
+  printRuntimeTrendReport('Runtime Observation Trend', runtimeTrend)
 
   banner('⚙️   APPLICATION PROCESS ACTIVITY')
   printProcessCandidate('Backend Candidate Process', backendCandidate)
