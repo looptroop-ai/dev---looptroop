@@ -546,8 +546,8 @@ export function PrdApprovalPane({ ticket, phase = 'WAITING_PRD_APPROVAL' }: { ti
           ) : prdDocument ? (
             <PrdDocumentView document={prdDocument as PrdDocument} />
           ) : rawContent ? (
-            <div className="rounded-xl border border-border bg-background p-4">
-              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] font-mono">{rawDisplayContent}</pre>
+            <div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-background p-4">
+              <pre className="min-w-0 max-w-full whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] overflow-x-hidden text-[11px] font-mono">{rawDisplayContent}</pre>
             </div>
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">No PRD artifact available yet.</div>

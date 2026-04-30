@@ -294,8 +294,8 @@ function RawDisplayStats({ content }: { content: string }) {
 
 function RawDisplayPre({ content }: { content: string }) {
   return (
-    <div className="min-w-0 w-full overflow-hidden">
-      <pre className="max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-background p-2 font-mono text-[11px]">
+    <div className="min-w-0 max-w-full w-full overflow-hidden">
+      <pre className="min-w-0 max-w-full w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words break-all [overflow-wrap:anywhere] rounded border border-border bg-background p-2 font-mono text-[11px]">
         {content}
       </pre>
     </div>
@@ -336,7 +336,7 @@ export function WithRawTab({
   }, [activeRawSourceId, rawSourceOptions])
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="flex items-center gap-2">
         {header && <div className="flex-1 min-w-0">{header}</div>}
         <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${!header ? 'ml-auto' : ''}`}>
@@ -476,7 +476,7 @@ function RefinedArtifactTabs({ content, hasChanges, sectionsContent, diffContent
   const rawDisplayContent = useMemo(() => buildReadableRawDisplayContent(content), [content])
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="flex items-center gap-2">
         <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ml-auto">
           <button
@@ -556,7 +556,7 @@ function RawContentWithCopy({ content }: { content: string }) {
   const displayContent = useMemo(() => buildReadableRawDisplayContent(content), [content])
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="flex items-center gap-2">
         <CopyButton content={content} />
         <RawDisplayStats content={displayContent} />
@@ -959,7 +959,7 @@ function ArtifactInterventionBreakdown({ interventions }: { interventions: Struc
     .filter((group) => group.interventions.length > 0)
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       {groups.map((group) => {
         const categoryCopy = INTERVENTION_CATEGORY_COPY[group.category]
         return (
@@ -1319,7 +1319,7 @@ function RefinementDiffView({ content, domain, phase }: { content: string; domai
   }
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Modified {modifiedCount}</span>
         <span className="rounded-full border border-border bg-background px-2 py-1 text-foreground">Added {addedCount}</span>
@@ -1418,7 +1418,7 @@ function InterviewDraftDiffView({ content, phase }: { content: string; phase?: s
   const winnerLabel = parsed?.winnerId ? getModelDisplayName(parsed.winnerId) : 'winning model'
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="text-xs text-muted-foreground">
         Comparing winning draft from {winnerLabel} ({parsed?.originalQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.originalContent).length} questions) with the final refined interview ({parsed?.refinedQuestionCount ?? normalizeInterviewDiffQuestions(parsed?.refinedContent).length} questions).
       </div>
@@ -1563,7 +1563,7 @@ function FinalInterviewArtifactView({
       : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="flex items-center gap-2">
         {header && <div className="flex-1 min-w-0">{header}</div>}
         <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${header ? 'ml-auto' : ''}`}>
@@ -1582,7 +1582,7 @@ function FinalInterviewArtifactView({
         </div>
       </div>
       {currentTab === 'raw' ? (
-        <div className="space-y-3">
+        <div className="min-w-0 max-w-full space-y-3">
           <RawDisplayStats content={rawDisplayContent} />
           <RawDisplayPre content={rawDisplayContent} />
         </div>
@@ -1645,7 +1645,7 @@ function FinalPrdDraftView({
       : 'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground'
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3">
       <div className="flex items-center gap-2">
         {header && <div className="flex-1 min-w-0">{header}</div>}
         <div className={`inline-flex items-center gap-1 rounded-md border border-border bg-background p-1 shrink-0 ${header ? 'ml-auto' : ''}`}>
@@ -1664,7 +1664,7 @@ function FinalPrdDraftView({
         </div>
       </div>
       {currentTab === 'raw' ? (
-        <div className="space-y-3">
+        <div className="min-w-0 max-w-full space-y-3">
           <RawDisplayStats content={rawDisplayContent} />
           <RawDisplayPre content={rawDisplayContent} />
         </div>

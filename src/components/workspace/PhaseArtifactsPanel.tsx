@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { encode } from 'gpt-tokenizer'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText, Loader2 } from 'lucide-react'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { getModelDisplayName } from '@/components/shared/modelBadgeUtils'
@@ -685,7 +684,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
       {artifactsBody}
 
       <Dialog open={!!viewingArtifact} onOpenChange={(open) => !open && setViewingSelection(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogContent className="max-w-2xl max-h-[80vh] min-w-0 overflow-x-hidden">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-2">
               {viewingArtifact?.icon ?? null}
@@ -695,8 +694,8 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
               {viewingArtifact?.description ?? 'Artifact details for the current council phase.'}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[60vh]">
-            <div className="bg-muted rounded-md p-4">
+          <div className="max-h-[60vh] min-w-0 max-w-full overflow-y-auto overflow-x-hidden">
+            <div className="min-w-0 max-w-full overflow-x-hidden bg-muted rounded-md p-4">
               {isLoadingArtifacts ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -714,7 +713,7 @@ export function PhaseArtifactsPanel({ phase, isCompleted, ticketId, councilMembe
                 </ErrorBoundary>
               )}
             </div>
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
     </>

@@ -771,6 +771,58 @@ describe('ArtifactContentViewer', () => {
     expect(screen.getByText('Do not special-case the review view with a different renderer.')).toBeInTheDocument()
   })
 
+  it('wraps Expanding Blueprint raw output without horizontal overflow', () => {
+    const longToken = `expanded-${'executionfield'.repeat(24)}`
+    const semanticPlanContent = buildBeadsDraftContent({
+      title: 'Expand raw output without clipping',
+    })
+    const expandedContent = JSON.stringify([
+      {
+        id: longToken,
+        title: 'Expand raw output without clipping',
+        prdRefs: [TEST.epicId, TEST.storyId],
+        description: 'Render the raw expanded payload inside the artifact dialog.',
+        contextGuidance: {
+          patterns: ['Keep raw expansion payloads readable.'],
+          anti_patterns: ['Do not rely on horizontal scrolling for long generated values.'],
+        },
+        acceptanceCriteria: ['The raw tab wraps long embedded payload lines.'],
+        tests: ['The raw tab does not clip generated execution fields.'],
+        testCommands: [`npm run test -- --filter ${longToken}`],
+        priority: 1,
+        status: 'pending',
+        issueType: 'task',
+        externalRef: TEST.externalId,
+        labels: [`ticket:${TEST.externalId}`, longToken],
+        dependencies: { blocked_by: [], blocks: [] },
+        targetFiles: [`src/${longToken}.tsx`],
+      },
+    ])
+
+    render(
+      <ArtifactContent
+        artifactId="refined-beads"
+        phase="EXPANDING_BEADS"
+        content={JSON.stringify({
+          winnerId: 'openai/gpt-5.2',
+          semanticPlanContent,
+          refinedContent: expandedContent,
+          candidateVersion: 2,
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+
+    const rawPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && Boolean(element.textContent?.includes(longToken)),
+    )
+    expect(rawPre).toHaveClass('whitespace-pre-wrap', 'overflow-x-hidden', 'break-all')
+    expect(rawPre.className).toContain('[overflow-wrap:anywhere]')
+    expect(rawPre.className).not.toContain('overflow-x-auto')
+  })
+
   it('hides persisted no-op beads ui diff entries in rendered bead diffs', () => {
     const beadsContent = buildBeadsDraftContent({
       title: 'Keep the switcher bead unchanged',

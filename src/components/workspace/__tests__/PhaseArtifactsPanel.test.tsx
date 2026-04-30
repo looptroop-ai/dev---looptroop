@@ -1250,6 +1250,15 @@ describe('PhaseArtifactsPanel', () => {
     expect(screen.getByText('Target Files')).toBeInTheDocument()
     expect(screen.getByText('src/components/workspace/ExpandedPlanView.tsx')).toBeInTheDocument()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    const rawPre = screen.getByText((_text, element) =>
+      element?.tagName === 'PRE'
+      && Boolean(element.textContent?.includes('semanticPlanContent')),
+    )
+    expect(rawPre).toHaveClass('overflow-x-hidden', 'break-all')
+    expect(rawPre.closest('[class*="overflow-y-auto"]')).toBeInTheDocument()
+    expect(screen.queryByTestId('log-viewport')).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: /Diff vs Plan/i }))
 
     expect(screen.getByText('Model-Added Execution Fields')).toBeInTheDocument()
