@@ -53,7 +53,7 @@ If you are new to LoopTroop, use this order:
 
 ### Direction
 
-- [Roadmap](roadmap.md): current priorities and future directions, mirrored from the root roadmap.
+- [Roadmap](roadmap.md): living planning notes for priorities and future directions.
 
 ## Terminology Notes
 

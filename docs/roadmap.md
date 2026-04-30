@@ -4,6 +4,8 @@ search: false
 
 # Roadmap
 
+> **Roadmap status:** This roadmap is a living planning document, not the definitive source of current product status. It was started before the app existed, and items have been added continuously during development. Some entries may already be implemented, partially complete, changed, or no longer relevant. Verify the current codebase, tickets, and release notes before treating any item as still pending or authoritative.
+
 ## Contents
 
 - [High Priority](#high-priority)
