@@ -40,6 +40,7 @@ const sidebar = [
     collapsed: false,
     items: [
       { text: 'API Reference', link: '/api-reference' },
+      { text: 'Output Normalization', link: '/output-normalization' },
     ],
   },
   {
