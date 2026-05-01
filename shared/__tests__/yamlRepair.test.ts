@@ -784,6 +784,13 @@ describe('repairYamlUnclosedQuotes', () => {
 })
 
 describe('repairYamlInlineKeys', () => {
+  const interviewNestedMappingChildren = {
+    generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+    answer: ['skipped', 'selected_option_ids', 'free_text', 'answered_by', 'answered_at'],
+    summary: ['goals', 'constraints', 'non_goals', 'final_free_form_answer'],
+    approval: ['approved_by', 'approved_at'],
+  } as const
+
   it.each([
     ['valid multi-line YAML', ['batch_number: 4', 'progress:', '  current: 4', '  total: 17', 'is_final_free_form: false'].join('\n')],
     ['blank lines and comments', ['# A comment', '', 'batch_number: 4', 'is_final_free_form: false'].join('\n')],
@@ -831,9 +838,52 @@ describe('repairYamlInlineKeys', () => {
     expect(jsYaml.load(repairYamlInlineKeys(input))).toEqual(expected)
   })
 
+  it('splits quote-aware same-line nested mapping children', () => {
+    const input = 'generated_by: winner_model: "openai/gpt-5.3-codex" generated_at: "2026-04-30T15:29:00Z" canonicalization: server_normalized'
+
+    expect(jsYaml.load(repairYamlInlineKeys(input, {
+      nestedMappingChildren: interviewNestedMappingChildren,
+    }))).toEqual({
+      generated_by: {
+        winner_model: 'openai/gpt-5.3-codex',
+        generated_at: '2026-04-30T15:29:00Z',
+        canonicalization: 'server_normalized',
+      },
+    })
+  })
+
+  it('splits nested inline sequences and mapping children without changing emitted values', () => {
+    const input = [
+      '  - id: "Q01" phase: "Foundation" prompt: "What problem are we solving?" source: compiled follow_up_round: null answer_type: single_choice options: - id: opt1 label: "Keep behavior" - id: opt2 label: "Change behavior" answer: skipped: false selected_option_ids: - opt1 free_text: \'\' answered_by: ai_skip answered_at: "2026-04-30T15:29:00Z"',
+    ].join('\n')
+
+    expect(jsYaml.load(repairYamlInlineKeys(input, {
+      nestedMappingChildren: interviewNestedMappingChildren,
+    }))).toEqual([{
+      id: 'Q01',
+      phase: 'Foundation',
+      prompt: 'What problem are we solving?',
+      source: 'compiled',
+      follow_up_round: null,
+      answer_type: 'single_choice',
+      options: [
+        { id: 'opt1', label: 'Keep behavior' },
+        { id: 'opt2', label: 'Change behavior' },
+      ],
+      answer: {
+        skipped: false,
+        selected_option_ids: ['opt1'],
+        free_text: '',
+        answered_by: 'ai_skip',
+        answered_at: '2026-04-30T15:29:00Z',
+      },
+    }])
+  })
+
   it.each([
     ['values with spaces', 'rationale: This is an important question about the project'],
     ['quoted values containing colons', 'rationale: "key: value style explanation"'],
+    ['capitalized header-like scalar before a real key', 'rationale: HTTP Header: Content source: compiled'],
   ])('does not break %s', (_, input) => {
     expect(repairYamlInlineKeys(input)).toBe(input)
   })

@@ -5097,23 +5097,8 @@ describe.concurrent('structured output normalization', () => {
       `ticket_id: ${TICKET_ID}`,
       'artifact: interview',
       'status: draft',
-      'generated_by:',
-      '  winner_model: nvidia/z-ai/glm5',
-      '  generated_at: 2026-03-25T18:20:00.000Z',
-      'questions:',
-      '  - id: Q01',
-      '    phase: Foundation',
-      '    prompt: What primary problem should the new phase solve?',
-      '    source: compiled',
-      '    follow_up_round: null',
-      '    answer_type: free_text',
-      '    options: []',
-      '    answer:',
-      '      skipped: false',
-      '      selected_option_ids: []',
-      '      free_text: Introduce a deterministic, risk-first planning checkpoint.',
-      '      answered_by: ai_skip',
-      '      answered_at: 2026-03-25T18:20:00.000Z',
+      'generated_by: winner_model: "nvidia/z-ai/glm5" generated_at: "2026-03-25T18:20:00.000Z" canonicalization: server_normalized',
+      'questions: - id: "Q01" phase: "Foundation" prompt: "What primary problem should the new phase solve?" source: compiled follow_up_round: null answer_type: free_text options: [] answer: skipped: false selected_option_ids: [] free_text: "Introduce a deterministic, risk-first planning checkpoint." answered_by: ai_skip answered_at: "2026-03-25T18:20:00.000Z"',
       'follow_up_rounds: []',
       'summary:',
       '  goals: []',
@@ -5133,6 +5118,82 @@ describe.concurrent('structured output normalization', () => {
     if (result.ok) return
     expect(result.error).toContain('must preserve all 2 canonical questions')
     expect(result.error).toContain('missing canonical ids: Q02')
+  })
+
+  it('repairs compact inline resolved interview YAML without inventing answers', () => {
+    const canonicalInterview = [
+      'schema_version: 1',
+      `ticket_id: "${TICKET_ID}"`,
+      'artifact: "interview"',
+      'status: "approved"',
+      'generated_by:',
+      '  winner_model: "openai/gpt-5.4"',
+      '  generated_at: "2026-03-25T18:18:55.102Z"',
+      'questions:',
+      '  - id: "Q01"',
+      '    phase: "Foundation"',
+      '    prompt: "What primary problem should the new phase solve?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "free_text"',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: "ai_skip"',
+      '      answered_at: ""',
+      '  - id: "Q02"',
+      '    phase: "Foundation"',
+      '    prompt: "Who should consume the strategy?"',
+      '    source: "compiled"',
+      '    follow_up_round: null',
+      '    answer_type: "single_choice"',
+      '    options:',
+      '      - id: "opt1"',
+      '        label: "Workflow engine"',
+      '      - id: "opt2"',
+      '        label: "Beads generation"',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: "ai_skip"',
+      '      answered_at: ""',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: []',
+      '  constraints: []',
+      '  non_goals: []',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: "user"',
+      '  approved_at: "2026-03-25T18:19:30.000Z"',
+    ].join('\n')
+
+    const result = normalizeResolvedInterviewDocumentOutput([
+      'schema_version: 1',
+      `ticket_id: ${TICKET_ID}`,
+      'artifact: interview',
+      'status: draft',
+      'generated_by: winner_model: "nvidia/nemotron" generated_at: "2026-04-30T15:29:00Z" canonicalization: server_normalized',
+      'questions: - id: "Q01" phase: "Foundation" prompt: "What primary problem should the new phase solve?" source: compiled follow_up_round: null answer_type: free_text options: [] answer: skipped: false selected_option_ids: [] free_text: "Introduce a deterministic, risk-first planning checkpoint." answered_by: ai_skip answered_at: "2026-04-30T15:29:01Z"',
+      '  - id: "Q02" phase: "Foundation" prompt: "Who should consume the strategy?" source: compiled follow_up_round: null answer_type: single_choice options: - id: opt1 label: "Workflow engine" - id: opt2 label: "Beads generation" answer: skipped: false selected_option_ids: - opt1 free_text: \'\' answered_by: ai_skip answered_at: "2026-04-30T15:29:02Z"',
+      'follow_up_rounds: []',
+      'summary: goals: [] constraints: [] non_goals: [] final_free_form_answer: ""',
+      'approval: approved_by: "" approved_at: ""',
+    ].join('\n'), {
+      ticketId: TICKET_ID,
+      canonicalInterviewContent: canonicalInterview,
+      memberId: 'nvidia/nemotron',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.repairWarnings).toContain('Repaired inline YAML sequence or mapping syntax before parsing.')
+    expect(result.value.generated_by.winner_model).toBe('nvidia/nemotron')
+    expect(result.value.questions[0]?.answer.free_text).toBe('Introduce a deterministic, risk-first planning checkpoint.')
+    expect(result.value.questions[1]?.answer.selected_option_ids).toEqual(['opt1'])
   })
 
   it('keeps truncated resolved interview artifacts invalid', () => {

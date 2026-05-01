@@ -1311,10 +1311,15 @@ export function stripCodeFences(content: string): string {
  * This function splits them onto separate lines with correct indentation,
  * handling both flat siblings and nested mappings.
  */
-export function repairYamlInlineKeys(yaml: string): string {
+interface YamlInlineKeyRepairOptions {
+  nestedMappingChildren?: Record<string, readonly string[]>
+}
+
+export function repairYamlInlineKeys(yaml: string, options?: YamlInlineKeyRepairOptions): string {
   const lines = yaml.split('\n')
   const result: string[] = []
   const BLOCK_SCALAR_PATTERN = /:\s*[>|][+-]?\s*$/
+  const nestedMappingChildren = buildNormalizedNestedMappingChildren(options?.nestedMappingChildren)
 
   for (const line of lines) {
     const trimmed = line.trim()
@@ -1341,45 +1346,52 @@ export function repairYamlInlineKeys(yaml: string): string {
     }
 
     // Build nested structure from flat tokens
-    const structured = buildNestedStructure(tokens)
+    const structured = buildNestedStructure(tokens, nestedMappingChildren)
 
     // Emit onto separate lines
     const baseIndent = hasDash ? indent + '  ' : indent
-    for (let i = 0; i < structured.length; i++) {
-      const entry = structured[i]!
-      const linePrefix = i === 0 && hasDash ? dashPrefix : baseIndent
-      if ('children' in entry) {
-        result.push(`${linePrefix}${entry.key}:`)
-        const nestedIndent = baseIndent + '  '
-        for (const child of entry.children) {
-          result.push(`${nestedIndent}${child.key}: ${child.value}`)
-        }
-      } else {
-        result.push(`${linePrefix}${entry.key}: ${entry.value}`)
-      }
-    }
+    result.push(...emitInlineEntries(structured, baseIndent, hasDash ? dashPrefix : undefined))
   }
 
   return result.join('\n')
 }
 
-interface InlineKVToken { key: string; value: string }
+interface InlineKVToken { key: string; value: string; sequenceStart: boolean }
 interface InlineKVLeaf { key: string; value: string }
-interface InlineKVParent { key: string; children: InlineKVToken[] }
-type InlineKVEntry = InlineKVLeaf | InlineKVParent
+interface InlineKVParent { key: string; children: InlineKVEntry[] }
+interface InlineKVSequenceParent { key: string; items: InlineKVSequenceItem[] }
+interface InlineKVSequenceItem { value?: string; children?: InlineKVEntry[] }
+type InlineKVEntry = InlineKVLeaf | InlineKVParent | InlineKVSequenceParent
+
+type NormalizedNestedMappingChildren = Map<string, Set<string>>
+
+function buildNormalizedNestedMappingChildren(
+  nestedMappingChildren: Record<string, readonly string[]> | undefined,
+): NormalizedNestedMappingChildren {
+  const normalized = new Map<string, Set<string>>()
+
+  for (const [parentKey, childKeys] of Object.entries(nestedMappingChildren ?? {})) {
+    const normalizedParent = normalizeYamlRepairKey(parentKey)
+    if (!normalizedParent) continue
+    const normalizedChildren = new Set(
+      childKeys
+        .map(childKey => normalizeYamlRepairKey(childKey))
+        .filter(Boolean),
+    )
+    if (normalizedChildren.size > 0) {
+      normalized.set(normalizedParent, normalizedChildren)
+    }
+  }
+
+  return normalized
+}
 
 /**
  * Tokenize text into key-value pairs. Returns null if the text
  * doesn't look like inline YAML keys (e.g. it's a normal value with spaces).
  */
 function tokenizeInlineKeys(text: string): InlineKVToken[] | null {
-  const KEY_PATTERN = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*/g
-  const keyMatches: Array<{ key: string; start: number; valueStart: number }> = []
-
-  let m: RegExpExecArray | null
-  while ((m = KEY_PATTERN.exec(text)) !== null) {
-    keyMatches.push({ key: m[1]!, start: m.index, valueStart: m.index + m[0].length })
-  }
+  const keyMatches = collectInlineKeyMatches(text)
 
   if (keyMatches.length < 2) return null
   // Text must begin with a key
@@ -1388,8 +1400,15 @@ function tokenizeInlineKeys(text: string): InlineKVToken[] | null {
   const tokens: InlineKVToken[] = []
   for (let i = 0; i < keyMatches.length; i++) {
     const km = keyMatches[i]!
-    const nextStart = i + 1 < keyMatches.length ? keyMatches[i + 1]!.start : text.length
-    tokens.push({ key: km.key, value: text.slice(km.valueStart, nextStart).trim() })
+    const nextMatch = i + 1 < keyMatches.length ? keyMatches[i + 1]! : null
+    const nextStart = nextMatch
+      ? nextMatch.sequenceMarkerStart ?? nextMatch.start
+      : text.length
+    tokens.push({
+      key: km.key,
+      value: text.slice(km.valueStart, nextStart).trim(),
+      sequenceStart: km.sequenceStart,
+    })
   }
 
   // Validate: all non-empty values must be simple (number, boolean, quoted, single word).
@@ -1398,6 +1417,8 @@ function tokenizeInlineKeys(text: string): InlineKVToken[] | null {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!
     if (!token.value) continue
+    if (token.value === '-') continue
+    if (parseInlineScalarSequence(token.value)) continue
     if (index === tokens.length - 1 && isInlineFreeTextFinalKey(token.key)) continue
     if (!isInlineSimpleValue(token.value)) return null
   }
@@ -1411,40 +1432,272 @@ function tokenizeInlineKeys(text: string): InlineKVToken[] | null {
  * following keys. Children end when a key's naming style changes (compound
  * vs simple) or when another parent key is encountered.
  */
-function buildNestedStructure(tokens: InlineKVToken[]): InlineKVEntry[] {
+function buildNestedStructure(
+  tokens: InlineKVToken[],
+  nestedMappingChildren: NormalizedNestedMappingChildren,
+): InlineKVEntry[] {
   const result: InlineKVEntry[] = []
   let i = 0
 
   while (i < tokens.length) {
-    const token = tokens[i]!
-
-    if (token.value === '' && i + 1 < tokens.length) {
-      // Parent key — collect children
-      const children: InlineKVToken[] = []
-      const firstChildStyle = nameHasUnderscore(tokens[i + 1]!.key)
-      i++
-
-      while (i < tokens.length) {
-        if (tokens[i]!.value === '') break // another parent
-        const childStyle = nameHasUnderscore(tokens[i]!.key)
-        if (children.length > 0 && childStyle !== firstChildStyle) break
-        children.push(tokens[i]!)
-        i++
-      }
-
-      if (children.length > 0) {
-        result.push({ key: token.key, children })
-      } else {
-        result.push({ key: token.key, value: '' })
-        // don't increment i — it was already moved past the parent
-      }
-    } else {
-      result.push({ key: token.key, value: token.value })
-      i++
-    }
+    const consumed = consumeInlineEntry(tokens, i, nestedMappingChildren)
+    result.push(consumed.entry)
+    i = consumed.nextIndex
   }
 
   return result
+}
+
+function consumeInlineEntry(
+  tokens: InlineKVToken[],
+  index: number,
+  nestedMappingChildren: NormalizedNestedMappingChildren,
+): { entry: InlineKVEntry; nextIndex: number } {
+  const token = tokens[index]!
+  const scalarSequence = parseInlineScalarSequence(token.value)
+  if (scalarSequence) {
+    return {
+      entry: {
+        key: token.key,
+        items: scalarSequence.map(value => ({ value })),
+      },
+      nextIndex: index + 1,
+    }
+  }
+
+  if ((token.value === '' || token.value === '-') && tokens[index + 1]?.sequenceStart) {
+    return consumeInlineSequenceParent(tokens, index, nestedMappingChildren)
+  }
+
+  const knownChildren = nestedMappingChildren.get(normalizeYamlRepairKey(token.key))
+  if (knownChildren && index + 1 < tokens.length) {
+    const children: InlineKVEntry[] = []
+    let cursor = index + 1
+
+    while (cursor < tokens.length && knownChildren.has(normalizeYamlRepairKey(tokens[cursor]!.key))) {
+      const consumed = consumeInlineEntry(tokens, cursor, nestedMappingChildren)
+      children.push(consumed.entry)
+      cursor = consumed.nextIndex
+    }
+
+    if (children.length > 0 && (token.value === '' || token.value === tokens[index + 1]?.key)) {
+      return {
+        entry: { key: token.key, children },
+        nextIndex: cursor,
+      }
+    }
+  }
+
+  if (token.value === '' && index + 1 < tokens.length) {
+    return consumeFallbackMappingParent(tokens, index)
+  }
+
+  return { entry: { key: token.key, value: token.value }, nextIndex: index + 1 }
+}
+
+function consumeFallbackMappingParent(
+  tokens: InlineKVToken[],
+  index: number,
+): { entry: InlineKVEntry; nextIndex: number } {
+  const token = tokens[index]!
+  const children: InlineKVEntry[] = []
+  const firstChildStyle = nameHasUnderscore(tokens[index + 1]!.key)
+  let cursor = index + 1
+
+  while (cursor < tokens.length) {
+    const child = tokens[cursor]!
+    if (child.value === '' || child.sequenceStart) break
+    const childStyle = nameHasUnderscore(child.key)
+    if (children.length > 0 && childStyle !== firstChildStyle) break
+    children.push({ key: child.key, value: child.value })
+    cursor += 1
+  }
+
+  if (children.length > 0) {
+    return {
+      entry: { key: token.key, children },
+      nextIndex: cursor,
+    }
+  }
+
+  return { entry: { key: token.key, value: token.value }, nextIndex: index + 1 }
+}
+
+function consumeInlineSequenceParent(
+  tokens: InlineKVToken[],
+  index: number,
+  nestedMappingChildren: NormalizedNestedMappingChildren,
+): { entry: InlineKVEntry; nextIndex: number } {
+  const token = tokens[index]!
+  const items: InlineKVSequenceItem[] = []
+  let currentItem: InlineKVEntry[] | null = null
+  let cursor = index + 1
+
+  while (cursor < tokens.length) {
+    const child = tokens[cursor]!
+    if (child.sequenceStart) {
+      currentItem = []
+      items.push({ children: currentItem })
+    } else if (!currentItem || (currentItem.length > 0 && isKnownInlineMappingParent(child.key, nestedMappingChildren))) {
+      break
+    }
+
+    const consumed = consumeInlineEntry(tokens, cursor, nestedMappingChildren)
+    currentItem!.push(consumed.entry)
+    cursor = consumed.nextIndex
+  }
+
+  if (items.length > 0) {
+    return {
+      entry: { key: token.key, items },
+      nextIndex: cursor,
+    }
+  }
+
+  return { entry: { key: token.key, value: token.value }, nextIndex: index + 1 }
+}
+
+function isKnownInlineMappingParent(
+  key: string,
+  nestedMappingChildren: NormalizedNestedMappingChildren,
+): boolean {
+  return nestedMappingChildren.has(normalizeYamlRepairKey(key))
+}
+
+function emitInlineEntries(entries: InlineKVEntry[], baseIndent: string, firstLinePrefix?: string): string[] {
+  const lines: string[] = []
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const prefix = index === 0 && firstLinePrefix ? firstLinePrefix : baseIndent
+    lines.push(...emitInlineEntry(entries[index]!, prefix, baseIndent))
+  }
+
+  return lines
+}
+
+function emitInlineEntry(entry: InlineKVEntry, prefix: string, childBaseIndent: string): string[] {
+  if ('items' in entry) {
+    const lines = [`${prefix}${entry.key}:`]
+    for (const item of entry.items) {
+      if (typeof item.value === 'string') {
+        lines.push(`${childBaseIndent}  - ${item.value}`)
+        continue
+      }
+
+      const children = item.children ?? []
+      if (children.length === 0) {
+        lines.push(`${childBaseIndent}  -`)
+        continue
+      }
+
+      const [firstChild, ...rest] = children
+      lines.push(...emitInlineEntry(firstChild!, `${childBaseIndent}  - `, `${childBaseIndent}    `))
+      for (const child of rest) {
+        lines.push(...emitInlineEntry(child, `${childBaseIndent}    `, `${childBaseIndent}    `))
+      }
+    }
+    return lines
+  }
+
+  if ('children' in entry) {
+    const lines = [`${prefix}${entry.key}:`]
+    for (const child of entry.children) {
+      lines.push(...emitInlineEntry(child, `${childBaseIndent}  `, `${childBaseIndent}  `))
+    }
+    return lines
+  }
+
+  return [entry.value ? `${prefix}${entry.key}: ${entry.value}` : `${prefix}${entry.key}:`]
+}
+
+function collectInlineKeyMatches(text: string): Array<{
+  key: string
+  start: number
+  valueStart: number
+  sequenceStart: boolean
+  sequenceMarkerStart?: number
+}> {
+  const matches: Array<{
+    key: string
+    start: number
+    valueStart: number
+    sequenceStart: boolean
+    sequenceMarkerStart?: number
+  }> = []
+  let quote: '"' | '\'' | null = null
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!
+
+    if (quote) {
+      if (char === quote) {
+        if (quote === '\'' && text[index + 1] === '\'') {
+          index += 1
+          continue
+        }
+        if (quote === '"' && hasOddTrailingBackslashes(text, index)) {
+          continue
+        }
+        quote = null
+      }
+      continue
+    }
+
+    if (char === '"' || char === '\'') {
+      quote = char
+      continue
+    }
+
+    if (!isInlineKeyStart(text, index)) continue
+
+    let cursor = index + 1
+    while (cursor < text.length && /[A-Za-z0-9_-]/.test(text[cursor]!)) {
+      cursor += 1
+    }
+
+    let colonCursor = cursor
+    while (colonCursor < text.length && /\s/.test(text[colonCursor]!)) {
+      colonCursor += 1
+    }
+    if (text[colonCursor] !== ':') continue
+
+    let valueStart = colonCursor + 1
+    while (valueStart < text.length && /\s/.test(text[valueStart]!)) {
+      valueStart += 1
+    }
+
+    const sequenceMarkerStart = getInlineSequenceMarkerBefore(text, index)
+    matches.push({
+      key: text.slice(index, cursor),
+      start: index,
+      valueStart,
+      sequenceStart: sequenceMarkerStart !== null,
+      ...(sequenceMarkerStart !== null ? { sequenceMarkerStart } : {}),
+    })
+    index = valueStart - 1
+  }
+
+  return matches
+}
+
+function isInlineKeyStart(text: string, index: number): boolean {
+  const char = text[index]
+  if (!char || !/[a-z_]/.test(char)) return false
+  if (index === 0) return true
+
+  const previous = text[index - 1]!
+  if (/\s/.test(previous)) return true
+  if (previous === '-' && (index === 1 || /\s/.test(text[index - 2]!))) return true
+  return false
+}
+
+function getInlineSequenceMarkerBefore(text: string, index: number): number | null {
+  let cursor = index - 1
+  while (cursor >= 0 && /\s/.test(text[cursor]!)) {
+    cursor -= 1
+  }
+
+  return text[cursor] === '-' && (cursor === 0 || /\s/.test(text[cursor - 1]!)) ? cursor : null
 }
 
 function nameHasUnderscore(name: string): boolean {
@@ -1465,10 +1718,66 @@ function isInlineFreeTextFinalKey(key: string): boolean {
   return INLINE_FREE_TEXT_FINAL_KEYS.has(normalizeYamlRepairKey(key))
 }
 
+function parseInlineScalarSequence(text: string): string[] | null {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('- ')) return null
+
+  const values: string[] = []
+  let quote: '"' | '\'' | null = null
+  let entryStart = -1
+  let cursor = 0
+
+  while (cursor < trimmed.length) {
+    const char = trimmed[cursor]!
+
+    if (quote) {
+      if (char === quote) {
+        if (quote === '\'' && trimmed[cursor + 1] === '\'') {
+          cursor += 2
+          continue
+        }
+        if (quote === '"' && hasOddTrailingBackslashes(trimmed, cursor)) {
+          cursor += 1
+          continue
+        }
+        quote = null
+      }
+      cursor += 1
+      continue
+    }
+
+    if (char === '"' || char === '\'') {
+      quote = char
+      cursor += 1
+      continue
+    }
+
+    if (char === '-' && trimmed[cursor + 1] === ' ' && (cursor === 0 || /\s/.test(trimmed[cursor - 1]!))) {
+      if (entryStart >= 0) {
+        const value = trimmed.slice(entryStart, cursor).trim()
+        if (!isInlineSimpleValue(value)) return null
+        values.push(value)
+      }
+      entryStart = cursor + 2
+      cursor += 2
+      continue
+    }
+
+    cursor += 1
+  }
+
+  if (entryStart < 0) return null
+  const finalValue = trimmed.slice(entryStart).trim()
+  if (!finalValue || !isInlineSimpleValue(finalValue)) return null
+  values.push(finalValue)
+  return values.length > 0 ? values : null
+}
+
 function isInlineSimpleValue(text: string): boolean {
   if (/^-?\d+(\.\d+)?$/.test(text)) return true
   if (/^(true|false|yes|no|null|~)$/i.test(text)) return true
-  if (/^"[^"]*"$/.test(text) || /^'[^']*'$/.test(text)) return true
+  if (/^"(?:[^"\\]|\\.)*"$/.test(text) || /^'(?:[^']|'')*'$/.test(text)) return true
+  if (/^\[[\s\S]*\]$/.test(text) || /^\{[\s\S]*\}$/.test(text)) return true
   if (/^[^\s:]+$/.test(text)) return true
   return false
 }

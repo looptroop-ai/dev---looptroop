@@ -559,7 +559,9 @@ export function parseYamlOrJsonCandidate(
       }
 
       const inlineSequencePreRepaired = repairYamlInlineSequenceParents(candidate)
-      const inlineKeyPreRepaired = repairYamlInlineKeys(inlineSequencePreRepaired)
+      const inlineKeyPreRepaired = repairYamlInlineKeys(inlineSequencePreRepaired, {
+        nestedMappingChildren: options?.nestedMappingChildren,
+      })
       const plainScalarColonPreRepaired = repairYamlPlainScalarColons(inlineKeyPreRepaired)
       const preParseRepaired = applyNestedMappingRepair(plainScalarColonPreRepaired)
       if (preParseRepaired !== candidate) {
@@ -590,7 +592,9 @@ export function parseYamlOrJsonCandidate(
 
         // Earliest repair: split inline sequence parents and keys onto separate lines (prerequisite for all other repairs)
         const inlineSequenceRepaired = repairYamlInlineSequenceParents(effectiveBase)
-        const inlineRepaired = repairYamlInlineKeys(inlineSequenceRepaired)
+        const inlineRepaired = repairYamlInlineKeys(inlineSequenceRepaired, {
+          nestedMappingChildren: options?.nestedMappingChildren,
+        })
         if (inlineRepaired !== effectiveBase) {
           const nestedInlineRepaired = applyNestedMappingRepair(inlineRepaired)
           if (nestedInlineRepaired !== inlineRepaired) {

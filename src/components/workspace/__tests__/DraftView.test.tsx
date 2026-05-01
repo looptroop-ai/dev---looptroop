@@ -186,7 +186,7 @@ describe('DraftView', () => {
           source: 'system',
           kind: 'milestone',
         })
-        await vi.advanceTimersByTimeAsync(1)
+        await vi.advanceTimersByTimeAsync(250)
       })
     } finally {
       vi.useRealTimers()

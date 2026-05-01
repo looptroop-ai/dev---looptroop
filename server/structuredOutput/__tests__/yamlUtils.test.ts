@@ -15,6 +15,13 @@ describe.concurrent('buildStructuredRetryPrompt', () => {
 })
 
 describe.concurrent('parseYamlOrJsonCandidate', () => {
+  const interviewNestedMappingChildren = {
+    generated_by: ['winner_model', 'generated_at', 'canonicalization'],
+    answer: ['skipped', 'selected_option_ids', 'free_text', 'answered_by', 'answered_at'],
+    summary: ['goals', 'constraints', 'non_goals', 'final_free_form_answer'],
+    approval: ['approved_by', 'approved_at'],
+  } as const
+
   it('repairs inline sequence parents before YAML can accept them as plain scalars', () => {
     const repairWarnings: string[] = []
 
@@ -33,6 +40,38 @@ describe.concurrent('parseYamlOrJsonCandidate', () => {
         question: 'What behavior should the API expose?',
       },
     ])
+  })
+
+  it('repairs compact inline interview mappings before YAML can accept the wrong scalar shape', () => {
+    const repairWarnings: string[] = []
+
+    const parsed = parseYamlOrJsonCandidate([
+      'generated_by: winner_model: "openai/gpt-5.3-codex" generated_at: "2026-04-30T15:29:00Z" canonicalization: server_normalized',
+      'questions: - id: "Q01" phase: "Foundation" prompt: "What problem are we solving?" source: compiled follow_up_round: null answer_type: single_choice options: - id: opt1 label: "Keep behavior" - id: opt2 label: "Change behavior" answer: skipped: false selected_option_ids: - opt1 free_text: \'\' answered_by: ai_skip answered_at: "2026-04-30T15:29:00Z"',
+      'summary: goals: [] constraints: [] non_goals: [] final_free_form_answer: ""',
+      'approval: approved_by: "" approved_at: ""',
+    ].join('\n'), {
+      nestedMappingChildren: interviewNestedMappingChildren,
+      repairWarnings,
+    }) as {
+      generated_by: { winner_model: string; generated_at: string; canonicalization: string }
+      questions: Array<{
+        options: Array<{ id: string; label: string }>
+        answer: { selected_option_ids: string[]; answered_at: string }
+      }>
+    }
+
+    expect(repairWarnings).toContain('Repaired inline YAML sequence or mapping syntax before parsing.')
+    expect(parsed.generated_by).toEqual({
+      winner_model: 'openai/gpt-5.3-codex',
+      generated_at: '2026-04-30T15:29:00Z',
+      canonicalization: 'server_normalized',
+    })
+    expect(parsed.questions[0]?.options).toEqual([
+      { id: 'opt1', label: 'Keep behavior' },
+      { id: 'opt2', label: 'Change behavior' },
+    ])
+    expect(parsed.questions[0]?.answer.selected_option_ids).toEqual(['opt1'])
   })
 
   it('quotes header-like list scalars before YAML can accept them as mappings', () => {
