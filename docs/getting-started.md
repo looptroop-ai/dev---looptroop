@@ -193,8 +193,10 @@ If you need to customize ports or paths, you can use these environment variables
 | Variable | Purpose |
 | --- | --- |
 | `LOOPTROOP_FRONTEND_PORT` | Override frontend port |
+| `LOOPTROOP_FRONTEND_ORIGIN` | Override full frontend origin URL (e.g. `http://my-server:5173`); takes precedence over `LOOPTROOP_FRONTEND_PORT` |
 | `LOOPTROOP_BACKEND_PORT` | Override backend port |
 | `LOOPTROOP_DOCS_PORT` | Override docs port |
+| `LOOPTROOP_DOCS_ORIGIN` | Override full docs origin URL (e.g. `http://my-server:5174`); takes precedence over `LOOPTROOP_DOCS_PORT` |
 | `LOOPTROOP_OPENCODE_BASE_URL` | Point LoopTroop at a specific OpenCode server |
 | `LOOPTROOP_CONFIG_DIR` | Override the app config directory |
 | `LOOPTROOP_APP_DB_PATH` | Override the app database path directly |

@@ -79,7 +79,13 @@ Important columns:
 - `color`
 - `folder_path`
 - `profile_id`
-- project-level overrides for council and timeout settings
+- `council_members` — JSON array of model IDs, nullable project-level override
+- `max_iterations`
+- `per_iteration_timeout` — milliseconds, nullable project-level override
+- `execution_setup_timeout` — milliseconds, nullable project-level override
+- `council_response_timeout` — milliseconds, nullable project-level override
+- `min_council_quorum`
+- `interview_questions`
 - `ticket_counter`
 
 ### `tickets`

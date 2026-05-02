@@ -61,18 +61,22 @@ LoopTroop uses a singleton profile, not a collection.
 
 Example profile update payload:
 
+> [!NOTE]
+> Timeout fields (`perIterationTimeout`, `executionSetupTimeout`, `councilResponseTimeout`) are stored and used in **milliseconds**. The values shown below are the current defaults.
+
 ```json
 {
   "mainImplementer": "openai/gpt-5.4",
   "mainImplementerVariant": "high",
   "councilMembers": "[\"openai/gpt-5.4\",\"anthropic/claude-sonnet-4\"]",
+  "councilMemberVariants": "{\"openai/gpt-5.4\": \"high\"}",
   "minCouncilQuorum": 2,
-  "perIterationTimeout": 1800,
-  "executionSetupTimeout": 900,
-  "councilResponseTimeout": 240,
-  "interviewQuestions": 12,
-  "coverageFollowUpBudgetPercent": 35,
-  "maxCoveragePasses": 3,
+  "perIterationTimeout": 1200000,
+  "executionSetupTimeout": 1200000,
+  "councilResponseTimeout": 1200000,
+  "interviewQuestions": 50,
+  "coverageFollowUpBudgetPercent": 20,
+  "maxCoveragePasses": 2,
   "maxPrdCoveragePasses": 5,
   "maxBeadsCoveragePasses": 5,
   "maxIterations": 5,
@@ -81,6 +85,8 @@ Example profile update payload:
   "toolErrorMaxChars": 6000
 }
 ```
+
+`councilMemberVariants` is a JSON-encoded map of model ID → variant string (e.g. `"high"` or `"low"`) that pins specific effort levels per council member.
 
 ## Project Routes
 
@@ -344,10 +350,15 @@ There is no generic filesystem browser or arbitrary file read route under `/api/
 
 ## SSE Events
 
-The stream endpoint emits:
+The stream endpoint emits two categories of events:
 
-- `connected`
-- `heartbeat`
+**Stream lifecycle events** — sent directly by the stream handler on connection and periodically, not through the broadcaster:
+
+- `connected` — emitted once when the SSE connection is established
+- `heartbeat` — emitted every 30 seconds to keep the connection alive
+
+**Typed ticket events** — broadcast through `server/sse/broadcaster.ts` and defined in `server/sse/eventTypes.ts`:
+
 - `state_change`
 - `log`
 - `progress`
@@ -355,8 +366,6 @@ The stream endpoint emits:
 - `bead_complete`
 - `needs_input`
 - `artifact_change`
-
-Current custom event types are defined in `server/sse/eventTypes.ts`.
 
 SSE replay is an optimization, not the only recovery path. After a reconnect with a remembered event id, the frontend also invalidates the ticket, list, artifacts, interview, setup-plan, bead, and server-log queries so missed events outside the replay buffer are reconciled from durable storage.
 

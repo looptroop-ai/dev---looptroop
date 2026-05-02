@@ -41,6 +41,7 @@ const sidebar = [
     items: [
       { text: 'API Reference', link: '/api-reference' },
       { text: 'Output Normalization', link: '/output-normalization' },
+      { text: 'Runtime Diagnostics', link: '/diagnostics' },
     ],
   },
   {

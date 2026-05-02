@@ -170,7 +170,7 @@ Prompt acquisition is bounded by timeout and abort signals. OpenCode `create`, `
 | --- | --- |
 | Workflow runner and phase transitions | `server/workflow/*` |
 | Planning phases | `server/workflow/phases/*`, `server/phases/interview/*`, `server/phases/prd/*`, `server/phases/beads/*` |
-| Execution phases | `server/phases/execution/*`, `server/phases/executionSetup/*`, `server/phases/executionSetupPlan/*` |
+| Execution phases | `server/phases/preflight/*`, `server/phases/execution/*`, `server/phases/executionSetup/*`, `server/phases/executionSetupPlan/*`, `server/phases/finalTest/*`, `server/phases/integration/*`, `server/phases/cleanup/*`, `server/phases/verification/*` |
 
 ### Persistence
 

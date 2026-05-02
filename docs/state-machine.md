@@ -21,39 +21,39 @@ Use this page for the phase inventory and transition model. Use [Ticket Flow](ti
 
 ## Phase Inventory
 
-| Phase | Label | Group | `uiView` | Review artifact | Editable | Multi-model logs | Progress kind |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `DRAFT` | Backlog | `todo` | `draft` | — | yes | no | — |
-| `SCANNING_RELEVANT_FILES` | Scanning Relevant Files | `discovery` | `council` | — | yes | no | — |
-| `COUNCIL_DELIBERATING` | Council Drafting Questions | `interview` | `council` | — | yes | yes | — |
-| `COUNCIL_VOTING_INTERVIEW` | Voting on Questions | `interview` | `council` | — | yes | yes | — |
-| `COMPILING_INTERVIEW` | Refining Interview | `interview` | `council` | — | yes | no | — |
-| `WAITING_INTERVIEW_ANSWERS` | Interviewing | `interview` | `interview_qa` | — | yes | no | `questions` |
-| `VERIFYING_INTERVIEW_COVERAGE` | Coverage Check (Interview) | `interview` | `council` | — | yes | no | — |
-| `WAITING_INTERVIEW_APPROVAL` | Approving Interview | `interview` | `approval` | `interview` | yes | no | — |
-| `DRAFTING_PRD` | Council Drafting Specs | `prd` | `council` | — | yes | yes | — |
-| `COUNCIL_VOTING_PRD` | Voting on Specs | `prd` | `council` | — | yes | yes | — |
-| `REFINING_PRD` | Refining Specs | `prd` | `council` | — | yes | no | — |
-| `VERIFYING_PRD_COVERAGE` | Coverage Check (PRD) | `prd` | `council` | — | yes | no | — |
-| `WAITING_PRD_APPROVAL` | Approving Specs | `prd` | `approval` | `prd` | yes | no | — |
-| `DRAFTING_BEADS` | Council Drafting Blueprint | `beads` | `council` | — | yes | yes | — |
-| `COUNCIL_VOTING_BEADS` | Voting on Blueprint | `beads` | `council` | — | yes | yes | — |
-| `REFINING_BEADS` | Refining Blueprint | `beads` | `council` | — | yes | no | — |
-| `VERIFYING_BEADS_COVERAGE` | Coverage Check (Beads) | `beads` | `council` | — | yes | no | — |
-| `EXPANDING_BEADS` | Expanding Blueprint | `beads` | `council` | — | yes | no | — |
-| `WAITING_BEADS_APPROVAL` | Approving Blueprint | `beads` | `approval` | `beads` | yes | no | — |
-| `PRE_FLIGHT_CHECK` | Checking Readiness | `pre_implementation` | `coding` | — | yes | no | — |
-| `WAITING_EXECUTION_SETUP_APPROVAL` | Approving Workspace Setup | `pre_implementation` | `approval` | `execution_setup_plan` | yes | no | — |
-| `PREPARING_EXECUTION_ENV` | Preparing Workspace Runtime | `pre_implementation` | `coding` | — | no | no | — |
-| `CODING` | Implementing (Bead ?/?) | `implementation` | `coding` | — | no | no | `beads` |
-| `RUNNING_FINAL_TEST` | Testing Implementation | `post_implementation` | `coding` | — | no | no | — |
-| `INTEGRATING_CHANGES` | Preparing Final Commit | `post_implementation` | `coding` | — | no | no | — |
-| `CREATING_PULL_REQUEST` | Creating Pull Request | `post_implementation` | `coding` | — | no | no | — |
-| `WAITING_PR_REVIEW` | Reviewing Pull Request | `post_implementation` | `coding` | — | no | no | — |
-| `CLEANING_ENV` | Cleaning Up | `post_implementation` | `coding` | — | no | no | — |
-| `COMPLETED` | Done | `done` | `done` | — | no | no | — |
-| `CANCELED` | Canceled | `done` | `canceled` | — | no | no | — |
-| `BLOCKED_ERROR` | Error (reason) | `errors` | `error` | — | no | no | — |
+| Phase | Label | Group | `uiView` | `kanbanPhase` | Review artifact | Editable | Multi-model logs | Progress kind |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `DRAFT` | Backlog | `todo` | `draft` | `todo` | — | yes | no | — |
+| `SCANNING_RELEVANT_FILES` | Scanning Relevant Files | `discovery` | `council` | `in_progress` | — | yes | no | — |
+| `COUNCIL_DELIBERATING` | Council Drafting Questions | `interview` | `council` | `in_progress` | — | yes | yes | — |
+| `COUNCIL_VOTING_INTERVIEW` | Voting on Questions | `interview` | `council` | `in_progress` | — | yes | yes | — |
+| `COMPILING_INTERVIEW` | Refining Interview | `interview` | `council` | `in_progress` | — | yes | no | — |
+| `WAITING_INTERVIEW_ANSWERS` | Interviewing | `interview` | `interview_qa` | `needs_input` | — | yes | no | `questions` |
+| `VERIFYING_INTERVIEW_COVERAGE` | Coverage Check (Interview) | `interview` | `council` | `in_progress` | — | yes | no | — |
+| `WAITING_INTERVIEW_APPROVAL` | Approving Interview | `interview` | `approval` | `needs_input` | `interview` | yes | no | — |
+| `DRAFTING_PRD` | Council Drafting Specs | `prd` | `council` | `in_progress` | — | yes | yes | — |
+| `COUNCIL_VOTING_PRD` | Voting on Specs | `prd` | `council` | `in_progress` | — | yes | yes | — |
+| `REFINING_PRD` | Refining Specs | `prd` | `council` | `in_progress` | — | yes | no | — |
+| `VERIFYING_PRD_COVERAGE` | Coverage Check (PRD) | `prd` | `council` | `in_progress` | — | yes | no | — |
+| `WAITING_PRD_APPROVAL` | Approving Specs | `prd` | `approval` | `needs_input` | `prd` | yes | no | — |
+| `DRAFTING_BEADS` | Council Drafting Blueprint | `beads` | `council` | `in_progress` | — | yes | yes | — |
+| `COUNCIL_VOTING_BEADS` | Voting on Blueprint | `beads` | `council` | `in_progress` | — | yes | yes | — |
+| `REFINING_BEADS` | Refining Blueprint | `beads` | `council` | `in_progress` | — | yes | no | — |
+| `VERIFYING_BEADS_COVERAGE` | Coverage Check (Beads) | `beads` | `council` | `in_progress` | — | yes | no | — |
+| `EXPANDING_BEADS` | Expanding Blueprint | `beads` | `council` | `in_progress` | — | yes | no | — |
+| `WAITING_BEADS_APPROVAL` | Approving Blueprint | `beads` | `approval` | `needs_input` | `beads` | yes | no | — |
+| `PRE_FLIGHT_CHECK` | Checking Readiness | `pre_implementation` | `coding` | `in_progress` | — | yes | no | — |
+| `WAITING_EXECUTION_SETUP_APPROVAL` | Approving Workspace Setup | `pre_implementation` | `approval` | `needs_input` | `execution_setup_plan` | yes | no | — |
+| `PREPARING_EXECUTION_ENV` | Preparing Workspace Runtime | `pre_implementation` | `coding` | `in_progress` | — | no | no | — |
+| `CODING` | Implementing (Bead ?/?) | `implementation` | `coding` | `in_progress` | — | no | no | `beads` |
+| `RUNNING_FINAL_TEST` | Testing Implementation | `post_implementation` | `coding` | `in_progress` | — | no | no | — |
+| `INTEGRATING_CHANGES` | Preparing Final Commit | `post_implementation` | `coding` | `in_progress` | — | no | no | — |
+| `CREATING_PULL_REQUEST` | Creating Pull Request | `post_implementation` | `coding` | `in_progress` | — | no | no | — |
+| `WAITING_PR_REVIEW` | Reviewing Pull Request | `post_implementation` | `coding` | `needs_input` | — | no | no | — |
+| `CLEANING_ENV` | Cleaning Up | `post_implementation` | `coding` | `in_progress` | — | no | no | — |
+| `COMPLETED` | Done | `done` | `done` | `done` | — | no | no | — |
+| `CANCELED` | Canceled | `done` | `canceled` | `done` | — | no | no | — |
+| `BLOCKED_ERROR` | Error (reason) | `errors` | `error` | `needs_input` | — | no | no | — |
 
 ## Phase Descriptions
 
