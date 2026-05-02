@@ -63,6 +63,23 @@ Ticket
 
 LoopTroop keeps workflow state outside the model, stores durable artifacts, and asks for approval at important boundaries.
 
+## Screenshots
+
+![Projects dialog](docs/media/projects.png)
+<small>Manage attached repositories, review ticket counts, and create new projects from the dashboard.</small>
+
+![Configuration dialog](docs/media/configuration.png)
+<small>Choose the main implementer model, council members, and effort levels for local orchestration.</small>
+
+![Interview workspace](docs/media/interview.png)
+<small>Answer focused planning questions before specs and implementation plans are approved.</small>
+
+![Ticket workflow detail](docs/media/ticket.png)
+<small>Track council progress, generated artifacts, and live execution logs inside a ticket.</small>
+
+![Implementation review](docs/media/implementing.png)
+<small>Review bead completion, commits, changes, and final implementation details before closing the workflow.</small>
+
 ## Why not just use a coding agent directly?
 
 Direct coding-agent loops are useful, but they often become hard to control when the work gets large.

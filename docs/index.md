@@ -22,6 +22,23 @@ If you are new to LoopTroop, use this order:
 - A human-in-the-loop system with approval gates before specs, blueprint, workspace setup, and final PR completion.
 - A safe-resume workflow that returns users to durable ticket state after browser, frontend, backend, OpenCode, or model interruptions, or blocks explicitly when a safe resume point cannot be proven.
 
+## Screenshots
+
+![Projects dialog](media/projects.png)
+<small>Manage attached repositories, review ticket counts, and create new projects from the dashboard.</small>
+
+![Configuration dialog](media/configuration.png)
+<small>Choose the main implementer model, council members, and effort levels for local orchestration.</small>
+
+![Interview workspace](media/interview.png)
+<small>Answer focused planning questions before specs and implementation plans are approved.</small>
+
+![Ticket workflow detail](media/ticket.png)
+<small>Track council progress, generated artifacts, and live execution logs inside a ticket.</small>
+
+![Implementation review](media/implementing.png)
+<small>Review bead completion, commits, changes, and final implementation details before closing the workflow.</small>
+
 ## Documentation Map
 
 ### Start Here
