@@ -95,6 +95,10 @@ export function getTicketDebugLogPath(projectRoot: string, externalId: string): 
   return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-log.debug.jsonl')
 }
 
+export function getTicketAiLogPath(projectRoot: string, externalId: string): string {
+  return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-log.ai.jsonl')
+}
+
 export function getTicketExecutionSetupDir(projectRoot: string, externalId: string): string {
   return resolve(getTicketRuntimeDir(projectRoot, externalId), 'execution-setup')
 }

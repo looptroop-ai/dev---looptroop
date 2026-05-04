@@ -25,7 +25,7 @@ export function recoverTicketRuntimeArtifacts() {
     if (!paths) continue
 
     recoveredTmpFiles += recoverOrphanTmpFiles(paths.ticketDir).length
-    for (const logPath of [paths.executionLogPath, paths.debugLogPath]) {
+    for (const logPath of [paths.executionLogPath, paths.debugLogPath, paths.aiLogPath]) {
       if (fixTrailingLineCorruption(logPath)) {
         repairedExecutionLogs += 1
       }

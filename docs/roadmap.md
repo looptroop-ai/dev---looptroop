@@ -64,7 +64,7 @@ search: false
     *   On transition to `COMPLETED`, copy the full ticket folder to immutable archive path `.looptroop/archive/YYYY-MM-DD-<ticket-id>/`.
     *   Persist archive index at `.looptroop/archive/index.jsonl` with `ticket_id`, `archived_at`, `source_path`, `archive_path`, `source_commit`, and `snapshot_hash`.
     *   Add scheduled ticket-artifact backups (not only completion archive) under `.looptroop/backups/tickets/<ticket-id>/<timestamp>/` so backups stay inside the LoopTroop directory.
-    *   Backup scope must include `interview.yaml`, `prd.yaml`, `beads/main/.beads/issues.jsonl`, `state.yaml`, and `execution-log.jsonl` with a backup manifest (`created_at`, `artifact_paths[]`, `artifact_hashes[]`, `source_state_version`).
+    *   Backup scope must include `interview.yaml`, `prd.yaml`, `beads/main/.beads/issues.jsonl`, `state.yaml`, `execution-log.jsonl`, `execution-log.debug.jsonl`, and `execution-log.ai.jsonl` with a backup manifest (`created_at`, `artifact_paths[]`, `artifact_hashes[]`, `source_state_version`).
     *   Add retention policy + pruning receipts for backups (default: last `N` snapshots + daily checkpoints).
     *   Add UI restore flow for ticket backups: list snapshots, preview metadata/diff, and restore either full snapshot or selected artifacts.
     *   Restore must be atomic and emit `restore-receipt-<timestamp>.json` with `restored_from`, `restored_paths`, `operator`, and `rollback_result` if restore fails.

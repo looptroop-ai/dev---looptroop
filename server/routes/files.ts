@@ -13,6 +13,7 @@ const filesRouter = new Hono()
 
 const VALID_FILES = ['interview', 'prd'] as const
 type ValidFile = typeof VALID_FILES[number]
+type LogChannel = 'normal' | 'debug' | 'ai'
 
 function isValidFile(file: string): file is ValidFile {
   return VALID_FILES.includes(file as ValidFile)
@@ -22,6 +23,10 @@ function resolveTicketFilePath(ticketId: string, file: ValidFile): string | null
   const paths = getTicketPaths(ticketId)
   if (!paths) return null
   return path.join(paths.ticketDir, `${file}.yaml`)
+}
+
+function normalizeLogChannel(channel?: string): LogChannel {
+  return channel === 'debug' || channel === 'ai' ? channel : 'normal'
 }
 
 function normalizeLogEntry(entry: unknown): Record<string, unknown> | null {
@@ -104,8 +109,12 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
 
   const paths = getTicketPaths(ticketId)
   if (!paths) return c.json({ error: 'Ticket not found' }, 404)
-  const channel = c.req.query('channel')
-  const logPath = channel === 'debug' ? paths.debugLogPath : paths.executionLogPath
+  const channel = normalizeLogChannel(c.req.query('channel'))
+  const logPath = channel === 'debug'
+    ? paths.debugLogPath
+    : channel === 'ai'
+      ? paths.aiLogPath
+      : paths.executionLogPath
   if (!fs.existsSync(logPath)) return c.json([])
   const statusFilter = c.req.query('status')
   const phaseFilter = c.req.query('phase')
@@ -139,15 +148,15 @@ filesRouter.get('/files/:ticketId/logs', async (c) => {
     return at - bt
   })
 
-  const isDebugChannel = channel === 'debug'
+  const isAuxiliaryChannel = channel === 'debug' || channel === 'ai'
   const hasCurrentStatusEntry = foldedEntries.some(entry => entry.status === ticket.status)
-  const currentPhaseAttempt = !isDebugChannel && !hasCurrentStatusEntry ? resolvePhaseAttempt(ticketId, ticket.status) : null
+  const currentPhaseAttempt = !isAuxiliaryChannel && !hasCurrentStatusEntry ? resolvePhaseAttempt(ticketId, ticket.status) : null
   const syntheticMatchesFilters = logEntryMatchesFilters({
     phase: ticket.status,
     phaseAttempt: currentPhaseAttempt ?? 1,
     status: ticket.status,
   }, filters)
-  if (!isDebugChannel && !hasCurrentStatusEntry && syntheticMatchesFilters) {
+  if (!isAuxiliaryChannel && !hasCurrentStatusEntry && syntheticMatchesFilters) {
     const nowIso = new Date().toISOString()
     foldedEntries.push({
       timestamp: ticket.updatedAt ?? nowIso,

@@ -102,7 +102,7 @@ The short map is:
 - project-level workflow state: project SQLite
 - human-readable ticket artifacts: `.ticket/**` in the ticket worktree
 - bead plan: `.ticket/beads/<flow>/.beads/issues.jsonl`
-- runtime logs: `.ticket/runtime/execution-log.jsonl` for the normal log and `.ticket/runtime/execution-log.debug.jsonl` for persisted debug/forensic detail
+- runtime logs: `.ticket/runtime/execution-log.jsonl` for the normal log, `.ticket/runtime/execution-log.debug.jsonl` for persisted debug/forensic detail, and `.ticket/runtime/execution-log.ai.jsonl` for AI prompts, thinking, tool calls, and streaming detail
 
 Read more: [System Architecture](system-architecture.md), [Database Schema](database-schema.md)
 

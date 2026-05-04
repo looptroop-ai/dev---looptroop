@@ -85,8 +85,10 @@ describe('ticketRouter DELETE /tickets/:id', () => {
     const worktreePath = init.worktreePath
     const executionLogPath = `${init.ticketDir}/runtime/execution-log.jsonl`
     const debugLogPath = `${init.ticketDir}/runtime/execution-log.debug.jsonl`
+    const aiLogPath = `${init.ticketDir}/runtime/execution-log.ai.jsonl`
     mkdirSync(dirname(debugLogPath), { recursive: true })
     writeFileSync(debugLogPath, '{"type":"debug"}\n')
+    writeFileSync(aiLogPath, '{"audience":"ai"}\n')
 
     expect(existsSync(worktreePath)).toBe(true)
 
@@ -105,6 +107,7 @@ describe('ticketRouter DELETE /tickets/:id', () => {
     expect(existsSync(worktreePath)).toBe(false)
     expect(existsSync(executionLogPath)).toBe(false)
     expect(existsSync(debugLogPath)).toBe(false)
+    expect(existsSync(aiLogPath)).toBe(false)
 
     const branchResult = spawnSync('git', ['-C', repoDir, 'show-ref', '--verify', '--quiet', `refs/heads/${ticket.externalId}`], {
       encoding: 'utf8',

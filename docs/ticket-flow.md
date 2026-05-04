@@ -216,7 +216,7 @@ Two extra guards matter at the user-action layer:
 | PRD drafting and approval | `.ticket/prd.yaml`, per-model full answers artifacts, winning Full Answers approval context, PRD coverage history |
 | Beads coverage and approval | `.ticket/beads/<flow>/.beads/issues.jsonl`, beads coverage history, approval receipt |
 | Setup-plan approval | `execution_setup_plan` artifact and approval receipt |
-| Execution runtime | `.ticket/runtime/execution-log.jsonl`, `.ticket/runtime/execution-log.debug.jsonl`, `.ticket/runtime/state.yaml`, execution setup profile, bead notes and diffs |
+| Execution runtime | `.ticket/runtime/execution-log.jsonl`, `.ticket/runtime/execution-log.debug.jsonl`, `.ticket/runtime/execution-log.ai.jsonl`, `.ticket/runtime/state.yaml`, execution setup profile, bead notes and diffs |
 | Frontend resume | ticket UI-state artifacts for approval drafts and interview drafts, plus SSE last-event id in browser storage |
 | Final delivery | final test report, integration report, pull request report, merge report, cleanup report |
 

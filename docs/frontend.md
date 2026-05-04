@@ -157,9 +157,9 @@ Several UI components exist specifically to inspect durable workflow state:
 
 The frontend is built around the assumption that users must be able to inspect prior attempts and artifacts without replaying the run mentally from logs.
 
-`LogProvider` treats the server-side normal execution log as durable truth. SSE-delivered rows merge into the in-memory log state immediately so the phase log viewer and full log can render live updates without waiting for file persistence. The browser opens the ticket stream through the same-origin `/api/stream` route, matching normal API fetches and avoiding dev-environment host/CORS drift. Browser-local logs are merged for responsiveness, but reconnect recovery requests the server log again and merges by stable entry identity so a frontend restart does not leave the visible log pane stale.
+`LogProvider` treats the server-side normal execution log as durable truth for the lifecycle view. SSE-delivered rows merge into the in-memory log state immediately so the phase log viewer and full log can render live updates without waiting for file persistence. The browser opens the ticket stream through the same-origin `/api/stream` route, matching normal API fetches and avoiding dev-environment host/CORS drift. Browser-local logs are merged for responsiveness, but reconnect recovery requests the server log again and merges by stable entry identity so a frontend restart does not leave the visible log pane stale.
 
-Streaming AI upserts are kept in the browser log cache as the latest per-entry snapshot so closing and reopening a ticket can restore the active log detail. The backend still does not append those intermediate snapshots to `execution-log.jsonl`; the SSE replay buffer keeps the latest in-flight update available across reconnects while finalized rows remain the durable log-file record.
+Streaming AI upserts are also written to `.ticket/runtime/execution-log.ai.jsonl`, a separate AI detail channel that is loaded only for AI and model log views. The backend still does not append those intermediate snapshots to `execution-log.jsonl`; finalized AI rows remain in the normal log for lifecycle history, while the AI detail log preserves prompts, thinking, tool calls, session rows, and latest streaming snapshots for reopening a ticket.
 
 ### Artifact Processing Notices
 
@@ -194,7 +194,7 @@ Clicking the button opens a confirmation dialog with two optional, unchecked-by-
 | Checkbox | Effect when checked |
 | --- | --- |
 | **Delete AI-generated artifacts and worktree** | Permanently removes interview Q&A, PRD drafts, and beads plan entries from the database, and deletes the isolated git worktree (including its branch and any code written to it) |
-| **Delete execution log** | Permanently removes both `.ticket/runtime/execution-log.jsonl` and `.ticket/runtime/execution-log.debug.jsonl` for this ticket; effective only when the worktree still exists (worktree removal via the first checkbox already covers both logs) |
+| **Delete execution log** | Permanently removes `.ticket/runtime/execution-log.jsonl`, `.ticket/runtime/execution-log.debug.jsonl`, and `.ticket/runtime/execution-log.ai.jsonl` for this ticket; effective only when the worktree still exists (worktree removal via the first checkbox already covers these logs) |
 
 Both options default to unchecked — canceling without checking anything preserves all artifacts exactly as the basic cancel behavior did before.
 

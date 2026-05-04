@@ -6,6 +6,7 @@ import * as atomicAppendModule from '../../io/atomicAppend'
 const mockGetTicketPaths = vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
   executionLogPath: '/tmp/test-execution-log.jsonl',
   debugLogPath: '/tmp/test-execution-log.debug.jsonl',
+  aiLogPath: '/tmp/test-execution-log.ai.jsonl',
   worktreePath: '/tmp/test-worktree',
   ticketDir: '/tmp/test-ticket-dir',
   executionSetupDir: '/tmp/test-ticket-dir/.ticket/runtime/execution-setup',
@@ -55,6 +56,32 @@ describe('appendLogEvent', () => {
     expect(mockAppend).not.toHaveBeenCalled()
   })
 
+  it('persists AI streaming upserts to the AI detail log only', () => {
+    appendLogEvent(
+      '1:T-42',
+      'model_output',
+      'CODING',
+      'thinking about the implementation',
+      { timestamp: '2026-03-13T12:00:00.000Z' },
+      'opencode',
+      'CODING',
+      {
+        audience: 'ai',
+        kind: 'reasoning',
+        op: 'upsert',
+        streaming: true,
+        entryId: 'session:thinking',
+      },
+    )
+
+    expect(mockAppend).toHaveBeenCalledOnce()
+    expect(mockAppend.mock.calls[0]?.[0]).toBe('/tmp/test-execution-log.ai.jsonl')
+    const written = JSON.parse(mockAppend.mock.calls[0]![1]!)
+    expect(written.op).toBe('upsert')
+    expect(written.streaming).toBe(true)
+    expect(written.audience).toBe('ai')
+  })
+
   it('persists finalize events to disk', () => {
 
     appendLogEvent(
@@ -72,6 +99,31 @@ describe('appendLogEvent', () => {
     const written = JSON.parse(mockAppend.mock.calls[0]![1]!)
     expect(written.op).toBe('finalize')
     expect(written.content).toBe('final content')
+  })
+
+  it('persists finalized AI rows to both AI detail and normal logs', () => {
+    appendLogEvent(
+      '1:T-42',
+      'model_output',
+      'CODING',
+      'final model output',
+      { timestamp: '2026-03-13T12:00:00.000Z' },
+      'opencode',
+      'CODING',
+      {
+        audience: 'ai',
+        kind: 'text',
+        op: 'finalize',
+        entryId: 'session:output',
+        streaming: false,
+      },
+    )
+
+    expect(mockAppend).toHaveBeenCalledTimes(2)
+    expect(mockAppend.mock.calls.map((call) => call[0])).toEqual([
+      '/tmp/test-execution-log.ai.jsonl',
+      '/tmp/test-execution-log.jsonl',
+    ])
   })
 
   it('strips redundant structured fields and internal flags from persisted data', () => {
@@ -155,6 +207,27 @@ describe('appendLogEvent', () => {
     expect(written.data?.customField).toBe('keep-this')
   })
 
+  it('keeps debug rows out of the AI detail log', () => {
+    appendLogEvent(
+      '1:T-42',
+      'debug',
+      'CODING',
+      '[DEBUG] raw provider response',
+      { timestamp: '2026-03-13T12:00:00.000Z' },
+      'debug',
+      'CODING',
+      {
+        audience: 'debug',
+        kind: 'session',
+        op: 'append',
+        streaming: false,
+      },
+    )
+
+    expect(mockAppend).toHaveBeenCalledOnce()
+    expect(mockAppend.mock.calls[0]?.[0]).toBe('/tmp/test-execution-log.debug.jsonl')
+  })
+
   it('skips persisting repeated append events with the same fingerprint', () => {
     appendLogEvent(
       '1:T-42',
@@ -183,5 +256,37 @@ describe('appendLogEvent', () => {
     )
 
     expect(mockAppend).toHaveBeenCalledOnce()
+  })
+
+  it('dedupes fingerprints separately for AI detail and normal channels', () => {
+    const writeAiPrompt = () => appendLogEvent(
+      '1:T-42',
+      'info',
+      'CODING',
+      '[PROMPT] Prompt #1',
+      {
+        timestamp: '2026-04-20T10:00:00.000Z',
+        fingerprint: 'prompt:session-1:1',
+      },
+      'opencode',
+      'CODING',
+      {
+        audience: 'ai',
+        kind: 'prompt',
+        op: 'append',
+        streaming: false,
+        entryId: 'session-1:prompt:1',
+        fingerprint: 'prompt:session-1:1',
+      },
+    )
+
+    writeAiPrompt()
+    writeAiPrompt()
+
+    expect(mockAppend).toHaveBeenCalledTimes(2)
+    expect(mockAppend.mock.calls.map((call) => call[0])).toEqual([
+      '/tmp/test-execution-log.ai.jsonl',
+      '/tmp/test-execution-log.jsonl',
+    ])
   })
 })

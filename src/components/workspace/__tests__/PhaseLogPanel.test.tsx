@@ -181,6 +181,59 @@ describe('PhaseLogPanel', () => {
     expect(loadLogsForPhase).toHaveBeenCalledWith('CODING', { channel: 'debug' })
   })
 
+  it('asks for phase AI detail logs when AI or model tabs are selected', () => {
+    const loadLogsForPhase = vi.fn()
+    const logs = [
+      makeLog('sys-1', '[SYS] System event'),
+      makeLog('ai-1', '[MODEL] First output', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+        sessionId: 'session-1',
+      }),
+      makeLog('ai-2', '[MODEL] Second output', {
+        source: 'model:anthropic/claude-sonnet-4.6',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'anthropic/claude-sonnet-4.6',
+        sessionId: 'session-2',
+      }),
+    ]
+    const value: LogContextValue = {
+      logsByPhase: { CODING: logs },
+      activePhase: null,
+      isLoadingLogs: false,
+      addLog: vi.fn(),
+      addLogRecord: vi.fn(),
+      getLogsForPhase: vi.fn(() => logs),
+      getAllLogs: vi.fn(() => logs),
+      setActivePhase: vi.fn(),
+      loadLogsForPhase,
+      isLoadingLogScope: vi.fn(() => false),
+      clearLogs: vi.fn(),
+    }
+
+    renderWithTooltipProvider(
+      <LogContext.Provider value={value}>
+        <PhaseLogPanel phase="CODING" />
+      </LogContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(loadLogsForPhase).toHaveBeenLastCalledWith('CODING', { channel: 'ai' })
+    expect(screen.getByText(/First output/i)).toBeInTheDocument()
+    expect(screen.queryByText(/System event/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show models' }))
+    fireEvent.click(screen.getByTitle('openai/gpt-5.4'))
+
+    expect(loadLogsForPhase).toHaveBeenLastCalledWith('CODING', { channel: 'ai' })
+    expect(screen.getByText(/First output/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Second output/i)).not.toBeInTheDocument()
+  })
+
   it('shows canonical raw AI output in ALL while suppressing transcript and summary duplicates', () => {
     const logs: LogEntry[] = [
       {

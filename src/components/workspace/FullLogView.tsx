@@ -20,6 +20,10 @@ type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 const BOTTOM_THRESHOLD = 50
 
+function isAiLogTab(tab: string): boolean {
+  return tab === 'AI' || (!FIXED_TABS.includes(tab as LogTab) && tab !== 'CMD')
+}
+
 const TAB_TOOLTIPS: Record<string, string> = {
   ALL: 'Shows system milestones, prompts, errors, and canonical AI outputs across all phases.',
   SYS: 'System background events and milestones for the orchestrator.',
@@ -301,9 +305,17 @@ export function FullLogView({ ticket }: FullLogViewProps) {
     : singleModelTabId && activeTab === singleModelTabId
       ? 'AI'
       : 'ALL'
+
+  useEffect(() => {
+    if (!isAiLogTab(effectiveTab)) return
+    loadAllLogs?.({ channel: 'ai' })
+  }, [effectiveTab, loadAllLogs])
+
   const isLoadingLogs = effectiveTab === 'DEBUG'
     ? (isLoadingLogScope?.({ lifecycle: true, channel: 'debug' }) ?? false)
-    : (isLoadingLogScope?.({ lifecycle: true }) ?? (logCtx?.isLoadingLogs ?? false))
+    : isAiLogTab(effectiveTab)
+      ? ((isLoadingLogScope?.({ lifecycle: true }) ?? false) || (isLoadingLogScope?.({ lifecycle: true, channel: 'ai' }) ?? false))
+      : (isLoadingLogScope?.({ lifecycle: true }) ?? (logCtx?.isLoadingLogs ?? false))
 
   const filteredLogs = useMemo(
     () => filterEntries(allLogs, effectiveTab),

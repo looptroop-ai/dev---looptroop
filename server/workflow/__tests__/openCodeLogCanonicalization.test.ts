@@ -13,6 +13,7 @@ import { broadcaster } from '../../sse/broadcaster'
 vi.spyOn(ticketsModule, 'getTicketPaths').mockReturnValue({
   executionLogPath: '/tmp/test-execution-log.jsonl',
   debugLogPath: '/tmp/test-execution-log.debug.jsonl',
+  aiLogPath: '/tmp/test-execution-log.ai.jsonl',
   worktreePath: '/tmp/test-worktree',
   ticketDir: '/tmp/test-ticket-dir',
   executionSetupDir: '/tmp/test-ticket-dir/.ticket/runtime/execution-setup',
@@ -34,8 +35,14 @@ function getPersistedEntries() {
   return mockAppend.mock.calls.map(([, payload]) => JSON.parse(payload))
 }
 
+function getNormalPersistedEntries() {
+  return mockAppend.mock.calls
+    .filter(([logPath]) => logPath === '/tmp/test-execution-log.jsonl')
+    .map(([, payload]) => JSON.parse(payload))
+}
+
 function getPersistedTextEntries() {
-  return getPersistedEntries().filter((entry) => entry.kind === 'text')
+  return getNormalPersistedEntries().filter((entry) => entry.kind === 'text')
 }
 
 describe('OpenCode log canonicalization', () => {

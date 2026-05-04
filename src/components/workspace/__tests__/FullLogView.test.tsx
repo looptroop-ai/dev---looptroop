@@ -287,12 +287,33 @@ describe('FullLogView', () => {
     }
   })
 
-  it('loads normal lifecycle logs on open and debug lifecycle logs only when DEBUG is selected', () => {
-    getAllLogsMock.mockReturnValue([])
+  it('loads normal lifecycle logs on open and detail channels only when their tabs are selected', () => {
+    getAllLogsMock.mockReturnValue([
+      makeLog('sys-1', '[SYS] System event', 'CODING'),
+      makeLog('ai-1', '[MODEL] First output', 'CODING', {
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'openai/gpt-5.4',
+      }),
+      makeLog('ai-2', '[MODEL] Second output', 'DRAFTING_PRD', {
+        source: 'model:anthropic/claude-sonnet-4',
+        audience: 'ai',
+        kind: 'text',
+        modelId: 'anthropic/claude-sonnet-4',
+      }),
+    ])
     renderWithTooltipProvider(<FullLogView />)
 
     expect(loadAllLogsMock).toHaveBeenCalledWith()
     expect(loadAllLogsMock).not.toHaveBeenCalledWith({ channel: 'debug' })
+    expect(loadAllLogsMock).not.toHaveBeenCalledWith({ channel: 'ai' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(loadAllLogsMock).toHaveBeenLastCalledWith({ channel: 'ai' })
+    expect(screen.getByText(/First output/i)).toBeTruthy()
+    expect(screen.queryByText(/System event/i)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'DEBUG' }))
 
@@ -407,6 +428,7 @@ describe('FullLogView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show models' }))
     fireEvent.click(screen.getByRole('button', { name: /gpt-5\.4/i }))
 
+    expect(loadAllLogsMock).toHaveBeenLastCalledWith({ channel: 'ai' })
     expect(screen.getByText('1 entries')).toBeTruthy()
     expect(screen.getByText(/First output/)).toBeTruthy()
     expect(screen.queryByText(/Second output/)).toBeNull()

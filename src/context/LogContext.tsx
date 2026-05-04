@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useState, useRef, type ReactNo
 import { LogContext } from './logContextDef'
 import {
   type LogEntry,
+  type LogChannel,
   type PlainLogOptions,
   type ServerLogScope,
   LOG_STORAGE_PREFIX,
@@ -64,7 +65,7 @@ function mergeLogBuckets(
 
 function normalizeScope(scope: ServerLogScope = {}): ServerLogScope {
   const normalized: ServerLogScope = {
-    channel: scope.channel === 'debug' ? 'debug' : 'normal',
+    channel: scope.channel === 'debug' || scope.channel === 'ai' ? scope.channel : 'normal',
   }
 
   if (scope.status) {
@@ -103,7 +104,9 @@ function entryMatchesScope(rawEntry: Record<string, unknown>, entry: LogEntry, s
 
 function shouldIncludeEntryForScope(entry: LogEntry, scope: ServerLogScope): boolean {
   const isDebug = isDebugLogEntry(entry)
-  return scope.channel === 'debug' ? isDebug : !isDebug
+  if (scope.channel === 'debug') return isDebug
+  if (scope.channel === 'ai') return !isDebug && entry.audience === 'ai'
+  return !isDebug
 }
 
 export function LogProvider({
@@ -276,7 +279,7 @@ export function LogProvider({
           }
         }
 
-        const syntheticStatus = scope.channel !== 'debug'
+        const syntheticStatus = scope.channel === 'normal'
           && (
             scope.lifecycle
               ? currentStatusRef.current
@@ -426,12 +429,12 @@ export function LogProvider({
       .sort((a, b) => compareTimestamps(a.timestamp, b.timestamp))
   }, [logsByPhase])
 
-  const loadLogsForPhase = useCallback((phase: string, options?: { channel?: 'normal' | 'debug' }) => {
+  const loadLogsForPhase = useCallback((phase: string, options?: { channel?: LogChannel }) => {
     if (!phase) return
     requestServerLogs({ status: phase, channel: options?.channel })
   }, [requestServerLogs])
 
-  const loadAllLogs = useCallback((options?: { channel?: 'normal' | 'debug' }) => {
+  const loadAllLogs = useCallback((options?: { channel?: LogChannel }) => {
     requestServerLogs({ lifecycle: true, channel: options?.channel })
   }, [requestServerLogs])
 

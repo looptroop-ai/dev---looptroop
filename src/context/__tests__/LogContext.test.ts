@@ -116,6 +116,52 @@ describe('LogProvider', () => {
     expect(globalThis.fetch).toHaveBeenLastCalledWith('/api/files/1:T-debug-phase/logs?status=CODING&channel=debug')
   })
 
+  it('requests phase AI detail logs through the AI channel and merges them into the phase bucket', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => createJsonResponse([]))
+      .mockImplementationOnce(() => createJsonResponse([{
+        type: 'model_output',
+        phase: 'CODING',
+        status: 'CODING',
+        source: 'model:openai/gpt-5.4',
+        audience: 'ai',
+        kind: 'reasoning',
+        content: 'Restored thinking row.',
+        entryId: 'session-1:thinking',
+        op: 'upsert',
+        streaming: true,
+        timestamp: '2026-03-13T10:00:03.000Z',
+      }]))
+
+    render(createElement(
+      LogProvider,
+      {
+        ticketId: '1:T-ai-phase',
+        currentStatus: 'CODING',
+        children: createElement(LogHarness),
+      },
+    ))
+
+    await flushMicrotasks()
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/files/1:T-ai-phase/logs?status=CODING')
+
+    await act(async () => {
+      latestLogApi?.loadLogsForPhase?.('CODING', { channel: 'ai' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(globalThis.fetch).toHaveBeenLastCalledWith('/api/files/1:T-ai-phase/logs?status=CODING&channel=ai')
+    expect(getCodingLogs()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entryId: 'session-1:thinking',
+        audience: 'ai',
+        streaming: true,
+        line: 'Restored thinking row.',
+      }),
+    ]))
+  })
+
   it('ignores debug rows from normal server fetches but keeps live debug rows', async () => {
     vi.useFakeTimers()
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([{

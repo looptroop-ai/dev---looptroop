@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { useLogs } from '@/context/useLogContext'
 import type { LogEntry } from '@/context/LogContext'
-import { compareTimestamps, isDebugLogEntry, normalizeLogRecord } from '@/context/logUtils'
+import { compareTimestamps, isDebugLogEntry, mergeEntry, normalizeLogRecord } from '@/context/logUtils'
 import { getStatusUserLabel } from '@/lib/workflowMeta'
 import { LoadingText } from '@/components/ui/LoadingText'
 import { ModelBadge } from '@/components/shared/ModelBadge'
@@ -32,6 +32,16 @@ type LogTab = 'ALL' | 'SYS' | 'AI' | 'ERROR' | 'DEBUG'
 const FIXED_TABS: LogTab[] = ['ALL', 'SYS', 'AI', 'ERROR', 'DEBUG']
 const BOTTOM_THRESHOLD = 50
 
+function isAiLogTab(tab: string): boolean {
+  return tab === 'AI' || (!FIXED_TABS.includes(tab as LogTab) && tab !== 'CMD')
+}
+
+function mergeLogEntryList(entries: LogEntry[]): LogEntry[] {
+  return entries
+    .reduce<LogEntry[]>((bucket, entry) => mergeEntry(bucket, entry), [])
+    .sort((a, b) => compareTimestamps(a.timestamp, b.timestamp))
+}
+
 const TAB_TOOLTIPS: Record<string, string> = {
   ALL: 'Shows system milestones, prompts, errors, and canonical AI outputs. This does not include absolutely all logs; check the other tabs for more details.',
   SYS: 'System background events and milestones for the orchestrator.',
@@ -57,6 +67,10 @@ export function PhaseLogPanel({
     entries: [],
   })
   const [archivedDebugLogsState, setArchivedDebugLogsState] = useState<{ key: string | null, entries: LogEntry[] }>({
+    key: null,
+    entries: [],
+  })
+  const [archivedAiLogsState, setArchivedAiLogsState] = useState<{ key: string | null, entries: LogEntry[] }>({
     key: null,
     entries: [],
   })
@@ -140,6 +154,43 @@ export function PhaseLogPanel({
   }, [activeTab, archivedDebugLogsState.key, archivedLogsKey, phase, phaseAttempt, ticket?.id])
 
   useEffect(() => {
+    if (!archivedLogsKey || !ticket?.id || typeof phaseAttempt !== 'number') {
+      return
+    }
+    if (!isAiLogTab(activeTab) || archivedAiLogsState.key === archivedLogsKey) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    void fetch(`/api/files/${ticket.id}/logs?${new URLSearchParams({
+      phase,
+      phaseAttempt: String(phaseAttempt),
+      channel: 'ai',
+    }).toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return [] as LogEntry[]
+        const payload = await response.json()
+        if (!Array.isArray(payload)) return [] as LogEntry[]
+        return payload
+          .map((entry) => normalizeLogRecord(entry as Record<string, unknown>, phase))
+          .filter((entry) => !isDebugLogEntry(entry) && entry.audience === 'ai')
+      })
+      .then((entries) => {
+        if (!controller.signal.aborted) {
+          setArchivedAiLogsState({ key: archivedLogsKey, entries })
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setArchivedAiLogsState({ key: archivedLogsKey, entries: [] })
+        }
+      })
+
+    return () => controller.abort()
+  }, [activeTab, archivedAiLogsState.key, archivedLogsKey, phase, phaseAttempt, ticket?.id])
+
+  useEffect(() => {
     if (propLogs || shouldLoadArchivedLogs) return
     logCtx?.loadLogsForPhase?.(phase)
   }, [logCtx, phase, propLogs, shouldLoadArchivedLogs])
@@ -149,15 +200,24 @@ export function PhaseLogPanel({
     logCtx?.loadLogsForPhase?.(phase, { channel: 'debug' })
   }, [activeTab, logCtx, phase, shouldLoadArchivedLogs])
 
+  useEffect(() => {
+    if (shouldLoadArchivedLogs || !isAiLogTab(activeTab)) return
+    logCtx?.loadLogsForPhase?.(phase, { channel: 'ai' })
+  }, [activeTab, logCtx, phase, shouldLoadArchivedLogs])
+
   const isLoadingLogs = propLogs
     ? false
     : shouldLoadArchivedLogs
       ? activeTab === 'DEBUG'
         ? archivedDebugLogsState.key !== archivedLogsKey
-        : archivedLogsState.key !== archivedLogsKey
+        : isAiLogTab(activeTab)
+          ? archivedLogsState.key !== archivedLogsKey || archivedAiLogsState.key !== archivedLogsKey
+          : archivedLogsState.key !== archivedLogsKey
       : activeTab === 'DEBUG'
         ? (logCtx?.isLoadingLogScope?.({ status: phase, channel: 'debug' }) ?? false)
-        : (logCtx?.isLoadingLogScope?.({ status: phase }) ?? (logCtx?.isLoadingLogs ?? false))
+        : isAiLogTab(activeTab)
+          ? ((logCtx?.isLoadingLogScope?.({ status: phase }) ?? false) || (logCtx?.isLoadingLogScope?.({ status: phase, channel: 'ai' }) ?? false))
+          : (logCtx?.isLoadingLogScope?.({ status: phase }) ?? (logCtx?.isLoadingLogs ?? false))
   const phaseLogs: LogEntry[] = useMemo(
     () => {
       if (propLogs) {
@@ -171,12 +231,13 @@ export function PhaseLogPanel({
       }
       if (shouldLoadArchivedLogs) {
         const normalEntries = archivedLogsState.key === archivedLogsKey ? archivedLogsState.entries : []
+        const aiEntries = archivedAiLogsState.key === archivedLogsKey ? archivedAiLogsState.entries : []
         const debugEntries = archivedDebugLogsState.key === archivedLogsKey ? archivedDebugLogsState.entries : []
-        return [...normalEntries, ...debugEntries].sort((a, b) => compareTimestamps(a.timestamp, b.timestamp))
+        return mergeLogEntryList([...normalEntries, ...aiEntries, ...debugEntries])
       }
       return logCtx?.getLogsForPhase(phase) ?? []
     },
-    [activeTab, archivedDebugLogsState.entries, archivedDebugLogsState.key, archivedLogsKey, archivedLogsState.entries, archivedLogsState.key, logCtx, phase, propLogs, shouldLoadArchivedLogs],
+    [activeTab, archivedAiLogsState.entries, archivedAiLogsState.key, archivedDebugLogsState.entries, archivedDebugLogsState.key, archivedLogsKey, archivedLogsState.entries, archivedLogsState.key, logCtx, phase, propLogs, shouldLoadArchivedLogs],
   )
   const hasToolbarPrefix = toolbarPrefix != null
   const [modelsCollapsed, setModelsCollapsed] = useState(true)

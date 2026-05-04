@@ -49,6 +49,7 @@ describe('Pre-Flight Doctor', () => {
     ticketDir: '/tmp/test-worktree/.ticket',
     executionLogPath: '/tmp/test-worktree/.ticket/runtime/execution-log.jsonl',
     debugLogPath: '/tmp/test-worktree/.ticket/runtime/execution-log.debug.jsonl',
+    aiLogPath: '/tmp/test-worktree/.ticket/runtime/execution-log.ai.jsonl',
     executionSetupDir: '/tmp/test-worktree/.ticket/runtime/execution-setup',
     executionSetupProfilePath: '/tmp/test-worktree/.ticket/runtime/execution-setup-profile.json',
     baseBranch: 'main',

@@ -105,7 +105,7 @@ LoopTroop stores meaningful workflow state in places that can be inspected, quer
 
 - SQLite for ticket status, artifacts, attempts, sessions, and errors
 - YAML and JSONL artifacts in `.ticket/**`
-- execution logs in `.ticket/runtime/execution-log.jsonl` and `.ticket/runtime/execution-log.debug.jsonl`
+- execution logs in `.ticket/runtime/execution-log.jsonl`, `.ticket/runtime/execution-log.debug.jsonl`, and `.ticket/runtime/execution-log.ai.jsonl`
 - worktree state tied to git snapshots and PR outcomes
 
 If the process restarts, the system should recover from storage, not from a model trying to remember what happened.

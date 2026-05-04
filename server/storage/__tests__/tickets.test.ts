@@ -14,7 +14,7 @@ import {
   recordTicketErrorOccurrence,
   resolveLatestTicketErrorOccurrence,
 } from '../tickets'
-import { getTicketDebugLogPath } from '../paths'
+import { getTicketAiLogPath, getTicketDebugLogPath } from '../paths'
 
 const lockRepoManager = createFixtureRepoManager({
   templatePrefix: 'looptroop-ticket-lock-',
@@ -114,6 +114,7 @@ describe('ticket start configuration locking', () => {
     expect(progressUpdate?.percentComplete).toBe(25)
     expect(getTicketByRef(ticket.id)?.lockedCouncilMembers).toEqual(lockedCouncilMembers)
     expect(getTicketPaths(ticket.id)?.debugLogPath).toBe(getTicketDebugLogPath(repoDir, ticket.externalId))
+    expect(getTicketPaths(ticket.id)?.aiLogPath).toBe(getTicketAiLogPath(repoDir, ticket.externalId))
   })
 })
 

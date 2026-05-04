@@ -17,7 +17,7 @@ export interface LogEntry {
   op: 'append' | 'upsert' | 'finalize'
 }
 
-export type LogChannel = 'normal' | 'debug'
+export type LogChannel = 'normal' | 'debug' | 'ai'
 
 export interface ServerLogScope {
   channel?: LogChannel
@@ -73,7 +73,7 @@ const LOG_TYPE_TAGS: Record<string, string> = {
 export const serverLogCache = new Map<string, Array<Record<string, unknown>>>()
 
 function normalizeChannel(channel?: LogChannel): LogChannel {
-  return channel === 'debug' ? 'debug' : 'normal'
+  return channel === 'debug' || channel === 'ai' ? channel : 'normal'
 }
 
 export function getServerLogCacheKey(ticketId: string, scope: ServerLogScope = {}): string {
@@ -98,7 +98,7 @@ export function getServerLogsUrl(ticketId: string, scope: ServerLogScope = {}): 
   if (typeof scope.phaseAttempt === 'number' && Number.isFinite(scope.phaseAttempt)) {
     params.set('phaseAttempt', String(scope.phaseAttempt))
   }
-  if (scope.channel === 'debug') params.set('channel', 'debug')
+  if (scope.channel === 'debug' || scope.channel === 'ai') params.set('channel', scope.channel)
 
   const query = params.toString()
   return `/api/files/${ticketId}/logs${query ? `?${query}` : ''}`

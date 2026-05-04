@@ -23,7 +23,7 @@ function logCmd(
 }
 import { getProjectContextById } from './projects'
 import { opencodeSessions, phaseArtifacts, projects, ticketErrorOccurrences, ticketStatusHistory, tickets } from '../db/schema'
-import { getTicketDebugLogPath, getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
+import { getTicketAiLogPath, getTicketDebugLogPath, getTicketDir, getTicketExecutionLogPath, getTicketWorktreePath } from './paths'
 import { safeAtomicWrite } from '../io/atomicWrite'
 import { lockTicketModelSelection, resolveTicketBaseBranch } from '../ticket/metadata'
 import type {
@@ -432,6 +432,7 @@ export function cleanupCanceledTicketData(
     for (const logPath of [
       getTicketExecutionLogPath(projectRoot, externalId),
       getTicketDebugLogPath(projectRoot, externalId),
+      getTicketAiLogPath(projectRoot, externalId),
     ]) {
       if (existsSync(logPath)) {
         rmSync(logPath, { force: true })

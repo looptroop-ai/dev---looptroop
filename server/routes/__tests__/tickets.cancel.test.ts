@@ -10,7 +10,7 @@ import { attachProject } from '../../storage/projects'
 import { createTicket, getTicketByRef, patchTicket } from '../../storage/tickets'
 import { createFixtureRepoManager } from '../../test/fixtureRepo'
 import { initializeTicket } from '../../ticket/initialize'
-import { getTicketDebugLogPath, getTicketExecutionLogPath } from '../../storage/paths'
+import { getTicketAiLogPath, getTicketDebugLogPath, getTicketExecutionLogPath } from '../../storage/paths'
 
 vi.mock('../../workflow/runner', () => ({
   cancelTicket: vi.fn(),
@@ -67,9 +67,11 @@ function createCancelableTicket(repoDir: string) {
   // Write a real execution log file so we can assert it exists/is removed.
   const logPath = getTicketExecutionLogPath(repoDir, ticket.externalId)
   const debugLogPath = getTicketDebugLogPath(repoDir, ticket.externalId)
+  const aiLogPath = getTicketAiLogPath(repoDir, ticket.externalId)
   mkdirSync(dirname(logPath), { recursive: true })
   writeFileSync(logPath, '{"type":"test"}\n')
   writeFileSync(debugLogPath, '{"type":"debug"}\n')
+  writeFileSync(aiLogPath, '{"audience":"ai"}\n')
   return { project, ticket, init }
 }
 
@@ -108,8 +110,10 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     // Execution log is preserved.
     const logPath = getTicketExecutionLogPath(repoDir, ticket.externalId)
     const debugLogPath = getTicketDebugLogPath(repoDir, ticket.externalId)
+    const aiLogPath = getTicketAiLogPath(repoDir, ticket.externalId)
     expect(existsSync(logPath)).toBe(true)
     expect(existsSync(debugLogPath)).toBe(true)
+    expect(existsSync(aiLogPath)).toBe(true)
   })
 
   it('removes only the execution logs when deleteLog=true and deleteContent=false', async () => {
@@ -117,9 +121,11 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     const { ticket, init } = createCancelableTicket(repoDir)
     const logPath = getTicketExecutionLogPath(repoDir, ticket.externalId)
     const debugLogPath = getTicketDebugLogPath(repoDir, ticket.externalId)
+    const aiLogPath = getTicketAiLogPath(repoDir, ticket.externalId)
 
     expect(existsSync(logPath)).toBe(true)
     expect(existsSync(debugLogPath)).toBe(true)
+    expect(existsSync(aiLogPath)).toBe(true)
 
     const response = await app.request(`/api/tickets/${ticket.id}/cancel`, {
       method: 'POST',
@@ -135,6 +141,7 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     // Logs are removed.
     expect(existsSync(logPath)).toBe(false)
     expect(existsSync(debugLogPath)).toBe(false)
+    expect(existsSync(aiLogPath)).toBe(false)
   })
 
   it('removes the worktree and branch when deleteContent=true', async () => {
@@ -142,6 +149,7 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     const { ticket, init } = createCancelableTicket(repoDir)
     const logPath = getTicketExecutionLogPath(repoDir, ticket.externalId)
     const debugLogPath = getTicketDebugLogPath(repoDir, ticket.externalId)
+    const aiLogPath = getTicketAiLogPath(repoDir, ticket.externalId)
 
     const response = await app.request(`/api/tickets/${ticket.id}/cancel`, {
       method: 'POST',
@@ -156,6 +164,7 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     expect(existsSync(init.worktreePath)).toBe(false)
     expect(existsSync(logPath)).toBe(false)
     expect(existsSync(debugLogPath)).toBe(false)
+    expect(existsSync(aiLogPath)).toBe(false)
     // Branch is removed.
     const branchResult = spawnSync(
       'git',
@@ -170,6 +179,7 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     const { ticket, init } = createCancelableTicket(repoDir)
     const logPath = getTicketExecutionLogPath(repoDir, ticket.externalId)
     const debugLogPath = getTicketDebugLogPath(repoDir, ticket.externalId)
+    const aiLogPath = getTicketAiLogPath(repoDir, ticket.externalId)
 
     const response = await app.request(`/api/tickets/${ticket.id}/cancel`, {
       method: 'POST',
@@ -182,6 +192,7 @@ describe('ticketRouter POST /tickets/:id/cancel', () => {
     expect(existsSync(init.worktreePath)).toBe(false)
     expect(existsSync(logPath)).toBe(false)
     expect(existsSync(debugLogPath)).toBe(false)
+    expect(existsSync(aiLogPath)).toBe(false)
   })
 
   it('returns 404 when the ticket does not exist', async () => {

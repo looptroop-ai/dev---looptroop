@@ -5,6 +5,7 @@ import { removeBuffered } from './upsertBuffer'
 import { resolvePhaseAttempt } from '../storage/ticketPhaseAttempts'
 
 type StructuredLogFields = Omit<LogEvent, 'timestamp' | 'type' | 'ticketId' | 'phase' | 'message' | 'source' | 'status' | 'data'>
+type PersistedLogChannel = 'normal' | 'debug' | 'ai'
 
 // Keys that are promoted to top-level LogEvent fields by pickStructuredFields.
 // They are stripped from `data` before serialization to avoid redundant storage.
@@ -58,6 +59,10 @@ function isDebugEvent(event: Pick<LogEvent, 'type' | 'source' | 'audience'>): bo
   return event.type === 'debug' || event.source === 'debug' || event.audience === 'debug'
 }
 
+function isAiDetailEvent(event: Pick<LogEvent, 'audience' | 'type' | 'source'>): boolean {
+  return !isDebugEvent(event) && event.audience === 'ai'
+}
+
 function isDebugLogInput(type: LogEventType, source?: LogSource, extra?: Partial<StructuredLogFields>): boolean {
   return type === 'debug' || source === 'debug' || extra?.audience === 'debug'
 }
@@ -80,15 +85,17 @@ function resolvePhaseAttemptSafely(
 /*
  * ── LOG SIZE BUDGET ──────────────────────────────────────────────────────
  *
- * The execution-log.jsonl and execution-log.debug.jsonl files are preserved as
- * audit/debug evidence and are never automatically truncated. To keep normal
- * logs from growing unbounded:
+ * The execution-log.jsonl, execution-log.debug.jsonl, and execution-log.ai.jsonl
+ * files are preserved as audit/debug evidence and are never automatically
+ * truncated. To keep normal logs from growing unbounded:
  *
- * 1. STREAMING UPSERTS ARE NOT PERSISTED. Intermediate streaming snapshots
- *    (op='upsert' + streaming=true) are only delivered to the UI via SSE
- *    (broadcaster.broadcast in helpers.ts). Only the final 'finalize' event
- *    is written to disk. Without this, a 5-minute streaming session produces
- *    ~90 progressive snapshots with quadratic content growth.
+ * 1. STREAMING UPSERTS ARE NOT PERSISTED TO THE NORMAL LOG. Intermediate
+ *    streaming snapshots (op='upsert' + streaming=true) are delivered to the UI
+ *    via SSE and are also written to the AI detail log when audience='ai' so
+ *    reopening a ticket can restore the AI tab. Only the final 'finalize' event
+ *    is written to the normal log. Without this split, a 5-minute streaming
+ *    session produces ~90 progressive snapshots with quadratic content growth
+ *    in the normal lifecycle log.
  *
  * 2. DEBUG MIRROR ENTRIES ARE NOT PERSISTED. emitPhaseLog() auto-creates a
  *    debug copy of every non-debug log entry. These mirrors are broadcast
@@ -145,7 +152,12 @@ export function appendLogEvent(
   if (!paths) {
     throw new Error(`Ticket not found for execution log append: ${ticketId}`)
   }
-  const logPath = isDebugEvent(event) ? paths.debugLogPath : paths.executionLogPath
+  const primaryChannel: PersistedLogChannel = isDebugEvent(event) ? 'debug' : 'normal'
+  const primaryLogPath = primaryChannel === 'debug' ? paths.debugLogPath : paths.executionLogPath
+
+  if (isAiDetailEvent(event)) {
+    appendEventToChannel(ticketId, 'ai', paths.aiLogPath, event, phase, phaseAttempt, fingerprint)
+  }
 
   // Streaming upserts are NOT persisted — only delivered via SSE (see budget
   // note above). The finalize event carries the complete final content.
@@ -158,31 +170,43 @@ export function appendLogEvent(
     removeBuffered(event.entryId)
   }
 
-  if (fingerprint && hasPersistedFingerprint(ticketId, phase, phaseAttempt, fingerprint)) {
-    return
-  }
-
-  safeAtomicAppend(logPath, JSON.stringify(event))
-  if (fingerprint) {
-    rememberPersistedFingerprint(ticketId, phase, phaseAttempt, fingerprint)
-  }
+  appendEventToChannel(ticketId, primaryChannel, primaryLogPath, event, phase, phaseAttempt, fingerprint)
 }
 
 const MAX_PERSISTED_FINGERPRINTS_PER_TICKET = 256
 const persistedFingerprintsByTicket = new Map<string, Map<string, number>>()
 
-function buildFingerprintScopeKey(phase: string, phaseAttempt: number, fingerprint: string): string {
-  return `${phase}:${phaseAttempt}:${fingerprint}`
+function appendEventToChannel(
+  ticketId: string,
+  channel: PersistedLogChannel,
+  logPath: string,
+  event: LogEvent,
+  phase: string,
+  phaseAttempt: number,
+  fingerprint?: string,
+): void {
+  if (fingerprint && hasPersistedFingerprint(ticketId, channel, phase, phaseAttempt, fingerprint)) {
+    return
+  }
+
+  safeAtomicAppend(logPath, JSON.stringify(event))
+  if (fingerprint) {
+    rememberPersistedFingerprint(ticketId, channel, phase, phaseAttempt, fingerprint)
+  }
 }
 
-function hasPersistedFingerprint(ticketId: string, phase: string, phaseAttempt: number, fingerprint: string): boolean {
-  const key = buildFingerprintScopeKey(phase, phaseAttempt, fingerprint)
+function buildFingerprintScopeKey(channel: PersistedLogChannel, phase: string, phaseAttempt: number, fingerprint: string): string {
+  return `${channel}:${phase}:${phaseAttempt}:${fingerprint}`
+}
+
+function hasPersistedFingerprint(ticketId: string, channel: PersistedLogChannel, phase: string, phaseAttempt: number, fingerprint: string): boolean {
+  const key = buildFingerprintScopeKey(channel, phase, phaseAttempt, fingerprint)
   return persistedFingerprintsByTicket.get(ticketId)?.has(key) ?? false
 }
 
-function rememberPersistedFingerprint(ticketId: string, phase: string, phaseAttempt: number, fingerprint: string): void {
+function rememberPersistedFingerprint(ticketId: string, channel: PersistedLogChannel, phase: string, phaseAttempt: number, fingerprint: string): void {
   const bucket = persistedFingerprintsByTicket.get(ticketId) ?? new Map<string, number>()
-  const scopedKey = buildFingerprintScopeKey(phase, phaseAttempt, fingerprint)
+  const scopedKey = buildFingerprintScopeKey(channel, phase, phaseAttempt, fingerprint)
   if (bucket.has(scopedKey)) {
     bucket.delete(scopedKey)
   }
