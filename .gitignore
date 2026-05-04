@@ -62,19 +62,6 @@ Thumbs.db
 /public/fonts/TheGodfather-v2.ttf
 /public/fonts/*.zip
 
-# Temp analysis/debug/scratch files at root
-/*.md
-!README.md
-!CHANGELOG.md
-!SECURITY.md
-architecture.md
-/*.txt
-/*.log
-/fix-*.ts
-/test-perf*.js
-/test*.html
-/patch.cjs
-
 # Backup files
 *.orig.tsx
 *.orig.ts
