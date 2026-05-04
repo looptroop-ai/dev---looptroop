@@ -210,7 +210,7 @@ describe('LogProvider', () => {
       expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-live-immediate-CODING`)).toBeNull()
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(200)
+        await vi.advanceTimersByTimeAsync(500)
       })
 
       const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-live-immediate-CODING`) ?? '[]') as LogEntry[]
@@ -221,7 +221,7 @@ describe('LogProvider', () => {
     }
   })
 
-  it('keeps streaming AI updates in memory without rewriting localStorage until a final row arrives', async () => {
+  it('caches streaming AI updates locally and replaces them when a final row arrives', async () => {
     vi.useFakeTimers()
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
@@ -262,6 +262,21 @@ describe('LogProvider', () => {
       expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`)).toBeNull()
 
       await act(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+      })
+
+      const storedPartial = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`) ?? '[]') as LogEntry[]
+      expect(storedPartial).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          entryId: 'session-1:message-1:text',
+          streaming: true,
+          op: 'upsert',
+          line: expect.stringContaining('partial response'),
+        }),
+      ]))
+      setItemSpy.mockClear()
+
+      await act(async () => {
         latestLogApi?.addLogRecord('CODING', {
           type: 'model_output',
           phase: 'CODING',
@@ -281,7 +296,7 @@ describe('LogProvider', () => {
       expect(screen.getByTestId('log-count')).toHaveTextContent('2')
       expect(streamingRows).toHaveLength(1)
       expect(streamingRows[0]?.line).toContain('partial response extended')
-      expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`)).toBeNull()
+      expect(setItemSpy).not.toHaveBeenCalled()
 
       await act(async () => {
         latestLogApi?.addLogRecord('CODING', {
@@ -297,7 +312,7 @@ describe('LogProvider', () => {
           streaming: false,
           timestamp: '2026-03-13T10:00:04.000Z',
         })
-        await vi.advanceTimersByTimeAsync(250)
+        await vi.advanceTimersByTimeAsync(500)
       })
 
       const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`) ?? '[]') as LogEntry[]
@@ -313,6 +328,58 @@ describe('LogProvider', () => {
         }),
       ]))
       expect(stored.some((entry) => entry.streaming || entry.op === 'upsert')).toBe(false)
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes pending streaming cache entries when the provider unmounts', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
+
+    try {
+      const rendered = render(createElement(
+        LogProvider,
+        {
+          ticketId: '1:T-close-cache',
+          currentStatus: 'CODING',
+          children: createElement(LogHarness),
+        },
+      ))
+
+      await flushMicrotasks()
+      localStorage.clear()
+
+      await act(async () => {
+        latestLogApi?.addLogRecord('CODING', {
+          type: 'model_output',
+          phase: 'CODING',
+          status: 'CODING',
+          source: 'model:openai/gpt-5-mini',
+          audience: 'ai',
+          kind: 'text',
+          content: 'partial response before close',
+          entryId: 'session-close:message-1:text',
+          op: 'upsert',
+          streaming: true,
+          timestamp: '2026-03-13T10:00:03.000Z',
+        })
+      })
+
+      expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-close-cache-CODING`)).toBeNull()
+
+      rendered.unmount()
+
+      const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-close-cache-CODING`) ?? '[]') as LogEntry[]
+      expect(stored).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          entryId: 'session-close:message-1:text',
+          streaming: true,
+          op: 'upsert',
+          line: expect.stringContaining('partial response before close'),
+        }),
+      ]))
     } finally {
       vi.clearAllTimers()
       vi.useRealTimers()

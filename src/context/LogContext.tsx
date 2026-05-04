@@ -14,8 +14,8 @@ import {
   normalizeLogRecord,
   normalizeStoredEntry,
   isDebugLogEntry,
-  isPersistableLogEntry,
-  hasPersistableLogEntries,
+  isBrowserCacheLogEntry,
+  hasBrowserCacheLogEntries,
   compareTimestamps,
   mergeEntry,
   persistLogs,
@@ -32,7 +32,7 @@ interface LogProviderProps {
   children: ReactNode
 }
 
-const LOG_FLUSH_DELAY_MS = 200
+const LOG_FLUSH_DELAY_MS = 500
 
 function mergeLogBuckets(
   current: Record<string, LogEntry[]>,
@@ -157,7 +157,7 @@ export function LogProvider({
         try {
           const snapshot: Record<string, LogEntry[]> = {}
           for (const [status, entries] of Object.entries(pending)) {
-            if (!hasPersistableLogEntries(entries)) continue
+            if (!hasBrowserCacheLogEntries(entries)) continue
             const storageKey = `${LOG_STORAGE_PREFIX}${ticketId}-${status}`
             let bucket: LogEntry[] = []
             try {
@@ -187,8 +187,8 @@ export function LogProvider({
     if (Object.keys(pending).length === 0) return
 
     pendingLogsRef.current = {}
-    const shouldPersist = Object.values(pending).some(hasPersistableLogEntries)
-    if (!shouldPersist) return
+    const shouldCache = Object.values(pending).some(hasBrowserCacheLogEntries)
+    if (!shouldCache) return
 
     const { logsByPhase: merged, hasChanges } = mergeLogBuckets(logsByPhaseRef.current, pending)
     if (hasChanges) {
@@ -199,8 +199,8 @@ export function LogProvider({
     persistLogs(ticketId, logsByPhaseRef.current)
   }, [ticketId])
 
-  const queuePersistableEntry = useCallback((entry: LogEntry) => {
-    if (!isPersistableLogEntry(entry)) return
+  const queueCacheEntry = useCallback((entry: LogEntry) => {
+    if (!isBrowserCacheLogEntry(entry)) return
 
     const bucket = pendingLogsRef.current[entry.status] ?? []
     bucket.push(entry)
@@ -404,16 +404,16 @@ export function LogProvider({
     const entry = normalizeLogRecord(raw, phase)
 
     mergeLiveEntry(entry)
-    queuePersistableEntry(entry)
-  }, [mergeLiveEntry, queuePersistableEntry])
+    queueCacheEntry(entry)
+  }, [mergeLiveEntry, queueCacheEntry])
 
   const addLogRecord = useCallback((phase: string, data: Record<string, unknown>) => {
     if (!phase) return
     const entry = normalizeLogRecord(data, phase)
 
     mergeLiveEntry(entry)
-    queuePersistableEntry(entry)
-  }, [mergeLiveEntry, queuePersistableEntry])
+    queueCacheEntry(entry)
+  }, [mergeLiveEntry, queueCacheEntry])
 
   const getLogsForPhase = useCallback(
     (phase: string) => (logsByPhase[phase] ?? []).slice().sort((a, b) => compareTimestamps(a.timestamp, b.timestamp)),

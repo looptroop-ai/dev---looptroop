@@ -297,6 +297,14 @@ export function hasPersistableLogEntries(entries: LogEntry[]): boolean {
   return entries.some(isPersistableLogEntry)
 }
 
+export function isBrowserCacheLogEntry(entry: LogEntry): boolean {
+  return !isDebugLogEntry(entry)
+}
+
+export function hasBrowserCacheLogEntries(entries: LogEntry[]): boolean {
+  return entries.some(isBrowserCacheLogEntry)
+}
+
 export function compareTimestamps(a?: string, b?: string): number {
   const at = a ? Date.parse(a) : Number.NaN
   const bt = b ? Date.parse(b) : Number.NaN
@@ -405,8 +413,8 @@ export function persistLogs(ticketId: string | null | undefined, logsByPhase: Re
   if (!ticketId || typeof window === 'undefined') return
   for (const [status, entries] of Object.entries(logsByPhase)) {
     try {
-      const persistableEntries = entries.filter(isPersistableLogEntry)
-      localStorage.setItem(`${LOG_STORAGE_PREFIX}${ticketId}-${status}`, JSON.stringify(persistableEntries))
+      const cacheableEntries = entries.filter(isBrowserCacheLogEntry)
+      localStorage.setItem(`${LOG_STORAGE_PREFIX}${ticketId}-${status}`, JSON.stringify(cacheableEntries))
     } catch {
       // Ignore quota failures; in-memory state is still usable.
     }
