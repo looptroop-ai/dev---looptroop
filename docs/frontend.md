@@ -157,7 +157,9 @@ Several UI components exist specifically to inspect durable workflow state:
 
 The frontend is built around the assumption that users must be able to inspect prior attempts and artifacts without replaying the run mentally from logs.
 
-`LogProvider` treats the server-side normal execution log as durable truth. Browser-local logs are merged for responsiveness, but reconnect recovery requests that log again and merges by stable entry identity so a frontend restart does not leave the visible log pane stale.
+`LogProvider` treats the server-side normal execution log as durable truth. SSE-delivered rows merge into the in-memory log state immediately so the phase log viewer and full log can render live updates without waiting for file persistence. Browser-local logs are merged for responsiveness, but reconnect recovery requests the server log again and merges by stable entry identity so a frontend restart does not leave the visible log pane stale.
+
+Streaming AI upserts are live-only until they finalize. The browser does not persist each partial text snapshot to localStorage, and the backend does not append those intermediate snapshots to `execution-log.jsonl`; the SSE replay buffer keeps the latest in-flight update available across reconnects while finalized rows remain the durable log-file record.
 
 ### Artifact Processing Notices
 

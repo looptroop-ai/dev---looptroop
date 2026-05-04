@@ -14,6 +14,7 @@ import {
   normalizeLogRecord,
   normalizeStoredEntry,
   isDebugLogEntry,
+  isPersistableLogEntry,
   hasPersistableLogEntries,
   compareTimestamps,
   mergeEntry,
@@ -32,6 +33,34 @@ interface LogProviderProps {
 }
 
 const LOG_FLUSH_DELAY_MS = 200
+
+function mergeLogBuckets(
+  current: Record<string, LogEntry[]>,
+  entriesByStatus: Record<string, LogEntry[]>,
+): { logsByPhase: Record<string, LogEntry[]>; hasChanges: boolean } {
+  let merged = current
+  let hasChanges = false
+
+  for (const [status, entries] of Object.entries(entriesByStatus)) {
+    if (entries.length === 0) continue
+
+    const currentBucket = merged[status] ?? []
+    let nextBucket = currentBucket
+    for (const entry of entries) {
+      nextBucket = mergeEntry(nextBucket, entry)
+    }
+
+    if (nextBucket !== currentBucket) {
+      if (!hasChanges) {
+        merged = { ...current }
+      }
+      merged[status] = nextBucket
+      hasChanges = true
+    }
+  }
+
+  return { logsByPhase: merged, hasChanges }
+}
 
 function normalizeScope(scope: ServerLogScope = {}): ServerLogScope {
   const normalized: ServerLogScope = {
@@ -93,6 +122,7 @@ export function LogProvider({
   const loadedScopeKeysRef = useRef<Set<string>>(new Set())
   const loadingScopeKeysRef = useRef<Set<string>>(new Set())
   const scopeByKeyRef = useRef<Map<string, ServerLogScope>>(new Map())
+  const logsByPhaseRef = useRef<Record<string, LogEntry[]>>({})
 
   useEffect(() => {
     currentStatusRef.current = currentStatus
@@ -100,6 +130,16 @@ export function LogProvider({
 
   const pendingLogsRef = useRef<Record<string, LogEntry[]>>({})
   const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const mergeLiveEntry = useCallback((entry: LogEntry) => {
+    const { logsByPhase: merged, hasChanges } = mergeLogBuckets(logsByPhaseRef.current, {
+      [entry.status]: [entry],
+    })
+    if (!hasChanges) return
+
+    logsByPhaseRef.current = merged
+    setLogsByPhase(merged)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -148,30 +188,28 @@ export function LogProvider({
 
     pendingLogsRef.current = {}
     const shouldPersist = Object.values(pending).some(hasPersistableLogEntries)
+    if (!shouldPersist) return
 
-    startTransition(() => {
-      setLogsByPhase(prev => {
-        const merged = { ...prev }
-        let hasChanges = false
-        for (const [status, entries] of Object.entries(pending)) {
-          if (entries.length > 0) {
-            hasChanges = true
-            let bucket = merged[status] ?? []
-            for (const entry of entries) {
-              bucket = mergeEntry(bucket, entry)
-            }
-            merged[status] = bucket
-          }
-        }
+    const { logsByPhase: merged, hasChanges } = mergeLogBuckets(logsByPhaseRef.current, pending)
+    if (hasChanges) {
+      logsByPhaseRef.current = merged
+      setLogsByPhase(merged)
+    }
 
-        if (hasChanges) {
-          if (shouldPersist) persistLogs(ticketId, merged)
-          return merged
-        }
-        return prev
-      })
-    })
+    persistLogs(ticketId, logsByPhaseRef.current)
   }, [ticketId])
+
+  const queuePersistableEntry = useCallback((entry: LogEntry) => {
+    if (!isPersistableLogEntry(entry)) return
+
+    const bucket = pendingLogsRef.current[entry.status] ?? []
+    bucket.push(entry)
+    pendingLogsRef.current[entry.status] = bucket
+
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = setTimeout(flushPendingLogs, LOG_FLUSH_DELAY_MS)
+    }
+  }, [flushPendingLogs])
 
   const setScopeLoading = useCallback((scopeKey: string, isLoading: boolean) => {
     const loading = loadingScopeKeysRef.current
@@ -208,7 +246,12 @@ export function LogProvider({
     }
 
     startTransition(() => {
-      setLogsByPhase(loaded)
+      setLogsByPhase(prev => {
+        const { logsByPhase: merged, hasChanges } = mergeLogBuckets(prev, loaded)
+        if (!hasChanges) return prev
+        logsByPhaseRef.current = merged
+        return merged
+      })
     })
   }, [ticketId])
 
@@ -264,6 +307,7 @@ export function LogProvider({
         }
 
         if (!hasChanges) return prev
+        logsByPhaseRef.current = merged
         persistLogs(ticketId, merged)
         return merged
       })
@@ -359,27 +403,17 @@ export function LogProvider({
     }
     const entry = normalizeLogRecord(raw, phase)
 
-    const bucket = pendingLogsRef.current[entry.status] ?? []
-    bucket.push(entry)
-    pendingLogsRef.current[entry.status] = bucket
-
-    if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = setTimeout(flushPendingLogs, LOG_FLUSH_DELAY_MS)
-    }
-  }, [flushPendingLogs])
+    mergeLiveEntry(entry)
+    queuePersistableEntry(entry)
+  }, [mergeLiveEntry, queuePersistableEntry])
 
   const addLogRecord = useCallback((phase: string, data: Record<string, unknown>) => {
     if (!phase) return
     const entry = normalizeLogRecord(data, phase)
 
-    const bucket = pendingLogsRef.current[entry.status] ?? []
-    bucket.push(entry)
-    pendingLogsRef.current[entry.status] = bucket
-
-    if (!flushTimeoutRef.current) {
-      flushTimeoutRef.current = setTimeout(flushPendingLogs, LOG_FLUSH_DELAY_MS)
-    }
-  }, [flushPendingLogs])
+    mergeLiveEntry(entry)
+    queuePersistableEntry(entry)
+  }, [mergeLiveEntry, queuePersistableEntry])
 
   const getLogsForPhase = useCallback(
     (phase: string) => (logsByPhase[phase] ?? []).slice().sort((a, b) => compareTimestamps(a.timestamp, b.timestamp)),
@@ -417,6 +451,7 @@ export function LogProvider({
     loadedScopeKeysRef.current.clear()
     loadingScopeKeysRef.current.clear()
     scopeByKeyRef.current.clear()
+    logsByPhaseRef.current = {}
     setLoadingScopeKeys(new Set())
 
     startTransition(() => {

@@ -104,7 +104,7 @@ Recovery is a first-class architectural concern.
 
 | Failure type | Recovery strategy |
 | --- | --- |
-| Browser reload, close, or reconnect gap | REST state remains canonical; SSE reconnect includes the last event id and then refetches tickets, artifacts, bead state, interview state, and server logs |
+| Browser reload, close, or reconnect gap | REST state remains canonical; SSE reconnect includes the last event id, replays buffered live events including the latest streaming upsert per log entry, and then refetches tickets, artifacts, bead state, interview state, and server logs |
 | Frontend crash or tab close | Interview and approval drafts are persisted as ticket UI-state artifacts, with unload-time keepalive flushing for the latest unsaved snapshot |
 | Invalid model output | Retry with repair or explicit re-prompt, depending on phase |
 | Bead execution stall | Generate context wipe note, reset worktree, retry in fresh session |

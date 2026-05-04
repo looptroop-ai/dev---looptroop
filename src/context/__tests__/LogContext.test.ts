@@ -19,6 +19,10 @@ function LogHarness() {
   return createElement('div', { 'data-testid': 'log-count' }, logs.length)
 }
 
+function getCodingLogs() {
+  return latestLogApi?.getLogsForPhase('CODING') ?? []
+}
+
 async function flushMicrotasks() {
   await act(async () => {
     await Promise.resolve()
@@ -165,6 +169,58 @@ describe('LogProvider', () => {
     }
   })
 
+  it('renders live SSE log records immediately while delaying localStorage persistence', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+
+    try {
+      render(createElement(
+        LogProvider,
+        {
+          ticketId: '1:T-live-immediate',
+          currentStatus: 'CODING',
+          children: createElement(LogHarness),
+        },
+      ))
+
+      await flushMicrotasks()
+      localStorage.clear()
+      setItemSpy.mockClear()
+
+      await act(async () => {
+        latestLogApi?.addLogRecord('CODING', {
+          type: 'info',
+          phase: 'CODING',
+          status: 'CODING',
+          source: 'system',
+          audience: 'all',
+          kind: 'milestone',
+          content: 'Live row arrived.',
+          entryId: 'log:live-row',
+          op: 'append',
+          streaming: false,
+          timestamp: '2026-03-13T10:00:03.000Z',
+        })
+      })
+
+      expect(screen.getByTestId('log-count')).toHaveTextContent('2')
+      expect(getCodingLogs().map((entry) => entry.entryId)).toContain('log:live-row')
+      expect(setItemSpy).not.toHaveBeenCalled()
+      expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-live-immediate-CODING`)).toBeNull()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200)
+      })
+
+      const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-live-immediate-CODING`) ?? '[]') as LogEntry[]
+      expect(stored.map((entry) => entry.entryId)).toContain('log:live-row')
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps streaming AI updates in memory without rewriting localStorage until a final row arrives', async () => {
     vi.useFakeTimers()
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => createJsonResponse([]))
@@ -198,11 +254,33 @@ describe('LogProvider', () => {
           streaming: true,
           timestamp: '2026-03-13T10:00:03.000Z',
         })
-        await vi.advanceTimersByTimeAsync(250)
       })
 
       expect(screen.getByTestId('log-count')).toHaveTextContent('2')
+      expect(getCodingLogs().find((entry) => entry.entryId === 'session-1:message-1:text')?.line).toContain('partial response')
       expect(setItemSpy).not.toHaveBeenCalled()
+      expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`)).toBeNull()
+
+      await act(async () => {
+        latestLogApi?.addLogRecord('CODING', {
+          type: 'model_output',
+          phase: 'CODING',
+          status: 'CODING',
+          source: 'model:openai/gpt-5-mini',
+          audience: 'ai',
+          kind: 'text',
+          content: 'partial response extended',
+          entryId: 'session-1:message-1:text',
+          op: 'upsert',
+          streaming: true,
+          timestamp: '2026-03-13T10:00:03.250Z',
+        })
+      })
+
+      const streamingRows = getCodingLogs().filter((entry) => entry.entryId === 'session-1:message-1:text')
+      expect(screen.getByTestId('log-count')).toHaveTextContent('2')
+      expect(streamingRows).toHaveLength(1)
+      expect(streamingRows[0]?.line).toContain('partial response extended')
       expect(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`)).toBeNull()
 
       await act(async () => {
@@ -223,6 +301,10 @@ describe('LogProvider', () => {
       })
 
       const stored = JSON.parse(localStorage.getItem(`${LOG_STORAGE_PREFIX}1:T-streaming-CODING`) ?? '[]') as LogEntry[]
+      const finalizedRows = getCodingLogs().filter((entry) => entry.entryId === 'session-1:message-1:text')
+      expect(finalizedRows).toHaveLength(1)
+      expect(finalizedRows[0]?.line).toContain('final response')
+      expect(finalizedRows[0]?.streaming).toBe(false)
       expect(stored).toEqual(expect.arrayContaining([
         expect.objectContaining({
           entryId: 'session-1:message-1:text',
