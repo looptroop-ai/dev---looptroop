@@ -7,6 +7,8 @@ import {
   attachExistingProject,
   attachProject,
   deleteProject,
+  deleteProjectWorktrees,
+  getProjectWorktreesSize,
   type ExistingProjectMetadata,
   getProjectById,
   getProjectRootById,
@@ -237,6 +239,39 @@ projectRouter.patch('/projects/:id', async (c) => {
   const result = updateProject(id, parsed.data)
   if (!result) return c.json({ error: 'Project not found' }, 404)
   return c.json(result)
+})
+
+projectRouter.get('/projects/:id/worktrees/size', (c) => {
+  const id = Number(c.req.param('id'))
+  if (Number.isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
+  const projectRoot = getProjectRootById(id)
+  if (!projectRoot) return c.json({ error: 'Project not found' }, 404)
+
+  const bytes = getProjectWorktreesSize(projectRoot)
+  return c.json({ bytes })
+})
+
+projectRouter.delete('/projects/:id/worktrees', (c) => {
+  const id = Number(c.req.param('id'))
+  if (Number.isNaN(id)) return c.json({ error: 'Invalid project ID' }, 400)
+  const projectRoot = getProjectRootById(id)
+  if (!projectRoot) return c.json({ error: 'Project not found' }, 404)
+
+  const projectTickets = listProjectTickets(id)
+  const allowedStatuses = ['DRAFT', 'COMPLETED', 'CANCELED']
+  const hasInProgress = projectTickets.some(ticket => !allowedStatuses.includes(ticket.status))
+  if (hasInProgress) {
+    return c.json({
+      error: 'Cannot delete worktrees. Some tickets are still in progress. Move all tickets to Done or cancel them first.',
+    }, 409)
+  }
+
+  try {
+    const result = deleteProjectWorktrees(projectRoot)
+    return c.json({ success: true, freedBytes: result.freedBytes })
+  } catch (err) {
+    return c.json({ error: 'Failed to delete worktrees', details: String(err) }, 500)
+  }
 })
 
 projectRouter.delete('/projects/:id', (c) => {

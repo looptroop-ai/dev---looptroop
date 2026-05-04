@@ -163,4 +163,37 @@ export function useUpdateProject() {
   })
 }
 
+export function useProjectWorktreesSize(projectId: number) {
+  return useQuery({
+    queryKey: ['project-worktrees-size', projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/worktrees/size`)
+      if (!res.ok) throw new Error('Failed to fetch worktrees size')
+      return res.json() as Promise<{ bytes: number }>
+    },
+    enabled: false,
+    staleTime: 0,
+  })
+}
+
+export function useDeleteProjectWorktrees() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/projects/${id}/worktrees`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        const message = [err.error, err.details].filter(Boolean).join(' — ')
+        throw new Error(message || 'Failed to delete worktrees')
+      }
+      return res.json() as Promise<{ success: boolean; freedBytes: number }>
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({ queryKey: ['ticket'] })
+    },
+  })
+}
+
 export type { Project, CreateProjectInput, ExistingProjectPreview }

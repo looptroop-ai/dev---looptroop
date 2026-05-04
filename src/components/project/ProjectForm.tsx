@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCreateProject, useUpdateProject, useDeleteProject } from '@/hooks/useProjects'
 import type { ExistingProjectPreview, Project } from '@/hooks/useProjects'
 import { useToast } from '@/components/shared/useToast'
-import { ArrowLeft, Trash2, CheckCircle2, XCircle, CircleDot, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, HardDrive, Trash2, CheckCircle2, XCircle, CircleDot, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FolderPicker } from '@/components/project/FolderPicker'
 import { EmojiPickerSection, ColorPickerSection } from './AppearancePickers'
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { DeleteWorktreesDialog } from './DeleteWorktreesDialog'
 
 interface ProjectFormProps {
   onClose: () => void
@@ -56,6 +57,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false)
   const [gitInfo, setGitInfo] = useState<GitCheckResponse>({ isGit: false, status: 'none' })
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false)
+  const [isWorktreesDialogOpen, setIsWorktreesDialogOpen] = useState(false)
   const restorePrefillKeyRef = useRef<string | null>(null)
   const closeView = onBack ?? onClose
   const restoreMode = !isEditing && gitInfo.hasLoopTroopState === true && !!gitInfo.existingProject
@@ -377,10 +379,21 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
       </Card>
       <div className="flex justify-between gap-2">
         {isEditing && (
-          <Button type="button" variant="destructive" onClick={handleDelete} disabled={isBusy}>
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete Project
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="destructive" onClick={handleDelete} disabled={isBusy}>
+              <Trash2 className="h-4 w-4 mr-1" />
+              Delete Project
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsWorktreesDialogOpen(true)}
+              disabled={isBusy}
+            >
+              <HardDrive className="h-4 w-4 mr-1" />
+              Free Disk Space
+            </Button>
+          </div>
         )}
         <div className="flex gap-2 ml-auto">
           <Button type="button" variant="outline" onClick={closeView}>Cancel</Button>
@@ -397,6 +410,15 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
       onSelect={handleFolderSelected}
       initialPath={folder}
     />
+
+    {isEditing && project && (
+      <DeleteWorktreesDialog
+        open={isWorktreesDialogOpen}
+        onClose={() => setIsWorktreesDialogOpen(false)}
+        projectId={project.id}
+        projectName={project.name}
+      />
+    )}
     </>
   )
 }

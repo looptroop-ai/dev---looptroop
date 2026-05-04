@@ -1,5 +1,7 @@
 import { eq } from 'drizzle-orm'
-import { rmSync } from 'fs'
+import { existsSync as fsExistsSync, lstatSync, mkdirSync as fsMkdirSync, readdirSync, rmSync } from 'fs'
+import { resolve as resolvePath } from 'path'
+import { spawnSync } from 'child_process'
 import { db as appDb } from '../db/index'
 import { closeProjectDatabase, getExistingProjectDatabase, getProjectDatabase } from '../db/project'
 import { attachedProjects, projects, tickets } from '../db/schema'
@@ -7,6 +9,7 @@ import { ensureLocalGitExclude } from '../git/repository'
 import {
   ensureProjectStorageDirs,
   getProjectLoopTroopDir,
+  getProjectWorktreesRoot,
   normalizeFolderPath,
   resolveGitRepoRoot,
 } from './paths'
@@ -324,4 +327,57 @@ export function resolveProjectState(projectRootOrFolder: string): { projectRoot:
 
   const existingProject = getExistingProjectMetadata(projectRoot)
   return { projectRoot, exists: existingProject !== null, existingProject }
+}
+
+function calcDirSize(dirPath: string): number {
+  if (!fsExistsSync(dirPath)) return 0
+  let total = 0
+  try {
+    const entries = readdirSync(dirPath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue
+      const full = resolvePath(dirPath, entry.name)
+      const stat = lstatSync(full)
+      if (stat.isDirectory()) {
+        total += calcDirSize(full)
+      } else {
+        total += stat.size
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+  return total
+}
+
+export function getProjectWorktreesSize(projectRoot: string): number {
+  return calcDirSize(getProjectWorktreesRoot(projectRoot))
+}
+
+export function deleteProjectWorktrees(projectRoot: string): { freedBytes: number } {
+  const worktreesRoot = getProjectWorktreesRoot(projectRoot)
+  if (!fsExistsSync(worktreesRoot)) return { freedBytes: 0 }
+
+  const freedBytes = calcDirSize(worktreesRoot)
+
+  // Best-effort: remove each worktree via git before nuking the folder
+  try {
+    const entries = readdirSync(worktreesRoot, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+      const worktreePath = resolvePath(worktreesRoot, entry.name)
+      spawnSync('git', ['-C', projectRoot, 'worktree', 'remove', '--force', worktreePath], {
+        encoding: 'utf8',
+      })
+    }
+  } catch {
+    // Best-effort
+  }
+
+  rmSync(worktreesRoot, { recursive: true, force: true })
+  fsMkdirSync(worktreesRoot, { recursive: true })
+
+  spawnSync('git', ['-C', projectRoot, 'worktree', 'prune'], { encoding: 'utf8' })
+
+  return { freedBytes }
 }
