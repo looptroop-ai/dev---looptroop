@@ -391,7 +391,7 @@ export function ProjectForm({ onClose, onBack, project }: ProjectFormProps) {
               disabled={isBusy}
             >
               <HardDrive className="h-4 w-4 mr-1" />
-              Free Disk Space
+              Free Disk Space…
             </Button>
           </div>
         )}

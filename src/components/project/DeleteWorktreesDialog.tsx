@@ -100,7 +100,7 @@ export function DeleteWorktreesDialog({ open, onClose, projectId, projectName }:
               ) : (
                 <HardDrive className="h-4 w-4 mr-1" />
               )}
-              {hasCalculated ? 'Recalculate Space' : 'Show Space to Free'}
+              {hasCalculated ? 'Recalculate' : 'Calculate Size'}
             </Button>
             {hasCalculated && !sizeQuery.isFetching && sizeQuery.data !== undefined && (
               <span className="text-sm font-medium">
