@@ -61,12 +61,13 @@ async function pingDevBackend() {
   const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS)
 
   try {
-    const response = await nativeFetch(getDevReadyProbeUrl(DEV_BACKEND_HEALTH_PATH), {
+    // Use same-origin path through the Vite proxy to avoid cross-origin CORS/PNA issues.
+    // nativeFetch bypasses devApiGuard to prevent recursion.
+    const response = await nativeFetch(DEV_BACKEND_HEALTH_PATH, {
       cache: 'no-store',
-      mode: 'no-cors',
       signal: controller.signal,
     })
-    return response.type === 'opaque' || response.ok
+    return response.ok
   } catch {
     return false
   } finally {
