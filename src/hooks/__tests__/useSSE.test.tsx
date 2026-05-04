@@ -4,7 +4,8 @@ import { queryClient } from '@/lib/queryClient'
 import { SERVER_LOG_REFRESH_EVENT } from '@/context/logUtils'
 
 vi.mock('@/lib/devApi', () => ({
-  getApiUrl: (path: string) => `http://localhost:3000${path}`,
+  getApiUrl: (path: string, options?: { directInDevelopment?: boolean }) =>
+    `${options?.directInDevelopment ? 'http://localhost:3000' : 'http://frontend.test'}${path}`,
   waitForDevBackend: vi.fn(async () => undefined),
 }))
 
@@ -164,6 +165,18 @@ describe('useSSE', () => {
     unmount()
 
     expect(source.closed).toBe(true)
+  })
+
+  it('opens the ticket stream through the same-origin API route', async () => {
+    const ticketId = '1:T-42'
+
+    renderHook(() => useSSE({ ticketId, onEvent: vi.fn<SSEHandler>() }))
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+      expect(MockEventSource.instances[0]!.url).toContain('http://frontend.test/api/stream')
+      expect(MockEventSource.instances[0]!.url).not.toContain('http://localhost:3000')
+    })
   })
 
   it('refreshes interview data when a ticket enters interview approval', async () => {

@@ -124,7 +124,7 @@ export function useSSE({ ticketId, onEvent }: SSEOptions) {
 
       if (connectToken !== connectTokenRef.current || eventSourceRef.current) return
 
-      const url = new URL(getApiUrl('/api/stream', { directInDevelopment: true }))
+      const url = new URL(getApiUrl('/api/stream'))
       url.searchParams.set('ticketId', String(ticketId))
       if (lastEventIdRef.current && lastEventIdRef.current !== '0') {
         url.searchParams.set('lastEventId', lastEventIdRef.current)

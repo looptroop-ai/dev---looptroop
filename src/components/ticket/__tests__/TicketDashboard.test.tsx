@@ -9,6 +9,7 @@ import { patchTicketStatusInCache } from '@/hooks/ticketStatusCache'
 import { WORKSPACE_PHASE_NAVIGATE_EVENT } from '@/lib/workspaceNavigation'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { createJsonResponse } from '@/test/renderHelpers'
+import { useLogs } from '@/context/useLogContext'
 
 const selectedTicketId = '1:T-42'
 const dispatchMock = vi.fn()
@@ -75,14 +76,23 @@ vi.mock('../ActiveWorkspace', () => ({
   }: {
     ticket: Ticket
     selectedPhase: string
-  }) => (
-    <div data-testid="active-workspace">
-      <div>{selectedPhase}</div>
-      {selectedPhase === 'DRAFT' && ticket.status !== 'DRAFT' ? (
-        <button type="button">Log — Backlog</button>
-      ) : null}
-    </div>
-  ),
+  }) => {
+    const logCtx = useLogs()
+    const logs = logCtx?.getLogsForPhase(selectedPhase) ?? []
+
+    return (
+      <div data-testid="active-workspace">
+        <div>{selectedPhase}</div>
+        <div data-testid="workspace-log-count">{logs.length}</div>
+        {logs.map((entry) => (
+          <div key={entry.entryId}>{entry.line}</div>
+        ))}
+        {selectedPhase === 'DRAFT' && ticket.status !== 'DRAFT' ? (
+          <button type="button">Log — Backlog</button>
+        ) : null}
+      </div>
+    )
+  },
 }))
 
 vi.mock('../NavigatorPanel', () => ({
@@ -288,6 +298,58 @@ describe('TicketDashboard', () => {
       screen.getByText('LoopTroop is refetching the latest ticket state and will reconnect automatically.'),
     ).toBeInTheDocument()
     expect(screen.getByTestId('live-updates-reconnecting-overlay')).toBeInTheDocument()
+  })
+
+  it('renders SSE log events in the active ticket without reopening it', async () => {
+    const initialTicket = makeTicket({ status: 'CODING', id: selectedTicketId })
+
+    queryClient.setQueryData(['ticket', selectedTicketId], initialTicket)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.startsWith(`/api/files/${selectedTicketId}/logs`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}/artifacts`)) {
+        return createJsonResponse([])
+      }
+      if (url.endsWith(`/api/tickets/${selectedTicketId}`)) {
+        return createJsonResponse(initialTicket)
+      }
+      throw new Error(`Unhandled fetch: ${url}`)
+    })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(latestSSEOptions?.ticketId).toBe(selectedTicketId)
+      expect(screen.getByTestId('workspace-log-count')).toHaveTextContent('1')
+    })
+
+    await act(async () => {
+      latestSSEOptions?.onEvent?.({
+        type: 'log',
+        data: {
+          ticketId: selectedTicketId,
+          phase: 'CODING',
+          status: 'CODING',
+          type: 'info',
+          source: 'system',
+          audience: 'all',
+          kind: 'milestone',
+          content: 'Live coding log arrived.',
+          entryId: 'log:live-coding',
+          op: 'append',
+          streaming: false,
+          timestamp: '2026-05-04T10:00:00.000Z',
+        },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('[SYS] Live coding log arrived.')).toBeInTheDocument()
+      expect(screen.getByTestId('workspace-log-count')).toHaveTextContent('2')
+    })
   })
 
   it('keeps a manually selected past phase pinned across live transitions', async () => {
