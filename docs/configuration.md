@@ -6,21 +6,21 @@ All configuration lives in your profile, accessible via the **Configuration** bu
 
 | Setting | Default | Range | Group |
 | --- | --- | --- | --- |
-| Main Implementer Model | _(required)_ | any available model | AI Models |
-| Council Members | _(required, 1–3 additional)_ | any available models | AI Models |
-| Council Response Timeout | 1200 s | 10–3600 s | AI Thinking |
-| Min Council Quorum | 2 | 1–4 | AI Thinking |
-| Max Interview Questions | 50 | 0–50 | AI Thinking |
-| Coverage Follow-Up Budget | 20 % | 0–100 % | Coverage |
-| Interview Coverage Passes | 2 | 1–10 | Coverage |
-| PRD Coverage Passes | 5 | 2–20 | Coverage |
-| Beads Coverage Passes | 5 | 2–20 | Coverage |
-| Per-Iteration Timeout | 1200 s | 0–3600 s | Execution Phase |
-| Execution Setup Timeout | 1200 s | 0–3600 s | Execution Phase |
-| Max Bead Retries | 5 | 0–20 | Execution Phase |
-| Tool Input Max Chars | 4,000 | 500–50,000 | Logging |
-| Tool Output Max Chars | 12,000 | 1,000–100,000 | Logging |
-| Tool Error Max Chars | 6,000 | 500–50,000 | Logging |
+| [Main Implementer Model](#main-implementer-model) | _(required)_ | any available model | AI Models |
+| [Council Members](#council-members) | _(required, 1–3 additional)_ | any available models | AI Models |
+| [Council Response Timeout](#council-response-timeout) | 1200 s | 10–3600 s | AI Thinking |
+| [Min Council Quorum](#min-council-quorum) | 2 | 1–4 | AI Thinking |
+| [Max Interview Questions](#max-interview-questions) | 50 | 0–50 | AI Thinking |
+| [Coverage Follow-Up Budget](#coverage-follow-up-budget) | 20 % | 0–100 % | Coverage |
+| [Interview Coverage Passes](#interview-coverage-passes) | 2 | 1–10 | Coverage |
+| [PRD Coverage Passes](#prd-coverage-passes) | 5 | 2–20 | Coverage |
+| [Beads Coverage Passes](#beads-coverage-passes) | 5 | 2–20 | Coverage |
+| [Per-Iteration Timeout](#per-iteration-timeout) | 1200 s | 0–3600 s | Execution Phase |
+| [Execution Setup Timeout](#execution-setup-timeout) | 1200 s | 0–3600 s | Execution Phase |
+| [Max Bead Retries](#max-bead-retries) | 5 | 0–20 | Execution Phase |
+| [Tool Input Max Chars](#tool-input-max-chars) | 4,000 | 500–50,000 | Logging |
+| [Tool Output Max Chars](#tool-output-max-chars) | 12,000 | 1,000–100,000 | Logging |
+| [Tool Error Max Chars](#tool-error-max-chars) | 6,000 | 500–50,000 | Logging |
 
 ---
 
