@@ -27,6 +27,7 @@ onUnmounted(() => {
       class="go-to-top"
       @click="scrollToTop"
       aria-label="Go to top"
+      title="Go to top"
     >
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 19V5M5 12l7-7 7 7"/>
@@ -39,7 +40,7 @@ onUnmounted(() => {
 .go-to-top {
   position: fixed;
   bottom: 2rem;
-  left: 2rem;
+  right: 2rem;
   width: 3rem;
   height: 3rem;
   border-radius: 50%;
@@ -52,7 +53,7 @@ onUnmounted(() => {
   cursor: pointer;
   z-index: 100;
   box-shadow: var(--vp-shadow-2);
-  opacity: 0.5;
+  opacity: 0.2;
   transition: opacity 0.3s, background-color 0.3s;
 }
 
