@@ -16,7 +16,7 @@ You need a few basic developer tools:
 
 ## 2. Setting Up Your AI Council (For Free!)
 
-## 💸 Configuring Free AI Models
+### 💸 Configuring Free AI Models
 
 You no longer need to burn expensive tokens to run autonomous agents. LoopTroop supports all major API Gateways that provide state-of-the-art **Mixture-of-Experts (MoE)** models for free. 
 
@@ -69,17 +69,16 @@ OpenCode curates a validated list of models specifically benchmarked for agentic
 
 ---
 
-## 📊 Latency & Model Tracking Tools
+### 📊 Latency & Model Tracking Tools
 
 Because free APIs can occasionally experience rate-limiting or latency spikes, the community maintains active trackers to help you route your agents efficiently:
 
-*   **(https://github.com/ShaikhWarsi/free-ai-tools):** The master directory of over 550 free APIs, IDEs, and local RAG stacks. Check this repository frequently for newly added free models and quota details.
-*   **(https://github.com/BlockRunAI/ClawRouter):** An open-source routing layer that tracks the real-time latency of top-tier free models and handles load balancing.
-*   **[https://github.com/jyoung105/frouter](https://github.com/jyoung105/frouter):** A fast CLI tool to ping free models and test Time To First Token (TTFT) before starting your loop. 
+*   **[free-ai-tools](https://github.com/ShaikhWarsi/free-ai-tools):** The master directory of over 550 free APIs, IDEs, and local RAG stacks. Check this repository frequently for newly added free models and quota details.
+*   **[ClawRouter](https://github.com/BlockRunAI/ClawRouter):** An open-source routing layer that tracks the real-time latency of top-tier free models and handles load balancing.
+*   **[frouter](https://github.com/jyoung105/frouter):** A fast CLI tool to ping free models and test Time To First Token (TTFT) before starting your loop.
 
----
+### Connecting OpenCode to OpenRouter
 
-### How to connect OpenCode to OpenRouter:
 When running `opencode serve`, ensure your environment variables are set to use OpenRouter as your provider and supply your OpenRouter API key. See the OpenCode documentation for exact provider configuration.
 
 ## 3. Installation
@@ -110,8 +109,6 @@ By default, the services run on these ports:
 | **Backend** (API) | `http://localhost:3000` |
 | **Docs** | `http://localhost:5174` |
 | **OpenCode** | `http://127.0.0.1:4096` |
-
-The backend watcher now prefers native file watching on normal local filesystems and only auto-enables chokidar polling for mounted-drive workspaces such as `/mnt/...` under WSL. You can still override that manually with `CHOKIDAR_USEPOLLING=1` if your environment needs it.
 
 > [!IMPORTANT]
 > If OpenCode is running on a different port, you can tell LoopTroop where to find it using an environment variable:
