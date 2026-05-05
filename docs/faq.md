@@ -111,3 +111,23 @@ Read more: [System Architecture](system-architecture.md), [Database Schema](data
 LoopTroop reads available models through OpenCode. Your profile and project settings decide the main implementer and council members, and the final model configuration is locked when the ticket starts.
 
 Read more: [Getting Started](getting-started.md), [OpenCode Integration](opencode-integration.md)
+
+## Can I edit an approved interview or PRD?
+
+Yes — approval panes expose an edit mode for interview answers, the PRD, beads plan, and execution setup plan as long as the ticket has not finished. Editing an approved artifact replaces the current version in the database and marks the planning artifact as manually modified.
+
+Downstream phases re-derive their inputs from the updated artifact the next time they run. For example, editing the approved PRD means the beads plan will be regenerated on the next run because beads are derived from the PRD.
+
+The `editable` field in `workflowMeta.ts` controls which phases expose the edit UI in `ApprovalView`.
+
+Read more: [Ticket Flow](ticket-flow.md)
+
+## What is `npm run dev:app` and when should I use it?
+
+`npm run dev:app` starts the frontend and backend together without launching the docs server or the OpenCode watcher. Use it when:
+
+- OpenCode is already running in another terminal or as a persistent service
+- You do not need the local docs server
+- You want a leaner startup for a focused coding session
+
+`npm run dev` is the standard start command for full development. It also runs the dev preflight, starts the docs server, and manages the OpenCode watcher. See [Scripts Reference](operations.md#scripts-reference) for a full breakdown.

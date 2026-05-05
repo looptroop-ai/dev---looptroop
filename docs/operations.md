@@ -67,6 +67,59 @@ LOOPTROOP_DEV_FORCE_MAINTENANCE=1 npm run dev
 LOOPTROOP_DEV_VERBOSE=1 npm run dev
 ```
 
+## Scripts Reference
+
+All scripts are available with `npm run <name>`.
+
+### Development Stack
+
+| Script | Purpose |
+| --- | --- |
+| `dev` | Full stack: frontend, backend, docs server, OpenCode watcher, and dev preflight. **Standard start command.** |
+| `dev:app` | Frontend and backend only — no docs server, no OpenCode watcher. Use when OpenCode is already running externally and docs are not needed locally. |
+| `dev:frontend` | Vite dev server only. |
+| `dev:backend` | Backend Express server only. |
+| `dev:opencode` | OpenCode watcher only. |
+| `docs:dev` | VitePress docs server only. |
+
+### Build And Preview
+
+| Script | Purpose |
+| --- | --- |
+| `build` | Type-check and produce a production frontend bundle (`tsc -b && vite build`). |
+| `preview` | Serve the last production build locally for inspection. |
+| `docs:build` | Build the static VitePress docs site. |
+| `docs:preview` | Serve the last static docs build locally. |
+
+### Tests And Code Quality
+
+| Script | Purpose |
+| --- | --- |
+| `test` | Run all test projects once and exit. |
+| `test:client` | Client tests only (`client-dom` and `client-node` projects). |
+| `test:server` | Server tests only (`server-pure` and `server-integration` projects). |
+| `test:watch` | Run all tests in watch mode. Useful during active development. |
+| `typecheck` | Type-check the full project with `tsc --noEmit`. |
+| `lint` | Lint the full project with ESLint. |
+
+`vitest.config.ts` defines four test projects:
+
+- **`client-dom`** — React component tests that require a JSDOM environment
+- **`client-node`** — client-side logic tests that do not need a DOM
+- **`server-pure`** — server unit tests with no I/O or database
+- **`server-integration`** — server integration tests running against a real local SQLite instance
+
+Run `test:client` and `test:server` separately when you only want to validate one layer. Run `test` to validate both together.
+
+### Database Migrations
+
+| Script | Purpose |
+| --- | --- |
+| `db:generate` | Generate a migration SQL file from current changes in `server/db/schema.ts`. Run this after modifying the schema, then commit the generated migration file. |
+| `db:push` | Push schema changes directly to the local database without generating a migration file. Useful for rapid schema iteration during development. |
+
+Both commands use [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview) and target the databases defined in the Drizzle config.
+
 ## Environment Variables
 
 | Variable | Purpose |

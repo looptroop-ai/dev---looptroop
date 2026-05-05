@@ -67,6 +67,9 @@ OpenCode curates a validated list of models specifically benchmarked for agentic
    * `minimax-m2.5-free`
    * `mimo-v2-pro-free`
 
+   > [!NOTE]
+   > The OpenCode free-network model catalog evolves frequently. The names above were accurate at the time of writing but may change. Check the [OpenCode model list](https://opencode.ai/docs/models) or your ProfileSetup model picker (which loads the live catalog from your connected OpenCode server) for current names.
+
 ---
 
 ### 📊 Latency & Model Tracking Tools

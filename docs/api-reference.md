@@ -99,6 +99,8 @@ Example profile update payload:
 | `POST` | `/api/projects` | Attach a project |
 | `PATCH` | `/api/projects/:id` | Update project settings |
 | `DELETE` | `/api/projects/:id` | Delete a project if no active tickets remain |
+| `GET` | `/api/projects/:id/worktrees/size` | Get the total disk size of all worktrees for a project |
+| `DELETE` | `/api/projects/:id/worktrees` | Delete worktrees for completed and canceled tickets; blocked with 409 if any tickets are still in progress |
 
 Example project attachment payload:
 
@@ -112,6 +114,20 @@ Example project attachment payload:
   "profileId": 1
 }
 ```
+
+Worktree size response:
+
+```json
+{ "bytes": 1234567 }
+```
+
+Worktree delete response:
+
+```json
+{ "success": true, "freedBytes": 1234567 }
+```
+
+The worktree delete endpoint returns 409 when any ticket in the project is not in `DRAFT`, `COMPLETED`, or `CANCELED` status. Finish or cancel all active tickets before deleting worktrees.
 
 ## Ticket Routes
 
@@ -179,7 +195,7 @@ Example UI-state response:
 | `POST` | `/api/tickets/:id/approve-execution-setup-plan` | Approve execution setup plan |
 | `POST` | `/api/tickets/:id/merge` | Merge delivered PR |
 | `POST` | `/api/tickets/:id/close-unmerged` | Close without merge |
-| `POST` | `/api/tickets/:id/verify` | Currently handled by the merge handler alias |
+| `POST` | `/api/tickets/:id/verify` | Alias for the merge handler — both routes call the same handler |
 | `POST` | `/api/tickets/:id/retry` | Retry a blocked ticket or failed phase |
 | `POST` | `/api/tickets/:id/dev-event` | Development event injection endpoint |
 

@@ -185,6 +185,80 @@ The current timeline group order is To Do, Discovery, Interview, Specs (PRD), Bl
 
 This is why keeping the docs aligned with `workflowMeta` matters: the UI is built around that shared metadata contract.
 
+## Configuration And Settings UI
+
+`ProfileSetup` (`src/components/config/ProfileSetup.tsx`) is the main configuration form. It is opened from the app header and lets you set all model and workflow defaults.
+
+### Model Selection
+
+| Field | Purpose |
+| --- | --- |
+| Main Implementer | The primary model used for coding phases. Shown with an optional `EffortPicker` when the model exposes variants. |
+| Council Members | Additional models that participate in planning drafts and voting. The main implementer is always added to the council automatically and cannot appear twice. |
+
+`ModelPicker` (`src/components/config/ModelPicker.tsx`) is the shared dropdown for selecting models from the live OpenCode catalog. It filters to connected models only by default.
+
+`EffortPicker` (`src/components/config/EffortPicker.tsx`) appears next to a model selector when that model exposes variants (for example `high`, `low`, `medium`). The selected variant is stored per model id in `councilMemberVariants`.
+
+### Numeric Settings
+
+All numeric fields are validated against min/max bounds defined in `numericFieldConfig.ts`. Each field links to the relevant docs section:
+
+| Field | Docs link |
+| --- | --- |
+| Per-Iteration Timeout | [Execution Loop](execution-loop.md#per-iteration-timeout) |
+| Execution Setup Timeout | [Execution Loop](execution-loop.md#execution-setup-timeout) |
+| AI Response Timeout | [LLM Council](llm-council.md#council-response-timeout) |
+| Max Bead Retries | [Execution Loop](execution-loop.md#max-bead-retries) |
+| Min Council Quorum | [LLM Council](llm-council.md#min-council-quorum) |
+| Max Interview Questions | [Ticket Flow](ticket-flow.md#max-interview-questions) |
+| Coverage Follow-Up Budget | [Ticket Flow](ticket-flow.md#coverage-follow-up-budget) |
+| Interview Coverage Passes | [Ticket Flow](ticket-flow.md#interview-coverage-passes) |
+| PRD Coverage Passes | [Ticket Flow](ticket-flow.md#prd-coverage-passes) |
+| Beads Coverage Passes | [Ticket Flow](ticket-flow.md#beads-coverage-passes) |
+| Tool Input Max Chars | [Execution Loop](execution-loop.md#tool-log-truncation) |
+| Tool Output Max Chars | [Execution Loop](execution-loop.md#tool-log-truncation) |
+| Tool Error Max Chars | [Execution Loop](execution-loop.md#tool-log-truncation) |
+
+> [!NOTE]
+> Timeout fields are stored in **milliseconds**. `ProfileSetup` converts the stored milliseconds to seconds for display and back to milliseconds on save.
+
+Profile settings are inherited by new tickets at start time. The locked copies in the ticket record are what the workflow actually uses for that run.
+
+## Context Providers
+
+Three React context providers wrap the ticket workspace and wire up cross-cutting concerns:
+
+| Provider | Location | Purpose |
+| --- | --- | --- |
+| `LogProvider` | `LogContext.tsx` | Owns the in-memory execution log for the active ticket. Merges SSE-delivered log rows immediately and handles reconnect recovery by re-requesting the server log and merging by stable entry identity. |
+| `UIProvider` | `UIContext.tsx` | Manages workspace UI state: selected phase, open panels, mobile nav visibility, and the full-log toggle. |
+| `AIQuestionProvider` | `AIQuestionContext.tsx` | Manages the queue of pending AI question batches for the active interview. Drives `InterviewQAView` without requiring prop drilling. |
+
+These providers are composed in `TicketDashboard` around `ActiveWorkspace` and the navigator surfaces.
+
+## Kanban Board
+
+`KanbanBoard` (`src/components/kanban/KanbanBoard.tsx`) is the alternate ticket overview. It groups `TicketCard` components by timeline group using the same `kanbanPhase` field from `workflowMeta.ts` that drives the `PhaseTimeline`.
+
+Column definitions come from `workflowMeta` group metadata, so new timeline groups appear in the Kanban view automatically without frontend changes. `KanbanColumn` handles the per-group layout and empty-column suppression.
+
+Press `k` anywhere outside a text input to navigate to the Kanban board.
+
+## Keyboard Shortcuts
+
+`KeyboardShortcuts` (`src/components/shared/KeyboardShortcuts.tsx`) registers a global `?` handler and renders a centered overlay when triggered.
+
+| Key | Action |
+| --- | --- |
+| `?` | Toggle the keyboard shortcuts overlay |
+| `Escape` | Close current view or modal |
+| `n` | Create a new ticket |
+| `k` | Navigate to the Kanban board |
+| `/` | Focus the search input |
+
+Shortcuts are suppressed when focus is inside an `<input>` or `<textarea>`.
+
 ## Ticket Cancel Confirmation Dialog
 
 The cancel button in `DashboardHeader` is labeled **"Cancel…"** (the ellipsis signals that a dialog will open before any action is taken).

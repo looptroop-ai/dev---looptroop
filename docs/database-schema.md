@@ -227,6 +227,20 @@ The project DB also creates indexes for:
 
 Combined with WAL mode, this keeps the workflow responsive while the UI polls and the backend streams updates.
 
+## Schema Migrations
+
+LoopTroop uses [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview) for schema management.
+
+```bash
+# Generate a migration file after changing server/db/schema.ts
+npm run db:generate
+
+# Apply pending migrations to the local database directly
+npm run db:push
+```
+
+Use `db:generate` when you want a committed migration file in the repository. Use `db:push` for rapid local iteration when you do not yet need a migration record. Both commands target the databases defined in the Drizzle config at the project root.
+
 ## Related Docs
 
 - [System Architecture](system-architecture.md)
