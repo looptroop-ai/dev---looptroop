@@ -248,6 +248,7 @@ Useful pages:
 | [Beads](https://www.looptroop.ovh/beads) | The execution-unit model |
 | [System Architecture](https://www.looptroop.ovh/system-architecture) | Runtime actors, storage, worktrees, artifacts |
 | [OpenCode Integration](https://www.looptroop.ovh/opencode-integration) | Session ownership, reconnects, streaming, health checks |
+| [Project Maintenance](https://www.looptroop.ovh/project-maintenance) | Runtime excludes, tracked `.looptroop` cleanup, worktree disk cleanup |
 | [FAQ](https://www.looptroop.ovh/faq) | Common questions and terminology |
 
 When the app is running, the same docs are also available from the dashboard.

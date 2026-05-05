@@ -67,6 +67,7 @@ If you are new to LoopTroop, use this order:
 
 - [API Reference](api-reference.md): routes, SSE events, payload shapes.
 - [Output Normalization](output-normalization.md): how malformed or partial model output is repaired before use.
+- [Project Maintenance](project-maintenance.md): runtime Git excludes, tracked `.looptroop` cleanup, and completed-ticket worktree cleanup.
 - [Runtime Diagnostics](diagnostics.md): local stall and resource-pressure report command.
 
 ### Direction
