@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import { existsSync as fsExistsSync, lstatSync, mkdirSync as fsMkdirSync, readdirSync, rmSync } from 'fs'
+import { eq, or } from 'drizzle-orm'
+import { existsSync as fsExistsSync, lstatSync, readdirSync, rmSync } from 'fs'
 import { resolve as resolvePath } from 'path'
 import { spawnSync } from 'child_process'
 import { db as appDb } from '../db/index'
@@ -350,32 +350,41 @@ function calcDirSize(dirPath: string): number {
   return total
 }
 
+function getTerminalTicketExternalIds(projectRoot: string): string[] {
+  const projectDb = getExistingProjectDatabase(projectRoot)
+  if (!projectDb) return []
+  const { db } = projectDb
+  const rows = db
+    .select({ externalId: tickets.externalId })
+    .from(tickets)
+    .where(or(eq(tickets.status, 'COMPLETED'), eq(tickets.status, 'CANCELED')))
+    .all()
+  return rows.map(r => r.externalId)
+}
+
 export function getProjectWorktreesSize(projectRoot: string): number {
-  return calcDirSize(getProjectWorktreesRoot(projectRoot))
+  const worktreesRoot = getProjectWorktreesRoot(projectRoot)
+  const externalIds = getTerminalTicketExternalIds(projectRoot)
+  return externalIds.reduce((sum, id) => sum + calcDirSize(resolvePath(worktreesRoot, id)), 0)
 }
 
 export function deleteProjectWorktrees(projectRoot: string): { freedBytes: number } {
   const worktreesRoot = getProjectWorktreesRoot(projectRoot)
   if (!fsExistsSync(worktreesRoot)) return { freedBytes: 0 }
 
-  const freedBytes = calcDirSize(worktreesRoot)
+  const externalIds = getTerminalTicketExternalIds(projectRoot)
+  if (externalIds.length === 0) return { freedBytes: 0 }
 
-  // Best-effort: remove each worktree via git before nuking the folder
-  try {
-    const entries = readdirSync(worktreesRoot, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
-      const worktreePath = resolvePath(worktreesRoot, entry.name)
-      spawnSync('git', ['-C', projectRoot, 'worktree', 'remove', '--force', worktreePath], {
-        encoding: 'utf8',
-      })
-    }
-  } catch {
-    // Best-effort
+  let freedBytes = 0
+  for (const externalId of externalIds) {
+    const worktreePath = resolvePath(worktreesRoot, externalId)
+    if (!fsExistsSync(worktreePath)) continue
+    freedBytes += calcDirSize(worktreePath)
+    spawnSync('git', ['-C', projectRoot, 'worktree', 'remove', '--force', worktreePath], {
+      encoding: 'utf8',
+    })
+    rmSync(worktreePath, { recursive: true, force: true })
   }
-
-  rmSync(worktreesRoot, { recursive: true, force: true })
-  fsMkdirSync(worktreesRoot, { recursive: true })
 
   spawnSync('git', ['-C', projectRoot, 'worktree', 'prune'], { encoding: 'utf8' })
 

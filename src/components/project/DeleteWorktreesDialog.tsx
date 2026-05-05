@@ -73,15 +73,18 @@ export function DeleteWorktreesDialog({ open, onClose, projectId, projectName }:
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <div className="space-y-2">
                 <p className="font-medium text-amber-900 dark:text-amber-100">
-                  Delete all worktrees for <span className="font-bold">{projectName}</span>
+                  Delete worktrees for completed &amp; canceled tickets in <span className="font-bold">{projectName}</span>
                 </p>
                 <p className="text-xs text-amber-800/90 dark:text-amber-200/80">
-                  All ticket worktree files — code clones, execution logs, and generated files — will be
-                  permanently removed to save disk space.
+                  Removes the temporary working directories created for each completed or canceled ticket
+                  — including their code checkouts, execution logs, and generated files. Only tickets in
+                  the <strong>Completed</strong> or <strong>Canceled</strong> column are affected.
                 </p>
                 <p className="text-xs text-amber-800/90 dark:text-amber-200/80">
-                  Tickets will remain in the dashboard with their descriptions and status, but logs and
-                  file artifacts will no longer be viewable.
+                  Your project's source code and all other files in the repository are
+                  <strong> not touched</strong>. Active and queued tickets continue to work normally.
+                  Tickets remain visible in the dashboard with their descriptions and status, but
+                  their logs and file artifacts will no longer be viewable.
                 </p>
               </div>
             </div>

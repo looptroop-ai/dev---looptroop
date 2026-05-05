@@ -213,6 +213,22 @@ LoopTroop safely isolates its data so it doesn't mess with your main repository.
 - **Project Specific Data:** Inside your attached project folder, inside `.looptroop/`.
 - **Execution Data:** When a ticket is running, all work is done in isolated worktrees (e.g., `.looptroop/worktrees/<ticket>/.ticket/`).
 
+### Reclaiming Disk Space
+
+Over time the `.looptroop/worktrees/` directory can grow large as completed and canceled tickets leave behind their code checkouts, execution logs, and generated files. You can reclaim that space without affecting your project or any active tickets.
+
+1. Open **Settings → Projects** and click **Edit** on the project you want to clean up.
+2. Click **Free Disk Space…** (bottom-left, next to *Delete Project*).
+3. In the dialog, click **Calculate Size** to see how much space can be freed.
+4. Click **Delete Worktrees** to remove the worktrees for all completed and canceled tickets.
+
+**What gets deleted:** The temporary working directories (`.looptroop/worktrees/<ticket>/`) for every ticket in the Completed or Canceled column — including code checkouts, execution logs, and AI-generated file artifacts.
+
+**What is preserved:**
+- Your project's source code and every other file in the repository are never touched.
+- Active, queued, or draft tickets are completely unaffected.
+- All tickets remain visible in the dashboard with their descriptions and status. Only the logs and file-level artifacts become unavailable after cleanup.
+
 ### Troubleshooting: OpenCode Is Not Reachable
 
 **Symptoms:**
