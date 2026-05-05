@@ -579,10 +579,9 @@ function BeadGrid({
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(28px, 1fr))` }}
         >
           {beads.map((bead, index) => (
-            <Tooltip>
+            <Tooltip key={bead.id}>
                 <TooltipTrigger asChild>
                   <button
-                            key={bead.id}
                             onClick={() => onSelect(viewingBeadId === bead.id ? null : bead.id)}
                             className={cn(
                               'h-7 w-full rounded text-[10px] font-mono font-medium transition-colors',
@@ -612,10 +611,9 @@ function BeadGrid({
       <BeadProgressSummary beads={beads} />
       <div className="flex flex-wrap gap-1.5">
         {beads.map((bead, index) => (
-          <Tooltip>
+          <Tooltip key={bead.id}>
               <TooltipTrigger asChild>
                 <button
-                        key={bead.id}
                         onClick={() => onSelect(viewingBeadId === bead.id ? null : bead.id)}
                         className={cn(
                           'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs whitespace-nowrap transition-colors',

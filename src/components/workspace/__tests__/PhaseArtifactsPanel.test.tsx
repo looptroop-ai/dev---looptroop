@@ -1182,13 +1182,9 @@ describe('PhaseArtifactsPanel', () => {
       labels: [`ticket:${TEST.externalId}`, `story:${TEST.storyId}`],
       dependencies: { blocked_by: [], blocks: [] },
       targetFiles: ['src/components/workspace/ExpandedPlanView.tsx'],
-      notes: '',
       iteration: 1,
       createdAt: '2026-04-15T10:00:00.000Z',
       updatedAt: '2026-04-15T10:00:00.000Z',
-      completedAt: '',
-      startedAt: '',
-      beadStartCommit: null,
     }
     const expandedContent = JSON.stringify(expandedBead)
     const expandedArtifact = makeArtifact({

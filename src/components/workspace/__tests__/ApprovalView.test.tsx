@@ -4,6 +4,7 @@ import type { Ticket } from '@/hooks/useTickets'
 import type { InterviewDocument } from '@shared/interviewArtifact'
 import { makeTicket, TEST } from '@/test/factories'
 import { createJsonResponse, renderWithProviders } from '@/test/renderHelpers'
+import { ApprovalView } from '../ApprovalView'
 
 const mockUseInterviewQuestions = vi.fn()
 const mockUseTicketUIState = vi.fn()
@@ -71,8 +72,7 @@ vi.mock('@/components/editor/YamlEditor', () => ({
   ),
 }))
 
-async function renderApprovalView(ticket: Ticket, artifactType: 'interview' | 'prd' | 'beads' | 'execution_setup_plan' = 'interview') {
-  const { ApprovalView } = await import('../ApprovalView')
+function renderApprovalView(ticket: Ticket, artifactType: 'interview' | 'prd' | 'beads' | 'execution_setup_plan' = 'interview') {
   return renderWithProviders(<ApprovalView ticket={ticket} artifactType={artifactType} />)
 }
 
@@ -177,7 +177,6 @@ describe('Interview approval UI', () => {
   }
 
   beforeEach(() => {
-    vi.resetModules()
     interviewPayload = buildInterviewPayload('Protect the import pipeline.')
     mockUseInterviewQuestions.mockImplementation(() => ({
       data: interviewPayload,
@@ -214,7 +213,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
 
     openFoundationSection()
     expect(screen.getByText('Protect the import pipeline.')).toBeInTheDocument()
@@ -246,13 +245,13 @@ describe('Interview approval UI', () => {
   }, 30_000)
 
   it('routes PRD approvals to the dedicated pane', async () => {
-    await renderApprovalView(makeTicket({ status: 'WAITING_PRD_APPROVAL' }), 'prd')
+    renderApprovalView(makeTicket({ status: 'WAITING_PRD_APPROVAL' }), 'prd')
 
     expect(screen.getByTestId('prd-approval-pane')).toBeInTheDocument()
   })
 
   it('routes execution setup plan approvals to the dedicated pane', async () => {
-    await renderApprovalView(makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' }), 'execution_setup_plan')
+    renderApprovalView(makeTicket({ status: 'WAITING_EXECUTION_SETUP_APPROVAL' }), 'execution_setup_plan')
 
     expect(screen.getByTestId('execution-setup-plan-approval-pane')).toBeInTheDocument()
   })
@@ -266,7 +265,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }))
 
     clickHeaderEditButton()
 
@@ -323,7 +322,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
 
     const selector = await screen.findByRole('combobox', { name: /version/i })
     expect(selector).toHaveValue('2')
@@ -348,7 +347,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
 
     expect(screen.getByText('Final Free-Form Answer')).toBeInTheDocument()
 
@@ -368,7 +367,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
 
     clickHeaderEditButton()
     openFoundationSection()
@@ -412,7 +411,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
     fetchSpy.mockClear()
 
     clickHeaderEditButton()
@@ -452,7 +451,7 @@ describe('Interview approval UI', () => {
       isFetching: true,
     }))
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
 
     expect(screen.getByText('Building the structured approval view.')).toBeInTheDocument()
     expect(screen.queryByText(/schema_version: 1/i)).not.toBeInTheDocument()
@@ -466,29 +465,8 @@ describe('Interview approval UI', () => {
           {
             id: 'proj-1-review-approval-metadata',
             title: 'Review approval metadata',
-            prdRefs: [TEST.epicId, TEST.storyId],
-            description: 'Render the final beads approval card with metadata.',
-            contextGuidance: {
-              patterns: ['Reuse the shared bead renderer in approval mode.'],
-              anti_patterns: ['Do not keep a separate approval-only bead layout.'],
-            },
-            acceptanceCriteria: ['Approval shows full bead structure.'],
-            tests: ['Render the bead card in approval mode.'],
-            testCommands: ['npm run test -- ApprovalView'],
-            priority: 1,
             status: 'pending',
-            issueType: 'task',
-            externalRef: TEST.externalId,
-            labels: [`ticket:${TEST.shortname}-1`, `story:${TEST.storyId}`],
-            dependencies: { blocked_by: [], blocks: [] },
             targetFiles: ['src/components/workspace/ApprovalView.tsx'],
-            notes: '',
-            iteration: 1,
-            createdAt: '2026-03-31T10:00:00.000Z',
-            updatedAt: '2026-03-31T10:00:00.000Z',
-            completedAt: '',
-            startedAt: '',
-            beadStartCommit: null,
           },
         ])
       }
@@ -498,7 +476,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
+    renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
 
     expect(screen.queryByText(/^pending$/i)).not.toBeInTheDocument()
 
@@ -549,29 +527,6 @@ describe('Interview approval UI', () => {
           {
             id: 'proj-1-coverage-warning',
             title: 'Render coverage warning state',
-            prdRefs: [TEST.epicId],
-            description: 'Show unresolved coverage gaps during beads approval.',
-            contextGuidance: {
-              patterns: ['Keep the approval warning collapsible.'],
-              anti_patterns: ['Do not block manual approval.'],
-            },
-            acceptanceCriteria: ['Approval shows unresolved coverage warning details.'],
-            tests: ['Render the warning with remaining gaps.'],
-            testCommands: ['npm test -- ApprovalView'],
-            priority: 1,
-            status: 'pending',
-            issueType: 'task',
-            externalRef: TEST.externalId,
-            labels: [`ticket:${TEST.shortname}-1`],
-            dependencies: { blocked_by: [], blocks: [] },
-            targetFiles: ['src/components/workspace/ApprovalView.tsx'],
-            notes: '',
-            iteration: 1,
-            createdAt: '2026-03-31T10:00:00.000Z',
-            updatedAt: '2026-03-31T10:00:00.000Z',
-            completedAt: '',
-            startedAt: '',
-            beadStartCommit: null,
           },
         ])
       }
@@ -581,7 +536,7 @@ describe('Interview approval UI', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    await renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
+    renderApprovalView(makeTicket({ status: 'WAITING_BEADS_APPROVAL' }), 'beads')
 
     const warningToggle = await screen.findByRole('button', { name: /Coverage Warning/i })
     expect(warningToggle).toBeInTheDocument()

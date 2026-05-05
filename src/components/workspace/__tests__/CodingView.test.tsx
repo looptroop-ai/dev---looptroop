@@ -335,7 +335,6 @@ describe('CodingView', () => {
           status: 'in_progress',
           iteration: 1,
           description: 'Full bead details',
-          notes: '',
         },
       ]), { status: 200 }),
     )
@@ -349,7 +348,7 @@ describe('CodingView', () => {
         activeBeadId: 'bead-1',
         activeBeadIteration: 1,
         beads: [
-          { id: 'bead-1', title: 'Retry bead', status: 'in_progress', iteration: 1, notes: '' },
+          { id: 'bead-1', title: 'Retry bead', status: 'in_progress', iteration: 1 },
         ],
       },
     })

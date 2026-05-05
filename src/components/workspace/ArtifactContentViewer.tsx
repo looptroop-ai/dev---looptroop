@@ -386,10 +386,9 @@ export function WithRawTab({
                         const variantDisabled = Boolean(variant.disabled)
                         const variantLabel = index === 0 ? label : variant.label
                         return (
-                          <Tooltip>
+                          <Tooltip key={variant.id}>
                               <TooltipTrigger asChild>
                                 <button
-                                                        key={variant.id}
                                                         type="button"
                                                         disabled={variantDisabled}
                                                         aria-pressed={active}
@@ -418,10 +417,9 @@ export function WithRawTab({
                 const active = activeRawSource.id === source.id
                 const disabled = Boolean(source.disabled)
                 return (
-                  <Tooltip>
+                  <Tooltip key={source.id}>
                       <TooltipTrigger asChild>
                         <button
-                                        key={source.id}
                                         type="button"
                                         disabled={disabled}
                                         aria-pressed={active}
@@ -3130,9 +3128,9 @@ function VotingResultsView({ data, showHeader = true }: { data: CouncilResultDat
               <tr className="border-b border-border">
                 <th className="text-left py-1 pr-2 font-medium text-muted-foreground">Model</th>
                 {categories.map(cat => (
-                  <Tooltip>
+                  <Tooltip key={cat}>
                       <TooltipTrigger asChild>
-                        <th key={cat} className="text-center py-1 px-1 font-medium text-muted-foreground">
+                        <th className="text-center py-1 px-1 font-medium text-muted-foreground">
                                         {cat.length > 20 ? cat.slice(0, 18) + '…' : cat}
                                       </th>
                       </TooltipTrigger>
