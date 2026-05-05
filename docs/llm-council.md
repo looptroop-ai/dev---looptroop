@@ -95,6 +95,9 @@ Important controls include:
 - per-project or profile quorum settings
 - council response timeout
 
+> [!TIP]
+> For the full reference including defaults, ranges, and practical guidance for all of these settings, see the [Configuration Reference](/configuration).
+
 ### Main Implementer
 
 The main implementer is the primary model LoopTroop locks onto the ticket once work starts. It handles the early single-model groundwork, stays auto-included in the council, and remains the primary execution model during coding and final verification.

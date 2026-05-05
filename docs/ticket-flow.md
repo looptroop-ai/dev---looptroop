@@ -276,13 +276,19 @@ The UI and API both group workflow states:
 
 This setting caps how many initial clarifying questions the compiled interview can contain before the UI pauses for human answers. Lower values keep intake shorter; higher values let the planning flow gather more context up front.
 
+See [Configuration Reference → Max Interview Questions](/configuration#max-interview-questions) for defaults, ranges, and guidance.
+
 #### Coverage Follow-Up Budget
 
 This setting limits how much of the interview budget can be spent on follow-up coverage questions after the first answer round. It exists to keep interview coverage from turning into an open-ended clarification loop.
 
+See [Configuration Reference → Coverage Follow-Up Budget](/configuration#coverage-follow-up-budget) for defaults, ranges, and guidance.
+
 #### Interview Coverage Passes
 
 This setting caps how many times `VERIFYING_INTERVIEW_COVERAGE` may generate follow-up work before LoopTroop stops extending the loop and advances with the current coverage state.
+
+See [Configuration Reference → Interview Coverage Passes](/configuration#interview-coverage-passes) for defaults, ranges, and guidance.
 
 ### PRD
 
@@ -298,6 +304,8 @@ This setting caps how many times `VERIFYING_INTERVIEW_COVERAGE` may generate fol
 
 This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run while reconciling the PRD against the approved interview. The goal is to improve completeness without letting PRD coverage revise forever. Parser repairs and structured retries are recorded as artifact processing notices; coverage warnings are reserved for unresolved planning gaps.
 
+See [Configuration Reference → PRD Coverage Passes](/configuration#prd-coverage-passes) for defaults, ranges, and guidance.
+
 ### Beads
 
 | Status | What happens here | Main outputs | User action | Normal exits |
@@ -312,6 +320,8 @@ This setting caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run whil
 #### Beads Coverage Passes
 
 This setting caps how many coverage revision cycles `VERIFYING_BEADS_COVERAGE` may run while reconciling the semantic blueprint against the PRD. Once clean or capped, the flow advances to `EXPANDING_BEADS` which runs independently to produce execution-ready bead records. Parser repairs and structured retries are artifact processing notices, separate from coverage warnings.
+
+See [Configuration Reference → Beads Coverage Passes](/configuration#beads-coverage-passes) for defaults, ranges, and guidance.
 
 ### Pre-Implementation
 

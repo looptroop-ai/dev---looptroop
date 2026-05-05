@@ -21,8 +21,8 @@ interface ProfileSetupProps {
 }
 
 const descriptionDocs = {
-  mainImplementer: '/llm-council#main-implementer',
-  councilMembers: '/llm-council#council-members',
+  mainImplementer: '/configuration#main-implementer-model',
+  councilMembers: '/configuration#council-members',
 } as const
 
 export function ProfileSetup({ onClose }: ProfileSetupProps) {

@@ -151,6 +151,9 @@ Execution recovery is intentionally stricter after process or OpenCode interrupt
 
 ## Execution Configuration Controls
 
+> [!TIP]
+> For the full reference including defaults, ranges, and practical guidance, see the [Configuration Reference](/configuration).
+
 ### Execution Setup Timeout
 
 Execution setup timeout is the maximum allowed runtime for the one-time `PREPARING_EXECUTION_ENV` step after the setup plan is approved. It bounds setup work such as installing toolchains, warming caches, and preparing repository-local runtime artifacts.
