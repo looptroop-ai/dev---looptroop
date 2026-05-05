@@ -38,6 +38,12 @@ LoopTroop adds `/.looptroop/` to the repository-local `.git/info/exclude` file w
 - prints an unresolved audit summary before the stack starts
 - prints the startup plan for each dev service
 
+`npm run dev` also resolves the local OpenCode server endpoint before the dev services launch:
+
+- **Reuse:** if the configured address is already responding to authenticated requests, `npm run dev` reuses that running instance.
+- **Port fallback:** if the default port (`4096`) is occupied by a non-OpenCode process, `npm run dev` scans for the next free port and starts OpenCode there instead.
+- **Ephemeral auth:** if `OPENCODE_SERVER_PASSWORD` is not set and a new local OpenCode server is about to start, `npm run dev` generates a random credential and sets `OPENCODE_SERVER_USERNAME` to `opencode`. This credential is propagated automatically to all child processes — backend and watcher — for the duration of the session.
+
 This means `npm run dev` can intentionally mutate local dependency files when safe updates or audit fixes are available.
 
 The expensive networked maintenance work is daily-gated. OpenCode CLI upgrade checks, direct dependency sync, and npm audit remediation run on the first local dev start of the day. If `package.json` or `package-lock.json` changes later the same day, the affected maintenance step runs again immediately.
@@ -79,6 +85,8 @@ LOOPTROOP_DEV_VERBOSE=1 npm run dev
 | `LOOPTROOP_DEV_FORCE_MAINTENANCE=1` | Bypass the once-per-day maintenance gate and force all startup maintenance checks now |
 | `LOOPTROOP_OPENCODE_MODE` | Set to `mock` to use the mock adapter instead of the real SDK adapter |
 | `CHOKIDAR_USEPOLLING` | Set to `1` to force chokidar polling for file watching; auto-set on mounted WSL drives, but can be overridden manually |
+| `OPENCODE_SERVER_USERNAME` | Basic auth username for the local OpenCode dev server; defaults to `opencode` when `OPENCODE_SERVER_PASSWORD` is also set |
+| `OPENCODE_SERVER_PASSWORD` | Basic auth password for the local OpenCode dev server; auto-generated as an ephemeral random credential by `npm run dev` if not set and a new local OpenCode server is about to start |
 
 Default local service addresses:
 
@@ -103,6 +111,11 @@ git commit -m "Stop tracking LoopTroop runtime data"
 This removes LoopTroop runtime paths from the Git index without deleting the local runtime files from disk.
 
 After cleanup, `git status --short .looptroop` should not show tracked `.looptroop` entries. Runtime files may still exist locally, but they should be ignored by the repo-local exclude.
+
+Other ticket initialization errors from the Git hygiene check:
+
+- `INIT_LOOPTROOP_EXCLUDE_FAILED` — LoopTroop could not write the `.looptroop/` exclusion to `.git/info/exclude`. Check that the project's `.git` directory is writable.
+- `INIT_LOOPTROOP_TRACKED_CHECK_FAILED` — The `git ls-files` check itself failed. Verify that the attached project path is a valid, accessible Git repository.
 
 ## Worktree Disk Cleanup
 
@@ -153,9 +166,12 @@ Symptoms:
 
 Checks:
 
+When using `npm run dev`, port resolution and basic auth are handled automatically. The checks below apply when OpenCode is still unreachable after startup or when running the backend outside of `npm run dev`.
+
 1. Ensure OpenCode is running: `opencode serve`.
 2. Ping the backend health endpoint: `curl http://localhost:3000/api/health/opencode`.
 3. If OpenCode is on a non-default port, set `LOOPTROOP_OPENCODE_BASE_URL`, for example `export LOOPTROOP_OPENCODE_BASE_URL=http://127.0.0.1:4097`.
+4. If you started OpenCode outside of `npm run dev`, ensure `OPENCODE_SERVER_PASSWORD` and `OPENCODE_SERVER_USERNAME` match the values LoopTroop is using. A credential mismatch causes silently failed requests.
 
 ## Watcher and Filesystem Notes
 

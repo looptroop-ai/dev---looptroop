@@ -12,7 +12,7 @@ You need a few basic developer tools:
 - **Node.js** and **npm**
 - **git**
 - A local git repository that has an `origin` pointing to GitHub.
-- An **OpenCode** server running locally (this handles the interaction with AI models).
+- **OpenCode** installed locally — `npm run dev` will start and configure it automatically.
 
 ## 2. Setting Up Your AI Council (For Free!)
 
@@ -93,7 +93,7 @@ npm install
 
 ## 4. Starting the Application
 
-The main development command starts the frontend, backend, docs, and the OpenCode watcher stack all at once. It also runs the normal startup maintenance checks for dependencies, npm audit fixes, and the local OpenCode CLI.
+The main development command starts the frontend, backend, docs, and the OpenCode watcher stack all at once. It also runs the normal startup maintenance checks for dependencies, npm audit fixes, and the local OpenCode CLI. `npm run dev` resolves the OpenCode server endpoint automatically — reusing a running local instance when available, or starting one on a free nearby port — and secures it with ephemeral basic auth credentials when a new local server is needed.
 
 ```bash
 npm run dev
