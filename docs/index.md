@@ -43,7 +43,7 @@ If you are new to LoopTroop, use this order:
 
 ### Start Here
 
-- [Getting Started](getting-started.md): installation, ports, environment variables, first project attach.
+- [Getting Started](getting-started.md): installation, startup, ports, and first project attach.
 - [Core Philosophy](core-philosophy.md): context isolation, councils, retries, approvals, durable state.
 - [FAQ](faq.md): terminology and practical operational questions.
 
@@ -67,7 +67,10 @@ If you are new to LoopTroop, use this order:
 
 - [API Reference](api-reference.md): routes, SSE events, payload shapes.
 - [Output Normalization](output-normalization.md): how malformed or partial model output is repaired before use.
-- [Project Maintenance](project-maintenance.md): runtime Git excludes, tracked `.looptroop` cleanup, and completed-ticket worktree cleanup.
+
+### Operations
+
+- [Operations Guide](operations.md): startup maintenance, environment variables, runtime storage, diagnostics, and project cleanup.
 - [Runtime Diagnostics](diagnostics.md): local stall and resource-pressure report command.
 
 ### Direction

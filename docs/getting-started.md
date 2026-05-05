@@ -94,48 +94,13 @@ npm install
 
 ## 4. Starting the Application
 
-The main development command starts the frontend, backend, docs, and the OpenCode watcher stack all at once. (you can even skip npm install as this command will do that too)
+The main development command starts the frontend, backend, docs, and the OpenCode watcher stack all at once. It also runs the normal startup maintenance checks for dependencies, npm audit fixes, and the local OpenCode CLI.
 
 ```bash
 npm run dev
 ```
 
-Before the watchers launch, LoopTroop now runs a dev preflight that:
-
-- upgrades the local `opencode` CLI to the latest available version when the binary is installed
-- checks your direct dependencies against npm `latest`
-- updates behind direct dependencies to the latest stable releases
-- runs `npm audit fix` without `--force`
-- prints a concise unresolved audit summary before the stack starts
-- prints a startup plan showing which command is used for each dev service and why it is being launched
-
-That means `npm run dev` is intentionally **mutating** when it finds a stale local OpenCode CLI, stale direct dependencies, or safe audit fixes.
-
-To keep startup fast, the expensive networked maintenance work is daily-gated during normal `npm run dev` usage. The OpenCode CLI upgrade check, direct dependency sync, and npm audit remediation run on the first local dev start of the day. If `package.json` or `package-lock.json` changes later the same day, the affected maintenance step runs again immediately.
-
-If you want a non-mutating startup for a single run, use:
-
-```bash
-LOOPTROOP_DEV_SKIP_DEPS=1 npm run dev
-```
-
-If you only want to skip the local OpenCode CLI upgrade step, use:
-
-```bash
-LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1 npm run dev
-```
-
-If you want to bypass the once-per-day gate and force all maintenance checks on this run, use:
-
-```bash
-LOOPTROOP_DEV_FORCE_MAINTENANCE=1 npm run dev
-```
-
-If you want the raw maintenance/install output, use:
-
-```bash
-LOOPTROOP_DEV_VERBOSE=1 npm run dev
-```
+For non-mutating startup, forced maintenance, verbose startup output, and manual maintenance commands, see [Operations Guide](operations.md).
 
 By default, the services run on these ports:
 
@@ -162,79 +127,9 @@ Once the frontend is up:
 
 ---
 
-## Advanced Configuration & Troubleshooting
+## Operations and Troubleshooting
 
-### Manual Maintenance Commands
-
-If you want to run the maintenance steps outside `npm run dev`, these scripts use the same shared logic:
-
-```bash
-npm run deps:sync
-npm run audit:remediate
-npm run opencode:upgrade
-```
-
-### Runtime Stall Diagnostics
-
-If the UI feels slow, tickets disappear after refresh, or the app appears to stall, run the diagnostic command while `npm run dev` is still running:
-
-```bash
-npm run diagnose:stall
-```
-
-The report is saved under `tmp/diagnostics/` and includes endpoint latency, backend/frontend/OpenCode activity, whole-system CPU/RSS/I/O consumers, pressure-stall metrics, SQLite/WAL state, attached project health, active sessions, git responsiveness, and a `Likely Causes` summary.
-
-Use `--sample-ms <ms>` to catch longer CPU or I/O spikes, and `--timeout-ms <ms>` if the app is already responding slowly. See [Runtime Diagnostics](diagnostics.md) for the full report guide.
-
-### Environment Variables
-
-If you need to customize ports or paths, you can use these environment variables:
-
-| Variable | Purpose |
-| --- | --- |
-| `LOOPTROOP_FRONTEND_PORT` | Override frontend port |
-| `LOOPTROOP_FRONTEND_ORIGIN` | Override full frontend origin URL (e.g. `http://my-server:5173`); takes precedence over `LOOPTROOP_FRONTEND_PORT` |
-| `LOOPTROOP_BACKEND_PORT` | Override backend port |
-| `LOOPTROOP_DOCS_PORT` | Override docs port |
-| `LOOPTROOP_DOCS_ORIGIN` | Override full docs origin URL (e.g. `http://my-server:5174`); takes precedence over `LOOPTROOP_DOCS_PORT` |
-| `LOOPTROOP_OPENCODE_BASE_URL` | Point LoopTroop at a specific OpenCode server |
-| `LOOPTROOP_CONFIG_DIR` | Override the app config directory |
-| `LOOPTROOP_APP_DB_PATH` | Override the app database path directly |
-| `LOOPTROOP_DEV_VERBOSE=1` | Print full dependency/audit/process details during dev preflight |
-| `LOOPTROOP_DEV_SKIP_DEPS=1` | Skip automatic dependency sync and audit remediation during `npm run dev` |
-| `LOOPTROOP_DEV_SKIP_OPENCODE_UPGRADE=1` | Skip the automatic local OpenCode CLI upgrade during `npm run dev` |
-| `LOOPTROOP_DEV_FORCE_MAINTENANCE=1` | Bypass the once-per-day maintenance gate and force all startup maintenance checks now |
-
-### Where is my data saved?
-
-LoopTroop safely isolates its data so it doesn't mess with your main repository.
-
-- **App Settings & Globals:** `~/.config/looptroop/app.sqlite`
-- **Project Specific Data:** Inside your attached project folder, inside `.looptroop/`.
-- **Execution Data:** When a ticket is running, all work is done in isolated worktrees (e.g., `.looptroop/worktrees/<ticket>/.ticket/`).
-
-For cleanup, disk usage, and tracked runtime-path recovery, see [Project Maintenance](project-maintenance.md).
-
-### Troubleshooting: OpenCode Is Not Reachable
-
-**Symptoms:**
-- The model list in the UI is empty.
-- You see connection errors in the logs.
-
-**Checks:**
-1. Ensure OpenCode is actually running: `opencode serve`.
-2. Ping the health endpoint: `curl http://localhost:3000/api/health/opencode`.
-3. If using a non-default base URL, double check your `LOOPTROOP_OPENCODE_BASE_URL` variable.
-
-### Expected Remaining Stable-Upstream Warnings
-
-Even after updating to the latest stable direct dependencies and running `npm audit fix`, some warnings can still remain because the fix only exists upstream in a beta/prerelease line or has not shipped in stable yet.
-
-- `better-sqlite3` still installs through deprecated `prebuild-install` on the latest stable line. LoopTroop keeps `better-sqlite3` for now instead of doing a driver migration just to remove that warning.
-- `drizzle-kit` stable still depends on deprecated `@esbuild-kit/*`. The upstream issue is tracked here: [drizzle-team/drizzle-orm#3067](https://github.com/drizzle-team/drizzle-orm/issues/3067).
-- `vitepress` stable still brings its own older Vite/esbuild line, so `npm audit` can report a leftover advisory until a new stable VitePress release lands: [GHSA-p9ff-h696-f583](https://github.com/advisories/GHSA-p9ff-h696-f583).
-- `mermaid` stable still depends on `uuid < 14`. The current advisory targets `uuid` `v3`/`v5`/`v6` buffer writes and is tracked here: [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
-- The older esbuild advisory commonly attached to Vite is documented by the Vite maintainers here: [vitejs/vite#19412](https://github.com/vitejs/vite/issues/19412).
+For runtime storage, environment variables, startup maintenance, disk cleanup, diagnostics, and OpenCode troubleshooting, see [Operations Guide](operations.md).
 
 ## Next Steps
 

@@ -241,14 +241,14 @@ Useful pages:
 
 | Page | What it explains |
 | --- | --- |
-| [Getting Started](https://www.looptroop.ovh/getting-started) | Setup, ports, environment variables, first project attach |
+| [Getting Started](https://www.looptroop.ovh/getting-started) | Setup, startup, ports, first project attach |
+| [Operations Guide](https://www.looptroop.ovh/operations) | Startup maintenance, environment variables, runtime storage, diagnostics, and cleanup |
 | [Ticket Flow](https://www.looptroop.ovh/ticket-flow) | End-to-end workflow from ticket to PR result |
 | [LLM Council](https://www.looptroop.ovh/llm-council) | Multi-model draft, vote, refine, and coverage planning |
 | [Execution Loop](https://www.looptroop.ovh/execution-loop) | Bead execution, retries, resets, context wipe notes |
 | [Beads](https://www.looptroop.ovh/beads) | The execution-unit model |
 | [System Architecture](https://www.looptroop.ovh/system-architecture) | Runtime actors, storage, worktrees, artifacts |
 | [OpenCode Integration](https://www.looptroop.ovh/opencode-integration) | Session ownership, reconnects, streaming, health checks |
-| [Project Maintenance](https://www.looptroop.ovh/project-maintenance) | Runtime excludes, tracked `.looptroop` cleanup, worktree disk cleanup |
 | [FAQ](https://www.looptroop.ovh/faq) | Common questions and terminology |
 
 When the app is running, the same docs are also available from the dashboard.
