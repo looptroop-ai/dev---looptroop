@@ -1,13 +1,14 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { resolve } from 'node:path'
 import { appendLogEvent } from '../../log/executionLog'
 import { attachProject } from '../../storage/projects'
 import { createTicket, getTicketPaths } from '../../storage/tickets'
 import { TEST } from '../../test/factories'
 import { createTestRepoManager, resetTestDb } from '../../test/integration'
-import { initializeTicket } from '../initialize'
+import { TicketInitializationError, initializeTicket } from '../initialize'
 
 interface CommandLogContext {
   ticketId: string
@@ -56,6 +57,14 @@ vi.mock('node:child_process', async () => {
 })
 
 const repoManager = createTestRepoManager('ticket-initialize-')
+
+function git(cwd: string, args: string[]): string {
+  const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+  if (result.status !== 0 || result.error) {
+    throw new Error(result.error?.message ?? result.stderr ?? `git ${args.join(' ')} failed`)
+  }
+  return result.stdout.trim()
+}
 
 describe('initializeTicket', () => {
   beforeEach(() => {
@@ -135,5 +144,47 @@ describe('initializeTicket', () => {
     expect(persistedLog).not.toContain('INIT_WORKTREE_CREATE_FAILED')
     expect(persistedLog).not.toContain('Ticket worktree is invalid after initialization')
     expect(unsafeAppendCount).toBe(0)
+  })
+
+  it('blocks worktree creation when the project already tracks LoopTroop runtime paths', () => {
+    const repoDir = repoManager.createRepo()
+    const trackedRuntimePath = resolve(repoDir, '.looptroop', 'worktrees', 'OLD-1')
+    mkdirSync(resolve(repoDir, '.looptroop', 'worktrees'), { recursive: true })
+    writeFileSync(trackedRuntimePath, 'tracked runtime data\n')
+    git(repoDir, ['add', '-f', '.looptroop/worktrees/OLD-1'])
+    git(repoDir, ['commit', '-m', 'Track old LoopTroop runtime data'])
+
+    const project = attachProject({
+      folderPath: repoDir,
+      name: TEST.projectName,
+      shortname: TEST.shortname,
+    })
+    const ticket = createTicket({
+      projectId: project.id,
+      title: 'Initialize with tracked runtime data',
+      description: 'Regression coverage for tracked LoopTroop runtime paths.',
+    })
+    const paths = getTicketPaths(ticket.id)
+    if (!paths) throw new Error('Expected ticket paths before initialization')
+
+    let initError: unknown = null
+    try {
+      initializeTicket({
+        projectFolder: repoDir,
+        externalId: ticket.externalId,
+      })
+    } catch (err) {
+      initError = err
+    }
+
+    expect(initError).toBeInstanceOf(TicketInitializationError)
+    expect((initError as TicketInitializationError).code).toBe('INIT_LOOPTROOP_TRACKED')
+    expect((initError as Error).message).toContain('git rm --cached -r .looptroop')
+    expect((initError as Error).message).toContain('.looptroop/worktrees/OLD-1')
+    expect(existsSync(resolve(paths.worktreePath, '.git'))).toBe(false)
+    const branchResult = spawnSync('git', ['-C', repoDir, 'show-ref', '--verify', '--quiet', `refs/heads/${ticket.externalId}`], {
+      encoding: 'utf8',
+    })
+    expect(branchResult.status).not.toBe(0)
   })
 })

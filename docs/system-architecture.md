@@ -40,7 +40,7 @@ LoopTroop deliberately splits state across several storage layers. Each layer ow
 | --- | --- | --- |
 | `~/.config/looptroop/app.sqlite` by default | Singleton profile, attached projects, app meta | Configurable via `LOOPTROOP_CONFIG_DIR` or `LOOPTROOP_APP_DB_PATH` |
 | `<project>/.looptroop/db.sqlite` | Projects, tickets, phase artifacts, phase attempts, OpenCode sessions, status history, error occurrences | This is the project-local operational database |
-| `<project>/.looptroop/worktrees/<ticket>/` | The isolated ticket worktree used for planning artifacts and code changes | Each ticket gets its own worktree |
+| `<project>/.looptroop/worktrees/<ticket>/` | The isolated ticket worktree used for planning artifacts and code changes | Each ticket gets its own worktree; startup blocks if `.looptroop` is tracked by Git so stale runtime data cannot be checked out into new worktrees |
 | `.ticket/relevant-files.yaml` | Relevant file scan output used by later planning phases | Replaces older `codebase-map.yaml` terminology |
 | `.ticket/interview.yaml` and `.ticket/prd.yaml` | Editable review artifacts for the approved planning stages | These are user-facing canonical documents |
 | `.ticket/beads/<flow>/.beads/issues.jsonl` | The current bead plan for a given flow or base branch | Stored as line-oriented JSONL, but rewritten atomically on updates |

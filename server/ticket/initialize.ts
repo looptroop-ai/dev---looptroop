@@ -10,7 +10,7 @@ import {
 import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
-import { resolveBaseBranchRef } from '../git/repository'
+import { ensureLocalGitExclude, resolveBaseBranchRef } from '../git/repository'
 import {
   detectGitBaseBranch,
   getTicketDir as resolveTicketDir,
@@ -143,6 +143,47 @@ function ensureBaseBranch(projectFolder: string, baseBranch: string): string {
       `Project repository does not have the detected base branch "${baseBranch}": ${projectFolder}`,
     )
   }
+}
+
+function ensureLoopTroopGitExclude(projectFolder: string) {
+  try {
+    ensureLocalGitExclude(projectFolder)
+  } catch (err) {
+    throw new TicketInitializationError(
+      'INIT_LOOPTROOP_EXCLUDE_FAILED',
+      `Failed to install the repo-local LoopTroop Git exclude: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
+function getTrackedLoopTroopPaths(projectFolder: string): string[] {
+  const output = runGit(
+    ['ls-files', '-z', '--', '.looptroop'],
+    projectFolder,
+    'INIT_LOOPTROOP_TRACKED_CHECK_FAILED',
+    'Failed to inspect tracked LoopTroop runtime paths',
+  )
+
+  return output
+    .split('\0')
+    .map(path => path.trim())
+    .filter(Boolean)
+}
+
+function ensureLoopTroopRuntimeUntracked(projectFolder: string) {
+  const trackedPaths = getTrackedLoopTroopPaths(projectFolder)
+  if (trackedPaths.length === 0) return
+
+  const preview = trackedPaths.slice(0, 5).join(', ')
+  const remaining = trackedPaths.length > 5 ? `, and ${trackedPaths.length - 5} more` : ''
+  throw new TicketInitializationError(
+    'INIT_LOOPTROOP_TRACKED',
+    [
+      'LoopTroop runtime path ".looptroop" is tracked by Git, so new ticket worktrees would inherit stale LoopTroop data.',
+      'Remove it from the index before starting tickets: git rm --cached -r .looptroop && git commit -m "Stop tracking LoopTroop runtime data".',
+      `Tracked paths: ${preview}${remaining}`,
+    ].join(' '),
+  )
 }
 
 function branchExists(projectFolder: string, branchName: string): boolean {
@@ -317,6 +358,8 @@ export function initializeTicket(options: InitializeOptions): InitializeTicketRe
   const ticketDir = getTicketDir(options.projectFolder, options.externalId)
 
   ensureGitRepo(options.projectFolder)
+  ensureLoopTroopGitExclude(options.projectFolder)
+  ensureLoopTroopRuntimeUntracked(options.projectFolder)
 
   const reused = isValidTicketWorktree(options.projectFolder, worktreePath, branchName)
   if (!reused) {
