@@ -45,17 +45,22 @@ onMounted(() => {
   justify-content: center;
   width: 32px;
   height: 32px;
-  margin-right: 8px;
-  border-radius: 4px;
-  background: var(--vp-c-bg-soft);
+  margin-right: 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg);
   color: var(--vp-c-text-1);
-  font-size: 20px;
+  font-size: 18px;
+  font-weight: bold;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  z-index: 100;
 }
 
 .sidebar-toggle:hover {
-  background: var(--vp-c-bg-mute);
+  background: var(--vp-c-bg-soft);
+  border-color: var(--vp-c-brand);
+  color: var(--vp-c-brand);
 }
 
 @media (min-width: 960px) {

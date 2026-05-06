@@ -8,7 +8,7 @@ const { Layout } = DefaultTheme
 
 <template>
   <Layout>
-    <template #nav-bar-title-before>
+    <template #nav-bar-content-before>
       <SidebarToggle />
     </template>
     <template #layout-bottom>

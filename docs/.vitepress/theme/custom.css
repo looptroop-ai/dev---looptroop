@@ -62,7 +62,15 @@
   }
 
   html.sidebar-collapsed .VPNavBarTitle .title {
-    display: none !important;
+    visibility: hidden;
+    width: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  html.sidebar-collapsed .VPNavBarTitle {
+    border-bottom: none !important;
   }
 
   html.sidebar-collapsed .VPContent {
