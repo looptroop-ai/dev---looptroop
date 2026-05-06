@@ -55,6 +55,8 @@
 @media (min-width: 960px) {
   html.sidebar-collapsed {
     --vp-sidebar-width: 0px !important;
+    --vp-layout-max-width: 100% !important;
+    --vp-content-max-width: 100% !important;
   }
 
   html.sidebar-collapsed .VPSidebar {
@@ -85,17 +87,21 @@
   }
 
   html.sidebar-collapsed .VPDoc {
-    padding: 0 32px !important;
+    padding: 0 64px !important;
     margin: 0 !important;
     max-width: 100% !important;
   }
 
-  html.sidebar-collapsed .container {
+  html.sidebar-collapsed .VPDoc .container {
     max-width: 100% !important;
     margin: 0 !important;
   }
 
-  html.sidebar-collapsed .content {
+  html.sidebar-collapsed .VPDoc .content {
+    max-width: 100% !important;
+  }
+
+  html.sidebar-collapsed .VPDoc .content-container {
     max-width: 100% !important;
   }
 }
