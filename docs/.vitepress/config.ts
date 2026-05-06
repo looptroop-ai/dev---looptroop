@@ -68,6 +68,18 @@ export default defineConfig({
     ['link', { rel: 'icon', href: '/favicon.ico?v=20260429', sizes: 'any' }],
     ['link', { rel: 'icon', type: 'image/png', sizes: '256x256', href: '/favicon.png?v=20260429' }],
     ['link', { rel: 'apple-touch-icon', href: '/trans-logo.png?v=20260429' }],
+    [
+      'script',
+      {},
+      `
+      (function() {
+        const collapsed = localStorage.getItem('sidebar-collapsed');
+        if (collapsed === 'true') {
+          document.documentElement.classList.add('sidebar-collapsed');
+        }
+      })();
+      `
+    ]
   ],
   cleanUrls: true,
   lastUpdated: true,

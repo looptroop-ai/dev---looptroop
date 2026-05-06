@@ -50,3 +50,31 @@
 .dark .mermaid-error {
   color: #ff9f9f;
 }
+
+/* Sidebar Collapse Logic */
+@media (min-width: 960px) {
+  html.sidebar-collapsed {
+    --vp-sidebar-width: 0px !important;
+  }
+
+  html.sidebar-collapsed .VPSidebar {
+    display: none !important;
+  }
+
+  html.sidebar-collapsed .VPNavBarTitle .title {
+    display: none !important;
+  }
+
+  html.sidebar-collapsed .VPContent {
+    padding-left: 0 !important;
+  }
+
+  html.sidebar-collapsed .VPContent.has-sidebar {
+    margin: 0 auto !important;
+  }
+
+  html.sidebar-collapsed .VPDoc {
+    padding-left: 32px !important;
+    padding-right: 32px !important;
+  }
+}
