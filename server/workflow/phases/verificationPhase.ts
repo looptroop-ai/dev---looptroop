@@ -705,7 +705,7 @@ async function runPrdCoverageResolutionPrompt(params: {
   promptContent: string
   councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
   signal: AbortSignal
-  interviewContent: string
+  fullAnswersContent: string
   currentCandidateContent: string
   coverageGaps: string[]
 }): Promise<{
@@ -803,7 +803,7 @@ async function runPrdCoverageResolutionPrompt(params: {
     try {
       const revision = validatePrdCoverageRevisionOutput(response, {
         ticketId: params.externalId,
-        interviewContent: params.interviewContent,
+        interviewContent: params.fullAnswersContent,
         currentCandidateContent: params.currentCandidateContent,
         coverageGaps: params.coverageGaps,
       })
@@ -1333,7 +1333,7 @@ async function handlePrdCoverageVerificationLoop(params: {
   stateLabel: string
   ticketState: TicketState
   effectivePrdContent: string
-  interviewContent: string
+  fullAnswersContent: string
   councilSettings: ReturnType<typeof resolveCouncilRuntimeSettings>
   coverageSettings: ReturnType<typeof resolveCoverageRuntimeSettings>
 }) {
@@ -1399,7 +1399,6 @@ async function handlePrdCoverageVerificationLoop(params: {
       }),
     })
     persistUiArtifactCompanionArtifact(params.ticketId, params.stateLabel, 'prd_coverage_input', {
-      interview: params.interviewContent,
       ...(params.ticketState.fullAnswers?.[0] ? { fullAnswers: params.ticketState.fullAnswers[0] } : {}),
       prd: currentCandidateContent,
       refinedContent: currentCandidateContent,
@@ -1535,7 +1534,7 @@ async function handlePrdCoverageVerificationLoop(params: {
       promptContent: revisionPromptContent,
       councilSettings: params.councilSettings,
       signal: params.signal,
-      interviewContent: params.interviewContent,
+      fullAnswersContent: params.fullAnswersContent,
       currentCandidateContent,
       coverageGaps: auditResult.envelope.gaps,
     })
@@ -2396,7 +2395,7 @@ export async function handleCoverageVerification(
   const interviewSnapshot = phase === 'interview'
     ? readInterviewSessionSnapshotArtifact(ticketId)
     : null
-  let canonicalInterview = phase === 'interview' || phase === 'prd'
+  let canonicalInterview = phase === 'interview'
     ? loadCanonicalInterview(ticketDir)
     : undefined
   let effectivePrdContent: string | undefined
@@ -2422,13 +2421,6 @@ export async function handleCoverageVerification(
   }
 
   if (phase === 'prd') {
-    if (!canonicalInterview?.trim()) {
-      const msg = 'PRD coverage requires an approved canonical interview, but interview.yaml was not available.'
-      emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
-      sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
-      return
-    }
-
     const prdPath = resolve(ticketDir, 'prd.yaml')
     const diskPrdContent = existsSync(prdPath) ? readFileSync(prdPath, 'utf-8').trim() : ''
     if (diskPrdContent.length > 0) {
@@ -2514,21 +2506,24 @@ export async function handleCoverageVerification(
     }
   }
 
+  const winnerFullAnswers = phase === 'prd' ? loadWinnerPrdFullAnswers(ticketId, winnerId) : undefined
+  if (phase === 'prd' && !winnerFullAnswers) {
+    const msg = `PRD coverage requires the winning model's Full Answers artifact for ${winnerId}, but it was not available.`
+    emitPhaseLog(ticketId, context.externalId, stateLabel, 'error', msg)
+    sendEvent({ type: 'ERROR', message: msg, codes: ['COVERAGE_FAILED'] })
+    return
+  }
+
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
     description: ticket?.description ?? '',
     relevantFiles,
-    interview: phase === 'interview'
-      ? canonicalInterview
-      : phase === 'prd'
-        ? canonicalInterview
-        : refinedContent,
+    ...(phase === 'interview'
+      ? { interview: canonicalInterview }
+      : {}),
     ...(phase === 'prd'
-      ? (() => {
-          const winnerFullAnswers = loadWinnerPrdFullAnswers(ticketId, winnerId)
-          return winnerFullAnswers ? { fullAnswers: [winnerFullAnswers] } : {}
-        })()
+      ? { fullAnswers: [winnerFullAnswers!] }
       : {}),
     ...(phase === 'prd' && effectivePrdContent
       ? { prd: effectivePrdContent }
@@ -2571,7 +2566,7 @@ export async function handleCoverageVerification(
       stateLabel,
       ticketState,
       effectivePrdContent: effectivePrdContent ?? '',
-      interviewContent: canonicalInterview ?? '',
+      fullAnswersContent: winnerFullAnswers!,
       councilSettings,
       coverageSettings,
     })

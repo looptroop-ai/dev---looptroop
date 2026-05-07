@@ -75,10 +75,7 @@ interview_refine:
   - ticket_details
   - drafts
 interview_qa:
-  - relevant_files
   - ticket_details
-  - interview
-  - user_answers
 interview_coverage:
   - ticket_details
   - user_answers
@@ -99,7 +96,6 @@ prd_refine:
   - full_answers
   - drafts
 prd_coverage:
-  - interview
   - full_answers
   - prd
 beads_draft:
@@ -152,15 +148,20 @@ context_wipe:
   - error_context
 final_test:
   - ticket_details
-  - interview
   - prd
   - beads
   - final_test_notes
+pull_request:
+  - ticket_details
+  - prd
 preflight:
   - ticket_details
 ```
 
 `prd_draft` is a two-part phase: Part 1 uses `interview` to produce member-specific `full_answers`, and Part 2 drafts each PRD from that member's completed answer set.
+`interview_qa` receives only ticket details inline; the compiled question set and restart/resume state are appended explicitly by the interview phase.
+`prd_coverage` receives only the winning model's `full_answers` artifact plus the current PRD candidate. If that winner artifact is missing, PRD coverage fails clearly instead of falling back to `interview`.
+`pull_request` receives only ticket details and PRD inline; integration reports, final-test reports, and git diff sections are appended explicitly by the pull-request phase.
 
 ## What Each Context Slice Means
 
@@ -248,7 +249,8 @@ Planning phases work with broad artifact context. Execution does the opposite:
 
 - `coding` only gets `bead_data` and retry notes inline, with a read-only pointer to `.ticket/runtime/execution-setup-profile.json` for optional setup/tooling lookup
 - `context_wipe` only gets the active bead plus failure context
-- `final_test` expands back out to ticket, interview, PRD, and bead context
+- `final_test` expands back out only to ticket details, PRD, beads, and retry notes
+- `pull_request` narrows again to ticket details and PRD; reports and diffs are prompt sections, not context-builder slices
 
 This narrowing is intentional. Coding quality improves when the prompt is dominated by the exact bead contract instead of by the full planning transcript.
 

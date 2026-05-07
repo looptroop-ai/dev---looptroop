@@ -47,7 +47,7 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     id: 'full_answers',
     label: 'Full Answers',
     icon: '🧠',
-    description: 'Model-specific interview results with skipped questions filled in by AI.',
+    description: 'Model-specific completed answers; PRD coverage receives only the winning model\'s artifact.',
   },
   user_answers: {
     id: 'user_answers',
@@ -120,6 +120,12 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     label: 'Execution Setup Notes',
     icon: '🛠️',
     description: 'Retry-note history from prior execution setup attempts.',
+  },
+  final_test_notes: {
+    id: 'final_test_notes',
+    label: 'Final Test Notes',
+    icon: '🧪',
+    description: 'Retry-note history from prior final test attempts.',
   },
   error_context: {
     id: 'error_context',

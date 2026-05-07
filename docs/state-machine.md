@@ -72,7 +72,7 @@ The short descriptions below match the `description` field in `shared/workflowMe
 | `DRAFTING_PRD` | Models produce per-model Full Answers artifacts and competing PRD drafts. |
 | `COUNCIL_VOTING_PRD` | Council members score all anonymized PRD drafts against a weighted rubric (requirement completeness, acceptance criteria quality, edge-case coverage, test intent clarity) to select the strongest specification baseline. |
 | `REFINING_PRD` | Winning draft is consolidated into PRD Candidate v1 using useful ideas from the losing drafts. |
-| `VERIFYING_PRD_COVERAGE` | LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again. |
+| `VERIFYING_PRD_COVERAGE` | LoopTroop checks the current PRD against the winning model's Full Answers artifact. If something is missing, it updates the PRD and checks again. |
 | `WAITING_PRD_APPROVAL` | Review and approve the PRD candidate before architecture planning starts. The winning Full Answers artifact is available as reference context. Edits are allowed; saving a post-approval edit archives the current version and restarts beads planning. |
 | `DRAFTING_BEADS` | Each council member independently decomposes the approved PRD into a competing semantic beads blueprint — a task graph with descriptions, acceptance criteria, dependencies, and test intent — before voting selects the best candidate. |
 | `COUNCIL_VOTING_BEADS` | Council members score all anonymized beads blueprints against an architecture rubric (decomposition quality, feasibility, dependency correctness, and testability) to select the best implementation plan. |
@@ -84,9 +84,9 @@ The short descriptions below match the `description` field in `shared/workflowMe
 | `WAITING_EXECUTION_SETUP_APPROVAL` | Review the readiness audit and approve any temporary workspace preparation before execution runs it. Regenerating archives the current draft as a prior version and runs generation in the background; you are returned to the ticket overview immediately, and all prior versions are accessible via the VERSION dropdown at the top of the approval pane. |
 | `PREPARING_EXECUTION_ENV` | Verifying readiness and performing only the missing temporary execution setup before coding begins. |
 | `CODING` | AI coding agent executes beads one at a time; each bead has its own session, context-wipe recovery between iterations, and a git commit after success. |
-| `RUNNING_FINAL_TEST` | The main implementer generates a comprehensive test plan from the full implementation context (ticket, interview, PRD, beads) and runs it against the ticket branch to verify the whole implementation holistically — catching integration issues individual bead tests may miss. |
+| `RUNNING_FINAL_TEST` | The main implementer generates a comprehensive test plan from ticket details, PRD, beads, and retry notes, then runs it against the ticket branch to verify the whole implementation holistically — catching integration issues individual bead tests may miss. |
 | `INTEGRATING_CHANGES` | Squashes all individual bead commits into one clean candidate commit on the ticket branch, ready for the draft pull request. Per-bead history is preserved in the audit trail. |
-| `CREATING_PULL_REQUEST` | Pushing final candidate branch and creating or updating a draft pull request. |
+| `CREATING_PULL_REQUEST` | Pushing the final candidate branch and drafting the PR from ticket details, PRD, final reports, and git diff sections in a fresh owned session. |
 | `WAITING_PR_REVIEW` | Review the draft pull request on GitHub, then choose Merge PR & Finish or Finish Without Merge. Either path closes the ticket successfully and proceeds to cleanup. |
 | `CLEANING_ENV` | Removes transient runtime resources (lock files, session folders, temp files) while preserving permanent artifacts (interview, PRD, beads, logs, test and integration reports) for long-term review and audit. |
 | `COMPLETED` | The workflow reached its successful terminal state. All planning, execution, PR, and cleanup artifacts remain accessible. The ticket records whether it closed as a merged PR or finished without merge. |

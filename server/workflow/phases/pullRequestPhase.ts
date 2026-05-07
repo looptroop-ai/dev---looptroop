@@ -159,7 +159,7 @@ function truncateText(value: string, maxChars: number): string {
   return `${value.slice(0, Math.max(0, maxChars - 18))}\n\n[truncated by LoopTroop]`
 }
 
-function buildPullRequestPrompt(input: {
+export function buildPullRequestPrompt(input: {
   fallbackTitle: string
   contextParts: Array<{ source?: string; content: string }>
   integrationReport: string
@@ -178,7 +178,7 @@ function buildPullRequestPrompt(input: {
   return [
     'You are the main implementer who just finished this ticket and now need to write the draft pull request.',
     'Use the final diff as the source of truth for what changed.',
-    'Use the ticket details, interview, and PRD to explain why the change exists.',
+    'Use the ticket details and PRD to explain why the change exists.',
     'Use the final test report to describe validation accurately.',
     'Do not mention work that is not present in the final diff.',
     'Be concise, specific, and reviewer-friendly.',
@@ -269,38 +269,28 @@ function readIntegrationArtifact(ticketId: string) {
   }
 }
 
-function buildPullRequestContext(ticketId: string, context: TicketContext, description: string): {
+export function buildPullRequestContext(ticketId: string, context: TicketContext, description: string): {
   ticketState: TicketState
   contextParts: Array<{ source?: string; content: string }>
   finalTestReport: string
 } {
-  const { ticketDir, relevantFiles } = loadTicketDirContext(context)
-  const paths = getTicketPaths(ticketId)
+  const { ticketDir } = loadTicketDirContext(context)
   const ticketState: TicketState = {
     ticketId: context.externalId,
     title: context.title,
     description,
-    relevantFiles,
   }
 
-  const interviewPath = resolve(ticketDir, 'interview.yaml')
   const prdPath = resolve(ticketDir, 'prd.yaml')
-  const beadsPath = paths?.beadsPath
 
-  if (existsSync(interviewPath)) {
-    try { ticketState.interview = readFileSync(interviewPath, 'utf8') } catch { /* ignore */ }
-  }
   if (existsSync(prdPath)) {
     try { ticketState.prd = readFileSync(prdPath, 'utf8') } catch { /* ignore */ }
-  }
-  if (beadsPath && existsSync(beadsPath)) {
-    try { ticketState.beads = readFileSync(beadsPath, 'utf8') } catch { /* ignore */ }
   }
 
   const finalTestArtifact = getLatestPhaseArtifact(ticketId, 'final_test_report', 'RUNNING_FINAL_TEST')
   return {
     ticketState,
-    contextParts: buildMinimalContext('final_test', ticketState),
+    contextParts: buildMinimalContext('pull_request', ticketState),
     finalTestReport: finalTestArtifact?.content ?? '',
   }
 }
@@ -370,6 +360,7 @@ export async function handleCreatePullRequest(
           phase: 'CREATING_PULL_REQUEST',
           phaseAttempt: 1,
           keepActive: false,
+          forceFresh: true,
           memberId: mainImplementer,
         },
         onSessionCreated: (session) => {

@@ -258,9 +258,9 @@ When this limit is reached, LoopTroop moves to `WAITING_INTERVIEW_APPROVAL` with
 **Default:** 5  
 **Range:** 2–20
 
-Caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run while reconciling the PRD against the approved interview.
+Caps how many revision cycles `VERIFYING_PRD_COVERAGE` may run while reconciling the PRD against the winning model's Full Answers artifact.
 
-Each pass reads the current PRD candidate, identifies gaps relative to the approved interview, and rewrites the candidate in-place. When coverage is clean or the cap is reached, LoopTroop advances to `WAITING_PRD_APPROVAL`.
+Each pass reads the current PRD candidate, identifies gaps relative to that winning Full Answers artifact, and rewrites the candidate in-place. When coverage is clean or the cap is reached, LoopTroop advances to `WAITING_PRD_APPROVAL`.
 
 **What you see at approval:**
 

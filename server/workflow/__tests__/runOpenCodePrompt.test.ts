@@ -67,6 +67,7 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     parts: PromptPart[]
     options?: PromptSessionOptions
   }> = []
+  public readonly abortCalls: string[] = []
   public listSessionsCalls = 0
   private readonly sessions: Session[] = []
   private sessionCounter = 0
@@ -205,7 +206,8 @@ class TestOpenCodeAdapter implements OpenCodeAdapter {
     yield { type: 'done', sessionId }
   }
 
-  async abortSession(_sessionId: string): Promise<boolean> {
+  async abortSession(sessionId: string): Promise<boolean> {
+    this.abortCalls.push(sessionId)
     return true
   }
 
@@ -432,6 +434,48 @@ describe('runOpenCodePrompt', () => {
 
     expect(adapter.promptCalls).toHaveLength(1)
     expect(adapter.listSessionsCalls).toBe(0)
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['completed'])).toHaveLength(1)
+  })
+
+  it('abandons an existing owned active session when forceFresh is requested', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Fresh PR session',
+    })
+    patchTicket(ticket.id, { status: 'CREATING_PULL_REQUEST' })
+    const adapter = new TestOpenCodeAdapter(['initial response', 'fresh response'])
+
+    await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Initial PR prompt' }],
+      sessionOwnership: {
+        ticketId: ticket.id,
+        phase: 'CREATING_PULL_REQUEST',
+        memberId: 'openai/gpt-5.3-codex',
+        keepActive: true,
+      },
+    })
+
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['active'])).toHaveLength(1)
+
+    const result = await runOpenCodePrompt({
+      adapter,
+      projectPath: '/tmp/project',
+      parts: [{ type: 'text', content: 'Fresh PR prompt' }],
+      sessionOwnership: {
+        ticketId: ticket.id,
+        phase: 'CREATING_PULL_REQUEST',
+        memberId: 'openai/gpt-5.3-codex',
+        forceFresh: true,
+      },
+    })
+
+    expect(result.session.id).toBe('ses-2')
+    expect(adapter.abortCalls).toEqual(['ses-1'])
+    expect(adapter.promptCalls.map((call) => call.sessionId)).toEqual(['ses-1', 'ses-2'])
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['active'])).toHaveLength(0)
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['abandoned'])).toHaveLength(1)
     expect(listOpenCodeSessionsForTicket(ticket.id, ['completed'])).toHaveLength(1)
   })
 

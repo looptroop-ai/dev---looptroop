@@ -139,6 +139,13 @@ describe('handleFinalTest', () => {
 
     expect(recordWorktreeStartCommitMock).toHaveBeenCalled()
     expect(executeFinalTestWithRetriesMock).toHaveBeenCalledTimes(1)
+    expect(capturedContextParts.map((part) => part.source)).toEqual([
+      'ticket_details',
+      'prd',
+      'beads',
+      'final_test_note',
+    ])
+    expect(capturedContextParts.map((part) => part.content).join('\n')).not.toContain('artifact: interview')
     expect(
       capturedContextParts.some((part) => (
         part.source === 'final_test_note'

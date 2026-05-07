@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { MockOpenCodeAdapter } from '../../../opencode/adapter'
+import { listOpenCodeSessionsForTicket } from '../../../opencode/sessionManager'
+import { patchTicket } from '../../../storage/tickets'
+import { createInitializedTestTicket, createTestRepoManager, resetTestDb } from '../../../test/integration'
 import { generateExecutionSetupPlan } from '../generator'
 
 class SequencedMockOpenCodeAdapter extends MockOpenCodeAdapter {
@@ -63,6 +66,13 @@ function buildReadyPlanResponse(): string {
 }
 
 describe('generateExecutionSetupPlan', () => {
+  const repoManager = createTestRepoManager('execution-setup-plan-generator-')
+
+  afterAll(() => {
+    resetTestDb()
+    repoManager.cleanup()
+  })
+
   it('includes required setup step fields in the structured retry reminder', async () => {
     const adapter = new SequencedMockOpenCodeAdapter()
     adapter.mockResponses.set('mock-session-1#1', 'I drafted the setup plan.')
@@ -85,5 +95,55 @@ describe('generateExecutionSetupPlan', () => {
     ))?.content
 
     expect(retryPrompt).toContain('Every setup step must include id, title, purpose, commands, required, rationale, and cautions')
+  })
+
+  it('completes owned setup-plan sessions after a ready plan is parsed', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Complete setup plan session',
+    })
+    patchTicket(ticket.id, { status: 'WAITING_EXECUTION_SETUP_APPROVAL' })
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', buildReadyPlanResponse())
+
+    await generateExecutionSetupPlan(
+      adapter,
+      [{ type: 'text', content: 'Execution setup plan context' }],
+      '/tmp/test',
+      undefined,
+      {
+        ticketId: ticket.id,
+        model: 'mock-model',
+      },
+    )
+
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['active'])).toHaveLength(0)
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['completed'])).toHaveLength(1)
+  })
+
+  it('abandons owned setup-plan sessions after an invalid terminal result', async () => {
+    resetTestDb()
+    const { ticket } = createInitializedTestTicket(repoManager, {
+      title: 'Abandon setup plan session',
+    })
+    patchTicket(ticket.id, { status: 'WAITING_EXECUTION_SETUP_APPROVAL' })
+    const adapter = new SequencedMockOpenCodeAdapter()
+    adapter.mockResponses.set('mock-session-1#1', 'not a setup plan')
+    adapter.mockResponses.set('mock-session-1#2', 'still not a setup plan')
+
+    const result = await generateExecutionSetupPlan(
+      adapter,
+      [{ type: 'text', content: 'Execution setup plan context' }],
+      '/tmp/test',
+      undefined,
+      {
+        ticketId: ticket.id,
+        model: 'mock-model',
+      },
+    )
+
+    expect(result.plan).toBeNull()
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['active'])).toHaveLength(0)
+    expect(listOpenCodeSessionsForTicket(ticket.id, ['abandoned'])).toHaveLength(1)
   })
 })

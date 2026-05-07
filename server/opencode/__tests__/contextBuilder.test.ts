@@ -17,6 +17,60 @@ describe('contextBuilder interview_qa context', () => {
 
     expect(ticketDetails?.content).toContain('## Primary User Requirement For This Ticket')
     expect(ticketDetails?.content).not.toContain('## User Interview Profile')
+    expect(parts.map((part) => part.source)).toEqual(['ticket_details'])
+  })
+
+  it('keeps PRD coverage focused on winner full answers and PRD only', () => {
+    const parts = buildMinimalContext('prd_coverage', {
+      ticketId: TEST.externalId,
+      interview: 'approved interview content',
+      fullAnswers: ['winner full answers content'],
+      prd: 'prd candidate content',
+    })
+
+    expect(parts.map((part) => part.source)).toEqual([
+      'full_answers',
+      'prd',
+    ])
+    expect(parts.map((part) => part.content).join('\n')).not.toContain('approved interview content')
+  })
+
+  it('keeps final test context to ticket details, PRD, beads, and retry notes', () => {
+    const parts = buildMinimalContext('final_test', {
+      ticketId: TEST.externalId,
+      title: 'Final verification',
+      description: 'Verify the implementation.',
+      interview: 'approved interview content',
+      prd: 'approved prd content',
+      beads: 'approved beads content',
+      finalTestNotes: ['final test retry note'],
+    })
+
+    expect(parts.map((part) => part.source)).toEqual([
+      'ticket_details',
+      'prd',
+      'beads',
+      'final_test_note',
+    ])
+    expect(parts.map((part) => part.content).join('\n')).not.toContain('approved interview content')
+  })
+
+  it('keeps pull request context to ticket details and PRD only', () => {
+    const parts = buildMinimalContext('pull_request', {
+      ticketId: TEST.externalId,
+      title: 'Draft PR',
+      description: 'Explain the finished change.',
+      interview: 'approved interview content',
+      prd: 'approved prd content',
+      beads: 'approved beads content',
+    })
+
+    expect(parts.map((part) => part.source)).toEqual([
+      'ticket_details',
+      'prd',
+    ])
+    expect(parts.map((part) => part.content).join('\n')).not.toContain('approved interview content')
+    expect(parts.map((part) => part.content).join('\n')).not.toContain('approved beads content')
   })
 
   it('keeps coding context to bead data and retry notes without inlining setup profile', () => {

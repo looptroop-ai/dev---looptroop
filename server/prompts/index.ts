@@ -316,7 +316,7 @@ export const PROM4: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'YAML — complete interview results file with schema_version, ticket_id, artifact, status, generated_by, questions, follow_up_rounds, summary, approval',
-  contextInputs: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
+  contextInputs: ['ticket_details'],
   toolPolicy: 'disabled',
 }
 
@@ -454,15 +454,15 @@ export const PROM13: PromptTemplate = {
   id: 'PROM13',
   description: 'PRD Coverage Verification Prompt',
   systemRole: 'You are a meticulous Quality Assurance Lead.',
-  task: 'Re-read the approved Interview Results and the winner Full Answers artifact, then compare them against the final PRD to ensure complete coverage.',
+  task: 'Re-read the winner Full Answers artifact, then compare it against the final PRD to ensure complete coverage.',
   instructions: [
-    'Primary Truth: Treat the approved Interview Results as primary user truth. Use the winner Full Answers artifact as the adopted completion for questions the user skipped.',
-    'Coverage Check: Detect unresolved ambiguity, missing requirements, missing edge cases, missing constraints, missing acceptance criteria, missing non-goals or out-of-scope items, and inconsistencies between the Interview Results and the PRD.',
-    'Source Artifact Contradictions: If the approved Interview Results and winner Full Answers artifact are internally contradictory in a way the PRD cannot faithfully satisfy, report the contradiction as an unresolved coverage gap. Do not choose a side or invent requirements to reconcile contradictory source artifacts.',
+    'Primary Truth: Treat the winner Full Answers artifact as the canonical source for PRD coverage. It contains the user-provided answers plus the adopted AI completion for skipped questions.',
+    'Coverage Check: Detect unresolved ambiguity, missing requirements, missing edge cases, missing constraints, missing acceptance criteria, missing non-goals or out-of-scope items, and inconsistencies between the winner Full Answers artifact and the PRD.',
+    'Source Artifact Contradictions: If the winner Full Answers artifact is internally contradictory in a way the PRD cannot faithfully satisfy, report the contradiction as an unresolved coverage gap. Do not choose a side or invent requirements to reconcile contradictory source artifacts.',
     'Coverage Strictness: Treat weak coverage as a real gap when the PRD mentions a requirement but leaves it materially underspecified. Acceptance criteria must be specific enough to verify, not just broad restatements of the feature title or user story.',
-    'Traceability Rule: Every major in-scope requirement, user flow, constraint, non-goal, or explicit edge case captured in the Interview Results or winner Full Answers must be represented somewhere in the PRD by at least one concrete epic, user story, acceptance criterion, scope item, constraint, or risk entry.',
+    'Traceability Rule: Every major in-scope requirement, user flow, constraint, non-goal, or explicit edge case captured in the winner Full Answers artifact must be represented somewhere in the PRD by at least one concrete epic, user story, acceptance criterion, scope item, constraint, or risk entry.',
     'Verification Readiness: Flag PRD user stories that have missing or weak verification guidance when the acceptance criteria are not concrete enough to support later implementation verification.',
-    'Identify Gaps: List any specific gaps or discrepancies found between the Interview Results, the winner Full Answers artifact, and the PRD.',
+    'Identify Gaps: List any specific gaps or discrepancies found between the winner Full Answers artifact and the PRD.',
     'Coverage Limits: Treat `coverage_run_number` and `max_coverage_passes` from the context as hard limits. Coverage can run once or at most `max_coverage_passes` times in total. If `is_final_coverage_run` is true, report unresolved gaps clearly without assuming another refinement pass exists.',
     'If no gaps exist, confirm that the PRD is complete and ready for PRD approval, and make clear that Beads breakdown begins only after that approval step.',
     'PRD Follow-Up Rule: `follow_up_questions` is always `[]` for PRD coverage. Do not invent new PRD questions; use `gaps` only.',
@@ -474,7 +474,7 @@ export const PROM13: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: `${COVERAGE_OUTPUT_FORMAT} For PRD coverage, \`follow_up_questions\` must always be \`[]\`.`,
-  contextInputs: ['interview', 'full_answers', 'prd'],
+  contextInputs: ['full_answers', 'prd'],
   toolPolicy: 'disabled',
 }
 
@@ -484,7 +484,7 @@ export const PROM13b: PromptTemplate = {
   systemRole: 'You are a meticulous Technical Product Manager resolving concrete PRD coverage gaps.',
   task: 'Revise the current PRD candidate to address the provided coverage gaps while preserving the candidate as the baseline. Return one updated PRD artifact plus machine-readable change and gap-resolution metadata.',
   instructions: [
-    'Primary Truth: Treat the approved Interview Results as primary user truth. Use the winner Full Answers artifact only as adopted context for skipped questions.',
+    'Primary Truth: Treat the winner Full Answers artifact as the canonical source for PRD coverage. It contains the user-provided answers plus the adopted AI completion for skipped questions.',
     'Baseline Rule: Treat the provided current PRD candidate as the baseline. Do not rewrite from scratch.',
     'Gap Resolution Rule: Address only the concrete coverage gaps provided in the context. Do not make unrelated improvements.',
     'Source Artifact Contradictions: If a provided gap describes internally contradictory source artifacts, do not choose a side, invent a requirement, or revise the PRD to pretend the contradiction is resolved. Record that gap with `action: left_unresolved` and `affected_items: []`.',
@@ -500,7 +500,7 @@ export const PROM13b: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: `${PRD_OUTPUT_FORMAT}\nAlso include top-level \`changes\` and \`gap_resolutions\` lists. \`changes\` uses the same shape as PROM12 refinement output. Each \`gap_resolutions\` item: {gap, action, rationale, affected_items}. \`action\` must be one of {updated_prd, already_covered, left_unresolved}. Each \`affected_items\` entry: {item_type, id, label}.`,
-  contextInputs: ['interview', 'full_answers', 'prd', 'coverage_gaps'],
+  contextInputs: ['full_answers', 'prd', 'coverage_gaps'],
   toolPolicy: 'disabled',
 }
 
@@ -892,10 +892,10 @@ export const PROM52: PromptTemplate = {
   systemRole: 'You are an expert QA Engineer and the main implementer who has just finished implementing a ticket from end to end.',
   task: 'Design and implement a comprehensive final test (or test suite) that validates the entire ticket was implemented correctly. You MUST add or modify at least one test artifact that specifically validates the ticket\'s implementation — do not just re-run existing project tests without adding new coverage.',
   instructions: [
-    'Review Scope: Re-read the ticket details, Interview Results, PRD, and Beads list to understand the full scope.',
+    'Review Scope: Re-read the ticket details, PRD, and Beads list to understand the full scope.',
     'Prior Notes: If prior `final_test_note` context is present, read it first and avoid repeating failed approaches unless you have a concrete reason.',
     'Test Design: Design the minimal but sufficient set of tests that collectively prove the ticket requirements are met.',
-    'Coverage Priorities: Focus on: (1) all acceptance criteria from PRD user stories; (2) critical user flows from Interview Results; (3) key edge cases and error states.',
+    'Coverage Priorities: Focus on: (1) all acceptance criteria from PRD user stories; (2) critical user flows described by the PRD; (3) key edge cases and error states.',
     "Test Type: Prefer integration or end-to-end tests that exercise real code paths. Use the project's existing testing framework.",
     'Determinism: Tests must be deterministic and repeatable. Avoid any external dependencies, network calls, or non-deterministic timing.',
     'Test Artifacts: You MUST create or modify at least one test file. These test files become permanent regression tests for the project. Record the paths of all test files you created or modified in the `test_files` field of the output marker.',
@@ -903,7 +903,7 @@ export const PROM52: PromptTemplate = {
     'Ephemeral Runtime Exclusion: `.ticket/runtime/execution-setup/**` and `.ticket/runtime/execution-setup-profile.json` are temporary runtime state and must never appear in `modified_files`.',
     'Mandatory Self-Execution: Before returning `<FINAL_TEST_COMMANDS>`, you MUST run the exact command(s) you plan to return in this same worktree.',
     'Repair Loop: If any planned command fails, inspect the real failure output, fix the underlying implementation and/or the final test files, and rerun the same command(s). Repeat until the exact planned command(s) pass or you run out of time.',
-    'Scope Discipline: You may modify production code and test files during this phase, but keep changes minimal and strictly within the approved ticket, Interview Results, PRD, and Beads scope.',
+    'Scope Discipline: You may modify production code and test files during this phase, but keep changes minimal and strictly within the approved ticket, PRD, and Beads scope.',
     'Do Not Game The Tests: Do not weaken assertions, delete coverage, lower thresholds, or narrow test scope just to get a pass. Only change a failing test if it is demonstrably broader than the approved requirements.',
     'Test Commands: Provide the exact commands to run the final test(s). Commands must target only your test files — do not run the entire project test suite.',
     'Command Marker: End your response with `<FINAL_TEST_COMMANDS>{"commands":["<cmd1>","<cmd2>"],"test_files":["path/to/test1.ts","path/to/test2.ts"],"modified_files":["path/to/test1.ts","src/feature.ts"],"summary":"short explanation"}</FINAL_TEST_COMMANDS>`.',
@@ -914,7 +914,7 @@ export const PROM52: PromptTemplate = {
     STRUCTURED_SELF_CHECK,
   ],
   outputFormat: 'Test file(s) + execution commands',
-  contextInputs: ['ticket_details', 'interview', 'prd', 'beads', 'final_test_notes'],
+  contextInputs: ['ticket_details', 'prd', 'beads', 'final_test_notes'],
   toolPolicy: 'default',
 }
 

@@ -68,6 +68,8 @@ describe.concurrent('PROM4 interview session parsing', () => {
 
     expect(firstPrompt).toContain('## Compiled Questions (from council)')
     expect(firstPrompt).toContain('Treat the compiled questions above as your working interview checklist')
+    expect((firstPrompt.match(/## Compiled Questions \(from council\)/g) ?? [])).toHaveLength(1)
+    expect(firstPrompt).not.toContain('### interview')
   })
 
   it('retries invalid structured output in the same session and returns the corrected batch', async () => {
@@ -268,5 +270,14 @@ describe.concurrent('PROM4 interview session parsing', () => {
       ],
     })
     expect(adapter.messages.get('existing-session')?.some((message) => typeof message.content === 'string' && message.content.includes('Structured Output Retry'))).toBe(false)
+    const restartedPrompt = adapter.messages.get('mock-session-1')?.find((message) => message.role === 'user')?.content ?? ''
+    expect(restartedPrompt).toContain('## Resume Existing Interview Session')
+    expect(restartedPrompt).toContain('max_initial_questions: 5')
+    expect(restartedPrompt).toContain('max_follow_ups: 1')
+    expect(restartedPrompt).toContain('Answered or skipped questions:')
+    expect(restartedPrompt).toContain('- Q01 (answered) [Foundation]: Reliable structured output handling.')
+    expect(restartedPrompt).toContain('Pending questions:')
+    expect(restartedPrompt).not.toContain('## Compiled Questions (from council)')
+    expect(restartedPrompt).not.toContain('questions:\n  - id: Q01')
   })
 })

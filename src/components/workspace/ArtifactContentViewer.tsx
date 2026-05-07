@@ -3427,7 +3427,7 @@ function getCoverageCandidateLabel(phase?: string, candidateVersion?: number): s
 }
 
 function getCoverageReviewedAgainst(phase?: string): string {
-  if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') return 'approved interview'
+  if (phase === 'VERIFYING_PRD_COVERAGE' || phase === 'WAITING_PRD_APPROVAL') return 'winner Full Answers'
   if (phase === 'VERIFYING_BEADS_COVERAGE' || phase === 'EXPANDING_BEADS' || phase === 'WAITING_BEADS_APPROVAL') return 'approved PRD'
   if (phase === 'VERIFYING_INTERVIEW_COVERAGE' || phase === 'WAITING_INTERVIEW_APPROVAL') return 'submitted answers'
   return 'source material'

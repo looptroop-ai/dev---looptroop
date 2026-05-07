@@ -993,7 +993,6 @@ describe('PhaseArtifactsPanel', () => {
     {
       scenario: 'prefers refinedContent when present',
       coverageInputContent: {
-        interview: buildPhaseArtifactsInterviewDocumentContent(),
         fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Coverage input PRD',
@@ -1013,7 +1012,6 @@ describe('PhaseArtifactsPanel', () => {
     {
       scenario: 'falls back to prd when refinedContent is absent',
       coverageInputContent: {
-        interview: buildPhaseArtifactsInterviewDocumentContent(),
         fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Coverage input PRD only',
@@ -1290,7 +1288,6 @@ describe('PhaseArtifactsPanel', () => {
       artifactType: 'prd_coverage_input',
       content: JSON.stringify({
         candidateVersion: 1,
-        interview: buildPhaseArtifactsInterviewDocumentContent(),
         fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
         prd: buildPrdDocumentContent({
           epicTitle: 'Initial PRD candidate',
@@ -1355,7 +1352,6 @@ describe('PhaseArtifactsPanel', () => {
         baseArtifactType: 'prd_coverage_input',
         generatedAt: '2026-03-25T10:16:31.000Z',
         payload: {
-          interview: buildPhaseArtifactsInterviewDocumentContent(),
           fullAnswers: buildPhaseArtifactsInterviewDocumentContent(),
           prd: buildPrdDocumentContent({
             epicTitle: 'Audit input candidate',

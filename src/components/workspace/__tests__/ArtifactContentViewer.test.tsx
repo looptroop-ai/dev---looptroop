@@ -1056,7 +1056,7 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('Coverage review found gaps')).toBeInTheDocument()
-    expect(screen.getByText('This check found 1 gap between the current PRD candidate and the approved interview.')).toBeInTheDocument()
+    expect(screen.getByText('This check found 1 gap between the current PRD candidate and the winner Full Answers.')).toBeInTheDocument()
     expect(screen.getByText('Retry cap reached; moving to approval with unresolved gaps.')).toBeInTheDocument()
     expect(screen.getByText('Missing PRD approval sequencing.')).toBeInTheDocument()
     expect(screen.queryByText('Follow-up Questions')).not.toBeInTheDocument()
@@ -1086,7 +1086,7 @@ describe('ArtifactContentViewer', () => {
     )
 
     expect(screen.getByText('No coverage gaps found')).toBeInTheDocument()
-    expect(screen.getByText('The current PRD candidate covers the approved interview. No gaps were found in this check.')).toBeInTheDocument()
+    expect(screen.getByText('The current PRD candidate covers the winner Full Answers. No gaps were found in this check.')).toBeInTheDocument()
     expect(screen.getByText(/Coverage review of the current PRD candidate · pass 1 of 2/i)).toBeInTheDocument()
   })
 

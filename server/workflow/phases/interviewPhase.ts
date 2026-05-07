@@ -1229,21 +1229,14 @@ export async function handleInterviewQABatch(
   const paths = getTicketPaths(ticketId)
   let restartOptions: Parameters<typeof submitBatchToSession>[9] | undefined
   if (paths) {
-    const compiledArtifact = getLatestPhaseArtifact(ticketId, 'interview_compiled')
-    try {
-      const compiledInterview = requireCompiledInterviewArtifact(compiledArtifact?.content)
-      restartOptions = {
-        projectPath: paths.worktreePath,
-        ticketState: {
-          ticketId: externalId,
-          title: ticket?.title ?? '',
-          description: ticket?.description ?? '',
-          interview: compiledInterview.refinedContent,
-        },
-        snapshot: answeredSnapshot,
-      }
-    } catch {
-      restartOptions = undefined
+    restartOptions = {
+      projectPath: paths.worktreePath,
+      ticketState: {
+        ticketId: externalId,
+        title: ticket?.title ?? '',
+        description: ticket?.description ?? '',
+      },
+      snapshot: answeredSnapshot,
     }
   }
   const result = await submitBatchToSession(

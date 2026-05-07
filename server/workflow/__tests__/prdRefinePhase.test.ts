@@ -454,10 +454,11 @@ describe('handlePrdRefine', () => {
     expect(sendEvent).toHaveBeenCalledWith({ type: 'REFINED' })
   })
 
-  function setupCoverageTest(options?: { writePrd?: boolean; diskPrdContent?: string }) {
+  function setupCoverageTest(options?: { writePrd?: boolean; diskPrdContent?: string; writeFullAnswers?: boolean }) {
     const { ticket, context, paths } = createInitializedTestTicket(repoManager)
     const winnerId = TEST.councilMembers[0]
     const interviewContent = makeInterviewYaml({ ticket_id: ticket.externalId })
+    const fullAnswersContent = interviewContent.replace('Implement the feature', 'Winner full answers canonical coverage source')
     const winnerDraftContent = buildPrdContent(ticket.externalId)
     const refinement = validatePrdRefinementOutput(buildValidRefinementOutput(ticket.externalId), {
       ticketId: ticket.externalId,
@@ -471,15 +472,17 @@ describe('handlePrdRefine', () => {
       writeFileSync(`${paths.ticketDir}/prd.yaml`, options?.diskPrdContent ?? refinement.refinedContent, 'utf-8')
     }
 
-    insertPhaseArtifact(ticket.id, {
-      phase: 'DRAFTING_PRD',
-      artifactType: 'prd_full_answers',
-      content: JSON.stringify({
-        drafts: [
-          { memberId: winnerId, outcome: 'completed', content: interviewContent },
-        ],
-      }),
-    })
+    if (options?.writeFullAnswers !== false) {
+      insertPhaseArtifact(ticket.id, {
+        phase: 'DRAFTING_PRD',
+        artifactType: 'prd_full_answers',
+        content: JSON.stringify({
+          drafts: [
+            { memberId: winnerId, outcome: 'completed', content: fullAnswersContent },
+          ],
+        }),
+      })
+    }
     insertPhaseArtifact(ticket.id, {
       phase: 'REFINING_PRD',
       artifactType: 'prd_winner',
@@ -500,11 +503,11 @@ describe('handlePrdRefine', () => {
       )),
     })
 
-    return { ticket, context, paths, winnerId, interviewContent, winnerDraftContent, refinement }
+    return { ticket, context, paths, winnerId, interviewContent, fullAnswersContent, winnerDraftContent, refinement }
   }
 
   it('uses prd_winner + prd_refined artifacts during PRD coverage verification', async () => {
-    const { ticket, context, paths, refinement } = setupCoverageTest()
+    const { ticket, context, paths, refinement, fullAnswersContent } = setupCoverageTest()
     const sendEvent = vi.fn()
 
     runOpenCodePromptMock.mockResolvedValueOnce({
@@ -522,16 +525,34 @@ describe('handlePrdRefine', () => {
     const coverageInput = getLatestPhaseArtifact(ticket.id, 'ui_artifact_companion:prd_coverage_input', 'VERIFYING_PRD_COVERAGE')
     expect(coverageInput).toBeDefined()
     const parsedCoverageInput = parseUiArtifactCompanionArtifact(coverageInput!.content)?.payload as {
+      fullAnswers?: string
+      interview?: string
       prd?: string
       refinedContent?: string
       changes?: unknown[]
     } | undefined
     if (!parsedCoverageInput) throw new Error('Expected PRD coverage-input companion payload')
+    expect(parsedCoverageInput.fullAnswers?.trim()).toBe(fullAnswersContent.trim())
+    expect(parsedCoverageInput.interview).toBeUndefined()
     expect(parsedCoverageInput.prd?.trim()).toBe(refinement.refinedContent.trim())
     expect(parsedCoverageInput.refinedContent?.trim()).toBe(refinement.refinedContent.trim())
     expect(parsedCoverageInput.changes).toBeUndefined()
     expect(runOpenCodePromptMock).toHaveBeenCalledTimes(1)
     expect(sendEvent).toHaveBeenCalledWith({ type: 'COVERAGE_CLEAN' })
+  })
+
+  it('fails PRD coverage clearly when the winner Full Answers artifact is unavailable', async () => {
+    const { ticket, context } = setupCoverageTest({ writeFullAnswers: false })
+    const sendEvent = vi.fn()
+
+    await handleCoverageVerification(ticket.id, context, sendEvent, 'prd', new AbortController().signal)
+
+    expect(runOpenCodePromptMock).not.toHaveBeenCalled()
+    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ERROR',
+      codes: ['COVERAGE_FAILED'],
+      message: expect.stringContaining("winning model's Full Answers artifact"),
+    }))
   })
 
   it('restores a missing prd.yaml from the refined PRD artifact before PRD coverage runs', async () => {

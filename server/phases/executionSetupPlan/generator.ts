@@ -249,6 +249,14 @@ export async function generateExecutionSetupPlan(
     }
   }
 
+  if (activeSessionId && sessionManager) {
+    if (parsed.plan) {
+      await sessionManager.completeSession(activeSessionId)
+    } else {
+      await sessionManager.abandonSession(activeSessionId)
+    }
+  }
+
   return {
     session: result.session,
     output: response,

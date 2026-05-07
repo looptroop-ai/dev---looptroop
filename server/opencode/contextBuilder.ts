@@ -11,8 +11,8 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   interview_vote: ['relevant_files', 'ticket_details', 'drafts'],
   // PROM3: "Relevant files + ticket details + all interview drafts"
   interview_refine: ['relevant_files', 'ticket_details', 'drafts'],
-  // PROM4: "Relevant files + ticket details + final question set + user answers so far"
-  interview_qa: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
+  // PROM4: ticket details only; compiled questions and resume state are appended explicitly.
+  interview_qa: ['ticket_details'],
   // PROM5: "Ticket description + collected answers + current Interview Results"
   interview_coverage: ['ticket_details', 'user_answers', 'interview'],
   // PROM10a + PROM10b: "Relevant files + ticket details + final Interview Results / Full Answers"
@@ -21,8 +21,8 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   prd_vote: ['relevant_files', 'ticket_details', 'interview', 'drafts'],
   // PROM12: "Relevant files + ticket details + all Full Answers artifacts + all PRD drafts"
   prd_refine: ['relevant_files', 'ticket_details', 'full_answers', 'drafts'],
-  // PROM13: "Final Interview Results + winner Full Answers artifact + final PRD"
-  prd_coverage: ['interview', 'full_answers', 'prd'],
+  // PROM13: winner Full Answers artifact + final PRD
+  prd_coverage: ['full_answers', 'prd'],
   // PROM20: "Relevant files + ticket details + final PRD"
   beads_draft: ['relevant_files', 'ticket_details', 'prd'],
   // PROM21: "Relevant files + ticket details + final PRD + all bead drafts"
@@ -43,8 +43,10 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   coding: ['bead_data', 'bead_notes'],
   // PROM51: "Current bead data + error context from failed iteration"
   context_wipe: ['bead_data', 'error_context'],
-  // PROM52: "Ticket details + Interview Results + PRD + Beads list + prior final-test retry notes"
-  final_test: ['ticket_details', 'interview', 'prd', 'beads', 'final_test_notes'],
+  // PROM52: "Ticket details + PRD + Beads list + prior final-test retry notes"
+  final_test: ['ticket_details', 'prd', 'beads', 'final_test_notes'],
+  // Draft pull request context: concise source of why, with reports/diff appended by the PR phase.
+  pull_request: ['ticket_details', 'prd'],
   // Pre-flight check (used by SCANNING_RELEVANT_FILES which generates relevant_files)
   preflight: ['ticket_details'],
 }

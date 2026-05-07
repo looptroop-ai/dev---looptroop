@@ -30,6 +30,7 @@ export type WorkflowContextKey =
   | 'execution_setup_plan_notes'
   | 'execution_setup_profile'
   | 'execution_setup_notes'
+  | 'final_test_notes'
   | 'error_context'
 
 export interface WorkflowPhaseDetails {
@@ -244,7 +245,7 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'This is a user-input phase — the workflow is intentionally paused. No AI models are running while you answer questions.',
       'This phase may appear multiple times in the lifecycle if coverage generates follow-up rounds — each round is a new batch of targeted questions.',
-      'Context available: Relevant Files + Ticket Details + Interview Results + User Answers.',
+      'AI context available: Ticket Details only. The compiled question set, answered/skipped/pending state, and configured question limits are appended explicitly by the interview session logic when needed.',
       'Tip: Detailed, specific answers lead to better PRDs. If you\'re unsure about a question, it\'s better to answer with your best understanding and note any uncertainty than to skip it entirely.',
       'Tip: Skipping is fine for truly irrelevant questions — the AI will fill in reasonable defaults during PRD drafting. But skipping core architecture or business logic questions may result in a PRD that needs more manual editing later.',
     ],
@@ -279,7 +280,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why budget the loop? Without a budget, a model could theoretically keep finding minor gaps and generating follow-up questions forever. The budget ensures the interview converges to a usable state within a reasonable number of rounds.',
     ],
     equivalents: [
-      'This is the "coverage check" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Coverage Check (PRD)" (where the PRD is checked against the approved interview) and in the Blueprint (Beads) phase as "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
+      'This is the "coverage check" step of the Interview phase. The same pattern repeats in the Specs (PRD) phase as "Coverage Check (PRD)" (where the PRD is checked against the winning model\'s Full Answers artifact) and in the Blueprint (Beads) phase as "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
       'All three coverage checks share the goal of verifying completeness, but they differ in how gaps are resolved: Interview coverage sends you back to answer follow-up questions (user-facing loop). PRD coverage revises the document automatically within the same phase (AI-internal loop, up to the configured pass cap). Beads coverage also revises automatically within the Coverage Check (Beads) phase, and is then followed by a separate Expanding Blueprint phase that transforms the validated semantic blueprint into execution-ready bead records.',
       'Each coverage check has a budget or cap to ensure convergence — interview has a follow-up round budget, PRD has a configured pass cap, and beads has its own configured pass cap. Blueprint expansion happens in the dedicated Expanding Blueprint phase that follows.',
     ],
@@ -388,7 +389,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Normalized PRD content ready for the coverage verification loop.',
     ],
     transitions: [
-      'Success → Coverage Check (PRD): A valid refined candidate advances to the PRD coverage check, which verifies the PRD against the approved interview answers.',
+      'Success → Coverage Check (PRD): A valid refined candidate advances to the PRD coverage check, which verifies the PRD against the winning model\'s Full Answers artifact.',
       'Failure → Blocked Error: Refinement validation failures, malformed output, or model errors route the ticket to Blocked Error.',
     ],
     notes: [
@@ -403,10 +404,10 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   VERIFYING_PRD_COVERAGE: {
-    overview: 'LoopTroop runs a versioned PRD coverage loop, comparing the current PRD candidate against the approved interview answers to find any missing requirements or gaps. Unlike the interview coverage loop (which sends you back to answer more questions), PRD coverage stays inside this same phase — the model revises the PRD directly when gaps are found. The loop can produce later PRD candidate versions until the configured cap is reached, and if gaps remain after that, the latest version still advances to approval with warnings.',
+    overview: 'LoopTroop runs a versioned PRD coverage loop, comparing the current PRD candidate against the winning model\'s Full Answers artifact to find any missing requirements or gaps. Unlike the interview coverage loop (which sends you back to answer more questions), PRD coverage stays inside this same phase — the model revises the PRD directly when gaps are found. The loop can produce later PRD candidate versions until the configured cap is reached, and if gaps remain after that, the latest version still advances to approval with warnings.',
     steps: [
-      'Coverage Evaluation: The winning PRD model compares the current PRD candidate against the approved interview and full answers. It returns a structured coverage result: either "clean" (the PRD fully covers the interview) or "gaps found" (specific requirements or acceptance criteria are missing or incomplete).',
-      'Gap Details: When gaps are found, the coverage result includes specific descriptions of what is missing, which interview answers are not reflected in the PRD, unresolved source-artifact contradictions when present, and why the gap matters for implementation correctness.',
+      'Coverage Evaluation: The winning PRD model compares the current PRD candidate against that model\'s Full Answers artifact. It returns a structured coverage result: either "clean" (the PRD fully covers the canonical completed answers) or "gaps found" (specific requirements or acceptance criteria are missing or incomplete).',
+      'Gap Details: When gaps are found, the coverage result includes specific descriptions of what is missing, which completed answers are not reflected in the PRD, unresolved source-artifact contradictions when present, and why the gap matters for implementation correctness.',
       'In-Phase Revision: If gaps are found and the coverage cap has not been reached, LoopTroop asks the model to produce a revised PRD that addresses the identified gaps. The revised candidate is validated and promoted to the next version number (for example v1 → v2) within the same phase.',
       'Version History: Coverage attempts and version transitions are persisted, so you can see what changed between PRD versions and why. Each attempt records the coverage result, identified gaps, revision actions, and the resulting candidate version.',
       'Clean Finalization: If the PRD becomes clean (all gaps resolved), the clean result is recorded and the current candidate becomes the approval candidate with a clean status.',
@@ -425,13 +426,13 @@ const WORKFLOW_PHASE_DETAILS = {
     notes: [
       'Unlike the interview loop (which bounces back to the user for more answers), PRD gap resolution stays inside this same phase — the model revises the PRD directly.',
       'The maximum number of coverage versions is configuration-driven to ensure convergence without hard-coding a single limit for every project.',
-      'Context available: Interview Results + Full Answers + PRD (current candidate version).',
+      'Context available: winning model Full Answers + PRD (current candidate version). The approved interview is not fed to this phase; the winner Full Answers artifact is the canonical coverage source.',
       'Why cap the loop? Diminishing returns: most meaningful gaps are caught in early revisions. The cap prevents the loop from endlessly polishing minor details while delaying your approval review.',
     ],
     equivalents: [
       'This is the "coverage check" step of the Specs (PRD) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Blueprint (Beads) phase is "Coverage Check (Beads)" (where the beads blueprint is checked against the approved PRD).',
       'Key difference from Interview coverage: PRD coverage resolves gaps automatically (the model revises the PRD within this same phase) rather than sending you back for more user input. Key difference from Beads coverage: Beads coverage is followed by a dedicated Expanding Blueprint phase that transforms the validated semantic blueprint into execution-ready bead records with commands, file targets, and dependency graphs — PRD coverage has no equivalent expansion phase.',
-      'What is being verified against what: Interview coverage checks interview answers against the ticket description. PRD coverage checks the PRD against the approved interview. Beads coverage checks the beads blueprint against the approved PRD. Each layer verifies against the previous approved artifact.',
+      'What is being verified against what: Interview coverage checks interview answers against the ticket description. PRD coverage checks the PRD against the winning model\'s Full Answers artifact. Beads coverage checks the beads blueprint against the approved PRD.',
     ],
   },
   WAITING_PRD_APPROVAL: {
@@ -577,9 +578,9 @@ const WORKFLOW_PHASE_DETAILS = {
       'Why separate coverage from expansion? Coverage at the semantic level is cheaper and faster than expansion. By checking coverage first at the semantic level, LoopTroop avoids wasting expansion effort on a blueprint that would need revision.',
     ],
     equivalents: [
-      'This is the "coverage check" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Specs (PRD) phase is "Coverage Check (PRD)" (where the PRD is checked against the approved interview).',
+      'This is the "coverage check" step of the Blueprint (Beads) phase. The equivalent in the Interview phase is "Coverage Check (Interview)" (where the interview is checked for missing information) and in the Specs (PRD) phase is "Coverage Check (PRD)" (where the PRD is checked against the winning model\'s Full Answers artifact).',
       'All three coverage checks share the goal of verifying completeness and resolve gaps automatically or via user input. What makes beads coverage unique is that it is followed by a separate expansion phase (Expanding Blueprint) that transforms the validated semantic blueprint into execution-ready bead records with commands, file targets, and dependency graphs. Interview and PRD coverage have no equivalent expansion step.',
-      'What is being verified against what: Interview coverage checks answers against the ticket. PRD coverage checks the PRD against the approved interview. Beads coverage checks the blueprint against the approved PRD. This creates a chain of verification where each artifact is validated against its predecessor.',
+      'What is being verified against what: Interview coverage checks answers against the ticket. PRD coverage checks the PRD against the winning model\'s Full Answers artifact. Beads coverage checks the blueprint against the approved PRD.',
     ],
   },
   EXPANDING_BEADS: {
@@ -688,6 +689,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'This state is still pre-coding. No permanent repository files should be modified here.',
       'No AI execution proceeds past this gate until you approve the proposed setup plan.',
       'The approved setup plan is separate from the final execution setup profile. The profile is produced only after the next phase verifies readiness and runs any approved temporary setup inside LoopTroop-owned runtime paths.',
+      'Setup-plan generation owns its OpenCode session only while producing the draft: ready reports complete the session, while invalid or failed reports abandon it so retry starts from clean durable context.',
     ],
   },
   PREPARING_EXECUTION_ENV: {
@@ -756,9 +758,9 @@ const WORKFLOW_PHASE_DETAILS = {
     ],
   },
   RUNNING_FINAL_TEST: {
-    overview: 'After all beads finish successfully, LoopTroop runs a ticket-level final test to verify the complete implementation as a whole — not just individual beads in isolation. The main implementer generates a comprehensive test plan based on the full implementation context (ticket, interview, PRD, beads), and then the generated test commands are executed on the current ticket branch. This catches integration issues that individual bead tests might miss.',
+    overview: 'After all beads finish successfully, LoopTroop runs a ticket-level final test to verify the complete implementation as a whole — not just individual beads in isolation. The main implementer generates a comprehensive test plan based on focused implementation context (ticket details, PRD, beads, and any final-test retry notes), and then the generated test commands are executed on the current ticket branch. This catches integration issues that individual bead tests might miss.',
     steps: [
-      'Full Context Assembly: LoopTroop loads the complete implementation context — ticket details, canonical interview, approved PRD, and beads plan — so the test generator understands not just what was implemented, but why and what the expected behavior should be.',
+      'Context Assembly: LoopTroop loads ticket details, the approved PRD, the beads plan, and any final-test retry notes. The interview and Full Answers artifacts are intentionally not fed because the PRD and beads already carry the approved implementation intent.',
       'Test Plan Generation: The locked main implementer analyzes the full context and generates a structured final-test plan. This plan includes test commands to execute, expected outcomes, and what each test is verifying. Tests may include unit tests, integration tests, build verification, and acceptance criteria validation.',
       'Test Execution: LoopTroop executes the generated test commands in the ticket worktree under the configured timeout budget. Tests run on the actual branch state produced by the coding phase.',
       'Result Recording: A final test report artifact is written whether tests pass or fail. The report includes the generated test plan, actual command output, pass/fail status for each test, and any error messages or stack traces from failures.',
@@ -774,7 +776,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Any Test Failure → Blocked Error: Failed tests or test generation failures route the ticket to Blocked Error, where you can retry (re-run tests) or cancel.',
     ],
     notes: [
-      'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+      'Context available: Ticket Details + PRD + Beads Plan + Final Test Retry Notes.',
       'This phase tests the complete implementation holistically — it catches integration issues between beads that individual bead-level tests might miss.',
       'The test budget (timeout) prevents infinite-running tests from blocking the workflow.',
       'Why generate tests dynamically? The main implementer can create tests tailored to what was actually implemented, rather than relying on pre-written tests that might not exist for new features.',
@@ -800,7 +802,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'Failure → Blocked Error: Git operation failures, empty changesets, or merge conflicts route the ticket to Blocked Error.',
     ],
     notes: [
-      'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+      'Context available: Git state, integration metadata, and final test report. No new model context is assembled in this deterministic git phase.',
       'The squash commit preserves all file changes but replaces the individual bead-level commit history with a single clean commit.',
       'Why squash? Individual bead commits are implementation artifacts — they reflect the AI\'s step-by-step execution, not a meaningful commit history for human review. Squashing produces a single commit that represents "what was implemented" as a whole.',
       'The candidate commit is still local at the end of this phase. GitHub branch and PR synchronization happen in the next automatic phase.',
@@ -810,7 +812,7 @@ const WORKFLOW_PHASE_DETAILS = {
     overview: 'LoopTroop pushes the final candidate SHA to the remote ticket branch and creates or updates a draft pull request on GitHub. This is an automatic GitHub-sync phase: it packages the final diff, the ticket intent, and the validation results into a reviewer-facing draft PR without merging anything yet.',
     steps: [
       'Remote Candidate Push: LoopTroop force-pushes the final candidate SHA to the remote ticket branch using a lease, replacing the bead-level backup branch state with the single reviewable candidate commit.',
-      'PR Drafting: The locked main implementer generates a draft PR title and body using the ticket intent, approved artifacts, final diff, and final test report. The diff explains what changed; the earlier artifacts explain why.',
+      'PR Drafting: The locked main implementer generates a draft PR title and body in a fresh owned session using only ticket details and PRD as context, with integration report, final test report, diff stat, changed-file status, and diff patch appended as explicit prompt sections. The interview and beads artifacts are not fed to PR drafting.',
       'PR Upsert: LoopTroop creates a new draft PR when none exists, or updates the existing PR title/body and metadata when one already exists for the ticket branch.',
       'Metadata Persistence: The PR URL, number, state, head SHA, generated title/body, and timestamps are written into ticket artifacts so the review UI and later phases can reuse them deterministically.',
       'Failure Safety: If the push or GitHub operation fails, LoopTroop preserves the local candidate/worktree state and writes a recovery receipt describing the exact next-safe actions.',
@@ -825,7 +827,8 @@ const WORKFLOW_PHASE_DETAILS = {
       'Failure → Blocked Error: Push failures, GitHub auth issues, or PR creation/update failures route the ticket to Blocked Error.',
     ],
     notes: [
-      'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+      'Context available: Ticket Details + PRD, plus explicit integration report, final test report, diff stat, diff name/status, and diff patch sections.',
+      'PR drafting always forces a fresh owned OpenCode session. If a matching active CREATING_PULL_REQUEST session exists, LoopTroop aborts and abandons it before creating the new one; successful drafting completes the session because `keepActive` remains false.',
       'This is the GitHub-native handoff point between execution and review.',
       'The PR is draft-first by design so later automated review or human review can happen before merge.',
     ],
@@ -850,7 +853,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'System Error → Blocked Error: If PR merge or local sync fails, the workflow routes to Blocked Error with recovery details.',
     ],
     notes: [
-      'Context available: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+      'Context available: PR metadata, final test report, integration summary, and merge controls. No AI prompt context is assembled in this review gate.',
       'This is the human quality gate for the GitHub-native endgame.',
       'LoopTroop completion does not require deleting the PR or remote branch when you finish without merge.',
     ],
@@ -894,7 +897,7 @@ const WORKFLOW_PHASE_DETAILS = {
       'None — this is a terminal state. There are no forward workflow transitions from Completed.',
     ],
     notes: [
-      'Context available for reference: Ticket Details + Interview Results + PRD + Beads Plan + Verification Tests.',
+      'Reference artifacts available: ticket details, interview results, PRD, beads plan, test reports, integration report, and pull request report.',
       'The completed ticket serves as a permanent record of the implementation process — useful for understanding decisions, reviewing approaches, or learning from the AI\'s workflow.',
       'The candidate branch is not automatically merged — you decide when and how to merge the implementation into your main branch.',
     ],
@@ -1097,7 +1100,7 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
     editable: true,
     multiModelLogs: false,
     progressKind: 'questions',
-    contextSummary: ['relevant_files', 'ticket_details', 'interview', 'user_answers'],
+    contextSummary: ['ticket_details'],
   },
   {
     id: 'VERIFYING_INTERVIEW_COVERAGE',
@@ -1164,14 +1167,14 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'VERIFYING_PRD_COVERAGE',
     label: 'Coverage Check (PRD)',
-    description: 'LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again.',
+    description: 'LoopTroop checks the current PRD against the winning model\'s Full Answers artifact. If something is missing, it updates the PRD and checks again.',
     details: WORKFLOW_PHASE_DETAILS.VERIFYING_PRD_COVERAGE,
     kanbanPhase: 'in_progress',
     groupId: 'prd',
     uiView: 'council',
     editable: true,
     multiModelLogs: false,
-    contextSummary: ['interview', 'full_answers', 'prd'],
+    contextSummary: ['full_answers', 'prd'],
   },
   {
     id: 'WAITING_PRD_APPROVAL',
@@ -1314,14 +1317,14 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'RUNNING_FINAL_TEST',
     label: 'Testing Implementation',
-    description: 'The main implementer generates a comprehensive test plan from the full implementation context (ticket, interview, PRD, beads) and runs it against the ticket branch to verify the whole implementation holistically — catching integration issues individual bead tests may miss.',
+    description: 'The main implementer generates a comprehensive test plan from ticket details, PRD, beads, and retry notes, then runs it against the ticket branch to verify the whole implementation holistically — catching integration issues individual bead tests may miss.',
     details: WORKFLOW_PHASE_DETAILS.RUNNING_FINAL_TEST,
     kanbanPhase: 'in_progress',
     groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
-    contextSummary: ['ticket_details', 'interview', 'prd', 'beads'],
+    contextSummary: ['ticket_details', 'prd', 'beads', 'final_test_notes'],
   },
   {
     id: 'INTEGRATING_CHANGES',
@@ -1338,14 +1341,14 @@ const BASE_WORKFLOW_PHASES: WorkflowPhaseMeta[] = [
   {
     id: 'CREATING_PULL_REQUEST',
     label: 'Creating Pull Request',
-    description: 'Pushing final candidate branch and creating or updating a draft pull request.',
+    description: 'Pushing the final candidate branch and drafting the PR from ticket details, PRD, final reports, and git diff sections in a fresh owned session.',
     details: WORKFLOW_PHASE_DETAILS.CREATING_PULL_REQUEST,
     kanbanPhase: 'in_progress',
     groupId: 'post_implementation',
     uiView: 'coding',
     editable: false,
     multiModelLogs: false,
-    contextSummary: ['ticket_details', 'interview', 'prd', 'beads', 'tests'],
+    contextSummary: ['ticket_details', 'prd'],
   },
   {
     id: 'WAITING_PR_REVIEW',

@@ -41,6 +41,7 @@ export interface OpenCodeSessionOwnership extends SessionOwnership {
   ticketId: string
   phase: string
   keepActive?: boolean
+  forceFresh?: boolean
 }
 
 export interface OpenCodePromptCompletedEvent {
@@ -237,24 +238,38 @@ export async function runOpenCodePrompt({
   const acquisitionDeadline = createTimeoutSignal(signal, timeoutMs)
   let session: Session
   try {
-    session = sessionOwnership
-      ? await sessionManager!.validateAndReconnect(
+    if (sessionOwnership?.forceFresh) {
+      const existing = sessionManager!.getOwnedActiveSession(
         sessionOwnership.ticketId,
         sessionOwnership.phase,
         sessionOwnership,
-        acquisitionDeadline.signal,
-      ) ?? await sessionManager!.createSessionForPhase(
-        sessionOwnership.ticketId,
-        sessionOwnership.phase,
-        sessionOwnership.phaseAttempt ?? 1,
-        sessionOwnership.memberId ?? undefined,
-        sessionOwnership.beadId ?? undefined,
-        sessionOwnership.iteration ?? undefined,
-        sessionOwnership.step ?? undefined,
-        projectPath,
-        sessionCreateOptions,
-        acquisitionDeadline.signal,
       )
+      if (existing) {
+        await adapter.abortSession(existing.sessionId).catch(() => false)
+        await sessionManager!.abandonSession(existing.sessionId)
+      }
+    }
+    session = sessionOwnership
+      ? (!sessionOwnership.forceFresh
+          ? await sessionManager!.validateAndReconnect(
+            sessionOwnership.ticketId,
+            sessionOwnership.phase,
+            sessionOwnership,
+            acquisitionDeadline.signal,
+          )
+          : null
+        ) ?? await sessionManager!.createSessionForPhase(
+          sessionOwnership.ticketId,
+          sessionOwnership.phase,
+          sessionOwnership.phaseAttempt ?? 1,
+          sessionOwnership.memberId ?? undefined,
+          sessionOwnership.beadId ?? undefined,
+          sessionOwnership.iteration ?? undefined,
+          sessionOwnership.step ?? undefined,
+          projectPath,
+          sessionCreateOptions,
+          acquisitionDeadline.signal,
+        )
       : await adapter.createSession(projectPath, acquisitionDeadline.signal, sessionCreateOptions)
   } catch (error) {
     if (acquisitionDeadline.timedOut()) {

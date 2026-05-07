@@ -94,8 +94,9 @@ describe.concurrent('workflow metadata', () => {
     const prdCoveragePhase = WORKFLOW_PHASES.find((phase) => phase.id === 'VERIFYING_PRD_COVERAGE')
 
     expect(prdCoveragePhase?.description).toContain(
-      'LoopTroop checks the current PRD against the approved interview. If something is missing, it updates the PRD and checks again.',
+      'LoopTroop checks the current PRD against the winning model\'s Full Answers artifact. If something is missing, it updates the PRD and checks again.',
     )
+    expect(prdCoveragePhase?.contextSummary).toEqual(['full_answers', 'prd'])
   })
 
   it('describes the two-step beads finalization flow', () => {
@@ -170,5 +171,15 @@ describe.concurrent('workflow metadata', () => {
     expect(setupPhase?.description).toContain('Verifying readiness and performing only the missing temporary execution setup before coding begins.')
     expect(setupPhase?.contextSummary).toEqual(['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
     expect(codingPhase?.contextSummary).toEqual(['bead_data', 'bead_notes'])
+  })
+
+  it('documents narrowed final test and pull request context', () => {
+    const interviewPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'WAITING_INTERVIEW_ANSWERS')
+    const finalTestPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'RUNNING_FINAL_TEST')
+    const pullRequestPhase = WORKFLOW_PHASES.find((phase) => phase.id === 'CREATING_PULL_REQUEST')
+
+    expect(interviewPhase?.contextSummary).toEqual(['ticket_details'])
+    expect(finalTestPhase?.contextSummary).toEqual(['ticket_details', 'prd', 'beads', 'final_test_notes'])
+    expect(pullRequestPhase?.contextSummary).toEqual(['ticket_details', 'prd'])
   })
 })
