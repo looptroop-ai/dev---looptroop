@@ -28,7 +28,7 @@ import {
 } from './approvalHooks'
 import { buildReadableRawDisplayContent } from './rawDisplayContent'
 
-const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK — they will still be handled during PRD drafting. Each PRD council model will use the ticket context, codebase analysis, and best practices to make a best-effort decision for those gaps, and you can still edit the interview now before isApproving if you want to replace any skipped item with your own answer.'
+const SKIPPED_QUESTIONS_NOTICE = 'Some interview questions were skipped. That is OK: if you approve this interview with skipped answers, PRD drafting will first create per-model Full Answers artifacts where each council model fills only those skipped answers using the ticket details, relevant files, and the rest of the interview. If you want human-approved answers instead, edit the interview before approving.'
 
 type EditTab = 'answers' | 'yaml'
 

@@ -531,14 +531,11 @@ export async function draftPRD(
     throw new Error('Canonical interview artifact is required before PRD drafting')
   }
 
-  const shouldResolveGaps = canonicalInterview.includes('skipped: true')
   const deadlineAt = options.draftTimeoutMs > 0 ? Date.now() + options.draftTimeoutMs : null
   let deadlineReached = false
-  const canonicalInterviewResult = shouldResolveGaps
-    ? normalizeInterviewDocumentOutput(canonicalInterview, {
-        ticketId: options.ticketExternalId ?? options.ticketId ?? '',
-      })
-    : null
+  const canonicalInterviewResult = normalizeInterviewDocumentOutput(canonicalInterview, {
+    ticketId: options.ticketExternalId ?? options.ticketId ?? '',
+  })
   const canonicalInterviewForRetry = canonicalInterviewResult?.ok
     ? stripGeneratedByForRetry(canonicalInterviewResult.value)
     : canonicalInterview
@@ -547,6 +544,7 @@ export async function draftPRD(
       .filter((question) => question.answer.skipped)
       .map((question) => question.id)
     : []
+  const shouldResolveGaps = skippedQuestionIds.length > 0
 
   const results = await Promise.all(members.map(async (member) => {
     const memberStart = Date.now()

@@ -343,6 +343,41 @@ describe.concurrent('draftPRD', () => {
     ])
   })
 
+  it('does not run Full Answers just because answered text mentions skipped syntax', async () => {
+    const adapter = new TestOpenCodeAdapter([makePrdYaml()])
+    const fullAnswerProgress: Array<{ status: string; sessionId?: string }> = []
+    const stepEvents: Array<{ step: string; status: string }> = []
+    const canonicalInterview = makeInterviewYaml({
+      questions: [makeInterviewQuestion({
+        answer: {
+          skipped: false,
+          selected_option_ids: [],
+          free_text: 'Preserve this answer even though it mentions skipped: true as literal text.',
+          answered_by: 'user',
+          answered_at: TEST.timestamp,
+        },
+      })],
+    })
+
+    const result = await draftPRD(adapter, COUNCIL,
+      ticket('Ignore literal skipped text', 'Only actual answer flags should trigger Full Answers.', canonicalInterview),
+      '/tmp/test', DRAFT_OPTS, undefined, undefined, undefined, undefined, undefined,
+      (entry) => { fullAnswerProgress.push({ status: entry.status, sessionId: entry.sessionId }) },
+      (entry) => { stepEvents.push({ step: entry.step, status: entry.status }) },
+    )
+
+    expect(result.fullAnswers[0]).toMatchObject({ memberId: 'model-a', outcome: 'completed', questionCount: 1 })
+    expect(result.fullAnswers[0]?.content).toContain('mentions skipped: true as literal text')
+    expect(adapter.sessions.map((session) => session.id)).toEqual(['mock-session-1'])
+    expect(adapter.promptCalls[0]?.parts.map((part) => part.content).join('\n')).not.toContain('full_answers_runtime_checklist')
+    expect(fullAnswerProgress).toEqual([{ status: 'finished', sessionId: undefined }])
+    expect(stepEvents).toEqual([
+      { step: 'full_answers', status: 'skipped' },
+      { step: 'prd_draft', status: 'started' },
+      { step: 'prd_draft', status: 'completed' },
+    ])
+  })
+
   it.each([
     {
       scenario: 'tracks only skipped compiled questions when no coverage follow-ups are skipped',

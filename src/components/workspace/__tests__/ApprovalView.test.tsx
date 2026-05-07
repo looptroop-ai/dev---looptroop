@@ -164,6 +164,59 @@ function buildInterviewPayload(answer: string) {
   }
 }
 
+function buildSkippedInterviewPayload() {
+  const document = buildInterviewDocument('')
+  document.questions = [{
+    ...document.questions[0]!,
+    answer: {
+      skipped: true,
+      selected_option_ids: [],
+      free_text: '',
+      answered_by: 'ai_skip',
+      answered_at: '',
+    },
+  }]
+
+  return {
+    winnerId: 'openai/gpt-5',
+    raw: [
+      'schema_version: 1',
+      `ticket_id: ${TEST.externalId}`,
+      'artifact: interview',
+      'status: draft',
+      'generated_by:',
+      '  winner_model: openai/gpt-5',
+      '  generated_at: 2026-03-17T10:00:00.000Z',
+      'questions:',
+      '  - id: Q01',
+      '    phase: Foundation',
+      '    prompt: What outcome matters most?',
+      '    source: compiled',
+      '    follow_up_round: null',
+      '    answer_type: free_text',
+      '    options: []',
+      '    answer:',
+      '      skipped: true',
+      '      selected_option_ids: []',
+      '      free_text: ""',
+      '      answered_by: ai_skip',
+      '      answered_at: ""',
+      'follow_up_rounds: []',
+      'summary:',
+      '  goals: [Protect imports]',
+      '  constraints: [No duplicate records]',
+      '  non_goals: [Bulk reprocessing]',
+      '  final_free_form_answer: ""',
+      'approval:',
+      '  approved_by: ""',
+      '  approved_at: ""',
+    ].join('\n'),
+    document,
+    session: null,
+    questions: [],
+  }
+}
+
 describe('Interview approval UI', () => {
   let interviewPayload = buildInterviewPayload('Protect the import pipeline.')
 
@@ -243,6 +296,19 @@ describe('Interview approval UI', () => {
     })
     expect(mockClearTicketArtifactsCache).toHaveBeenCalledWith(TEST.ticketId)
   }, 30_000)
+
+  it('explains skipped answers using the actual PRD drafting behavior', async () => {
+    interviewPayload = buildSkippedInterviewPayload()
+
+    renderApprovalView(makeTicket({ status: 'WAITING_INTERVIEW_APPROVAL' }))
+
+    const notice = screen.getByRole('note')
+    expect(notice).toHaveTextContent('Some interview questions were skipped. That is OK')
+    expect(notice).toHaveTextContent('PRD drafting will first create per-model Full Answers artifacts')
+    expect(notice).toHaveTextContent('fills only those skipped answers using the ticket details, relevant files, and the rest of the interview')
+    expect(notice).toHaveTextContent('edit the interview before approving')
+    expect(screen.queryByText(/isApproving/)).not.toBeInTheDocument()
+  })
 
   it('routes PRD approvals to the dedicated pane', async () => {
     renderApprovalView(makeTicket({ status: 'WAITING_PRD_APPROVAL' }), 'prd')
