@@ -19,7 +19,7 @@ describe('contextBuilder interview_qa context', () => {
     expect(ticketDetails?.content).not.toContain('## User Interview Profile')
   })
 
-  it('includes execution setup profile in coding context and omits setup retry notes there', () => {
+  it('keeps coding context to bead data and retry notes without inlining setup profile', () => {
     const parts = buildMinimalContext('coding', {
       ticketId: TEST.externalId,
       beadData: 'Bead A',
@@ -31,7 +31,6 @@ describe('contextBuilder interview_qa context', () => {
     expect(parts.map((part) => part.source)).toEqual([
       'bead_data',
       'bead_note',
-      'execution_setup_profile',
     ])
   })
 

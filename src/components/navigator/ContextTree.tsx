@@ -113,7 +113,7 @@ const CONTEXT_LABELS: Record<string, ContextItem> = {
     id: 'execution_setup_profile',
     label: 'Execution Setup Profile',
     icon: '🧰',
-    description: 'Compact runtime setup profile with temp roots, reusable artifacts, and discovered command families.',
+    description: 'Runtime setup profile with temp roots, reusable artifacts, and discovered command families. Coding can read the profile file by reference when needed.',
   },
   execution_setup_notes: {
     id: 'execution_setup_notes',
@@ -210,7 +210,7 @@ const PHASE_OUTPUTS: Record<string, ContextItem[]> = {
     outputItem('setup-plan', 'Setup Plan', 'execution_setup_plan', 'Approved contract for setup.'),
   ],
   PREPARING_EXECUTION_ENV: [
-    outputItem('setup-profile', 'Setup Profile', 'execution_setup_profile', 'Runtime profile used by coding.'),
+    outputItem('setup-profile', 'Setup Profile', 'execution_setup_profile', 'Runtime profile available to coding by file reference.'),
   ],
   CODING: [
     outputItem('code-changes', 'Code Changes', 'bead_data', 'Repository changes from beads.'),

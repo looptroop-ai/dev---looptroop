@@ -147,29 +147,29 @@ describe('ProfileSetup', () => {
     expect(docsLinks).toHaveLength(15)
 
     const mainImplementerLink = screen.getByRole('link', { name: 'Open documentation for Main Implementer Model' })
-    expect(mainImplementerLink).toHaveAttribute('href', `${__LOOPTROOP_DOCS_ORIGIN__}/llm-council#main-implementer`)
+    expect(mainImplementerLink).toHaveAttribute('href', `${__LOOPTROOP_DOCS_ORIGIN__}/configuration#main-implementer-model`)
     expect(mainImplementerLink).toHaveAttribute('target', '_blank')
     expect(mainImplementerLink).toHaveAttribute('rel', 'noreferrer noopener')
 
     expect(screen.getByRole('link', { name: 'Open documentation for AI Response Timeout' })).toHaveAttribute(
       'href',
-      `${__LOOPTROOP_DOCS_ORIGIN__}/llm-council#council-response-timeout`,
+      `${__LOOPTROOP_DOCS_ORIGIN__}/configuration#council-response-timeout`,
     )
     expect(screen.getByRole('link', { name: 'Open documentation for Interview Coverage Passes' })).toHaveAttribute(
       'href',
-      `${__LOOPTROOP_DOCS_ORIGIN__}/ticket-flow#interview-coverage-passes`,
+      `${__LOOPTROOP_DOCS_ORIGIN__}/configuration#interview-coverage-passes`,
     )
     expect(screen.getByRole('link', { name: 'Open documentation for PRD Coverage Passes' })).toHaveAttribute(
       'href',
-      `${__LOOPTROOP_DOCS_ORIGIN__}/ticket-flow#prd-coverage-passes`,
+      `${__LOOPTROOP_DOCS_ORIGIN__}/configuration#prd-coverage-passes`,
     )
     expect(screen.getByRole('link', { name: 'Open documentation for Beads Coverage Passes' })).toHaveAttribute(
       'href',
-      `${__LOOPTROOP_DOCS_ORIGIN__}/ticket-flow#beads-coverage-passes`,
+      `${__LOOPTROOP_DOCS_ORIGIN__}/configuration#beads-coverage-passes`,
     )
     expect(screen.getByRole('link', { name: 'Open documentation for Max Bead Retries' })).toHaveAttribute(
       'href',
-      `${__LOOPTROOP_DOCS_ORIGIN__}/execution-loop#max-bead-retries`,
+      `${__LOOPTROOP_DOCS_ORIGIN__}/configuration#max-bead-retries`,
     )
 
     fireEvent.focus(mainImplementerLink)

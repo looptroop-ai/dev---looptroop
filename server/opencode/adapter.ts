@@ -508,7 +508,7 @@ export class OpenCodeSDKAdapter implements OpenCodeAdapter {
     const { buildMinimalContext } = await import('./contextBuilder')
     const ticketState = await this.loadTicketState(ticketId, beadId)
     logIfVerbose(`[adapter] assembleBeadContext ticket=${ticketId} bead=${beadId} hasDescription=${!!ticketState.description}`)
-    return buildMinimalContext('coding', ticketState, beadId)
+    return buildMinimalContext('coding', ticketState)
   }
 
   async assembleCouncilContext(ticketId: string, phase: string): Promise<PromptPart[]> {

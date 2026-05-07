@@ -21,7 +21,6 @@ LoopTroop responds by rebuilding context from storage for each phase instead of 
 
 - a phase key such as `prd_vote` or `coding`
 - a `TicketState` snapshot assembled from durable artifacts
-- an optional active item label for execution
 
 It returns ordered `PromptPart[]` slices after:
 
@@ -148,7 +147,6 @@ execution_setup:
 coding:
   - bead_data
   - bead_notes
-  - execution_setup_profile
 context_wipe:
   - bead_data
   - error_context
@@ -180,7 +178,7 @@ preflight:
 | `beads_draft` | Pre-expansion bead blueprint |
 | `bead_data` | The active bead specification for execution |
 | `bead_notes` | Prior execution notes used during retries |
-| `execution_setup_profile` | Concrete runtime environment profile |
+| `execution_setup_profile` | Concrete runtime environment profile; setup-plan phases may receive it inline, while coding reads `.ticket/runtime/execution-setup-profile.json` only when needed |
 | `execution_setup_plan` | Approved setup plan artifact |
 | `execution_setup_plan_notes` | Regeneration notes for the plan stage |
 | `execution_setup_notes` | Setup retry notes |
@@ -248,7 +246,7 @@ That artifact is the current canonical scan output. Older documentation often re
 
 Planning phases work with broad artifact context. Execution does the opposite:
 
-- `coding` only gets `bead_data`, retry notes, and the execution setup profile
+- `coding` only gets `bead_data` and retry notes inline, with a read-only pointer to `.ticket/runtime/execution-setup-profile.json` for optional setup/tooling lookup
 - `context_wipe` only gets the active bead plus failure context
 - `final_test` expands back out to ticket, interview, PRD, and bead context
 

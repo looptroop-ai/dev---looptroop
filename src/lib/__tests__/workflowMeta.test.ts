@@ -169,6 +169,6 @@ describe.concurrent('workflow metadata', () => {
     expect(setupPhase?.label).toBe('Preparing Workspace Runtime')
     expect(setupPhase?.description).toContain('Verifying readiness and performing only the missing temporary execution setup before coding begins.')
     expect(setupPhase?.contextSummary).toEqual(['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'])
-    expect(codingPhase?.contextSummary).toEqual(['bead_data', 'bead_notes', 'execution_setup_profile'])
+    expect(codingPhase?.contextSummary).toEqual(['bead_data', 'bead_notes'])
   })
 })

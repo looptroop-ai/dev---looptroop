@@ -40,7 +40,7 @@ const PHASE_ALLOWLISTS: Record<string, string[]> = {
   // Execution setup: approved setup plan + focused ticket/bead context + prior setup retry notes
   execution_setup: ['ticket_details', 'beads', 'execution_setup_plan', 'execution_setup_notes'],
   // Execution: bead data + notes from previous iterations
-  coding: ['bead_data', 'bead_notes', 'execution_setup_profile'],
+  coding: ['bead_data', 'bead_notes'],
   // PROM51: "Current bead data + error context from failed iteration"
   context_wipe: ['bead_data', 'error_context'],
   // PROM52: "Ticket details + Interview Results + PRD + Beads list + prior final-test retry notes"
@@ -156,7 +156,6 @@ export interface TicketState {
 export function buildMinimalContext(
   phase: string,
   ticketState: TicketState,
-  activeItem?: string,
 ): PromptPart[] {
   const allowlist = PHASE_ALLOWLISTS[phase]
   if (!allowlist) {
@@ -242,9 +241,6 @@ export function buildMinimalContext(
       case 'bead_data': {
         const content = ticketState.beadData ?? ''
         if (content) parts.push({ source, content, order: order++ })
-        if (activeItem) {
-          parts.push({ source: 'active_bead', content: `Active bead: ${activeItem}`, order: order++ })
-        }
         break
       }
       case 'bead_notes': {
