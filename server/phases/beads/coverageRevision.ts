@@ -11,6 +11,7 @@ import {
   parseYamlOrJsonCandidate,
   unwrapExplicitWrapperRecord,
 } from '../../structuredOutput/yamlUtils'
+import { matchCoverageGapReference } from '../coverageGapMatching'
 import type { BeadSubset } from './types'
 
 export type BeadsCoverageGapResolutionAction = 'updated_beads' | 'already_covered' | 'left_unresolved'
@@ -237,13 +238,20 @@ function parseGapResolutions(
   const normalizedCoverageGaps = coverageGaps.map((gap) => gap.trim()).filter(Boolean)
   const seen = new Set<string>()
   for (const resolution of resolutions) {
-    if (!normalizedCoverageGaps.includes(resolution.gap)) {
+    const matchedGap = matchCoverageGapReference(resolution.gap, normalizedCoverageGaps, 'Canonicalized beads')
+    if (!matchedGap) {
       throw new Error(`Beads coverage gap_resolutions entry references unknown gap "${resolution.gap}"`)
     }
-    if (seen.has(resolution.gap)) {
-      throw new Error(`Beads coverage gap_resolutions contains duplicate entry for "${resolution.gap}"`)
+    if (seen.has(matchedGap.gap)) {
+      throw new Error(`Beads coverage gap_resolutions contains duplicate entry for "${matchedGap.gap}"`)
     }
-    seen.add(resolution.gap)
+    if (matchedGap.gap !== resolution.gap) {
+      resolution.gap = matchedGap.gap
+    }
+    if (matchedGap.repairWarning) {
+      repairWarnings.push(matchedGap.repairWarning)
+    }
+    seen.add(matchedGap.gap)
   }
 
   const missingGaps = normalizedCoverageGaps.filter((gap) => !seen.has(gap))

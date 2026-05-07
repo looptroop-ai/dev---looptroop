@@ -56,6 +56,31 @@ describe.concurrent('beads coverage revision parsing', () => {
     ])
   })
 
+  it('canonicalizes harmless quote changes in beads coverage gap references', () => {
+    const coverageGap = 'Bead "bead-1" must keep context guidance inspectable.'
+    const currentCandidateContent = buildBeadsContent()
+    const revised = jsYaml.load(currentCandidateContent) as Record<string, unknown>
+
+    revised.gap_resolutions = [{
+      gap: "Bead 'bead-1' must keep context guidance inspectable.",
+      action: 'already_covered',
+      rationale: 'The existing bead already keeps context guidance inspectable.',
+      affected_items: [],
+    }]
+
+    const result = validateBeadsCoverageRevisionOutput(
+      jsYaml.dump(revised, { lineWidth: 120, noRefs: true }) as string,
+      {
+        currentCandidateContent,
+        coverageGaps: [coverageGap],
+      },
+    )
+
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized beads coverage gap reference')
+    expect(result.gapResolutions[0]?.gap).toBe(coverageGap)
+  })
+
   it('keeps the retry prompt strict about unresolved source-artifact contradictions', () => {
     const prompt = buildBeadsCoverageRevisionRetryPrompt([], {
       validationError: 'missing gap_resolutions',

@@ -235,6 +235,35 @@ describe.concurrent('PRD coverage revision diffs', () => {
     ])
   })
 
+  it('canonicalizes harmless quote changes in PRD coverage gap references', () => {
+    const coverageGap = 'PRD scope says "No other CSS custom properties are modified" while also requiring baseAlt changes.'
+    const currentCandidateContent = buildPrdContent([
+      'Use vitest for coverage diff regression checks.',
+    ])
+    const revised = jsYaml.load(currentCandidateContent) as Record<string, unknown>
+
+    revised.gap_resolutions = [{
+      gap: "PRD scope says 'No other CSS custom properties are modified' while also requiring baseAlt changes.",
+      action: 'already_covered',
+      rationale: 'The existing PRD already avoids the contradictory baseAlt requirement.',
+      affected_items: [],
+    }]
+
+    const result = validatePrdCoverageRevisionOutput(
+      jsYaml.dump(revised, { lineWidth: 120, noRefs: true }) as string,
+      {
+        ticketId: 'POBA-3',
+        interviewContent: buildInterviewContent(),
+        currentCandidateContent,
+        coverageGaps: [coverageGap],
+      },
+    )
+
+    expect(result.repairApplied).toBe(true)
+    expect(result.repairWarnings.join('\n')).toContain('Canonicalized PRD coverage gap reference')
+    expect(result.gapResolutions[0]?.gap).toBe(coverageGap)
+  })
+
   it('keeps the retry prompt strict about unresolved source-artifact contradictions', () => {
     const prompt = buildPrdCoverageRevisionRetryPrompt([], {
       validationError: 'missing gap_resolutions',

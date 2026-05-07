@@ -335,6 +335,8 @@ Questions are sorted by phase (foundation → structure → assembly), preservin
 
 When the coverage checker returns a list of gap strings, each item is wrapped in double quotes to prevent YAML from coercing values like `true`, `null`, or values containing `: `.
 
+Coverage revision metadata must reference each provided gap. PRD and beads coverage accept exact references first; if a model only changes harmless formatting such as quote style or whitespace, the reference is canonicalized back to the provided gap text and a repair warning is recorded.
+
 ---
 
 ### PRD Artifact
